@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { resolve, dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 
 // Execute unchanged pinned examples through their real native TS loader/runner.
 // No discovery, live credentials, settings, providers, or session databases.
@@ -37,6 +38,14 @@ async function run(request: any) {
  const errors: unknown[] = [];
  runner.onError((error: any) => errors.push([error.event, error.error]));
  const metadata = {commands: [...extension.commands.keys()], tools: [...extension.tools.keys()]};
+ const github = source.endsWith("/github-issue-autocomplete.ts");
+ const allCalls: any[] = [];
+ let wrapper: any;
+ let provider: any = {
+  getSuggestions: async () => ({items:[{value:"base",label:"Base",description:"delegate"}],prefix:"base-prefix"}),
+  applyCompletion(lines: string[], line: number, col: number, item: any, prefix: string) { const updated=[...lines]; updated[line]=lines[line].slice(0,col-prefix.length)+item.value; return {lines:updated,cursorLine:line,cursorCol:col-prefix.length+item.value.length}; },
+  shouldTriggerFileCompletion: () => false,
+ };
  const cases = [];
  const originalDate = Date;
  if (request.nowMillis !== undefined) {
@@ -45,8 +54,9 @@ async function run(request: any) {
   } as DateConstructor;
  }
  for (const item of request.cases) {
-  const calls: any[] = [];
+  const calls: any[] = github ? allCalls : [];
   const ui = {
+   addAutocompleteProvider: (factory: any) => { wrapper=factory; },
    notify: (message: string, level: string) => calls.push(["notify", message, level]),
    select: async (title: string, choices: string[]) => { calls.push(["select", title, choices]); return item.selected ?? undefined; },
    setWidget: (key: string, content: string[], options?: unknown) => calls.push(["widget", key, content, options ?? null]),
@@ -57,6 +67,14 @@ async function run(request: any) {
   let result: unknown;
   switch (item.event) {
    case "session_start": result = await runner.emit({type: "session_start", reason: "startup"}); break;
+   case "autocomplete": {
+    if (wrapper) { provider=wrapper(provider); wrapper=undefined; }
+    const text=item.text, lines=[text], abort=new AbortController();
+    if (item.aborted) abort.abort();
+    const suggestions=await provider.getSuggestions(lines,0,text.length,{signal:abort.signal,force:false});
+    result={suggestions,applied:provider.applyCompletion(lines,0,text.length,{value:"#101",label:"#101"},text),trigger:provider.shouldTriggerFileCompletion(lines,0,text.length)};
+    break;
+   }
    case "tool_call": result = await runner.emitToolCall({type:"tool_call", toolName:item.toolName,toolCallId:"fixture-call",bypassPermissions:false,input:item.input}); break;
    case "input": result = await runner.emitInput(item.text,item.images ?? undefined,item.source,item.streamingBehavior ?? undefined); break;
    case "tool_metadata": {
@@ -72,9 +90,14 @@ async function run(request: any) {
    }
    default: throw new Error(`Unknown fixture event ${item.event}`);
   }
-  cases.push({result: result ?? null, ui: calls});
+  cases.push({result: result ?? null, ui: github ? [] : calls});
  }
  globalThis.Date = originalDate;
+ if (github) {
+  const receipt=resolve(cwd,"requests");
+  const requests=existsSync(receipt) ? readFileSync(receipt,"utf8").trim().split("\n").filter(Boolean).map(line=>JSON.parse(line)) : [];
+  return {metadata,cases,errors,ui:allCalls,requests};
+ }
  return {metadata,cases,errors};
 }
 process.stdin.setEncoding("utf8");

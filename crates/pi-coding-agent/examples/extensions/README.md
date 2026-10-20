@@ -104,3 +104,11 @@ the pinned example's mutable custom-entry data aliasing; see
 `preset.rs` exports `preset_extension(&ExtensionApi)`. Register its factory
 explicitly; it reads global/project `presets.json` on session start. No providers
 are called by this example. Config loading failures are printed, matching TS.
+
+## Forms/RPC/autocomplete (batch J)
+
+`github_issue_autocomplete.rs` exports `github_issue_autocomplete_extension`.
+Embed via `#[path]` and register its factory explicitly. It runs git/gh and
+preloads up to 100 open issues per session; no default loading. Differential
+tests use a sandbox-local fake gh, never GitHub. Question/questionnaire forms
+await the core extension editor-host bridge; no partial forms are shipped.
