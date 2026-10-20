@@ -2,7 +2,7 @@
 
 Source: `packages/ai/src/bedrock-provider.ts`,
 `packages/ai/src/api/bedrock-converse-stream.lazy.ts`.
-Rust: `crates/pi-ai/src/bedrock_provider.rs`.
+Rust: `crates/pi-ai/src/bedrock_provider.rs`. Package-root JS/declaration forwarding rows and concrete public-consumer proof: [entrypoint traceability](bedrock-provider-entrypoints.md).
 
 | TypeScript | Rust | Tests |
 | --- | --- | --- |

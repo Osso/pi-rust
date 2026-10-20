@@ -1,6 +1,6 @@
 # theme.ts traceability
 
-Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines). Rust: `crates/pi-coding-agent/src/modes/interactive/theme/mod.rs`. Shipped JSON: `crates/pi-coding-agent/theme/{dark,light,theme-schema}.json` (served from `config::get_themes_dir()` = `PI_PACKAGE_DIR/theme`).
+Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines). Rust: `crates/pi-coding-agent/src/modes/interactive/theme/mod.rs`. JSON asset identity, actual inclusion paths and unresolved schema distribution are mapped separately in [theme assets](theme-assets.md).
 
 ## Exported symbols
 
