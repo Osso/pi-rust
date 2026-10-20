@@ -29,8 +29,8 @@ async fn real_rg_results_truncation_artifacts_errors_and_renderers_match() {
             for details in [
                 Value::Null,
                 json!({"matchCount":0}),
-                json!({"matchCount":25}),
-                json!({"matchCount":25,"truncation":{"truncated":true},"fullOutputPath":"/fixture/output.txt"}),
+                json!({"matchCount":25.0}),
+                json!({"matchCount":25.0,"truncation":{"truncated":true},"fullOutputPath":"/fixture/output.txt"}),
             ] {
                 cases.push(json!({"event":"render_result","toolName":"rg","width":32,"isPartial":partial,"expanded":expanded,"result":{"content":[{"type":"text","text":"line\n".repeat(24)}],"details":details}}));
             }

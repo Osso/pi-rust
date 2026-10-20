@@ -25,7 +25,10 @@ async fn startup_and_reload_return_complete_paths_with_real_assets() {
     )
     .await;
     for i in [0, 1] {
-        assert_eq!(result["cases"][i]["result"]["skillPaths"][0]["path"], "<tmp>/SKILL.md");
+        assert_eq!(
+            result["cases"][i]["result"]["skillPaths"][0]["path"],
+            "<module>/SKILL.md"
+        );
     }
     let pinned = std::path::Path::new(
         "/home/osso/.worktrees/pi-rust-source-532f7d12/packages/coding-agent/examples/extensions/dynamic-resources",

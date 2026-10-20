@@ -33,7 +33,6 @@ impl Write for Output {
 }
 #[tokio::test]
 async fn protocols_precedence_external_fixture_and_output_errors_match_ts() {
-    let _default = harness::factory(example::notify_extension);
     let temp = tempfile::tempdir().unwrap();
     let exe = temp.path().join("powershell.exe");
     std::fs::write(&exe, "#!/usr/bin/python3\nimport os,sys,json\np=os.environ['NOTIFY_RECEIPT']\nwith open(p+'.tmp','w') as f: json.dump(sys.argv[1:],f)\nos.rename(p+'.tmp',p)\n").unwrap();
@@ -50,6 +49,9 @@ async fn protocols_precedence_external_fixture_and_output_errors_match_ts() {
         pi_js_compat::process_env::set("PATH", &path);
         pi_js_compat::process_env::set("NOTIFY_RECEIPT", receipt.to_str().unwrap());
         let factory = move |trace: harness::Trace| {
+            if !wt.is_empty() {
+                return harness::factory(example::notify_extension)(trace);
+            }
             let factory: ExtensionFactory = Arc::new(move |api| {
                 let result = example::notify_with_output(
                     api,

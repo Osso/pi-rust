@@ -243,10 +243,19 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
         .map(|command| json!([command.name, command.description]))
         .collect::<Vec<_>>();
     let actual = json!({"commands":commands,"cases":cases,"errors":errors.lock().unwrap().clone()});
-    let actual = support::normalize(&actual, cwd);
-    let actual = support::normalize(
+    let actual = support::normalize_with_token(
         &actual,
         &format!("{}/examples/extensions/dynamic-resources", env!("CARGO_MANIFEST_DIR")),
+        "<module>",
+    );
+    let actual = support::normalize_with_token(
+        &actual,
+        cwd,
+        if name == "dynamic-resources/index.ts" {
+            "<cwd>"
+        } else {
+            "<tmp>"
+        },
     );
     let mut oracle = oracle::TsOracle::spawn_with_environment(
         "extension-examples-e-oracle.ts",

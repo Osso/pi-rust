@@ -4,7 +4,7 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::{
     config::get_agent_dir,
     core::{extensions::*, tools::file_mutation_queue::with_file_mutation_queue},
-    utils::paths::{PathInputOptions, resolve_path},
+    utils::paths::node_resolve,
 };
 use pi_js_compat::{
     date,
@@ -34,7 +34,7 @@ pub(crate) fn register_with_clock(
             let log=log_execute.clone();let clock=clock.clone();let blocked=blocked.clone();
             Box::pin(async move{
                 let path=params["path"].as_str().ok_or_else(||HandlerError::new("path must be a string"))?;
-                let absolute=resolve_path(path,&ctx.cwd()?,&PathInputOptions{expand_tilde:Some(false),..Default::default()}).map_err(|e|HandlerError::new(e.to_string()))?;
+                let absolute=node_resolve(&ctx.cwd()?,path);
                 let denied=blocked.is_match(&absolute);
                 log_access(&log,&absolute,denied,clock()).await;
                 if denied {

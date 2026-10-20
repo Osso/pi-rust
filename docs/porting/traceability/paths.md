@@ -30,3 +30,7 @@ Differential proof: request `26009` executes the real pinned module across 78 ca
 
 - Focused cases: 13.
 - Differential request: `26009`, 78 cases.
+
+## Literal Node resolution helper (2026-10-20)
+
+`node_resolve(base, tail)` is public for native examples needing literal Node path.resolve semantics without general input URL/tilde normalization. `example_tool_override` compares a file:// string naming an existing file against pinned TS, including literal failed-access path and audit log. Existing resolve_path callers retain their normalization contract.

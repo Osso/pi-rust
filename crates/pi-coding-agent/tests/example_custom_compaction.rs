@@ -6,7 +6,7 @@ use pi_coding_agent::core::extensions::*;
 use serde_json::{Value, json};
 use std::sync::Arc;
 fn event(previous: Value, aborted: bool) -> Value {
-    json!({"event":"event","aborted":aborted,"value":{"type":"compaction","reason":"manual","willRetry":false,"branchEntries":[],"preparation":{"firstKeptEntryId":"keep-42","messagesToSummarize":[{"role":"user","content":"old request","timestamp":1}],"turnPrefixMessages":[{"role":"user","content":[{"type":"text","text":"prefix λ🚀"}],"timestamp":2}],"tokensBefore":12345,"previousSummary":previous,"isSplitTurn":true,"fileOps":{"read":[],"written":[],"edited":[]},"settings":{"enabled":true,"reserveTokens":16384,"keepRecentTokens":20000}}}})
+    json!({"event":"event","aborted":aborted,"value":{"type":"compaction","reason":"manual","willRetry":false,"branchEntries":[],"preparation":{"firstKeptEntryId":"keep-42","messagesToSummarize":[{"role":"user","content":"old request","timestamp":1},{"role":"assistant","content":[{"type":"toolCall","id":"inspect-1","name":"inspect","arguments":{"nested":{"2":2,"1":1},"2":2.0,"1":1.0}}],"api":"anthropic-messages","provider":"anthropic","model":"fixture","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"toolUse","timestamp":1}],"turnPrefixMessages":[{"role":"user","content":[{"type":"text","text":"prefix λ🚀"}],"timestamp":2}],"tokensBefore":12345,"previousSummary":previous,"isSplitTurn":true,"fileOps":{"read":[],"written":[],"edited":[]},"settings":{"enabled":true,"reserveTokens":16384,"keepRecentTokens":20000}}}})
 }
 #[tokio::test]
 async fn custom_compaction_full_result_prompt_options_usage_and_failures_match() {

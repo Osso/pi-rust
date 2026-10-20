@@ -46,3 +46,9 @@ Generated session entry IDs are ASCII. Fork prefix slicing uses the existing UTF
 ## Proof
 
 Each of eight test targets first failed because its embedded module was missing. All eight have targeted GREEN evidence. Logs and revision-scoped proof ledger: `/tmp/pi-rust-ext-examples-c/ledger.md` (numbered `NN-*.log` files alongside it). Fixture correction attempts are retained, not counted as successful proof. Formatter ran before each commit. No clippy/check/workspace suites or direct node/tsx/pi executions.
+
+## Accepted review proof (2026-10-20)
+
+F3/F4 public-entrypoint regressions: notify invokes notify_extension with a private Windows executable and verifies its argv receipt. File-trigger invokes file_trigger_extension for all real watcher cases; a cfg(test)-only root maps its literal path into a private temporary tree. No test watches the shared /tmp/agent-trigger.txt. Empty public wrappers fail by bounded missing-side-effect timeouts.
+
+F4 additionally rejects a mutated default path `/tmp/wrong-agent-trigger.txt`; the private rooted watcher fixture times out instead of watching any shared host path.

@@ -24,3 +24,7 @@ Proof compares complete output against unchanged pinned extension through real T
 Typed inputs follow core exclusion of invalid JS runtime types. The command fixture with 76 ASCII units before an astral pair forces `slice(0,77)` to split that pair: Rust uses existing `utf16_slice_to_utf8` and asserts U+FFFD. Oracle projects only unpaired UTF-16 units to U+FFFD at the `Theme::fg` String-typed input boundary, then renders pinned components unchanged; all remaining scalar/ANSI output compares exactly. Projection must precede wrapping: Node measures lone surrogates differently from U+FFFD. This is the existing [String-boundary lone-surrogate exclusion](../../specs/compatibility.md#out-of-scope) (line 177; classification confirmed 2026-10-20), not new compatibility behavior. JS stack frames are not compared. No new dependencies or other intentional behavior deviations. Proof status and mutation evidence: `/tmp/pi-rust-ext-examples-h/ledger.md`.
 
 Four originally assigned examples (border-status-editor, modal-editor, rainbow-editor, overlay-test) were reassigned to `fix/extension-ui-editor-focus` after missing editor host fixed-cell and extension component focus APIs were reported; this slice leaves those sources/coverage rows untouched.
+
+## Accepted review regression (2026-10-20)
+
+F2: `example_built_in_tool_renderer` compares float-backed truncation totalLines 321.0 at all widths/expanded/partial states; visible count is 321, not JSON spelling 321.0.

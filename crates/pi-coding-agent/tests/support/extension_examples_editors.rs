@@ -139,7 +139,15 @@ fn assert_json_equal(actual: &Value, expected: &Value, path: &str) {
     }
 }
 
-pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) -> Value {
+pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> Value {
+    run(name, factory, request, true).await
+}
+
+pub async fn native(name: &str, factory: ExtensionFactory, request: Value) -> Value {
+    run(name, factory, request, false).await
+}
+
+async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_oracle: bool) -> Value {
     if name != "overlay-test" {
         tokio::time::pause();
     }
@@ -348,10 +356,19 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
             }
             tokio::task::yield_now().await;
             if let Some(ms) = step["tick"].as_u64() {
+                let before = RENDER_REQUESTS.with(|count| count.get());
                 // Tokio's timer wheel services millisecond deadlines on the next tick.
                 for _ in 0..=ms {
                     tokio::time::advance(std::time::Duration::from_millis(1)).await;
                     tokio::task::yield_now().await;
+                }
+                if let Some(expected) = step["repaint"].as_bool() {
+                    let after = RENDER_REQUESTS.with(|count| count.get());
+                    assert_eq!(
+                        after > before,
+                        expected,
+                        "{name} timer repaint: {step}; before={before}, after={after}"
+                    );
                 }
             }
             ui.renders
@@ -362,6 +379,9 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     }
     assert!(errors.lock().unwrap().is_empty(), "{:?}", errors.lock().unwrap());
     let actual = json!({"effects":*ui.effects.lock().unwrap(),"renders":*ui.renders.lock().unwrap(),"result":*ui.result.lock().unwrap()});
+    if !compare_oracle {
+        return actual;
+    }
     let mut oracle = oracle::TsOracle::spawn(
         "extension-examples-editors-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
