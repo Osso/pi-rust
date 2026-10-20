@@ -29,7 +29,7 @@ impl ExtensionUiContext for Ui {
     ) -> BoxFuture<'a, Result<Option<Value>, String>> {
         let item = self.item.lock().unwrap().clone();
         let calls = self.calls.clone();
-        ui_thread::run(move || {
+        ui_thread::run(true, move || {
             Box::pin(async move {
                 tokio::time::pause();
                 pi_coding_agent::modes::interactive::theme::set_theme_instance(fixture_theme());

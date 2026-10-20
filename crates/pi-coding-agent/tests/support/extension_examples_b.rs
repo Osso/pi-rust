@@ -39,7 +39,7 @@ impl ExtensionUiContext for Ui {
         let custom_tools = self.custom_tools.clone();
         let custom_context = self.custom_context.clone();
         let custom_before = self.custom_before.clone();
-        ui_thread::run(move || {
+        ui_thread::run(true, move || {
             Box::pin(async move {
                 tokio::time::pause();
                 pi_coding_agent::modes::interactive::theme::set_theme_instance(fixture_theme());
