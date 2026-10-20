@@ -110,3 +110,7 @@ None.
 ## Provider response header order
 
 `AfterProviderResponseEvent.headers` is `IndexMap<String, String>`, forwarded unchanged from `ProviderResponse.headers` by SDK hooks. `tests/sdk.rs::custom_provider_response_preserves_header_order_through_sdk_and_json` registers a custom provider through `ExtensionApi`, invokes its response callback, and asserts z-first/a-second handler and serialized event order (the pinned TS JSON.stringify contract).
+
+## Editor host and optional focus
+
+`ExtensionUiTui` implements `EditorHost`, including live `create_fixed_cell` on the owning UI thread. `ExtensionUiComponent::focused() -> Option<bool>` models TS property presence; `set_focused` forwards focus changes only for opted-in components. Proof: interactive unit tests `extension_ui_factory_builds_real_custom_editor`, `extension_ui_overlay_focus_emits_cursor_and_restores_editor`.

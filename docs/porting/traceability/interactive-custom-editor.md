@@ -37,3 +37,7 @@ behavior is process/DB-bound and covered by behavioral tests.
 ## Discrepancies
 
 None found.
+
+## Factory-built editors
+
+`CustomEditor::as_focusable_mut` exposes its existing Focusable implementation. The interactive `AnyEditorHandle` forwards focus through the editor component. Factory-built real editors receive input, render the cursor marker, and inherit submit callbacks (`extension_ui_factory_builds_real_custom_editor`).

@@ -1311,16 +1311,6 @@ pub fn create_interactive_tui(options: InteractiveTuiOptions) -> Renderer {
     ))
 }
 
-struct NoopFixedCell;
-
-impl pi_tui::components::editor::EditorFixedCell for NoopFixedCell {
-    fn place(&self, _row: i64, _col: i64) {}
-    fn clear(&self) {}
-    fn update(&self, _value: &str) -> bool {
-        false
-    }
-}
-
 /// Stable TUI handle used by components while the mode replaces the renderer.
 pub struct InteractiveTuiHandle {
     renderer: RefCell<Renderer>,
@@ -1609,7 +1599,7 @@ impl pi_tui::components::editor::EditorHost for InteractiveTuiHost {
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         match &*self.0.renderer.borrow() {
             Renderer::Main(tui) => Rc::new(TuiMainScreen::create_fixed_cell(tui)),
-            Renderer::Fullscreen(_) => Rc::new(NoopFixedCell),
+            Renderer::Fullscreen(tui) => Rc::new(pi_tui::tui::TuiRenderer::create_fixed_cell(tui)),
         }
     }
 }
@@ -1921,7 +1911,23 @@ impl Component for AnyEditorHandle {
     }
 
     fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
-        None
+        self.0.borrow_mut().as_focusable_mut()?;
+        Some(self)
+    }
+}
+
+impl Focusable for AnyEditorHandle {
+    fn focused(&self) -> bool {
+        self.0
+            .borrow_mut()
+            .as_focusable_mut()
+            .is_some_and(|editor| editor.focused())
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        if let Some(editor) = self.0.borrow_mut().as_focusable_mut() {
+            editor.set_focused(focused);
+        }
     }
 }
 
@@ -2455,11 +2461,19 @@ impl ExtensionUiContext for InteractiveUiContext {
 
 /// Thread-safe TUI handle passed to extension component factories.
 struct InteractiveUiTuiBackend {
+    mode_id: usize,
     shared: Arc<UiShared>,
     sender: std::sync::mpsc::Sender<UiRequest>,
 }
 
 impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
+    fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        with_mode(self.mode_id, |mode| {
+            pi_tui::components::editor::EditorHost::create_fixed_cell(&InteractiveTuiHost(Rc::clone(&mode.ui)))
+        })
+        .expect("extension fixed cells must be created on the owning live UI thread")
+    }
+
     fn request_render(&self) {
         let _ = self.sender.send(UiRequest::RequestRender);
     }
@@ -2495,7 +2509,22 @@ struct ExtensionComponentAdapter {
     inner: Box<dyn ExtensionUiComponent>,
 }
 
+impl Focusable for ExtensionComponentAdapter {
+    fn focused(&self) -> bool {
+        self.inner.focused() == Some(true)
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        self.inner.set_focused(focused);
+    }
+}
+
 impl Component for ExtensionComponentAdapter {
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        self.inner.focused()?;
+        Some(self)
+    }
+
     fn render(&mut self, width: usize) -> Vec<String> {
         self.inner.render(width)
     }
@@ -5616,6 +5645,7 @@ impl InteractiveMode {
             Some(factory) => {
                 let new_editor = factory(
                     ExtensionUiTui::new(Arc::new(InteractiveUiTuiBackend {
+                        mode_id: self.ui_id.get(),
                         shared: Arc::clone(&self.ui_shared),
                         sender: self.ui_sender.clone(),
                     })),
@@ -10734,6 +10764,7 @@ impl InteractiveMode {
     fn build_footer_component(&self, factory: &ExtensionUiFooterFactory) -> ComponentRef {
         let context = crate::core::extensions::types::ExtensionUiFooterContext {
             tui: ExtensionUiTui::new(Arc::new(InteractiveUiTuiBackend {
+                mode_id: self.ui_id.get(),
                 shared: Arc::clone(&self.ui_shared),
                 sender: self.ui_sender.clone(),
             })),
@@ -10748,6 +10779,7 @@ impl InteractiveMode {
     fn extension_factory_context(&self) -> crate::core::extensions::types::ExtensionUiFactoryContext {
         crate::core::extensions::types::ExtensionUiFactoryContext {
             tui: ExtensionUiTui::new(Arc::new(InteractiveUiTuiBackend {
+                mode_id: self.ui_id.get(),
                 shared: Arc::clone(&self.ui_shared),
                 sender: self.ui_sender.clone(),
             })),
@@ -14097,6 +14129,94 @@ mod ui_tests {
                         &(mode.default_editor.clone() as Rc<RefCell<dyn EditorComponent>>)
                     ),
                     "default editor must be restored"
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_factory_builds_real_custom_editor() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let ui = mode.session().extension_runner().create_context().ui().unwrap();
+                ui.set_editor_component(Some(Arc::new(|tui, theme, keybindings| {
+                    Rc::new(RefCell::new(
+                        CustomEditor::new(Rc::new(tui), theme, keybindings, Default::default()).expect("custom editor"),
+                    ))
+                })));
+                mode.handle_ui_requests().await;
+                terminal.borrow_mut().send_input("real editor");
+                mode.ui.process_events();
+                assert_eq!(mode.editor().borrow().get_text(), "real editor");
+                let lines = mode.editor().borrow_mut().render(40);
+                assert!(lines.iter().any(|line| line.contains("real editor")));
+                assert!(lines.iter().any(|line| line.contains(pi_tui::tui::CURSOR_MARKER)));
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                assert!(
+                    !mode.actions.borrow().is_empty(),
+                    "factory editor must inherit submit callback"
+                );
+            })
+            .await;
+    }
+
+    struct FocusedExtensionInput(Arc<std::sync::atomic::AtomicBool>);
+
+    impl ExtensionUiComponent for FocusedExtensionInput {
+        fn focused(&self) -> Option<bool> {
+            Some(self.0.load(std::sync::atomic::Ordering::SeqCst))
+        }
+
+        fn set_focused(&self, focused: bool) {
+            self.0.store(focused, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        fn render(&self, _width: usize) -> Vec<String> {
+            vec![format!(
+                "input{}",
+                if self.focused() == Some(true) {
+                    pi_tui::tui::CURSOR_MARKER
+                } else {
+                    ""
+                }
+            )]
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_overlay_focus_emits_cursor_and_restores_editor() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let focused = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let state = focused.clone();
+                let (send, _receive) = tokio::sync::oneshot::channel();
+                mode.show_extension_custom(
+                    Arc::new(move |_, _| Box::new(FocusedExtensionInput(state.clone()))),
+                    Some(ExtensionUiCustomOptions {
+                        overlay: Some(true),
+                        ..Default::default()
+                    }),
+                    send,
+                );
+                assert!(focused.load(std::sync::atomic::Ordering::SeqCst));
+                let component = mode.ui.get_focused_component().unwrap();
+                assert_eq!(
+                    component.borrow_mut().render(40),
+                    vec![format!("input{}", pi_tui::tui::CURSOR_MARKER)]
+                );
+                mode.ui.hide_overlay();
+                assert!(!focused.load(std::sync::atomic::Ordering::SeqCst));
+                assert!(
+                    mode.editor()
+                        .borrow_mut()
+                        .render(40)
+                        .iter()
+                        .any(|line| line.contains(pi_tui::tui::CURSOR_MARKER))
                 );
             })
             .await;

@@ -290,3 +290,7 @@ non-current rename calls `write_session_name` directly without opening/appending
 `/name`/`/unname` use the fallible shared-manager name methods. Tests: picker ordering cases,
 `agent_session` name-state event case, RPC metadata-only name process test. Other interactive
 shutdown/crash changes remain outside this slice.
+
+## Extension editor host / component focus
+
+TS `Editor` uses `tui.createFixedCell`, `terminal.rows`, `requestRender` (editor.ts:375,805); `TUI.setFocusInternal` clears/sets optional `focused` (tui.ts:690–697). Rust factory TUI backends resolve the live owning mode and allocate real renderer fixed cells in both screen modes. ExtensionComponentAdapter and AnyEditorHandle forward optional focus. Proof: `extension_ui_factory_builds_real_custom_editor`, `extension_ui_overlay_focus_emits_cursor_and_restores_editor`. No whole-mode differential, per approved capture-terminal proof policy.
