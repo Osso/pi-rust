@@ -290,7 +290,8 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
         "extension-examples-editors-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
     );
-    let expected = oracle.request(&request);
-    assert_json_equal(&actual, &expected, name);
+    let response = oracle.request(&request);
+    assert_eq!(response["ok"], true, "oracle failed: {response}");
+    assert_json_equal(&actual, &response["output"], name);
     actual
 }
