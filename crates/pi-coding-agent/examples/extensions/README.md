@@ -49,3 +49,13 @@ This is native embedding, **not** a dynamic TypeScript loader. Do not copy `.rs`
 files into Pi's live extension directories expecting discovery or compilation.
 The behavioral test compiles the actual nested example via `#[path]`; no
 library re-export or built-in registry entry is necessary.
+
+## Provider payload logging
+
+`provider_payload.rs` exports `provider_payload_extension(&ExtensionApi)`. Embed it
+and register its factory explicitly using the same pattern as `commands.rs` above.
+It appends request payloads and response headers to
+`cwd/CONFIG_DIR_NAME/provider-payload.log`; the config directory must already
+exist. Append failures surface through the runner's error listeners. Logs can
+contain credentials and private prompts: enable deliberately, never by default.
+Tests use private temporary directories only.
