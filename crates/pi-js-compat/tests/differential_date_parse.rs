@@ -116,7 +116,11 @@ const VALUES: &[&str] = &[
 ];
 
 fn compare_values(zone_name: &str, time_zone: &TimeZone, values: &[&str]) {
-    let environment = [("TZ", OsString::from(zone_name))];
+    let environment = if zone_name == "inherited" {
+        vec![]
+    } else {
+        vec![("TZ", OsString::from(zone_name))]
+    };
     let pairs: Vec<(&str, OsString)> = environment.iter().map(|(name, value)| (*name, value.clone())).collect();
     let mut oracle =
         oracle::TsOracle::spawn_with_environment("js-compat-oracle.ts", "packages/coding-agent/src/index.ts", &pairs);
@@ -274,4 +278,169 @@ fn legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones() {
     ];
     compare_values("UTC", &TimeZone::UTC, &values);
     compare_values("America/Chicago", &TimeZone::get("America/Chicago").unwrap(), &values);
+}
+
+#[test]
+fn v8_reported_counterexamples_match_node() {
+    let values = ["Jan 1 2020 EST", "2020.1.1", "Jan1 2020", "Jan 1 2020 (ignored)"];
+    compare_values("UTC", &TimeZone::UTC, &values);
+}
+
+#[test]
+fn v8_scanner_boundaries_and_bounded_combinations_match_node() {
+    let mut values: Vec<String> = [
+        "Jan 1 2020 EST",
+        "2020.1.1",
+        "Jan1 2020",
+        "Jan 1 2020 (ignored)",
+        "-000000",
+        "-000000-01-01",
+        "+000000",
+        "+000000-01-01T00:00Z",
+        "00000000000000002020",
+        "123456789123456789",
+        "00000000000000000001",
+        "Jan 1 2020 00:00:60",
+        "Jan 1 2020 00:00:99",
+        "Jan 1 2020 00:00:100",
+        "Jan 1 2020 GMT+99:99",
+        "Jan 1 2020 GMT+9999",
+        "Jan 1 2020 GMT+99999",
+        "Jan 1 2020 GMT+1:",
+        "Jan 1 2020 GMT+1:60",
+        "Jan 1 2020 GMT+1:59",
+        "Jan 1 2020 GMT+300000:",
+        "Jan 1 2020 GMT+596523:",
+        "Jan 1 2020 GMT+596524:",
+        "Jan 1 2020 GMT+1193047:",
+        "Jan 1 2020 GMT-1193047:59",
+        "Jan 1 2020 GMT+999999999:",
+        "Jan 1 2020 GMT+",
+        "Jan 1 2020 GMT-0",
+        "Jan 1 2020 UT",
+        "Jan 1 2020 AM",
+        "Jan 1 2020 12::",
+        "Jan 1 2020 12:.34",
+        "Jan 1 2020 12:34.5",
+        "Jan 1 2020 12:34:56.00000000000000000001",
+        "Jan 1 2020 12:34:56.12345678912345",
+        "Jan 1 2020 (",
+        "Jan 1 2020 ((nested))",
+        "Jan 1 2020 )",
+        "Jan 1 2020 +",
+        "junk 2020/1/1",
+        "junk2020/1/1",
+        ") + - ! 2020/1/1",
+        "Jan 1 2020 junk",
+        "2020-01-01T00:00Z ",
+        "2020-01-01T00:00:00.1",
+        "2020-01-01T00:00.1",
+        "2020-01-01T24:00:00.0000000000000000001Z",
+        "2020-01-01T24:00:00.0000Z",
+        "+275760-09-13T00:00:00Z",
+        "+275760-09-13T00:00:00.001Z",
+        "-271821-04-20T00:00:00Z",
+        "-271821-04-19T23:59:59.999Z",
+        "+275760-09-13T23:59:00+23:59",
+        "-271821-04-19T00:01:00-23:59",
+        "Jan 1 999999999 GMT+9999",
+        "Jan 1 2147483647",
+        "Jan 1 100000000000",
+        "Jan\0 1 2020",
+        "Jan 1 2020\0junk",
+        "2020\0junk",
+        "\u{a0}Jan 1 2020\u{feff}",
+        "Jan\u{2028}1 2020",
+        "Jan\u{2029}1 2020",
+        "Jan\u{2003}1 2020",
+        "Jan\u{85}1 2020",
+        "Jan\u{180e}1 2020",
+        "+010000-03-12T02:30",
+        "+010000-11-05T01:30",
+        "+275000-03-09T02:30",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    for date in [
+        "2020/1/1",
+        "2020.1.1",
+        "Jan1 2020",
+        "1 Jan 20",
+        "1-2-3",
+        "2020-01-01",
+        "Mar 8 2020",
+        "Nov 1 2020",
+    ] {
+        for prefix in ["", "junk ", "(ignored)", ") "] {
+            for suffix in [
+                "",
+                " EST",
+                " GMT+1:30",
+                " 02:30:00",
+                " 01:30:00",
+                " (ignored)",
+                ")",
+                " junk",
+                " 12:00pm",
+                " 00:00:60",
+            ] {
+                values.push(format!("{prefix}{date}{suffix}"));
+            }
+        }
+    }
+    let refs: Vec<_> = values.iter().map(String::as_str).collect();
+    compare_values("inherited", &TimeZone::system(), &refs);
+    compare_values("UTC", &TimeZone::UTC, &refs);
+    compare_values("America/Chicago", &TimeZone::get("America/Chicago").unwrap(), &refs);
+}
+
+#[test]
+fn v8_lossless_utf16_matches_node() {
+    use pi_js_compat::date::{date_parse_utf16, date_parse_utf16_with_time_zone};
+    let mut values: Vec<Vec<u16>> = Vec::new();
+    for unit in [0xd800, 0xdc00, 0xffff, 0x2028, 0x2029, 0xfeff, 0] {
+        for (prefix, suffix) in [
+            ("", " Jan 1 2020"),
+            ("Jan", " 1 2020"),
+            ("Jan 1 2020 (", ")"),
+            ("Jan 1 2020", "junk"),
+        ] {
+            values.push(
+                prefix
+                    .encode_utf16()
+                    .chain([unit])
+                    .chain(suffix.encode_utf16())
+                    .collect(),
+            );
+        }
+    }
+    values.push("Jan 1 2020".encode_utf16().chain([0xd83d, 0xde00]).collect());
+    for name in ["UTC", "America/Chicago", "inherited"] {
+        let env = if name == "inherited" {
+            vec![]
+        } else {
+            vec![("TZ", OsString::from(name))]
+        };
+        let zone = if name == "inherited" {
+            TimeZone::system()
+        } else {
+            TimeZone::get(name).unwrap()
+        };
+        let mut oracle =
+            oracle::TsOracle::spawn_with_environment("js-compat-oracle.ts", "packages/coding-agent/src/index.ts", &env);
+        let response = oracle.request(&json!({"id":name,"operation":"date_parse","values":[],"utf16_values":values}));
+        assert_eq!(response["ok"], true, "{response}");
+        let expected = response["output"]["results"].as_array().unwrap();
+        assert_eq!(expected.len(), values.len());
+        for (units, expected) in values.iter().zip(expected) {
+            let millis = if name == "inherited" {
+                date_parse_utf16(units)
+            } else {
+                date_parse_utf16_with_time_zone(units, &zone)
+            };
+            let actual = (!millis.is_nan()).then_some(millis as i64);
+            assert_eq!(actual, expected.as_i64(), "TZ={name} units={units:?}");
+        }
+    }
 }

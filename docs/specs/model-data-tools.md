@@ -9,7 +9,7 @@ Offline maintenance parity for pinned `packages/ai/scripts/model-data.ts` and `c
 - [x] Produce schema-3 manifests and SHA-256 hashes over exact UTF-8 content and JavaScript canonical structure JSON (including integer-key enumeration).
 - [x] Validate directory/file/hash sets, schema, timestamp, generation stamp, model metadata and API grouping; accumulate diagnostics in source order and show first 30 plus remaining count.
 - [x] Native checker runs without arguments from any working directory, validates its compiled source crate's `data/providers`, and retains source stdout/stderr/exit behavior.
-- [x] Preserve raw JSON strings, keys, API values and diagnostics as UTF-16, including lone surrogates and their distinctness from U+FFFD/pairs.
+- [x] Preserve raw JSON strings, keys, API values and diagnostics as UTF-16, including lone surrogates and their distinctness from U+FFFD/pairs. Validate timestamp strings with original UTF-16 units, including ignored date comments.
 
 Authorized adaptation, 2026-10-20: user answered “Check Rust catalog (Recommended)” to “The original catalog checker expects TypeScript import files; Rust stores its catalog as JSON in data/providers. Should the port check actual Rust catalog by default, or original TS layout?” The binary uses only the native path above, with expected identity/API groups from the existing compiled catalog. This decision did not authorize the previously inferred working-directory requirement: pinned TS resolves its package root from `import.meta.url`. Rust preserves source-location defaults using its compile-time crate root. No flags, environment overrides, alternate-path search or source-layout fallback. Original source-layout exported APIs remain separate.
 
@@ -22,7 +22,7 @@ Authorized adaptation, 2026-10-20: user answered “Check Rust catalog (Recommen
 
 - `crates/pi-ai/src/model_data_tools.rs`: exported maintenance constants, records, operations, validation.
 - `crates/pi-ai/src/bin/check-model-data.rs`: no-argument native checker; compile-time crate root is independent of working directory.
-- `crates/pi-js-compat/src/date.rs`: authorized shared prerequisite fixes for numeric/month/slash/pre-epoch HTTP timestamps; [date proof](../porting/traceability/js-compat.md#dateparse-srcdaters).
+- `crates/pi-js-compat/src/{date,date_parser}.rs`: shared [V8 date parser](date-parse.md); [date proof](../porting/traceability/js-compat.md#dateparse-srcdaters).
 
 ## Tests asserting this spec
 

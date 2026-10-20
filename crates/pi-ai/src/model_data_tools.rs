@@ -6,7 +6,7 @@ use std::fs;
 use std::path::Path;
 
 use indexmap::IndexMap;
-use pi_js_compat::{date::date_parse, js_json};
+use pi_js_compat::{date::date_parse_utf16, js_json};
 
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 use sha2::{Digest, Sha256};
@@ -473,7 +473,7 @@ fn validate_manifest(
     }
     if !field("generatedAt")
         .and_then(string)
-        .is_some_and(|s| !s.to_utf8().map(|s| date_parse(&s)).unwrap_or(f64::NAN).is_nan())
+        .is_some_and(|s| !date_parse_utf16(s.units()).is_nan())
     {
         errors.push("model data manifest has an invalid generation timestamp".into());
     }

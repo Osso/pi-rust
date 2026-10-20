@@ -1,4 +1,7 @@
-//! JavaScript `Date.parse` for the V8-supported ISO 8601 and HTTP-date formats.
+//! JavaScript date helpers; Date.parse uses the Node v26.11.1 V8 scanner/composers.
+
+#[path = "date_parser.rs"]
+mod parser;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,7 +29,7 @@ pub fn date_parse_millis(input: &str) -> Option<i64> {
 
 /// `Date.parse` resolved against an explicit time zone (the testable core).
 pub fn date_parse_with_time_zone(input: &str, zone: &TimeZone) -> f64 {
-    parse_date(input, zone).map_or(f64::NAN, |millis| millis as f64)
+    date_parse_utf16_with_time_zone(&input.encode_utf16().collect::<Vec<_>>(), zone)
 }
 
 /// Local-time fields of a JavaScript `Date`: `getFullYear()`, `getMonth()`
@@ -67,184 +70,27 @@ pub fn local_date_fields_in(millis: i64, zone: &TimeZone) -> Option<LocalDateFie
     })
 }
 
-fn parse_date(input: &str, zone: &TimeZone) -> Option<i64> {
-    if let Some(millis) = parse_http_date(input, zone) {
-        return Some(millis);
-    }
-    if let Some(millis) = parse_iso8601_millis(input, zone) {
-        return Some(millis);
-    }
-    if let Some(millis) = parse_numeric_date(input, zone) {
-        return Some(millis);
-    }
-    parse_legacy_date(input, zone)
+/// Lossless JavaScript `Date.parse` for UTF-16 strings in the process-local zone.
+pub fn date_parse_utf16(input: &[u16]) -> f64 {
+    date_parse_utf16_with_time_zone(input, &TimeZone::system())
 }
 
-fn legacy_month(word: &str) -> Option<i64> {
-    match word.get(..3)?.to_ascii_lowercase().as_str() {
-        "jan" => Some(1),
-        "feb" => Some(2),
-        "mar" => Some(3),
-        "apr" => Some(4),
-        "may" => Some(5),
-        "jun" => Some(6),
-        "jul" => Some(7),
-        "aug" => Some(8),
-        "sep" => Some(9),
-        "oct" => Some(10),
-        "nov" => Some(11),
-        "dec" => Some(12),
-        _ => None,
-    }
-}
-
-fn legacy_number(word: &str) -> Option<i64> {
-    if word.is_empty() || !word.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    word.parse().ok()
-}
-
-fn legacy_date_fields(words: &[&str]) -> Option<(i64, i64, i64)> {
-    let (year, month, day) = if let Some(month) = legacy_month(words[0]) {
-        (legacy_number(words[2])?, month, legacy_number(words[1])?)
-    } else if let Some(month) = legacy_month(words[1]) {
-        let first = legacy_number(words[0])?;
-        let last = legacy_number(words[2])?;
-        if first > 31 {
-            (first, month, last)
-        } else {
-            (last, month, first)
-        }
-    } else {
-        let first = legacy_number(words[0])?;
-        let second = legacy_number(words[1])?;
-        let last = legacy_number(words[2])?;
-        if first > 31 {
-            (first, second, last)
-        } else {
-            (last, first, second)
-        }
-    };
-    let year = match year {
-        0..=49 => year + 2000,
-        50..=99 => year + 1900,
-        _ => year,
-    };
-    if year > 275760 || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    normalize_day(year, month, day)
-}
-
-fn legacy_time(words: &[&str], named_month: bool) -> Option<TimeSuffix> {
-    let mut words: Vec<_> = words.iter().map(|word| (*word).to_owned()).collect();
-    if let Some(last) = words.last_mut()
-        && (last.eq_ignore_ascii_case("GMT") || last.eq_ignore_ascii_case("UTC"))
-    {
-        *last = "Z".into();
-    }
-    if words.is_empty() || words == ["Z"] {
-        return Some(TimeSuffix {
-            hour: 0,
-            minute: 0,
-            second: 0,
-            millis: 0,
-            offset_minutes: (!words.is_empty()).then_some(0),
-        });
-    }
-    let suffix = format!(" {}", words.join(" "));
-    let mut index = 0;
-    let mut time = parse_time_suffix(suffix.as_bytes(), &mut index)?;
-    // V8 discards an out-of-range seconds field in named-month legacy dates,
-    // but rejects it in slash and ISO forms (Node differential boundary proof).
-    if named_month && time.second >= 60 {
-        time.second = 0;
-    }
-    (index == suffix.len() && time.is_valid()).then_some(time)
-}
-
-fn partition_legacy_date_words<'a>(words: &[&'a str]) -> Option<(Vec<&'a str>, Vec<&'a str>)> {
-    let first = *words.first()?;
-    let (date, remaining) = if first.contains(['/', '-']) {
-        let date: Vec<_> = first.split(['/', '-']).collect();
-        (date, words[1..].to_vec())
-    } else if words.get(2).is_some_and(|word| word.contains(':')) && words.len() >= 4 {
-        (
-            vec![words[0], words[1], words[3]],
-            std::iter::once(words[2]).chain(words[4..].iter().copied()).collect(),
+/// Lossless UTF-16 parsing with explicit local-time resolution.
+pub fn date_parse_utf16_with_time_zone(input: &[u16], zone: &TimeZone) -> f64 {
+    let parsed = || {
+        let p = parser::parse(input)?;
+        let [hour, minute, second, millis] = p.time;
+        finish_date(
+            days_from_civil(p.year, p.month, p.day),
+            hour,
+            minute,
+            second,
+            millis,
+            p.offset,
+            zone,
         )
-    } else if words.len() >= 3 {
-        (words[..3].to_vec(), words[3..].to_vec())
-    } else {
-        return None;
     };
-    (date.len() == 3).then_some((date, remaining))
-}
-
-fn parse_legacy_date(input: &str, zone: &TimeZone) -> Option<i64> {
-    let mut words: Vec<_> = input
-        .split(|c: char| c.is_ascii_whitespace() || c == ',')
-        .filter(|word| !word.is_empty())
-        .collect();
-    if words.first().and_then(|word| word.get(..3)).is_some_and(|prefix| {
-        matches!(
-            prefix.to_ascii_lowercase().as_str(),
-            "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"
-        )
-    }) {
-        words.remove(0);
-    }
-    let (date, remaining) = partition_legacy_date_words(&words)?;
-    let (year, month, day) = legacy_date_fields(&date)?;
-    let time = legacy_time(&remaining, date.iter().any(|word| legacy_month(word).is_some()))?;
-    finish_date(
-        days_from_civil(year, month, day),
-        time.hour,
-        time.minute,
-        time.second,
-        time.millis,
-        time.offset_minutes,
-        zone,
-    )
-}
-
-// V8's legacy single-number grammar: 0 is Jan 2000, 1..12 are months
-// in 2001, 13..31 are invalid, 32..99 are two-digit years. Strict ISO
-// four-digit/signed-six-digit years have already been handled above.
-fn parse_numeric_date(input: &str, zone: &TimeZone) -> Option<i64> {
-    let input = crate::string::js_trim(input);
-    let (digits, utc) = match input.strip_suffix(['Z', 'z']) {
-        Some(digits) => (crate::string::js_trim(digits), true),
-        None => (input, false),
-    };
-    let digits = digits.strip_prefix(['+', '-']).unwrap_or(digits);
-    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    let number = digits.parse::<i64>().ok()?;
-    let (year, month) = match number {
-        0 => (2000, 1),
-        1..=12 => (2001, number),
-        13..=31 => return None,
-        32..=49 => (2000 + number, 1),
-        50..=99 => (1900 + number, 1),
-        _ => (number, 1),
-    };
-    if year > 275760 {
-        return None;
-    }
-    finish_date(days_from_civil(year, month, 1), 0, 0, 0, 0, utc.then_some(0), zone)
-}
-
-fn parse_http_date(input: &str, zone: &TimeZone) -> Option<i64> {
-    let time = httpdate::parse_http_date(input).ok()?;
-    let utc_millis = system_time_millis(time)?;
-    if input.contains("GMT") {
-        return in_range(utc_millis);
-    }
-    // The asctime form has no zone; V8 reads its wall clock in local time.
-    resolve_local_from_wall(utc_millis, zone)
+    parsed().map_or(f64::NAN, |millis| millis as f64)
 }
 
 fn system_time_millis(time: SystemTime) -> Option<i64> {
@@ -255,182 +101,21 @@ fn system_time_millis(time: SystemTime) -> Option<i64> {
     i64::try_from(elapsed.as_millis()).ok().map(|millis| -millis)
 }
 
-struct DatePrefix {
-    year: i64,
-    month: i64,
-    day: i64,
-    padded_month: bool,
-    padded_day: bool,
-    has_month: bool,
-    has_day: bool,
-}
-
-struct TimeSuffix {
-    hour: i64,
-    minute: i64,
-    second: i64,
-    millis: i64,
-    offset_minutes: Option<i64>,
-}
-
-fn parse_iso8601_millis(text: &str, zone: &TimeZone) -> Option<i64> {
-    let bytes = text.as_bytes();
-    let mut index = 0usize;
-    let prefix = parse_date_prefix(bytes, &mut index)?;
-    if !(1..=12).contains(&prefix.month) || !(1..=31).contains(&prefix.day) {
-        return None;
-    }
-    let (year, month, day) = normalize_day(prefix.year, prefix.month, prefix.day)?;
-    let days = days_from_civil(year, month, day);
-    if index == bytes.len() {
-        let utc = !prefix.has_month || (prefix.padded_month && (!prefix.has_day || prefix.padded_day));
-        return finish_date(days, 0, 0, 0, 0, if utc { Some(0) } else { None }, zone);
-    }
-    if is_zulu_suffix(bytes, index) {
-        return finish_date(days, 0, 0, 0, 0, Some(0), zone);
-    }
-    if !prefix.is_strict_date() {
-        return None;
-    }
-    let time = parse_time_suffix(bytes, &mut index)?;
-    if index != bytes.len() || !time.is_valid() {
-        return None;
-    }
-    finish_date(
-        days,
-        time.hour,
-        time.minute,
-        time.second,
-        time.millis,
-        time.offset_minutes,
-        zone,
-    )
-}
-
-impl DatePrefix {
-    fn is_strict_date(&self) -> bool {
-        self.has_month && self.has_day && self.padded_month && self.padded_day
-    }
-}
-
-impl TimeSuffix {
-    fn is_valid(&self) -> bool {
-        self.hour <= 24
-            && self.minute <= 59
-            && self.second <= 59
-            && (self.hour != 24 || (self.minute == 0 && self.second == 0 && self.millis == 0))
-    }
-}
-
-fn parse_date_prefix(bytes: &[u8], index: &mut usize) -> Option<DatePrefix> {
-    let year = parse_year(bytes, index)?;
-    let mut prefix = DatePrefix {
-        year,
-        month: 1,
-        day: 1,
-        padded_month: false,
-        padded_day: false,
-        has_month: false,
-        has_day: false,
-    };
-    if bytes.get(*index) != Some(&b'-') {
-        return Some(prefix);
-    }
-    *index += 1;
-    let (month, month_digits) = parse_variable_digits(bytes, index)?;
-    prefix.month = month;
-    prefix.padded_month = month_digits == 2;
-    prefix.has_month = true;
-    if bytes.get(*index) != Some(&b'-') {
-        return Some(prefix);
-    }
-    *index += 1;
-    let (day, day_digits) = parse_variable_digits(bytes, index)?;
-    prefix.day = day;
-    prefix.padded_day = day_digits == 2;
-    prefix.has_day = true;
-    Some(prefix)
-}
-
-fn is_zulu_suffix(bytes: &[u8], index: usize) -> bool {
-    matches!(bytes.get(index), Some(b'Z' | b'z')) && index + 1 == bytes.len()
-}
-
-fn parse_time_suffix(bytes: &[u8], index: &mut usize) -> Option<TimeSuffix> {
-    let whitespace_separator = parse_time_separator(bytes, index)?;
-    let hour = parse_two_digits(bytes, index)?;
-    expect_byte(bytes, index, b':')?;
-    let minute = parse_two_digits(bytes, index)?;
-    let second = parse_optional_seconds(bytes, index)?;
-    let millis = parse_optional_fraction(bytes, index)?;
-    if whitespace_separator {
-        skip_whitespace(bytes, index);
-    }
-    let offset_minutes = parse_zone(bytes, index)?;
-    Some(TimeSuffix {
-        hour,
-        minute,
-        second,
-        millis,
-        offset_minutes,
-    })
-}
-
-fn parse_time_separator(bytes: &[u8], index: &mut usize) -> Option<bool> {
-    match bytes.get(*index) {
-        Some(b'T' | b't') => {
-            *index += 1;
-            Some(false)
-        }
-        Some(byte) if is_ascii_whitespace(*byte) => {
-            skip_whitespace(bytes, index);
-            Some(true)
-        }
-        _ => None,
-    }
-}
-
-fn skip_whitespace(bytes: &[u8], index: &mut usize) {
-    while bytes.get(*index).is_some_and(|byte| is_ascii_whitespace(*byte)) {
-        *index += 1;
-    }
-}
-
-fn parse_optional_seconds(bytes: &[u8], index: &mut usize) -> Option<i64> {
-    if bytes.get(*index) != Some(&b':') {
-        return Some(0);
-    }
-    *index += 1;
-    parse_two_digits(bytes, index)
-}
-
-fn parse_optional_fraction(bytes: &[u8], index: &mut usize) -> Option<i64> {
-    if bytes.get(*index) != Some(&b'.') {
-        return Some(0);
-    }
-    *index += 1;
-    parse_fraction_millis(bytes, index)
-}
-
-fn is_ascii_whitespace(byte: u8) -> bool {
-    matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c)
-}
-
 fn finish_date(
     days: i64,
     hour: i64,
     minute: i64,
     second: i64,
     millis: i64,
-    offset_minutes: Option<i64>,
+    offset_seconds: Option<i64>,
     zone: &TimeZone,
 ) -> Option<i64> {
     let wall = days
         .checked_mul(MS_PER_DAY)?
         .checked_add((hour * 3_600 + minute * 60 + second).checked_mul(1_000)?)?
         .checked_add(millis)?;
-    match offset_minutes {
-        Some(offset) => in_range(wall.checked_sub(offset.checked_mul(60_000)?)?),
+    match offset_seconds {
+        Some(offset) => in_range(wall.checked_sub(offset.checked_mul(1_000)?)?),
         None => resolve_local_from_wall(wall, zone),
     }
 }
@@ -451,14 +136,24 @@ fn resolve_local_from_wall(wall_millis: i64, zone: &TimeZone) -> Option<i64> {
     {
         return in_range(zoned.timestamp().as_millisecond());
     }
-    // Outside jiff's timestamp range the offset is taken from the nearest
-    // representable year; POSIX TZ rules (and LMT for ancient dates) are stable
-    // there.
-    let offset_year = year.clamp(-9998, 9998);
+    // Future POSIX transitions depend on weekday and leap year, not just month.
+    // A 400-year Gregorian cycle preserves both. Ancient years retain LMT.
+    let offset_year = if year >= 9999 {
+        9200 + year.rem_euclid(400)
+    } else {
+        -9600 + year.rem_euclid(400)
+    };
     let offset_datetime = clamped_datetime(offset_year, month, day, hour, minute, second, millis)?;
     let zoned = offset_datetime.to_zoned(zone.clone()).ok()?;
-    let offset_seconds = i64::from(zoned.offset().seconds());
-    in_range(wall_millis.checked_sub(offset_seconds.checked_mul(1_000)?)?)
+    let mapped_wall = days_from_civil(offset_year, month, day) * MS_PER_DAY
+        + hour * 3_600_000
+        + minute * 60_000
+        + second * 1_000
+        + millis;
+    // Wall-minus-instant also retains compatible gap disambiguation, whereas
+    // the returned zoned offset describes the time *after* crossing the gap.
+    let offset_millis = mapped_wall.checked_sub(zoned.timestamp().as_millisecond())?;
+    in_range(wall_millis.checked_sub(offset_millis)?)
 }
 
 fn clamped_datetime(
@@ -493,86 +188,6 @@ fn clamped_datetime(
 
 fn in_range(millis: i64) -> Option<i64> {
     (millis.abs() <= MAX_DATE_MILLIS).then_some(millis)
-}
-
-fn parse_year(bytes: &[u8], index: &mut usize) -> Option<i64> {
-    let sign = match bytes.get(*index) {
-        Some(b'+') => 1,
-        Some(b'-') => -1,
-        _ => 0,
-    };
-    let digits = if sign == 0 { 4 } else { 6 };
-    let start = *index + usize::from(sign != 0);
-    let year = parse_fixed_digits(bytes.get(start..start + digits)?)?;
-    *index = start + digits;
-    Some(if sign == 0 { year } else { sign * year })
-}
-
-fn parse_variable_digits(bytes: &[u8], index: &mut usize) -> Option<(i64, usize)> {
-    let start = *index;
-    while bytes.get(*index).is_some_and(u8::is_ascii_digit) {
-        *index += 1;
-    }
-    let digits = bytes.get(start..*index)?;
-    if digits.is_empty() {
-        return None;
-    }
-    Some((parse_fixed_digits(digits)?, digits.len()))
-}
-
-fn parse_two_digits(bytes: &[u8], index: &mut usize) -> Option<i64> {
-    let value = parse_fixed_digits(bytes.get(*index..*index + 2)?)?;
-    *index += 2;
-    Some(value)
-}
-
-fn parse_fixed_digits(bytes: &[u8]) -> Option<i64> {
-    bytes.iter().try_fold(0_i64, |value, byte| {
-        let digit = byte.checked_sub(b'0').filter(|digit| *digit < 10)?;
-        value.checked_mul(10)?.checked_add(i64::from(digit))
-    })
-}
-
-fn parse_fraction_millis(bytes: &[u8], index: &mut usize) -> Option<i64> {
-    let start = *index;
-    while bytes.get(*index).is_some_and(u8::is_ascii_digit) {
-        *index += 1;
-    }
-    let digits = bytes.get(start..*index)?;
-    if digits.is_empty() {
-        return None;
-    }
-    let kept = &digits[..digits.len().min(3)];
-    let millis = parse_fixed_digits(kept)?;
-    Some(millis * 10_i64.pow(3 - kept.len() as u32))
-}
-
-fn parse_zone(bytes: &[u8], index: &mut usize) -> Option<Option<i64>> {
-    match bytes.get(*index) {
-        None => Some(None),
-        Some(b'Z' | b'z') => {
-            *index += 1;
-            Some(Some(0))
-        }
-        Some(b'+' | b'-') => {
-            let sign = if bytes[*index] == b'-' { -1 } else { 1 };
-            *index += 1;
-            let hours = parse_two_digits(bytes, index)?;
-            if bytes.get(*index) == Some(&b':') {
-                *index += 1;
-            }
-            let minutes = parse_two_digits(bytes, index)?;
-            if hours > 23 || minutes > 59 {
-                return None;
-            }
-            Some(Some(sign * (hours * 60 + minutes)))
-        }
-        Some(_) => None,
-    }
-}
-
-fn expect_byte(bytes: &[u8], index: &mut usize, expected: u8) -> Option<()> {
-    (bytes.get(*index) == Some(&expected)).then(|| *index += 1)
 }
 
 /// Days since 1970-01-01 for a civil date (Howard Hinnant's algorithm).
@@ -648,35 +263,6 @@ pub fn to_iso_string(millis: i64) -> String {
         format!("{}{:06}", if year < 0 { '-' } else { '+' }, year.abs())
     };
     format!("{year}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millisecond:03}Z")
-}
-
-/// `MakeDay` normalization: day `31` of a 30-day month rolls into the next month;
-/// day `0` or `32` is out of range.
-fn normalize_day(year: i64, month: i64, day: i64) -> Option<(i64, i64, i64)> {
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    let month_days = days_in_month(year, month);
-    let months_ahead = (day - 1) / month_days;
-    let normalized_month = month + months_ahead;
-    Some((
-        year + (normalized_month - 1) / 12,
-        (normalized_month - 1) % 12 + 1,
-        (day - 1) % month_days + 1,
-    ))
-}
-
-fn days_in_month(year: i64, month: i64) -> i64 {
-    match month {
-        2 if is_leap_year(year) => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        _ => 31,
-    }
-}
-
-fn is_leap_year(year: i64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
 #[cfg(test)]

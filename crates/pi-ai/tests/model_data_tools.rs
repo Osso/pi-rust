@@ -116,6 +116,25 @@ fn expect_error(value: &Value, text: &str) {
 }
 
 #[test]
+fn manifest_date_validation_preserves_lone_utf16_units() {
+    let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
+    let fixture = Fixture::new();
+    let content = fs::read_to_string(fixture.dir.join("test-provider.json")).unwrap();
+    let files = [(JsString::from("test-provider.json"), JsString::from(content.as_str()))]
+        .into_iter()
+        .collect();
+    let units = "Jan1 2020 ("
+        .encode_utf16()
+        .chain([0xd800])
+        .chain(")".encode_utf16())
+        .collect();
+    let generated_at = JsString::from_utf16(units);
+    let manifest = create_model_data_manifest(&fixture.structure, &files, &generated_at);
+    fs::write(fixture.dir.join(MODEL_DATA_MANIFEST_FILE), manifest.stringify()).unwrap();
+    assert_eq!(fixture.compare(&mut oracle), json!({"ok":true,"output":null}));
+}
+
+#[test]
 fn exact_ids_and_manifest_hashes_match_ts_without_reordering_responses() {
     let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
     for (expected, actual) in [

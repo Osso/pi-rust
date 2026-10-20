@@ -1,6 +1,6 @@
 # model-data.ts maintenance parity
 
-Source: pinned `packages/ai/scripts/model-data.ts` (280 lines). Rust: `crates/pi-ai/src/model_data_tools.rs`. Contract: [spec](../../specs/model-data-tools.md). This slice ports only this module and its [checker](check-model-data.md). Shared dates retain separately authorized [bounded proof](js-compat.md#dateparse-srcdaters).
+Source: pinned `packages/ai/scripts/model-data.ts` (280 lines). Rust: `crates/pi-ai/src/model_data_tools.rs`. Contract: [spec](../../specs/model-data-tools.md). This slice ports only this module and its [checker](check-model-data.md). Shared dates use the [V8 parser contract](../../specs/date-parse.md) and retain [bounded differential proof](js-compat.md#dateparse-srcdaters).
 
 ## Current capability / proof matrix
 
@@ -12,7 +12,7 @@ Source: pinned `packages/ai/scripts/model-data.ts` (280 lines). Rust: `crates/pi
 | `createModelDataManifest`: schema 3, timestamp unchanged, sorted content hashes, Node UTF-8 boundary | `create_model_data_manifest` | same tests; CRLF, Unicode and lone-surrogate keys/content/timestamp |
 | `readModelDataProviderIds`: exact import pattern, none, duplicates, sorted IDs, read error | `read_model_data_provider_ids` | `aggregator_shards_and_provider_structure_failures_match_ts`, filesystem success |
 | `readModelDataStructure`: shard sets, provider JSON object/parse errors, API object, duplicate models, empty data | `read_model_data_structure`; crate-visible `read_provider_structure` reused by native generator post-swap validation | same tests; raw surrogate corpus; generator fault-36 RED proves fresh empty-provider read must precede manifest validation (integration GREEN pending) |
-| `validateModelDataDirectory`: directory missing/not directory, provider sets, manifest object/parse/missing, schema, timestamp, structure stamp, hash set/file hash | `validate_model_data_directory` | `manifest_directory_and_json_failures_match_ts` |
+| `validateModelDataDirectory`: directory missing/not directory, provider sets, manifest object/parse/missing, schema, timestamp, structure stamp, hash set/file hash | `validate_model_data_directory`; timestamp passes original UTF-16 units to shared `date_parse_utf16` | `manifest_directory_and_json_failures_match_ts`, `manifest_date_validation_preserves_lone_utf16_units` |
 | Model identity/provider/API/name/baseUrl/reasoning/modalities/limits/cost fields; nonobject; duplicate group; missing/extra IDs; wrong grouping | internal validation | `model_validation_branches_accumulate_in_source_order` |
 | Source-ordered errors; first 30 plus remainder | internal validation | same test; complete error equality |
 | `validateGeneratedModelData` original TS-package contract | `validate_generated_model_data` | filesystem success and failure fixtures |
@@ -61,5 +61,7 @@ Commands run in `/home/osso/.worktrees/pi-rust-model-data-tools`. Historical run
 | `f139cff` + native fixture | same target, `native_checker_defaults` filter | RED usage exit 2 vs expected 0; `model-data-tools-native-red.log` | Historical native RED |
 | `cbe93f4` production/tests (run on `f139cff` + native diff, then formatted) | full module target above | GREEN 15/15, 0 ignored; `model-data-tools-native-green-1.log` | Historical native CWD behavior superseded by source-root correction; unaffected API proof retained |
 | `cbe93f4` + typed UTF-16 corpus and opaque request transport | same target, `typed_utf16_ids` filter | GREEN 1/1, 15 filtered; `model-data-tools-typed-utf16-proof.log` | Additive API proof; no production change |
+
+Integration timestamp regression: a valid `Jan1 2020 (` + lone high surrogate + `)` manifest timestamp was rejected by the UTF-8 conversion before shared parsing. `/tmp/pi-rust-batch-a-proof/date-adapter-red.log` records exact pinned-oracle RED (1 failure); the caller now passes original UTF-16 units. `/tmp/pi-rust-batch-a-proof/date-adapter-green.log` records all 17 module tests passing under the Cargo sandbox after the V8-parser merge and caller fix, before formatting. This is development proof, not independent Batch A acceptance.
 
 Before the source-root correction, evidence was 15 existing tests plus one newly targeted test, not a claimed single 16-test run. Source-root correction reran only 3 checker-filter tests (13 filtered), preserving exact complete-stream differential comparison; see [checker ledger](check-model-data.md#proof-ledger). The added transport branch does not change existing requests lacking `requestJson`. Formatter-only edits do not invalidate behavior. No broad/check/clippy/readability/final-integration/deployment gates run; parent owns those gates. No catalog refresh, live HTTP/config/DB or canonical edits.
