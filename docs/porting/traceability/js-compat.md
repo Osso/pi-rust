@@ -44,41 +44,38 @@ exponent form (`1e+20`) instead of JavaScript's full digits
 `serde_json` cannot represent those integers without `arbitrary_precision`.
 Exponent spelling outside that range matches JavaScript (`1e+21`).
 
-## `Date.parse` (`src/date.rs`)
+## `Date.parse` (`src/date.rs`, `src/date_parser.rs`)
 
-| `Date#getUTC*` fields | `utc_date_fields` (`local_date_fields_in` with `TimeZone::UTC`) | `src/date.rs::tests::utc_fields_match_javascript_get_utc_getters`; codex-usage differential |
-| `Date.now()` | `js_now_millis` | `src/date.rs::tests::now_millis_tracks_the_system_clock`; tool elapsed timers and interactive idle timers |
+Implementation reference: [Node v26.11.1 V8 file hashes](../v8-date-parser-source-lock.json),
+[BSD license](../vendor/V8-LICENSE). This is not a new TS runtime baseline.
 
-| Source behaviour | Rust item | Proof |
+| Source behavior | Rust item | Behavioral proof |
 |---|---|---|
-| V8 single-number legacy dates: `0`, months `1..12`, invalid `13..31`, two-digit years `32..99`, longer years, sign/whitespace/`Z`; strict ISO years retain precedence | `parse_numeric_date` | `tests/differential_date_parse.rs::numeric_dates_match_node_in_utc_and_chicago` (RED `"0"`: Rust NaN vs Node 946684800000; development GREEN at `b9ed3c9`, below) |
-| HTTP-date forms (`RFC 1123`, `RFC 850`, asctime), including observed pre-epoch forms | `parse_http_date` and `parse_legacy_date`; asctime wall clock is resolved in local time like V8 | `tests/date.rs`, `tests/differential_date_parse.rs` |
-| Observed named-month/slash grammar, two-digit years and local/zoned legacy times | `partition_legacy_date_words`, `legacy_date_fields`, `legacy_time`, `parse_legacy_date` | `tests/differential_date_parse.rs::legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones` |
-| ECMAScript ISO 8601: 4-digit and signed 6-digit years, `YYYY[-M[-D]]`, `T`/`t`/whitespace separators, optional seconds/fraction, `Z`/`z`/`±HH:MM`/`±HHMM` | `parse_iso8601_millis` | `tests/date.rs`, `tests/differential_date_parse.rs` |
-| Zone-less date-time = local; strict date-only = UTC; non-padded legacy date-only = local; `Z` on any date-only = UTC | `resolve_local_from_wall`, `finish_date` | `tests/date.rs`, differential under `TZ=UTC` and `TZ=America/Chicago` |
-| DST gap/fold disambiguation | `jiff::civil::DateTime::to_zoned` (`compatible`: gap uses the pre-transition offset, fold uses the earlier instant) | `tests/date.rs::uses_compatible_disambiguation_for_dst_transitions` |
-| Extended years beyond jiff's timestamp range | offset from the nearest representable year (`9998`/`-9998`), applied to the original wall clock | `tests/date.rs`, differential (`+010000`, `-000001`, `-271821`, `+275760`) |
-| `MakeDay` normalization (`2020-02-31` → March 2, day 32 invalid) | `normalize_day` | `tests/date.rs`, differential |
-| `24:00` only with zero minutes/seconds/millis | time validation in `parse_iso8601_millis` | `tests/date.rs`, differential |
-| `days_from_civil` | `days_from_civil` | `tests/date.rs::days_from_civil_matches_known_dates` |
+| UTF-16 scanner: ASCII numbers (nine significant digits after leading zeros), word-prefix table, comments, NUL termination, Unicode whitespace/punctuation | `Scanner`, `keyword` | `v8_scanner_boundaries_and_bounded_combinations_match_node`, `v8_lossless_utf16_matches_node` |
+| Strict ISO parsing with legacy continuation only before time separator; signed years, negative-zero consumption, date-only UTC | `parse_iso` | original 662 comparisons plus boundary corpus |
+| Legacy named/numeric day ordering, 0..49/50..99 year pivot, time/AM-PM composition, named-month out-of-range-second quirk | `Day`, `Time`, `parse` | numeric/legacy original suites plus boundary combinations |
+| Abbreviation zones; legacy unconstrained hour fields, uint32 overflow and Smi limit vs strict ISO constraints | `Zone` | boundary corpus including `GMT+1193047:` and `GMT-1193047:59` exact second offsets |
+| Gregorian normalization, overflow-safe time construction, inclusive ±8.64e15 TimeClip | `days_from_civil`, `finish_date` | `tests/date.rs`, clip/large-year boundary cases |
+| Local DST gaps/folds, extended future calendar-equivalent year | `resolve_local_from_wall` | Chicago ordinary/extended DST corpus; original local/ancient/year-9999 cases |
+| Lossless UTF-16 native API; `str` remains encoding wrapper | `date_parse_utf16`, `date_parse_utf16_with_time_zone`, existing `date_parse*` | UTF-16 cases against raw Node `Date.parse`, UTC/Chicago/inherited |
+| Unchanged clock/getter/ISO formatting helpers | existing Date APIs | existing date integration tests; no grammar changes to those helpers |
 
-Differential: 98 baseline inputs under `TZ=UTC`, `TZ=America/Chicago`, and the
-inherited process zone; 130 numeric and 54 legacy inputs each under UTC/Chicago.
+Four initial counterexamples reproduced actual RED (not wrong-type inputs):
+`Jan 1 2020 EST`, `2020.1.1`, `Jan1 2020`, `Jan 1 2020 (ignored)`.
+Original 662 differential comparisons retained. Expanded tests compare exact
+finite milliseconds or null for NaN, with no input normalization/filter/sorting.
+Oracle uses pinned worktree tsx, parent watchdog, ASCII-LF JSON transport (not
+Node readline); UTF-16 arrays become JS strings without replacement.
 
-V8 month-name/slash legacy dates, local/zoned times, two-digit year pivots, pre-1970 HTTP and asctime dates now use the shared legacy date grammar. Proof: `legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones` (RED `"Jan 1 2020"`: NaN vs Node 1577836800000; development GREEN at `b9ed3c9`, below), UTC and Chicago including DST gap/fold and adjacent invalid dates/times.
+Additional RED: extended Chicago dates `+010000-03-12T02:30`,
+`+010000-11-05T01:30`, `+275000-03-09T02:30` differed by one hour with
+the old nearest-year resolver. A calendar-equivalent 400-year mapping fixes
+weekday/leap-year dependent future transitions and retains compatible gaps.
 
-V8 compatibility quirk (not a TS source bug): named-month legacy seconds `60`, `61`, `99` are discarded to zero; slash and ISO second `60` are rejected. The Node boundary corpus preserves that distinction. No semantic correction is intended.
-
-Implementer GREEN at `b9ed3c9`: eight date integration tests and five differential
-tests passed (`/tmp/model-data-tools-date-green-3.log`). The date changes are
-integrated at `622fdad`. Independent proof at `e31b4c8` passed: eight date unit
-and five differential tests, shared-crate check and all-feature Clippy; full ledger
-`/tmp/pi-rust-e31b4c8-json-date-proof/ledger.json`. The subsequent token-partition
-extraction resolves the new 40-line helper finding without changing its grammar;
-post-extraction date proof is pending. Unchanged JSON proof remains valid.
-Precommit formatting ledger: `/tmp/pi-rust-date-integration/ledger.json`.
-
-The finite corpus does not establish complete V8 legacy grammar parity; untested legacy forms remain unproven, not approved exclusions.
+Scope: faithful scanner/composer adaptation with finite differential evidence,
+not exhaustive V8 grammar proof, whole Date-object port, or all-platform zone
+parity. Runtime usage telemetry omitted. Host tzdb/ICU version differences and
+untested zones remain unproven. No fallback parsers remain.
 
 ## Base64 (`src/base64.rs`)
 

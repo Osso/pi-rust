@@ -1,0 +1,33 @@
+{
+  "purpose": "Implementation reference only; does not change pinned TS runtime/oracle baseline",
+  "repository": "https://github.com/nodejs/node",
+  "tag": "v26.11.1",
+  "retrieved": "2026-10-20",
+  "files": [
+    {
+      "path": "deps/v8/src/date/dateparser.h",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v26.11.1/deps/v8/src/date/dateparser.h",
+      "sha256": "8c4dd28958ac3781d99c038f3fcc9ae70814c34377e314c4867642d5b3466665"
+    },
+    {
+      "path": "deps/v8/src/date/dateparser-inl.h",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v26.11.1/deps/v8/src/date/dateparser-inl.h",
+      "sha256": "f4d6751423c17f671f383aa4bfa9f8c8158a09fc28f7bc860c71edc2cb01fb73"
+    },
+    {
+      "path": "deps/v8/src/date/dateparser.cc",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v26.11.1/deps/v8/src/date/dateparser.cc",
+      "sha256": "64ae6bae3ba2438a8a9323a0a1010da285f51bcbab1e02adf753fbbdaffaf461"
+    },
+    {
+      "path": "deps/v8/src/date/date.cc",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v26.11.1/deps/v8/src/date/date.cc",
+      "sha256": "20585e734c7bf365fb778c4f8cc9da5ad592110413dd3c22e0a2fa53339f76f8"
+    },
+    {
+      "path": "deps/v8/LICENSE",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v26.11.1/deps/v8/LICENSE",
+      "sha256": "6ab33af8774a0f396ee3aeeb761e3229057682d6f9fa7f572e390c2cb3a6e509"
+    }
+  ]
+}

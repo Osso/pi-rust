@@ -54,6 +54,7 @@ type DateParseRequest = {
 	id: RequestId;
 	operation: "date_parse";
 	values: string[];
+	utf16_values?: number[][];
 };
 
 type Base64Request = {
@@ -164,7 +165,7 @@ async function execute(request: Request): Promise<Response> {
 			id: request.id,
 			ok: true,
 			output: {
-				results: request.values.map((value) => {
+				results: [...request.values, ...(request.utf16_values ?? []).map((units) => String.fromCharCode(...units))].map((value) => {
 					const parsed = Date.parse(value);
 					return Number.isNaN(parsed) ? null : parsed;
 				}),
