@@ -23,6 +23,8 @@ All direct dependencies are exact-pinned.
 
 ### `pi-coding-agent`
 
+- `flate2 = 1.0.34` (exact; already locked transitively) — opt-in Doom WAD helper uses `MultiGzDecoder` for Node `gunzipSync`, including concatenated gzip members.
+
 - Auth commands, config-value reference/environment-status helpers, `ParsedSkillBlock`/`parse_skill_block`, the focused direct-module CLI `Mode` value, the focused direct-module `isValidThinkingLevel` predicate, and the tool-output persistence constants use only the Rust standard library beyond the existing exact local `pi-agent-core` type dependency. `MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES` uses `usize` only as a narrow exception for the exact TypeScript numeric literal used as a byte limit; this does not generalize JavaScript `number` mappings.
 - `pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }` — shared JS-semantics helpers (`locale_compare`, minimatch) used by `core::model_resolver` and provider attribution; avoids duplicate collation/glob implementations.
 - `pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }` — supplies the typed `ThinkingLevel` used by the direct-module default constant and the shared `format_size` implementation used by coding-agent's package-visible wrapper. Request `13185` changes no dependency version or lock entry.
