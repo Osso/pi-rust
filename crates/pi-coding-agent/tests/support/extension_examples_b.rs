@@ -9,16 +9,18 @@ use std::sync::{Arc, Mutex};
 mod oracle;
 #[path = "extensions.rs"]
 mod support;
+#[path = "ui_thread.rs"]
+mod ui_thread;
 
 #[derive(Default)]
 struct Ui {
-    calls: Mutex<Vec<Value>>,
+    calls: Arc<Mutex<Vec<Value>>>,
     selected: Mutex<Option<String>>,
     autocomplete: Mutex<Option<ExtensionAutocompleteProviderFactory>>,
     item: Mutex<Value>,
-    custom_tools: Mutex<std::collections::BTreeMap<String, ToolDefinition>>,
-    custom_context: Mutex<Option<ExtensionContext>>,
-    custom_before: Mutex<Vec<HandlerHandle<BeforeAgentStartEvent, BeforeAgentStartEventResult>>>,
+    custom_tools: Arc<Mutex<std::collections::BTreeMap<String, ToolDefinition>>>,
+    custom_context: Arc<Mutex<Option<ExtensionContext>>>,
+    custom_before: Arc<Mutex<Vec<HandlerHandle<BeforeAgentStartEvent, BeforeAgentStartEventResult>>>>,
 }
 impl ExtensionUiContext for Ui {
     fn add_autocomplete_provider(&self, factory: ExtensionAutocompleteProviderFactory) {
@@ -32,100 +34,98 @@ impl ExtensionUiContext for Ui {
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
     ) -> BoxFuture<'a, Result<Option<Value>, String>> {
-        Box::pin(async move {
-            let item = self.item.lock().unwrap().clone();
-            pi_coding_agent::modes::interactive::theme::set_theme_instance(fixture_theme());
-            let done_value = Arc::new(Mutex::new(None));
-            let value = done_value.clone();
-            let done = ExtensionUiDone::new(Arc::new(move |v| {
-                let mut value = value.lock().unwrap();
-                if value.is_none() {
-                    *value = Some(v);
-                }
-            }));
-            let component = factory(
-                ExtensionUiFactoryContext {
-                    tui: ExtensionUiTui::new(Arc::new(FixtureTui)),
-                    theme: fixture_theme(),
-                    keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Default::default(), None),
-                },
-                done,
-            );
-            let width = item["width"].as_u64().unwrap_or(40) as usize;
-            self.calls
-                .lock()
-                .unwrap()
-                .push(json!(["render", component.render(width)]));
-            for key in item["keys"].as_array().into_iter().flatten() {
-                component.handle_input(key.as_str().unwrap());
-                self.calls
-                    .lock()
-                    .unwrap()
-                    .push(json!(["render", component.render(width)]));
-            }
-            for step in item["gameScript"].as_array().into_iter().flatten() {
-                if let Some(prompt) = step["before"].as_str() {
-                    let handlers = self.custom_before.lock().unwrap().clone();
-                    let context = self.custom_context.lock().unwrap().clone().unwrap();
-                    for handler in handlers {
-                        let result = handler
-                            .call(
-                                BeforeAgentStartEvent {
-                                    prompt: "fixture".into(),
-                                    images: None,
-                                    system_prompt: prompt.into(),
-                                    system_prompt_options: Default::default(),
-                                },
-                                context.clone(),
-                            )
-                            .await
-                            .unwrap();
-                        self.calls.lock().unwrap().push(json!(["before", result]));
+        let item = self.item.lock().unwrap().clone();
+        let calls = self.calls.clone();
+        let custom_tools = self.custom_tools.clone();
+        let custom_context = self.custom_context.clone();
+        let custom_before = self.custom_before.clone();
+        ui_thread::run(move || {
+            Box::pin(async move {
+                tokio::time::pause();
+                pi_coding_agent::modes::interactive::theme::set_theme_instance(fixture_theme());
+                let done_value = Arc::new(Mutex::new(None));
+                let value = done_value.clone();
+                let done = ExtensionUiDone::new(Arc::new(move |v| {
+                    let mut value = value.lock().unwrap();
+                    if value.is_none() {
+                        *value = Some(v);
                     }
+                }));
+                let component = factory(
+                    ExtensionUiFactoryContext {
+                        tui: ExtensionUiTui::new(Arc::new(FixtureTui)),
+                        theme: fixture_theme(),
+                        keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(
+                            Default::default(),
+                            None,
+                        ),
+                    },
+                    done,
+                );
+                let width = item["width"].as_u64().unwrap_or(40) as usize;
+                calls.lock().unwrap().push(json!(["render", component.render(width)]));
+                for key in item["keys"].as_array().into_iter().flatten() {
+                    component.handle_input(key.as_str().unwrap());
+                    calls.lock().unwrap().push(json!(["render", component.render(width)]));
                 }
-                if let Some(key) = step["key"].as_str() {
-                    component.handle_input(key);
+                for step in item["gameScript"].as_array().into_iter().flatten() {
+                    if let Some(prompt) = step["before"].as_str() {
+                        let handlers = custom_before.lock().unwrap().clone();
+                        let context = custom_context.lock().unwrap().clone().unwrap();
+                        for handler in handlers {
+                            let result = handler
+                                .call(
+                                    BeforeAgentStartEvent {
+                                        prompt: "fixture".into(),
+                                        images: None,
+                                        system_prompt: prompt.into(),
+                                        system_prompt_options: Default::default(),
+                                    },
+                                    context.clone(),
+                                )
+                                .await
+                                .unwrap();
+                            calls.lock().unwrap().push(json!(["before", result]));
+                        }
+                    }
+                    if let Some(key) = step["key"].as_str() {
+                        component.handle_input(key);
+                    }
+                    if let Some(name) = step["execute"].as_str() {
+                        let tool = custom_tools.lock().unwrap()[name].clone();
+                        let context = custom_context.lock().unwrap().clone().unwrap();
+                        let started = tokio::time::Instant::now();
+                        let result =
+                            (tool.execute)("fixture-call".into(), step["params"].clone(), None, None, context).await;
+                        calls
+                            .lock()
+                            .unwrap()
+                            .push(json!(["elapsed", started.elapsed().as_millis()]));
+                        let result = match result {
+                            Ok(value) => json!({"value":value}),
+                            Err(error) => json!({"error":error.message}),
+                        };
+                        calls.lock().unwrap().push(json!(["execute", result]));
+                    }
+                    let width = step["width"].as_u64().unwrap_or(width as u64) as usize;
+                    calls.lock().unwrap().push(json!(["render", component.render(width)]));
                 }
-                if let Some(name) = step["execute"].as_str() {
-                    let tool = self.custom_tools.lock().unwrap()[name].clone();
-                    let context = self.custom_context.lock().unwrap().clone().unwrap();
-                    let started = tokio::time::Instant::now();
-                    let result =
-                        (tool.execute)("fixture-call".into(), step["params"].clone(), None, None, context).await;
-                    self.calls
-                        .lock()
-                        .unwrap()
-                        .push(json!(["elapsed", started.elapsed().as_millis()]));
-                    let result = match result {
-                        Ok(value) => json!({"value":value}),
-                        Err(error) => json!({"error":error.message}),
-                    };
-                    self.calls.lock().unwrap().push(json!(["execute", result]));
+                component.invalidate();
+                calls.lock().unwrap().push(json!(["render", component.render(width)]));
+                for _ in 0..1000 {
+                    if done_value.lock().unwrap().is_some() {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                 }
-                let width = step["width"].as_u64().unwrap_or(width as u64) as usize;
-                self.calls
+                component.dispose();
+                let result = done_value
                     .lock()
                     .unwrap()
-                    .push(json!(["render", component.render(width)]));
-            }
-            component.invalidate();
-            self.calls
-                .lock()
-                .unwrap()
-                .push(json!(["render", component.render(width)]));
-            for _ in 0..1000 {
-                if done_value.lock().unwrap().is_some() {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-            }
-            component.dispose();
-            let result = done_value
-                .lock()
-                .unwrap()
-                .take()
-                .ok_or("custom fixture never completed")?;
-            Ok(result)
+                    .take()
+                    .ok_or("custom fixture never completed")?;
+                Ok(result)
+            })
         })
     }
     fn set_editor_text(&self, text: &str) {

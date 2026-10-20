@@ -74,6 +74,7 @@ impl ExtensionUiContext for Ui {
         let request = self.request.clone();
         ui_thread::run(move || {
             Box::pin(async move {
+                set_theme_instance(theme.clone());
                 let (sender, receiver) = tokio::sync::oneshot::channel();
                 let sender = Arc::new(Mutex::new(Some(sender)));
                 let component = factory(
