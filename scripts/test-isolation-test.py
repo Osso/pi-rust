@@ -164,6 +164,7 @@ def probe_network_and_nested_inputs(proof):
 master, slave = pty.openpty()
 os.close(master)
 os.close(slave)
+subprocess.run(['/usr/bin/python3', '-c', 'import tempfile; f = tempfile.TemporaryFile(); f.write(b"private tmp")'], env={}, check=True)
 for line in pathlib.Path('/proc/self/status').read_text().splitlines():
     if line.startswith(('CapInh:', 'CapAmb:', 'CapEff:')):
         assert int(line.split()[1], 16) == 0, line

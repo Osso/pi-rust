@@ -111,6 +111,9 @@ def enter(command):
         "/usr/bin/bwrap", "--die-with-parent", "--unshare-user",
         "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
     ]
+    # /tmp is already the outer guard's private tmpfs. Keep it writable for
+    # env-cleared probe children that use the platform temp directory directly.
+    bind(devices, "/tmp", writable=True)
     state = Path(os.environ["PI_CODING_AGENT_DIR"]).parent
     for writable in dict.fromkeys([state, Path(os.environ["TMPDIR"])]):
         bind(devices, writable, writable=True)
