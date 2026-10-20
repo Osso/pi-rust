@@ -160,3 +160,23 @@ the real CustomEditor surface while the example overrides input/render behavior;
 the host still wires base callbacks and focus. Border-status hides the footer
 and working indicator; overlay-test registers `/overlay-test`. No example loads
 by default. Behavioral/differential proof: `tests/extension_examples_editors.rs`.
+
+## Session/process (batch I)
+
+`git_merge_and_resolve.rs` exports `git_merge_and_resolve_extension`. Embed and
+register its factory explicitly using the pattern above. It fetches/merges the
+current upstream after agent turns and delivers unresolved conflict locations
+as follow-ups. Enable deliberately; tests use only private repositories.
+`interactive-shell` is blocked on extension-facing TUI stop/start methods; see
+[`batch I traceability`](../../../../docs/porting/traceability/extension-examples-i.md).
+
+`summarize.rs` exports `summarize_extension`; explicitly register its factory to
+add `/summarize`. It completes with the host registry’s `openai/gpt-5.2`, then
+shows a Markdown summary in TUI mode. Nothing loads by default. SSH is blocked
+on preserving arbitrary remote errors through native filesystem operations;
+see batch I traceability.
+
+`handoff.rs` exports `handoff_extension`; explicitly register its factory to add
+`/handoff <goal>`. It generates a focused draft through the host model registry,
+lets the user edit it, then replaces the session with parent tracking. Post-switch
+UI uses the replacement context. Nothing loads by default.
