@@ -530,7 +530,7 @@ fn consumed_record_fields_reject_wrong_types_without_requiring_defaulted_fields(
 
 #[test]
 fn strict_options_and_native_cli_reject_unknown_arguments_before_fetch() {
-    assert_eq!(read_strict_option(&[]).unwrap(), false);
+    assert!(!read_strict_option(&[]).unwrap());
     assert!(read_strict_option(&["--strict".into(), "--strict".into()]).unwrap());
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_generate-image-models"))
         .arg("--bad")

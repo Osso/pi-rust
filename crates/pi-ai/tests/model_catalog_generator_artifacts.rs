@@ -426,14 +426,13 @@ fn source_transaction_failures_restore_values_include_and_cleanup_at_exact_bound
                             failures.push(format!("{fault}: filesystem metadata differs {record:?}"));
                         }
                         for (name, value) in [("path", record.path), ("dest", destination)] {
-                            if let Some(source) = expected["error"][name].as_str() {
-                                if value
+                            if let Some(source) = expected["error"][name].as_str()
+                                && value
                                     .as_ref()
                                     .map(|value| normalized_error(value, root.0.to_str().unwrap(), false))
                                     != Some(normalized_error(source, expected["root"].as_str().unwrap(), true))
-                                {
-                                    failures.push(format!("{fault}: {name} differs"));
-                                }
+                            {
+                                failures.push(format!("{fault}: {name} differs"));
                             }
                         }
                     } else {
