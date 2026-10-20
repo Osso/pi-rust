@@ -487,7 +487,7 @@ fn differential_serialize_conversation_and_file_lists() {
             "content": [
                 { "type": "thinking", "thinking": "hidden" },
                 { "type": "text", "text": "text" },
-                { "type": "toolCall", "id": "t1", "name": "write", "arguments": { "path": "large.txt", "content": "x".repeat(5000) } }
+                { "type": "toolCall", "id": "t1", "name": "write", "arguments": { "path": "large.txt", "content": "x".repeat(5000), "nested": { "2": 2.0, "1": 1.0 }, "2": 2.0, "1": 1.0 } }
             ],
             "api": "anthropic-messages",
             "provider": "anthropic",

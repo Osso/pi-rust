@@ -112,3 +112,7 @@ workspace suite, agent, model CLI, deployment, merge, or push was run.
 ## Accepted review regression (2026-10-20)
 
 B1: `example_tool_override` compares a `file://` string naming an existing file: literal Node resolution must fail access and log the literal path. Reuses `paths::node_resolve`, without URL/tilde normalization.
+
+## JS object/number review regression (2026-10-20)
+
+B2: custom-compaction model-prompt comparisons now include assistant tool calls with numeric keys at root and nested levels. Numeric display audit also found truncated-tool matchCount; float-backed 25.0 renderer fixtures compare complete pinned outputs.

@@ -193,15 +193,15 @@ fn serialize_tool_arguments(
     arguments: &serde_json::Map<String, Value>,
     serialize_argument: &dyn Fn(&Value) -> String,
 ) -> String {
-    arguments
-        .iter()
+    pi_js_compat::js_json::object_entries(arguments)
+        .into_iter()
         .map(|(key, value)| format!("{key}={}", serialize_argument(value)))
         .collect::<Vec<_>>()
         .join(", ")
 }
 
 fn safe_json_stringify(value: &Value) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "[unserializable]".to_owned())
+    pi_js_compat::js_json::stringify(value)
 }
 
 fn serialize_tool_result_for_summary(content: &str, details: Option<&Value>) -> String {
