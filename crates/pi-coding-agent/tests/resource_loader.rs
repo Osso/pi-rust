@@ -699,7 +699,7 @@ async fn extension_conflicts_report_tools_and_flags() {
         ]
     );
     assert_eq!(
-        result.extensions[1].tools["duplicate-tool"].source_info.source,
+        result.extensions[1].read().tools["duplicate-tool"].source_info.source,
         "inline"
     );
 }

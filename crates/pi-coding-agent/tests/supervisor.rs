@@ -579,7 +579,7 @@ async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
     assert!(extensions.errors.is_empty());
     assert_eq!(extensions.extensions.len(), 2);
     assert_eq!(extensions.extensions[0].tool_gates.len(), 1);
-    assert_eq!(extensions.extensions[1].handlers.compaction.len(), 1);
+    assert_eq!(extensions.extensions[1].read().handlers.compaction.len(), 1);
 
     let runtime = faux_codex_runtime().await;
     let runner = pi_coding_agent::core::extensions::ExtensionRunner::new(
