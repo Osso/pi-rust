@@ -116,6 +116,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
 
     let extension_runtime = create_extension_runtime();
     let logs = Arc::new(Mutex::new(Vec::new()));
+    let command_logs = Arc::clone(&logs);
     let switch_logs = Arc::clone(&logs);
     let fork_logs = Arc::clone(&logs);
     let shutdown_logs = Arc::clone(&logs);
@@ -136,7 +137,23 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     None,
                     Arc::new(move |_, _| {
                         let live = live.clone();
-                        Box::pin(async move { hello_example::hello_extension(&live) })
+                        let command_logs = command_logs.clone();
+                        Box::pin(async move {
+                            hello_example::hello_extension(&live)?;
+                            live.register_command(
+                                "late-session-command",
+                                None,
+                                None,
+                                Arc::new(move |_, _| {
+                                    let command_logs = command_logs.clone();
+                                    Box::pin(async move {
+                                        command_logs.lock().unwrap().push("late command executed".into());
+                                        Ok(())
+                                    })
+                                }),
+                            )?;
+                            Ok(())
+                        })
                     }),
                 )
                 .unwrap();
@@ -830,6 +847,11 @@ async fn late_tools_refresh_the_real_session_without_reactivating_disabled_tools
         .await
         .unwrap();
     assert!(session.get_active_tool_names().contains(&"hello".into()));
+    session
+        .prompt("/late-session-command", PromptOptions::default())
+        .await
+        .unwrap();
+    assert!(harness.logs.lock().unwrap().contains(&"late command executed".into()));
     session.set_active_tools_by_name(&[]);
     (register.handler)(String::new(), runner.create_command_context())
         .await

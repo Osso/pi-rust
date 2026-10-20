@@ -25,7 +25,9 @@ not the factory's private registry. Runner-only host fixture supplies a no-op
 `agent_session_runtime::late_tools_refresh_the_real_session_without_reactivating_disabled_tools`
 loads this example into a real AgentSession: startup registration updates session
 metadata/active tools, a command registers a tool, and the actual wrapped agent
-tool executes. Existing inactive names stay inactive on re-registration; a new
+tool executes. A command registered by a running command is then invoked through
+`AgentSession::prompt` slash-command routing. Existing inactive names stay inactive
+on re-registration; a new
 name becomes active. No model/network call required.
 
 Mutation proof and command/revision ledger:
