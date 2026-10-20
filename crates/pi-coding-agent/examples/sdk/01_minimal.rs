@@ -57,7 +57,8 @@ pub struct ExampleError(pub String);
 
 impl std::fmt::Debug for ExampleError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "Error: {}", self.0)
+        // Result termination supplies the single `Error: ` prefix.
+        formatter.write_str(&self.0)
     }
 }
 

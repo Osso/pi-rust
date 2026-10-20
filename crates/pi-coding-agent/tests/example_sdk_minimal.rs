@@ -260,10 +260,32 @@ fn entrypoint_error_keeps_name_message_and_failure_status_without_debug_quotes()
     use std::process::{ExitCode, Termination};
 
     let message = "prompt failed: \"quoted\"\nnext line";
-    let error = minimal::ExampleError(message.to_owned());
-    assert_eq!(format!("{error:?}"), format!("Error: {message}"));
-    assert_eq!(Err::<(), _>(error).report(), ExitCode::FAILURE);
-    assert_eq!(Ok::<(), minimal::ExampleError>(()).report(), ExitCode::SUCCESS);
+    if let Ok(case) = std::env::var("PI_SDK_MINIMAL_DIAGNOSTIC_FIXTURE") {
+        let result = if case == "failure" {
+            Err(minimal::ExampleError(message.to_owned()))
+        } else {
+            Ok(())
+        };
+        let status = result.report();
+        std::process::exit(if status == ExitCode::SUCCESS { 0 } else { 1 });
+    }
+    for (case, status, stderr) in [
+        ("failure", 1, format!("Error: {message}\n")),
+        ("success", 0, String::new()),
+    ] {
+        // Exercise Rust termination in an isolated test process, never default main.
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "entrypoint_error_keeps_name_message_and_failure_status_without_debug_quotes",
+                "--nocapture",
+            ])
+            .env("PI_SDK_MINIMAL_DIAGNOSTIC_FIXTURE", case)
+            .output()
+            .unwrap();
+        assert_eq!(child.status.code(), Some(status));
+        assert_eq!(String::from_utf8(child.stderr).unwrap(), stderr);
+    }
 }
 
 #[tokio::test]
@@ -290,10 +312,7 @@ async fn native_example_prompt_failure_releases_resources_without_printing_messa
     let source = source(json!({"messages":[],"events":[],"failure":error}));
     assert_eq!(source["error"], error);
     assert_eq!(source["errorName"], "Error");
-    assert_eq!(
-        format!("{:?}", minimal::ExampleError(error.clone())),
-        format!("Error: {error}")
-    );
+    assert_eq!(format!("{:?}", minimal::ExampleError(error.clone())), error);
     assert_eq!(output.text(), "");
     assert!(
         *cleaned.lock().unwrap(),

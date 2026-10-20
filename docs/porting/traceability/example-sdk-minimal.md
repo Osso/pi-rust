@@ -14,7 +14,7 @@ Source: pinned `packages/coding-agent/examples/sdk/01-minimal.ts` at
 | Final `console.log()` | Final newline after each message newline | Native suffix is two newlines; source oracle records empty log call |
 | `finally { session.dispose(); }` success | Dispose after output | Session-scoped resource cleanup callback observes exact fixture session ID |
 | Prompt throws | Return SDK error, skip message output, dispose | Native missing-auth fixture checks exact existing guidance, source `Error` name/message, and resource release; pinned source oracle throws after text deltas and still disposes |
-| Unhandled failure diagnostic/status | `main` maps errors to `ExampleError`; Rust `Termination` prints `Error: <exact message>` and fails | Diagnostic fixture checks quotes/newlines remain literal, failure status and successful status; no JavaScript frames |
+| Unhandled failure diagnostic/status | `main` maps errors to `ExampleError`; Rust `Termination` prints `Error: <exact message>` and fails | Isolated test subprocess checks exact stderr (single `Error:` prefix, literal quotes/newlines), exit 1 on error and exit 0 on success; no default main execution or JavaScript frames |
 
 ## Proof boundaries
 
@@ -49,9 +49,10 @@ line. This is not literal source stdout byte parity; no other normalization is
 applied. The source oracle separately asserts default factory arguments, exact
 prompt arguments, observer filtering/order, and disposal on both paths.
 
-`ExampleError` preserves the generic source `Error` name and exact SDK message
-without Debug quoting; Rust `Result` termination retains failure status. The
-fixture checks native termination status without executing default main. The SDK
+`ExampleError` renders the exact SDK message without Debug quoting; Rust `Result`
+termination supplies the single generic source `Error:` prefix and failure status.
+The fixture checks exact native stderr and status in a test subprocess without
+executing default main. The SDK
 already exposes creation errors as strings and prompt errors with a message;
 this example does not change core error types or claim arbitrary structured
 provider-error preservation beyond that existing boundary.
