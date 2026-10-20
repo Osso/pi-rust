@@ -170,9 +170,17 @@ pub(super) fn apply_completions(model: &mut JsValue) -> Result<(), GeneratorErro
 }
 
 fn thinking(model: &mut JsValue) -> Result<(), GeneratorError> {
-    let id = id_text(model, "id")?;
     let api = id_text(model, "api")?;
     let provider = id_text(model, "provider")?;
+    let (method, variable) =
+        if matches!(api.as_str(), "openai-responses" | "azure-openai-responses") || provider == "github-copilot" {
+            ("startsWith", "model.id")
+        } else if matches!(field(model, "id"), JsValue::Array(_)) {
+            ("endsWith", "model.id")
+        } else {
+            ("includes", "modelId")
+        };
+    let id = string_method(model, "id", variable, method)?.to_utf8_lossy();
     let mut apply = |patch: serde_json::Value| merge(model, "thinkingLevelMap", literal(patch));
     if matches!(api.as_str(), "openai-responses" | "azure-openai-responses") && id.starts_with("gpt-5") {
         apply(json!({"off":null}));
@@ -257,11 +265,17 @@ fn thinking(model: &mut JsValue) -> Result<(), GeneratorError> {
     }
     let google = matches!(api.as_str(), "google-generative-ai" | "google-vertex");
     let lower = id.to_lowercase();
-    if google && regex::Regex::new(r"gemini-3(?:\.\d+)?-pro").unwrap().is_match(&lower) {
+    if google
+        && regex::Regex::new(r"gemini-3(?:\.[0-9]+)?-pro")
+            .unwrap()
+            .is_match(&lower)
+    {
         apply(json!({"off":null,"minimal":null,"low":"LOW","medium":null,"high":"HIGH"}));
     }
     if google
-        && (regex::Regex::new(r"gemini-3(?:\.\d+)?-flash").unwrap().is_match(&lower)
+        && (regex::Regex::new(r"gemini-3(?:\.[0-9]+)?-flash")
+            .unwrap()
+            .is_match(&lower)
             || matches!(lower.as_str(), "gemini-flash-latest" | "gemini-flash-lite-latest"))
     {
         apply(json!({"off":null}));
@@ -380,7 +394,7 @@ pub(super) fn apply_after_reasoning(model: &mut JsValue) -> Result<(), Generator
         }
         merge(model, "compat", literal(json!({"supportsToolSearch":true})));
     }
-    if responses && matches!(field(field(model,"cost"),"cacheWrite"),JsValue::Number(number) if *number>0.0) {
+    if responses && catalog::numeric(field(field(model, "cost"), "cacheWrite"))? > 0.0 {
         merge(
             model,
             "compat",

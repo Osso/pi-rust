@@ -39,6 +39,8 @@ Focused follow-up logs: `05-http-red.log`/`06-options-red.log` establish missing
 
 `31-provider-raw-red.log`/`32-provider-raw.log` found Mistral parseFloat-vs-Number and false cache-value differences, raw scalar effort membership loss, and distinct NVIDIA surrogate aliases collapsing through U+FFFD. `33-provider-raw.log` GREEN: six provider alias/pricing/NVIDIA fixtures and all-provider regression; `32-provider-raw.log` also proves raw Baseten effort strings/array model maps. Normalization now lowercases valid UTF-16 runs while preserving unpaired units; no raw ID replacement/collision. Remaining arbitrary Unicode case-version, malformed reasoning consumer and primitive provider-map cases stay open.
 
+`37-raw-metadata-red.log` exposed cache-write relational coercion, Unicode `\\d` versus JS ASCII digits, and raw fetched-ID method/error-order mismatches. `38-raw-metadata.log` GREEN: 15 cache/Google pattern cases, 14 complete-source raw-ID failures (missing/null/number/bool/array/object), original 675 metadata combinations and three complete catalog workflows. JS error messages retain `candidate.id.startsWith`, `modelId.includes`, null/undefined distinction and array `endsWith` failure boundaries; raw input types are not silently discarded.
+
 ## Classified source discrepancy
 
 The source dedup check reads `providers[provider][id]` through `Object.prototype`, treating inherited names (`__proto__`, `constructor`, etc.) as existing truthy models. The full original-source workflow proves those supplied models are omitted. Native JSON grouping preserves this pinned serialized model set, rather than silently fixing it during artifact adaptation (parent relayed approved classification, 2026-10-20). No prototype mutation is performed by Rust.

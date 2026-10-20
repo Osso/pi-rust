@@ -5,6 +5,73 @@ use pi_js_compat::js_json::{JsValue, parse_lossless, stringify_lossless};
 use serde_json::json;
 
 #[test]
+fn source_raw_cache_coercion_and_ascii_google_patterns_match() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    let mut failures = vec![];
+    let operations = [
+        "applyOpenAICompletionsCompatMetadata",
+        "applyThinkingLevelMetadata",
+        "applyStrictToolCompatMetadata",
+        "applyOpenAIGrammarToolCompatMetadata",
+        "applyOpenAIToolSearchMetadata",
+        "applyOpenAIExplicitPromptCacheMetadata",
+    ];
+    let mut inputs = vec![];
+    for cache in [
+        json!(0),
+        json!("2"),
+        json!(true),
+        json!(["2"]),
+        json!({"toString":false}),
+        json!({}),
+        json!("bad"),
+    ] {
+        inputs.push(json!({"provider":"openai","id":"custom","api":"openai-responses","baseUrl":"https://api.openai.com/v1","cost":{"cacheWrite":cache}}));
+    }
+    for api in ["google-generative-ai", "google-vertex"] {
+        for id in ["gemini-3.१-pro", "GEMINI-3.1-PRO", "gemini-3.١-flash", "gemma-4-model"] {
+            inputs.push(json!({"provider":"google","id":id,"api":api,"baseUrl":"https://example.invalid","cost":{"cacheWrite":0}}));
+        }
+    }
+    for input in inputs {
+        let mut expected = input.clone();
+        let mut expected_error = None;
+        for operation in operations {
+            let response = source.request(&json!({"operation":operation,"args":[expected],"mutated":true}));
+            if let Some(error) = response.get("error") {
+                expected_error = Some(error.clone());
+                break;
+            }
+            expected = serde_json::from_str(response["json"].as_str().unwrap()).unwrap();
+        }
+        let mut actual = JsValue::from(&input);
+        let result = apply_model_metadata(&mut actual);
+        if let Some(error) = expected_error {
+            match result {
+                Ok(()) => failures.push(format!("{input}: missing source error {error}")),
+                Err(actual) => {
+                    if actual.name != error["name"].as_str().unwrap()
+                        || actual.message.to_utf8().unwrap() != error["message"].as_str().unwrap()
+                    {
+                        failures.push(format!("{input}: wrong source error {actual}"));
+                    }
+                }
+            }
+        } else if result.is_err() || stringify_lossless(&actual) != stringify_lossless(&JsValue::from(&expected)) {
+            failures.push(format!(
+                "{input}: actual {} {:?}; expected {expected}",
+                stringify_lossless(&actual),
+                result
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn source_metadata_branches_merge_existing_fields_in_source_order() {
     let mut source = oracle::TsOracle::spawn(
         "model-catalog-generator-oracle.ts",

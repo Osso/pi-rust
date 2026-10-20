@@ -7,7 +7,8 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Preserve models.dev plain costs and context-sized pricing tiers.
 - [x] Transform Baseten entries, including deprecated filtering, toggle/effort compatibility and GLM-5.2 overrides.
 - [x] Transform Fireworks tool models, including GLM-5p2/Kimi-K3 API and compatibility selection.
-- [x] Merge implemented compatibility/thinking/strict-tools/grammar/tool-search/cache metadata in source order without replacing existing user fields.
+- [x] Merge implemented compatibility/thinking/strict-tools/grammar/tool-search/cache metadata in source order without replacing existing user fields; preserve raw cache comparison coercions and JS ASCII model-family regexes.
+- [x] Fail raw fetched IDs at the same source method/name/message boundary, including missing/null IDs and arrays.
 - [x] Transform every source models.dev provider family in source order for the all-provider fixture, including endpoint routing, model filters, aliases and subscription costs.
 - [x] Merge fetched arrays, apply source overrides/supplements, clone Codex/GC and Azure, consume reasoning records, deduplicate and sort complete catalog values against full source JSON-only fixtures.
 - [ ] Cover all remaining provider/error/collision branches and native artifact workflows.

@@ -475,7 +475,10 @@ fn apply_overrides(model: &mut JsValue) -> Result<(), GeneratorError> {
             set(model, "cost", cost);
             set(model, "maxTokens", number(4096));
         }
-        if matches!(&id,JsValue::String(id) if id.units().starts_with(JsString::from("moonshotai/kimi-k2.6").units())) {
+        if string_method(model, "id", "candidate.id", "startsWith")?
+            .units()
+            .starts_with(JsString::from("moonshotai/kimi-k2.6").units())
+        {
             merge_compat(
                 model,
                 literal(json!({"supportsDeveloperRole":false,"requiresReasoningContentOnAssistantMessages":true})),

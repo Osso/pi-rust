@@ -99,6 +99,30 @@ fn property_entries(value: &JsValue) -> Vec<(JsString, JsValue)> {
     }
 }
 
+fn string_method<'a>(
+    model: &'a JsValue,
+    key: &str,
+    variable: &str,
+    method: &str,
+) -> Result<&'a JsString, GeneratorError> {
+    match field(model, key) {
+        JsValue::String(value) => Ok(value),
+        JsValue::Null => {
+            let owner = if matches!(model,JsValue::Object(model) if model.contains_key(&JsString::from(key))) {
+                "null"
+            } else {
+                "undefined"
+            };
+            Err(GeneratorError::type_error(&format!(
+                "Cannot read properties of {owner} (reading '{method}')"
+            )))
+        }
+        _ => Err(GeneratorError::type_error(&format!(
+            "{variable}.{method} is not a function"
+        ))),
+    }
+}
+
 fn equal(value: &JsValue, expected: &str) -> bool {
     value == &text(expected)
 }
