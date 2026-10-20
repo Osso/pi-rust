@@ -15,6 +15,25 @@ struct Item {
     text: Vec<char>,
     cursor: usize,
 }
+impl Item {
+    fn edit_input(&mut self, data: &str) {
+        if matches_key(data, "backspace") {
+            if self.cursor > 0 {
+                self.cursor -= 1;
+                self.text.remove(self.cursor);
+            }
+        } else if matches_key(data, "left") {
+            self.cursor = self.cursor.saturating_sub(1);
+        } else if matches_key(data, "right") {
+            self.cursor = (self.cursor + 1).min(self.text.len());
+        } else if data.encode_utf16().count() == 1
+            && let Some(ch) = data.chars().next().filter(|c| *c >= ' ')
+        {
+            self.text.insert(self.cursor, ch);
+            self.cursor += 1;
+        }
+    }
+}
 struct State {
     selected: usize,
     items: Vec<Item>,
@@ -112,21 +131,7 @@ impl ExtensionUiComponent for OverlayTest {
         } else if matches_key(data, "down") {
             state.selected = (state.selected + 1).min(state.items.len() - 1);
         } else if current.input {
-            if matches_key(data, "backspace") {
-                if current.cursor > 0 {
-                    current.cursor -= 1;
-                    current.text.remove(current.cursor);
-                }
-            } else if matches_key(data, "left") {
-                current.cursor = current.cursor.saturating_sub(1);
-            } else if matches_key(data, "right") {
-                current.cursor = (current.cursor + 1).min(current.text.len());
-            } else if data.encode_utf16().count() == 1
-                && let Some(ch) = data.chars().next().filter(|c| *c >= ' ')
-            {
-                current.text.insert(current.cursor, ch);
-                current.cursor += 1;
-            }
+            current.edit_input(data);
         }
     }
     fn render(&self, _width: usize) -> Vec<String> {
