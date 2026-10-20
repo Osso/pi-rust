@@ -243,6 +243,145 @@ async fn excluded_tools_are_removed_from_initial_active_names() {
 }
 
 #[tokio::test]
+async fn create_agent_session_propagates_path_resolution_errors() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let faux = faux();
+    let runtime = faux_runtime(&faux).await;
+    let model = faux.get_model(None).expect("model");
+    let session_dir = temp.path().join("sessions").display().to_string();
+    let session_manager =
+        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+
+    let cwd_error = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some("file://otherhost/project".to_owned()),
+        agent_dir: Some(temp.path().display().to_string()),
+        model_runtime: Some(runtime.clone()),
+        model: Some(model.clone()),
+        resource_loader: Some(StaticResourceLoader::new()),
+        session_manager: Some(session_manager),
+        ..Default::default()
+    })
+    .await;
+    assert!(cwd_error.is_err(), "cwd resolve errors must propagate");
+
+    let session_dir = temp.path().join("sessions").display().to_string();
+    let session_manager =
+        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let agent_dir_error = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(temp.path().display().to_string()),
+        agent_dir: Some("file://otherhost/agent".to_owned()),
+        model_runtime: Some(runtime),
+        model: Some(model),
+        resource_loader: Some(StaticResourceLoader::new()),
+        session_manager: Some(session_manager),
+        ..Default::default()
+    })
+    .await;
+    assert!(agent_dir_error.is_err(), "agent dir resolve errors must propagate");
+}
+
+#[tokio::test]
+async fn stream_function_forwards_websocket_connect_timeout_from_settings() {
+    use pi_ai::request::SimpleStreamOptions;
+    use pi_ai::types::Context;
+
+    let temp = tempfile::tempdir().expect("temp dir");
+    let faux = faux();
+    let runtime = faux_runtime(&faux).await;
+    let model = faux.get_model(None).expect("model");
+    let captured = Arc::new(Mutex::new(None));
+    let captured_options = Arc::clone(&captured);
+    faux.set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+        move |_context, options, _state, _model| {
+            *captured_options.lock().unwrap() = options;
+            Box::pin(async { Ok(faux_assistant_message("ok", FauxAssistantMessageOptions::default())) })
+        },
+    ))]);
+    let mut settings = serde_json::Map::new();
+    settings.insert("websocketConnectTimeoutMs".to_owned(), json!(1234));
+    let session_dir = temp.path().join("sessions").display().to_string();
+    let session_manager =
+        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(temp.path().display().to_string()),
+        agent_dir: Some(temp.path().display().to_string()),
+        model_runtime: Some(runtime),
+        model: Some(model.clone()),
+        resource_loader: Some(StaticResourceLoader::new()),
+        session_manager: Some(session_manager),
+        settings_manager: Some(Arc::new(Mutex::new(
+            pi_coding_agent::core::settings_manager::SettingsManager::in_memory(settings, Default::default()),
+        ))),
+        ..Default::default()
+    })
+    .await
+    .expect("session");
+
+    let stream = (result.session.agent().stream_fn())(
+        model,
+        Context {
+            system_prompt: None,
+            messages: Vec::new(),
+            tools: None,
+        },
+        SimpleStreamOptions::default(),
+    )
+    .await;
+    stream.result().await.expect("stream result");
+    assert_eq!(
+        captured
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|options| options.stream.websocket_connect_timeout_ms),
+        Some(1234.0)
+    );
+}
+
+#[tokio::test]
+async fn stream_function_fails_when_the_websocket_connect_timeout_setting_is_invalid() {
+    use pi_ai::request::SimpleStreamOptions;
+    use pi_ai::types::Context;
+
+    let temp = tempfile::tempdir().expect("temp dir");
+    let faux = faux();
+    let runtime = faux_runtime(&faux).await;
+    let model = faux.get_model(None).expect("model");
+    let mut settings = serde_json::Map::new();
+    settings.insert("websocketConnectTimeoutMs".to_owned(), json!("bad"));
+    let session_dir = temp.path().join("sessions").display().to_string();
+    let session_manager =
+        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(temp.path().display().to_string()),
+        agent_dir: Some(temp.path().display().to_string()),
+        model_runtime: Some(runtime),
+        model: Some(model.clone()),
+        resource_loader: Some(StaticResourceLoader::new()),
+        session_manager: Some(session_manager),
+        settings_manager: Some(Arc::new(Mutex::new(
+            pi_coding_agent::core::settings_manager::SettingsManager::in_memory(settings, Default::default()),
+        ))),
+        ..Default::default()
+    })
+    .await
+    .expect("session");
+
+    let stream = (result.session.agent().stream_fn())(
+        model,
+        Context {
+            system_prompt: None,
+            messages: Vec::new(),
+            tools: None,
+        },
+        SimpleStreamOptions::default(),
+    )
+    .await;
+    let failure = stream.result().await.expect_err("invalid setting must fail the stream");
+    assert_eq!(failure.message(), "Invalid websocketConnectTimeoutMs setting: \"bad\"");
+}
+
+#[tokio::test]
 async fn create_agent_session_forwards_observer_coordination_options() {
     let temp = tempfile::tempdir().expect("temp dir");
     let faux = faux();
