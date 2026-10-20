@@ -2,7 +2,7 @@
 use pi_coding_agent::core::extensions::*;
 use pi_tui::{
     keys::{is_key_release, matches_key},
-    utils::{strip_ansi, visible_width},
+    utils::{strip_terminal_sequences, visible_width},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -552,7 +552,7 @@ fn render_frame(inner: &Inner, width: usize) -> Vec<String> {
     lines
         .into_iter()
         .map(|line| {
-            let len = strip_ansi(&line).encode_utf16().count();
+            let len = strip_terminal_sequences(&line).encode_utf16().count();
             format!("{line}{}", " ".repeat(width.saturating_sub(len)))
         })
         .collect()
