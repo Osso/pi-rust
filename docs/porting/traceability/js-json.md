@@ -38,11 +38,9 @@ bash manifests/completions, supervisor request rows, persisted process identity)
 ## Discrepancies
 
 - Legacy `parse` replaces lone surrogate escapes with U+FFFD before key insertion, preserving existing serde-facing behavior. This is a known lossy API boundary, not valid proof of raw-file validator parity: `JSON.stringify` must escape those units rather than replace them. New `parse_lossless` retains them. A non-BMP character reported as V8's single-unit error token still prints as U+FFFD at the UTF-8 diagnostic boundary; the existing mutation oracle applies `toWellFormed()` only to errors. The new bounded lossless oracle applies no normalization.
-- `JsValue::Number`, conversion from serde values and explicit lossy conversion retain
-  serde-number storage. Parsing converts through JavaScript doubles and maps non-finite
-  values to null; current negative-zero behavior is retained. The writer converts through
-  `as_f64()` and `js_number_to_string`, so it does not print arbitrary serde integers
-  exactly above 2^53. No general JavaScript numeric representation parity is claimed.
+- The shared writer converts serde numbers to binary64, matching JavaScript rounding
+  above 2^53. Lossless parsing now retains overflow infinities and signed zero until
+  serialization; legacy serde-facing parsing still maps non-finite numbers to null.
 
 ## Additive UTF-16 API (bounded prerequisite)
 
@@ -58,14 +56,18 @@ Contract: [shared JSON UTF-16 spec](../../specs/js-json.md). No caller migration
 | `JsValue::from(&Value)`, `into_serde_lossy` | `serde_conversion_and_constructed_lone_units_use_shared_writer`, `legacy_parse_replaces_before_collisions_and_preserves_original_slot`: recursive conversion and explicitly later key collisions |
 | Legacy `parse`, `stringify`, `stringify_pretty`, `object_entries` | Existing six focused tests and mutation corpus reused as test modules in the new pi-js-compat tests; explicit lone-key collision ordering regression |
 
-One parser and writer serve both representations. Legacy parse chooses replacement at string completion, before duplicate-key insertion; converting an already-lossless object later can yield different collision winners and is explicitly named lossy. Numbers retain existing `serde_json::Number`/double behavior; no general JavaScript numeric representation claim.
+One parser and writer serve both representations. Legacy parse chooses replacement at string completion, before duplicate-key insertion; converting an already-lossless object later can yield different collision winners and is explicitly named lossy. `JsValue::Number(f64)` retains JavaScript binary64 values, including overflow infinities and signed zero. Non-finite values become null only at serialization or the explicit serde conversion boundary. `From<&Value>` converts numbers to binary64 before stringification, matching JavaScript rounding.
+
+Generator prerequisite (2026-10-20): `is_truthy` and fallible `to_js_string` share JSON coercion semantics, including array joining and own `toString` shadow errors. `image_generator_coercion::json_coercions_match_node_without_losing_code_units` compares Node directly. Raw `1e400` previously became null before coercion (false / "null" rather than true / "Infinity"); the focused RED established the numeric representation change, rather than declaring raw JSON invalid. Development logs: `/tmp/pi-rust-image-generator-proof/{shared-red,shared-coercion-green,nonfinite-red,nonfinite-green}.log`.
 
 Development evidence: `/tmp/pi-rust-js-json-utf16-proof/ledger.md` records baseline
 Node differential RED (nine mismatches), targeted GREEN and formatting at `850b6e8`.
 Independent integration proof at `e31b4c8` passed all 11 JSON tests, shared-crate
 check and all-feature Clippy. Formatting inherits the identical integrated precommit
 source check; full commands/scope hashes: `/tmp/pi-rust-e31b4c8-json-date-proof/ledger.json`.
-Model-data consumption remains a separate slice; no full-port claim follows.
+Model-data consumption is integrated at `f2ec514` and awaits independent proof.
+The subsequent binary64/coercion change invalidates this historical JSON code proof;
+its development RED/GREEN evidence is recorded above. No full-port claim follows.
 
 ## Proof inventory
 

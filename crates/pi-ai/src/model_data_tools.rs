@@ -138,7 +138,7 @@ fn object(value: &Value) -> Option<&JsObject> {
     if let Value::Object(s) = value { Some(s) } else { None }
 }
 fn number(value: &Value) -> Option<f64> {
-    if let Value::Number(s) = value { s.as_f64() } else { None }
+    if let Value::Number(s) = value { Some(*s) } else { None }
 }
 fn array(value: &Value) -> Option<&Vec<Value>> {
     if let Value::Array(s) = value { Some(s) } else { None }

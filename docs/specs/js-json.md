@@ -10,6 +10,8 @@
 - [x] Stringify lone surrogates as lowercase `\uXXXX`, valid pairs as raw Unicode, and controls with JavaScript escapes; support compact and two-space pretty output.
 - [x] Supply UTF-16 construction/access, code-unit equality/hash/order, valid Rust-string construction, checked UTF-8 conversion, and explicitly lossy UTF-8 conversion.
 - [x] Preserve existing null/bool/number/array/object support and V8 diagnostic text/UTF-16 positions.
+- [x] Retain JavaScript binary64 numbers, including negative zero and overflow infinities, until stringify or explicit serde conversion maps non-finite values to null.
+- [x] Provide JSON-value Boolean and fallible String coercions without losing UTF-16 units; objects shadowing `toString` throw rather than silently stringify.
 - [x] Keep legacy serde parse behavior, including replacement before duplicate-key collision handling. Explicit later lossy conversion need not produce the same collisions as legacy parsing.
 
 ## How it works
@@ -25,6 +27,7 @@
 - `crates/pi-js-compat/tests/js_json_lossless.rs` — string identity/order/hash, conversion boundaries, legacy collision regression; includes the existing six focused serde tests.
 - `crates/pi-js-compat/tests/differential_js_json_lossless.rs` — real Node output/key-unit comparison without normalization; includes the existing scalar/error mutation corpus.
 - `oracle/js-json-lossless-oracle.ts` — Node built-ins with verbatim stringification/error output and `Object.keys` units.
+- `crates/pi-js-compat/tests/image_generator_coercion.rs` and `oracle/image-generator-coercion-oracle.ts` — real Node truthiness/String conversion, including raw overflow and own-method shadowing.
 
 ## Known gaps (current cycle)
 
@@ -33,5 +36,5 @@
 ## Out of scope
 
 - Migrating existing serde callers; legacy replacement behavior remains intentional compatibility at that API boundary, not a waiver for raw-file validator inputs.
-- Broader JavaScript-number representation changes. `JsValue::Number` retains `serde_json::Number`; parsing still uses the existing double conversion, non-finite-to-null boundary, and existing negative-zero behavior. UTF-16 identity is lossless; arbitrary JavaScript numeric representation is not claimed.
+- Arbitrary-precision numbers: `JsValue::Number(f64)` deliberately uses JavaScript binary64, not arbitrary-precision JSON arithmetic.
 - Error excerpts containing split surrogate units retain existing UTF-8 replacement behavior; the legacy mutation oracle normalizes only such diagnostic strings. The new bounded lossless oracle does not normalize outputs.
