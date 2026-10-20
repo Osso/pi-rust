@@ -47,6 +47,11 @@ to a dedicated proof directory to retain state/logs there; otherwise a fresh
 `pi-test-*` directory is retained under TMPDIR. Remove retained directories after
 collecting proof.
 
+The runner does not force `PI_OFFLINE`: network containment must not bypass
+injected fetch/npm/git fixtures. Tests requiring application offline semantics
+set it explicitly; an explicitly supplied `PI_OFFLINE` is preserved. CLI startup
+fixtures use offline mode; version/telemetry tests use injected fetches instead.
+
 Every protected process gets new user/network namespaces with loopback enabled
 but no external interface/route. NET_ADMIN is retained only within those child
 namespaces to bring up their loopback, then dropped before executing tests;

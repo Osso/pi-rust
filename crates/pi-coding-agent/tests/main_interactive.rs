@@ -73,6 +73,7 @@ fn base_environment(fixture: &Fixture) -> Vec<(String, String)> {
         ),
         ("PI_PACKAGE_DIR".to_owned(), fixture.package_dir.display().to_string()),
         ("NO_COLOR".to_owned(), "1".to_owned()),
+        ("PI_OFFLINE".to_owned(), "1".to_owned()),
     ]
 }
 

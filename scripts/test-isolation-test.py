@@ -194,6 +194,7 @@ with socket.socket() as client:
         assert error.errno == errno.ENETUNREACH, error
     else:
         raise AssertionError("external network route exists")
+assert "PI_OFFLINE" not in os.environ
 assert "ANTHROPIC_API_KEY" not in os.environ
 assert not pathlib.Path("/home/osso/.ssh").exists()
 print("PASS private PTY, dropped capabilities, masked helper, actual loopback HTTP, denied external route, nested literal fixture, private environment")
