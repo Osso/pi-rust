@@ -48,7 +48,7 @@ impl ExtensionUiContext for CaptureUi {
             "confirm",
             title,
             message,
-            opts.and_then(|o| o.timeout),
+            opts.and_then(|o| o.timeout).map(pi_js_compat::number::js_number_value),
             opts.is_some_and(|o| o.signal.is_some())
         ]));
         let answer = self.dialogs.lock().unwrap().remove(0);
@@ -70,10 +70,12 @@ impl ExtensionUiContext for CaptureUi {
         items: &[String],
         opts: Option<&ExtensionUiDialogOptions>,
     ) -> BoxFuture<'a, Result<Option<String>, String>> {
-        self.trace
-            .lock()
-            .unwrap()
-            .push(json!(["select", title, items, opts.and_then(|o| o.timeout)]));
+        self.trace.lock().unwrap().push(json!([
+            "select",
+            title,
+            items,
+            opts.and_then(|o| o.timeout).map(pi_js_compat::number::js_number_value)
+        ]));
         let answer = self.dialogs.lock().unwrap().remove(0);
         Box::pin(async move {
             if let Some(error) = answer.get("error").and_then(Value::as_str) {
@@ -237,6 +239,9 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
             ExtensionMode::Tui
         },
     );
+    if request["noUi"] == true {
+        runner.set_ui_context(None, ExtensionMode::Json);
+    }
     for step in request["steps"].as_array().unwrap() {
         match step["op"].as_str().unwrap() {
             "command" => {

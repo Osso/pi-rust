@@ -30,7 +30,7 @@ async fn actual_private_git_clean_dirty_and_non_repository_match_ts() {
             std::fs::write(temp.path().join("two.txt"), "two").unwrap();
         }
         for mode in ["tui", "json"] {
-            let actual = harness::compare("dirty-repo-guard", harness::factory(example::dirty_repo_guard_extension), json!({"cwd":temp.path(),"mode":mode,"dialogs":[null,"Yes, proceed anyway","No, let me commit first"],"steps":steps})).await;
+            let actual = harness::compare("dirty-repo-guard", harness::factory(example::dirty_repo_guard_extension), json!({"cwd":temp.path(),"mode":mode,"noUi":mode == "json","dialogs":[null,"Yes, proceed anyway","No, let me commit first"],"steps":steps})).await;
             if state == "dirty" {
                 assert!(
                     actual["trace"]

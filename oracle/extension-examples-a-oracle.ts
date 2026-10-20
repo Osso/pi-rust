@@ -73,6 +73,7 @@ async function run(request: any) {
    return `\x1b[38;2;${rgb[role]}m${text}\x1b[39m`;
   }},
  } as any, request.mode ?? "tui");
+ if (request.noUi) runner.setUIContext(undefined, request.mode ?? "json");
  runner.onError((error: any) => trace.push(["handlerError",error.error]));
  const commands = [...extension.commands.values()].map((c: any) => [c.name, c.description, !!c.getArgumentCompletions]);
  const tools = [...extension.tools.values()].map((t: any) => {

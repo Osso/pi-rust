@@ -21,7 +21,7 @@ async fn deterministic_frames_wrap_restart_and_shutdown_match_ts() {
             json!({"op":"advance","ms":800}),
             json!({"op":"event","event":{"type":"agent_start"}}),
             json!({"op":"advance","ms":80}),
-            json!({"op":"event","event":{"type":"session_shutdown"}}),
+            json!({"op":"event","event":{"type":"session_shutdown","reason":"quit"}}),
             json!({"op":"advance","ms":800}),
         ]);
         let actual = harness::compare(

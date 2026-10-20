@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 #[tokio::test]
 async fn switches_forks_ui_gating_and_dialog_errors_match_ts() {
     for mode in ["tui", "json"] {
-        let actual = harness::compare("confirm-destructive", harness::factory(example::confirm_destructive_extension), json!({"mode":mode,"dialogs":[false,true,false,true,{"error":"dialog failed"},null,"No, stay in current session","Yes, create fork"],"steps":[
+        let actual = harness::compare("confirm-destructive", harness::factory(example::confirm_destructive_extension), json!({"mode":mode,"noUi":mode == "json","dialogs":[false,true,false,true,{"error":"dialog failed"},null,"No, stay in current session","Yes, create fork"],"steps":[
             {"op":"emit","event":{"type":"session_before_switch","reason":"new"}},
             {"op":"emit","event":{"type":"session_before_switch","reason":"new"}},
             {"op":"emit","event":{"type":"session_before_switch","reason":"resume"}},
