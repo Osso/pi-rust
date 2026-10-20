@@ -2,6 +2,8 @@
 mod oracle;
 #[path = "extensions.rs"]
 mod support;
+#[path = "ui_thread.rs"]
+mod ui_thread;
 use pi_coding_agent::core::{
     extensions::*,
     model_registry::ModelRegistry,
@@ -61,51 +63,60 @@ impl ExtensionUiContext for Ui {
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
     ) -> BoxFuture<'a, Result<Option<Value>, String>> {
-        Box::pin(async move {
-            let completed = Arc::new(Mutex::new(false));
-            let done = completed.clone();
-            let trace = self.trace.clone();
-            let component = factory(
-                ExtensionUiFactoryContext {
-                    tui: ExtensionUiTui::new(Arc::new(Backend(self.trace.clone()))),
-                    theme: self.theme(),
-                    keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
-                },
-                ExtensionUiDone::new(Arc::new(move |_| {
-                    *done.lock().unwrap() = true;
-                    trace.lock().unwrap().push(json!(["done"]));
-                })),
-            );
-            tokio::task::yield_now().await;
-            let render = |width| {
-                let frame = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| component.render(width))) {
-                    Ok(lines) => json!(lines),
-                    Err(error) => json!({"error":pi_coding_agent::utils::uncaught::format_uncaught(error.as_ref())}),
-                };
-                self.trace.lock().unwrap().push(json!(["render", width, frame]));
-            };
-            for width in self.item["widths"].as_array().unwrap() {
-                render(width.as_u64().unwrap() as usize);
-            }
-            for step in self.item["steps"].as_array().unwrap() {
-                match step["op"].as_str().unwrap() {
-                    "key" => component.handle_input(step["key"].as_str().unwrap()),
-                    "ticks" => {
-                        for _ in 0..step["count"].as_u64().unwrap() {
-                            tokio::time::advance(Duration::from_millis(step["ms"].as_u64().unwrap_or(100))).await;
-                            tokio::task::yield_now().await;
+        let trace = self.trace.clone();
+        let item = self.item.clone();
+        let theme = self.theme();
+        ui_thread::run(move || {
+            Box::pin(async move {
+                tokio::time::pause();
+                let completed = Arc::new(Mutex::new(false));
+                let done = completed.clone();
+                let done_trace = trace.clone();
+                let component = factory(
+                    ExtensionUiFactoryContext {
+                        tui: ExtensionUiTui::new(Arc::new(Backend(trace.clone()))),
+                        theme: theme,
+                        keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
+                    },
+                    ExtensionUiDone::new(Arc::new(move |_| {
+                        *done.lock().unwrap() = true;
+                        done_trace.lock().unwrap().push(json!(["done"]));
+                    })),
+                );
+                tokio::task::yield_now().await;
+                let render = |width| {
+                    let frame = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| component.render(width)))
+                    {
+                        Ok(lines) => json!(lines),
+                        Err(error) => {
+                            json!({"error":pi_coding_agent::utils::uncaught::format_uncaught(error.as_ref())})
                         }
-                    }
-                    "invalidate" => component.invalidate(),
-                    other => panic!("unknown game fixture op {other}"),
-                }
-                for width in self.item["widths"].as_array().unwrap() {
+                    };
+                    trace.lock().unwrap().push(json!(["render", width, frame]));
+                };
+                for width in item["widths"].as_array().unwrap() {
                     render(width.as_u64().unwrap() as usize);
                 }
-            }
-            assert!(*completed.lock().unwrap(), "script must close custom component");
-            component.dispose();
-            Ok(None)
+                for step in item["steps"].as_array().unwrap() {
+                    match step["op"].as_str().unwrap() {
+                        "key" => component.handle_input(step["key"].as_str().unwrap()),
+                        "ticks" => {
+                            for _ in 0..step["count"].as_u64().unwrap() {
+                                tokio::time::advance(Duration::from_millis(step["ms"].as_u64().unwrap_or(100))).await;
+                                tokio::task::yield_now().await;
+                            }
+                        }
+                        "invalidate" => component.invalidate(),
+                        other => panic!("unknown game fixture op {other}"),
+                    }
+                    for width in item["widths"].as_array().unwrap() {
+                        render(width.as_u64().unwrap() as usize);
+                    }
+                }
+                assert!(*completed.lock().unwrap(), "script must close custom component");
+                component.dispose();
+                Ok(None)
+            })
         })
     }
 }
