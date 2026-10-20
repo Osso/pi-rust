@@ -1,6 +1,5 @@
 //! Opt-in native port of `custom-provider-anthropic/index.ts`.
 //! Embed and register explicitly; no provider is installed on import.
-use pi_ai::auth::helpers::env_api_key_auth;
 use pi_ai::auth::oauth::pkce::generate_pkce_with;
 use pi_ai::auth::oauth::support::{OAuthRuntime, url_with_query};
 use pi_ai::auth::types::*;
@@ -9,6 +8,8 @@ use pi_ai::request::{BoxFuture, CallbackError, HttpRequest, SimpleStreamOptions,
 use pi_ai::types::{Context, Model};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use pi_coding_agent::core::extensions::ExtensionApi;
+use pi_coding_agent::core::model_config::ModelConfig;
+use pi_coding_agent::core::provider_composer::{ProviderConfigInput, compose_model_provider};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -30,11 +31,18 @@ pub fn custom_anthropic_extension(api: &ExtensionApi) -> Result<(), String> {
 
 /// Existing OAuth runtime supplies transport, PKCE randomness and clock to embedders.
 pub fn custom_anthropic_extension_with_runtime(api: &ExtensionApi, runtime: OAuthRuntime) -> Result<(), String> {
-    let auth = ProviderAuth {
-        api_key: Some(Arc::new(env_api_key_auth("API key", &["CUSTOM_ANTHROPIC_API_KEY"]))),
-        oauth: Some(Arc::new(CustomOAuth(runtime.clone()))),
-    };
-    api.register_native_provider(Arc::new(CustomAnthropic { auth, runtime }))
+    let auth = ProviderAuth::oauth(Arc::new(CustomOAuth(runtime.clone())));
+    let provider = compose_model_provider(
+        PROVIDER,
+        Some(Arc::new(CustomAnthropic { auth, runtime })),
+        &ModelConfig::default(),
+        Some(&ProviderConfigInput {
+            api_key: Some("$CUSTOM_ANTHROPIC_API_KEY".into()),
+            ..Default::default()
+        }),
+    )
+    .map_err(|error| error.to_string())?;
+    api.register_native_provider(provider)
 }
 
 struct CustomOAuth(OAuthRuntime);
@@ -151,7 +159,7 @@ impl Provider for CustomAnthropic {
         PROVIDER
     }
     fn name(&self) -> &str {
-        PROVIDER
+        "Custom Anthropic (Claude Pro/Max)"
     }
     fn base_url(&self) -> Option<&str> {
         Some("https://api.anthropic.com")

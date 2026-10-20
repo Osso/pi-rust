@@ -104,34 +104,66 @@ fn result(id: &str, content: Value, error: bool) -> Value {
     json!({"role":"toolResult","toolCallId":id,"toolName":"read","content":content,"isError":error,"timestamp":0})
 }
 
-struct Env;
+struct Env(Value);
 impl AuthContext for Env {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<String>> {
         assert_eq!(name, "CUSTOM_ANTHROPIC_API_KEY");
-        Box::pin(async { Some("FAKE-from-env".into()) })
+        let value = self.0[name].as_str().map(str::to_owned);
+        Box::pin(async move { value })
     }
     fn file_exists(&self, _: &str) -> BoxFuture<'_, bool> {
         panic!("env auth must not read files")
     }
 }
 #[tokio::test]
-async fn native_registered_api_key_auth_resolves_only_custom_environment() {
-    let provider = provider(&json!({}), Arc::new(Mutex::new(vec![]))).await;
-    let resolved = provider
-        .auth()
-        .api_key
-        .as_ref()
-        .unwrap()
-        .resolve(ApiKeyResolveInput {
-            ctx: Arc::new(Env),
-            credential: None,
-            signal: CancellationToken::new(),
-        })
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(resolved.auth.api_key.as_deref(), Some("FAKE-from-env"));
-    assert_eq!(resolved.source.as_deref(), Some("CUSTOM_ANTHROPIC_API_KEY"));
+async fn native_registered_api_key_auth_matches_pinned_composed_registration() {
+    let mut oracle = oracle();
+    for mut input in [
+        json!({"env":{"CUSTOM_ANTHROPIC_API_KEY":"FAKE-from-env"}}),
+        json!({"env":{}}),
+        json!({"env":{"CUSTOM_ANTHROPIC_API_KEY":""}}),
+        json!({"env":{"CUSTOM_ANTHROPIC_API_KEY":"FAKE-env"},"credential":{"type":"api_key","key":"FAKE-stored","env":{"EXTRA":"FAKE-extra"}}}),
+        json!({"credential":{"type":"api_key","key":""}}),
+    ] {
+        input["kind"] = json!("providerAuth");
+        for check in [false, true] {
+            input["check"] = json!(check);
+            let expected = oracle.request(&input);
+            let provider = provider(&input, Arc::new(Mutex::new(vec![]))).await;
+            let ctx: Arc<dyn AuthContext> = Arc::new(Env(input["env"].clone()));
+            let credential = input
+                .get("credential")
+                .cloned()
+                .map(serde_json::from_value::<Credential>)
+                .transpose()
+                .unwrap()
+                .and_then(|c| if let Credential::ApiKey(c) = c { Some(c) } else { None });
+            let auth = provider.auth().api_key.as_ref().unwrap();
+            let result = if check {
+                match auth.check(ApiKeyCheckInput {
+                    ctx,
+                    credential,
+                    signal: CancellationToken::new(),
+                }) {
+                    Some(future) => future.await.map(|r| serde_json::to_value(r).unwrap()),
+                    None => Ok(Value::Null),
+                }
+            } else {
+                auth.resolve(ApiKeyResolveInput {
+                    ctx,
+                    credential,
+                    signal: CancellationToken::new(),
+                })
+                .await
+                .map(|r| serde_json::to_value(r).unwrap())
+            };
+            let actual = match result {
+                Ok(result) => json!({"name":provider.name(),"result":result}),
+                Err(e) => json!({"name":provider.name(),"error":e.to_string()}),
+            };
+            assert_eq!(actual, expected, "{input}");
+        }
+    }
 }
 
 #[tokio::test]

@@ -4,7 +4,7 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 
 ## What it must do
 
-- [x] Register two exact model definitions under `custom-anthropic`, custom API `custom-anthropic-api`, OAuth name and API-key environment binding without autoloading.
+- [x] Register two exact model definitions under `custom-anthropic`, custom API `custom-anthropic-api`, OAuth/provider display name and API-key environment binding without autoloading; preserve source registration adapter's configured-key checks, source labels and missing-env errors.
 - [x] Generate 32-byte PKCE, notify the exact authorization URL, prompt once, split `code#state`, exchange/refresh tokens, return access token and expiry minus five minutes; forward callback/fetch/status failures.
 - [x] Match API-key/OAuth headers, identity/system prompts, tool casing, messages/images/tool-result grouping, cache control and reasoning budgets.
 - [ ] Match complete SDK event sequence, usage/cost replacement, partial JSON behavior, abort/missing-stop/error handling, including temporary content `index` and `partialJson` fields.
