@@ -282,6 +282,19 @@ fn first_time_setup_persists_theme_and_analytics() {
 }
 
 #[test]
+fn import_failure_exits_through_the_fatal_runtime_handler() {
+    let fixture = fixture();
+    std::fs::create_dir(fixture.work.join("bad-session")).expect("unreadable session path");
+    let inputs = vec![
+        input("Ctrl+C twice to exit", "/import bad-session\r"),
+        input("Ctrl+C twice to exit", ""),
+    ];
+    let outcome = run_under_pty(&fixture, &[], &agent_environment(&fixture), &inputs);
+    let text = visible(&outcome.stdout);
+    assert_eq!(outcome.code, 1, "stdout:\n{text}");
+}
+
+#[test]
 fn quit_prints_the_resume_command() {
     let fixture = fixture();
     let work = fixture.work.display().to_string();

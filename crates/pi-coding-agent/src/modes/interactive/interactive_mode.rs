@@ -6018,6 +6018,15 @@ impl InteractiveMode {
         self.ui.stop_with(pi_tui::tui::TuiStopOptions { preserve_screen });
     }
 
+    /// `handleFatalRuntimeError`: report, stop the TUI on the transcript, and
+    /// exit 1. The TypeScript signature returns `Promise<never>`.
+    fn handle_fatal_runtime_error(&self, prefix: &str, error: impl std::fmt::Display) -> ! {
+        self.show_error(&format!("{prefix}: {error}"));
+        crate::modes::interactive::theme::stop_theme_watcher();
+        self.stop_with_output(crate::core::settings_manager::FullscreenExitOutput::Transcript);
+        std::process::exit(1);
+    }
+
     /// `disposeActiveSelector`: runs the active selector's dispose hook.
     fn dispose_active_selector(&self) {
         let dispose = self.active_selector_dispose.borrow_mut().take();
@@ -8126,7 +8135,7 @@ impl InteractiveMode {
                 self.ui.request_render();
             }
             Ok(_) => {}
-            Err(error) => self.show_error(&error),
+            Err(error) => self.handle_fatal_runtime_error("Failed to create session", error),
         }
     }
 
@@ -8185,7 +8194,13 @@ impl InteractiveMode {
                 self.adopt_session(session);
                 self.show_status("Session imported");
             }
-            Err(error) => self.show_error(&error),
+            Err(error) => {
+                if error.starts_with(crate::core::session_errors::SessionImportFileNotFoundError::MESSAGE_PREFIX) {
+                    self.show_error(&format!("Failed to import session: {error}"));
+                } else {
+                    self.handle_fatal_runtime_error("Failed to import session", error);
+                }
+            }
         }
     }
 
@@ -9158,10 +9173,7 @@ impl InteractiveMode {
             Err(error) => {
                 let issue = self.missing_session_cwd_issue(session_path);
                 let Some(issue) = issue else {
-                    self.show_error(&format!("Failed to resume session: {error}"));
-                    self.stop();
-                    self.shutdown_requested.set(true);
-                    return;
+                    self.handle_fatal_runtime_error("Failed to resume session", error);
                 };
                 let confirmed = self
                     .show_extension_confirm(
@@ -9190,11 +9202,7 @@ impl InteractiveMode {
                         self.continue_interrupted_resumed_session().await;
                         self.show_status("Resumed session in current cwd");
                     }
-                    Err(error) => {
-                        self.show_error(&format!("Failed to resume session: {error}"));
-                        self.stop();
-                        self.shutdown_requested.set(true);
-                    }
+                    Err(error) => self.handle_fatal_runtime_error("Failed to resume session", error),
                 }
             }
         }
@@ -10512,9 +10520,12 @@ impl InteractiveMode {
                 if let Ok(result) = &result {
                     self.adopt_transitioned_session(&runtime, result.cancelled);
                 }
-                let transition = result.map(|result| SessionTransitionResult {
-                    cancelled: result.cancelled,
-                });
+                let transition = match result {
+                    Ok(result) => Ok(SessionTransitionResult {
+                        cancelled: result.cancelled,
+                    }),
+                    Err(error) => self.handle_fatal_runtime_error("Failed to create session", error),
+                };
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeFork {
@@ -10539,9 +10550,12 @@ impl InteractiveMode {
                 if let Ok(result) = &result {
                     self.adopt_transitioned_session(&runtime, result.cancelled);
                 }
-                let transition = result.map(|result| SessionTransitionResult {
-                    cancelled: result.cancelled,
-                });
+                let transition = match result {
+                    Ok(result) => Ok(SessionTransitionResult {
+                        cancelled: result.cancelled,
+                    }),
+                    Err(error) => self.handle_fatal_runtime_error("Failed to fork session", error),
+                };
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeNavigateTree {
