@@ -1,6 +1,5 @@
 //! Opt-in port of `examples/extensions/ssh.ts` at 532f7d12.
 //! Explicitly register `ssh_extension`; never autoloaded.
-use base64::{Engine, engine::general_purpose::STANDARD};
 use pi_agent_core::{AgentTool, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::{
@@ -17,6 +16,7 @@ use pi_coding_agent::{
     modes::interactive::theme::ThemeColor,
     utils::child_process::node_spawn_error_message,
 };
+use pi_js_compat::base64::buffer_to_base64;
 use pi_js_compat::{number::js_number_to_string, string::js_trim};
 use std::{
     io,
@@ -99,7 +99,7 @@ impl WriteOperations for Remote {
         Box::pin(async move {
             self.run(format!(
                 "echo {} | base64 -d > {}",
-                quote(&STANDARD.encode(content)),
+                quote(&buffer_to_base64(content.as_bytes())),
                 self.quote_path(path)
             ))
             .await
