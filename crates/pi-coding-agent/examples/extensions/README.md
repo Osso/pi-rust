@@ -59,3 +59,10 @@ It appends request payloads and response headers to
 exist. Append failures surface through the runner's error listeners. Logs can
 contain credentials and private prompts: enable deliberately, never by default.
 Tests use private temporary directories only.
+
+## Modes (batch G)
+
+`minimal_mode.rs` exports `minimal_mode_extension(&ExtensionApi)`; register its
+factory explicitly using the pattern above. It overrides seven built-in tools'
+renderers while executing the built-ins against the invocation context cwd.
+`plan_mode/utils.rs` contains pure planning helpers used by the plan-mode example.
