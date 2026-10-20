@@ -67,6 +67,26 @@ async fn border_status_editor_matches_pinned_borders_and_spinner_lifecycle() {
 }
 
 #[tokio::test]
+async fn border_status_editor_matches_live_model_context_home_and_no_branch() {
+    let factory: ExtensionFactory = Arc::new(|api| {
+        let result = border_status_editor::border_status_editor_extension(api);
+        Box::pin(async move { result })
+    });
+    support::compare("border-status-editor", factory, json!({
+        "widths":[2,5,30,120], "repository":false, "homeCwd":true,
+        "model":{"provider":"openai","id":"fixture","contextWindow":128000},
+        "usage":{"tokens":32767,"contextWindow":128500,"percent":25.5},
+        "thinking":"high", "steps":[
+            {"thinking":"off","usage":{"tokens":null,"contextWindow":128500,"percent":null}},
+            {"model":null,"usage":null},
+            {"model":{"provider":"test","id":"updated","contextWindow":64000},"usage":{"tokens":0,"contextWindow":0,"percent":0}},
+            {"usage":{"tokens":1000,"contextWindow":64000,"percent":1.5},"thinking":"low"},
+            {"event":"session_shutdown"}
+        ]
+    })).await;
+}
+
+#[tokio::test]
 async fn overlay_test_matches_pinned_focus_inputs_options_and_result() {
     for steps in [
         json!([

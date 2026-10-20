@@ -36,7 +36,8 @@ runOracle(async (api, request) => {
  const tui = new tuiApi.TUI(terminal, true);
  const editorTheme = { borderColor: (s: string) => s, selectList: { selectedPrefix: (s: string) => s, selectedText: (s: string) => s, description: (s: string) => s, scrollInfo: (s: string) => s, noMatch: (s: string) => s } };
  const kb = new kbApi.KeybindingsManager({});
- const ctx = { cwd: request.cwd, model: undefined, getContextUsage: () => undefined, ui: {
+ const live = { ...request };
+ const ctx = { cwd: request.cwd, model: request.model, getContextUsage: () => live.usage, ui: {
   theme,
   setWorkingVisible(value: boolean) { effects.push(["workingVisible", value]); },
   setFooter(factory: Function) { effects.push(["footer", factory(tui, theme).render(80)]); },
@@ -57,6 +58,8 @@ runOracle(async (api, request) => {
  function drive(target: any, isEditor: boolean) {
   snapshot(target, isEditor);
   for (const step of request.steps) {
+   for (const key of ["usage", "thinking"]) if (key in step) live[key] = step[key];
+   if ("model" in step) ctx.model = step.model;
    if (step.input !== undefined) target.handleInput(step.input);
    if (step.focus !== undefined) tui.setFocus(step.focus ? target : null);
    if (step.event !== undefined) handlers.get(step.event)?.({}, ctx);
@@ -68,7 +71,7 @@ runOracle(async (api, request) => {
   }
  }
  try {
-  api.default({ on(name: string, handler: Function) { handlers.set(name, handler); }, registerCommand(name: string, command: any) { commands.set(name, command); }, getThinkingLevel() { return "off"; }, async exec() { return {stdout: request.branch ?? "", stderr: "", code: 0}; } });
+  api.default({ on(name: string, handler: Function) { handlers.set(name, handler); }, registerCommand(name: string, command: any) { commands.set(name, command); }, getThinkingLevel() { return live.thinking ?? "off"; }, async exec() { return {stdout: request.branch ?? "", stderr: "", code: 0}; } });
   if (commands.has("overlay-test")) await commands.get("overlay-test").handler("", ctx);
   else { await handlers.get("session_start")!({}, ctx); await Promise.resolve(); drive(editor, true); }
   return { effects, renders, result };

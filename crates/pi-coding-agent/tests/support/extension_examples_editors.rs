@@ -143,16 +143,23 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     if name != "overlay-test" {
         tokio::time::pause();
     }
-    let temp = tempfile::tempdir().unwrap();
+    let temp = if request["homeCwd"] == true {
+        tempfile::tempdir_in(std::env::var_os("HOME").expect("sandbox HOME")).unwrap()
+    } else {
+        tempfile::tempdir().unwrap()
+    };
     let cwd = temp.path().to_str().unwrap();
-    let git = std::process::Command::new("git")
-        .args(["init", "-q", "--initial-branch=example"])
-        .current_dir(cwd)
-        .output()
-        .unwrap();
-    assert!(git.status.success());
+    let repository = request["repository"] != false;
+    if repository {
+        let git = std::process::Command::new("git")
+            .args(["init", "-q", "--initial-branch=example"])
+            .current_dir(cwd)
+            .output()
+            .unwrap();
+        assert!(git.status.success());
+    }
     request["cwd"] = json!(cwd);
-    request["branch"] = json!("example");
+    request["branch"] = json!(if repository { "example" } else { "" });
     let colors: Vec<_> = REQUIRED_COLORS
         .iter()
         .enumerate()
@@ -205,7 +212,35 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
         runtime,
         Arc::new(ModelRegistry::new(model_runtime)),
     );
-    extensions::bind(&mut runner);
+    let live = Arc::new(Mutex::new(request.clone()));
+    let mut actions = extensions::actions();
+    let thinking = live.clone();
+    actions.get_thinking_level = Arc::new(move || {
+        let state = thinking.lock().unwrap();
+        Ok(serde_json::from_value(state.get("thinking").cloned().unwrap_or(json!("off"))).unwrap())
+    });
+    let mut context = extensions::context_actions();
+    let model = live.clone();
+    context.get_model = Arc::new(move || {
+        let state = model.lock().unwrap();
+        let fields = state.get("model").filter(|m| !m.is_null())?;
+        let mut model = json!({"id":"fixture","provider":"fixture","contextWindow":128000,"api":"openai-responses","name":"Fixture","baseUrl":"https://invalid.test","reasoning":true,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"maxTokens":4096});
+        model
+            .as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
+        Some(serde_json::from_value(model).unwrap())
+    });
+    let usage = live.clone();
+    context.get_context_usage = Arc::new(move || {
+        usage
+            .lock()
+            .unwrap()
+            .get("usage")
+            .filter(|u| !u.is_null())
+            .map(|u| serde_json::from_value(u.clone()).unwrap())
+    });
+    runner.bind_core(actions, context, None);
     let errors = Arc::new(Mutex::new(Vec::new()));
     let captured = errors.clone();
     let _errors = runner.on_error(Arc::new(move |error| {
@@ -256,6 +291,11 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
             .unwrap()
             .push(snapshot(&mut *editor.borrow_mut(), widths));
         for step in request["steps"].as_array().unwrap() {
+            for key in ["model", "usage", "thinking"] {
+                if let Some(value) = step.get(key) {
+                    live.lock().unwrap()[key] = value.clone();
+                }
+            }
             if let Some(input) = step["input"].as_str() {
                 editor.borrow_mut().handle_input(input);
             }
