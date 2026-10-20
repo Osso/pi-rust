@@ -48,6 +48,13 @@ struct TestBackend {
 }
 
 impl pi_coding_agent::core::extensions::types::ExtensionUiTuiBackend for TestBackend {
+    fn show_overlay(
+        &self,
+        _component: Box<dyn ExtensionUiComponent>,
+        _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
+    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+        panic!("this fixture does not mount nested overlays")
+    }
     fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("this component fixture must not construct an editor")
     }

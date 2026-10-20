@@ -13,6 +13,8 @@ use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme};
 use pi_tui::tui::TuiMode;
 use serde_json::{Map, Value, json};
 
+#[path = "footer_thread.rs"]
+mod footer_thread;
 #[path = "oracle.rs"]
 mod oracle;
 #[path = "extensions.rs"]
@@ -25,7 +27,7 @@ struct CaptureUi {
     theme: Arc<Theme>,
     dialogs: Mutex<Vec<Value>>,
     footer_data: Option<FooterDataProvider>,
-    footer: Mutex<Option<Box<dyn ExtensionUiComponent>>>,
+    footer: footer_thread::FooterThread,
 }
 struct Terminal(Trace);
 impl ExtensionUiTuiBackend for Terminal {
@@ -56,17 +58,16 @@ impl ExtensionUiTuiBackend for Terminal {
 impl ExtensionUiContext for CaptureUi {
     fn set_footer(&self, factory: Option<ExtensionUiFooterFactory>) {
         self.trace.lock().unwrap().push(json!(["setFooter", factory.is_some()]));
-        let mut footer = self.footer.lock().unwrap();
-        if let Some(previous) = footer.take() {
-            previous.dispose();
-        }
-        *footer = factory.map(|factory| {
-            factory(ExtensionUiFooterContext {
-                tui: ExtensionUiTui::new(Arc::new(Terminal(self.trace.clone()))),
-                theme: self.theme.clone(),
-                footer_data: self.footer_data.clone().unwrap(),
-            })
-        });
+        self.footer.mount(factory.map(|factory| {
+            (
+                factory,
+                ExtensionUiFooterContext {
+                    tui: ExtensionUiTui::new(Arc::new(Terminal(self.trace.clone()))),
+                    theme: self.theme.clone(),
+                    footer_data: self.footer_data.clone().unwrap(),
+                },
+            )
+        }));
     }
     fn notify(&self, message: &str, level: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", message, level]));
@@ -416,7 +417,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
         trace: trace.clone(),
         theme: theme.clone(),
         footer_data: footer_data.clone(),
-        footer: Mutex::new(None),
+        footer: footer_thread::FooterThread::default(),
         dialogs: Mutex::new(request["dialogs"].as_array().cloned().unwrap_or_default()),
     });
     runner.set_ui_context(
@@ -642,13 +643,8 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                 trace.lock().unwrap().push(json!(["renderTool", lines]));
             }
             "footer" => {
-                let footer = ui.footer.lock().unwrap();
-                let component = footer.as_ref().unwrap();
-                component.invalidate();
-                trace.lock().unwrap().push(json!([
-                    "footer",
-                    component.render(step["width"].as_u64().unwrap() as usize)
-                ]));
+                let lines = ui.footer.render(step["width"].as_u64().unwrap() as usize);
+                trace.lock().unwrap().push(json!(["footer", lines]));
             }
             "branchChange" => {
                 let dir = footer_root.path().join(step["name"].as_str().unwrap());
