@@ -4,9 +4,9 @@ Opt-in native counterpart of pinned `coding-agent/examples/extensions/provider-p
 
 ## What it must do
 
-- [ ] Append pretty JSON request payloads and two newlines to `cwd/CONFIG_DIR_NAME/provider-payload.log`, without changing the payload.
-- [ ] Append `[status] `, compact JSON response headers in observable record order, and two newlines to the same file.
-- [ ] Preserve existing content; create the file but not its parent directory. Surface append errors through extension runtime error reporting.
+- [x] Append pretty JSON request payloads and two newlines to `cwd/CONFIG_DIR_NAME/provider-payload.log`, without changing the payload.
+- [x] Append `[status] `, compact JSON response headers in observable record order, and two newlines to the same file.
+- [x] Preserve existing content; create the file but not its parent directory. Surface append errors through extension runtime error reporting.
 
 ## How it works
 
@@ -24,7 +24,7 @@ Opt-in native counterpart of pinned `coding-agent/examples/extensions/provider-p
 
 ## Known gaps (current cycle)
 
-- [ ] Targeted GREEN pending.
+None. Targeted differential passes all three private-filesystem scenarios.
 
 ## Out of scope
 

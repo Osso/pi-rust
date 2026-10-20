@@ -70,3 +70,14 @@ Bounded native fetch error identity and approved native cause diagnostics: [shar
 ## Discrepancies
 - `EventStream.end()` without a result leaves `result()` pending forever in TS; preserved (`end_without_result_leaves_result_pending`).
 - After a TS iterator throws the failure, later iteration returns done; Rust returns `Some(Err)` once then `None` (same observable sequence).
+
+## Response-header conversion audit (2026-10-20)
+
+Changed direct sites:
+- `types.rs::ProviderResponse.headers` and coding-agent `extensions/types.rs::AfterProviderResponseEvent.headers`: insertion-ordered fields.
+- `utils/headers.rs::headers_to_record`: normalize/merge in a sorted map, then collect into an ordered record. Existing callers in `anthropic_messages`, `azure_openai_responses`, `mistral_conversations`, `openai_completions`, `openai_responses`, `openrouter_images`, and `pi_messages` inherit the new return type without call-site edits. `anthropic_sdk` iterates the same sorted output.
+- `api/openai_codex_responses.rs::fetch_sse_with_retries`: use the same normalization instead of collecting raw response entries; pinned TS uses `headersToRecord` here too.
+- `api/bedrock_converse_stream.rs::stream_inner`: construct the empty/single request-id record with `IndexMap`.
+- `providers/faux.rs`: ordinary streaming, deferred fetch, and deferred cancellation response callbacks construct empty ordered records. `tests/support/anthropic.rs::requests_json` updates its explicit type annotation.
+
+The SDK forwards headers unchanged; its source needs no conversion. `tests/sdk.rs` covers the real registered custom-provider path and serialized `ExtensionEvent`. Targeted proof: SDK 11/11; AI headers 2/2, differential headers 2/2, OpenRouter images 13/13. This is not a broad provider-suite or RPC process test.
