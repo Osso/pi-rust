@@ -59,3 +59,15 @@ It appends request payloads and response headers to
 exist. Append failures surface through the runner's error listeners. Logs can
 contain credentials and private prompts: enable deliberately, never by default.
 Tests use private temporary directories only.
+
+## Batch E: prompts, trust and resources
+
+Embed `prompt_customizer.rs`, `claude_rules.rs`, or `project_trust.rs` via
+`#[path]` and register the corresponding `<name>_extension` factory explicitly
+using the registry pattern above. Nothing loads by default.
+
+`dynamic-resources/index.rs` exports `dynamic_resources_extension(api, base_dir)`.
+Pass the installed directory containing its companion `SKILL.md`, `dynamic.md`,
+and `dynamic.json`; it returns these paths during resource discovery. This
+explicit native directory replaces TS module-relative `import.meta.url`, not
+the session's cwd. Assets are unchanged pinned copies.
