@@ -9,6 +9,7 @@ pub mod error;
 pub mod evals;
 pub mod harness;
 pub mod pi_harness;
+pub mod run_evals;
 pub mod style;
 pub mod vitest_evals;
 
