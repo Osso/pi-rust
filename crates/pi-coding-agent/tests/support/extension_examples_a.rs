@@ -4,10 +4,13 @@ use std::sync::{Arc, Mutex};
 use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
+use pi_coding_agent::core::footer_data_provider::FooterDataProvider;
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::session_manager::CustomEntry;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme};
+use pi_tui::tui::TuiMode;
 use serde_json::{Map, Value, json};
 
 #[path = "oracle.rs"]
@@ -20,8 +23,39 @@ pub type Trace = Arc<Mutex<Vec<Value>>>;
 struct CaptureUi {
     trace: Trace,
     theme: Arc<Theme>,
+    footer_data: Option<FooterDataProvider>,
+    footer: Mutex<Option<Box<dyn ExtensionUiComponent>>>,
+}
+struct Terminal(Trace);
+impl ExtensionUiTuiBackend for Terminal {
+    fn request_render(&self) {
+        self.0.lock().unwrap().push(json!(["requestRender"]));
+    }
+    fn terminal_rows(&self) -> usize {
+        40
+    }
+    fn terminal_columns(&self) -> usize {
+        80
+    }
+    fn mode(&self) -> TuiMode {
+        TuiMode::Regular
+    }
 }
 impl ExtensionUiContext for CaptureUi {
+    fn set_footer(&self, factory: Option<ExtensionUiFooterFactory>) {
+        self.trace.lock().unwrap().push(json!(["setFooter", factory.is_some()]));
+        let mut footer = self.footer.lock().unwrap();
+        if let Some(previous) = footer.take() {
+            previous.dispose();
+        }
+        *footer = factory.map(|factory| {
+            factory(ExtensionUiFooterContext {
+                tui: ExtensionUiTui::new(Arc::new(Terminal(self.trace.clone()))),
+                theme: self.theme.clone(),
+                footer_data: self.footer_data.clone().unwrap(),
+            })
+        });
+    }
     fn notify(&self, message: &str, level: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", message, level]));
     }
@@ -56,6 +90,22 @@ pub async fn compare(name: &str, factory: impl FnOnce(Trace) -> ExtensionFactory
         "extension-examples-a-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
     );
+    if name == "entry-renderer" || name == "message-renderer" {
+        request["times"] = json!(
+            actual["trace"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|item| {
+                    match item[0].as_str() {
+                        Some("appendEntry") => item[2]["timestamp"].as_f64(),
+                        Some("sendMessage") => item[1]["details"]["timestamp"].as_f64(),
+                        _ => None,
+                    }
+                })
+                .collect::<Vec<_>>()
+        );
+    }
     let expected = oracle.request(&request);
     assert_eq!(actual, expected, "{name}: {request}");
     actual
@@ -93,7 +143,18 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
         .values()
         .map(|tool| {
             let tool = &tool.definition;
-            json!([tool.name, tool.label, tool.description, tool.parameters])
+            if request["metadata"].as_bool() == Some(true) {
+                json!([
+                    tool.name,
+                    tool.label,
+                    tool.description,
+                    tool.parameters,
+                    tool.prompt_snippet,
+                    tool.prompt_guidelines
+                ])
+            } else {
+                json!([tool.name, tool.label, tool.description, tool.parameters])
+            }
         })
         .collect();
     let manager = Arc::new(Mutex::new(SessionManager::in_memory(Some("/fixture"), None).unwrap()));
@@ -120,8 +181,24 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
     let mut actions = support::actions();
     let session_name: Arc<Mutex<Option<String>>> = Arc::default();
     let name = session_name.clone();
-    let log = trace.clone();
     let failure = request["actionError"].as_str().map(str::to_owned);
+    let log = trace.clone();
+    let entries = manager.clone();
+    actions.append_entry = Arc::new(move |kind, data| {
+        entries.lock().unwrap().append_custom_entry(kind, data.clone()).unwrap();
+        log.lock().unwrap().push(json!(["appendEntry", kind, data]));
+        Ok(())
+    });
+    let log = trace.clone();
+    actions.send_message = Arc::new(move |message, options| {
+        log.lock().unwrap().push(json!(["sendMessage", message, options]));
+        Ok(())
+    });
+    if !request["model"].is_null() {
+        let model: pi_ai::types::Model = serde_json::from_value(request["model"].clone()).unwrap();
+        context.get_model = Arc::new(move || Some(model.clone()));
+    }
+    let log = trace.clone();
     let name_failure = failure.clone();
     actions.set_session_name = Arc::new(move |value| {
         if let Some(error) = &name_failure {
@@ -197,7 +274,17 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
     runner.on_error(Arc::new(move |error| {
         errors.lock().unwrap().push(json!(["handlerError", error.error]));
     }));
-    let colors = [("dim", "#5a5b5c"), ("accent", "#50b4e6"), ("success", "#22cc66")];
+    let colors = [
+        ("dim", "#5a5b5c"),
+        ("accent", "#50b4e6"),
+        ("success", "#22cc66"),
+        ("toolTitle", "#d4d4d4"),
+        ("text", "#eeeeee"),
+        ("muted", "#808080"),
+        ("error", "#cc2222"),
+        ("warning", "#ccaa22"),
+        ("customMessageBg", "#101820"),
+    ];
     let theme = Arc::new(
         Theme::new(
             &colors
@@ -211,13 +298,25 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
         )
         .unwrap(),
     );
-    runner.set_ui_context(
-        Some(Arc::new(CaptureUi {
-            trace: trace.clone(),
-            theme,
-        })),
-        ExtensionMode::Tui,
-    );
+    let footer_root = tempfile::tempdir().unwrap();
+    let footer_data = (request["footer"].as_bool() == Some(true)).then(|| {
+        if let Some(branch) = request["branch"].as_str() {
+            std::fs::create_dir(footer_root.path().join(".git")).unwrap();
+            std::fs::write(
+                footer_root.path().join(".git/HEAD"),
+                format!("ref: refs/heads/{branch}\\n"),
+            )
+            .unwrap();
+        }
+        FooterDataProvider::new(footer_root.path())
+    });
+    let ui = Arc::new(CaptureUi {
+        trace: trace.clone(),
+        theme: theme.clone(),
+        footer_data: footer_data.clone(),
+        footer: Mutex::new(None),
+    });
+    runner.set_ui_context(Some(ui.clone()), ExtensionMode::Tui);
     for step in request["steps"].as_array().unwrap() {
         match step["op"].as_str().unwrap() {
             "idle" => idle.store(step["value"].as_bool().unwrap(), std::sync::atomic::Ordering::SeqCst),
@@ -269,6 +368,79 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
                     .to_owned();
                 entries.append_label_change(&id, step["value"].as_str()).unwrap();
             }
+            "renderEntry" => {
+                let entry: CustomEntry = serde_json::from_value(step["entry"].clone()).unwrap();
+                let renderer = &extension.entry_renderers.as_ref().unwrap()[&entry.custom_type];
+                let component = renderer(
+                    &entry,
+                    &EntryRenderOptions {
+                        expanded: step["expanded"].as_bool().unwrap(),
+                    },
+                    &theme,
+                )
+                .unwrap();
+                let lines = component.borrow_mut().render(step["width"].as_u64().unwrap() as usize);
+                trace.lock().unwrap().push(json!(["renderEntry", lines]));
+            }
+            "renderMessage" => {
+                let message: CustomMessageValue = serde_json::from_value(step["message"].clone()).unwrap();
+                let component = extension.message_renderers[&message.custom_type](
+                    &message,
+                    &MessageRenderOptions {
+                        expanded: step["expanded"].as_bool().unwrap(),
+                        output_pad: step["pad"].as_f64().unwrap(),
+                    },
+                    &theme,
+                )
+                .unwrap();
+                let lines = component.borrow_mut().render(step["width"].as_u64().unwrap() as usize);
+                trace.lock().unwrap().push(json!(["renderMessage", lines]));
+            }
+            "renderTool" => {
+                let tool = &extension.tools[step["name"].as_str().unwrap()].definition;
+                let result = serde_json::from_value(step["result"].clone()).unwrap();
+                let options = ToolRenderResultOptions {
+                    expanded: true,
+                    is_partial: false,
+                };
+                let context = ToolRenderContext {
+                    args: json!({}),
+                    tool_call_id: "fixture-call".into(),
+                    invalidate: Arc::new(|| {}),
+                    last_component: None,
+                    call_component: None,
+                    state: ToolRenderState::new(),
+                    cwd: "/fixture".into(),
+                    execution_started: true,
+                    args_complete: true,
+                    is_partial: false,
+                    expanded: true,
+                    show_images: false,
+                    is_error: false,
+                };
+                let component = tool.render_result.as_ref().unwrap()(&result, &options, &theme, &context).unwrap();
+                let lines = component.borrow_mut().render(step["width"].as_u64().unwrap() as usize);
+                trace.lock().unwrap().push(json!(["renderTool", lines]));
+            }
+            "footer" => {
+                let footer = ui.footer.lock().unwrap();
+                let component = footer.as_ref().unwrap();
+                component.invalidate();
+                trace.lock().unwrap().push(json!([
+                    "footer",
+                    component.render(step["width"].as_u64().unwrap() as usize)
+                ]));
+            }
+            "branchChange" => {
+                let dir = footer_root.path().join(step["name"].as_str().unwrap());
+                std::fs::create_dir_all(dir.join(".git")).unwrap();
+                std::fs::write(
+                    dir.join(".git/HEAD"),
+                    format!("ref: refs/heads/{}\\n", step["name"].as_str().unwrap()),
+                )
+                .unwrap();
+                footer_data.as_ref().unwrap().set_cwd(dir);
+            }
             "tool" => {
                 let tool = &extension.tools.get(step["name"].as_str().unwrap()).unwrap().definition;
                 let result = (tool.execute)(
@@ -293,6 +465,9 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
             }
             other => panic!("unknown step {other}"),
         }
+    }
+    if let Some(footer_data) = footer_data {
+        footer_data.dispose();
     }
     json!({"commands":commands, "tools":tools, "trace":trace.lock().unwrap().clone()})
 }

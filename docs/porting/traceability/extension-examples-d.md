@@ -14,8 +14,15 @@ Tests compare full ordered metadata/action/result transcripts against unchanged 
 
 RED/GREEN evidence: `/tmp/pi-rust-ext-examples-d/ledger.md` and numbered logs. Initial RED: missing embedded module for each example. Typed Rust JSON inputs exclude invalid JS runtime parameter types; stack frames omitted only. Calculator returning 42 for every expression is source demo behavior, preserved (not an arithmetic implementation). No new dependencies/public APIs.
 
-## Blocked
+## Renderers and footer
 
-- `entry-renderer.ts:29`: `Date.prototype.toLocaleString()` needs pending en-US helper; stopped per instruction, no partial substitute.
-- `message-renderer.ts:31`: `Date.prototype.toLocaleTimeString()` has no equivalent in current `pi-js-compat/src/date.rs` (local fields at lines 34–74 omit seconds and locale formatting). No locale/timezone hardcoding added; helper dependency blocks whole example.
-- Custom footer and structured output: pending implementation in this slice.
+| Source / branches | Rust example | Behavioral proof |
+| --- | --- | --- |
+| custom-footer.ts:14–64: toggle, branch subscription/disposal, active-branch assistant input/output/cost, 1000 threshold, model/no-model, branch/no-branch, spacing/truncation | `custom_footer.rs::custom_footer_extension`, `CustomFooter::render/dispose` | `example_custom_footer` (2 cases), widths 0/1/12/40/80, data changes while installed, redraw before restore and no redraw after restore |
+| entry-renderer.ts:18–41: registered renderer, missing-data default, expanded date, durable append with trim/default text | `entry_renderer.rs::entry_renderer_extension` | `example_entry_renderer`, expanded/collapsed component lines at 12/40/80 columns, default and Unicode command data |
+| message-renderer.ts:16–59: level colors, optional/truthy expanded time, output padding, level prefix parsing, custom displayed messages | `message_renderer.rs::message_renderer_extension` | `example_message_renderer`, default/warn/error/custom levels, zero/nonzero timestamp, outputPad 0/2, fixed width 32; command whitespace/default/prefix branches |
+| structured-output.ts:19–65: schema, prompt hints, final terminating result, details/fallback/empty render branches | `structured_output.rs::structured_output_extension` | `example_structured_output`, complete metadata + results, fixed widths 12/40/80 |
+
+Date dependency resolved by merging master `d3680de` into this worktree (merge `3c88e7d`). Uses existing en-US `pi_js_compat::date::to_locale_string`; message time uses the suffix after its specified comma-space date separator. Local zone retained. Locale/unsupported-calendar limitations remain those of that helper; unsupported formatting fails explicitly instead of silently substituting UTC. Data interfaces require string text and numeric timestamps (invalid JavaScript runtime types remain excluded). No missing extension API.
+
+The fixture replays native-generated clock timestamps into TS only; tests separately bound native values by wall-clock before/after. TS functions/renderers remain unchanged. UI components are compared as complete ANSI-bearing rendered lines, not source strings or implementation shapes. The footer uses private temporary git HEAD files, never the checkout's branch or live state. All TS oracle subprocesses run only under the Cargo runner isolation guard.
