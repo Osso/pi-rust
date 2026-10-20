@@ -5964,7 +5964,7 @@ fn spawn_signal_handlers(_mode: &Rc<InteractiveMode>) -> Vec<tokio::task::JoinHa
     Vec::new()
 }
 
-/// Entry point used by `ca-main`: runs interactive mode on a local task set.
+/// Runs interactive mode on a local task set.
 pub async fn run_interactive_mode(
     runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
     options: InteractiveModeOptions,
