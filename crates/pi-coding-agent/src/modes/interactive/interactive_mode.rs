@@ -140,6 +140,15 @@ const DEAD_TERMINAL_ERROR_CODES: [i32; 3] = [
     rustix::io::Errno::NOTCONN.raw_os_error(),
 ];
 
+/// Node's stream error message: `<syscall> <CODE>` (`write EPIPE`).
+pub fn terminal_error_message(failure: &pi_tui::TerminalIoError) -> String {
+    format!(
+        "{} {}",
+        failure.syscall,
+        crate::utils::child_process::node_error_code(&failure.error)
+    )
+}
+
 /// `isDeadTerminalError`: the terminal is gone (closed pty, dead SSH pipe).
 pub fn is_dead_terminal_error(error: &std::io::Error) -> bool {
     error
@@ -6092,7 +6101,7 @@ async fn run_gh_gist(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|error| node_spawn_error_message("gh", &error))?;
+        .map_err(|error| crate::utils::child_process::node_spawn_error_message("spawn", "gh", &error))?;
     pid.store(child.id(), std::sync::atomic::Ordering::SeqCst);
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -6103,7 +6112,11 @@ async fn run_gh_gist(
     pid.store(0, std::sync::atomic::Ordering::SeqCst);
     let status = match status {
         Ok(Ok(status)) => status,
-        Ok(Err(error)) => return Err(node_spawn_error_message("gh", &error)),
+        Ok(Err(error)) => {
+            return Err(crate::utils::child_process::node_spawn_error_message(
+                "spawn", "gh", &error,
+            ));
+        }
         Err(error) => return Err(error.to_string()),
     };
     Ok(GhGistRun {
@@ -6111,13 +6124,6 @@ async fn run_gh_gist(
         stdout: stdout.unwrap_or_default(),
         stderr: stderr.unwrap_or_default(),
     })
-}
-
-fn node_spawn_error_message(command: &str, error: &std::io::Error) -> String {
-    match error.kind() {
-        std::io::ErrorKind::NotFound => format!("spawn {command} ENOENT"),
-        _ => error.to_string(),
-    }
 }
 
 fn json_string(object: &serde_json::Map<String, Value>, key: &str) -> String {
@@ -9962,11 +9968,11 @@ impl InteractiveMode {
     }
 
     /// `terminalErrorHandler`: the stdin/stdout/stderr `error` listener.
-    fn terminal_error_handler(&self, error: &std::io::Error) {
-        match terminal_error_action(error) {
+    fn terminal_error_handler(&self, failure: &pi_tui::TerminalIoError) {
+        match terminal_error_action(&failure.error) {
             TerminalErrorAction::EmergencyExit => self.emergency_terminal_exit(),
             TerminalErrorAction::Ignore => {}
-            TerminalErrorAction::Rethrow => throw_uncaught(ERROR, error.to_string()),
+            TerminalErrorAction::Rethrow => throw_uncaught(ERROR, terminal_error_message(failure)),
         }
     }
 
@@ -9974,8 +9980,8 @@ impl InteractiveMode {
     /// (Node emits them as stream `error` events).
     fn handle_terminal_errors(&self) {
         let errors = self.ui.terminal().borrow_mut().take_errors();
-        for error in &errors {
-            self.terminal_error_handler(error);
+        for failure in &errors {
+            self.terminal_error_handler(failure);
         }
     }
 

@@ -163,9 +163,10 @@ has no separate render-region callbacks.
   runtime). A panic on another thread (blocking pool, extension threads) hits
   the default hook: error printed, exit 1, terminal not restored.
 - `console.error(error)` prints a Node stack; the Rust report is
-  `<label>: <message>` (`format_uncaught`) with no stack frames. Non-dead
-  terminal I/O errors are reported with Rust's `io::Error` text instead of
-  Node's `<syscall> <CODE>` message.
+  `<label>: <message>` (`format_uncaught`) with no stack frames (no JS stack
+  exists). Rethrown terminal stream errors use Node's `<syscall> <CODE>`
+  message (`terminal_error_message`, tested by
+  `interactive_crash::rethrown_terminal_errors_use_the_node_stream_message`).
 - `SelectAgentView` is async (`BoxFuture<Option<bool>>`) because the TUI lives on
   a `LocalSet` thread; the bridge selector sends a `UiRequest` and awaits the
   UI-thread result instead of calling the mode synchronously.

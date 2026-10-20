@@ -66,9 +66,17 @@ pub trait Terminal {
     ///
     /// Node emits these as stream `error` events; the interactive mode routes
     /// them through `terminalErrorHandler`.
-    fn take_errors(&mut self) -> Vec<std::io::Error> {
+    fn take_errors(&mut self) -> Vec<TerminalIoError> {
         Vec::new()
     }
+}
+
+/// A failed terminal stream operation: the syscall Node names in the error
+/// message (`read` for stdin, `write` for stdout) and the OS error.
+#[derive(Debug)]
+pub struct TerminalIoError {
+    pub syscall: &'static str,
+    pub error: std::io::Error,
 }
 
 /// A parsed Kitty keyboard protocol negotiation response.
@@ -252,7 +260,7 @@ pub struct ProcessTerminal {
     was_raw: Option<Termios>,
     input_handler: Option<Receiver<Vec<u8>>>,
     read_errors: Option<Receiver<std::io::Error>>,
-    pending_errors: Vec<std::io::Error>,
+    pending_errors: Vec<TerminalIoError>,
     reader_stop: Option<Arc<AtomicBool>>,
     kitty_protocol_active: bool,
     modify_other_keys_active: bool,
@@ -536,7 +544,7 @@ impl ProcessTerminal {
             return;
         };
         for error in receiver.try_iter() {
-            self.pending_errors.push(error);
+            self.pending_errors.push(TerminalIoError { syscall: "read", error });
         }
     }
 
@@ -672,10 +680,16 @@ impl Terminal for ProcessTerminal {
 
     fn write(&mut self, data: &str) {
         if let Err(error) = self.output.write_all(data.as_bytes()) {
-            self.pending_errors.push(error);
+            self.pending_errors.push(TerminalIoError {
+                syscall: "write",
+                error,
+            });
         }
         if let Err(error) = self.output.flush() {
-            self.pending_errors.push(error);
+            self.pending_errors.push(TerminalIoError {
+                syscall: "write",
+                error,
+            });
         }
         self.append_write_log(data);
     }
@@ -748,7 +762,7 @@ impl Terminal for ProcessTerminal {
         events
     }
 
-    fn take_errors(&mut self) -> Vec<std::io::Error> {
+    fn take_errors(&mut self) -> Vec<TerminalIoError> {
         std::mem::take(&mut self.pending_errors)
     }
 }

@@ -305,10 +305,13 @@ fn write_failures_are_queued_for_the_stream_error_handler() {
     terminal.write("second");
 
     let errors = terminal.take_errors();
-    let codes: Vec<Option<i32>> = errors.iter().map(std::io::Error::raw_os_error).collect();
+    let codes: Vec<(&str, Option<i32>)> = errors
+        .iter()
+        .map(|failure| (failure.syscall, failure.error.raw_os_error()))
+        .collect();
     assert_eq!(
         codes,
-        vec![Some(eio); 4],
+        vec![("write", Some(eio)); 4],
         "each write and flush failure is reported once"
     );
     assert!(terminal.take_errors().is_empty(), "take_errors drains the queue");

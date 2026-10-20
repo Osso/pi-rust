@@ -64,7 +64,7 @@ pub use keys::{
 pub use latex::{RenderLatexOptions, render_latex};
 pub use root_compositor::{RootCompositor, RootCompositorOptions, RootLayoutEntry};
 pub use stdin_buffer::{StdinBuffer, StdinBufferEvent as StdinBufferEventMap, StdinBufferOptions};
-pub use terminal::{ProcessTerminal, Terminal, TerminalRawModeError, is_terminal_raw_mode_failure};
+pub use terminal::{ProcessTerminal, Terminal, TerminalIoError, TerminalRawModeError, is_terminal_raw_mode_failure};
 pub use terminal_colors::{
     RgbColor, TerminalColorScheme, parse_osc11_background_color, parse_terminal_color_scheme_report,
 };

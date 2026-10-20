@@ -8,7 +8,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use pi_coding_agent::modes::interactive::is_dead_terminal_error;
+use pi_coding_agent::modes::interactive::{is_dead_terminal_error, terminal_error_message};
 
 #[path = "support/executable_script.rs"]
 mod executable_script;
@@ -193,4 +193,19 @@ fn sighup_restart_failure_restores_the_terminal_and_exits_one() {
         .find("\x1b[?2004l")
         .unwrap_or_else(|| panic!("bracketed paste was not disabled; output:\n{text}"));
     assert!(restore < banner, "the terminal is restored before the report");
+}
+
+#[test]
+fn rethrown_terminal_errors_use_the_node_stream_message() {
+    // Node: `Error: write EPIPE` / `Error: read EBADF` for stream `error` events.
+    let write = pi_tui::TerminalIoError {
+        syscall: "write",
+        error: io::Error::from_raw_os_error(rustix::io::Errno::PIPE.raw_os_error()),
+    };
+    let read = pi_tui::TerminalIoError {
+        syscall: "read",
+        error: io::Error::from_raw_os_error(rustix::io::Errno::BADF.raw_os_error()),
+    };
+    assert_eq!(terminal_error_message(&write), "write EPIPE");
+    assert_eq!(terminal_error_message(&read), "read EBADF");
 }
