@@ -7,8 +7,10 @@ Source: `packages/coding-agent/examples/extensions/custom-provider-anthropic/ind
 | default registration, two models/custom API/OAuth name | `custom_anthropic_extension`, `_with_runtime`, `CustomAnthropic` | `default_factory_registers_exact_catalog_without_network` actual native factory/runtime |
 | `generatePKCE`, `loginAnthropic`: URL, prompt, code/state split, extra/absent/empty segments | existing PKCE/OAuthRuntime; `CustomOAuth::login` | `native_factory_oauth_matches_pinned_login_refresh_and_failures` exact source differential |
 | `refreshAnthropicToken`, getApiKey, five-minute expiry | `CustomOAuth::refresh`, `to_auth` | same differential: fake token exchange, refresh, status/prompt/fetch errors |
-| API-key env resolution | existing `env_api_key_auth` | registration binding present; resolution fixture pending |
-| conversions, reasoning, headers, custom SDK event loop | example-local request/stream modules | initial `native_provider_stream_reaches_controlled_http_with_exact_example_request` GREEN: custom trait reaches controlled HTTP, exact source body/default headers and start/done events; full branch matrix pending |
+| API-key env resolution | existing `env_api_key_auth` | `native_registered_api_key_auth_resolves_only_custom_environment`, controlled AuthContext without files/credentials |
+| `isOAuthToken`, tool names, `sanitizeSurrogates`, content/message/tool conversion, cache and thinking budgets | example-local request module | `pinned_request_conversion_matrix` GREEN: OAuth/key, images, grouped/empty/mixed results, signed/unsigned thinking, whitespace, supplementary scalar sanitization, all seven reasoning levels/custom budgets, model-disabled thinking, raw stream |
+| `mapStopReason`, usage/cost replacement, abort, missing stop reason, thrown Error/JSON forwarding | example-local stream module | `pinned_terminal_usage_abort_and_error_matrix` GREEN; exact source snapshots and final result |
+| content start/delta/stop, repeated/unknown indices, mismatched deltas, signature concatenation, partial JSON retention on parse failure | example-local stream module | `pinned_stream_content_usage_and_error_matrix`, `pinned_incomplete_tool_failure_preserves_partial_json`: retained RED at core scratch-field boundary pending parent fix |
 | valid content scratch fields | existing typed output boundary drops fields | RED `pinned_example_valid_text_start_survives_native_event_boundary` preserves exact oracle snapshot and proves loss of `index:3`; parent repair pending |
 
 Oracle evaluates original source bytes with transpilation only; controlled `require` rejects every import except the fake Anthropic SDK and `calculateCost`/event-stream fixtures. Cost function is AST-selected from original `models.ts` with its body unchanged. Every pushed event is cloned immediately; neither scratch fields nor errors are normalized. Random bytes and `Date.now()` are deterministic. No source clone, SDK install, live fetch, default registry or session hooks.
@@ -30,5 +32,7 @@ Full logs: `/tmp/pi-rust-example-anthropic-proof/`.
 - OAuth/catalog implementation: focused `factory_` GREEN 2/2, fake-only controlled source differential; no full-suite/check/clippy/readability/final claim.
 
 - HTTP fixture RED against inert stream at `859be4d`: zero HTTP requests; new custom stream produces GREEN 1/1 after example-local request/stream implementation and narrow SDK visibility changes.
+
+- Request matrix GREEN; terminal/usage/abort/Error/non-Error matrix GREEN; API-key environment resolution GREEN (3 focused tests). Runtime registration uses actual native handler, explicitly rejecting the JSON provider slot. Tests use only selected factory and injected transport, no default model registry/SDK.
 
 Coverage is partial until all source branches are proven and parent verification completes.

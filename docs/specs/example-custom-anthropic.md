@@ -6,7 +6,7 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 
 - [x] Register two exact model definitions under `custom-anthropic`, custom API `custom-anthropic-api`, OAuth name and API-key environment binding without autoloading.
 - [x] Generate 32-byte PKCE, notify the exact authorization URL, prompt once, split `code#state`, exchange/refresh tokens, return access token and expiry minus five minutes; forward callback/fetch/status failures.
-- [ ] Match API-key/OAuth headers, identity/system prompts, tool casing, messages/images/tool-result grouping, cache control and reasoning budgets.
+- [x] Match API-key/OAuth headers, identity/system prompts, tool casing, messages/images/tool-result grouping, cache control and reasoning budgets.
 - [ ] Match complete SDK event sequence, usage/cost replacement, partial JSON behavior, abort/missing-stop/error handling, including temporary content `index` and `partialJson` fields.
 
 ## How it works
@@ -26,7 +26,7 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 
 ## Known gaps (current cycle)
 
-- [ ] Complete stream/request differential matrix pending; initial real Provider → controlled HTTP request and terminal event fixture passes.
+- [ ] Content-stream matrix blocked only at typed scratch fields; request and terminal/usage/abort/error differentials pass. Full SDK-generated HTTP header proof remains parent-owned.
 - [ ] Native content types drop valid temporary source event fields; concrete failing fixture retained, parent coordinating bounded core repair.
 - [ ] Parent integration and independent verification pending; coverage remains partial.
 

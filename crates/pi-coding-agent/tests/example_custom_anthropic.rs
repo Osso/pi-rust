@@ -1,3 +1,5 @@
+#[path = "support/custom_anthropic_cases.rs"]
+mod cases;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -33,6 +35,27 @@ impl HttpBody for Body {
         Box::pin(async { self.0.take().map(Ok) })
     }
 }
+struct StreamBody {
+    bytes: Option<Vec<u8>>,
+    failure: Option<String>,
+    abort: bool,
+    signal: Option<CancellationToken>,
+}
+impl HttpBody for StreamBody {
+    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+        Box::pin(async move {
+            if let Some(bytes) = self.bytes.take() {
+                return Some(Ok(bytes));
+            }
+            if self.abort {
+                if let Some(signal) = &self.signal {
+                    signal.cancel();
+                }
+            }
+            self.failure.take().map(|error| Err(CallbackError::new(error)))
+        })
+    }
+}
 struct Transport {
     input: Value,
     calls: Arc<Mutex<Vec<Value>>>,
@@ -58,7 +81,18 @@ impl Fetch for Transport {
                     status: 200,
                     status_text: "OK".into(),
                     headers: vec![],
-                    body: Box::new(Body(Some(body.into_bytes()))),
+                    body: Box::new(StreamBody {
+                        bytes: Some(body.into_bytes()),
+                        failure: self.input.get("streamError").map(|value| {
+                            if self.input["thrownValue"] == true {
+                                value.to_string()
+                            } else {
+                                value.as_str().unwrap().into()
+                            }
+                        }),
+                        abort: self.input["abort"] == true,
+                        signal,
+                    }),
                 });
             }
             let body = self
@@ -134,6 +168,17 @@ async fn provider(input: &Value, calls: Arc<Mutex<Vec<Value>>>) -> Arc<dyn Provi
     let mut registry = ExtensionRegistry::new();
     registry.register("<example:custom-anthropic>", factory);
     let extension_runtime = create_extension_runtime();
+    let registered: Arc<Mutex<Option<Arc<dyn Provider>>>> = Arc::new(Mutex::new(None));
+    let capture = registered.clone();
+    extension_runtime.set_provider_handlers(pi_coding_agent::core::extensions::extension_runtime::ProviderHandlers {
+        register_provider: Arc::new(|_, _, _| panic!("JSON config provider slot must not be used")),
+        register_native_provider: Arc::new(move |provider, path| {
+            assert_eq!(path, Some("<example:custom-anthropic>"));
+            *capture.lock().unwrap() = Some(provider);
+            Ok(())
+        }),
+        unregister_provider: Arc::new(|_, _| panic!("not an unregister flow")),
+    });
     load_extension_from_factory(
         registry.get("<example:custom-anthropic>").unwrap().clone(),
         "/tmp",
@@ -143,9 +188,12 @@ async fn provider(input: &Value, calls: Arc<Mutex<Vec<Value>>>) -> Arc<dyn Provi
     )
     .await
     .unwrap();
-    let pending = extension_runtime.pending_native_provider_registrations();
-    assert_eq!(pending.len(), 1, "factory must register one native provider");
-    pending[0].provider.clone()
+    assert!(extension_runtime.pending_native_provider_registrations().is_empty());
+    registered
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("factory must register one native provider through runtime handler")
 }
 
 #[tokio::test]
