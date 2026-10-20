@@ -8,7 +8,38 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use oracle::TsOracle;
 use pi_ai::model_data_tools::*;
+use pi_js_compat::js_json::{self, JsString, JsValue};
 use serde_json::{Value, json};
+fn structure(v: Value) -> ModelDataStructure {
+    v.as_object()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (JsString::from(k.as_str()), strings(v.clone())))
+        .collect()
+}
+fn strings(v: Value) -> indexmap::IndexMap<JsString, JsString> {
+    v.as_object()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (JsString::from(k.as_str()), JsString::from(v.as_str().unwrap())))
+        .collect()
+}
+fn structure_serde(v: &ModelDataStructure) -> Value {
+    model_data_structure_json(v).into_serde_lossy()
+}
+fn strings_serde(v: &indexmap::IndexMap<JsString, JsString>) -> Value {
+    JsValue::Object(v.iter().map(|(k, v)| (k.clone(), JsValue::String(v.clone()))).collect()).into_serde_lossy()
+}
+fn encoded(v: Result<JsValue, ModelDataError>) -> String {
+    let fields = match v {
+        Ok(output) => vec![("ok".into(), JsValue::Bool(true)), ("output".into(), output)],
+        Err(e) => vec![
+            ("ok".into(), JsValue::Bool(false)),
+            ("error".into(), JsValue::String(e.message().clone())),
+        ],
+    };
+    js_json::stringify_lossless(&JsValue::Object(fields.into_iter().collect()))
+}
 
 const MODULE: &str = "packages/ai/scripts/model-data.ts";
 const GENERATED_AT: &str = "2026-07-23T10:00:00.000Z";
@@ -38,7 +69,7 @@ impl Fixture {
         let fixture = Self {
             root,
             dir,
-            structure: serde_json::from_value(json!({"test-provider":{"model-a":"openai-completions"}})).unwrap(),
+            structure: structure(json!({"test-provider":{"model-a":"openai-completions"}})),
             groups: json!({"openai-completions":{"model-a":{
                 "id":"model-a", "provider":"test-provider", "api":"openai-completions", "name":"Model A", "baseUrl":"https://example.test/v1", "reasoning":false, "input":["text"], "contextWindow":1000, "maxTokens":100, "cost":{"input":1,"output":2,"cacheRead":0,"cacheWrite":0}
             }}}),
@@ -49,13 +80,11 @@ impl Fixture {
     fn write(&self) {
         let content = format!("{}\n", self.groups);
         fs::write(self.dir.join("test-provider.json"), &content).unwrap();
-        let files = [("test-provider.json".to_owned(), content)].into_iter().collect();
-        let manifest = create_model_data_manifest(&self.structure, &files, GENERATED_AT);
-        fs::write(
-            self.dir.join(MODEL_DATA_MANIFEST_FILE),
-            serde_json::to_string(&manifest).unwrap(),
-        )
-        .unwrap();
+        let files = [(JsString::from("test-provider.json"), JsString::from(content.as_str()))]
+            .into_iter()
+            .collect();
+        let manifest = create_model_data_manifest(&self.structure, &files, &JsString::from(GENERATED_AT));
+        fs::write(self.dir.join(MODEL_DATA_MANIFEST_FILE), manifest.stringify()).unwrap();
     }
     fn manifest(&self, mutate: impl FnOnce(&mut Value)) {
         let path = self.dir.join(MODEL_DATA_MANIFEST_FILE);
@@ -65,7 +94,8 @@ impl Fixture {
     }
     fn compare(&self, oracle: &mut TsOracle) -> Value {
         let actual = result(validate_model_data_directory(&self.structure, &self.dir).map(|()| Value::Null));
-        let expected = oracle.request(&json!({"op":"directory","structure":self.structure,"dir":self.dir}));
+        let expected =
+            oracle.request(&json!({"op":"directory","structure":structure_serde(&self.structure),"dir":self.dir}));
         assert_eq!(actual, expected);
         actual
     }
@@ -94,26 +124,25 @@ fn exact_ids_and_manifest_hashes_match_ts_without_reordering_responses() {
         (vec!["a", "a"], vec!["a"]),
         (vec!["😀", "\u{e000}", "2", "10"], vec!["z"]),
     ] {
-        let actual_result =
-            result(assert_exact_model_ids("test", expected.clone(), actual.clone()).map(|()| Value::Null));
+        let actual_result = result(
+            assert_exact_model_ids(&JsString::from("test"), expected.clone(), actual.clone()).map(|()| Value::Null),
+        );
         assert_eq!(
             actual_result,
             oracle.request(&json!({"op":"ids","label":"test","expected":expected,"actual":actual}))
         );
     }
-    let structure: ModelDataStructure = serde_json::from_value(
-        json!({"z":{"😀":"api","\u{e000}":"api","10":"b","2":"a"},"a":{"b":"x"},"10":{},"2":{}}),
-    )
-    .unwrap();
-    let files = serde_json::from_value(json!({"😀.json":"one\r\n","\u{e000}.json":"é\n","2":"x","10":"y"})).unwrap();
-    let manifest = create_model_data_manifest(&structure, &files, GENERATED_AT);
+    let structure: ModelDataStructure =
+        structure(json!({"z":{"😀":"api","\u{e000}":"api","10":"b","2":"a"},"a":{"b":"x"},"10":{},"2":{}}));
+    let files = strings(json!({"😀.json":"one\r\n","\u{e000}.json":"é\n","2":"x","10":"y"}));
+    let manifest = create_model_data_manifest(&structure, &files, &JsString::from(GENERATED_AT));
     assert_eq!(
-        json!({"ok":true,"output":manifest}),
-        oracle.request(&json!({"op":"manifest","structure":structure,"files":files,"generatedAt":GENERATED_AT}))
+        json!({"ok":true,"output":manifest.to_json().into_serde_lossy()}),
+        oracle.request(&json!({"op":"manifest","structure":structure_serde(&structure),"files":strings_serde(&files),"generatedAt":GENERATED_AT}))
     );
     assert_eq!(
         json!({"ok":true,"output":model_data_structure_hash(&structure)}),
-        oracle.request(&json!({"op":"hash","structure":structure}))
+        oracle.request(&json!({"op":"hash","structure":structure_serde(&structure)}))
     );
 }
 
@@ -126,11 +155,14 @@ fn filesystem_structure_and_checker_success_match_pinned_modules() {
     for (op, actual) in [
         (
             "providers",
-            result(read_model_data_provider_ids(&fixture.root).map(|v| json!(v))),
+            result(
+                read_model_data_provider_ids(&fixture.root)
+                    .map(|v| json!(v.iter().map(|s| s.to_utf8().unwrap()).collect::<Vec<_>>())),
+            ),
         ),
         (
             "structure",
-            result(read_model_data_structure(&fixture.root).map(|v| json!(v))),
+            result(read_model_data_structure(&fixture.root).map(|v| structure_serde(&v))),
         ),
         (
             "generated",
@@ -268,7 +300,7 @@ fn aggregator_shards_and_provider_structure_failures_match_ts() {
         let fixture = Fixture::new();
         fs::write(fixture.root.join("src/models.generated.ts"), imports).unwrap();
         assert_eq!(
-            result(read_model_data_structure(&fixture.root).map(|v| json!(v))),
+            result(read_model_data_structure(&fixture.root).map(|v| structure_serde(&v))),
             oracle.request(&json!({"op":"structure","root":fixture.root}))
         );
     }
@@ -282,19 +314,22 @@ fn aggregator_shards_and_provider_structure_failures_match_ts() {
         let fixture = Fixture::new();
         fs::write(fixture.dir.join("test-provider.json"), content).unwrap();
         assert_eq!(
-            result(read_model_data_structure(&fixture.root).map(|v| json!(v))),
+            result(read_model_data_structure(&fixture.root).map(|v| structure_serde(&v))),
             oracle.request(&json!({"op":"structure","root":fixture.root}))
         );
     }
     let fixture = Fixture::new();
     fs::write(fixture.root.join("src/providers/extra.models.ts"), "").unwrap();
     assert_eq!(
-        result(read_model_data_structure(&fixture.root).map(|v| json!(v))),
+        result(read_model_data_structure(&fixture.root).map(|v| structure_serde(&v))),
         oracle.request(&json!({"op":"structure","root":fixture.root}))
     );
     fs::remove_file(fixture.root.join("src/models.generated.ts")).unwrap();
     assert_eq!(
-        result(read_model_data_provider_ids(&fixture.root).map(|v| json!(v))),
+        result(
+            read_model_data_provider_ids(&fixture.root)
+                .map(|v| json!(v.iter().map(|s| s.to_utf8().unwrap()).collect::<Vec<_>>()))
+        ),
         oracle.request(&json!({"op":"providers","root":fixture.root}))
     );
 }
@@ -331,7 +366,10 @@ fn import_line_terminators_match_js() {
         );
         fs::write(fixture.root.join("src/models.generated.ts"), imports).unwrap();
         assert_eq!(
-            result(read_model_data_provider_ids(&fixture.root).map(|v| json!(v))),
+            result(
+                read_model_data_provider_ids(&fixture.root)
+                    .map(|v| json!(v.iter().map(|s| s.to_utf8().unwrap()).collect::<Vec<_>>()))
+            ),
             oracle.request(&json!({"op":"providers","root":fixture.root})),
             "terminator {newline:?}"
         );
@@ -343,12 +381,12 @@ fn manifest_record_order_matches_js() {
     let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
     let manifest = create_model_data_manifest(
         &ModelDataStructure::new(),
-        &serde_json::from_value(json!({"10":"x","2":"y","😀":"z","\u{e000}":"q"})).unwrap(),
-        GENERATED_AT,
+        &strings(json!({"10":"x","2":"y","😀":"z","\u{e000}":"q"})),
+        &JsString::from(GENERATED_AT),
     );
     let expected=oracle.request(&json!({"op":"manifest","structure":{},"files":{"10":"x","2":"y","😀":"z","\u{e000}":"q"},"generatedAt":GENERATED_AT}));
     assert_eq!(
-        serde_json::to_string(&manifest).unwrap(),
+        manifest.stringify(),
         serde_json::to_string(&expected["output"]).unwrap()
     );
 }
@@ -447,12 +485,12 @@ fn filesystem_io_failures_and_ignored_non_catalog_entries_match_ts() {
         "EISDIR: illegal operation on a directory, read",
     );
     assert_eq!(
-        result(read_model_data_structure(&fixture.root).map(|v| json!(v))),
+        result(read_model_data_structure(&fixture.root).map(|v| structure_serde(&v))),
         oracle.request(&json!({"op":"structure","root":fixture.root}))
     );
     fs::remove_dir_all(fixture.root.join("src/providers")).unwrap();
     assert_eq!(
-        result(read_model_data_structure(&fixture.root).map(|v| json!(v))),
+        result(read_model_data_structure(&fixture.root).map(|v| structure_serde(&v))),
         oracle.request(&json!({"op":"structure","root":fixture.root}))
     );
 }
@@ -460,22 +498,17 @@ fn filesystem_io_failures_and_ignored_non_catalog_entries_match_ts() {
 #[test]
 fn numeric_provider_model_and_api_keys_keep_js_diagnostic_order() {
     let mut fixture = Fixture::new();
-    fixture.structure =
-        serde_json::from_value(json!({"10":{"10":"api","2":"api"},"2":{"10":"api","2":"api"}})).unwrap();
+    fixture.structure = structure(json!({"10":{"10":"api","2":"api"},"2":{"10":"api","2":"api"}}));
     fs::remove_file(fixture.dir.join("test-provider.json")).unwrap();
     let mut contents = indexmap::IndexMap::new();
     for provider in ["10", "2"] {
         let content = r#"{"9":{"10":null,"2":null},"api":{"10":null}}"#;
         let filename = format!("{provider}.json");
         fs::write(fixture.dir.join(&filename), content).unwrap();
-        contents.insert(filename, content.to_owned());
+        contents.insert(JsString::from(filename.as_str()), JsString::from(content));
     }
-    let manifest = create_model_data_manifest(&fixture.structure, &contents, GENERATED_AT);
-    fs::write(
-        fixture.dir.join(MODEL_DATA_MANIFEST_FILE),
-        serde_json::to_string(&manifest).unwrap(),
-    )
-    .unwrap();
+    let manifest = create_model_data_manifest(&fixture.structure, &contents, &JsString::from(GENERATED_AT));
+    fs::write(fixture.dir.join(MODEL_DATA_MANIFEST_FILE), manifest.stringify()).unwrap();
     let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
     expect_error(&fixture.compare(&mut oracle), "2/2 must be an object");
 }
@@ -492,15 +525,14 @@ fn raw_surrogate_keys_and_nested_values_match_full_ts_responses() {
     for content in cases {
         let fixture = Fixture::new();
         fs::write(fixture.dir.join("test-provider.json"), content).unwrap();
-        let actual = result(read_model_data_structure(&fixture.root).map(|v| json!(v))).to_string();
+        let actual = encoded(read_model_data_structure(&fixture.root).map(|v| model_data_structure_json(&v)));
         let expected = oracle.request(&json!({"op":"structure","root":fixture.root,"encodeResponse":true}));
         if json!(actual) != expected {
             failures.push(format!("structure {content}: Rust {actual}; TS {expected}"));
         }
-        let actual =
-            result(validate_model_data_directory(&fixture.structure, &fixture.dir).map(|()| Value::Null)).to_string();
+        let actual = encoded(validate_model_data_directory(&fixture.structure, &fixture.dir).map(|()| JsValue::Null));
         let expected = oracle
-            .request(&json!({"op":"directory","structure":fixture.structure,"dir":fixture.dir,"encodeResponse":true}));
+            .request(&json!({"op":"directory","structure":structure_serde(&fixture.structure),"dir":fixture.dir,"encodeResponse":true}));
         if json!(actual) != expected {
             failures.push(format!("directory {content}: Rust {actual}; TS {expected}"));
         }

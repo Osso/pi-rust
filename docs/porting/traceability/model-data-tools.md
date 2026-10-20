@@ -52,3 +52,9 @@ All commands run in `/home/osso/.worktrees/pi-rust-model-data-tools`, with `time
 Expanded passing proof includes both caller Node flag and death of oracle plus process-group leader after owner exits without Drop, native checker success/failure output printed from real subprocesses, ordered numeric provider/model/API keys, ignored unrelated files, provider-directory IO throws, and the newly repaired legacy timestamps through the actual validator.
 
 No broad/check/clippy/readability/final-integration/deploy gates run. Shared date changes invalidate relevant integration proof after merge, not the unchanged canonical checkout's earlier proof.
+
+## Lossless consumer completion (2026-10-20)
+
+Shared prerequisite `850b6e8` (canonical integration `e31b4c8`) is merged. Structure keys/API values, file-content constructor input, generated-at constructor input and diagnostic messages now retain `JsString` UTF-16 identity. Raw metadata uses `parse_lossless`/`JsObject` and shared numeric-first enumeration throughout. `model_data_structure_json`, manifest `to_json`/`stringify`, and error `message()` expose lossless output; only error Display and Node-compatible filesystem/hash UTF-8 boundaries replace unpaired surrogates. No local parser or encoding duplicate.
+
+`cf0e110` + lossless consumer working diff: `cargo test -p pi-ai --test model_data_tools -- --nocapture` GREEN 14/14 (0 ignored), `/tmp/model-data-tools-lossless-green-1.log`. Historical surrogate REDs above are resolved; native checker adaptation remains next. Number semantics unchanged. No date command rerun.
