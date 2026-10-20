@@ -14363,6 +14363,69 @@ mod ui_tests {
         }
     }
 
+    struct NestedInput {
+        width: Arc<std::sync::atomic::AtomicUsize>,
+        input: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+    impl ExtensionUiComponent for NestedInput {
+        fn render(&self, width: usize) -> Vec<String> {
+            self.width.store(width, std::sync::atomic::Ordering::SeqCst);
+            vec!["nested".to_owned()]
+        }
+        fn handle_input(&self, input: &str) {
+            self.input.lock().unwrap().push(input.to_owned());
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_nested_overlay_options_input_and_passive_focus() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let tui = mode.extension_factory_context().tui;
+                let width = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let input = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let active = tui.show_overlay(
+                    Box::new(NestedInput {
+                        width: width.clone(),
+                        input: input.clone(),
+                    }),
+                    Some(crate::core::extensions::ExtensionUiOverlayOptions {
+                        width: Some(pi_tui::tui::SizeValue::Absolute(23.0)),
+                        ..Default::default()
+                    }),
+                );
+                mode.ui.render_now();
+                assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 23);
+                let passive = tui.show_overlay(
+                    Box::new(StaticWidget),
+                    Some(crate::core::extensions::ExtensionUiOverlayOptions {
+                        non_capturing: true,
+                        ..Default::default()
+                    }),
+                );
+                assert!(active.is_focused());
+                assert!(!passive.is_focused());
+                terminal.borrow_mut().send_input("nested key");
+                mode.ui.process_events();
+                assert_eq!(*input.lock().unwrap(), vec!["nested key"]);
+                passive.focus();
+                assert!(passive.is_focused());
+                passive.unfocus();
+                assert!(active.is_focused());
+                active.set_hidden(true);
+                assert!(!active.is_focused());
+                active.set_hidden(false);
+                assert!(active.is_focused());
+                active.hide();
+                assert!(mode.ui.has_overlay_entries(), "hide removes only its own entry");
+                passive.hide();
+                assert!(!mode.ui.has_overlay_entries());
+            })
+            .await;
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn extension_ui_local_editor_nested_overlay_and_handle_callback() {
         tokio::task::LocalSet::new()
