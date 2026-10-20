@@ -283,7 +283,6 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
         ("muted", "#808080"),
         ("error", "#cc2222"),
         ("warning", "#ccaa22"),
-        ("customMessageBg", "#101820"),
     ];
     let theme = Arc::new(
         Theme::new(
@@ -291,7 +290,7 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
                 .into_iter()
                 .map(|(role, color)| (role.into(), ColorValue::Text(color.into())))
                 .collect::<Vec<_>>(),
-            &[],
+            &[("customMessageBg".into(), ColorValue::Text("#101820".into()))],
             ColorMode::Truecolor,
             None,
             None,
@@ -304,7 +303,7 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
             std::fs::create_dir(footer_root.path().join(".git")).unwrap();
             std::fs::write(
                 footer_root.path().join(".git/HEAD"),
-                format!("ref: refs/heads/{branch}\\n"),
+                format!("ref: refs/heads/{branch}\n"),
             )
             .unwrap();
         }
@@ -436,7 +435,7 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
                 std::fs::create_dir_all(dir.join(".git")).unwrap();
                 std::fs::write(
                     dir.join(".git/HEAD"),
-                    format!("ref: refs/heads/{}\\n", step["name"].as_str().unwrap()),
+                    format!("ref: refs/heads/{}\n", step["name"].as_str().unwrap()),
                 )
                 .unwrap();
                 footer_data.as_ref().unwrap().set_cwd(dir);
