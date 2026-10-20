@@ -2554,6 +2554,9 @@ pub struct InteractiveMode {
     retry_loader: RefCell<Option<ComponentRef>>,
     retry_countdown: RefCell<Option<CountdownTimer>>,
     retry_escape_handler: RefCell<Option<Rc<dyn Fn()>>>,
+    auto_compaction_escape_handler: RefCell<Option<Rc<dyn Fn()>>>,
+    auto_compaction_loader: RefCell<Option<ComponentRef>>,
+    auto_compaction_source_hint: RefCell<Option<crate::core::compaction::CompactionSourceInfo>>,
     thinking_started_at: Cell<Option<f64>>,
     thinking_follows_tool: Cell<bool>,
     thinking_timer_next: Cell<Option<f64>>,
@@ -2862,6 +2865,9 @@ impl InteractiveMode {
             retry_loader: RefCell::new(None),
             retry_countdown: RefCell::new(None),
             retry_escape_handler: RefCell::new(None),
+            auto_compaction_escape_handler: RefCell::new(None),
+            auto_compaction_loader: RefCell::new(None),
+            auto_compaction_source_hint: RefCell::new(None),
             thinking_started_at: Cell::new(None),
             thinking_follows_tool: Cell::new(false),
             thinking_timer_next: Cell::new(None),
@@ -3325,6 +3331,21 @@ impl InteractiveMode {
     /// `stopRetryLoader`.
     fn stop_retry_loader(&self) {
         let Some(loader) = self.retry_loader.borrow_mut().take() else {
+            return;
+        };
+        if let Some(loader) = loader
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<Loader>())
+        {
+            loader.stop();
+        }
+        self.status_container.borrow_mut().remove_child(&loader);
+    }
+
+    /// Stops the compaction loader and clears its status row.
+    fn stop_auto_compaction_loader(&self) {
+        let Some(loader) = self.auto_compaction_loader.borrow_mut().take() else {
             return;
         };
         if let Some(loader) = loader
@@ -6397,6 +6418,13 @@ impl InteractiveMode {
         let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
         *self.events.borrow_mut() = Some(event_sender);
         self.init().await?;
+
+        let tmux_mode = Rc::clone(&self);
+        tokio::task::spawn_local(async move {
+            if let Some(warning) = check_tmux_keyboard_setup().await {
+                tmux_mode.show_warning(&warning);
+            }
+        });
 
         self.process_control_message().await?;
 
@@ -10656,18 +10684,53 @@ impl InteractiveMode {
             }
             AgentSessionEvent::AgentSettled(_) => {}
             AgentSessionEvent::CompactionStart(event) => {
-                self.set_prompt_activity(PromptActivitySource::Compaction, true);
+                if self.settings(|settings| settings.get_show_terminal_progress()) {
+                    self.ui.terminal().borrow_mut().set_progress(true);
+                }
+                let previous_escape = self.default_editor.borrow().on_escape.clone();
+                *self.auto_compaction_escape_handler.borrow_mut() = previous_escape;
+                let session = self.session();
+                self.default_editor.borrow_mut().on_escape = Some(Rc::new(move || {
+                    session.abort_compaction();
+                }));
                 self.status_container.borrow_mut().clear();
-                self.status_container.borrow_mut().add_child(component(Text::new(
-                    with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("Compacting ({})...", event.reason))),
-                    1,
-                    0,
-                )));
+                *self.auto_compaction_source_hint.borrow_mut() = event.source_hint.clone();
+                let cancel_hint = format!(
+                    "({} to cancel)",
+                    crate::modes::interactive::components::keybinding_hints::key_text("app.interrupt")
+                );
+                let label = format_compaction_start_label(&event.reason, event.source_hint.as_ref(), &cancel_hint);
+                let ui = Rc::clone(&self.ui);
+                let request_render: Rc<dyn Fn()> = Rc::new(move || {
+                    ui.request_render();
+                });
+                let loader = component(Loader::new(
+                    request_render,
+                    Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
+                    Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+                    label,
+                    Some(pi_tui::LoaderIndicatorOptions {
+                        frames: Some(Vec::new()),
+                        interval_ms: None,
+                    }),
+                ));
+                *self.auto_compaction_loader.borrow_mut() = Some(Rc::clone(&loader));
+                self.status_container.borrow_mut().add_child(loader);
+                self.set_prompt_activity(PromptActivitySource::Compaction, true);
                 self.ui.request_render();
             }
             AgentSessionEvent::CompactionEnd(event) => {
+                if self.settings(|settings| settings.get_show_terminal_progress()) {
+                    self.ui.terminal().borrow_mut().set_progress(false);
+                }
+                if let Some(handler) = self.auto_compaction_escape_handler.borrow_mut().take() {
+                    self.default_editor.borrow_mut().on_escape = Some(handler);
+                }
+                if self.auto_compaction_loader.borrow().is_some() {
+                    self.stop_auto_compaction_loader();
+                    self.status_container.borrow_mut().clear();
+                }
                 self.set_prompt_activity(PromptActivitySource::Compaction, false);
-                self.status_container.borrow_mut().clear();
                 if event.aborted {
                     if event.reason == "manual" {
                         self.show_error("Compaction cancelled");
@@ -10675,16 +10738,25 @@ impl InteractiveMode {
                         self.show_status("Auto-compaction cancelled");
                     }
                 } else if let Some(result) = &event.result {
-                    if let Ok(result) =
-                        serde_json::from_value::<crate::core::compaction::CompactionResult>(result.clone())
-                    {
-                        self.rebuild_chat_after_compaction(&result);
-                    }
+                    let source_log_message = format_compaction_source_log_message(result.source.as_ref());
+                    self.rebuild_chat_after_compaction(result);
                     self.footer.borrow_mut().invalidate();
-                    self.show_status("Compaction complete");
+                    self.show_status(&source_log_message);
                 } else if let Some(error) = &event.error_message {
-                    self.show_error(error);
+                    let source_hint = self.auto_compaction_source_hint.borrow().clone();
+                    let failure_message = format_compaction_failure_message(error, &event.reason, source_hint.as_ref());
+                    if event.reason == "manual" {
+                        self.show_error(&failure_message);
+                    } else {
+                        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+                        self.chat_container.borrow_mut().add_child(component(Text::new(
+                            with_theme(|theme| theme.fg(ThemeColor::Error, &failure_message)),
+                            1,
+                            0,
+                        )));
+                    }
                 }
+                *self.auto_compaction_source_hint.borrow_mut() = None;
                 self.flush_compaction_queue(event.will_retry).await;
                 self.ui.request_render();
             }
@@ -10928,6 +11000,203 @@ impl crate::core::cache_stats::ModelPriceSource for ModelRuntimePrices<'_> {
     }
 }
 
+/// `formatCompactionStartLabel`.
+pub fn format_compaction_start_label(
+    reason: &str,
+    source: Option<&crate::core::compaction::CompactionSourceInfo>,
+    cancel_hint: &str,
+) -> String {
+    let prefix = if reason == "manual" {
+        "Compacting context"
+    } else {
+        "Auto-compacting"
+    };
+    let overflow_prefix = if reason == "overflow" {
+        "Context overflow detected, "
+    } else {
+        ""
+    };
+    format!(
+        "{overflow_prefix}{prefix}{}... {cancel_hint}",
+        format_compaction_source_progress_suffix(source)
+    )
+}
+
+fn format_compaction_source_progress_suffix(source: Option<&crate::core::compaction::CompactionSourceInfo>) -> String {
+    use crate::core::compaction::CompactionSourceType;
+    let Some(source) = source else {
+        return String::new();
+    };
+    match source.r#type {
+        CompactionSourceType::OpenAiRemote => {
+            let endpoint_suffix = source
+                .endpoint
+                .as_ref()
+                .map(|endpoint| format!(", {endpoint}"))
+                .unwrap_or_default();
+            format!(
+                " via OpenAI remote endpoint ({}/{}{endpoint_suffix})",
+                source.provider, source.model
+            )
+        }
+        CompactionSourceType::Local => " locally".to_owned(),
+    }
+}
+
+/// `formatCompactionFailureMessage`.
+pub fn format_compaction_failure_message(
+    error_message: &str,
+    reason: &str,
+    source_hint: Option<&crate::core::compaction::CompactionSourceInfo>,
+) -> String {
+    use crate::core::compaction::CompactionSourceType;
+    let original_error = format_compaction_original_error(error_message, reason);
+    let mut lines = vec![format_compaction_failure_summary(error_message, reason)];
+    if let Some(source) = source_hint
+        && source.r#type == CompactionSourceType::Local
+    {
+        lines.push(format!("Model: {}/{}.", source.provider, source.model));
+    }
+    if is_compaction_timeout(error_message) {
+        lines.push("The compaction request did not finish before the timeout.".to_owned());
+    }
+    lines.push(format_compaction_save_impact(reason));
+    lines.push(format!(
+        "Original error: {}",
+        format_compaction_sentence(&original_error)
+    ));
+    lines.join("\n")
+}
+
+fn is_compaction_timeout(error_message: &str) -> bool {
+    error_message.to_lowercase().contains("timed out")
+}
+
+fn format_compaction_save_impact(reason: &str) -> String {
+    if reason == "manual" {
+        "No compaction was saved; context remains unchanged.".to_owned()
+    } else {
+        "No compaction was saved; the previous context is still too large.".to_owned()
+    }
+}
+
+fn format_compaction_sentence(text: &str) -> String {
+    if text.ends_with('.') || text.ends_with('!') || text.ends_with('?') {
+        text.to_owned()
+    } else {
+        format!("{text}.")
+    }
+}
+
+fn format_compaction_failure_summary(error_message: &str, reason: &str) -> String {
+    if is_compaction_timeout(error_message) {
+        return if reason == "overflow" {
+            "Context overflow recovery failed after compaction timeout."
+        } else {
+            "Compaction failed after timeout."
+        }
+        .to_owned();
+    }
+    if reason == "overflow" {
+        "Context overflow recovery failed during compaction."
+    } else {
+        "Compaction failed."
+    }
+    .to_owned()
+}
+
+fn format_compaction_original_error(error_message: &str, reason: &str) -> String {
+    let prefixes: &[&str] = if reason == "overflow" {
+        &["Context overflow recovery failed: "]
+    } else {
+        &["Compaction failed: ", "Auto-compaction failed: "]
+    };
+    for prefix in prefixes {
+        if let Some(rest) = error_message.strip_prefix(prefix) {
+            return rest.to_owned();
+        }
+    }
+    error_message.to_owned()
+}
+
+/// `formatCompactionSourceLogMessage`.
+pub fn format_compaction_source_log_message(source: Option<&crate::core::compaction::CompactionSourceInfo>) -> String {
+    use crate::core::compaction::CompactionSourceType;
+    let Some(source) = source else {
+        return "Compaction completed locally".to_owned();
+    };
+    match source.r#type {
+        CompactionSourceType::OpenAiRemote => {
+            let endpoint_suffix = source
+                .endpoint
+                .as_ref()
+                .map(|endpoint| format!(", {endpoint}"))
+                .unwrap_or_default();
+            format!(
+                "Compaction completed via OpenAI remote endpoint ({}/{}{endpoint_suffix})",
+                source.provider, source.model
+            )
+        }
+        CompactionSourceType::Local => {
+            format!("Compaction completed locally ({}/{})", source.provider, source.model)
+        }
+    }
+}
+
+/// `checkTmuxKeyboardSetup`; returns the warning to show, if any.
+pub async fn check_tmux_keyboard_setup() -> Option<String> {
+    let tmux_env = std::env::var_os("TMUX");
+    check_tmux_keyboard_setup_with(tmux_env.as_deref(), "tmux").await
+}
+
+/// Runs the tmux keyboard check against an explicit environment and program.
+pub async fn check_tmux_keyboard_setup_with(tmux_env: Option<&std::ffi::OsStr>, program: &str) -> Option<String> {
+    if tmux_env.is_none() {
+        return None;
+    }
+    let (extended_keys, extended_keys_format) = tokio::join!(
+        run_tmux_show(program, "extended-keys"),
+        run_tmux_show(program, "extended-keys-format"),
+    );
+    tmux_keyboard_warning(extended_keys.as_deref(), extended_keys_format.as_deref())
+}
+
+fn tmux_keyboard_warning(extended_keys: Option<&str>, extended_keys_format: Option<&str>) -> Option<String> {
+    let extended_keys = extended_keys?;
+    if extended_keys != "on" && extended_keys != "always" {
+        return Some(
+            "tmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and restart tmux."
+                .to_owned(),
+        );
+    }
+    if extended_keys_format == Some("xterm") {
+        return Some(
+            "tmux extended-keys-format is xterm. Pi works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux."
+                .to_owned(),
+        );
+    }
+    None
+}
+
+async fn run_tmux_show(program: &str, option: &str) -> Option<String> {
+    let child = tokio::process::Command::new(program)
+        .args(["show", "-gv", option])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .ok()?;
+    let output = tokio::time::timeout(Duration::from_millis(2_000), child.wait_with_output())
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(pi_js_compat::string::js_trim(&String::from_utf8_lossy(&output.stdout)).to_owned())
+}
+
 /// `isMainSessionDisplayEvent`.
 fn is_main_session_display_event(event: &AgentSessionEvent) -> bool {
     matches!(
@@ -10985,6 +11254,7 @@ mod ui_tests {
         columns: usize,
         writes: Vec<String>,
         events: Vec<TerminalEvent>,
+        progress: Vec<bool>,
     }
 
     impl CaptureTerminal {
@@ -11022,7 +11292,9 @@ mod ui_tests {
         fn clear_from_cursor(&mut self) {}
         fn clear_screen(&mut self) {}
         fn set_title(&mut self, _title: &str) {}
-        fn set_progress(&mut self, _active: bool) {}
+        fn set_progress(&mut self, active: bool) {
+            self.progress.push(active);
+        }
         fn poll_events(&mut self) -> Vec<TerminalEvent> {
             std::mem::take(&mut self.events)
         }
@@ -11274,6 +11546,7 @@ mod ui_tests {
             columns: 80,
             writes: Vec::new(),
             events: Vec::new(),
+            progress: Vec::new(),
         }));
         let terminal_trait: Rc<RefCell<dyn Terminal>> = terminal.clone();
         let mode = InteractiveMode::new(
@@ -12842,6 +13115,303 @@ mod ui_tests {
                 assert!(!status.contains("Retrying ("), "{status}");
                 let chat = chat_text(&mode);
                 assert!(chat.contains("Retry failed after 3 attempts: Unknown error"), "{chat}");
+            })
+            .await;
+    }
+
+    fn compaction_source(
+        source_type: crate::core::compaction::CompactionSourceType,
+        provider: &str,
+        model: &str,
+        endpoint: Option<&str>,
+    ) -> crate::core::compaction::CompactionSourceInfo {
+        crate::core::compaction::CompactionSourceInfo {
+            r#type: source_type,
+            provider: provider.to_owned(),
+            model: model.to_owned(),
+            endpoint: endpoint.map(str::to_owned),
+        }
+    }
+
+    fn compaction_result(
+        source: Option<crate::core::compaction::CompactionSourceInfo>,
+    ) -> crate::core::compaction::CompactionResult {
+        crate::core::compaction::CompactionResult {
+            summary: "summary".to_owned(),
+            first_kept_entry_id: "entry-1".to_owned(),
+            tokens_before: 123.0,
+            duration_ms: None,
+            estimated_tokens_after: None,
+            kept_from_previous_context_tokens: None,
+            compacted_result_tokens: None,
+            compacted_result_bytes: None,
+            source,
+            usage: None,
+            provider_native: None,
+            details: None,
+        }
+    }
+
+    #[test]
+    fn compaction_labels_match_the_source() {
+        use crate::core::compaction::CompactionSourceType;
+        let remote = compaction_source(
+            CompactionSourceType::OpenAiRemote,
+            "openai-codex",
+            "gpt-5.5",
+            Some("https://chatgpt.com/backend-api/codex/responses/compact"),
+        );
+        assert_eq!(
+            format_compaction_start_label("manual", Some(&remote), "(escape to cancel)"),
+            "Compacting context via OpenAI remote endpoint (openai-codex/gpt-5.5, https://chatgpt.com/backend-api/codex/responses/compact)... (escape to cancel)"
+        );
+
+        let local = compaction_source(CompactionSourceType::Local, "anthropic", "claude-sonnet-4-5", None);
+        assert_eq!(
+            format_compaction_start_label("threshold", Some(&local), "(escape to cancel)"),
+            "Auto-compacting locally... (escape to cancel)"
+        );
+        assert_eq!(
+            format_compaction_start_label("overflow", None, "(escape to cancel)"),
+            "Context overflow detected, Auto-compacting... (escape to cancel)"
+        );
+        assert_eq!(
+            format_compaction_start_label("overflow", Some(&remote), "(escape to cancel)"),
+            "Context overflow detected, Auto-compacting via OpenAI remote endpoint (openai-codex/gpt-5.5, https://chatgpt.com/backend-api/codex/responses/compact)... (escape to cancel)"
+        );
+
+        assert_eq!(
+            format_compaction_failure_message(
+                "Context overflow recovery failed: Turn prefix summarization failed: Request timed out.",
+                "overflow",
+                Some(&compaction_source(
+                    CompactionSourceType::Local,
+                    "ollama",
+                    "qwen3:4b-instruct-128k",
+                    None,
+                )),
+            ),
+            [
+                "Context overflow recovery failed after compaction timeout.",
+                "Model: ollama/qwen3:4b-instruct-128k.",
+                "The compaction request did not finish before the timeout.",
+                "No compaction was saved; the previous context is still too large.",
+                "Original error: Turn prefix summarization failed: Request timed out.",
+            ]
+            .join("\n")
+        );
+        assert_eq!(
+            format_compaction_failure_message("Compaction failed: boom", "manual", None),
+            [
+                "Compaction failed.",
+                "No compaction was saved; context remains unchanged.",
+                "Original error: boom.",
+            ]
+            .join("\n")
+        );
+
+        assert_eq!(
+            format_compaction_source_log_message(Some(&remote)),
+            "Compaction completed via OpenAI remote endpoint (openai-codex/gpt-5.5, https://chatgpt.com/backend-api/codex/responses/compact)"
+        );
+        assert_eq!(
+            format_compaction_source_log_message(Some(&local)),
+            "Compaction completed locally (anthropic/claude-sonnet-4-5)"
+        );
+        assert_eq!(
+            format_compaction_source_log_message(None),
+            "Compaction completed locally"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn compaction_start_renders_the_source_loader_and_binds_escape() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let mut settings = serde_json::Map::new();
+                settings.insert(
+                    "terminal".to_owned(),
+                    serde_json::json!({"showTerminalProgress": true}),
+                );
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new(),
+                    None,
+                    SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default()),
+                )
+                .await;
+                let _events = start(&mode).await;
+                let sentinel = Rc::new(Cell::new(false));
+                let sentinel_flag = Rc::clone(&sentinel);
+                mode.default_editor.borrow_mut().on_escape = Some(Rc::new(move || {
+                    sentinel_flag.set(true);
+                }));
+
+                let source_hint = compaction_source(
+                    crate::core::compaction::CompactionSourceType::OpenAiRemote,
+                    "openai",
+                    "gpt-4.1-mini",
+                    Some("https://api.openai.com/v1/responses/compact"),
+                );
+                mode.handle_event(AgentSessionEvent::CompactionStart(
+                    crate::core::agent_session::CompactionStartEvent {
+                        event_type: "compaction_start",
+                        reason: "manual".to_owned(),
+                        source_hint: Some(source_hint.clone()),
+                    },
+                ))
+                .await;
+
+                let status = status_text(&mode);
+                assert!(
+                    status.contains(
+                        "Compacting context via OpenAI remote endpoint (openai/gpt-4.1-mini, https://api.openai.com/v1/responses/compact)... (escape to cancel)"
+                    ),
+                    "{status}"
+                );
+                assert!(mode.auto_compaction_loader.borrow().is_some());
+                assert_eq!(mode.auto_compaction_source_hint.borrow().as_ref(), Some(&source_hint));
+                assert_eq!(*terminal.borrow().progress, vec![true]);
+
+                let escape = mode.default_editor.borrow().on_escape.clone().expect("escape handler");
+                escape();
+                assert!(!sentinel.get(), "escape must abort compaction instead of the prior handler");
+
+                mode.handle_event(AgentSessionEvent::CompactionEnd(
+                    crate::core::agent_session::CompactionEndEvent {
+                        event_type: "compaction_end",
+                        reason: "manual".to_owned(),
+                        result: None,
+                        aborted: true,
+                        will_retry: false,
+                        error_message: None,
+                    },
+                ))
+                .await;
+
+                assert!(mode.auto_compaction_loader.borrow().is_none());
+                assert!(status_text(&mode).is_empty());
+                assert_eq!(*terminal.borrow().progress, vec![true, false]);
+                assert!(chat_text(&mode).contains("Compaction cancelled"));
+                let restored = mode.default_editor.borrow().on_escape.clone().expect("restored escape handler");
+                restored();
+                assert!(sentinel.get(), "compaction end must restore the previous escape handler");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn compaction_end_reports_the_source_and_reason_specific_failures() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let local_source = compaction_source(
+                    crate::core::compaction::CompactionSourceType::Local,
+                    "anthropic",
+                    "claude-sonnet-4-5",
+                    None,
+                );
+                mode.handle_event(AgentSessionEvent::CompactionStart(
+                    crate::core::agent_session::CompactionStartEvent {
+                        event_type: "compaction_start",
+                        reason: "manual".to_owned(),
+                        source_hint: Some(local_source.clone()),
+                    },
+                ))
+                .await;
+                mode.handle_event(AgentSessionEvent::CompactionEnd(
+                    crate::core::agent_session::CompactionEndEvent {
+                        event_type: "compaction_end",
+                        reason: "manual".to_owned(),
+                        result: Some(compaction_result(Some(local_source.clone()))),
+                        aborted: false,
+                        will_retry: false,
+                        error_message: None,
+                    },
+                ))
+                .await;
+                let chat = chat_text(&mode);
+                assert!(
+                    chat.contains("Compaction completed locally (anthropic/claude-sonnet-4-5)"),
+                    "{chat}"
+                );
+
+                mode.handle_event(AgentSessionEvent::CompactionStart(
+                    crate::core::agent_session::CompactionStartEvent {
+                        event_type: "compaction_start",
+                        reason: "threshold".to_owned(),
+                        source_hint: Some(compaction_source(
+                            crate::core::compaction::CompactionSourceType::Local,
+                            "ollama",
+                            "qwen3:4b-instruct-128k",
+                            None,
+                        )),
+                    },
+                ))
+                .await;
+                mode.handle_event(AgentSessionEvent::CompactionEnd(
+                    crate::core::agent_session::CompactionEndEvent {
+                        event_type: "compaction_end",
+                        reason: "threshold".to_owned(),
+                        result: None,
+                        aborted: false,
+                        will_retry: false,
+                        error_message: Some(
+                            "Auto-compaction failed: Turn prefix summarization failed: Request timed out.".to_owned(),
+                        ),
+                    },
+                ))
+                .await;
+                let chat = chat_text(&mode);
+                let normalized = chat.lines().map(str::trim).collect::<Vec<_>>().join("\n");
+                assert!(
+                    normalized.contains(
+                        &[
+                            "Compaction failed after timeout.",
+                            "Model: ollama/qwen3:4b-instruct-128k.",
+                            "The compaction request did not finish before the timeout.",
+                            "No compaction was saved; the previous context is still too large.",
+                            "Original error: Turn prefix summarization failed: Request timed out.",
+                        ]
+                        .join("\n")
+                    ),
+                    "{chat}"
+                );
+
+                mode.handle_event(AgentSessionEvent::CompactionStart(
+                    crate::core::agent_session::CompactionStartEvent {
+                        event_type: "compaction_start",
+                        reason: "manual".to_owned(),
+                        source_hint: None,
+                    },
+                ))
+                .await;
+                mode.handle_event(AgentSessionEvent::CompactionEnd(
+                    crate::core::agent_session::CompactionEndEvent {
+                        event_type: "compaction_end",
+                        reason: "manual".to_owned(),
+                        result: None,
+                        aborted: false,
+                        will_retry: false,
+                        error_message: Some("Compaction failed: boom".to_owned()),
+                    },
+                ))
+                .await;
+                let chat = chat_text(&mode);
+                let normalized = chat.lines().map(str::trim).collect::<Vec<_>>().join("\n");
+                assert!(
+                    normalized.contains(
+                        &[
+                            "Compaction failed.",
+                            "No compaction was saved; context remains unchanged.",
+                            "Original error: boom.",
+                        ]
+                        .join("\n")
+                    ),
+                    "{chat}"
+                );
             })
             .await;
     }

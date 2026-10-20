@@ -542,7 +542,7 @@ pub struct CompactionStartEvent {
     pub event_type: &'static str,
     pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_hint: Option<Value>,
+    pub source_hint: Option<crate::core::compaction::CompactionSourceInfo>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -552,7 +552,7 @@ pub struct CompactionEndEvent {
     pub event_type: &'static str,
     pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<Value>,
+    pub result: Option<crate::core::compaction::CompactionResult>,
     pub aborted: bool,
     pub will_retry: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5616,7 +5616,7 @@ impl AgentSession {
                 self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: "manual".to_owned(),
-                    result: Some(serde_json::to_value(&compaction_result).unwrap_or(Value::Null)),
+                    result: Some(compaction_result.clone()),
                     aborted: false,
                     will_retry: should_continue,
                     error_message: None,
@@ -5812,7 +5812,11 @@ impl AgentSession {
         }
     }
 
-    async fn get_compaction_source_hint(&self, reason: &str, will_retry: bool) -> Option<Value> {
+    async fn get_compaction_source_hint(
+        &self,
+        reason: &str,
+        will_retry: bool,
+    ) -> Option<crate::core::compaction::CompactionSourceInfo> {
         let runner = self.runner();
         if runner.has_handlers("session_compaction_source") {
             let mut event =
@@ -5828,7 +5832,7 @@ impl AgentSession {
             if let Some(source) = emit_result.session_compaction_source()
                 && let Some(source) = &source.source
             {
-                return serde_json::to_value(source).ok();
+                return Some(source.clone());
             }
         }
         if runner.has_handlers("compaction") {
@@ -5838,13 +5842,12 @@ impl AgentSession {
             return None;
         }
         let model = self.inner.agent.model();
-        serde_json::to_value(crate::core::compaction::CompactionSourceInfo {
+        Some(crate::core::compaction::CompactionSourceInfo {
             r#type: crate::core::compaction::CompactionSourceType::Local,
             provider: model.provider,
             model: model.id,
             endpoint: None,
         })
-        .ok()
     }
 
     async fn get_compaction_request_auth(&self, model: &Model) -> CompactionRequestAuth {
@@ -6122,7 +6125,7 @@ impl AgentSession {
                 self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: reason.to_owned(),
-                    result: Some(serde_json::to_value(&compaction_result).unwrap_or(Value::Null)),
+                    result: Some(compaction_result),
                     aborted: false,
                     will_retry,
                     error_message: None,
