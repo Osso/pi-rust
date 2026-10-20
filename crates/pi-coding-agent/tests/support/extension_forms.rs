@@ -205,7 +205,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let render_result = output
         .borrow_mut()
         .render(request["callWidth"].as_u64().unwrap_or(80) as usize);
-    let render_tool_result = |result| {
+    let render_tool_result = |result: &pi_agent_core::AgentToolResult| {
         tool.render_result.as_ref().unwrap()(result, &opts, &theme, &render_context)
             .unwrap()
             .borrow_mut()
