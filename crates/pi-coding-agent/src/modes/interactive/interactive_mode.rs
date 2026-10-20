@@ -2046,6 +2046,7 @@ enum UiRequest {
         notify_type: Option<NotifyType>,
     },
     RequestRender,
+    RequestRenderForce,
     SetStatus {
         key: String,
         text: Option<String>,
@@ -2478,6 +2479,19 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
         let _ = self.sender.send(UiRequest::RequestRender);
     }
 
+    fn request_render_force(&self) {
+        let _ = self.sender.send(UiRequest::RequestRenderForce);
+    }
+
+    fn stop(&self) {
+        with_mode(self.mode_id, |mode| mode.ui.stop()).expect("extension TUI stop requires the owning live UI thread");
+    }
+
+    fn start(&self) -> Result<(), String> {
+        with_mode(self.mode_id, |mode| mode.ui.start().map_err(|error| error.to_string()))
+            .expect("extension TUI start requires the owning live UI thread")
+    }
+
     fn terminal_rows(&self) -> usize {
         self.shared.rows.load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -2539,6 +2553,10 @@ impl Component for ExtensionComponentAdapter {
 
     fn wants_input(&self) -> bool {
         self.inner.wants_input()
+    }
+
+    fn wants_key_release(&self) -> bool {
+        self.inner.wants_key_release()
     }
 
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
@@ -10497,6 +10515,7 @@ impl InteractiveMode {
                 Some(NotifyType::Info) | None => self.show_status(&message),
             },
             UiRequest::RequestRender => self.ui.request_render(),
+            UiRequest::RequestRenderForce => self.ui.request_render_force(),
             UiRequest::SetStatus { key, text } => {
                 if let Some(text) = &text {
                     self.extension_statuses.borrow_mut().insert(key.clone(), text.clone());
@@ -11840,6 +11859,7 @@ mod ui_tests {
         writes: Vec<String>,
         events: Vec<TerminalEvent>,
         progress: Vec<bool>,
+        start_error: Option<TerminalRawModeError>,
     }
 
     impl CaptureTerminal {
@@ -11854,7 +11874,10 @@ mod ui_tests {
 
     impl Terminal for CaptureTerminal {
         fn start(&mut self) -> Result<(), TerminalRawModeError> {
-            Ok(())
+            match &self.start_error {
+                Some(error) => Err(error.clone()),
+                None => Ok(()),
+            }
         }
         fn stop(&mut self) {}
         fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
@@ -12132,6 +12155,7 @@ mod ui_tests {
             writes: Vec::new(),
             events: Vec::new(),
             progress: Vec::new(),
+            start_error: None,
         }));
         let terminal_trait: Rc<RefCell<dyn Terminal>> = terminal.clone();
         let mode = InteractiveMode::new(
@@ -14239,6 +14263,95 @@ mod ui_tests {
                         .iter()
                         .any(|line| line.contains(pi_tui::tui::CURSOR_MARKER))
                 );
+            })
+            .await;
+    }
+
+    struct ReleaseInput {
+        opted_in: bool,
+        inputs: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+    impl ExtensionUiComponent for ReleaseInput {
+        fn render(&self, _: usize) -> Vec<String> {
+            vec!["release fixture".into()]
+        }
+        fn wants_key_release(&self) -> bool {
+            self.opted_in
+        }
+        fn handle_input(&self, data: &str) {
+            self.inputs.lock().unwrap().push(data.into());
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_release_opt_in_reaches_real_tui() {
+        assert!(!StaticWidget.wants_key_release());
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                for opted_in in [false, true] {
+                    let inputs = Arc::new(std::sync::Mutex::new(Vec::new()));
+                    let captured = inputs.clone();
+                    let (send, _receive) = tokio::sync::oneshot::channel();
+                    mode.show_extension_custom(
+                        Arc::new(move |_, _| {
+                            Box::new(ReleaseInput {
+                                opted_in,
+                                inputs: captured.clone(),
+                            })
+                        }),
+                        None,
+                        send,
+                    );
+                    terminal.borrow_mut().send_input("a");
+                    terminal.borrow_mut().send_input("\x1b[97;1:3u");
+                    mode.ui.process_events();
+                    assert_eq!(
+                        *inputs.lock().unwrap(),
+                        if opted_in { vec!["a", "\x1b[97;1:3u"] } else { vec!["a"] }
+                    );
+                    mode.restore_editor();
+                }
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_tui_lifecycle_is_synchronous_and_force_redraws() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let tui = mode.extension_factory_context().tui;
+                mode.set_extension_header(Some(Arc::new(|_| Box::new(StaticWidget))));
+                mode.ui.render_now();
+                terminal.borrow_mut().writes.clear();
+                tui.request_render_force();
+                mode.handle_ui_requests().await;
+                mode.ui.flush_pending();
+                assert!(
+                    terminal.borrow().output().contains("custom widget"),
+                    "forced redraw must repaint unchanged frame: {:?}",
+                    terminal.borrow().writes
+                );
+                terminal.borrow_mut().writes.clear();
+                tui.stop();
+                assert!(
+                    terminal.borrow().writes.concat().contains("\x1b[?1004l"),
+                    "stop must release before returning"
+                );
+                terminal.borrow_mut().writes.clear();
+                tui.start().unwrap();
+                assert!(
+                    terminal.borrow().writes.concat().contains("\x1b[?1004h"),
+                    "start must reacquire before returning"
+                );
+                tui.stop();
+                let error = TerminalRawModeError::new(true, "fixture raw-mode failure");
+                terminal.borrow_mut().start_error = Some(error.clone());
+                assert_eq!(tui.start(), Err(error.to_string()));
+                terminal.borrow_mut().start_error = None;
             })
             .await;
     }

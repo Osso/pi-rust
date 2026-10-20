@@ -92,32 +92,15 @@ removal; paused resume does not invalidate cached render until tick/invalidate;
 very narrow widths throw and narrow headers/footers can exceed the border.
 No core API changes or dependencies.
 
-## space-invaders.ts — blocked; no native implementation
+## space-invaders.ts — done
 
-The alias issue is resolved by read/write snapshots, but the component needs
-`wantsKeyRelease = true` (pinned `space-invaders.ts:123`) for held movement/fire
-release handling at lines 306–360. Pinned `tui.ts:1154–1159` filters Kitty release
-events unless the focused component opts in.
-
-Native `core/extensions/types.rs:262–274` exposes render/input/invalidate/
-wants_input/dispose, but no release opt-in. `ExtensionComponentAdapter` in
-`modes/interactive/interactive_mode.rs:2494–2518` forwards those methods only.
-Native `pi-tui::Component::wants_key_release` defaults false (`tui.rs:63`), and
-its TUI filters releases at `tui.rs:1391–1394`. A component-local key parser would
-not fix discarded input; bypassing the host would falsely claim parity.
-Per task instruction and parent confirmation, stop this example until the core
-slice adds and forwards release opt-in. Do not emulate smooth movement without
-release events, or ship a partial native game under a done status.
-
-`example_space_invaders::real_ts_tui_key_release_stops_player_but_held_input_keeps_moving`
-characterizes the exact boundary via unchanged pinned game + real TS TUI +
-VirtualTerminal. At virtual 50ms ticks, pressing A then Kitty A-release stops at
-x=29; omitting release continues to x=28. Captures complete ANSI frames at
-24/64/90 columns and persisted state. Temporary instance mutation disabling
-release opt-in makes this test fail x=28 vs x=29 (22); restored byte-for-byte.
-This is a TS blocker proof, NOT a native differential/implementation claim.
-Aliens, bullets, shields, scoring, levels, victory, restart, and native persistence
-remain unported. No native RED→GREEN claim or native mutation proof exists.
+Historical release-opt-in blocker resolved by the [core UI input slice](core-ui-input.md).
+`examples/extensions/space_invaders.rs::space_invaders_extension` is now shipped
+for explicit registration. `example_space_invaders` replaces the TS-only blocker
+with native/pinned differential proof through real TUI input filters. The core
+slice owns the complete API/behavior matrix, source discrepancies, mutation proof
+and verification limits. The old TS-only oracle remains the pinned side of the
+native comparison; it is no longer the sole proof.
 
 ## Proof summary
 
@@ -125,7 +108,8 @@ Logs and revision/scopes: `/tmp/pi-rust-ext-examples-l/ledger.md`.
 Todo: 01 behavioral RED, 04 GREEN 2 tests, 05 native mutation RED.
 Plan: 06 missing-module RED, 12 GREEN 3 tests, 19 native mutation RED.
 Snake: 13 missing-module RED, 18 GREEN 3 tests, 20 native mutation RED.
-Invaders: 21 TS blocker GREEN 1 test; 22 disabled-opt-in mutation RED.
+Historical invaders proof: 21 TS blocker GREEN 1 test; 22 disabled-opt-in mutation RED.
+Current native proof supersedes it: [core UI input](core-ui-input.md).
 All mutations restored byte-for-byte; later formatting does not change behavior.
 Only `cargo test -p pi-coding-agent --test example_<name>` and cargo fmt used;
 no broad suites, clippy/check, delegation, model CLI, merge/push or live state.

@@ -20,6 +20,16 @@ use std::sync::{Arc, Mutex};
 type Trace = Arc<Mutex<Vec<Value>>>;
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
+    fn request_render_force(&self) {
+        panic!("fixture does not force redraw")
+    }
+    fn stop(&self) {
+        panic!("fixture does not release terminal")
+    }
+    fn start(&self) -> Result<(), String> {
+        panic!("fixture does not acquire terminal")
+    }
+
     fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("this component fixture must not construct an editor")
     }
