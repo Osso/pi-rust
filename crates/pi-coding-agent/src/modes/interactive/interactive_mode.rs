@@ -11120,7 +11120,7 @@ fn format_compaction_original_error(error_message: &str, reason: &str) -> String
 }
 
 /// `formatCompactionSourceLogMessage`.
-pub fn format_compaction_source_log_message(source: Option<&crate::core::compaction::CompactionSourceInfo>) -> String {
+fn format_compaction_source_log_message(source: Option<&crate::core::compaction::CompactionSourceInfo>) -> String {
     use crate::core::compaction::CompactionSourceType;
     let Some(source) = source else {
         return "Compaction completed locally".to_owned();

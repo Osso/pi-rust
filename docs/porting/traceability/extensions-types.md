@@ -84,15 +84,7 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
 ## Gaps
 
-None. The component-factory UI contracts (`setWidget` with string arrays and
-factory components, `setFooter`, `setDefaultFooter`, `setHeader`, `custom`,
-`getTheme`, `setTheme(Theme)`), `addAutocompleteProvider`,
-`setEditorComponent`, `getEditorComponent`, and
-`ExtensionContext::detached_job_lifecycle` are implemented and covered by
-`ui_tests::extension_context_exposes_autocomplete_and_editor_factories` and the
-interactive-mode component tests. Tool input/detail types remain type-only
-exports carried by each tool's JSON schema plus `serde_json::Value`; that is the
-declared API shape, not a missing behavior.
+None.
 
 ## Discrepancies
 
