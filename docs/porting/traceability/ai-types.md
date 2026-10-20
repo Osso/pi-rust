@@ -41,6 +41,8 @@ Contract: [content stream scratch](../../specs/content-stream-scratch.md).
 | `ImagesContext`, `AssistantImages`, `ImagesModel`, `ProviderRetryEvent`, `ProviderResponse`, `DeferredHandle`, `ProviderNativeContext`, `ThinkingBudgets`, `TextSignatureV1` | same names | serde derive; exercised by consuming slices |
 
 ## Request contracts (`crates/pi-ai/src/request.rs`, `crates/pi-ai/src/http.rs`)
+
+Bounded native fetch error identity and approved native cause diagnostics: [shared HTTP failure traceability](native-http-failure-identity.md).
 | TS | Rust | Proof |
 |---|---|---|
 | `ProviderRequestOptions` | `ProviderRequestOptions` (`signal` → `CancellationToken`) | consumed by provider slices |
