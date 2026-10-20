@@ -22,8 +22,9 @@ async function run(request:any) {
  const userOps=await hooks.user_bash({type:'user_bash',command:'ignored'});
  const user=[];
  if(userOps) {
-  for(const mode of ['success','exit','timeout','abort']) {
+  for(const mode of ['success','exit','timeout','abort','preabort']) {
    let output='';const controller=new AbortController();
+   if(mode==='preabort')controller.abort();
    try {
     const value=await userOps.operations.exec(mode==='timeout'?'exec sleep 30':mode==='abort'?"exec python3 -c 'import time; print(\"ready\",flush=True); time.sleep(30)'":mode==='exit'?"printf code; exit 7":"printf 'user output'",request.cwd,{timeout:mode==='timeout'?1:undefined,signal:controller.signal,onData:(bytes:Buffer)=>{output+=bytes.toString();if(mode==='abort')controller.abort();}});
     user.push({mode,output,result:value});

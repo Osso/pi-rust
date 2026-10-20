@@ -151,7 +151,8 @@ impl BashOperations for Remote {
                     forward(stderr, options.on_data.clone())
                 )
             };
-            let signal = options.signal.clone();
+            // AbortSignal listeners do not replay an abort that already happened.
+            let signal = options.signal.clone().filter(|signal| !signal.is_cancelled());
             let aborted = async {
                 match signal {
                     Some(signal) => signal.cancelled().await,

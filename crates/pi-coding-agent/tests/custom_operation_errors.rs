@@ -94,6 +94,7 @@ async fn custom_errors_match_pinned_tool_catch_boundaries() {
         "custom-operation-errors-oracle.ts",
         "packages/coding-agent/src/core/tools/read.ts",
     );
+    let mut mismatches = Vec::new();
     for (name, stages) in [
         ("read", vec!["access", "mime", "stat", "readFile", "range", "image"]),
         ("write", vec!["mkdir", "writeFile"]),
@@ -125,11 +126,11 @@ async fn custom_errors_match_pinned_tool_catch_boundaries() {
             };
             let params = json!({"path":"file.txt", "content":"new", "edits":[{"oldText":"old","newText":"new"}]});
             let expected = oracle.request(&json!({"tool":name,"stage":stage,"params":params}));
-            assert_eq!(
-                error(tool.as_ref(), params).await,
-                expected["error"].as_str().unwrap(),
-                "{name}/{stage}"
-            );
+            let actual = error(tool.as_ref(), params).await;
+            if actual != expected["error"].as_str().unwrap() {
+                mismatches.push(format!("{name}/{stage}: {actual:?} != {}", expected["error"]));
+            }
         }
     }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }

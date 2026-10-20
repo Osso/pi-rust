@@ -45,6 +45,11 @@ fn seed(cwd: &Path, remote: &Path) {
         std::fs::write(path.join("edit.txt"), "before\n").unwrap();
         std::fs::write(path.join("quote \" λ.txt"), "quoted").unwrap();
         std::fs::write(path.join("invalid.txt"), [0xff, b'x']).unwrap();
+        std::fs::write(path.join("mime-error.txt"), "mime probe failed; read as text").unwrap();
+        let png = pi_js_compat::base64::buffer_from_base64(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==",
+        );
+        std::fs::write(path.join("image.png"), png).unwrap();
     }
 }
 async fn native(request: &Value) -> Value {
@@ -159,11 +164,14 @@ async fn native(request: &Value) -> Value {
         .await;
     let mut user = Vec::new();
     if let Some(ops) = ops.and_then(|o| o.operations) {
-        for mode in ["success", "exit", "timeout", "abort"] {
+        for mode in ["success", "exit", "timeout", "abort", "preabort"] {
             let output = Arc::new(Mutex::new(Vec::new()));
             let data = output.clone();
             let token = CancellationToken::new();
             let cancel = token.clone();
+            if mode == "preabort" {
+                token.cancel();
+            }
             let command = match mode {
                 "timeout" => "exec sleep 30",
                 "abort" => "exec python3 -c 'import time; print(\"ready\",flush=True); time.sleep(30)'",
@@ -260,7 +268,10 @@ async fn ssh_fixture_remote_matches_pinned_example() {
             {"tool":"bash","params":{"command":"printf stderr >&2; exit 7"}},
             {"tool":"read","params":{"path":"fail.txt"}},
             {"tool":"write","params":{"path":"fail.txt","content":"unwritten"}},
-            {"tool":"edit","params":{"path":"fail.txt","edits":[{"oldText":"x","newText":"y"}]}}
+            {"tool":"edit","params":{"path":"fail.txt","edits":[{"oldText":"x","newText":"y"}]}},
+            {"tool":"read","params":{"path":"image.png"}},
+            {"tool":"read","params":{"path":"mime-error.txt"}},
+            {"tool":"write","params":{"path":"fail-dir/new.txt","content":"unwritten"}}
         ]});
         let actual = native(&request).await;
         let actual_files = snapshot(&cwd, &remote);
@@ -269,8 +280,38 @@ async fn ssh_fixture_remote_matches_pinned_example() {
         let (terminal, term) = virtual_terminal::concrete(100, 24);
         let tui = pi_tui::tui::TuiRenderer::new(term);
         let message = actual["results"][7]["error"].as_str().unwrap();
-        let component: pi_tui::tui::ComponentRef =
-            std::rc::Rc::new(std::cell::RefCell::new(pi_tui::Text::new(message, 0, 0)));
+        use pi_coding_agent::modes::interactive::components::tool_execution::{
+            ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
+        };
+        use pi_coding_agent::modes::interactive::theme::{REQUIRED_COLORS, set_theme_instance};
+        let colors = REQUIRED_COLORS
+            .iter()
+            .map(|key| (key.to_string(), ColorValue::Text("#abcdef".into())))
+            .collect::<Vec<_>>();
+        set_theme_instance(Arc::new(
+            Theme::new(&colors, &[], ColorMode::Truecolor, None, None).unwrap(),
+        ));
+        let mut execution = ToolExecutionComponent::new(
+            "read",
+            "call",
+            json!({"path":"fail.txt"}),
+            ToolExecutionOptions::default(),
+            None,
+            Arc::new(|| {}),
+            cwd.to_str().unwrap(),
+        );
+        execution.update_result(
+            ToolExecutionResult {
+                content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+                    message,
+                ))],
+                details: None,
+                is_error: true,
+            },
+            false,
+            None,
+        );
+        let component: pi_tui::tui::ComponentRef = std::rc::Rc::new(std::cell::RefCell::new(execution));
         pi_tui::tui::TuiExt::add_child(tui.as_ref(), component);
         pi_tui::tui::TuiExt::request_render(tui.as_ref(), false);
         pi_tui::tui::TuiExt::render_now(tui.as_ref(), false);

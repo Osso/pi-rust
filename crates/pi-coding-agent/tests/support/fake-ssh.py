@@ -7,7 +7,7 @@ import sys
 with open(os.environ['SSH_FIXTURE_LOG'], 'a') as output:
     output.write(json.dumps({'argv': sys.argv[1:], 'stdin': sys.stdin.read()}) + '\n')
 command = sys.argv[2]
-if 'fail' in command or sys.argv[1] == 'bad':
+if 'fail' in command or sys.argv[1] == 'bad' or (command.startswith('file ') and 'mime-error.txt' in command):
     sys.stderr.write('scripted failure\n')
     sys.exit(7)
 if command == 'pwd':
