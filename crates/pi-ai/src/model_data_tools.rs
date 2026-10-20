@@ -240,21 +240,13 @@ pub fn assert_exact_model_ids<S: Into<JsString>>(
 }
 
 fn fs_error(error: std::io::Error, operation: &str, path: &Path) -> ModelDataError {
-    let (code, description) = match error.raw_os_error() {
-        Some(2) => ("ENOENT", "no such file or directory"),
-        Some(13) => ("EACCES", "permission denied"),
-        Some(20) => ("ENOTDIR", "not a directory"),
-        Some(21) => return ModelDataError("EISDIR: illegal operation on a directory, read".into()),
-        Some(40) => ("ELOOP", "too many symbolic links encountered"),
-        _ => return ModelDataError(jformat!("{}, {} '{}'", error, operation, path.display())),
+    let path = path.to_string_lossy();
+    let message = if operation == "open" {
+        pi_js_compat::node_fs::node_read_error(&error, &path)
+    } else {
+        pi_js_compat::node_fs::node_fs_error(&error, operation, &path)
     };
-    ModelDataError(jformat!(
-        "{}: {}, {} '{}'",
-        code,
-        description,
-        operation,
-        path.display()
-    ))
+    ModelDataError(JsString::from(message.as_str()))
 }
 fn read_text(path: &Path) -> Result<String> {
     fs::read(path)

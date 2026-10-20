@@ -250,10 +250,7 @@ async fn reports_missing_unreadable_and_directory_targets() {
         .unwrap();
     assert_eq!(
         directory_outcome,
-        EditDiffOutcome::Error(format!(
-            "EISDIR: illegal operation on a directory, read '{}'",
-            dir.path().display()
-        ))
+        EditDiffOutcome::Error("EISDIR: illegal operation on a directory, read".to_owned())
     );
 }
 

@@ -8,6 +8,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+# Shared platform errno names for Node filesystem/spawn errors.
+rustix = "=1.1.5"
 # Lossless UTF-16 JSON keys retain first insertion slots on duplicate replacement.
 indexmap = "=2.14.2"
 # Serializes JavaScript numbers without serde_json's trailing `.0`.
