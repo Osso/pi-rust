@@ -2,7 +2,7 @@
 
 Source: `packages/ai/src/api/openai-responses-shared.ts`.
 Rust: `crates/pi-ai/src/api/openai_responses_shared.rs`.
-Tests: `crates/pi-ai/tests/openai_responses_shared.rs` (7 behavioral), `crates/pi-ai/tests/differential_openai_responses_shared.rs` (3 differential suites: 12 conversion scenarios, 7 tool scenarios, 12 stream scenarios) against the pinned TS module.
+Tests: `crates/pi-ai/tests/openai_responses_shared.rs` (7 behavioral), `crates/pi-ai/tests/differential_openai_responses_shared.rs` (3 passing differential suites: 12 conversion scenarios, 7 tool scenarios, 12 push-time stream scenarios; 2 failing delayed-consumer probes) against the pinned TS module.
 
 ## Representation
 - Request bodies and SSE events are `serde_json::Value`; this preserves TypeScript key order and omitted-vs-null distinctions without inventing wire structs for the OpenAI SDK types.
@@ -36,20 +36,30 @@ Tests: `crates/pi-ai/tests/openai_responses_shared.rs` (7 behavioral), `crates/p
 | reasoning slots and signature backfill | `Slot::Thinking`, `backfill_reasoning_signatures` | stream 1, 11 |
 | text slots and citation streaming | `Slot::Text`, `append_provider_text_delta` | stream 0, 4 |
 | function/custom tool slots | `Slot::ToolCall` | stream 2-3 |
+| delayed function-call consumer, arguments split across two deltas | `process_responses_stream`, queued `EventStream::next` | `delayed_consumer_function_call_matches_typescript`: RED; proves final TS partials differ from Rust push-time clones (4 events) |
+| delayed custom-tool consumer, input split across two deltas | `process_responses_stream`, queued `EventStream::next` | `delayed_consumer_custom_tool_matches_typescript`: RED; proves final TS partials differ from Rust push-time clones (5 events, including closing JSON delta) |
 | usage/cost and service-tier resolution | `finalize_response` | stream 0; service-tier pricing in `openai-responses` |
 | stop-reason mapping | `map_stop_reason` | stream 0, 6, 9 |
 | terminal-event requirement | end-of-loop check | stream 8; behavioral test |
 | `response.failed` / `error` messages | event arms | stream 7 |
 
 ## Differential normalizations
-- Event `partial` payloads are snapshotted by the oracle at push time. TypeScript events carry a live reference; Rust events carry a value snapshot. Snapshotting is the observable equivalent for a consumer reading each event.
+- Default-mode event `partial` payloads are snapshotted by the oracle at push time. TypeScript events carry a live reference; Rust events carry a value snapshot. This proves normalized push-time payloads, not consumer-time parity.
 - The oracle strips TypeScript streaming scratch keys (`partialJson`, `customInput`, `streamIndex`, `partialArgs`) from event snapshots. Rust keeps them in slot state and never exposes them.
 - Numbers compare as `f64` values (`float_roundtrip` parsing), not lexical forms.
 - Timestamps are supplied by the test fixture, so no clock normalization is needed.
+- `consumption: "delayed"` uses the pinned `createAssistantMessageEventStream`, awaits the real `processResponsesStream`, ends the queue, then serializes each yielded event. No scratch/index fields are stripped. Rust likewise finishes processing and ends its sender before draining `next()`.
 
 ## Gaps
 - `applyServiceTierPricing`/`resolveServiceTier` callbacks cannot be expressed in the JSON oracle; Rust behavior is covered in `openai-responses` behavioral tests.
 - TypeScript untyped escape hatches (`as any`, deleting scratch fields) have no Rust equivalent by design.
 
 ## Discrepancies
-- None. `mapStopReason`'s `never` branch throws `Unhandled stop reason: <status>`; Rust returns the same message as an error.
+- Phase F1 (2026-10-20): delayed-consumer parity is disproven for both valid-output fixtures. Event types, content indexes, deltas and `toolCall` payloads agree, but `partial` messages do not. Every TS partial observes final content and terminal metadata through the same mutable message reference. Rust retains each push-time clone.
+  - Function call: TS `toolcall_start.partial.content[0].arguments` is `{"path":"README.md"}`; Rust is `{}`. The first argument delta likewise differs.
+  - Custom tool: TS start arguments are `{"input":"hello"}`; Rust is `{"input":""}`. The first delta has Rust `{"input":"he"}` while TS already has `hello`.
+  - All TS partials include `responseId: "resp_delayed"`, `rawStopReason: "completed"`, and final `stopReason: "toolUse"`. Rust queued partials omit those response fields and retain `stopReason: "pending"`, including `toolcall_end` emitted before response completion.
+  - Neither side exposes `partialJson`, `customInput`, `partialArgs`, `streamIndex`, or `index` on the consumed tool block; delayed mode performs no filtering. Scratch deletion is not the divergence.
+- Classification: mutable-aliasing compatibility gap, not an approved semantic deviation. Production changes stopped at the explicit Phase F1 boundary: matching TS would require changing value-snapshot semantics already covered by the push-time suite. Both new tests intentionally remain RED; no production code changed and no GREEN claimed.
+- Evidence: `/tmp/pi-rust-streaming-consumer-proof/02-targeted-red.log` contains both complete serialized event sequences; `ledger.md` records command, revision/diff scope and results. Targeted run: 4 existing tests pass, 3 new delayed tests fail across the two modules. `--no-fail-fast` permits both requested test binaries to run.
+- `mapStopReason`'s `never` branch throws `Unhandled stop reason: <status>`; Rust returns the same message as an error.

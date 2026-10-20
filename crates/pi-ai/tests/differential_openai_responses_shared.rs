@@ -166,7 +166,19 @@ fn compare_stream(
     if let Some(options) = options {
         request["options"] = options.clone();
     }
-    let response = oracle.request(&request);
+    compare_stream_request(oracle, &request);
+}
+
+fn compare_stream_request(oracle: &mut TsOracle, request: &Value) {
+    let id = &request["id"];
+    let model = &request["model"];
+    let output = &request["output"];
+    let events = &request["events"];
+    let options = request.get("options");
+    let response = oracle.request(request);
+    if request["consumption"] == "delayed" {
+        assert_eq!(response["ok"], true, "oracle failed: {response}");
+    }
     let expected_events = response["output"]["events"].clone();
     let expected_output = response["output"]["output"].clone();
     let expected_error = response.get("error").and_then(Value::as_str).map(str::to_owned);
@@ -214,6 +226,13 @@ fn compare_stream(
         return;
     }
 
+    if request["consumption"] == "delayed" {
+        println!("delayed scenario {id} TS events: {expected_events}");
+        println!(
+            "delayed scenario {id} Rust events: {}",
+            Value::Array(actual_events.clone())
+        );
+    }
     assert_json_eq(
         &Value::Array(actual_events),
         &expected_events,
@@ -496,6 +515,73 @@ fn differential_openai_responses_shared_tools() {
     ] {
         compare_tools(&mut oracle, id, &tools, &options);
     }
+}
+
+fn compare_delayed_tool_stream(custom: bool) {
+    let mut oracle = TsOracle::spawn(
+        "openai-responses-shared-oracle.ts",
+        "packages/ai/src/api/openai-responses-shared.ts",
+    );
+    let (kind, delta_type, done_type, field, name, first, second, complete) = if custom {
+        (
+            "custom_tool_call",
+            "response.custom_tool_call_input.delta",
+            "response.custom_tool_call_input.done",
+            "input",
+            "query",
+            "he",
+            "llo",
+            "hello",
+        )
+    } else {
+        (
+            "function_call",
+            "response.function_call_arguments.delta",
+            "response.function_call_arguments.done",
+            "arguments",
+            "edit",
+            "{\"path\"",
+            ":\"README.md\"}",
+            "{\"path\":\"README.md\"}",
+        )
+    };
+    let mut item = json!({"type": kind, "id": "tool_1", "call_id": "call_1", "name": name});
+    item[field] = json!("");
+    let mut final_item = item.clone();
+    final_item[field] = json!(complete);
+    let mut done = json!({"type": done_type, "output_index": 0});
+    done[field] = json!(complete);
+    let mut request = json!({
+        "id": if custom { 101 } else { 100 },
+        "operation": "processStream", "consumption": "delayed",
+        "model": model("openai", "openai-responses", "gpt-5.5", true),
+        "output": {
+            "role": "assistant", "content": [], "api": "openai-responses", "provider": "openai",
+            "model": "gpt-5.5", "usage": usage(), "stopReason": "pending", "timestamp": 1234
+        },
+        "events": [
+            {"type": "response.output_item.added", "output_index": 0, "item": item},
+            {"type": delta_type, "output_index": 0, "delta": first},
+            {"type": delta_type, "output_index": 0, "delta": second},
+            done,
+            {"type": "response.output_item.done", "output_index": 0, "item": final_item},
+            {"type": "response.completed", "response": {"id": "resp_delayed", "status": "completed"}}
+        ]
+    });
+    if custom {
+        request["options"] = json!({"grammarToolInputProperties": {"query": "input"}});
+    }
+    compare_stream_request(&mut oracle, &request);
+}
+
+#[test]
+fn delayed_consumer_function_call_matches_typescript() {
+    compare_delayed_tool_stream(false);
+}
+
+#[test]
+fn delayed_consumer_custom_tool_matches_typescript() {
+    compare_delayed_tool_stream(true);
 }
 
 #[test]

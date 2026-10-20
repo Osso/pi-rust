@@ -16,6 +16,7 @@ type ScenarioOptions = {
 
 type Scenario = {
 	id: number;
+	consumption?: "delayed";
 	api?: "stream" | "streamSimple";
 	model: Record<string, unknown>;
 	context: Record<string, unknown>;
@@ -54,19 +55,19 @@ type StreamApi = {
 // `Date.now()`/`Error.stack` are environment-derived; both are normalized here.
 // Property order is preserved so the differential compares the exact serialized
 // shape.
-function normalize(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(normalize);
+function normalize(value: unknown, preserveScratch = false): unknown {
+	if (Array.isArray(value)) return value.map((entry) => normalize(entry, preserveScratch));
 	if (value === null || typeof value !== "object") return value;
 	const result: Record<string, unknown> = {};
 	const keys = Object.keys(value);
 	for (const key of keys) {
-		if (key === "partialArgs" || key === "stack") continue;
+		if ((!preserveScratch && key === "partialArgs") || key === "stack") continue;
 		const entry = (value as Record<string, unknown>)[key];
 		if (key === "timestamp" || key === "timestampMs") {
 			result[key] = 0;
 			continue;
 		}
-		result[key] = normalize(entry);
+		result[key] = normalize(entry, preserveScratch);
 	}
 	return result;
 }
@@ -176,12 +177,18 @@ async function execute(scenario: Scenario, api: StreamApi): Promise<unknown> {
 	if (scenario.abort) options.signal = controller.signal;
 
 	const events: unknown[] = [];
-	currentCapture = events;
+	const delayed = scenario.consumption === "delayed";
+	currentCapture = delayed ? undefined : events;
 	try {
 		const run = scenario.api === "streamSimple" ? api.streamSimple : api.stream;
 		const stream = run(scenario.model, scenario.context, options);
-		for await (const _event of stream) {
-			// Events are captured at push time by patchEventStream.
+		if (delayed) await stream.result();
+		for await (const event of stream) {
+			if (delayed) {
+				// Snapshot yielded references only after the producer has completed.
+				events.push(normalize(JSON.parse(JSON.stringify(event)), true));
+			}
+			// Immediate mode still captures events at push time by patchEventStream.
 		}
 		const message = await stream.result();
 		currentCapture = undefined;
@@ -190,8 +197,8 @@ async function execute(scenario: Scenario, api: StreamApi): Promise<unknown> {
 			ok: true,
 			request: captured[0] ?? null,
 			onResponse: onResponse ?? null,
-			events: events.map(normalizeEvent),
-			message: normalize(message),
+			events: delayed ? events : events.map(normalizeEvent),
+			message: normalize(message, delayed),
 		};
 	} catch (error) {
 		currentCapture = undefined;

@@ -38,12 +38,14 @@ Tests: `crates/pi-ai/tests/mistral_conversations.rs`,
 | finish-reason mapping (`stop`, `length`/`model_length`, `tool_calls`, `error`, unknown) | `apply_finish_reason` | raw-stop-reason test, differential finish matrix |
 | text/thinking/tool-call delta accumulation and event emission | `consume_content_delta`, `append_text_delta`, `append_thinking_delta`, `consume_tool_call_delta`, `finish_current_block`, `finalize_tool_blocks` | native-parsing test, differential events |
 | terminal checks (aborted, pending, error, done) | `produce_stream` | end-without-finish test, differential |
+| delayed tool-call consumer, same call ID and partial arguments across two SSE chunks | `stream`, `EventStream::result`, queued `next` | `delayed_consumer_tool_call_matches_typescript`: RED; proves final TS message aliasing differs from Rust push-time clones (6 events) |
 | error formatting and 4000-char truncation | `format_mistral_error`, `truncate_error_text` | HTTP error test |
 
 ## Differential normalizations
 
 - `timestamp`/`timestampMs` → `0` (clock-derived).
-- `partialArgs` removed (JS streaming scratch, deleted before persistence).
+- Default push-time oracle mode removes `partialArgs` (JS scratch). Rust stores it in slot state.
+- Delayed mode disables push-time capture, awaits the actual TS stream's `result()` before iterating and serializes each yielded reference. Rust also awaits `result()` before draining `next()`. No scratch/index fields are stripped in delayed mode; only clock/stack and numeric representation normalizations remain.
 - Object key order is preserved by the oracle and the Rust `canonical` pass; request
   bodies are compared as the exact captured `JSON.stringify` text. `remap_mistral_property`
   uses `shift_remove` because TypeScript `delete` preserves the remaining insertion order
@@ -52,6 +54,34 @@ Tests: `crates/pi-ai/tests/mistral_conversations.rs`,
 - Integral numbers canonicalized to integers (JS `200` vs Rust `200.0` representation).
 
 ## Gaps / discrepancies
+
+### Phase F1 delayed-consumer discrepancy (2026-10-20)
+
+`delayed_consumer_tool_call_matches_typescript` compares full event sequences for one
+`abc123456` / `lookup` call with `{"query":` and `"pi"}` in distinct SSE chunks.
+Both sides emit `start`, `toolcall_start`, two `toolcall_delta`, `toolcall_end`, `done`.
+Types, content indexes, deltas, final `toolCall` and final message agree; partials do not:
+
+- TS `start.partial.content` already contains the completed tool call with
+  `arguments: {"query":"pi"}`. Rust's queued `start.partial.content` is empty.
+- TS start/first-delta tool arguments are final; Rust retains `{}`.
+- TS early partials carry final `stopReason: "toolUse"`, `responseId: "delayed"`
+  and `rawStopReason: "tool_calls"`; Rust early clones retain `pending` and lack
+  metadata not assigned at push time.
+- `partialArgs`, `partialJson`, `customInput`, `streamIndex` and `index` are absent
+  from consumed tool blocks on both sides without filtering. TS deletes scratch
+  in place before completion, also affecting previously queued references.
+
+Classification: mutable-aliasing compatibility gap, not an approved deviation.
+The new parity test intentionally remains RED. Production changes stopped at the
+explicit Phase F1 boundary: preserving TS aliases conflicts with the existing
+push-time snapshot contract. No production code changed; no GREEN claimed.
+Evidence: `/tmp/pi-rust-streaming-consumer-proof/02-targeted-red.log` contains full
+TS/Rust event sequences; `ledger.md` records command, revision/diff scope and
+results. Combined targeted run: 4 existing tests pass, 3 new delayed tests fail;
+`--no-fail-fast` lets Cargo execute both requested targets.
+
+### Other gaps
 
 - `HttpResponse` has no optional body, so the "response has no body" branch is unrepresentable;
   the default fetch always supplies a body stream.

@@ -1,8 +1,10 @@
+import { dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 
 interface Request {
 	id: number;
+	consumption?: "delayed";
 	operation: "convertMessages" | "convertTools" | "processStream";
 	model?: Record<string, unknown>;
 	context?: Record<string, unknown>;
@@ -19,6 +21,13 @@ interface Response {
 	output?: unknown;
 	error?: string;
 }
+
+type QueuedStream = AsyncIterable<unknown> & {
+	push(event: unknown): void;
+	end(): void;
+};
+
+let createQueuedStream: () => QueuedStream;
 
 type Module = {
 	convertResponsesMessages: (
@@ -94,7 +103,9 @@ async function execute(request: Request, module: Module): Promise<unknown> {
 			return module.convertResponsesTools(request.tools, normalizeOptions(request.options));
 		case "processStream": {
 			const events: Array<unknown> = [];
-			const stream = { push: (event: unknown) => events.push(snapshotEvent(event)) };
+			const delayed = request.consumption === "delayed";
+			const queue = delayed ? createQueuedStream() : undefined;
+			const stream = queue ?? { push: (event: unknown) => events.push(snapshotEvent(event)) };
 			await module.processResponsesStream(
 				toEvents(request.events ?? []),
 				request.output,
@@ -102,6 +113,13 @@ async function execute(request: Request, module: Module): Promise<unknown> {
 				request.model,
 				normalizeOptions(request.options),
 			);
+			if (queue) {
+				queue.end();
+				for await (const event of queue) {
+					// No scratch stripping: serialize the real queued reference at consumption time.
+					events.push(JSON.parse(JSON.stringify(event)));
+				}
+			}
 			return { events, output: request.output };
 		}
 	}
@@ -144,6 +162,11 @@ async function main(): Promise<void> {
 	const modulePath = process.argv[2];
 	if (modulePath === undefined) throw new Error("openai responses shared oracle requires a source module path");
 	const module = (await import(pathToFileURL(modulePath).href)) as Module;
+	const eventStreamPath = join(dirname(modulePath), "..", "utils", "event-stream.ts");
+	const eventStream = (await import(pathToFileURL(eventStreamPath).href)) as {
+		createAssistantMessageEventStream: () => QueuedStream;
+	};
+	createQueuedStream = eventStream.createAssistantMessageEventStream;
 	serveRequests(module);
 }
 
