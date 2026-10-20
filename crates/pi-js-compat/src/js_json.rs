@@ -8,7 +8,92 @@
 use std::fmt;
 
 use crate::number::{js_number_to_string, js_number_value};
+use indexmap::IndexMap;
 use serde_json::{Map, Value};
+
+/// A JavaScript string: identity and ordering are UTF-16 code-unit based.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct JsString(Vec<u16>);
+
+impl JsString {
+    pub fn from_utf16(units: Vec<u16>) -> Self {
+        Self(units)
+    }
+
+    pub fn units(&self) -> &[u16] {
+        &self.0
+    }
+
+    /// Checked UTF-8 boundary; lone surrogates are rejected.
+    pub fn to_utf8(&self) -> Result<String, std::string::FromUtf16Error> {
+        String::from_utf16(&self.0)
+    }
+
+    /// Explicit Node UTF-8 encoding boundary, replacing lone surrogates with U+FFFD.
+    pub fn to_utf8_lossy(&self) -> String {
+        String::from_utf16_lossy(&self.0)
+    }
+}
+
+impl From<&str> for JsString {
+    fn from(text: &str) -> Self {
+        Self(text.encode_utf16().collect())
+    }
+}
+
+/// Insertion-ordered storage. Use `object_entries_lossless` for JavaScript enumeration order.
+pub type JsObject = IndexMap<JsString, JsValue>;
+
+/// JSON values retaining UTF-16 strings/keys. Numbers retain the existing serde-number boundary;
+/// parsing uses JavaScript doubles, with non-finite results represented as null.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JsValue {
+    Null,
+    Bool(bool),
+    Number(serde_json::Number),
+    String(JsString),
+    Array(Vec<JsValue>),
+    Object(JsObject),
+}
+
+impl JsValue {
+    /// Explicit lossy conversion. Key collisions occur in insertion order at this boundary.
+    /// This is not legacy `parse`, which replaces strings before duplicate-key handling.
+    pub fn into_serde_lossy(self) -> Value {
+        match self {
+            Self::Null => Value::Null,
+            Self::Bool(flag) => Value::Bool(flag),
+            Self::Number(number) => Value::Number(number),
+            Self::String(text) => Value::String(text.to_utf8_lossy()),
+            Self::Array(items) => Value::Array(items.into_iter().map(Self::into_serde_lossy).collect()),
+            Self::Object(object) => {
+                let mut result = Map::new();
+                for (key, value) in object {
+                    result.insert(key.to_utf8_lossy(), value.into_serde_lossy());
+                }
+                Value::Object(result)
+            }
+        }
+    }
+}
+
+impl From<&Value> for JsValue {
+    fn from(value: &Value) -> Self {
+        match value {
+            Value::Null => Self::Null,
+            Value::Bool(flag) => Self::Bool(*flag),
+            Value::Number(number) => Self::Number(number.clone()),
+            Value::String(text) => Self::String(JsString::from(text.as_str())),
+            Value::Array(items) => Self::Array(items.iter().map(Self::from).collect()),
+            Value::Object(object) => Self::Object(
+                object
+                    .iter()
+                    .map(|(key, value)| (JsString::from(key.as_str()), Self::from(value)))
+                    .collect(),
+            ),
+        }
+    }
+}
 
 const CONTEXT_CHARACTERS: usize = 10;
 const SPECIAL_SOURCES: [&str; 4] = ["[object Object]", "undefined", "Infinity", "NaN"];
@@ -29,10 +114,20 @@ impl std::error::Error for JsonParseError {}
 
 /// `JSON.parse(text)`.
 pub fn parse(text: &str) -> Result<Value, JsonParseError> {
+    parse_with_string_boundary(text, false).map(JsValue::into_serde_lossy)
+}
+
+/// `JSON.parse(text)` retaining every UTF-16 string and key code unit.
+pub fn parse_lossless(text: &str) -> Result<JsValue, JsonParseError> {
+    parse_with_string_boundary(text, true)
+}
+
+fn parse_with_string_boundary(text: &str, lossless: bool) -> Result<JsValue, JsonParseError> {
     let mut parser = Parser {
         source: text,
         chars: text.chars().collect(),
         index: 0,
+        lossless,
     };
     parser.skip_whitespace();
     let value = parser.parse_value()?;
@@ -46,15 +141,37 @@ pub fn parse(text: &str) -> Result<Value, JsonParseError> {
 /// `JSON.stringify(value)`.
 pub fn stringify(value: &Value) -> String {
     let mut output = String::new();
-    write_value(&mut output, value, None, 0);
+    write_value(&mut output, &JsValue::from(value), None, 0);
     output
 }
 
 /// `JSON.stringify(value, null, 2)`.
 pub fn stringify_pretty(value: &Value) -> String {
     let mut output = String::new();
+    write_value(&mut output, &JsValue::from(value), Some(2), 0);
+    output
+}
+
+/// `JSON.stringify(value)` retaining lone surrogate escapes.
+pub fn stringify_lossless(value: &JsValue) -> String {
+    let mut output = String::new();
+    write_value(&mut output, value, None, 0);
+    output
+}
+
+/// `JSON.stringify(value, null, 2)` retaining lone surrogate escapes.
+pub fn stringify_lossless_pretty(value: &JsValue) -> String {
+    let mut output = String::new();
     write_value(&mut output, value, Some(2), 0);
     output
+}
+
+/// `Object.entries(object)` for UTF-16 keys: array indices first, then insertion order.
+pub fn object_entries_lossless(object: &JsObject) -> Vec<(&JsString, &JsValue)> {
+    let mut entries: Vec<_> = object.iter().collect();
+    // Stable sort preserves insertion order among non-index keys.
+    entries.sort_by_key(|(key, _)| array_index_units(key.units().iter().copied()).unwrap_or(u32::MAX));
+    entries
 }
 
 /// `Object.entries(object)`: array-index keys ascending, then string keys in insertion order.
@@ -77,16 +194,31 @@ pub fn object_entries(object: &Map<String, Value>) -> Vec<(&String, &Value)> {
 
 /// Canonical array index: `0..=2^32-2` without leading zeros.
 fn array_index(key: &str) -> Option<u32> {
-    if key.is_empty() || (key.len() > 1 && key.starts_with('0')) || !key.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
+    array_index_units(key.encode_utf16())
+}
+
+fn array_index_units(mut units: impl Iterator<Item = u16>) -> Option<u32> {
+    let first = units.next()?;
+    if first == u16::from(b'0') {
+        return units.next().is_none().then_some(0);
     }
-    key.parse::<u32>().ok().filter(|index| *index != u32::MAX)
+    let digit = |unit: u16| {
+        unit.checked_sub(u16::from(b'0'))
+            .filter(|digit| *digit <= 9)
+            .map(u32::from)
+    };
+    let mut index = digit(first)?;
+    for unit in units {
+        index = index.checked_mul(10)?.checked_add(digit(unit)?)?;
+    }
+    (index != u32::MAX).then_some(index)
 }
 
 struct Parser<'a> {
     source: &'a str,
     chars: Vec<char>,
     index: usize,
+    lossless: bool,
 }
 
 impl Parser<'_> {
@@ -100,20 +232,20 @@ impl Parser<'_> {
         }
     }
 
-    fn parse_value(&mut self) -> Result<Value, JsonParseError> {
+    fn parse_value(&mut self) -> Result<JsValue, JsonParseError> {
         match self.peek() {
-            Some('"') => self.parse_string().map(Value::String),
+            Some('"') => self.parse_string().map(JsValue::String),
             Some('-' | '0'..='9') => self.parse_number(),
             Some('{') => self.parse_object(),
             Some('[') => self.parse_array(),
-            Some('t') => self.parse_literal("true", Value::Bool(true)),
-            Some('f') => self.parse_literal("false", Value::Bool(false)),
-            Some('n') => self.parse_literal("null", Value::Null),
+            Some('t') => self.parse_literal("true", JsValue::Bool(true)),
+            Some('f') => self.parse_literal("false", JsValue::Bool(false)),
+            Some('n') => self.parse_literal("null", JsValue::Null),
             _ => Err(self.unexpected_token()),
         }
     }
 
-    fn parse_literal(&mut self, literal: &str, value: Value) -> Result<Value, JsonParseError> {
+    fn parse_literal(&mut self, literal: &str, value: JsValue) -> Result<JsValue, JsonParseError> {
         for expected in literal.chars() {
             if self.peek() != Some(expected) {
                 return Err(self.unexpected_token());
@@ -123,14 +255,14 @@ impl Parser<'_> {
         Ok(value)
     }
 
-    fn parse_object(&mut self) -> Result<Value, JsonParseError> {
+    fn parse_object(&mut self) -> Result<JsValue, JsonParseError> {
         self.index += 1;
         self.skip_whitespace();
-        let mut object = Map::new();
+        let mut object = JsObject::new();
         match self.peek() {
             Some('}') => {
                 self.index += 1;
-                return Ok(Value::Object(object));
+                return Ok(JsValue::Object(object));
             }
             Some('"') => {}
             _ => return Err(self.error_at("Expected property name or '}' in JSON")),
@@ -153,20 +285,20 @@ impl Parser<'_> {
                 }
                 Some('}') => {
                     self.index += 1;
-                    return Ok(Value::Object(object));
+                    return Ok(JsValue::Object(object));
                 }
                 _ => return Err(self.error_at("Expected ',' or '}' after property value in JSON")),
             }
         }
     }
 
-    fn parse_array(&mut self) -> Result<Value, JsonParseError> {
+    fn parse_array(&mut self) -> Result<JsValue, JsonParseError> {
         self.index += 1;
         self.skip_whitespace();
         let mut items = Vec::new();
         if self.peek() == Some(']') {
             self.index += 1;
-            return Ok(Value::Array(items));
+            return Ok(JsValue::Array(items));
         }
         loop {
             items.push(self.parse_value()?);
@@ -178,7 +310,7 @@ impl Parser<'_> {
                 }
                 Some(']') => {
                     self.index += 1;
-                    return Ok(Value::Array(items));
+                    return Ok(JsValue::Array(items));
                 }
                 _ => return Err(self.error_at("Expected ',' or ']' after array element in JSON")),
             }
@@ -193,7 +325,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    fn parse_number(&mut self) -> Result<Value, JsonParseError> {
+    fn parse_number(&mut self) -> Result<JsValue, JsonParseError> {
         let start = self.index;
         if self.peek() == Some('-') {
             self.index += 1;
@@ -222,7 +354,7 @@ impl Parser<'_> {
         }
         let text: String = self.chars[start..self.index].iter().collect();
         let value: f64 = text.parse().expect("validated JSON number text must parse");
-        Ok(js_number_value(value))
+        Ok(JsValue::from(&js_number_value(value)))
     }
 
     fn require_digits(&mut self, message: &str) -> Result<(), JsonParseError> {
@@ -239,7 +371,7 @@ impl Parser<'_> {
         }
     }
 
-    fn parse_string(&mut self) -> Result<String, JsonParseError> {
+    fn parse_string(&mut self) -> Result<JsString, JsonParseError> {
         self.index += 1;
         let mut units: Vec<u16> = Vec::new();
         loop {
@@ -249,7 +381,11 @@ impl Parser<'_> {
             match character {
                 '"' => {
                     self.index += 1;
-                    return Ok(String::from_utf16_lossy(&units));
+                    return Ok(if self.lossless {
+                        JsString::from_utf16(units)
+                    } else {
+                        JsString::from(String::from_utf16_lossy(&units).as_str())
+                    });
                 }
                 '\\' => {
                     self.index += 1;
@@ -378,20 +514,20 @@ impl Parser<'_> {
     }
 }
 
-fn write_value(output: &mut String, value: &Value, indent: Option<usize>, depth: usize) {
+fn write_value(output: &mut String, value: &JsValue, indent: Option<usize>, depth: usize) {
     match value {
-        Value::Null => output.push_str("null"),
-        Value::Bool(flag) => output.push_str(if *flag { "true" } else { "false" }),
-        Value::Number(number) => output.push_str(&js_number_to_string(number.as_f64().unwrap_or(f64::NAN))),
-        Value::String(text) => write_string(output, text),
-        Value::Array(items) => {
-            let items: Vec<&Value> = items.iter().collect();
+        JsValue::Null => output.push_str("null"),
+        JsValue::Bool(flag) => output.push_str(if *flag { "true" } else { "false" }),
+        JsValue::Number(number) => output.push_str(&js_number_to_string(number.as_f64().unwrap_or(f64::NAN))),
+        JsValue::String(text) => write_string(output, text),
+        JsValue::Array(items) => {
+            let items: Vec<&JsValue> = items.iter().collect();
             write_container(output, ('[', ']'), &items, indent, depth, |output, item, depth| {
                 write_value(output, item, indent, depth);
             });
         }
-        Value::Object(object) => {
-            let entries = object_entries(object);
+        JsValue::Object(object) => {
+            let entries = object_entries_lossless(object);
             let separator = if indent.is_some() { ": " } else { ":" };
             write_container(
                 output,
@@ -440,9 +576,16 @@ fn push_line_break(output: &mut String, indent: Option<usize>, depth: usize) {
     }
 }
 
-fn write_string(output: &mut String, text: &str) {
+fn write_string(output: &mut String, text: &JsString) {
     output.push('"');
-    for character in text.chars() {
+    for character in char::decode_utf16(text.units().iter().copied()) {
+        let character = match character {
+            Ok(character) => character,
+            Err(error) => {
+                output.push_str(&format!("\\u{:04x}", error.unpaired_surrogate()));
+                continue;
+            }
+        };
         match character {
             '"' => output.push_str("\\\""),
             '\\' => output.push_str("\\\\"),
