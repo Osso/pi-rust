@@ -28,7 +28,7 @@ Tests: `crates/pi-ai/tests/image_models.rs` (5 behavioral), `crates/pi-ai/tests/
    console.log(JSON.stringify(IMAGE_MODELS, null, 2));'
 ```
 
-The catalog contains 42 OpenRouter image models at the pinned revision. No generator script is checked in because the upstream generator fetches `openrouter.ai`; the generated artifact itself is the checked-in source of truth.
+The catalog contains 42 OpenRouter image models at the pinned revision. This baseline remains unchanged. The separate [image catalog maintenance generator](image-catalog-generator.md) targets this native artifact; its implementation/tests do not refresh the checked-in source of truth.
 
 ## Gaps
 - None.
