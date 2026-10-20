@@ -389,6 +389,9 @@ fn default_artifacts_use_iso_timestamp_and_unique_uuid() {
         command
             .args(["--ro-bind", "/", "/", "--bind"])
             .arg(fixture.temp.path())
+            .arg(fixture.temp.path())
+            .arg("--bind")
+            .arg(fixture.temp.path())
             .arg(ROOT)
             .arg("--")
             .arg(BINARY);
