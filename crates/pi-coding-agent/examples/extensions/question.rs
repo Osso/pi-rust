@@ -3,7 +3,7 @@
 mod forms;
 use forms::{FormEditor, editor_lines, option_lines, wrap_prefixed};
 use pi_agent_core::{AgentToolResult, ToolExecutionMode};
-use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_ai::types::TextOrImageContent;
 use pi_coding_agent::{
     core::extensions::*,
     modes::interactive::theme::{Theme, ThemeColor as C},
@@ -26,13 +26,12 @@ pub fn question_extension(api: &ExtensionApi) -> Result<(), HandlerError> {
         execute:Arc::new(|_,params,_,_,ctx| Box::pin(async move { execute(params,ctx).await })),
         render_call:Some(infallible_render_call(|args,theme,_| text(render_call(args,theme)))),
         render_result:Some(infallible_render_result(|result,_,theme,_|text(render_result(result,theme)))),
-    })
+    }).map_err(HandlerError::new)
 }
 fn result(message: String, details: Value) -> AgentToolResult {
-    AgentToolResult {
-        content: vec![TextOrImageContent::Text(TextContent::new(message))],
-        details: Some(details),
-    }
+    let mut result = AgentToolResult::text(message);
+    result.details = Some(details);
+    result
 }
 async fn execute(params: Value, ctx: ExtensionContext) -> Result<AgentToolResult, HandlerError> {
     let labels = params["options"]
@@ -204,7 +203,7 @@ impl ExtensionUiComponent for QuestionForm {
     }
 }
 fn text(value: String) -> ComponentRef {
-    component(Text::new(value, 0.0, 0.0, None))
+    component(Text::new(value, 0, 0))
 }
 fn render_call(args: &Value, theme: &Theme) -> String {
     let mut text = theme.fg(C::ToolTitle, &theme.bold("question "))

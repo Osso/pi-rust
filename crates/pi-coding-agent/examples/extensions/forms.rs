@@ -18,7 +18,7 @@ impl FormEditor {
     pub fn new(context: &ExtensionUiFactoryContext) -> Self {
         let style = |color| {
             let theme = context.theme.clone();
-            Rc::new(move |text: &str| theme.fg(color, text)) as pi_tui::components::select_list::StyleFn
+            Rc::new(move |text: &str| theme.fg(color, text)) as pi_tui::components::StyleFn
         };
         let theme = EditorTheme {
             border_color: style(C::Accent),

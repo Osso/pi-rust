@@ -25,11 +25,11 @@ impl EditorFixedCell for OwnedCell {
     fn place(&self, row: i64, col: i64) {
         self.cell.place(row, col);
     }
-    fn set(&self, value: &str) -> bool {
-        self.cell.set(value)
+    fn update(&self, value: &str) -> bool {
+        self.cell.update(value)
     }
-    fn dispose(&self) {
-        self.cell.dispose();
+    fn clear(&self) {
+        self.cell.clear();
     }
 }
 struct Backend;
@@ -153,7 +153,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     )
     .await
     .unwrap();
-    let tool = extension.read().tools.get(name).unwrap().clone();
+    let tool = extension.read().tools.get(name).unwrap().definition.clone();
     let ui = Arc::new(Ui {
         theme: theme.clone(),
         request: request.clone(),
@@ -195,12 +195,8 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let render_result = output
         .borrow_mut()
         .render(request["callWidth"].as_u64().unwrap_or(80) as usize);
-    let fallback_result = pi_agent_core::AgentToolResult {
-        content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
-            "fallback",
-        ))],
-        details: None,
-    };
+    let mut fallback_result = pi_agent_core::AgentToolResult::text("fallback");
+    fallback_result.details = None;
     let fallback = tool.render_result.as_ref().unwrap()(&fallback_result, &opts, &theme, &render_context)
         .unwrap()
         .borrow_mut()
