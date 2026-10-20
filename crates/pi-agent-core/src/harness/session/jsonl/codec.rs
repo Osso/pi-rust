@@ -32,15 +32,26 @@ fn require_string(value: Option<&Value>, field: &str) -> Result<String, JsonlDec
     }
 }
 
+/// `Number.isSafeInteger(value)` as an `i64`: JSON integers, plus integral
+/// floats (`1.0`), bounded by `Number.MAX_SAFE_INTEGER`.
+fn js_safe_integer(value: Option<&Value>) -> Option<i64> {
+    const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+    let number = value?.as_f64()?;
+    if number.fract() != 0.0 || number.abs() > MAX_SAFE_INTEGER {
+        return None;
+    }
+    Some(number as i64)
+}
+
 fn require_sequence(value: Option<&Value>) -> Result<i64, JsonlDecodeError> {
-    match value.and_then(Value::as_i64) {
+    match js_safe_integer(value) {
         Some(sequence) if sequence > 0 => Ok(sequence),
         _ => Err(schema_error("has invalid seq")),
     }
 }
 
 fn require_timestamp(value: Option<&Value>) -> Result<i64, JsonlDecodeError> {
-    match value.and_then(Value::as_i64) {
+    match js_safe_integer(value) {
         Some(timestamp) if timestamp >= 0 => Ok(timestamp),
         _ => Err(schema_error("has invalid timestamp")),
     }
@@ -55,7 +66,7 @@ fn require_nullable_id(value: Option<&Value>, field: &str) -> Result<Option<Stri
 }
 
 fn decode_header(line: &str) -> Result<JsonlV4Header, JsonlDecodeError> {
-    let value = parse_object(line)?;
+    let value = normalize_js_integers(parse_object(line)?);
     if value.get("kind").and_then(Value::as_str) != Some("header") {
         return Err(schema_error("is not a header"));
     }
@@ -249,8 +260,26 @@ fn parse_label_fact(value: &Map<String, Value>, seq: i64) -> Result<SessionMutat
     })
 }
 
+/// JSON numbers are IEEE doubles in JavaScript, so `1.0` is the integer `1`.
+/// Rewrite integral floats in the integer-typed fields so serde's `i64` decode
+/// matches `Number.isSafeInteger`.
+fn normalize_js_integers(mut value: Map<String, Value>) -> Map<String, Value> {
+    for field in ["seq", "timestamp", "createdAt"] {
+        let Some(entry) = value.get_mut(field) else {
+            continue;
+        };
+        let Some(number) = entry.as_f64() else {
+            continue;
+        };
+        if number.fract() == 0.0 && number.abs() <= 9_007_199_254_740_991.0 {
+            *entry = Value::from(number as i64);
+        }
+    }
+    value
+}
+
 fn decode_mutation(line: &str) -> Result<SessionMutation, JsonlDecodeError> {
-    let value = parse_object(line)?;
+    let value = normalize_js_integers(parse_object(line)?);
     let seq = require_sequence(value.get("seq"))?;
     match value.get("kind").and_then(Value::as_str) {
         Some("entry") => parse_entry_mutation(value),

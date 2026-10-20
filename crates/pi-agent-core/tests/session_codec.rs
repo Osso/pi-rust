@@ -219,3 +219,25 @@ fn encodes_every_record_variant_in_typescript_key_order() {
         assert_eq!(encoded(value), format!("{line}\n"));
     }
 }
+
+#[test]
+fn seq_and_timestamp_must_be_javascript_safe_integers() {
+    // `Number.isSafeInteger` rejects 2^53 and non-integral numbers; TS accepts
+    // integral floats such as 1.0 because they are still integers.
+    let line = |seq: &str, timestamp: &str| {
+        format!(
+            r#"{{"kind":"entry","lane":"main","type":"custom","id":"entry-1","customType":"note","data":{{}},"parentId":null,"seq":{seq},"timestamp":{timestamp}}}"#
+        )
+    };
+    assert!(parse_mutation(&line("9007199254740991", "0")).is_ok());
+    let float_case = parse_mutation(&line("1.0", "0.0"));
+    assert!(float_case.is_ok(), "{float_case:?}");
+    for seq in ["9007199254740992", "1.5", "1e20"] {
+        let error = parse_mutation(&line(seq, "0")).expect_err(seq);
+        assert_eq!(error.message, "has invalid seq", "{seq}");
+    }
+    for timestamp in ["9007199254740992", "0.5", "1e20"] {
+        let error = parse_mutation(&line("1", timestamp)).expect_err(timestamp);
+        assert_eq!(error.message, "has invalid timestamp", "{timestamp}");
+    }
+}
