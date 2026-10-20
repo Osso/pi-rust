@@ -744,14 +744,6 @@ fn find_last_user_text(messages: &[AgentMessage]) -> Option<String> {
     None
 }
 
-fn is_record(value: &Value) -> bool {
-    value.is_object()
-}
-
-fn to_record(value: Option<&Value>) -> Option<&Map<String, Value>> {
-    value.and_then(Value::as_object)
-}
-
 fn without_deleted_headers(headers: Option<&ProviderHeaders>) -> Option<ProviderHeaders> {
     headers.map(|headers| {
         headers
@@ -895,10 +887,6 @@ fn normalize_required_request_auth_error(message: String, provider: &str) -> Age
         return error(crate::core::auth_guidance::format_no_api_key_found_message(provider));
     }
     error(message)
-}
-
-fn session_model_message(provider: &str, model_id: &str) -> String {
-    format!("Could not restore model {provider}/{model_id}")
 }
 
 // =============================================================================
@@ -7003,23 +6991,6 @@ fn bash_message_to_agent_message(message: &BashExecutionMessage) -> AgentMessage
 pub use crate::core::resource_loader::{
     ExtendedResourcePath, LoadedAgentsFiles, LoadedSkills, ResourceExtensionPaths, StaticResourceLoader,
 };
-
-/// Marker so unused imports in partial ports stay visible during review.
-#[allow(dead_code)]
-fn _unused_import_markers() {
-    let _ = is_record;
-    let _ = to_record;
-    let _ = without_deleted_headers;
-    let _ = normalize_message_content;
-    let _ = find_last_user_text;
-    let _ = session_model_message;
-    let _ = normalize_required_request_auth_error;
-    let _ = should_continue_interrupted_session;
-    let _ = find_exact_model_reference_match;
-    let _ = ApprovalPolicy::OnRequest;
-    let _ = THINKING_PHASE_TIMEOUT_MS;
-    let _ = BUILT_IN_COMPACTION_DISABLED_MESSAGE;
-}
 
 // =============================================================================
 // Extension integration
