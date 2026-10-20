@@ -25,9 +25,9 @@ async function main(){
    const renders=req.renders.map((r:any)=>{const c=r.result?tool.renderResult!(r.result,{expanded:r.expanded,isPartial:false},theme as any,{} as any):tool.renderCall!(r.args,theme as any,{} as any);return c.render(100).map(clean);});
    console.log(JSON.stringify({renders}));continue;
   }
-  let updateCount=0;
-  const result=await runner.getToolDefinition('subagent')!.execute('call',req.params,undefined,()=>{updateCount++;},runner.createContext());
-  console.log(JSON.stringify({result,confirmations,updateCount}));
+  let updateCount=0;const updates:any[]=[];
+  const result=await runner.getToolDefinition('subagent')!.execute('call',req.params,undefined,(update:any)=>{updateCount++;updates.push(structuredClone(update));},runner.createContext());
+  console.log(JSON.stringify({result,confirmations,updateCount,updates}));
  }
 }
 main().catch(e=>{console.error(e);process.exit(1)});

@@ -135,6 +135,7 @@ async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
         json!({"agent":"scout","task":"a","tasks":[{"agent":"scout","task":"b"}]}),
         json!({"agent":"missing","task":"x"}),
         json!({"agent":"scout","task":"hello"}),
+        json!({"agent":"scout","task":"ZERO"}),
         json!({"agent":"fixed","task":"fixed-model"}),
         json!({"agent":"scout","task":"FAIL"}),
         json!({"chain":[{"agent":"scout","task":"one"},{"agent":"scout","task":"two {previous}"}]}),
@@ -163,7 +164,15 @@ async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
             *ui.calls.lock().unwrap(),
             expected["confirmations"].as_array().unwrap().clone()
         );
-        // Pinned aliasing is deliberately not asserted for intermediate snapshots (approved isolation delta).
+        // Clone in the oracle at callback time, matching approved native isolation.
+        if params.get("tasks").is_none() {
+            assert_eq!(
+                serde_json::to_value(&*updates.lock().unwrap()).unwrap(),
+                expected["updates"],
+                "streaming {params}"
+            );
+        }
+        // Parallel completion order is nondeterministic; compare final results and counts.
         assert_eq!(
             updates.lock().unwrap().len(),
             expected["updateCount"].as_u64().unwrap() as usize

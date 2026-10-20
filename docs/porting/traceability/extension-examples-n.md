@@ -18,7 +18,7 @@ used by tests. Native hosts choose their invocation explicitly.
 | agents.ts:95–113 nearest ancestor and scope; project overwrite retains user insertion position | discover_agents / merge_agents | three scope differentials; nearest ancestor; empty root; overwrite order |
 | agents.ts:116–126 list, zero/negative/oversized limit | format_agent_list | full value differential for 0,1,8,-1 and empty |
 | index.ts:265–442 child invocation, private prompt, JSONL, usage/model, stderr, exit, abort, cleanup | subagent/index.rs::run_single, apply_event, write_prompt | example_subagent: Python fixture child pipes through real native runner and unchanged TS extension loaded through real TS runner; malformed line/trailing non-LF, usage, failure, inherited/overridden model, actual prompt bytes/options/deletion; native spawn-error and timed cancellation |
-| index.ts:444–721 schema/registration, exclusive modes, project trust, sequential substitution/failure, parallel limits/output | subagent_extension / execute / run_chain / run_parallel | 11 full-result differentials; UI confirmations; native refusal without spawn; update counts |
+| index.ts:444–721 schema/registration, exclusive modes, project trust, sequential substitution/failure, parallel limits/output | subagent_extension / execute / run_chain / run_parallel | 12 full-result differentials; UI confirmations; native refusal without spawn; update counts and single/chain callback-time snapshots |
 | index.ts:32–263,723–1033 call/result rendering, tools, usage, single/chain/parallel | subagent/render.rs | example_subagent renderer differential: actual native components vs pinned components, ANSI-stripped terminal lines; expanded/collapsed and every tool formatting branch |
 
 `example_subagent_agents` tests the companion module directly (no extension entry
@@ -29,8 +29,10 @@ are fixture seams. The child is Python, never `pi`/Node CLI; both parsers consum
 real process pipes. All invocations occur beneath Cargo's sandbox guard.
 
 Approved isolation delta: partial results own JSON snapshots rather than retaining
-pinned mutable object aliases. Tests compare update counts and final results, not
-aliased intermediate snapshots. No API additions/dependencies.
+pinned mutable object aliases. Oracle clones at callback time: single/chain
+snapshots compare completely, including stderr arriving before stdout. Parallel
+completion order is nondeterministic; compare update counts and final ordered
+results. Zero usage/cost serialization compares exactly. No API additions/dependencies.
 
 Proof gaps: exact ANSI theme bytes, concurrency peak/timing, ignored-SIGTERM child,
 per-task 10 KiB multibyte truncation, non-UTF8 stdout chunk splitting, optional cwd

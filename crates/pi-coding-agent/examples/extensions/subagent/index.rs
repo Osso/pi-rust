@@ -419,12 +419,20 @@ async fn run_single(
     };
     let stdout = child.stdout.take().expect("piped stdout");
     let mut stderr = child.stderr.take().expect("piped stderr");
+    let stderr_text = Arc::new(Mutex::new(String::new()));
+    let captured = stderr_text.clone();
     let stderr = tokio::spawn(async move {
-        let mut bytes = Vec::new();
-        stderr
-            .read_to_end(&mut bytes)
-            .await
-            .map(|_| String::from_utf8_lossy(&bytes).into_owned())
+        let mut bytes = [0; 8192];
+        loop {
+            let count = stderr.read(&mut bytes).await?;
+            if count == 0 {
+                return Ok::<_, std::io::Error>(());
+            }
+            captured
+                .lock()
+                .unwrap()
+                .push_str(&String::from_utf8_lossy(&bytes[..count]));
+        }
     });
     let mut reader = BufReader::new(stdout);
     let mut bytes = Vec::new();
@@ -440,17 +448,17 @@ async fn run_single(
             break;
         }
         if let Ok(event) = serde_json::from_slice::<Value>(&bytes) {
+            r["stderr"] = json!(stderr_text.lock().unwrap().clone());
             apply_event(&mut r, event, &mut base, &update);
         }
     }
     let status = child.wait().await.map_err(|e| HandlerError::new(e.to_string()))?;
     r["exitCode"] = json!(status.code().unwrap_or(0));
-    r["stderr"] = json!(
-        stderr
-            .await
-            .map_err(|e| HandlerError::new(e.to_string()))?
-            .map_err(|e| HandlerError::new(e.to_string()))?
-    );
+    stderr
+        .await
+        .map_err(|e| HandlerError::new(e.to_string()))?
+        .map_err(|e| HandlerError::new(e.to_string()))?;
+    r["stderr"] = json!(stderr_text.lock().unwrap().clone());
     drop(prompt);
     if aborted {
         return Err(HandlerError::new("Subagent was aborted"));
@@ -500,12 +508,13 @@ fn apply_event(r: &mut Value, event: Value, base: &mut Value, update: &Option<Ag
         r["usage"]["turns"] = json!(r["usage"]["turns"].as_u64().unwrap_or(0) + 1);
         for key in ["input", "output", "cacheRead", "cacheWrite"] {
             let total = r["usage"][key].as_f64().unwrap_or(0.0) + message["usage"][key].as_f64().unwrap_or(0.0);
-            r["usage"][key] = json!(total as u64);
+            r["usage"][key] = pi_js_compat::number::js_number_value(total);
         }
-        r["usage"]["cost"] = json!(
-            r["usage"]["cost"].as_f64().unwrap_or(0.0) + message["usage"]["cost"]["total"].as_f64().unwrap_or(0.0)
+        r["usage"]["cost"] = pi_js_compat::number::js_number_value(
+            r["usage"]["cost"].as_f64().unwrap_or(0.0) + message["usage"]["cost"]["total"].as_f64().unwrap_or(0.0),
         );
-        r["usage"]["contextTokens"] = json!(message["usage"]["totalTokens"].as_u64().unwrap_or(0));
+        r["usage"]["contextTokens"] =
+            pi_js_compat::number::js_number_value(message["usage"]["totalTokens"].as_f64().unwrap_or(0.0));
         for key in ["stopReason", "errorMessage"] {
             if message[key].as_str().is_some_and(|s| !s.is_empty()) {
                 r[key] = message[key].clone();
