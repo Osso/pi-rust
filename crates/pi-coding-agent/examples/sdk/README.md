@@ -7,6 +7,10 @@
 | `sdk_02_custom_model` | Runtime lookup, authenticated model order, medium thinking |
 | `sdk_03_custom_prompt` | Replace prompt, then append instructions |
 | `sdk_04_skills` | Filter discovery and append a synthetic skill |
+| `sdk_05_tools` | Four tool selections, including custom cwd |
+| `sdk_06_extensions` | Native registry plus inline agent-start hook |
+| `sdk_07_context_files` | Merge AGENTS.md discovery with inline context |
+| `sdk_08_prompt_templates` | Merge prompt discovery with deploy template |
 
 Run with `cargo run -p pi-coding-agent --example <target>`. Like 01,
 entrypoints are opt-in SDK clients and may contact configured providers. Tests
@@ -37,3 +41,7 @@ Tests compile this exact file but call `run(options, writer)` with a Faux
 provider, private state directories, static resources, and an explicit empty
 extension registry. They do not exercise default user configuration or live
 providers. See [traceability](../../../../docs/porting/traceability/example-sdk-minimal.md).
+
+06 accepts a native `ExtensionRegistry`; configured TS path strings are native
+registry IDs, not dynamically executed files. 07/08 intentionally retain the
+source’s off-by-one printed counts.

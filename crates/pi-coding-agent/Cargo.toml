@@ -112,6 +112,22 @@ path = "examples/sdk/03_custom_prompt.rs"
 name = "sdk_04_skills"
 path = "examples/sdk/04_skills.rs"
 
+[[example]]
+name = "sdk_05_tools"
+path = "examples/sdk/05_tools.rs"
+
+[[example]]
+name = "sdk_06_extensions"
+path = "examples/sdk/06_extensions.rs"
+
+[[example]]
+name = "sdk_07_context_files"
+path = "examples/sdk/07_context_files.rs"
+
+[[example]]
+name = "sdk_08_prompt_templates"
+path = "examples/sdk/08_prompt_templates.rs"
+
 [dev-dependencies]
 tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
 # `pty::openpty` for process-boundary crash tests that need a pty without a

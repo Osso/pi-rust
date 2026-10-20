@@ -19,7 +19,12 @@ async function run(request: any) {
  }
  class Loader {
   skills: any; prompts: any; agents: any;
-  constructor(public options: any) {}
+  handlers: (() => void)[] = [];
+  constructor(public options: any) {
+   for (const factory of options.extensionFactories ?? []) factory({on: (event: string, handler: () => void) => {
+    if (event === "agent_start") this.handlers.push(handler);
+   }});
+  }
   async reload() {
    this.skills = this.options.skillsOverride?.(request.skills ?? {skills:[], diagnostics:[]}) ?? {skills:[], diagnostics:[]};
    this.prompts = this.options.promptsOverride?.(request.prompts ?? {prompts:[], diagnostics:[]}) ?? {prompts:[], diagnostics:[]};
@@ -41,6 +46,7 @@ async function run(request: any) {
     subscribe(listener: any) { observer = listener; },
     async prompt(prompt: string) {
      prompts.push(prompt);
+     for (const handler of options.resourceLoader?.handlers ?? []) handler();
      observer?.({type:"message_update",assistantMessageEvent:{type:"text_delta",delta:request.text ?? "Hello!"}});
      stdout += "";
      if (request.failure) throw new Error(request.failure);

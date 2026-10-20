@@ -59,9 +59,9 @@ pub async fn run(
     options.resource_loader = Some(loader);
     options.session_manager = Some(SessionManager::in_memory(options.cwd.as_deref(), None).map_err(|e| e.to_string())?);
     let session = create_agent_session(options).await?.session;
-    let outcome = writeln!(output, "Session created with filtered skills").map_err(|e| e.to_string());
+    writeln!(output, "Session created with filtered skills").map_err(|e| e.to_string())?;
     session.dispose();
-    outcome
+    Ok(())
 }
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() -> Result<(), error::ExampleError> {

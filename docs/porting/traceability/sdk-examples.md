@@ -31,6 +31,27 @@ and formatting run; no broad checks, clippy or live providers.
 
 ## Remaining scope
 
-05–13 pending. No API gap identified in 02–04. Diagnostics/error and empty-model
+09–13 pending. No API gap identified in 02–04. Diagnostics/error and empty-model
 branches are ported; current fixtures prove the successful populated paths, not
 exhaustive SDK branch parity.
+
+## 05–08 mapping and discrepancies
+
+| Source lines / behavior | Rust example | Test target |
+| --- | --- | --- |
+| 05:20–56 four ordered tool sets; custom cwd; in-memory sessions/disposal | `05_tools.rs::run` | `example_sdk_tools`: stdout differential; real active tool names including SDK-required end_turn; custom cwd snapshots |
+| 06:31–64 configured paths; inline agent-start; streamed prompt; finally | `06_extensions.rs::run` | `example_sdk_extensions`: actual native extension fires before provider stream; full stdout differential |
+| 07:17–53 context merge; JS UTF-16 length; count/output; disposal | `07_context_files.rs::run` | `example_sdk_context_files`: real private AGENTS.md with emoji, exact context values and stdout differential |
+| 08:21–63 synthetic deploy source/content; merge; output/disposal | `08_prompt_templates.rs::run` | `example_sdk_prompt_templates`: real private template, ordered merge, deploy body and source metadata; stdout differential |
+
+Source bugs classified/preserved: 07 and 08 add one to a discovered list that
+already contains the inline resource. Printed counts intentionally exceed actual
+counts by one; tests assert this discrepancy, not silently correct it. 07's
+comment says disable context but its executable override appends; code wins.
+
+06 uses the approved native ExtensionRegistry instead of executing TS files.
+The two configured `.ts` strings remain registry IDs; embedders register native
+factories for those IDs. Missing paths remain loader diagnostics as in the source.
+Comment-only extension sketches are not executed or registered. The native inline
+hook is real. 05/07/08 return state snapshots to fixture callers without adding
+stdout lines. 04 now follows its source's non-finally output/disposal ordering.
