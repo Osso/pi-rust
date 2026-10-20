@@ -16,7 +16,7 @@ async fn switches_forks_ui_gating_and_dialog_errors_match_ts() {
             {"op":"emit","event":{"type":"session_before_switch","reason":"resume"}},
             {"op":"emit","event":{"type":"session_before_switch","reason":"new"}},
             {"op":"emit","event":{"type":"session_before_fork","entryId":"abcdefghijk","position":"before"}},
-            {"op":"emit","event":{"type":"session_before_fork","entryId":"short","position":"after"}},
+            {"op":"emit","event":{"type":"session_before_fork","entryId":"short","position":"at"}},
             {"op":"emit","event":{"type":"session_before_fork","entryId":"123456789","position":"before"}}
         ]})).await;
         if mode == "json" {

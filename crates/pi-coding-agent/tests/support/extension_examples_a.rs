@@ -253,6 +253,7 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
             "event" | "emit" => {
                 let mut event: ExtensionEvent = serde_json::from_value(step["event"].clone()).unwrap();
                 let result = runner.emit(&mut event).await;
+                tokio::task::yield_now().await;
                 if step["op"] == "emit" {
                     let value = match result {
                         EmitResult::None => Value::Null,

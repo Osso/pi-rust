@@ -16,4 +16,7 @@ Source discrepancy: confirm-destructive's comment describes messages since the l
 
 Typed Rust entry IDs are native strings; the existing UTF-16 slicing helper applies to fork title prefixes. Real generated session entry IDs are ASCII.
 
-Remaining examples: notify, titlebar-spinner, timed-confirm, file-trigger.
+| timed-confirm.ts:13–70 | `timed_confirm.rs`: timeout options, select truthiness, manual cancellation token, user/timeout/cancel outcomes, UI errors | `example_timed_confirm::timed_dialog_options_results_abort_and_errors_match_ts` |
+| titlebar-spinner.ts:13–58 | `titlebar_spinner.rs`: live session name, process cwd basename, all ten frames, wrap, repeated start/end/shutdown | `example_titlebar_spinner::deterministic_frames_wrap_restart_and_shutdown_match_ts` |
+
+Timers use Tokio virtual time; the shared TS oracle drives equivalent virtual interval/timeout callbacks. No wall-clock sleeps. Remaining examples: notify, file-trigger.
