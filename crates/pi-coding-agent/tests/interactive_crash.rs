@@ -75,6 +75,7 @@ fn agent_environment(fixture: &Fixture) -> Vec<(String, String)> {
             "PI_CODING_AGENT_STATE_DIR".to_owned(),
             fixture.state_dir.display().to_string(),
         ),
+        ("PI_OFFLINE".to_owned(), "1".to_owned()),
         ("NO_COLOR".to_owned(), "1".to_owned()),
         ("TERM".to_owned(), "xterm-256color".to_owned()),
     ]
@@ -193,6 +194,224 @@ fn sighup_restart_failure_restores_the_terminal_and_exits_one() {
         .find("\x1b[?2004l")
         .unwrap_or_else(|| panic!("bracketed paste was not disabled; output:\n{text}"));
     assert!(restore < banner, "the terminal is restored before the report");
+}
+
+fn assert_worker_crash(kind: &str, fullscreen: bool) {
+    let fixture = fixture();
+    let trigger = fixture._temp.path().join("panic-now");
+    let mut environment = agent_environment(&fixture);
+    environment.push(("PI_RUST_CRASH_TRIGGER".to_owned(), trigger.display().to_string()));
+    environment.push(("PI_RUST_CRASH_WORKER".to_owned(), kind.to_owned()));
+    if fullscreen {
+        std::fs::write(fixture.agent_dir.join("settings.json"), r#"{"tuiMode":"fullscreen"}"#)
+            .expect("fullscreen settings");
+    }
+    let mut child = pty::spawn(
+        &std::env::current_exe().expect("test executable"),
+        &["--ignored", "--exact", "worker_panic_child", "--nocapture"],
+        &environment,
+        &fixture.work,
+    );
+    let original = child.termios();
+    let ready = if fullscreen {
+        "bwrap: full access"
+    } else {
+        "Ctrl+C twice to exit"
+    };
+    child.wait_for(ready, Duration::from_secs(20));
+    // A DA reply without Kitty support enables modifyOtherKeys.
+    child.write_input("\x1b[?1;2c");
+    child.wait_for("\x1b[>4;2m", Duration::from_secs(5));
+    assert_ne!(child.termios(), original, "interactive mode must enter raw mode");
+    std::fs::write(&trigger, "panic").expect("trigger panic");
+    let code = child.wait(Duration::from_secs(20));
+    let text = child.output();
+    if kind == "dead" {
+        assert_eq!(code, 129, "dead worker terminal; output:\n{text}");
+        assert!(!text.contains("pi exiting due to uncaughtException:"));
+        assert!(!text.contains("\x1b[?2004l"));
+        assert_ne!(child.termios(), original, "dead terminal must not attempt restoration");
+        return;
+    }
+    assert_eq!(code, 1, "worker panic must exit 1; output:\n{text}");
+    let banner = text
+        .find("pi exiting due to uncaughtException:")
+        .unwrap_or_else(|| panic!("missing crash banner; output:\n{text}"));
+    for sequence in ["\x1b[?25h", "\x1b[?2004l", "\x1b[<u", "\x1b[>4;0m"] {
+        assert!(
+            text[..banner].contains(sequence),
+            "missing restore {sequence:?}; output:\n{text}"
+        );
+    }
+    if fullscreen {
+        assert!(text[..banner].contains("\x1b[?1049l"), "must leave alternate screen");
+        assert!(text[..banner].contains("\x1b[?7h"), "must restore autowrap");
+    }
+    assert!(text[banner..].contains("Error: worker boom"), "worker payload: {text}");
+    assert_eq!(child.termios(), original, "restore original cooked mode");
+}
+
+#[test]
+fn extension_thread_panic_restores_the_terminal() {
+    assert_worker_crash("thread", false);
+}
+
+#[test]
+fn dead_terminal_error_on_a_worker_exits_129_without_restoring() {
+    assert_worker_crash("dead", false);
+}
+
+#[test]
+fn blocking_pool_panic_restores_the_terminal() {
+    assert_worker_crash("blocking", false);
+}
+
+#[test]
+fn tokio_worker_panic_restores_the_fullscreen_terminal() {
+    assert_worker_crash("task", true);
+}
+
+#[test]
+#[ignore = "PTY child entry point"]
+fn worker_panic_child() {
+    let Some(trigger) = std::env::var_os("PI_RUST_CRASH_TRIGGER") else {
+        return;
+    };
+    pi_coding_agent::utils::uncaught::install_uncaught_handler();
+    let dead = std::env::var("PI_RUST_CRASH_WORKER").expect("worker kind") == "dead";
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("runtime");
+    runtime.block_on(tokio::task::LocalSet::new().run_until(async move {
+        let crash = move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            while !Path::new(&trigger).exists() {
+                assert!(std::time::Instant::now() < deadline, "panic trigger timed out");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if dead {
+                std::panic::panic_any(io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error()));
+            }
+            panic!("worker boom");
+        };
+        match std::env::var("PI_RUST_CRASH_WORKER").expect("worker kind").as_str() {
+            "thread" | "dead" => {
+                std::thread::spawn(crash);
+            }
+            "blocking" => {
+                tokio::task::spawn_blocking(crash);
+            }
+            "task" => {
+                tokio::spawn(async move { crash() });
+            }
+            _ => panic!("unknown worker kind"),
+        }
+        let code = pi_coding_agent::main_runner::main(&[], Default::default())
+            .await
+            .expect("main");
+        std::process::exit(code);
+    }));
+}
+
+fn capture_stop_output(fixture: &Fixture, fullscreen: bool, worker: bool) -> String {
+    let mut environment = agent_environment(fixture);
+    environment.push(("PI_RUST_STOP_MODE".to_owned(), format!("{fullscreen}:{worker}")));
+    let mut child = pty::spawn(
+        &std::env::current_exe().expect("test executable"),
+        &["--ignored", "--exact", "terminal_stop_child", "--nocapture"],
+        &environment,
+        &fixture.work,
+    );
+    let original = child.termios();
+    child.wait_for("STOP_READY", Duration::from_secs(10));
+    child.write_input("\x1b[?1;2c");
+    child.wait_for("\x1b[>4;2m", Duration::from_secs(5));
+    child.write_input("x");
+    assert_eq!(child.wait(Duration::from_secs(10)), 0);
+    assert_eq!(child.termios(), original);
+    child
+        .output()
+        .split_once("STOP_START\n")
+        .expect("stop marker")
+        .1
+        .to_owned()
+}
+
+#[test]
+fn worker_restore_matches_normal_ui_stop_bytes() {
+    let fixture = fixture();
+    for fullscreen in [false, true] {
+        let normal = capture_stop_output(&fixture, fullscreen, false);
+        let worker = capture_stop_output(&fixture, fullscreen, true);
+        assert_eq!(
+            worker, normal,
+            "stop output must be byte-identical; fullscreen={fullscreen}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "PTY child entry point"]
+fn terminal_stop_child() {
+    use pi_coding_agent::modes::interactive::interactive_mode::{
+        InteractiveTuiHandle, InteractiveTuiOptions, create_interactive_tui,
+    };
+    use pi_tui::Terminal;
+    use pi_tui::tui::component;
+    use std::cell::RefCell;
+    use std::io::Write;
+    use std::rc::Rc;
+
+    let Ok(mode) = std::env::var("PI_RUST_STOP_MODE") else {
+        return;
+    };
+    let (fullscreen, worker) = mode.split_once(':').expect("stop mode");
+    let terminal: Rc<RefCell<dyn Terminal>> = Rc::new(RefCell::new(pi_tui::ProcessTerminal::new()));
+    let restore = terminal.borrow().crash_restore().expect("real terminal restore");
+    let ui = InteractiveTuiHandle::new(create_interactive_tui(InteractiveTuiOptions {
+        tui_mode: if fullscreen == "true" {
+            pi_tui::TuiMode::Fullscreen
+        } else {
+            pi_tui::TuiMode::Regular
+        },
+        show_hardware_cursor: false,
+        log_directory: std::env::var("PI_CODING_AGENT_DIR").expect("agent dir"),
+        terminal: Some(terminal.clone()),
+        on_right_click_paste: None,
+    }));
+    ui.add_child(component(pi_tui::Text::new("restore fixture", 0, 0)));
+    ui.set_terminal_color_scheme_notifications(true);
+    ui.start().expect("start");
+    ui.render_now();
+    terminal.borrow_mut().set_progress(true);
+    // Drain input directly so the final 'x' is a deterministic stop request.
+    std::io::stdout().write_all(b"STOP_READY\n").expect("ready");
+    loop {
+        let events = terminal.borrow_mut().poll_events();
+        if events
+            .iter()
+            .any(|event| matches!(event, pi_tui::terminal::TerminalEvent::Input(text) if text == "x"))
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    std::io::stdout().write_all(b"STOP_START\n").expect("stop marker");
+    if worker == "true" {
+        std::thread::spawn(move || {
+            restore.restore_then(|result| {
+                result.expect("restore");
+                std::process::exit(0);
+            })
+        })
+        .join()
+        .expect("restore thread");
+    } else {
+        ui.stop();
+        std::process::exit(0);
+    }
 }
 
 #[test]

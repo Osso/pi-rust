@@ -26,7 +26,7 @@ TypeScript renderer).
 | --- | --- | --- |
 | enter alt screen: capability capture, iTerm2 capability swap, state reset, multiplexer vs all-motion mouse sequence | `before_terminal_start_impl` | multiplexer test, iTerm2 tests, differential |
 | leave alt screen: close search, clear selection/drag/hover, kitty image deletion, autowrap restore | `before_terminal_stop_impl` | selection/focus tests, differential stop |
-| after stop: preserve screen vs restore full document with line resets, clipping, cursor and autowrap | `after_terminal_stop_impl` | full-document restore test, differential |
+| after stop: preserve screen vs restore full document with line resets, clipping, cursor and autowrap | `after_terminal_stop_impl`; shared `render_stop_document` / `stop_document_output`; `terminal_stop_output` publishes the default stop snapshot with `stop_before_output` | full-document restore test, differential; coding-agent `interactive_crash::worker_restore_matches_normal_ui_stop_bytes` verifies exact real-terminal bytes and termios on another thread |
 | implicit document/scroll view when no layout root | `ImplicitDocument`, `implicit_scroll_state` | scroll tests, differential |
 | explicit layout root render and invalidation (root + overlays) | `render`, `invalidate` | dock, overlay invalidation tests |
 | primary scroll view selection and fallbacks | `primary_scroll_view` | all scroll tests |

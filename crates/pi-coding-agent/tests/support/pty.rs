@@ -95,6 +95,12 @@ pub fn spawn(binary: &Path, args: &[&str], environment: &[(String, String)], cwd
 }
 
 impl PtyChild {
+    pub fn termios(&self) -> String {
+        let termios =
+            rustix::termios::tcgetattr(self.master.as_ref().expect("pty master is open")).expect("pty termios");
+        format!("{termios:?}")
+    }
+
     pub fn id(&self) -> u32 {
         self.child.id()
     }

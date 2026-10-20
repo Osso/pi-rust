@@ -3,10 +3,10 @@
 use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::Command;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use pi_coding_agent::utils::uncaught::{
-    ERROR, ThreadCrashHandler, UncaughtError, format_uncaught, install_uncaught_handler, set_thread_crash_handler,
+    ERROR, ProcessCrashHandler, UncaughtError, format_uncaught, install_uncaught_handler, set_process_crash_handler,
     swallow_panics, throw_uncaught,
 };
 
@@ -79,15 +79,15 @@ fn run_crash_handler_child(mode: &str) -> std::process::Output {
         .expect("child must run")
 }
 
-fn reporting_handler() -> ThreadCrashHandler {
-    Rc::new(|payload| {
+fn reporting_handler() -> ProcessCrashHandler {
+    Arc::new(|payload| {
         eprintln!("crash handler: {}", format_uncaught(payload));
         std::process::exit(7);
     })
 }
 
 #[test]
-fn thread_crash_handler_receives_uncaught_panics() {
+fn process_crash_handler_receives_uncaught_panics() {
     let output = run_crash_handler_child("panic");
     assert_eq!(output.status.code(), Some(7));
     assert_eq!(
@@ -97,7 +97,7 @@ fn thread_crash_handler_receives_uncaught_panics() {
 }
 
 #[test]
-fn thread_crash_handler_receives_uncaught_throws() {
+fn process_crash_handler_receives_uncaught_throws() {
     let output = run_crash_handler_child("throw");
     assert_eq!(output.status.code(), Some(7));
     assert_eq!(
@@ -107,8 +107,25 @@ fn thread_crash_handler_receives_uncaught_throws() {
 }
 
 #[test]
-fn clearing_the_thread_crash_handler_restores_the_default_report() {
+fn clearing_the_process_crash_handler_restores_the_default_report() {
     let output = run_crash_handler_child("cleared");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), "Error: boom");
+}
+
+#[test]
+fn process_crash_handler_receives_panics_from_other_threads() {
+    let output = run_crash_handler_child("worker");
+    assert_eq!(output.status.code(), Some(7));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "crash handler: Error: boom"
+    );
+}
+
+#[test]
+fn unregistering_from_another_thread_restores_the_default_report() {
+    let output = run_crash_handler_child("unregister-worker");
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), "Error: boom");
 }
@@ -124,10 +141,10 @@ fn swallowed_panics_do_not_reach_the_handler_or_stop_later_steps() {
 }
 
 #[test]
-fn set_thread_crash_handler_reports_the_previous_handler() {
-    assert!(set_thread_crash_handler(Some(reporting_handler())).is_none());
-    assert!(set_thread_crash_handler(None).is_some());
-    assert!(set_thread_crash_handler(None).is_none());
+fn set_process_crash_handler_reports_the_previous_handler() {
+    assert!(set_process_crash_handler(Some(reporting_handler())).is_none());
+    assert!(set_process_crash_handler(None).is_some());
+    assert!(set_process_crash_handler(None).is_none());
 }
 
 #[test]
@@ -139,24 +156,37 @@ fn crash_handler_child() {
     install_uncaught_handler();
     match mode.to_str() {
         Some("panic") => {
-            set_thread_crash_handler(Some(reporting_handler()));
+            set_process_crash_handler(Some(reporting_handler()));
+            panic!("boom");
+        }
+        Some("worker") => {
+            set_process_crash_handler(Some(reporting_handler()));
+            std::thread::spawn(|| panic!("boom"))
+                .join()
+                .expect("handler exits first");
+        }
+        Some("unregister-worker") => {
+            set_process_crash_handler(Some(reporting_handler()));
+            std::thread::spawn(|| set_process_crash_handler(None))
+                .join()
+                .expect("unregister");
             panic!("boom");
         }
         Some("throw") => {
-            set_thread_crash_handler(Some(reporting_handler()));
+            set_process_crash_handler(Some(reporting_handler()));
             throw_uncaught("TypeError", "not a function");
         }
         Some("cleared") => {
-            set_thread_crash_handler(Some(reporting_handler()));
-            set_thread_crash_handler(None);
+            set_process_crash_handler(Some(reporting_handler()));
+            set_process_crash_handler(None);
             panic!("boom");
         }
         Some("swallowed") => {
-            set_thread_crash_handler(Some(reporting_handler()));
+            set_process_crash_handler(Some(reporting_handler()));
             swallow_panics(|| panic!("swallowed"));
             swallow_panics(|| throw_uncaught("TypeError", "also swallowed"));
             eprintln!("after swallowed panic");
-            set_thread_crash_handler(None);
+            set_process_crash_handler(None);
             panic!("boom");
         }
         _ => panic!("unknown probe mode {mode:?}"),

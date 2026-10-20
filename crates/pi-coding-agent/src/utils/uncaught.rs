@@ -7,14 +7,13 @@
 //! `pi` binary installs [`install_uncaught_handler`] as the panic hook.
 //!
 //! While interactive mode owns the terminal it installs a
-//! [`ThreadCrashHandler`] (`registerSignalHandlers`' `uncaughtException`
-//! listener). Uncaught throws and panics on that thread then run the handler
-//! instead of the default report, so `ui.stop()` can restore cooked mode and
-//! the cursor. Clearing the handler restores the default report.
+//! [`ProcessCrashHandler`] (`registerSignalHandlers`' `uncaughtException`
+//! listener). Uncaught throws and panics on any thread run that handler,
+//! using a Send-able terminal restore plan. Clearing it restores the default report.
 
 use std::any::Any;
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::cell::Cell;
+use std::sync::{Arc, Mutex};
 
 /// Node's default label for a plain `Error`.
 pub const ERROR: &str = "Error";
@@ -26,11 +25,12 @@ pub struct UncaughtError {
     pub message: String,
 }
 
-/// Process-level handler installed for one thread (interactive mode).
-pub type ThreadCrashHandler = Rc<dyn Fn(&(dyn Any + Send))>;
+/// Process-level handler installed while interactive mode owns the terminal.
+pub type ProcessCrashHandler = Arc<dyn Fn(&(dyn Any + Send)) + Send + Sync>;
+
+static PROCESS_CRASH_HANDLER: Mutex<Option<ProcessCrashHandler>> = Mutex::new(None);
 
 thread_local! {
-    static THREAD_CRASH_HANDLER: RefCell<Option<ThreadCrashHandler>> = const { RefCell::new(None) };
     /// Guards against a handler panic re-entering the hook forever. Rust has
     /// no analogue of a second uncaught exception inside `uncaughtCrash`.
     static HANDLING_CRASH: Cell<bool> = const { Cell::new(false) };
@@ -39,14 +39,22 @@ thread_local! {
     static SWALLOWING: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Installs `handler` for the current thread and returns the previous one.
-pub fn set_thread_crash_handler(handler: Option<ThreadCrashHandler>) -> Option<ThreadCrashHandler> {
-    THREAD_CRASH_HANDLER.with(|slot| slot.replace(handler))
+/// Installs `handler` process-wide and returns the previous one.
+pub fn set_process_crash_handler(handler: Option<ProcessCrashHandler>) -> Option<ProcessCrashHandler> {
+    std::mem::replace(
+        &mut *PROCESS_CRASH_HANDLER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        handler,
+    )
 }
 
-/// The crash handler installed for the current thread, if any.
-pub fn thread_crash_handler() -> Option<ThreadCrashHandler> {
-    THREAD_CRASH_HANDLER.with(|slot| slot.borrow().clone())
+/// Clone before dispatch so the handler can unregister itself without deadlock.
+pub fn process_crash_handler() -> Option<ProcessCrashHandler> {
+    PROCESS_CRASH_HANDLER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
 }
 
 /// `throw` an error that nothing catches.
@@ -89,7 +97,7 @@ pub fn install_uncaught_handler() {
             return;
         }
         if !HANDLING_CRASH.replace(true)
-            && let Some(handler) = thread_crash_handler()
+            && let Some(handler) = process_crash_handler()
         {
             handler(info.payload());
         }
