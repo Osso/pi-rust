@@ -195,6 +195,104 @@ fn sighup_restart_failure_restores_the_terminal_and_exits_one() {
     assert!(restore < banner, "the terminal is restored before the report");
 }
 
+fn assert_worker_crash(kind: &str, fullscreen: bool) {
+    let fixture = fixture();
+    let trigger = fixture._temp.path().join("panic-now");
+    let mut environment = agent_environment(&fixture);
+    environment.push(("PI_RUST_CRASH_TRIGGER".to_owned(), trigger.display().to_string()));
+    environment.push(("PI_RUST_CRASH_WORKER".to_owned(), kind.to_owned()));
+    if fullscreen {
+        std::fs::write(fixture.agent_dir.join("settings.json"), r#"{"tuiMode":"fullscreen"}"#)
+            .expect("fullscreen settings");
+    }
+    let mut child = pty::spawn(
+        &std::env::current_exe().expect("test executable"),
+        &["--ignored", "--exact", "worker_panic_child", "--nocapture"],
+        &environment,
+        &fixture.work,
+    );
+    let original = child.termios();
+    child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
+    // A DA reply without Kitty support enables modifyOtherKeys.
+    child.write_input("\x1b[?1;2c");
+    child.wait_for("\x1b[>4;2m", Duration::from_secs(5));
+    assert_ne!(child.termios(), original, "interactive mode must enter raw mode");
+    std::fs::write(&trigger, "panic").expect("trigger panic");
+    let code = child.wait(Duration::from_secs(20));
+    let text = child.output();
+    assert_eq!(code, 1, "worker panic must exit 1; output:\n{text}");
+    let banner = text
+        .find("pi exiting due to uncaughtException:")
+        .unwrap_or_else(|| panic!("missing crash banner; output:\n{text}"));
+    for sequence in ["\x1b[?25h", "\x1b[?2004l", "\x1b[<u", "\x1b[>4;0m"] {
+        assert!(
+            text[..banner].contains(sequence),
+            "missing restore {sequence:?}; output:\n{text}"
+        );
+    }
+    if fullscreen {
+        assert!(text[..banner].contains("\x1b[?1049l"), "must leave alternate screen");
+        assert!(text[..banner].contains("\x1b[?7h"), "must restore autowrap");
+    }
+    assert!(text[banner..].contains("Error: worker boom"), "worker payload: {text}");
+    assert_eq!(child.termios(), original, "restore original cooked mode");
+}
+
+#[test]
+fn extension_thread_panic_restores_the_terminal() {
+    assert_worker_crash("thread", false);
+}
+
+#[test]
+fn blocking_pool_panic_restores_the_terminal() {
+    assert_worker_crash("blocking", false);
+}
+
+#[test]
+fn tokio_worker_panic_restores_the_fullscreen_terminal() {
+    assert_worker_crash("task", true);
+}
+
+#[test]
+#[ignore = "PTY child entry point"]
+fn worker_panic_child() {
+    let Some(trigger) = std::env::var_os("PI_RUST_CRASH_TRIGGER") else {
+        return;
+    };
+    pi_coding_agent::utils::uncaught::install_uncaught_handler();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("runtime");
+    runtime.block_on(tokio::task::LocalSet::new().run_until(async move {
+        let crash = move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            while !Path::new(&trigger).exists() {
+                assert!(std::time::Instant::now() < deadline, "panic trigger timed out");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            panic!("worker boom");
+        };
+        match std::env::var("PI_RUST_CRASH_WORKER").expect("worker kind").as_str() {
+            "thread" => {
+                std::thread::spawn(crash);
+            }
+            "blocking" => {
+                tokio::task::spawn_blocking(crash);
+            }
+            "task" => {
+                tokio::spawn(async move { crash() });
+            }
+            _ => panic!("unknown worker kind"),
+        }
+        let code = pi_coding_agent::main_runner::main(&[], Default::default())
+            .await
+            .expect("main");
+        std::process::exit(code);
+    }));
+}
+
 #[test]
 fn rethrown_terminal_errors_use_the_node_stream_message() {
     // Node: `Error: write EPIPE` / `Error: read EBADF` for stream `error` events.

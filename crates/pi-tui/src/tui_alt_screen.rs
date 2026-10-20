@@ -1562,6 +1562,38 @@ impl TuiAltScreen {
         ));
     }
 
+    fn stop_before_output(&self) -> String {
+        let state = self.state.borrow();
+        if !state.alt_screen_active {
+            return String::new();
+        }
+        let mouse = if self.mouse_enabled { DISABLE_MOUSE } else { "" };
+        format!(
+            "{BEGIN_SYNCHRONIZED_OUTPUT}{}{mouse}{ENABLE_AUTOWRAP}{END_SYNCHRONIZED_OUTPUT}",
+            self.delete_kitty_images(state.image_protocol)
+        )
+    }
+
+    fn render_stop_document(&self) -> Vec<String> {
+        let width = self.base.terminal().borrow().columns().max(1);
+        let mut lines: Vec<String> = self
+            .render(width)
+            .iter()
+            .map(|line| strip_osc133_zone_prefix(line).replace(CURSOR_MARKER, ""))
+            .collect();
+        self.base.apply_line_resets(&mut lines);
+        lines
+            .into_iter()
+            .map(|line| {
+                if is_image_line(&line) || visible_width(&line) <= width {
+                    line
+                } else {
+                    slice_by_column(&line, 0, width, true)
+                }
+            })
+            .collect()
+    }
+
     fn before_terminal_stop_impl(&self) {
         self.close_search();
         {
@@ -1572,16 +1604,8 @@ impl TuiAltScreen {
             state.scrollbar_drag = None;
         }
         self.flashes.borrow_mut().dispose();
-        let mut state = self.state.borrow_mut();
-        if !state.alt_screen_active {
-            return;
-        }
-        let mouse = if self.mouse_enabled { DISABLE_MOUSE } else { "" };
-        self.base.terminal().borrow_mut().write(&format!(
-            "{BEGIN_SYNCHRONIZED_OUTPUT}{}{mouse}{ENABLE_AUTOWRAP}{END_SYNCHRONIZED_OUTPUT}",
-            self.delete_kitty_images(state.image_protocol)
-        ));
-        state.uploaded_kitty_images.clear();
+        self.base.terminal().borrow_mut().write(&self.stop_before_output());
+        self.state.borrow_mut().uploaded_kitty_images.clear();
     }
 
     fn after_terminal_stop_impl(&self, options: &TuiStopOptions) {
@@ -1597,37 +1621,8 @@ impl TuiAltScreen {
                 "{BEGIN_SYNCHRONIZED_OUTPUT}{EXIT_ALT_SCREEN}\x1b[?25h{END_SYNCHRONIZED_OUTPUT}"
             ));
         } else {
-            let width = self.base.terminal().borrow().columns().max(1);
-            let document_lines: Vec<String> = self
-                .render(width)
-                .iter()
-                .map(|line| strip_osc133_zone_prefix(line))
-                .collect();
-            let mut last_document: Vec<String> = document_lines
-                .iter()
-                .map(|line| line.replace(CURSOR_MARKER, ""))
-                .collect();
-            self.base.apply_line_resets(&mut last_document);
-            last_document = last_document
-                .into_iter()
-                .map(|line| {
-                    if is_image_line(&line) || visible_width(&line) <= width {
-                        line
-                    } else {
-                        slice_by_column(&line, 0, width, true)
-                    }
-                })
-                .collect();
-            let mut buffer = format!("{BEGIN_SYNCHRONIZED_OUTPUT}{EXIT_ALT_SCREEN}{DISABLE_AUTOWRAP}");
-            for (row, line) in last_document.iter().enumerate() {
-                if row > 0 {
-                    buffer.push_str("\r\n");
-                }
-                buffer.push_str(&format!("\r\x1b[2K{line}"));
-            }
-            buffer.push_str(&format!(
-                "\x1b[0m{ENABLE_AUTOWRAP}\r\n\x1b[?25h{END_SYNCHRONIZED_OUTPUT}"
-            ));
+            let last_document = self.render_stop_document();
+            let buffer = stop_document_output(&last_document);
             self.base.terminal().borrow_mut().write(&buffer);
             self.state.borrow_mut().last_document = last_document;
         }
@@ -1664,6 +1659,20 @@ impl TuiAltScreen {
     }
 }
 
+fn stop_document_output(lines: &[String]) -> String {
+    let mut buffer = format!("{BEGIN_SYNCHRONIZED_OUTPUT}{EXIT_ALT_SCREEN}{DISABLE_AUTOWRAP}");
+    for (row, line) in lines.iter().enumerate() {
+        if row > 0 {
+            buffer.push_str("\r\n");
+        }
+        buffer.push_str(&format!("\r\x1b[2K{line}"));
+    }
+    buffer.push_str(&format!(
+        "\x1b[0m{ENABLE_AUTOWRAP}\r\n\x1b[?25h{END_SYNCHRONIZED_OUTPUT}"
+    ));
+    buffer
+}
+
 impl RendererApi for TuiAltScreen {
     fn do_render(&self) {
         self.do_render_impl();
@@ -1683,6 +1692,16 @@ impl RendererApi for TuiAltScreen {
 
     fn after_terminal_stop(&self, options: &TuiStopOptions) {
         self.after_terminal_stop_impl(options);
+    }
+
+    fn terminal_stop_output(&self) -> (String, String) {
+        if !self.state.borrow().alt_screen_active {
+            return (String::new(), String::new());
+        }
+        (
+            self.stop_before_output(),
+            stop_document_output(&self.render_stop_document()),
+        )
     }
 
     fn mode(&self) -> TuiMode {

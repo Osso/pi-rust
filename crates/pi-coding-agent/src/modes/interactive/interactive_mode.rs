@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
@@ -121,7 +122,7 @@ use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, watch_with
 use crate::utils::git::parse_git_url;
 use crate::utils::paths::{PathInputOptions, get_cwd_relative_path, relative_path, resolve_path};
 use crate::utils::shell::kill_tracked_detached_children;
-use crate::utils::uncaught::{ERROR, format_uncaught, set_thread_crash_handler, swallow_panics, throw_uncaught};
+use crate::utils::uncaught::{ERROR, format_uncaught, set_process_crash_handler, swallow_panics, throw_uncaught};
 use serde_json::Value;
 
 pub(crate) const PARTIAL_UPDATE_RENDER_THROTTLE_MS: u64 = 50;
@@ -2647,7 +2648,7 @@ pub struct InteractiveMode {
     ui_id: Cell<usize>,
     unsubscribe: Cell<Option<u64>>,
     shutdown_requested: Cell<bool>,
-    is_shutting_down: Cell<bool>,
+    is_shutting_down: Arc<AtomicBool>,
     signal_handlers: RefCell<Vec<tokio::task::JoinHandle<()>>>,
     tool_output_expanded: Cell<bool>,
     hide_thinking_block: Cell<bool>,
@@ -2960,7 +2961,7 @@ impl InteractiveMode {
             ui_id: Cell::new(0),
             unsubscribe: Cell::new(None),
             shutdown_requested: Cell::new(false),
-            is_shutting_down: Cell::new(false),
+            is_shutting_down: Arc::new(AtomicBool::new(false)),
             signal_handlers: RefCell::new(Vec::new()),
             tool_output_expanded: Cell::new(false),
             hide_thinking_block: Cell::new(hide_thinking_block),
@@ -9903,7 +9904,7 @@ impl InteractiveMode {
     }
 
     async fn shutdown(&self) {
-        if self.is_shutting_down.replace(true) {
+        if self.is_shutting_down.swap(true, Ordering::SeqCst) {
             return;
         }
         self.clear_extension_widgets();
@@ -9918,15 +9919,22 @@ impl InteractiveMode {
 
     /// `registerSignalHandlers`: SIGTERM performs the graceful shutdown,
     /// SIGHUP restarts the process. Both kill tracked detached children first.
-    /// The `uncaughtException` listener becomes the thread crash handler; the
+    /// The `uncaughtException` listener becomes the process crash handler; the
     /// stdin/stdout/stderr `error` listeners are `handle_terminal_errors`.
     fn register_signal_handlers(self: &Rc<Self>) {
         self.unregister_signal_handlers();
         let handlers = spawn_signal_handlers(self);
         *self.signal_handlers.borrow_mut() = handlers;
-        let mode_id = self.ui_id.get();
-        set_thread_crash_handler(Some(Rc::new(move |payload| {
-            with_mode(mode_id, |mode| mode.uncaught_crash(payload));
+        let shutting_down = Arc::clone(&self.is_shutting_down);
+        let handlers: Vec<_> = self
+            .signal_handlers
+            .borrow()
+            .iter()
+            .map(|handler| handler.abort_handle())
+            .collect();
+        let restore = self.ui.terminal().borrow().crash_restore();
+        set_process_crash_handler(Some(Arc::new(move |payload| {
+            Self::uncaught_crash(payload, &shutting_down, &handlers, restore.as_ref());
         })));
     }
 
@@ -9934,12 +9942,12 @@ impl InteractiveMode {
         for handler in self.signal_handlers.borrow_mut().drain(..) {
             handler.abort();
         }
-        set_thread_crash_handler(None);
+        set_process_crash_handler(None);
     }
 
     /// `emergencyTerminalExit`.
     fn emergency_terminal_exit(&self) -> ! {
-        self.is_shutting_down.set(true);
+        self.is_shutting_down.store(true, Ordering::SeqCst);
         self.unregister_signal_handlers();
         kill_tracked_detached_children();
         // The terminal is gone. Do not run normal shutdown because TUI and
@@ -9950,18 +9958,39 @@ impl InteractiveMode {
     /// `uncaughtCrash`: last-resort handler for uncaught exceptions. Unlike
     /// `emergency_terminal_exit` the terminal is still alive, so `ui.stop()`
     /// restores cooked mode, the cursor, and the keyboard protocols.
-    fn uncaught_crash(&self, payload: &(dyn Any + Send)) -> ! {
-        match crash_action(payload_is_dead_terminal_error(payload), self.is_shutting_down.get()) {
-            CrashAction::EmergencyExit => self.emergency_terminal_exit(),
-            CrashAction::ExitOne => std::process::exit(1),
-            CrashAction::RestoreAndReport => {}
+    fn uncaught_crash(
+        payload: &(dyn Any + Send),
+        shutting_down: &AtomicBool,
+        handlers: &[tokio::task::AbortHandle],
+        restore: Option<&pi_tui::terminal::TerminalRestore>,
+    ) -> ! {
+        let dead_terminal = payload_is_dead_terminal_error(payload);
+        let action = crash_action(dead_terminal, shutting_down.swap(true, Ordering::SeqCst));
+        if action == CrashAction::ExitOne {
+            std::process::exit(1);
         }
-        self.is_shutting_down.set(true);
-        // Each step mirrors a TS `try { ... } catch {}`: one failing must not
-        // skip the next.
-        swallow_panics(|| self.unregister_signal_handlers());
+        swallow_panics(|| {
+            set_process_crash_handler(None);
+            for handler in handlers {
+                handler.abort();
+            }
+        });
         swallow_panics(kill_tracked_detached_children);
-        swallow_panics(|| self.ui.stop());
+        if action == CrashAction::EmergencyExit {
+            std::process::exit(129);
+        }
+        if let Some(restore) = restore {
+            swallow_panics(|| {
+                restore.restore_then(|_result| {
+                    // TS catches ui.stop() failures and still reports the original error.
+                    Self::report_uncaught_and_exit(payload);
+                })
+            });
+        }
+        Self::report_uncaught_and_exit(payload)
+    }
+
+    fn report_uncaught_and_exit(payload: &(dyn Any + Send)) -> ! {
         eprintln!("pi exiting due to uncaughtException:");
         eprintln!("{}", format_uncaught(payload));
         std::process::exit(1)
@@ -9986,7 +10015,7 @@ impl InteractiveMode {
     }
 
     async fn shutdown_from_signal(&self) {
-        if self.is_shutting_down.replace(true) {
+        if self.is_shutting_down.swap(true, Ordering::SeqCst) {
             return;
         }
         self.runtime.lock().await.dispose().await;

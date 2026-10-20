@@ -637,6 +637,10 @@ pub trait RendererApi {
     fn before_terminal_start(&self) {}
     fn before_terminal_stop(&self, options: &TuiStopOptions);
     fn after_terminal_stop(&self, _options: &TuiStopOptions) {}
+    /// Stop output around `Terminal::stop`, published for cross-thread crashes.
+    fn terminal_stop_output(&self) -> (String, String) {
+        (String::new(), String::new())
+    }
     fn mode(&self) -> TuiMode {
         TuiMode::Regular
     }
@@ -865,8 +869,29 @@ impl TuiBase {
             self.inner.terminal.borrow_mut().write("\x1b[?2031h");
         }
         self.query_cell_size();
+        self.publish_terminal_restore();
         self.request_render(false);
         Ok(())
+    }
+
+    fn publish_terminal_restore(&self) {
+        let Some(restore) = self.inner.terminal.borrow().crash_restore() else {
+            return;
+        };
+        let mut before = String::new();
+        if self.inner.focus_reporting_enabled.get() {
+            before.push_str(DISABLE_TERMINAL_FOCUS_REPORTING);
+        }
+        if self.inner.terminal_color_scheme_notifications_enabled.get() {
+            before.push_str("\x1b[?2031l");
+        }
+        let (renderer_before, after) = self
+            .renderer()
+            .map(|renderer| renderer.terminal_stop_output())
+            .unwrap_or_default();
+        before.push_str(&renderer_before);
+        before.push_str("\x1b[?25h");
+        restore.publish_tui(before, after);
     }
 
     pub fn stop(&self, options: TuiStopOptions) {
@@ -937,6 +962,7 @@ impl TuiBase {
                 .borrow_mut()
                 .write(if enabled { "\x1b[?2031h" } else { "\x1b[?2031l" });
         }
+        self.publish_terminal_restore();
     }
 
     fn query_cell_size(&self) {
@@ -1048,6 +1074,7 @@ impl TuiBase {
         if let Some(renderer) = self.renderer() {
             renderer.do_render();
         }
+        self.publish_terminal_restore();
     }
 
     pub fn render_now(&self, force: bool) {
@@ -1059,6 +1086,7 @@ impl TuiBase {
         if let Some(renderer) = self.renderer() {
             renderer.do_render();
         }
+        self.publish_terminal_restore();
     }
 
     /// Drain queued terminal events and dispatch them to listeners/components.
@@ -3781,21 +3809,15 @@ impl RendererApi for TuiRenderer {
     }
 
     fn before_terminal_stop(&self, options: &TuiStopOptions) {
-        let frame = self.frame.borrow();
-        if options.preserve_screen || frame.previous_lines.is_empty() {
-            return;
-        }
-        let target_row = frame.previous_lines.len() as i64;
-        let line_diff = target_row - frame.hardware_cursor_row;
-        if line_diff > 0 {
-            self.base.terminal().borrow_mut().write(&format!("\x1b[{line_diff}B"));
-        } else if line_diff < 0 {
-            self.base
-                .terminal()
-                .borrow_mut()
-                .write(&format!("\x1b[{}A", -line_diff));
-        }
-        self.base.terminal().borrow_mut().write("\r\n");
+        let sequence = frame_stop_sequence(&self.frame.borrow(), options, false);
+        self.base.terminal().borrow_mut().write(&sequence);
+    }
+
+    fn terminal_stop_output(&self) -> (String, String) {
+        (
+            frame_stop_sequence(&self.frame.borrow(), &TuiStopOptions::default(), false),
+            String::new(),
+        )
     }
 }
 
@@ -3803,6 +3825,21 @@ impl TuiExt for TuiRenderer {
     fn base(&self) -> &TuiBase {
         &self.base
     }
+}
+
+pub(crate) fn frame_stop_sequence(frame: &RenderFrameState, options: &TuiStopOptions, leading_space: bool) -> String {
+    if options.preserve_screen || frame.previous_lines.is_empty() {
+        return String::new();
+    }
+    let mut sequence = if leading_space { " ".to_owned() } else { String::new() };
+    let line_diff = frame.previous_lines.len() as i64 - frame.hardware_cursor_row;
+    if line_diff > 0 {
+        sequence.push_str(&format!("\x1b[{line_diff}B"));
+    } else if line_diff < 0 {
+        sequence.push_str(&format!("\x1b[{}A", -line_diff));
+    }
+    sequence.push_str("\r\n");
+    sequence
 }
 
 struct FlowRenderFrame {

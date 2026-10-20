@@ -177,22 +177,15 @@ impl RendererApi for TuiMainScreen {
     }
 
     fn before_terminal_stop(&self, options: &TuiStopOptions) {
-        let frame = self.frame.borrow();
-        if options.preserve_screen || frame.previous_lines.is_empty() {
-            return;
-        }
-        self.base.terminal().borrow_mut().write(" ");
-        let target_row = frame.previous_lines.len() as i64;
-        let line_diff = target_row - frame.hardware_cursor_row;
-        if line_diff > 0 {
-            self.base.terminal().borrow_mut().write(&format!("\x1b[{line_diff}B"));
-        } else if line_diff < 0 {
-            self.base
-                .terminal()
-                .borrow_mut()
-                .write(&format!("\x1b[{}A", -line_diff));
-        }
-        self.base.terminal().borrow_mut().write("\r\n");
+        let sequence = crate::tui::frame_stop_sequence(&self.frame.borrow(), options, true);
+        self.base.terminal().borrow_mut().write(&sequence);
+    }
+
+    fn terminal_stop_output(&self) -> (String, String) {
+        (
+            crate::tui::frame_stop_sequence(&self.frame.borrow(), &TuiStopOptions::default(), true),
+            String::new(),
+        )
     }
 }
 

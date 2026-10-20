@@ -69,8 +69,8 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `emergencyTerminalExit` (:5561) | `emergency_terminal_exit` (sets `is_shutting_down`, unregisters handlers, `kill_tracked_detached_children`, exit 129, no `ui.stop()`) | `interactive_crash::dead_terminal_exits_129_without_restoring` (pty master closed -> stdin `EIO` -> exit 129, no crash banner) |
 | `uncaughtCrash` (:5570-5600) | `uncaught_crash` + pure `crash_action` (dead terminal -> 129; already shutting down -> exit 1; else restore/report/exit 1); each `try { } catch {}` step runs under `uncaught::swallow_panics` | `tests::uncaught_crash_exits_129_for_a_dead_terminal_before_checking_shutdown`, `tests::uncaught_crash_exits_one_while_already_shutting_down`, `tests::uncaught_crash_restores_the_terminal_otherwise`, `uncaught::swallowed_panics_do_not_reach_the_handler_or_stop_later_steps`, `interactive_crash::uncaught_exception_restores_the_terminal_and_exits_one` (exit 1, `pi exiting due to uncaughtException:`, `\x1b[?2004l` / `\x1b[?25h` / `\x1b[<u` restore before the report) |
 | `terminalErrorHandler` on `process.stdin/stdout/stderr` `error` (:5637-5646) | `terminal_error_action` + `terminal_error_handler`, fed by `handle_terminal_errors` from `Terminal::take_errors` (stdout write/flush failures and stdin read failures queued by `ProcessTerminal`) in the run loop | `tests::terminal_errors_route_dead_raw_mode_and_other_errors_separately` (EIO -> exit, Bun-style `setRawMode failed with errno:` -> ignore, ENOSPC / plain -> rethrow), pi-tui `terminal::write_failures_are_queued_for_the_stream_error_handler`, `terminal::successful_writes_queue_no_errors` |
-| `process.prependListener("uncaughtException", ...)` (:5657) | `register_signal_handlers` installs the thread crash handler (`uncaught::set_thread_crash_handler`) that the panic hook (`install_uncaught_handler`) and therefore `throw_uncaught` run; `unregister_signal_handlers` clears it | `uncaught::thread_crash_handler_receives_uncaught_panics`, `uncaught::thread_crash_handler_receives_uncaught_throws`, `uncaught::clearing_the_thread_crash_handler_restores_the_default_report`, `uncaught::set_thread_crash_handler_reports_the_previous_handler` |
-| `void this.restartProcess({ fromSignal: true })` rejection (:5623) | `restart_from_signal` -> `throw_uncaught` -> thread crash handler -> `uncaught_crash` | `interactive_crash::sighup_restart_failure_restores_the_terminal_and_exits_one` (binary deleted before SIGHUP; exit 1, banner after restore) |
+| `process.prependListener("uncaughtException", ...)` (:5657) | `register_signal_handlers` installs the process crash handler (`uncaught::set_process_crash_handler`) that the panic hook (`install_uncaught_handler`) and therefore `throw_uncaught` run; `unregister_signal_handlers` clears it | `uncaught::process_crash_handler_receives_uncaught_panics`, `uncaught::process_crash_handler_receives_uncaught_throws`, `uncaught::clearing_the_process_crash_handler_restores_the_default_report`, `uncaught::set_process_crash_handler_reports_the_previous_handler` |
+| `void this.restartProcess({ fromSignal: true })` rejection (:5623) | `restart_from_signal` -> `throw_uncaught` -> process crash handler -> `uncaught_crash` | `interactive_crash::sighup_restart_failure_restores_the_terminal_and_exits_one` (binary deleted before SIGHUP; exit 1, banner after restore) |
 | Command-context `restart` -> `runtimeHost.restart({process: true})` | `UiRequest::RuntimeRestart` always passes `process: true` and returns the runtime error to the extension caller | `ui_tests::command_restart_always_restarts_the_process_and_propagates_errors` |
 
 ## Implemented branches
@@ -143,6 +143,34 @@ notify-based child transcript reloads are implemented and behavior-tested.
   component factories, runtime new-session/fork/tree/switch/reload/restart
   requests, abort and shutdown handlers.
 
+## Process-wide crash restoration
+
+`uncaught::ProcessCrashHandler` is an `Arc<dyn Fn + Send + Sync>` published
+under a process-wide mutex. The panic hook clones it before dispatch; clearing
+it restores the default report on every thread. Shutdown uses a shared atomic;
+dead-terminal errors still take precedence over already-shutting-down exit 1.
+Signal task abort handles are Send-able and cleared before child teardown.
+
+`ProcessTerminal::crash_restore` shares saved termios and the exact protocol
+stop bytes with `TerminalRestore`. The UI publishes its stop prefix/suffix at
+start, color-notification changes, and completed renders. Regular cursor
+placement and fullscreen mouse/autowrap/image cleanup and transcript output
+share their byte builders with normal `ui.stop()`. The hook restores these
+bytes and termios directly, without accessing `Rc`/`RefCell` UI state or waiting
+for the UI event loop. Its restore lock excludes subsequent terminal writes
+through the final report and process exit. This avoids a timeout/fallback path
+when the UI thread is busy. Renderer snapshots describe the committed frame;
+terminal protocol state is refreshed as negotiation/progress/drain changes it.
+
+Proof: `interactive_crash::{extension_thread_panic_restores_the_terminal,
+blocking_pool_panic_restores_the_terminal,
+tokio_worker_panic_restores_the_fullscreen_terminal}` drive real PTYs, checking
+exit 1, original termios, banner/error and restoration before the banner.
+The trigger exists only in an ignored integration-test child; production has
+no test environment switch. Existing UI-thread, dead-terminal and SIGHUP
+failure tests remain required. OS/process behavior is tested at that boundary,
+not through a deterministic TypeScript oracle.
+
 ## Runtime loop
 
 `run` binds callbacks, subscribes to session events, calls `init`, processes the
@@ -158,10 +186,6 @@ has no separate render-region callbacks.
 
 ## Discrepancies
 
-- `uncaughtCrash` is process-wide in Node; the Rust handler is thread-local
-  to the interactive thread (the `pi` binary runs the mode on a current-thread
-  runtime). A panic on another thread (blocking pool, extension threads) hits
-  the default hook: error printed, exit 1, terminal not restored.
 - `console.error(error)` prints a Node stack; the Rust report is
   `<label>: <message>` (`format_uncaught`) with no stack frames (no JS stack
   exists). Rethrown terminal stream errors use Node's `<syscall> <CODE>`

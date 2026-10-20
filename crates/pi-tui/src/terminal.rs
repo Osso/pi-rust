@@ -9,9 +9,9 @@
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, channel};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use rustix::termios::{OptionalActions, Termios, tcgetattr, tcgetwinsize, tcsetattr};
@@ -45,6 +45,10 @@ pub enum TerminalEvent {
 pub trait Terminal {
     fn start(&mut self) -> Result<(), TerminalRawModeError>;
     fn stop(&mut self);
+    /// Process-terminal cleanup usable from a panic hook on any thread.
+    fn crash_restore(&self) -> Option<TerminalRestore> {
+        None
+    }
     fn drain_input(&mut self, max_ms: u64, idle_ms: u64);
     fn write(&mut self, data: &str);
     fn columns(&self) -> usize;
@@ -254,9 +258,52 @@ fn restore_stdin_mode(termios: &Termios) -> Result<(), TerminalRawModeError> {
         .map_err(|error| TerminalRawModeError::new(false, error.to_string()))
 }
 
+/// Send-able copy of terminal cleanup, independent of the UI's `Rc` graph.
+#[derive(Clone, Default)]
+pub struct TerminalRestore {
+    state: Arc<Mutex<TerminalRestoreState>>,
+}
+
+#[derive(Default)]
+struct TerminalRestoreState {
+    termios: Option<Termios>,
+    terminal_bytes: String,
+    before: String,
+    after: String,
+}
+
+impl TerminalRestore {
+    /// Publish the renderer's exact stop output on the owning UI thread.
+    pub fn publish_tui(&self, before: String, after: String) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.before = before;
+        state.after = after;
+    }
+
+    /// Keep terminal writes excluded through the caller's final report/exit.
+    pub fn restore_then(&self, report: impl FnOnce(std::io::Result<()>)) {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let result = restore_process_terminal(&state);
+        report(result);
+    }
+}
+
+fn restore_process_terminal(state: &TerminalRestoreState) -> std::io::Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    stdout.write_all(state.before.as_bytes())?;
+    stdout.write_all(state.terminal_bytes.as_bytes())?;
+    stdout.flush()?;
+    if let Some(termios) = &state.termios {
+        tcsetattr(std::io::stdin(), OptionalActions::Now, termios)?;
+    }
+    stdout.write_all(state.after.as_bytes())?;
+    stdout.flush()
+}
+
 /// Real terminal over stdin/stdout.
 pub struct ProcessTerminal {
     output: Box<dyn Write>,
+    crash_restore: TerminalRestore,
     was_raw: Option<Termios>,
     input_handler: Option<Receiver<Vec<u8>>>,
     read_errors: Option<Receiver<std::io::Error>>,
@@ -285,6 +332,7 @@ impl ProcessTerminal {
     pub fn with_output(output: Box<dyn Write>) -> Self {
         Self {
             output,
+            crash_restore: TerminalRestore::default(),
             was_raw: None,
             input_handler: None,
             read_errors: None,
@@ -303,6 +351,35 @@ impl ProcessTerminal {
             clock_now: Instant::now(),
             write_log_path: write_log_path(),
         }
+    }
+
+    fn publish_terminal_restore(&self) {
+        let mut state = self
+            .crash_restore
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.termios = self.was_raw.clone();
+        state.terminal_bytes = self.stop_sequences();
+    }
+
+    fn stop_sequences(&self) -> String {
+        let progress = if self.progress_active {
+            TERMINAL_PROGRESS_CLEAR_SEQUENCE
+        } else {
+            ""
+        };
+        let kitty = if self.keyboard_protocol_pushed || self.kitty_protocol_active {
+            "\x1b[<u"
+        } else {
+            ""
+        };
+        let modify = if self.modify_other_keys_active {
+            "\x1b[>4;0m"
+        } else {
+            ""
+        };
+        format!("{progress}{BRACKETED_PASTE_DISABLE}{kitty}{modify}")
     }
 
     pub fn modify_other_keys_active(&self) -> bool {
@@ -348,6 +425,7 @@ impl ProcessTerminal {
         self.keyboard_protocol_pushed = true;
         self.clear_keyboard_protocol_negotiation_buffer();
         let query = kitty_keyboard_protocol_query();
+        self.publish_terminal_restore();
         self.write(&query);
     }
 
@@ -498,6 +576,7 @@ impl ProcessTerminal {
         }
         self.write("\x1b[>4;2m");
         self.modify_other_keys_active = true;
+        self.publish_terminal_restore();
     }
 
     fn disable_modify_other_keys(&mut self) {
@@ -506,6 +585,7 @@ impl ProcessTerminal {
         }
         self.write("\x1b[>4;0m");
         self.modify_other_keys_active = false;
+        self.publish_terminal_restore();
     }
 
     fn start_stdin_reader(&mut self) {
@@ -610,6 +690,7 @@ enum KeyboardProtocolRead {
 impl Terminal for ProcessTerminal {
     fn start(&mut self) -> Result<(), TerminalRawModeError> {
         self.was_raw = Some(open_stdin_raw()?);
+        self.publish_terminal_restore();
         self.write(BRACKETED_PASTE_ENABLE);
         self.last_size = terminal_size();
         self.start_stdin_reader();
@@ -617,21 +698,18 @@ impl Terminal for ProcessTerminal {
         Ok(())
     }
 
+    fn crash_restore(&self) -> Option<TerminalRestore> {
+        Some(self.crash_restore.clone())
+    }
+
     fn stop(&mut self) {
-        if self.progress_active {
-            self.progress_active = false;
-            self.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
-        }
-        self.write(BRACKETED_PASTE_DISABLE);
-        let should_disable_kitty = self.keyboard_protocol_pushed || self.kitty_protocol_active;
+        self.write(&self.stop_sequences());
+        self.progress_active = false;
         self.clear_keyboard_protocol_negotiation_buffer();
-        if should_disable_kitty {
-            self.write("\x1b[<u");
-            self.keyboard_protocol_pushed = false;
-            self.kitty_protocol_active = false;
-            crate::keys::set_kitty_protocol_active(false);
-        }
-        self.disable_modify_other_keys();
+        self.keyboard_protocol_pushed = false;
+        self.kitty_protocol_active = false;
+        crate::keys::set_kitty_protocol_active(false);
+        self.modify_other_keys_active = false;
         if let Some(buffer) = self.stdin_buffer.as_mut() {
             buffer.destroy();
         }
@@ -644,6 +722,7 @@ impl Terminal for ProcessTerminal {
         if let Some(termios) = self.was_raw.take() {
             let _ = restore_stdin_mode(&termios);
         }
+        self.publish_terminal_restore();
     }
 
     fn drain_input(&mut self, max_ms: u64, idle_ms: u64) {
@@ -656,6 +735,7 @@ impl Terminal for ProcessTerminal {
             crate::keys::set_kitty_protocol_active(false);
         }
         self.disable_modify_other_keys();
+        self.publish_terminal_restore();
 
         let end = Instant::now() + Duration::from_millis(max_ms);
         let idle = Duration::from_millis(idle_ms);
@@ -679,6 +759,8 @@ impl Terminal for ProcessTerminal {
     }
 
     fn write(&mut self, data: &str) {
+        let recovery = self.crash_restore.clone();
+        let _writing = recovery.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Err(error) = self.output.write_all(data.as_bytes()) {
             self.pending_errors.push(TerminalIoError {
                 syscall: "write",
@@ -749,6 +831,7 @@ impl Terminal for ProcessTerminal {
             self.progress_active = false;
             self.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
         }
+        self.publish_terminal_restore();
     }
 
     fn poll_events(&mut self) -> Vec<TerminalEvent> {
