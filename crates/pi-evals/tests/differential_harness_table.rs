@@ -3,7 +3,7 @@
 #[path = "support/oracle.rs"]
 mod support;
 
-use pi_evals::error::PiEvalError;
+use pi_evals::error::{PiEvalError, PiEvalErrorKind};
 use pi_evals::harness::{Harness, HarnessRun, NormalizedSession, TranscriptEvent, TranscriptRole};
 use pi_evals::vitest_evals::harness_table::{
     EvalHarnessTableCandidatesOptions, EvalHarnessTableOptions, EvalHarnessTablePairOptions, derive_eval_group_key,
@@ -319,7 +319,99 @@ fn eval_harness_table_rejects_invalid_options_like_typescript() {
             Ok(_) => panic!("{name}: invalid options must be rejected"),
             Err(error) => error,
         };
-        assert!(matches!(error, PiEvalError::TypeError(_)), "{name}: {error:?}");
+        assert!(
+            matches!(error.kind(), PiEvalErrorKind::TypeError(_)),
+            "{name}: {error:?}"
+        );
         assert_eq!(error.message(), expected_message, "{name}");
+    }
+}
+
+fn failing_harness(name: &str, with_run: bool, run_artifacts: Option<Map<String, Value>>) -> Harness<Value> {
+    let harness_name = name.to_owned();
+    Harness::new(name, move |_input, _context| {
+        let harness_name = harness_name.clone();
+        let run_artifacts = run_artifacts.clone();
+        Box::pin(async move {
+            let error = PiEvalError::type_error(format!("{harness_name} failed"));
+            if !with_run {
+                return Err(error);
+            }
+            Err(error.with_harness_run(HarnessRun {
+                output: Value::Null,
+                session: NormalizedSession {
+                    events: vec![TranscriptEvent::Message {
+                        role: TranscriptRole::User,
+                        content: Some(Value::String(harness_name.clone())),
+                        metadata: None,
+                    }],
+                },
+                usage: Default::default(),
+                timings: None,
+                artifacts: run_artifacts,
+                errors: Vec::new(),
+            }))
+        })
+    })
+}
+
+#[test]
+fn eval_harness_table_attaches_the_iteration_artifact_to_a_partial_run_like_typescript() {
+    let mut oracle = support::TsOracle::spawn("evals-harness-table-oracle.ts", SOURCE_MODULE);
+    let stale_artifacts = json!({ "existing": "value", "vitestEvalsHarnessIteration": "stale" })
+        .as_object()
+        .cloned();
+    for mode in ["partial", "partial_without_artifacts", "plain"] {
+        let with_run = mode != "plain";
+        let run_artifacts = if mode == "partial" {
+            stale_artifacts.clone()
+        } else {
+            None
+        };
+        let request = json!({
+            "id": mode,
+            "operation": "failing_run",
+            "mode": mode,
+            "evalSet": "failing set",
+            "baseline": "base",
+            "candidate": "cand",
+            "input": {"id": "first"},
+        });
+        let response = oracle.request(&request);
+        assert_eq!(response["ok"], true, "{mode}: {response}");
+        let expected_rows = plan_rows(&response);
+        let rows = eval_harness_table(
+            "failing set",
+            EvalHarnessTableOptions::Pair(EvalHarnessTablePairOptions {
+                baseline: failing_harness("base", with_run, run_artifacts.clone()),
+                candidate: failing_harness("cand", with_run, run_artifacts.clone()),
+                repetitions: None,
+            }),
+        )
+        .expect("planning must succeed");
+        assert_eq!(rows.len(), expected_rows.len(), "{mode}: row count");
+        for (row, expected) in rows.iter().zip(expected_rows.iter()) {
+            let error = match block_on_ready(row.harness.run(json!({"id": "first"}), Default::default())) {
+                Ok(_) => panic!("{mode}: failing harness must fail"),
+                Err(error) => error,
+            };
+            assert_eq!(error.name(), expected["errorName"], "{mode} {}: error name", row.name);
+            assert_eq!(
+                error.message(),
+                expected["errorMessage"],
+                "{mode} {}: error message",
+                row.name
+            );
+            let actual_run = error
+                .harness_run()
+                .map(|run| serde_json::to_value(run).expect("runs serialize"))
+                .unwrap_or(Value::Null);
+            assert_eq!(
+                js_json::stringify(&actual_run),
+                js_json::stringify(&expected["run"]),
+                "{mode} {}: attached run",
+                row.name
+            );
+        }
     }
 }

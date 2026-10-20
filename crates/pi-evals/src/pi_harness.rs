@@ -199,7 +199,7 @@ fn stop_reason_label(reason: StopReason) -> &'static str {
 
 fn throw_if_aborted(signal: Option<&CancellationToken>) -> Result<(), PiEvalError> {
     if signal.is_some_and(CancellationToken::is_cancelled) {
-        return Err(PiEvalError::Abort("This operation was aborted".to_owned()));
+        return Err(PiEvalError::abort("This operation was aborted"));
     }
     Ok(())
 }

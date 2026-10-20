@@ -12,7 +12,7 @@ pub mod pi_harness;
 pub mod style;
 pub mod vitest_evals;
 
-pub use error::PiEvalError;
+pub use error::{PiEvalError, PiEvalErrorKind};
 pub use harness::{
     Harness, HarnessContext, HarnessRun, NormalizedError, NormalizedSession, TimingSummary, ToolCall, ToolCallStatus,
     TranscriptEvent, TranscriptRole, UsageSummary, tool_calls,

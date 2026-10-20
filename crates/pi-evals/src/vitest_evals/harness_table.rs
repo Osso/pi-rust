@@ -12,7 +12,7 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::error::PiEvalError;
-use crate::harness::{Harness, HarnessRunFuture};
+use crate::harness::{Harness, HarnessRun, HarnessRunFuture, JsonObject};
 
 pub const EVAL_HARNESS_ITERATION_ARTIFACT: &str = "vitestEvalsHarnessIteration";
 
@@ -230,18 +230,27 @@ fn with_iteration_artifact<I: Serialize + Send + 'static>(
             let artifact_value =
                 serde_json::to_value(&artifact).expect("eval harness iteration artifacts must serialize");
             context.set_artifact(EVAL_HARNESS_ITERATION_ARTIFACT, artifact_value.clone());
-            let mut run = inner.run(input, context.clone()).await?;
-            let mut artifacts = context.artifacts;
-            if let Some(existing) = run.artifacts.take() {
-                for (key, value) in existing {
-                    artifacts.insert(key, value);
-                }
+            let attach = |run| attach_iteration_artifact(run, &context.artifacts, &artifact_value);
+            match inner.run(input, context.clone()).await {
+                Ok(run) => Ok(attach(run)),
+                Err(mut error) => match error.take_harness_run() {
+                    Some(partial_run) => Err(error.with_harness_run(attach(partial_run))),
+                    None => Err(error),
+                },
             }
-            artifacts.insert(EVAL_HARNESS_ITERATION_ARTIFACT.to_owned(), artifact_value);
-            run.artifacts = Some(artifacts);
-            Ok(run)
         })
     })
+}
+
+/// `attachIterationArtifact`: `{ ...context.artifacts, ...run.artifacts, [ARTIFACT]: artifact }`.
+fn attach_iteration_artifact(mut run: HarnessRun, context_artifacts: &JsonObject, artifact: &Value) -> HarnessRun {
+    let mut artifacts = context_artifacts.clone();
+    for (key, value) in run.artifacts.take().unwrap_or_default() {
+        artifacts.insert(key, value);
+    }
+    artifacts.insert(EVAL_HARNESS_ITERATION_ARTIFACT.to_owned(), artifact.clone());
+    run.artifacts = Some(artifacts);
+    run
 }
 
 /// `evalHarnessTable(evalSet, options)`.

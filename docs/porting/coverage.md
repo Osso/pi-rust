@@ -331,7 +331,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `server/src/connection.ts` | 36 | 6 | done | `crates/pi-server/src/connection.rs` | Byte connection/handler contracts, stage state |
 | `server/src/listener.ts` | 10 | 6 | done | `crates/pi-server/src/listener.rs` | Listener trait |
 | `server/src/types.ts` | 63 | 6 | done | `crates/pi-server/src/types.rs` | Service/runtime traits and option records |
-| `server/src/sessions.ts` | 346 | 7 | done | `crates/pi-server/src/sessions.rs` | Live session manager, disposal, metadata merge |
+| `server/src/sessions.ts` | 346 | 7 | done | `crates/pi-server/src/sessions.rs` | Live session manager, disposal, metadata merge; per-session-id `openingSessions` de-duplication (no global acquire lock) |
 | `server/src/snapshots.ts` | 62 | 7 | done | `crates/pi-server/src/snapshots.rs` | Serialized revision publisher |
 | `server/src/transports/unix/types.ts` | 15 | 7 | done | `crates/pi-server/src/transports/unix/types.rs` | Listener/server options |
 | `server/src/server.ts` | 396 | 8 | done | `crates/pi-server/src/server.rs` | Handshake, dispatch, close, error mapping |
@@ -432,7 +432,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/pi-user-agent.ts` | 4 | 0 | done | `crates/pi-coding-agent/src/utils/pi_user_agent.rs` | Differential 26005; runtime token is `rust` |
 | `coding-agent/src/utils/sleep.ts` | 18 | 0 | done | `crates/pi-coding-agent/src/utils/sleep.rs` | Focused timing/abort tests |
 | `coding-agent/src/utils/terminal-current-directory.ts` | 13 | 0 | done | `crates/pi-coding-agent/src/utils/terminal_current_directory.rs` | Differential 26006; focused tests |
-| `coding-agent/src/core/detached-job-bootstrap.ts` | 113 | 1 | done | `crates/pi-coding-agent/src/core/detached_job_bootstrap.rs` | Gated payload with persisted identity; `setsid(1)`+sh replaces `detached:true`+fd 3 (approved deviation). |
+| `coding-agent/src/core/detached-job-bootstrap.ts` | 113 | 1 | done | `crates/pi-coding-agent/src/core/detached_job_bootstrap.rs` | Gated payload with persisted identity; `setsid(1)`+sh replaces `detached:true`+fd 3 (approved deviation). Command resolved by the shell in the manifest cwd/PATH (no parent-context pre-check); manifest env replaces the child env exactly. |
 | `coding-agent/src/core/exec.ts` | 107 | 1 | done | `crates/pi-coding-agent/src/core/exec.rs` | Shell-free exec with timeout/abort termination and killed-by-signal code 0; behavioral process tests. |
 | `coding-agent/src/core/permissions/presets.ts` | 62 | 1 | done | `crates/pi-coding-agent/src/core/permissions/presets.rs` | Presets, sandbox profiles, policy↔preset mapping; differential `27003`. |
 | `coding-agent/src/core/tools/output-accumulator.ts` | 224 | 1 | done | `crates/pi-coding-agent/src/core/tools/output_accumulator.rs` | differential 139 cases (incl. TextDecoder semantics) |
@@ -723,7 +723,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
 | `evals/src/vitest-evals/artifacts.ts` | 113 | 0 | done | `crates/pi-evals/src/vitest_evals/artifacts.rs` | Session/source artifacts and byte-exact persistence; differential over references and file bodies; Vitest `location` gap ([traceability](traceability/evals-vitest-artifacts.md)). |
-| `evals/src/vitest-evals/harness-table.ts` | 193 | 0 | done | `crates/pi-evals/src/vitest_evals/harness_table.rs` | Group keys, artifact parsing, and table planning; differential over 20 key fixtures, parse fixtures, plans, and validation errors ([traceability](traceability/evals-vitest-harness-table.md)). |
+| `evals/src/vitest-evals/harness-table.ts` | 193 | 0 | done | `crates/pi-evals/src/vitest_evals/harness_table.rs` | Group keys, artifact parsing, table planning, and partial-run attachment on harness errors; differential over 20 key fixtures, parse fixtures, plans, validation errors, and failing-run fixtures ([traceability](traceability/evals-vitest-harness-table.md)). |
 | `evals/src/vitest-evals/summary.ts` | 438 | 0 | done | `crates/pi-evals/src/vitest_evals/summary.rs` | Comparisons and terminal report byte-exact against the TS module in plain and ANSI modes ([traceability](traceability/evals-vitest-summary.md)). |
 | `evals/src/vitest-evals/reporter.ts` | 111 | 1 | done | `crates/pi-evals/src/vitest_evals/reporter.rs` | `runs.jsonl` records (byte-exact), observations, report text; Vitest logger wiring replaced by returned text ([traceability](traceability/evals-vitest-reporter.md)). |
 | `evals/src/vitest-evals/setup.ts` | 8 | 1 | done | `crates/pi-evals/src/vitest_evals/setup.rs` | Session artifact registration after each eval case ([traceability](traceability/evals-vitest-setup.md)). |

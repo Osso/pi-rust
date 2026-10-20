@@ -1,4 +1,5 @@
 import { StringDecoder } from "node:string_decoder";
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 type RequestId = string | number | null;
@@ -22,7 +23,23 @@ type HarnessTableApi = {
 	): Array<{ harness: Harness; name: string; repetition: number }>;
 };
 
+type HarnessErrorApi = {
+	attachHarnessRunToError(error: unknown, run: unknown): Error;
+	getHarnessRunFromError(error: unknown): unknown;
+};
+
+type FailureMode = "partial" | "partial_without_artifacts" | "plain";
+
 type HarnessTableRequest =
+	| {
+			id: RequestId;
+			operation: "failing_run";
+			mode: FailureMode;
+			evalSet: string;
+			baseline: string;
+			candidate: string;
+			input: unknown;
+	  }
 	| { id: RequestId; operation: "group_key"; input: unknown; repetition: number }
 	| { id: RequestId; operation: "parse_artifact"; value?: unknown }
 	| {
@@ -59,8 +76,60 @@ function fakeHarness(name: string): Harness {
 	};
 }
 
-async function execute(request: HarnessTableRequest, api: HarnessTableApi): Promise<Response> {
+function failingHarness(name: string, mode: FailureMode, errors: HarnessErrorApi): Harness {
+	return {
+		name,
+		async run() {
+			const error = new TypeError(`${name} failed`);
+			if (mode === "plain") throw error;
+			const run = {
+				output: null,
+				session: { events: [{ type: "message", role: "user", content: name }] },
+				usage: {},
+				// Key order matches the Rust `HarnessRun` field order; `undefined` keeps the key slot.
+				artifacts: mode === "partial" ? { existing: "value", vitestEvalsHarnessIteration: "stale" } : undefined,
+				errors: [],
+			};
+			throw errors.attachHarnessRunToError(error, run);
+		},
+	};
+}
+
+async function executeFailingRun(
+	request: Extract<HarnessTableRequest, { operation: "failing_run" }>,
+	api: HarnessTableApi,
+	errors: HarnessErrorApi,
+): Promise<Response> {
+	const rows = api.evalHarnessTable(request.evalSet, {
+		baseline: failingHarness(request.baseline, request.mode, errors),
+		candidate: failingHarness(request.candidate, request.mode, errors),
+	});
+	const executed = [];
+	for (const row of rows) {
+		const context = {
+			artifacts: {} as Record<string, unknown>,
+			setArtifact(name: string, value: unknown) {
+				context.artifacts[name] = value;
+			},
+		};
+		try {
+			await row.harness.run(request.input, context);
+			throw new Error("failing harness unexpectedly succeeded");
+		} catch (error) {
+			executed.push({
+				name: row.name,
+				errorName: (error as Error).name,
+				errorMessage: (error as Error).message,
+				run: errors.getHarnessRunFromError(error) ?? null,
+			});
+		}
+	}
+	return { id: request.id, ok: true, output: { rows: executed } };
+}
+
+async function execute(request: HarnessTableRequest, api: HarnessTableApi, errors: HarnessErrorApi): Promise<Response> {
 	try {
+		if (request.operation === "failing_run") return await executeFailingRun(request, api, errors);
 		if (request.operation === "group_key") {
 			return { id: request.id, ok: true, output: { value: api.deriveEvalGroupKey(request.input, request.repetition) } };
 		}
@@ -98,19 +167,19 @@ async function execute(request: HarnessTableRequest, api: HarnessTableApi): Prom
 	}
 }
 
-async function executeRequestLine(line: string, api: HarnessTableApi): Promise<void> {
+async function executeRequestLine(line: string, api: HarnessTableApi, errors: HarnessErrorApi): Promise<void> {
 	let id: RequestId = null;
 	try {
 		const request = JSON.parse(line) as HarnessTableRequest;
 		id = request.id;
-		process.stdout.write(`${JSON.stringify(await execute(request, api))}\n`);
+		process.stdout.write(`${JSON.stringify(await execute(request, api, errors))}\n`);
 	} catch (error) {
 		const response: Response = { id, ok: false, error: normalizeError(error) };
 		process.stdout.write(`${JSON.stringify(response)}\n`);
 	}
 }
 
-function serveRequests(api: HarnessTableApi): void {
+function serveRequests(api: HarnessTableApi, errors: HarnessErrorApi): void {
 	const decoder = new StringDecoder("utf8");
 	let buffer = "";
 	let chain = Promise.resolve();
@@ -121,7 +190,7 @@ function serveRequests(api: HarnessTableApi): void {
 			if (lineFeed === -1) return;
 			const line = buffer.slice(0, lineFeed);
 			buffer = buffer.slice(lineFeed + 1);
-			chain = chain.then(() => executeRequestLine(line, api));
+			chain = chain.then(() => executeRequestLine(line, api, errors));
 		}
 	});
 }
@@ -133,8 +202,12 @@ function readSourceModulePath(): string {
 }
 
 async function main(): Promise<void> {
-	const api = (await import(pathToFileURL(readSourceModulePath()).href)) as HarnessTableApi;
-	serveRequests(api);
+	const sourceModulePath = readSourceModulePath();
+	const api = (await import(pathToFileURL(sourceModulePath).href)) as HarnessTableApi;
+	// The source module imports these from "vitest-evals/harness"; resolve them from the same place.
+	const harnessPath = createRequire(sourceModulePath).resolve("vitest-evals/harness");
+	const errors = (await import(pathToFileURL(harnessPath).href)) as HarnessErrorApi;
+	serveRequests(api, errors);
 }
 
 void main().catch((error: unknown) => {
