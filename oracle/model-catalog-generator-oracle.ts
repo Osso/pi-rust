@@ -157,6 +157,10 @@ async function main(): Promise<void> {
 						const aggregator = join(root!, "src/models.generated.ts");
 						const staged = path.includes(".model-generation-");
 						const publicDir = join(root!, "catalog");
+						if (!injected && request.fault === "public-remove" && operation === "rmSync" && path === publicDir) {
+							injected = true;
+							return fs.readFileSync(path, "utf8");
+						}
 						if (!injected && request.fault === "public-mkdir" && operation === "mkdirSync" && path === join(publicDir, "providers")) {
 							injected = true;
 							fs.writeFileSync(path, "blocking file");

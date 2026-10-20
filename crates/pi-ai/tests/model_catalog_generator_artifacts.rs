@@ -129,6 +129,10 @@ impl pi_ai::model_catalog_generator::CatalogFileSystem for FaultFs {
         self.native.rename(from, to)
     }
     fn remove(&mut self, path: &std::path::Path) -> Result<(), pi_ai::model_catalog_generator::GeneratorError> {
+        if !self.injected && self.fault == "public-remove" && path == self.root.join("catalog") {
+            self.injected = true;
+            return self.native.read(path).map(|_| ());
+        }
         if !self.injected
             && self.fault == "cleanup"
             && path
@@ -747,6 +751,7 @@ fn public_output_failure_keeps_committed_native_catalog_and_partial_public_files
         "packages/ai/scripts/generate-models.ts",
     );
     for fault in [
+        "public-remove",
         "public-mkdir",
         "public-write-models",
         "public-write-providers",
@@ -805,7 +810,10 @@ fn public_output_failure_keeps_committed_native_catalog_and_partial_public_files
         assert_eq!(record.code, expected["error"]["code"].as_str().unwrap());
         assert_eq!(record.syscall, expected["error"]["syscall"].as_str().unwrap());
         assert_eq!(record.errno.map(i64::from), expected["error"]["errno"].as_i64());
-        assert!(!output.join("old").exists());
+        assert_eq!(output.join("old").exists(), fault == "public-remove");
+        if fault == "public-remove" {
+            assert_eq!(fs::read_to_string(output.join("old")).unwrap(), "old public");
+        }
         for path in [
             "catalog/models.json",
             "catalog/providers.json",
