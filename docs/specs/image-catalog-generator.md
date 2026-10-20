@@ -23,7 +23,9 @@ The maintenance binary `generate-image-models` writes exactly `crates/pi-ai/data
 
 ### Wrong-field approval (2026-10-20)
 
-Continuation instruction records the exact decision: catalog wrong-typed fields, e.g. `id:null` → **“Reject wrong field types (Recommended)”**, rather than reproduce V8 sort accidents. This is not a blanket invalid-input exclusion.
+Question: “For catalog responses with wrong-typed fields such as `id: null`, should Rust reject invalid records or reproduce V8’s accidental sort/exception behavior exactly? Exact matching now requires porting V8’s sorting algorithm; valid string IDs are unaffected.”
+
+Answer: **“Reject wrong field types (Recommended)”**. This is not a blanket invalid-input exclusion.
 
 Outer missing/empty/nonarray `data` behavior stays source-exact in both strict modes. Records must be objects. At source read points, architecture/pricing may be missing or null; otherwise they must be objects. Present modality arrays may be null (the source `?? []` contract); non-null arrays must contain strings. Unsupported string modalities remain filtered, preserving dedup/order/default text. Usable model IDs must be strings even when absent/null, before dedup. Missing name remains omitted; present name must be string. Missing price fields default to zero; present prices must be strings, not null/coercible numbers/arrays/objects. String parseFloat NaN/Infinity/-0/overflow remain unchanged. No finite/range checks, validation of unconsumed extra fields, or all-required DTO gate. Fields after a source skip/dedup boundary remain unread.
 
@@ -31,7 +33,9 @@ Errors use `TypeError: Invalid OpenRouter image model <field>: expected <type>`.
 
 ### Native-cause approval (2026-10-20)
 
-Continuation instruction records the exact decision: native HTTP failures → **“Allow native causes (Recommended)”**. Only native cause diagnostics may differ; top-level error name/message, console order and exit status still match Node. JS-frame omission remains separately scoped above. Shared transport integration is pending, not waived.
+Question: “For native HTTP failures, may Rust preserve the top-level error name/message but use native cause diagnostics instead of reproducing Node’s nested errno/address/cause objects? Failure ordering and exit behavior would still match.”
+
+Answer: **“Allow native causes (Recommended)”**. Only native cause diagnostics may differ; top-level error name/message, console order and exit status still match Node. JS-frame omission remains separately scoped above. Shared transport integration is pending, not waived.
 
 ## How it works
 
