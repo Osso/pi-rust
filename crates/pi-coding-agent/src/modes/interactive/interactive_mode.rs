@@ -980,65 +980,81 @@ pub(crate) fn format_diagnostics(
             }
         }
 
-        for (name, collision_list) in &collisions {
-            let Some(first) = collision_list
-                .first()
-                .and_then(|diagnostic| diagnostic.collision.as_ref())
-            else {
-                continue;
-            };
-            lines.push(theme.fg(ThemeColor::Warning, &format!("  \"{name}\" collision:")));
-            lines.push(theme.fg(
-                ThemeColor::Dim,
-                &format!(
-                    "    {} {}",
-                    theme.fg(ThemeColor::Success, "✓"),
-                    format_path_with_source(
-                        &first.winner_path,
-                        find_source_info_for_path(&first.winner_path, source_infos)
-                    )
-                ),
-            ));
-            for diagnostic in collision_list {
-                if let Some(collision) = &diagnostic.collision {
-                    lines.push(theme.fg(
-                        ThemeColor::Dim,
-                        &format!(
-                            "    {} {} (skipped)",
-                            theme.fg(ThemeColor::Warning, "✗"),
-                            format_path_with_source(
-                                &collision.loser_path,
-                                find_source_info_for_path(&collision.loser_path, source_infos)
-                            )
-                        ),
-                    ));
-                }
-            }
-        }
-
-        for diagnostic in other {
-            let color = if diagnostic.diagnostic_type == ResourceDiagnosticType::Error {
-                ThemeColor::Error
-            } else {
-                ThemeColor::Warning
-            };
-            match &diagnostic.path {
-                Some(path) => {
-                    lines.push(theme.fg(
-                        color,
-                        &format!(
-                            "  {}",
-                            format_path_with_source(path, find_source_info_for_path(path, source_infos))
-                        ),
-                    ));
-                    lines.push(theme.fg(color, &format!("    {}", diagnostic.message)));
-                }
-                None => lines.push(theme.fg(color, &format!("  {}", diagnostic.message))),
-            }
-        }
-
+        push_collision_lines(&mut lines, theme, &collisions, source_infos);
+        push_other_diagnostic_lines(&mut lines, theme, &other, source_infos);
         lines.join("\n")
     })
+}
+
+fn push_collision_lines(
+    lines: &mut Vec<String>,
+    theme: &Theme,
+    collisions: &IndexMap<String, Vec<&ResourceDiagnostic>>,
+    source_infos: &HashMap<String, SourceInfo>,
+) {
+    for (name, collision_list) in collisions {
+        let Some(first) = collision_list
+            .first()
+            .and_then(|diagnostic| diagnostic.collision.as_ref())
+        else {
+            continue;
+        };
+        lines.push(theme.fg(ThemeColor::Warning, &format!("  \"{name}\" collision:")));
+        lines.push(theme.fg(
+            ThemeColor::Dim,
+            &format!(
+                "    {} {}",
+                theme.fg(ThemeColor::Success, "✓"),
+                format_path_with_source(
+                    &first.winner_path,
+                    find_source_info_for_path(&first.winner_path, source_infos)
+                )
+            ),
+        ));
+        for diagnostic in collision_list {
+            if let Some(collision) = &diagnostic.collision {
+                lines.push(theme.fg(
+                    ThemeColor::Dim,
+                    &format!(
+                        "    {} {} (skipped)",
+                        theme.fg(ThemeColor::Warning, "✗"),
+                        format_path_with_source(
+                            &collision.loser_path,
+                            find_source_info_for_path(&collision.loser_path, source_infos)
+                        )
+                    ),
+                ));
+            }
+        }
+    }
+}
+
+fn push_other_diagnostic_lines(
+    lines: &mut Vec<String>,
+    theme: &Theme,
+    other: &[&ResourceDiagnostic],
+    source_infos: &HashMap<String, SourceInfo>,
+) {
+    for diagnostic in other {
+        let color = if diagnostic.diagnostic_type == ResourceDiagnosticType::Error {
+            ThemeColor::Error
+        } else {
+            ThemeColor::Warning
+        };
+        match &diagnostic.path {
+            Some(path) => {
+                lines.push(theme.fg(
+                    color,
+                    &format!(
+                        "  {}",
+                        format_path_with_source(path, find_source_info_for_path(path, source_infos))
+                    ),
+                ));
+                lines.push(theme.fg(color, &format!("    {}", diagnostic.message)));
+            }
+            None => lines.push(theme.fg(color, &format!("  {}", diagnostic.message))),
+        }
+    }
 }
 
 pub(crate) fn format_compact_list(items: &[String], sort: bool) -> String {
