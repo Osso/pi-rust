@@ -42,10 +42,17 @@ fn sort_strings(values: &mut [String]) {
     values.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
 }
 
-fn sorted_record<T>(entries: impl IntoIterator<Item = (String, T)>) -> IndexMap<String, T> {
+fn sorted_record<T: Serialize>(entries: impl IntoIterator<Item = (String, T)>) -> IndexMap<String, T> {
     let mut entries: Vec<_> = entries.into_iter().collect();
     entries.sort_by(|(a, _), (b, _)| a.encode_utf16().cmp(b.encode_utf16()));
-    entries.into_iter().collect()
+    let mut record: IndexMap<_, _> = entries.into_iter().collect();
+    record_keys(&record)
+        .into_iter()
+        .map(|key| {
+            let value = record.swap_remove(&key).expect("enumerated key exists");
+            (key, value)
+        })
+        .collect()
 }
 
 // Reuse JavaScript's integer-index enumeration, including for typed records.
@@ -148,10 +155,20 @@ fn read_json_object(path: &Path, description: &str, errors: &mut Vec<String>) ->
 pub fn read_model_data_provider_ids(package_root: &Path) -> Result<Vec<String>> {
     let path = package_root.join("src/models.generated.ts");
     let text = read_text(&path)?;
-    let pattern =
-        regex::Regex::new(r#"(?m)^import \{ [A-Z][A-Z0-9_]*_MODELS \} from "\./providers/([^"/]+)\.models\.ts";$"#)
-            .expect("static pattern");
-    let mut ids: Vec<_> = pattern.captures_iter(&text).map(|c| c[1].to_owned()).collect();
+    let pattern = regex::Regex::new(
+        r#"(?:^|[\n\r\u{2028}\u{2029}])import \{ [A-Z][A-Z0-9_]*_MODELS \} from "\./providers/([^"/]+)\.models\.ts";"#,
+    )
+    .expect("static pattern");
+    let mut ids: Vec<_> = pattern
+        .captures_iter(&text)
+        .filter(|capture| {
+            text[capture.get(0).expect("whole match").end()..]
+                .chars()
+                .next()
+                .is_none_or(|c| matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
+        })
+        .map(|capture| capture[1].to_owned())
+        .collect();
     sort_strings(&mut ids);
     if ids.is_empty() {
         return Err(ModelDataError(format!(

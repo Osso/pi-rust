@@ -316,3 +316,35 @@ fn checker_exit_stdout_stderr_match_actual_pinned_script_on_fixtures() {
         println!("fixture check valid={valid}: {}", actual["output"]);
     }
 }
+
+#[test]
+fn import_line_terminators_match_js() {
+    let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
+    for newline in ["\n", "\r\n", "\r", "\u{2028}", "\u{2029}"] {
+        let fixture = Fixture::new();
+        let imports = format!(
+            "// fixture{newline}import {{ TEST_PROVIDER_MODELS }} from \"./providers/test-provider.models.ts\";{newline}"
+        );
+        fs::write(fixture.root.join("src/models.generated.ts"), imports).unwrap();
+        assert_eq!(
+            result(read_model_data_provider_ids(&fixture.root).map(|v| json!(v))),
+            oracle.request(&json!({"op":"providers","root":fixture.root})),
+            "terminator {newline:?}"
+        );
+    }
+}
+
+#[test]
+fn manifest_record_order_matches_js() {
+    let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
+    let manifest = create_model_data_manifest(
+        &ModelDataStructure::new(),
+        &serde_json::from_value(json!({"10":"x","2":"y","😀":"z","\u{e000}":"q"})).unwrap(),
+        GENERATED_AT,
+    );
+    let expected=oracle.request(&json!({"op":"manifest","structure":{},"files":{"10":"x","2":"y","😀":"z","\u{e000}":"q"},"generatedAt":GENERATED_AT}));
+    assert_eq!(
+        serde_json::to_string(&manifest).unwrap(),
+        serde_json::to_string(&expected["output"]).unwrap()
+    );
+}
