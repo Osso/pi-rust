@@ -125,6 +125,15 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
         "packages/coding-agent/examples/extensions/built-in-tool-renderer.ts",
     );
     let expected = oracle.request(&request);
+    for key in ["commands", "tools", "executions", "files"] {
+        assert_eq!(actual[key], expected[key], "complete {key}");
+    }
+    for (index, item) in request["renders"].as_array().unwrap().iter().enumerate() {
+        assert_eq!(
+            actual["renders"][index], expected["renders"][index],
+            "render case {index}: {item}"
+        );
+    }
     assert_eq!(actual, expected, "complete renderer/runtime transcript");
     actual
 }
