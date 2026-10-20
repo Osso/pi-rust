@@ -42,7 +42,18 @@ pub async fn fixture() -> Fixture {
     let agent_dir = home.path().join("agent");
     std::fs::create_dir_all(&cwd).unwrap();
     std::fs::create_dir_all(&agent_dir).unwrap();
-    let faux = faux_provider(RegisterFauxProviderOptions::default());
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        models: Some(vec![pi_ai::providers::faux::FauxModelDefinition {
+            id: "sdk-fixture".into(),
+            name: Some("SDK fixture".into()),
+            reasoning: Some(true),
+            input: None,
+            cost: None,
+            context_window: Some(100_000.0),
+            max_tokens: Some(4096.0),
+        }]),
+        ..Default::default()
+    });
     let model = faux.get_model(None).unwrap();
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::from_iter([(
@@ -58,8 +69,10 @@ pub async fn fixture() -> Fixture {
     runtime.register_native_provider(Arc::clone(&faux.provider));
     let requests = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&requests);
-    let step = FauxResponseStep::Factory(Arc::new(move |context, _, _, model| {
-        seen.lock().unwrap().push(json!({"context":context,"model":model}));
+    let step = FauxResponseStep::Factory(Arc::new(move |context, options, _, model| {
+        seen.lock()
+            .unwrap()
+            .push(json!({"context":context,"model":model,"reasoning":options.and_then(|o| o.reasoning)}));
         Box::pin(async {
             Ok(faux_assistant_message(
                 vec![

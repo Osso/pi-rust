@@ -9,7 +9,7 @@ const ts = createRequire(resolve(dirname(process.argv[2]), "../../../..", "packa
 const source = readFileSync(process.argv[2], "utf8");
 async function run(request: any) {
  const logs: any[] = [], prompts: any[] = [], disposed: number[] = [], created: any[] = [];
- let stdout = "";
+ let stdout = "", stderr = "";
  const append = (...args: any[]) => { logs.push(args); stdout += args.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ") + "\n"; };
  class Runtime {
   static async create() { return new Runtime(); }
@@ -89,8 +89,8 @@ async function run(request: any) {
   }
  };
  const context = vm.createContext({
-  process: { cwd: () => "/fixture/project", env: {}, stdout: {write(text: string) {stdout += text;}} },
-  console: {log:append, warn:append},
+  process: { cwd: () => "/fixture/project", env: {}, stdout: {write(text: string) {if (request.writeFailure) throw new Error(request.writeFailure); stdout += text;}} },
+  console: {log:append, warn: (...args: any[]) => {logs.push(args); stderr += args.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ") + "\n";} },
   require: (name: string) => {
    if (name === "@earendil-works/pi-coding-agent") return {...sdk, createExtensionRuntime: () => ({})};
    if (name === "@earendil-works/pi-ai/compat") return {getModel: () => ({provider:"anthropic",id:"claude-sonnet-4-5"})};
@@ -102,7 +102,7 @@ async function run(request: any) {
  let error = null, errorName = null;
  try { await vm.runInContext(`(async () => {${javascript}\n})()`,context); }
  catch (failure: any) { error = failure.message; errorName = failure.name; }
- return {stdout, logs, prompts, disposed, created, error, errorName};
+ return {stdout, stderr, logs, prompts, disposed, created, error, errorName};
 }
 async function main() {
 let pending = "";

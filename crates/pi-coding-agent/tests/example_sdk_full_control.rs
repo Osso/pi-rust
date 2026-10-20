@@ -22,6 +22,10 @@ async fn replaces_discovery_settings_prompt_and_tools() {
     assert_eq!(output.text(), expected["stdout"]);
     let requests = fixture.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0]["reasoning"].is_null(),
+        "thinking off reaches provider without reasoning"
+    );
     let context = &requests[0]["context"];
     assert_eq!(
         context["systemPrompt"],

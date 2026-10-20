@@ -31,9 +31,12 @@ and formatting run; no broad checks, clippy or live providers.
 
 ## Remaining scope
 
-02–13 implemented. No API gap identified in 02–04. Diagnostics/error and empty-model
-branches are ported; current fixtures prove the successful populated paths, not
-exhaustive SDK branch parity.
+02–13 implemented. No API gap identified. Optional model lookup/empty availability,
+skill-warning, model-fallback-note, empty session listing and absent initial file
+branches are implemented but lack independent native fixtures. Those are explicit
+proof gaps, not missing APIs or intentionally changed behavior. Common streamed
+writer-failure/finally and settings parse-error/stderr paths have differential
+fixtures; tests do not claim exhaustive SDK branch parity.
 
 ## 05–08 mapping and discrepancies
 
@@ -91,3 +94,18 @@ therefore `Queued: 0` precedes each replacement label. Oracle seam behavior is
 anchored in pinned `agent-session-runtime.ts:179–186` and
 `agent-session.ts:3749–3756`. Final explicit unsubscribe precedes disposal, as in
 source. No new API gap or semantic deviation identified.
+
+## Error-stream and reasoning regressions
+
+`example_sdk_custom_model` also compares a streamed writer failure against the
+pinned program: exact Error name/message, unchanged prior stdout, source finally
+order and real native session-resource cleanup. Its reasoning-capable Faux model
+asserts medium reaches the provider. `example_sdk_full_control` asserts off reaches
+the provider without reasoning. No production provider is contacted.
+
+`example_sdk_settings` separately proves console.warn remains stderr, not stdout.
+It loads the actual pinned TS SettingsManager on the same private corrupt settings
+file and obtains exact error messages. Both TS and Rust leave the corrupt bytes
+unchanged; the complete pinned example then receives those real errors, and both
+stdout/stderr streams compare exactly. `sdk-settings-state-oracle.ts` is this real
+manager seam. Source's successful sessions and warning output order remain intact.

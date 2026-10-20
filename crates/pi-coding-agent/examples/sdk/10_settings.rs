@@ -12,7 +12,11 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-pub async fn run(options: [CreateAgentSessionOptions; 2], mut output: impl Write) -> Result<Value, String> {
+pub async fn run(
+    options: [CreateAgentSessionOptions; 2],
+    mut output: impl Write,
+    mut warnings: impl Write,
+) -> Result<Value, String> {
     let [mut custom, mut test] = options;
     let paths = resources::options(&custom)?;
     let from_disk = SettingsManager::create(&paths.cwd, Some(Path::new(&paths.agent_dir)), Default::default())
@@ -42,8 +46,13 @@ pub async fn run(options: [CreateAgentSessionOptions; 2], mut output: impl Write
         manager.set_default_thinking_level(ThinkingLevel::Low);
         manager.flush();
         for error in manager.drain_errors() {
-            writeln!(output, "Warning ({} settings): {}", error.scope.as_str(), error.message)
-                .map_err(|e| e.to_string())?;
+            writeln!(
+                warnings,
+                "Warning ({} settings): {}",
+                error.scope.as_str(),
+                error.message
+            )
+            .map_err(|e| e.to_string())?;
         }
         snapshot
     };
@@ -65,6 +74,7 @@ pub async fn main() -> Result<(), error::ExampleError> {
     run(
         std::array::from_fn(|_| CreateAgentSessionOptions::default()),
         std::io::stdout(),
+        std::io::stderr(),
     )
     .await
     .map(|_| ())

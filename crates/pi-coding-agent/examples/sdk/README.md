@@ -50,3 +50,7 @@ providers. See [traceability](../../../../docs/porting/traceability/example-sdk-
 06 accepts a native `ExtensionRegistry`; configured TS path strings are native
 registry IDs, not dynamically executed files. 07/08 intentionally retain the
 source’s off-by-one printed counts.
+
+10 keeps settings warnings on stderr; its fixture entry point accepts separate
+output/warning writers. 02/12 tests use a reasoning-capable Faux model to verify
+medium/off selection; streaming failures prove session cleanup.
