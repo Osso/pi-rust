@@ -112,3 +112,8 @@ Embed via `#[path]` and register its factory explicitly. It runs git/gh and
 preloads up to 100 open issues per session; no default loading. Differential
 tests use a sandbox-local fake gh, never GitHub. Question/questionnaire forms
 await the core extension editor-host bridge; no partial forms are shipped.
+
+`rpc_demo.rs` exports `rpc_demo_extension`; register explicitly with the same
+registry pattern. Demonstrates RPC dialogs, status/widgets/title and editor
+prefill. Dangerous bash calls require confirmation; no UI blocks them.
+`example_rpc_demo` exercises the real RPC transport using private sessions.
