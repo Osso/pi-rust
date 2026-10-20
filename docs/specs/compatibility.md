@@ -76,6 +76,17 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 
 Independent integrated proof is pending. The finite corpus does not establish general V8 grammar completeness; exact fixtures and development evidence live in [shared compatibility traceability](../porting/traceability/js-compat.md#dateparse-srcdaters).
 
+### en-US local-date formatting
+
+- [x] Pin `Date.prototype.toLocaleString()` date output to en-US regardless of host locale, retaining the process-local time zone (approved October 20, 2026, extending the en-US number-grouping deviation).
+- [x] Format supported epoch milliseconds as `M/D/YYYY, h:mm:ss AM`/`PM`: unpadded month/day/hour, two-digit minutes/seconds, ASCII spaces including before AM/PM, matching pinned Node v26.11.1. Truncate subsecond precision.
+- [x] Resolve named `TZ` zones with production zoneinfo data; compare fixed midnight/noon, AM/PM, single/double-digit and New York DST-boundary values in fresh UTC/New York processes. Return no value when the local zone cannot be resolved or the timestamp lies outside Jiff's supported calendar range; no UTC fallback.
+
+Shared helper: `pi_js_compat::date::to_locale_string`. Behavioral/differential proof:
+`crates/pi-coding-agent/tests/example_input_transform.rs`; mapping and bounded proof
+limits: [extension batch B](../porting/traceability/extension-examples-b.md).
+This slice does not claim all `Intl` options, arbitrary calendar ranges, or exhaustive time-zone parity.
+
 ## How it works
 
 - [Differential port system](../wiki/systems/differential-port.md)
