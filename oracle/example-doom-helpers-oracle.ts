@@ -60,6 +60,8 @@ async function run(r: any) {
   engine.tick();engine.pushKey(true,173);engine.pushKey(false,173);
   return {trace,error,initialized:engine.isInitialized(),width:engine.width,height:engine.height,frame:[...engine.getFrameRGBA()]};
  }
+ // node:path.resolve reads Node's real process cwd, not the VM's process object.
+ process.chdir(r.cwd);
  const calls:any[]=[];
  const bundled=join(r.bundled,"doom1.wad");
  const exports=evaluate(sourcePath,{sourceUrl:pathToFileURL(join(r.bundled,"wad-finder.ts")).href,
