@@ -95,3 +95,7 @@ and mouse-disabled start/stop.
   target equals the current scroll position, which clears follow-end; replicated.
 - Focus-out clears a zero-width selection without requesting a render; a
   completed visible selection is retained. Covered by the focus-loss tests.
+
+## Base fixed cells
+
+`TuiAltScreen::create_fixed_cell` mirrors inherited TS TuiBase.createFixedCell (tui.ts:563–591): retains placement/value, schedules rendering on update (returns false), and unregisters on dispose. It does not use the main-screen immediate-write implementation. Core proof: `extension_ui_fullscreen_factory_uses_base_fixed_cells`.

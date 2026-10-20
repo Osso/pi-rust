@@ -115,3 +115,7 @@ start/stop.
   covered by the `terminal-colors` slice.
 - Debug `/tmp/tui` render dumps and `PI_DEBUG_REDRAW` timestamp text format differ
   (unix seconds instead of ISO timestamps; the reason string is asserted).
+
+## Extension fullscreen fixed cells
+
+`FixedCellWriter::Alternate` reaches the live alternate-screen TuiBase for deferred render requests and disposal, matching inherited TS TuiBase.createFixedCell. See [alternate screen](tui-alt-screen.md).

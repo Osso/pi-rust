@@ -248,6 +248,10 @@ impl CustomEditor {
 }
 
 impl Component for CustomEditor {
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn pi_tui::tui::Focusable> {
+        Some(self)
+    }
+
     fn render(&mut self, width: usize) -> Vec<String> {
         self.editor.render(width)
     }
