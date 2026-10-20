@@ -8,7 +8,7 @@ none loads by default. Only JavaScript stack frames may be omitted.
 | --- | --- | --- |
 | `git-merge-and-resolve.ts` default / `agent_end` | `examples/extensions/git_merge_and_resolve.rs::git_merge_and_resolve_extension` | `example_git_merge_and_resolve`: complete metadata, notifications, follow-up delivery options/messages, errors, file contents and git status against real pinned loader/runner |
 | `findConflicts`, `formatRange`, `formatConflicts` | private native helpers | New/existing merge, malformed markers, single/multiline/empty sections; conflict instruction mutation rejected |
-| `interactive-shell.ts` default / `user_bash` | Not shipped | Missing native terminal lifecycle API; see below |
+| `interactive-shell.ts` default / `user_bash` | `examples/extensions/interactive_shell.rs::interactive_shell_extension` | Done: `example_interactive_shell`; [core UI API/proof](core-ui-input.md#interactive-shell--done) |
 | `handoff.ts` default / `/handoff` | `examples/extensions/handoff.rs::handoff_extension` | `example_handoff`: fourteen complete-result scenarios including original-context invalidation, replacement UI, parent tracking and compaction; metadata mutation rejected |
 | `summarize.ts` default / `/summarize` | `examples/extensions/summarize.rs::summarize_extension` | `example_summarize`: ten cases, complete command/tool metadata, notifications, model requests, outputs/errors, custom renders at 32/80 columns, Enter/Esc/irrelevant input |
 | `ssh.ts` default / flag, four tools, three events | Not shipped | Native custom-operation errors cannot propagate arbitrary Error messages; see below |
@@ -94,10 +94,6 @@ retained in the ledger. No SSH port is claimed.
 
 ## Missing native API: interactive shell
 
-Pinned `interactive-shell.ts:157–174` calls `tui.stop()`, inherited stdio
-`spawnSync`, `tui.start()`, and `tui.requestRender(true)` inside `ui.custom`.
-`crates/pi-coding-agent/src/core/extensions/types.rs:277–319` exposes only
-`request_render`, terminal dimensions and mode on `ExtensionUiTuiBackend` /
-`ExtensionUiTui`; no terminal release/reacquisition or forced-render argument.
-PTY availability does not supply these extension-facing methods. Stop this
-example rather than execute while TUI owns the terminal or add a core API.
+Historical blocker resolved by the [core UI input slice](core-ui-input.md).
+Native stop/start and forced request-render now support the complete example;
+that traceability page owns the API mapping, acceptance matrix and proof limits.

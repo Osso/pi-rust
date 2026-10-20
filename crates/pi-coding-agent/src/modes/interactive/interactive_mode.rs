@@ -11859,6 +11859,7 @@ mod ui_tests {
         writes: Vec<String>,
         events: Vec<TerminalEvent>,
         progress: Vec<bool>,
+        start_error: Option<TerminalRawModeError>,
     }
 
     impl CaptureTerminal {
@@ -11873,7 +11874,10 @@ mod ui_tests {
 
     impl Terminal for CaptureTerminal {
         fn start(&mut self) -> Result<(), TerminalRawModeError> {
-            Ok(())
+            match &self.start_error {
+                Some(error) => Err(error.clone()),
+                None => Ok(()),
+            }
         }
         fn stop(&mut self) {}
         fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
@@ -12151,6 +12155,7 @@ mod ui_tests {
             writes: Vec::new(),
             events: Vec::new(),
             progress: Vec::new(),
+            start_error: None,
         }));
         let terminal_trait: Rc<RefCell<dyn Terminal>> = terminal.clone();
         let mode = InteractiveMode::new(
@@ -14342,6 +14347,11 @@ mod ui_tests {
                     terminal.borrow().writes.concat().contains("\x1b[?1004h"),
                     "start must reacquire before returning"
                 );
+                tui.stop();
+                let error = TerminalRawModeError::new(true, "fixture raw-mode failure");
+                terminal.borrow_mut().start_error = Some(error.clone());
+                assert_eq!(tui.start(), Err(error.to_string()));
+                terminal.borrow_mut().start_error = None;
             })
             .await;
     }
