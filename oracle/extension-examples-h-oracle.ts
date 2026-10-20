@@ -20,7 +20,7 @@ async function main() {
   const extension = await loader.loadExtensionFromFactory(factory, request.cwd, events.createEventBus(), runtime, source);
   const registry = await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
   const runner = new runnerModule.ExtensionRunner([extension], runtime, request.cwd, session.SessionManager.inMemory(request.cwd), registry);
-  const theme = new themeModule.Theme(new Map(Object.entries(request.colors)), new Map(), "truecolor");
+  const theme = new themeModule.Theme({...request.colors, thinkingXhigh:"#ffffff", text:"#ffffff"}, {selectedBg:"#000000"}, "truecolor");
   const tools = [...extension.tools.values()].map(({definition: d}: any) => ({
    name:d.name,label:d.label,description:d.description,parameters:d.parameters,renderShell:d.renderShell ?? null,
    promptSnippet:d.promptSnippet ?? null,promptGuidelines:d.promptGuidelines ?? null,
