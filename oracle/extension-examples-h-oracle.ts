@@ -33,7 +33,9 @@ async function main() {
     executionStarted:true,argsComplete:true,isPartial:item.isPartial,expanded:item.expanded,showImages:false,isError:item.isError ?? false};
    const component = item.result === undefined ? tool.renderCall(item.args,theme,context) :
     tool.renderResult(item.result,{expanded:item.expanded,isPartial:item.isPartial},theme,context);
-   renders.push(request.widths.map((width: number) => component.render(width)));
+   // Compatibility spec excludes lone surrogates at String-typed TUI boundaries.
+   // Preserve every scalar/ANSI byte; project only unpaired UTF-16 units to U+FFFD.
+   renders.push(request.widths.map((width: number) => component.render(width).map((line: string) => line.toWellFormed())));
   }
   for (const [name, text] of Object.entries(request.initial)) await writeFile(resolve(request.cwd,name),text as string);
   const executions = [];

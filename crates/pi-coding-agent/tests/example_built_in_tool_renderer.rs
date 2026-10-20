@@ -19,6 +19,7 @@ fn fixtures() -> Vec<Value> {
         json!({"tool":"bash","args":{"command":"x".repeat(80),"timeout":0}}),
         json!({"tool":"bash","args":{"command":format!("{} λ🚀", "x".repeat(100)),"timeout":2.5}}),
         json!({"tool":"bash","args":{"command":format!("{}🚀{}", "x".repeat(75),"z".repeat(10))}}),
+        json!({"tool":"bash","args":{"command":format!("{}🚀{}", "x".repeat(76),"z".repeat(10))}}),
         json!({"tool":"edit","args":{"path":"src/λ.rs"}}),
         json!({"tool":"write","args":{"path":"x","content":"one\ntwo\n"}}),
         json!({"tool":"write","args":{"path":"x","content":""}}),
@@ -93,7 +94,8 @@ async fn complete_renderers_and_delegated_execution_match_pinned_extension() {
         ],"files":["read.txt","edit.txt","write.txt"]
     })).await;
     std::env::set_current_dir(previous).unwrap();
-    assert_eq!(actual["renders"].as_array().unwrap().len(), 93);
+    assert_eq!(actual["renders"].as_array().unwrap().len(), 94);
+    assert!(actual["renders"][10][5][0].as_str().unwrap().contains("\u{fffd}..."));
     assert_eq!(actual["files"]["edit.txt"], "after\n");
     assert_eq!(actual["files"]["write.txt"], "written\nλ");
 }
