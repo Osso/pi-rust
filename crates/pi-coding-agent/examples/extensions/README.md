@@ -113,3 +113,9 @@ current upstream after agent turns and delivers unresolved conflict locations
 as follow-ups. Enable deliberately; tests use only private repositories.
 `interactive-shell` is blocked on extension-facing TUI stop/start methods; see
 [`batch I traceability`](../../../../docs/porting/traceability/extension-examples-i.md).
+
+`summarize.rs` exports `summarize_extension`; explicitly register its factory to
+add `/summarize`. It completes with the host registry’s `openai/gpt-5.2`, then
+shows a Markdown summary in TUI mode. Nothing loads by default. SSH is blocked
+on preserving arbitrary remote errors through native filesystem operations;
+see batch I traceability.

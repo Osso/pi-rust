@@ -1,0 +1,117 @@
+//! Opt-in native summary command; model completion uses the host registry.
+use pi_ai::{
+    request::{StreamOptions, now_millis},
+    types::{AssistantContent, CacheRetention, Context},
+    utils::uuid::uuidv7,
+};
+use pi_coding_agent::{
+    core::extensions::*,
+    modes::interactive::theme::{ThemeColor, get_markdown_theme},
+};
+use pi_js_compat::string::js_trim;
+use pi_tui::{
+    Text,
+    components::{dynamic_border::DynamicBorder, markdown::Markdown},
+    tui::Component,
+};
+use serde_json::{Value, json};
+use std::{rc::Rc, sync::Arc};
+
+fn text_parts(content: &Value) -> Vec<&str> {
+    if let Some(text) = content.as_str() {
+        return vec![text];
+    }
+    content
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|part| part["type"] == "text")
+        .filter_map(|part| part["text"].as_str())
+        .collect()
+}
+fn conversation_text(entries: &[pi_coding_agent::core::session_manager::SessionEntry]) -> Result<String, HandlerError> {
+    let mut sections = Vec::new();
+    for entry in entries {
+        let entry = serde_json::to_value(entry).map_err(|e| HandlerError::new(e.to_string()))?;
+        if entry["type"] != "message" {
+            continue;
+        }
+        let role = entry["message"]["role"].as_str().unwrap_or_default();
+        if role != "user" && role != "assistant" {
+            continue;
+        }
+        let content = &entry["message"]["content"];
+        let mut lines = Vec::new();
+        let parts = text_parts(content);
+        if !parts.is_empty() {
+            let text = parts.join("\n");
+            let text = js_trim(&text);
+            if !text.is_empty() {
+                lines.push(format!("{}: {text}", if role == "user" { "User" } else { "Assistant" }));
+            }
+        }
+        if role == "assistant" {
+            for part in content.as_array().into_iter().flatten() {
+                if part["type"] == "toolCall"
+                    && let Some(name) = part["name"].as_str()
+                {
+                    let args = part
+                        .get("arguments")
+                        .filter(|v| !v.is_null())
+                        .cloned()
+                        .unwrap_or(json!({}));
+                    lines.push(format!(
+                        "Tool {name} was called with args {}",
+                        pi_js_compat::js_json::stringify(&args)
+                    ));
+                }
+            }
+        }
+        if !lines.is_empty() {
+            sections.push(lines.join("\n"));
+        }
+    }
+    Ok(sections.join("\n\n"))
+}
+struct Summary {
+    text: String,
+    context: ExtensionUiFactoryContext,
+    done: ExtensionUiDone,
+}
+impl ExtensionUiComponent for Summary {
+    fn render(&self, width: usize) -> Vec<String> {
+        let theme = self.context.theme.clone();
+        let border = || {
+            let theme = theme.clone();
+            DynamicBorder::new(Rc::new(move |s| theme.fg(ThemeColor::Accent, s))).render(width)
+        };
+        let mut lines = border();
+        lines.extend(Text::new(theme.fg(ThemeColor::Accent, &theme.bold("Conversation Summary")), 1, 0).render(width));
+        lines.extend(Markdown::new(&self.text, 1, 1, get_markdown_theme(), None, Default::default()).render(width));
+        lines.extend(Text::new(theme.fg(ThemeColor::Dim, "Press Enter or Esc to close"), 1, 0).render(width));
+        lines.extend(border());
+        lines
+    }
+    fn handle_input(&self, data: &str) {
+        if pi_tui::keys::matches_key(data, "enter") || pi_tui::keys::matches_key(data, "escape") {
+            self.done.call(None);
+        }
+    }
+}
+pub fn summarize_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
+    pi.register_command("summarize",Some("Summarize the current conversation in a custom UI".into()),None,Arc::new(|_,ctx|Box::pin(async move {
+    let branch=ctx.session_manager()?.lock().map_err(|e|HandlerError::new(e.to_string()))?.get_branch(None);
+    let conversation=conversation_text(&branch)?;
+    let has_ui=ctx.has_ui()?;let ui=ctx.ui()?;
+    if js_trim(&conversation).is_empty(){if has_ui{ui.notify("No conversation text found",Some(NotifyType::Warning));}return Ok(())}
+    if has_ui {ui.notify("Preparing summary...",Some(NotifyType::Info));}
+    let registry=ctx.model_registry()?;
+    let Some(model)=registry.find("openai","gpt-5.2") else {if has_ui{ui.notify("Model openai/gpt-5.2 not found",Some(NotifyType::Warning));}return Ok(())};
+    if !registry.has_configured_auth(&model){if has_ui{ui.notify("No authentication configured for openai/gpt-5.2",Some(NotifyType::Warning));}return Ok(())}
+    let prompt=format!("Summarize this conversation so I can resume it later.\nInclude goals, key decisions, progress, open questions, and next steps.\nKeep it concise and structured with headings.\n\n<conversation>\n{conversation}\n</conversation>");
+    let response=registry.complete(model,Context{system_prompt:None,messages:vec![serde_json::from_value(json!({"role":"user","content":[{"type":"text","text":prompt}],"timestamp":now_millis()})).unwrap()],tools:None},StreamOptions{cache_retention:Some(CacheRetention::None),session_id:Some(uuidv7()),extra:serde_json::from_value(json!({"reasoningEffort":"high"})).unwrap(),..Default::default()}).await.map_err(|e|HandlerError::new(e.to_string()))?;
+    let text=response.content.iter().filter_map(|c|match c{AssistantContent::Text(t)=>Some(t.text.as_str()),_=>None}).collect::<Vec<_>>().join("\n");
+    if ctx.mode()?==ExtensionMode::Tui {ui.custom(Arc::new(move|context,done|Box::new(Summary{text:text.clone(),context,done})),None).await.map_err(HandlerError::new)?;}
+    Ok(())
+ }))).map_err(HandlerError::new)
+}
