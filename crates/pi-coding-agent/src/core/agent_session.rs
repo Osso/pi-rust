@@ -5553,15 +5553,19 @@ impl AgentSession {
         self.abort_compaction_summary_materialization();
         self.abort_branch_summary();
         self.abort_bash();
+        self.inner.agent.abort();
         self.clear_thinking_phase_deadline();
         *lock(&self.inner.thinking_phase_timeout_error) = None;
+        self.runner().invalidate(None);
         self.stop_runtime_mailbox_polling();
         self.stop_runtime_mailbox_signal_wake();
-        self.inner.agent.abort();
         if let Some(subscription) = lock(&self.inner.agent_subscription).take() {
             self.inner.agent.unsubscribe(subscription);
         }
         lock(&self.inner.event_listeners).clear();
+        if let Err(error) = pi_ai::session_resources::cleanup_session_resources(Some(&self.session_id())) {
+            crate::utils::uncaught::throw_uncaught("AggregateError", error.to_string());
+        }
     }
 
     // =========================================================================

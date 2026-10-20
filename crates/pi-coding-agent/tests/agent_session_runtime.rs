@@ -69,6 +69,7 @@ async fn load_extension(
 struct Harness {
     runtime: AgentSessionRuntime,
     logs: Arc<Mutex<Vec<String>>>,
+    extension_context: Arc<Mutex<Option<pi_coding_agent::core::extensions::ExtensionContext>>>,
     _temp: tempfile::TempDir,
 }
 
@@ -106,6 +107,9 @@ async fn build_harness(cancel_switch: bool, cancel_fork: bool) -> Harness {
     let switch_logs = Arc::clone(&logs);
     let fork_logs = Arc::clone(&logs);
     let shutdown_logs = Arc::clone(&logs);
+    let extension_context: Arc<Mutex<Option<pi_coding_agent::core::extensions::ExtensionContext>>> =
+        Arc::new(Mutex::new(None));
+    let switch_context = Arc::clone(&extension_context);
     let extension = load_extension(
         &extension_runtime,
         &cwd,
@@ -113,8 +117,9 @@ async fn build_harness(cancel_switch: bool, cancel_fork: bool) -> Harness {
         move |api| {
             api.on_session_before_switch(handler!(
                 pi_coding_agent::core::extensions::SessionBeforeSwitchEvent,
-                [switch_logs],
-                |event, _ctx| {
+                [switch_logs, switch_context],
+                |event, ctx| {
+                    *switch_context.lock().unwrap() = Some(ctx);
                     switch_logs
                         .lock()
                         .unwrap()
@@ -261,6 +266,7 @@ async fn build_harness(cancel_switch: bool, cancel_fork: bool) -> Harness {
     Harness {
         runtime,
         logs,
+        extension_context,
         _temp: temp,
     }
 }
@@ -307,6 +313,52 @@ async fn new_session_emits_before_switch_and_shutdown_and_runs_with_session() {
     let logs = harness.logs.lock().unwrap().clone();
     assert!(logs.contains(&"before_switch:new".to_owned()), "logs: {logs:?}");
     assert!(logs.contains(&"shutdown:new".to_owned()), "logs: {logs:?}");
+}
+
+#[tokio::test]
+async fn new_session_invalidates_the_outgoing_extension_context() {
+    let mut harness = build_harness(false, false).await;
+    harness
+        .runtime
+        .new_session(NewSessionOptions::default())
+        .await
+        .expect("new session");
+    let context = harness
+        .extension_context
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("session_before_switch captured the outgoing context");
+    let error = context.cwd().expect_err("outgoing context is stale");
+    assert_eq!(
+        error.message,
+        "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload()."
+    );
+}
+
+#[tokio::test]
+async fn new_session_cleans_up_the_outgoing_session_resources() {
+    let mut harness = build_harness(false, false).await;
+    let outgoing_session_id = harness.runtime.session().session_id();
+    let cleaned: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let cleanup_log = Arc::clone(&cleaned);
+    let registration = pi_ai::session_resources::register_session_resource_cleanup(Box::new(move |session_id| {
+        cleanup_log.lock().unwrap().push(session_id.map(str::to_owned));
+        Ok(())
+    }));
+
+    harness
+        .runtime
+        .new_session(NewSessionOptions::default())
+        .await
+        .expect("new session");
+    registration.unregister();
+
+    let cleaned = cleaned.lock().unwrap().clone();
+    assert!(
+        cleaned.contains(&Some(outgoing_session_id.clone())),
+        "outgoing {outgoing_session_id} not cleaned: {cleaned:?}"
+    );
 }
 
 #[tokio::test]
@@ -451,6 +503,7 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
     let Harness {
         runtime,
         logs: _,
+        extension_context: _,
         _temp,
     } = build_harness(false, false).await;
     let runtime = Arc::new(tokio::sync::Mutex::new(runtime));

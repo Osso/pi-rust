@@ -35,6 +35,14 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 - Events: `_handleAgentEvent`, persistence on `message_end`, queue removal,
   duplicate-turn guard, `agent_end.willRetry`, extension event emission,
   `agent_settled`, runtime message markers (`AgentSessionEvent::Message`).
+- `dispose`: aborts retry/compaction/summary/branch/bash and the agent, clears the
+  thinking-phase deadline, invalidates the outgoing extension runner with the exact
+  stale-ctx message, stops runtime-mailbox polling/wake, disconnects the agent
+  subscription, clears listeners, then runs `cleanupSessionResources(sessionId)`.
+  Cleanup failures surface as `AggregateError` (throw_uncaught, since `dispose` is
+  infallible in Rust). Proof:
+  `agent_session_runtime.rs::new_session_invalidates_the_outgoing_extension_context`,
+  `new_session_cleans_up_the_outgoing_session_resources`.
 - Prompting: `prompt`, `_promptTurn`, input hook, skill/template expansion, streaming
   queue errors, extension commands, `steer`, `followUp`, `continue`, `interrupt`,
   `abort`, `sendCustomMessage`, `sendUserMessage`, `clearQueue`, reservations.
