@@ -164,19 +164,7 @@ fn legacy_time(words: &[&str], named_month: bool) -> Option<TimeSuffix> {
     (index == suffix.len() && time.is_valid()).then_some(time)
 }
 
-fn parse_legacy_date(input: &str, zone: &TimeZone) -> Option<i64> {
-    let mut words: Vec<_> = input
-        .split(|c: char| c.is_ascii_whitespace() || c == ',')
-        .filter(|word| !word.is_empty())
-        .collect();
-    if words.first().and_then(|word| word.get(..3)).is_some_and(|prefix| {
-        matches!(
-            prefix.to_ascii_lowercase().as_str(),
-            "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"
-        )
-    }) {
-        words.remove(0);
-    }
+fn partition_legacy_date_words<'a>(words: &[&'a str]) -> Option<(Vec<&'a str>, Vec<&'a str>)> {
     let first = *words.first()?;
     let (date, remaining) = if first.contains(['/', '-']) {
         let date: Vec<_> = first.split(['/', '-']).collect();
@@ -191,9 +179,23 @@ fn parse_legacy_date(input: &str, zone: &TimeZone) -> Option<i64> {
     } else {
         return None;
     };
-    if date.len() != 3 {
-        return None;
+    (date.len() == 3).then_some((date, remaining))
+}
+
+fn parse_legacy_date(input: &str, zone: &TimeZone) -> Option<i64> {
+    let mut words: Vec<_> = input
+        .split(|c: char| c.is_ascii_whitespace() || c == ',')
+        .filter(|word| !word.is_empty())
+        .collect();
+    if words.first().and_then(|word| word.get(..3)).is_some_and(|prefix| {
+        matches!(
+            prefix.to_ascii_lowercase().as_str(),
+            "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"
+        )
+    }) {
+        words.remove(0);
     }
+    let (date, remaining) = partition_legacy_date_words(&words)?;
     let (year, month, day) = legacy_date_fields(&date)?;
     let time = legacy_time(&remaining, date.iter().any(|word| legacy_month(word).is_some()))?;
     finish_date(

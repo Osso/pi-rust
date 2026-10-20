@@ -44,13 +44,13 @@ impl From<&str> for JsString {
 /// Insertion-ordered storage. Use `object_entries_lossless` for JavaScript enumeration order.
 pub type JsObject = IndexMap<JsString, JsValue>;
 
-/// JSON values retaining UTF-16 strings/keys. Numbers retain the existing serde-number boundary;
-/// parsing uses JavaScript doubles, with non-finite results represented as null.
+/// JSON values retaining UTF-16 strings/keys and JavaScript binary64 numbers.
+/// Non-finite numbers and negative zero survive parsing; JSON serialization maps non-finite to null.
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsValue {
     Null,
     Bool(bool),
-    Number(serde_json::Number),
+    Number(f64),
     String(JsString),
     Array(Vec<JsValue>),
     Object(JsObject),
@@ -63,7 +63,7 @@ impl JsValue {
         match self {
             Self::Null => Value::Null,
             Self::Bool(flag) => Value::Bool(flag),
-            Self::Number(number) => Value::Number(number),
+            Self::Number(number) => js_number_value(number),
             Self::String(text) => Value::String(text.to_utf8_lossy()),
             Self::Array(items) => Value::Array(items.into_iter().map(Self::into_serde_lossy).collect()),
             Self::Object(object) => {
@@ -77,12 +77,53 @@ impl JsValue {
     }
 }
 
+/// JavaScript Boolean conversion at a lossless JSON boundary.
+pub fn is_truthy(value: &JsValue) -> bool {
+    match value {
+        JsValue::Null => false,
+        JsValue::Bool(flag) => *flag,
+        JsValue::Number(number) => *number != 0.0 && !number.is_nan(),
+        JsValue::String(text) => !text.units().is_empty(),
+        JsValue::Array(_) | JsValue::Object(_) => true,
+    }
+}
+
+/// JavaScript String conversion at a lossless JSON boundary.
+/// JSON objects cannot supply callable own methods; a shadowed `toString` therefore throws.
+pub fn to_js_string(value: &JsValue) -> Result<JsString, &'static str> {
+    match value {
+        JsValue::Null => Ok(JsString::from("null")),
+        JsValue::Bool(flag) => Ok(JsString::from(if *flag { "true" } else { "false" })),
+        JsValue::Number(number) => Ok(JsString::from(js_number_to_string(*number).as_str())),
+        JsValue::String(text) => Ok(text.clone()),
+        JsValue::Array(items) => {
+            let mut units = Vec::new();
+            for (index, item) in items.iter().enumerate() {
+                if index != 0 {
+                    units.push(u16::from(b','));
+                }
+                if !matches!(item, JsValue::Null) {
+                    units.extend_from_slice(to_js_string(item)?.units());
+                }
+            }
+            Ok(JsString::from_utf16(units))
+        }
+        JsValue::Object(object) => {
+            if object.contains_key(&JsString::from("toString")) {
+                Err("Cannot convert object to primitive value")
+            } else {
+                Ok(JsString::from("[object Object]"))
+            }
+        }
+    }
+}
+
 impl From<&Value> for JsValue {
     fn from(value: &Value) -> Self {
         match value {
             Value::Null => Self::Null,
             Value::Bool(flag) => Self::Bool(*flag),
-            Value::Number(number) => Self::Number(number.clone()),
+            Value::Number(number) => Self::Number(number.as_f64().expect("serde JSON number fits binary64")),
             Value::String(text) => Self::String(JsString::from(text.as_str())),
             Value::Array(items) => Self::Array(items.iter().map(Self::from).collect()),
             Value::Object(object) => Self::Object(
@@ -354,7 +395,7 @@ impl Parser<'_> {
         }
         let text: String = self.chars[start..self.index].iter().collect();
         let value: f64 = text.parse().expect("validated JSON number text must parse");
-        Ok(JsValue::from(&js_number_value(value)))
+        Ok(JsValue::Number(value))
     }
 
     fn require_digits(&mut self, message: &str) -> Result<(), JsonParseError> {
@@ -518,7 +559,13 @@ fn write_value(output: &mut String, value: &JsValue, indent: Option<usize>, dept
     match value {
         JsValue::Null => output.push_str("null"),
         JsValue::Bool(flag) => output.push_str(if *flag { "true" } else { "false" }),
-        JsValue::Number(number) => output.push_str(&js_number_to_string(number.as_f64().unwrap_or(f64::NAN))),
+        JsValue::Number(number) => {
+            if number.is_finite() {
+                output.push_str(&js_number_to_string(*number));
+            } else {
+                output.push_str("null");
+            }
+        }
         JsValue::String(text) => write_string(output, text),
         JsValue::Array(items) => {
             let items: Vec<&JsValue> = items.iter().collect();

@@ -76,8 +76,13 @@ fn kill_oracle_process_group(child: &mut Child) {
     let _ = child.kill();
 }
 
-fn watchdog_node_options(watchdog: &std::path::Path) -> OsString {
-    let mut options = std::env::var_os("NODE_OPTIONS").unwrap_or_default();
+fn watchdog_node_options(watchdog: &std::path::Path, env_pairs: &[(&str, OsString)]) -> OsString {
+    let mut options = env_pairs
+        .iter()
+        .find(|(name, _)| *name == "NODE_OPTIONS")
+        .map(|(_, value)| value.clone())
+        .or_else(|| std::env::var_os("NODE_OPTIONS"))
+        .unwrap_or_default();
     if !options.is_empty() {
         options.push(" ");
     }
@@ -127,7 +132,7 @@ fn spawn_oracle_process(
     }
     command
         .env("PI_ORACLE_PARENT_PID", std::process::id().to_string())
-        .env("NODE_OPTIONS", watchdog_node_options(&watchdog));
+        .env("NODE_OPTIONS", watchdog_node_options(&watchdog, env_pairs));
 
     command
         .spawn()
