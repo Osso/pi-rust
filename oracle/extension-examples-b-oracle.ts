@@ -5,7 +5,7 @@ import { resolve, dirname } from "node:path";
 // No discovery, live credentials, settings, providers, or session databases.
 async function main() {
 const source = process.argv[2];
-const packages = resolve(dirname(source), "../../..");
+const packages = resolve(source.slice(0, source.indexOf("/packages/") + "/packages/".length));
 const moduleUrl = (path: string) => pathToFileURL(resolve(packages, path)).href;
 const [{ default: factory }, loader, runnerModule, session, auth, utils, events] = await Promise.all([
  import(pathToFileURL(source).href),
@@ -60,12 +60,12 @@ async function run(request: any) {
    case "tool_call": result = await runner.emitToolCall({type:"tool_call", toolName:item.toolName,toolCallId:"fixture-call",bypassPermissions:false,input:item.input}); break;
    case "input": result = await runner.emitInput(item.text,item.images ?? undefined,item.source,item.streamingBehavior ?? undefined); break;
    case "tool_metadata": {
-    const tool = runner.getToolDefinition("bash");
+    const tool = runner.getToolDefinition(item.toolName ?? "bash");
     result = {name:tool.name,label:tool.label,description:tool.description,parameters:tool.parameters,promptSnippet:tool.promptSnippet ?? null,promptGuidelines:tool.promptGuidelines ?? null};
     break;
    }
    case "execute": {
-    const tool = runner.getToolDefinition("bash");
+    const tool = runner.getToolDefinition(item.toolName ?? "bash");
     try { result = {value: await tool.execute("fixture-call",item.params,undefined,undefined,runner.createContext())}; }
     catch (error: any) { result = {error:error.message}; }
     break;

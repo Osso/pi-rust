@@ -116,11 +116,15 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
                     .await
             ),
             "tool_metadata" => {
-                let tool = runner.get_tool_definition("bash").unwrap();
+                let tool = runner
+                    .get_tool_definition(case["toolName"].as_str().unwrap_or("bash"))
+                    .unwrap();
                 json!({"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"promptSnippet":tool.prompt_snippet,"promptGuidelines":tool.prompt_guidelines})
             }
             "execute" => {
-                let tool = runner.get_tool_definition("bash").unwrap();
+                let tool = runner
+                    .get_tool_definition(case["toolName"].as_str().unwrap_or("bash"))
+                    .unwrap();
                 match (tool.execute)(
                     "fixture-call".into(),
                     case["params"].clone(),

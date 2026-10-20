@@ -59,3 +59,11 @@ It appends request payloads and response headers to
 exist. Append failures surface through the runner's error listeners. Logs can
 contain credentials and private prompts: enable deliberately, never by default.
 Tests use private temporary directories only.
+
+## Batch F examples
+
+Embed `with_deps.rs` (`with_deps_extension`) for `parse_duration`, and
+`inline_bash.rs` (`inline_bash_extension`) for prompt expansion. Register each
+factory explicitly as above. Inline commands execute in the loaded cwd; enable
+only for trusted prompts. Native duration parsing matches the example's npm `ms`
+string overload without adding dependencies.
