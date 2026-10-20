@@ -66,6 +66,8 @@ process zone.
 
 V8 month-name/slash legacy dates, local/zoned times, two-digit year pivots, pre-1970 HTTP and asctime dates now use the shared legacy date grammar. Proof: `legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones` (RED `"Jan 1 2020"`: NaN vs Node 1577836800000; GREEN pending), UTC and Chicago including DST gap/fold and adjacent invalid dates/times.
 
+V8 compatibility quirk (not a TS source bug): named-month legacy seconds `60`, `61`, `99` are discarded to zero; slash and ISO second `60` are rejected. The Node boundary corpus preserves that distinction. No semantic correction is intended.
+
 The finite corpus does not establish complete V8 legacy grammar parity; untested legacy forms remain unproven, not approved exclusions.
 
 ## Base64 (`src/base64.rs`)

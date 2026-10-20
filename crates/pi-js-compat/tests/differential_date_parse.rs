@@ -265,6 +265,12 @@ fn legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones() {
         "Fri, 01 Jan 1960 00:60:00 GMT",
         "Fri, 01 Jan 1960 00:00:60 GMT",
         "Thu, 01 Jan 0001 00:00:00 GMT",
+        "Fri, 01 Jan 1960 00:00:59 GMT",
+        "Fri, 01 Jan 1960 00:00:61 GMT",
+        "Fri, 01 Jan 1960 00:00:99 GMT",
+        "Jan 1 1960 00:00:60",
+        "1/1/1960 00:00:60",
+        "1960-01-01T00:00:60Z",
     ];
     compare_values("UTC", &TimeZone::UTC, &values);
     compare_values("America/Chicago", &TimeZone::get("America/Chicago").unwrap(), &values);

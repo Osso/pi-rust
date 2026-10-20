@@ -137,7 +137,7 @@ fn legacy_date_fields(words: &[&str]) -> Option<(i64, i64, i64)> {
     normalize_day(year, month, day)
 }
 
-fn legacy_time(words: &[&str]) -> Option<TimeSuffix> {
+fn legacy_time(words: &[&str], named_month: bool) -> Option<TimeSuffix> {
     let mut words: Vec<_> = words.iter().map(|word| (*word).to_owned()).collect();
     if let Some(last) = words.last_mut()
         && (last.eq_ignore_ascii_case("GMT") || last.eq_ignore_ascii_case("UTC"))
@@ -155,7 +155,12 @@ fn legacy_time(words: &[&str]) -> Option<TimeSuffix> {
     }
     let suffix = format!(" {}", words.join(" "));
     let mut index = 0;
-    let time = parse_time_suffix(suffix.as_bytes(), &mut index)?;
+    let mut time = parse_time_suffix(suffix.as_bytes(), &mut index)?;
+    // V8 discards an out-of-range seconds field in named-month legacy dates,
+    // but rejects it in slash and ISO forms (Node differential boundary proof).
+    if named_month && time.second >= 60 {
+        time.second = 0;
+    }
     (index == suffix.len() && time.is_valid()).then_some(time)
 }
 
@@ -190,7 +195,7 @@ fn parse_legacy_date(input: &str, zone: &TimeZone) -> Option<i64> {
         return None;
     }
     let (year, month, day) = legacy_date_fields(&date)?;
-    let time = legacy_time(&remaining)?;
+    let time = legacy_time(&remaining, date.iter().any(|word| legacy_month(word).is_some()))?;
     finish_date(
         days_from_civil(year, month, day),
         time.hour,
