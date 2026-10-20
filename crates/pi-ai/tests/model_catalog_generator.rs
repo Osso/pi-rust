@@ -6,7 +6,7 @@ use pi_js_compat::js_json::{parse_lossless, stringify_lossless};
 use serde_json::json;
 
 #[test]
-fn source_cost_tiers_and_provider_transforms_preserve_values_and_utf16() {
+fn source_cost_tiers_and_provider_transforms_match() {
     let mut source = oracle::TsOracle::spawn(
         "model-catalog-generator-oracle.ts",
         "packages/ai/scripts/generate-models.ts",
@@ -20,7 +20,7 @@ fn source_cost_tiers_and_provider_transforms_preserve_values_and_utf16() {
             &json!({"operation":"getModelsDevCost","args":[serde_json::from_str::<serde_json::Value>(text).unwrap()]}),
         );
         assert_eq!(
-            stringify_lossless(&get_models_dev_cost(&parse_lossless(text).unwrap())),
+            stringify_lossless(&get_models_dev_cost(&parse_lossless(text).unwrap()).unwrap()),
             expected["json"].as_str().unwrap()
         );
     }
@@ -38,7 +38,7 @@ fn source_cost_tiers_and_provider_transforms_preserve_values_and_utf16() {
                 &json!({"operation":name,"args":[serde_json::from_str::<serde_json::Value>(provider).unwrap()]}),
             );
             assert_eq!(
-                stringify_lossless(&result),
+                stringify_lossless(&result.unwrap()),
                 expected["json"].as_str().unwrap(),
                 "{name}: {provider}; response {expected}"
             );

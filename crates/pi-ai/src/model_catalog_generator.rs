@@ -1,7 +1,7 @@
 //! Native catalog maintenance counterpart of `scripts/generate-models.ts`.
 //! Provider payloads remain lossless JSON, not the runtime's narrower typed models.
 
-use pi_js_compat::js_json::{JsString, JsValue, object_entries_lossless};
+use pi_js_compat::js_json::{JsString, JsValue, is_truthy, object_entries_lossless};
 use serde_json::json;
 
 use crate::models_dev_reasoning_options::{ModelsDevReasoningOption, get_effort_thinking_level_map};
@@ -13,18 +13,8 @@ fn field<'a>(value: &'a JsValue, key: &str) -> &'a JsValue {
     }
 }
 
-fn truthy(value: &JsValue) -> bool {
-    match value {
-        JsValue::Null => false,
-        JsValue::Bool(value) => *value,
-        JsValue::Number(value) => value.as_f64().is_some_and(|value| value != 0.0 && !value.is_nan()),
-        JsValue::String(value) => !value.units().is_empty(),
-        _ => true,
-    }
-}
-
 fn fallback(value: &JsValue, default: JsValue) -> JsValue {
-    if truthy(value) { value.clone() } else { default }
+    if is_truthy(value) { value.clone() } else { default }
 }
 fn number(value: u64) -> JsValue {
     JsValue::from(&json!(value))
@@ -69,9 +59,18 @@ fn equal(value: &JsValue, expected: &str) -> bool {
 }
 
 /// models.dev costs retain source values and only context-size tiers, in source order.
-pub fn get_models_dev_cost(cost: &JsValue) -> JsValue {
+pub fn get_models_dev_cost(cost: &JsValue) -> Result<JsValue, GeneratorError> {
     let mut result = plain_cost(cost);
-    if let JsValue::Array(tiers) = field(cost, "tiers") {
+    let source_tiers = field(cost, "tiers");
+    if !matches!(source_tiers, JsValue::Null | JsValue::Array(_)) {
+        return Err(GeneratorError::type_error("cost?.tiers?.flatMap is not a function"));
+    }
+    if let JsValue::Array(tiers) = source_tiers {
+        if tiers.iter().any(|tier| matches!(tier, JsValue::Null)) {
+            return Err(GeneratorError::type_error(
+                "Cannot read properties of null (reading 'tier')",
+            ));
+        }
         let tiers: Vec<_> = tiers
             .iter()
             .filter_map(|tier| {
@@ -94,7 +93,7 @@ pub fn get_models_dev_cost(cost: &JsValue) -> JsValue {
             set(&mut result, "tiers", JsValue::Array(tiers));
         }
     }
-    result
+    Ok(result)
 }
 
 fn plain_cost(cost: &JsValue) -> JsValue {
@@ -104,6 +103,18 @@ fn plain_cost(cost: &JsValue) -> JsValue {
         ("cacheRead", fallback(field(cost, "cache_read"), number(0))),
         ("cacheWrite", fallback(field(cost, "cache_write"), number(0))),
     ])
+}
+
+fn validate_modalities(model: &JsValue, variable: &str) -> Result<(), GeneratorError> {
+    if !matches!(
+        field(field(model, "modalities"), "input"),
+        JsValue::Null | JsValue::String(_) | JsValue::Array(_)
+    ) {
+        return Err(GeneratorError::type_error(&format!(
+            "{variable}.modalities?.input?.includes is not a function"
+        )));
+    }
+    Ok(())
 }
 
 fn common_model(id: &JsString, model: &JsValue, provider: &str) -> JsValue {
@@ -137,9 +148,14 @@ fn common_model(id: &JsString, model: &JsValue, provider: &str) -> JsValue {
 }
 
 /// Baseten accepts non-tool models and excludes only deprecated entries.
-pub fn process_baseten_models(provider: &JsValue) -> JsValue {
+pub fn process_baseten_models(provider: &JsValue) -> Result<JsValue, GeneratorError> {
     let mut models = Vec::new();
     for (id, model) in entries(field(provider, "models")) {
+        if matches!(model, JsValue::Null) {
+            return Err(GeneratorError::type_error(
+                "Cannot read properties of null (reading 'status')",
+            ));
+        }
         if equal(field(model, "status"), "deprecated") {
             continue;
         }
@@ -147,12 +163,27 @@ pub fn process_baseten_models(provider: &JsValue) -> JsValue {
             .iter()
             .any(|name| id == &JsString::from(*name));
         let options = field(model, "reasoning_options");
-        let has_option = |kind| match options {
-            JsValue::Array(options) => options.iter().any(|option| equal(field(option, "type"), kind)),
-            _ => false,
+        let has_option = |kind| -> Result<bool, GeneratorError> {
+            let options = match options {
+                JsValue::Null => return Ok(false),
+                JsValue::Array(options) => options,
+                _ => return Err(GeneratorError::type_error("reasoningOptions.some is not a function")),
+            };
+            for option in options {
+                if matches!(option, JsValue::Null) {
+                    return Err(GeneratorError::type_error(
+                        "Cannot read properties of null (reading 'type')",
+                    ));
+                }
+                if equal(field(option, "type"), kind) {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
         };
-        let toggle = has_option("toggle") || is_glm;
-        let effort = has_option("effort") || is_glm;
+        let toggle = has_option("toggle")? || is_glm;
+        let effort = has_option("effort")? || is_glm;
+        validate_modalities(model, "model")?;
         let mut compat = literal(
             json!({"supportsStore":false,"supportsDeveloperRole":false,"supportsReasoningEffort":effort,"supportsUsageInStreaming":true,"maxTokensField":"max_tokens","supportsStrictMode":true,"supportsLongCacheRetention":false}),
         );
@@ -200,7 +231,7 @@ pub fn process_baseten_models(provider: &JsValue) -> JsValue {
         }
         models.push(result);
     }
-    JsValue::Array(models)
+    Ok(JsValue::Array(models))
 }
 
 fn reasoning_map(options: &JsValue) -> Option<JsValue> {
@@ -240,12 +271,18 @@ fn reasoning_map(options: &JsValue) -> Option<JsValue> {
 }
 
 /// Fireworks uses Anthropic except GLM-5p2/Kimi-K3 completions families.
-pub fn process_fireworks_models(provider: &JsValue) -> JsValue {
+pub fn process_fireworks_models(provider: &JsValue) -> Result<JsValue, GeneratorError> {
     let mut models = Vec::new();
     for (id, model) in entries(field(provider, "models")) {
+        if matches!(model, JsValue::Null) {
+            return Err(GeneratorError::type_error(
+                "Cannot read properties of null (reading 'tool_call')",
+            ));
+        }
         if field(model, "tool_call") != &JsValue::Bool(true) {
             continue;
         }
+        validate_modalities(model, "model")?;
         let mut result = common_model(id, model, "fireworks");
         let id = JsValue::String(id.clone());
         let completions = includes(&id, "glm-5p2") || includes(&id, "kimi-k3");
@@ -288,5 +325,293 @@ pub fn process_fireworks_models(provider: &JsValue) -> JsValue {
         set(&mut result, "compat", compat);
         models.push(result);
     }
-    JsValue::Array(models)
+    Ok(JsValue::Array(models))
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratorOptions {
+    pub strict: bool,
+    pub data_only: bool,
+    pub json_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_output_dir: Option<std::path::PathBuf>,
+    pub pretty: bool,
+}
+pub fn read_generator_options(args: &[String]) -> Result<GeneratorOptions, GeneratorError> {
+    let mut options = GeneratorOptions::default();
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--strict" => options.strict = true,
+            "--data-only" => options.data_only = true,
+            "--json-only" => options.json_only = true,
+            "--pretty" => options.pretty = true,
+            "--json-output" => {
+                let value = args
+                    .next()
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| GeneratorError::error("--json-output requires a directory"))?;
+                let path = std::path::PathBuf::from(value);
+                let path = if path.is_absolute() {
+                    path
+                } else {
+                    std::env::current_dir()
+                        .map_err(|error| GeneratorError::error(&error.to_string()))?
+                        .join(path)
+                };
+                let mut resolved = std::path::PathBuf::new();
+                for component in path.components() {
+                    match component {
+                        std::path::Component::CurDir => {}
+                        std::path::Component::ParentDir => {
+                            resolved.pop();
+                        }
+                        component => resolved.push(component.as_os_str()),
+                    }
+                }
+                options.json_output_dir = Some(resolved);
+            }
+            _ => return Err(GeneratorError::error(&format!("Unknown argument: {arg}"))),
+        }
+    }
+    if options.json_only && options.json_output_dir.is_none() {
+        return Err(GeneratorError::error("--json-only requires --json-output"));
+    }
+    if options.data_only && (options.json_only || options.json_output_dir.is_some()) {
+        return Err(GeneratorError::error(
+            "--data-only cannot be combined with JSON catalog output",
+        ));
+    }
+    Ok(options)
+}
+#[derive(Debug, Clone)]
+pub struct GeneratorError {
+    pub name: String,
+    pub message: JsString,
+}
+impl GeneratorError {
+    fn error(message: &str) -> Self {
+        Self {
+            name: "Error".into(),
+            message: JsString::from(message),
+        }
+    }
+    fn type_error(message: &str) -> Self {
+        Self {
+            name: "TypeError".into(),
+            message: JsString::from(message),
+        }
+    }
+}
+impl std::fmt::Display for GeneratorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.name, self.message.to_utf8_lossy())
+    }
+}
+impl std::error::Error for GeneratorError {}
+#[derive(Debug, Clone)]
+pub struct HttpResponse {
+    pub status: u16,
+    pub body: String,
+}
+pub struct Generator<'a> {
+    pub options: GeneratorOptions,
+    pub logs: Vec<JsValue>,
+    fetch: &'a mut dyn FnMut(&str) -> Result<HttpResponse, GeneratorError>,
+}
+impl<'a> Generator<'a> {
+    pub fn new(
+        options: GeneratorOptions,
+        fetch: &'a mut dyn FnMut(&str) -> Result<HttpResponse, GeneratorError>,
+    ) -> Self {
+        Self {
+            options,
+            fetch,
+            logs: vec![],
+        }
+    }
+    fn log(&mut self, level: &str, message: &str) {
+        self.logs.push(literal(json!([level, message])));
+    }
+    fn fetch_json(&mut self, url: &str, label: &str) -> Result<JsValue, GeneratorError> {
+        let response = (self.fetch)(url)?;
+        if !(200..300).contains(&response.status) {
+            return Err(GeneratorError::error(&format!(
+                "{label} API returned {}",
+                response.status
+            )));
+        }
+        pi_js_compat::js_json::parse_lossless(&response.body).map_err(|error| GeneratorError {
+            name: "SyntaxError".into(),
+            message: JsString::from(error.to_string().as_str()),
+        })
+    }
+    fn fetch_models(&mut self, gateway: bool) -> Result<JsValue, GeneratorError> {
+        let label = if gateway { "Vercel AI Gateway" } else { "OpenRouter" };
+        let url = if gateway {
+            "https://ai-gateway.vercel.sh/v1/models"
+        } else {
+            "https://openrouter.ai/api/v1/models"
+        };
+        self.log("log", &format!("Fetching models from {label} API..."));
+        let result = self
+            .fetch_json(url, label)
+            .and_then(|data| transform_http_models(&data, gateway));
+        match result {
+            Ok(models) => {
+                let count = match &models {
+                    JsValue::Array(models) => models.len(),
+                    _ => 0,
+                };
+                self.log("log", &format!("Fetched {count} tool-capable models from {label}"));
+                Ok(models)
+            }
+            Err(error) => {
+                self.logs.push(JsValue::Array(vec![
+                    text("error"),
+                    text(&format!("Failed to fetch {label} models:")),
+                    text(&error.to_string()),
+                ]));
+                if self.options.strict {
+                    Err(error)
+                } else {
+                    Ok(JsValue::Array(vec![]))
+                }
+            }
+        }
+    }
+    pub fn fetch_open_router_models(&mut self) -> Result<JsValue, GeneratorError> {
+        self.fetch_models(false)
+    }
+    pub fn fetch_ai_gateway_models(&mut self) -> Result<JsValue, GeneratorError> {
+        self.fetch_models(true)
+    }
+}
+
+fn round_cost(value: f64) -> f64 {
+    pi_js_compat::number::parse_number(&pi_js_compat::number::to_fixed(value, 6))
+}
+fn pricing_number(value: &JsValue, gateway: bool) -> Result<f64, GeneratorError> {
+    let value = if gateway {
+        value.clone()
+    } else {
+        fallback(value, text("0"))
+    };
+    let numeric = match &value {
+        JsValue::Number(value) if gateway => *value,
+        JsValue::Null if gateway => 0.0,
+        value => {
+            let value = pi_js_compat::js_json::to_js_string(value).map_err(GeneratorError::type_error)?;
+            pi_js_compat::number::parse_float(&value.to_utf8_lossy())
+        }
+    };
+    Ok(if gateway && !numeric.is_finite() { 0.0 } else { numeric })
+}
+fn transform_http_models(data: &JsValue, gateway: bool) -> Result<JsValue, GeneratorError> {
+    let items = match field(data, "data") {
+        JsValue::Array(items) => items.as_slice(),
+        _ if gateway => &[],
+        JsValue::String(_) => return Ok(JsValue::Array(vec![])),
+        _ => return Err(GeneratorError::type_error("data.data is not iterable")),
+    };
+    let mut models = Vec::new();
+    for model in items {
+        let tag_key = if gateway { "tags" } else { "supported_parameters" };
+        let mut tags = field(model, tag_key);
+        if gateway && !matches!(tags, JsValue::Array(_)) {
+            tags = &JsValue::Null;
+        }
+        if !gateway && !matches!(tags, JsValue::Array(_) | JsValue::String(_) | JsValue::Null) {
+            return Err(GeneratorError::type_error(
+                "model.supported_parameters?.includes is not a function",
+            ));
+        }
+        if !includes(tags, if gateway { "tool-use" } else { "tools" }) {
+            continue;
+        }
+        let mut cost = object([]);
+        for (output, input) in [
+            ("input", if gateway { "input" } else { "prompt" }),
+            ("output", if gateway { "output" } else { "completion" }),
+            ("cacheRead", "input_cache_read"),
+            ("cacheWrite", "input_cache_write"),
+        ] {
+            let numeric = round_cost(pricing_number(field(field(model, "pricing"), input), gateway)? * 1_000_000.0);
+            set(&mut cost, output, JsValue::Number(numeric));
+        }
+        let mut result = object([]);
+        for key in ["id", "name"] {
+            let value = field(model, key);
+            if gateway && key == "name" {
+                set(&mut result, key, fallback(value, field(model, "id").clone()));
+            } else if let JsValue::Object(object) = model {
+                if object.contains_key(&JsString::from(key)) {
+                    set(&mut result, key, value.clone());
+                }
+            }
+        }
+        set(
+            &mut result,
+            "api",
+            text(if gateway {
+                "anthropic-messages"
+            } else {
+                "openai-completions"
+            }),
+        );
+        set(
+            &mut result,
+            "baseUrl",
+            text(if gateway {
+                "https://ai-gateway.vercel.sh"
+            } else {
+                "https://openrouter.ai/api/v1"
+            }),
+        );
+        set(
+            &mut result,
+            "provider",
+            text(if gateway { "vercel-ai-gateway" } else { "openrouter" }),
+        );
+        set(&mut result, "reasoning", JsValue::Bool(includes(tags, "reasoning")));
+        let image = if gateway {
+            includes(tags, "vision")
+        } else {
+            includes(field(field(model, "architecture"), "modality"), "image")
+        };
+        set(
+            &mut result,
+            "input",
+            literal(if image {
+                json!(["text", "image"])
+            } else {
+                json!(["text"])
+            }),
+        );
+        set(&mut result, "cost", cost);
+        let context = if gateway {
+            fallback(field(model, "context_window"), number(4096))
+        } else {
+            fallback(
+                field(field(model, "top_provider"), "context_length"),
+                fallback(field(model, "context_length"), number(4096)),
+            )
+        };
+        set(&mut result, "contextWindow", context);
+        set(
+            &mut result,
+            "maxTokens",
+            fallback(
+                if gateway {
+                    field(model, "max_tokens")
+                } else {
+                    field(field(model, "top_provider"), "max_completion_tokens")
+                },
+                number(4096),
+            ),
+        );
+        models.push(result);
+    }
+    Ok(JsValue::Array(models))
 }
