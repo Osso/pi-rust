@@ -40,7 +40,7 @@ is not additional proof of every caller's syscall-selection branch.
 | `pi-coding-agent/src/config.rs` | `coding-agent/src/config.ts`: `readFileSync`; `node_read_error` remains synchronous |
 | `pi-coding-agent/src/modes/interactive/theme/mod.rs` | `coding-agent/src/modes/interactive/theme/theme.ts`: `readFileSync`, `readdirSync`; sync read and scandir adapters unchanged |
 | `pi-coding-agent/src/modes/interactive/external_editor.rs` | `coding-agent/src/modes/interactive/external-editor.ts`: `mkdtempSync`, `writeFileSync`, `readFileSync`; sync adapters unchanged; chmod implements mkdtempSync's 0700 mode (no separate TS chmod call) |
-| `pi-coding-agent/src/bundled_extensions/run_plan.rs` | `coding-agent/extensions/run-plan/src/index.ts`: `readFileSync`, `readdirSync`; existing open/scandir adapters unchanged |
+| `pi-coding-agent/src/bundled_extensions/run_plan.rs` | `coding-agent/extensions/run-plan/src/index.ts`: promises `readFile`, `readdirSync`; existing open/scandir adapters unchanged (no raw read/path omission) |
 | `pi-coding-agent/src/bundled_extensions/docs_tree_context.rs` | `coding-agent/extensions/docs-tree-context/src/index.ts`: promises `stat`, `readdir`; stat/scandir adapters unchanged |
 | `pi-ai/src/model_data_tools.rs` | `ai/scripts/model-data.ts`: `readFileSync`, `readdirSync`; sync read/scandir adapters unchanged |
 | `pi-ai/src/image_catalog_generator.rs` | `ai/scripts/generate-image-models.ts`: `writeFileSync`; open/write adapters unchanged |
