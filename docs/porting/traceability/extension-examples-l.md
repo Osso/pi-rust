@@ -30,3 +30,32 @@ Mutation of the native add-result text fails the behavioral test (05), reverted
 byte-for-byte. Typed Rust input exclusions remain unchanged.
 
 No dependencies added. Historical batch F's alias blocker is superseded here.
+
+## plan-mode/index.ts — done
+
+`plan_mode_extension` registers the flag, /plan, /todos, Ctrl+Alt+P, tool_call,
+context, before_agent_start, turn_end, agent_end and session_start handlers.
+`planning_toggle_filter_safety_execution_and_completion_match` covers metadata,
+normal/planning tool selection and restoration, allowlist blocking, stale-context
+filtering (string and blocks), all three choices plus cancellation, refinement
+trim/follow-up messages, extraction, partial/full execution progress, completion,
+status/widget ANSI and persisted snapshots. Unchanged scenarios use pinned TS.
+Execution uses approved append snapshot semantics (parent approval 2026-10-20;
+TS write-isolation follow-up SHA pending from main), because pinned AND bf55d9fd6
+still alias caller-owned append data. Oracle snapshots actions at call-time and
+clones append inputs only for fixed scenarios. This is not a claim that the
+read-only helper alone fixes writes.
+
+`restoring_execution_scans_only_after_marker_without_mutating_stored_todos`
+proves flag override, execution restoration, scan marker cutoff, completed widget
+and stored-entry isolation against the byte-identical fixed-read helper.
+
+`truncated_astral_todo_projects_surrogate_at_native_append_boundary` proves a
+valid astral input split by helper truncation becomes U+FFFD at append, in-memory
+snapshots AND persisted JSONL. The helper stays lossless; native String/Value
+cannot contain a lone surrogate. This is the approved exclusion in
+`docs/specs/compatibility.md:177` (parent clarification 2026-10-20): TS persists
+an escaped `\ud83d`, Rust persists U+FFFD. Oracle normalizes lone surrogates only
+for this explicitly projected scenario. No other Unicode normalization occurs.
+
+Historical batch G blocker is superseded. No core API changes or dependencies.
