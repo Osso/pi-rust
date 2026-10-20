@@ -10851,19 +10851,23 @@ impl InteractiveMode {
             return;
         }
         *component_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::downgrade(&inner));
-        let overlay_options = options
-            .as_ref()
-            .and_then(|options| options.overlay_options.as_ref())
-            .map(|resolve| resolve().into())
-            .or_else(|| {
-                inner
-                    .width()
-                    .filter(|width| !matches!(width, pi_tui::tui::SizeValue::Absolute(0.0)))
-                    .map(|width| OverlayOptions {
-                        width: Some(width),
-                        ..Default::default()
-                    })
-            });
+        let overlay_options = if overlay {
+            options
+                .as_ref()
+                .and_then(|options| options.overlay_options.as_ref())
+                .map(|resolve| resolve().into())
+                .or_else(|| {
+                    inner
+                        .width()
+                        .filter(|width| !matches!(width, pi_tui::tui::SizeValue::Absolute(0.0)))
+                        .map(|width| OverlayOptions {
+                            width: Some(width),
+                            ..Default::default()
+                        })
+                })
+        } else {
+            None
+        };
         let component_ref = component(ExtensionComponentAdapter { inner });
         if overlay {
             self.ui.show_overlay(component_ref, overlay_options);
@@ -14408,6 +14412,23 @@ mod ui_tests {
                     !mode.ui.has_overlay_entries(),
                     "factory completed synchronously: do not mount"
                 );
+                let (send, receive) = tokio::sync::oneshot::channel();
+                let callback = Arc::new(std::sync::Mutex::new(None::<ExtensionUiDone>));
+                let captured = callback.clone();
+                mode.show_extension_custom(
+                    Arc::new(move |_, done| {
+                        *captured.lock().unwrap() = Some(done);
+                        Box::new(StaticWidget)
+                    }),
+                    Some(ExtensionUiCustomOptions {
+                        overlay: Some(false),
+                        overlay_options: Some(Arc::new(|| panic!("non-overlay UI must not resolve overlay options"))),
+                        ..Default::default()
+                    }),
+                    send,
+                );
+                callback.lock().unwrap().clone().unwrap().call(None);
+                assert_eq!(receive.await.unwrap(), None);
             })
             .await;
     }
