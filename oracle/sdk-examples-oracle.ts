@@ -37,12 +37,29 @@ async function run(request: any) {
  const sdk = {
   ModelRuntime: Runtime, DefaultResourceLoader: Loader, getAgentDir: () => "/fixture/agent",
   createSyntheticSourceInfo: (path: string, options: any) => ({path, ...options}),
-  SessionManager: { inMemory: () => ({}) },
+  SessionManager: {
+   inMemory: () => ({}),
+   create: () => ({file: request.newFile}),
+   continueRecent: () => ({file: request.continuedFile}),
+   list: async () => request.sessions ?? [],
+   open: (path: string) => ({file:path, id:request.sessions?.find((s: any) => s.path === path)?.id}),
+  },
+  SettingsManager: class {
+   static create() { return new this(); }
+   static inMemory() { return new this(); }
+   getGlobalSettings() { return request.settings ?? {}; }
+   applyOverrides() {}
+   setDefaultThinkingLevel() {}
+   async flush() {}
+   drainErrors() { return request.settingsErrors ?? []; }
+  },
   async createAgentSession(options: any = {}) {
    const id = created.length;
    created.push({tools:options.tools, thinkingLevel:options.thinkingLevel, model:options.model});
    let observer: any;
    return { session: {
+    sessionFile: options.sessionManager?.file,
+    sessionId: options.sessionManager?.id,
     subscribe(listener: any) { observer = listener; },
     async prompt(prompt: string) {
      prompts.push(prompt);
@@ -58,7 +75,11 @@ async function run(request: any) {
  const context = vm.createContext({
   process: { cwd: () => "/fixture/project", env: {}, stdout: {write(text: string) {stdout += text;}} },
   console: {log:append, warn:append},
-  require: (name: string) => {if (name === "@earendil-works/pi-coding-agent") return sdk; throw new Error(`Unexpected import ${name}`);},
+  require: (name: string) => {
+   if (name === "@earendil-works/pi-coding-agent") return {...sdk, createExtensionRuntime: () => ({})};
+   if (name === "@earendil-works/pi-ai/compat") return {getModel: () => ({provider:"anthropic",id:"claude-sonnet-4-5"})};
+   throw new Error(`Unexpected import ${name}`);
+  },
   exports: {},
  });
  const javascript = ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;

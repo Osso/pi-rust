@@ -128,6 +128,18 @@ path = "examples/sdk/07_context_files.rs"
 name = "sdk_08_prompt_templates"
 path = "examples/sdk/08_prompt_templates.rs"
 
+[[example]]
+name = "sdk_09_api_keys_and_oauth"
+path = "examples/sdk/09_api_keys_and_oauth.rs"
+
+[[example]]
+name = "sdk_10_settings"
+path = "examples/sdk/10_settings.rs"
+
+[[example]]
+name = "sdk_11_sessions"
+path = "examples/sdk/11_sessions.rs"
+
 [dev-dependencies]
 tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
 # `pty::openpty` for process-boundary crash tests that need a pty without a

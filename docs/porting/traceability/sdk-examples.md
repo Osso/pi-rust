@@ -31,7 +31,7 @@ and formatting run; no broad checks, clippy or live providers.
 
 ## Remaining scope
 
-09–13 pending. No API gap identified in 02–04. Diagnostics/error and empty-model
+12–13 pending. No API gap identified in 02–04. Diagnostics/error and empty-model
 branches are ported; current fixtures prove the successful populated paths, not
 exhaustive SDK branch parity.
 
@@ -55,3 +55,22 @@ factories for those IDs. Missing paths remain loader diagnostics as in the sourc
 Comment-only extension sketches are not executed or registered. The native inline
 hook is real. 05/07/08 return state snapshots to fixture callers without adding
 stdout lines. 04 now follows its source's non-finally output/disposal ordering.
+
+## 09–11 mapping
+
+| Source lines / behavior | Rust example | Test target |
+| --- | --- | --- |
+| 09:9–37 default/custom runtime, memory sessions, temporary key and disposal | `09_api_keys_and_oauth.rs::run` | `example_sdk_api_keys_and_oauth`: stdout differential, actual default-runtime override visibility, no auth file persisted |
+| 10:11–58 disk settings, overrides, low/flush/errors, isolated memory settings | `10_settings.rs::run` | `example_sdk_settings`: stdout differential, actual pre-setter effective overrides, durable low level with overrides absent from disk |
+| 11:12–58 memory/new/continue/list/first-three/open | `11_sessions.rs::run` | `example_sdk_sessions`: real private session files, four results prove three-item limit, lazy new-file behavior, full stdout differential |
+
+11 additionally runs real pinned TS SessionManager.continueRecent and list,
+separately, on the exact same files Rust reads. Fixture byte identity is asserted
+before/after both implementations. Both selection and list order match; continuation
+and listing need not agree with each other (different file/metadata ordering).
+`sdk-sessions-state-oracle.ts` imports only the pinned manager, no SDK mocks.
+The runner-private default DB is used consistently; fixture cwd/session dirs remain
+explicit. 09 runtime creation and 10 settings I/O occur only at opt-in entrypoints
+or private fixture paths. Runtime API keys are ephemeral, not written to auth.json.
+10 returns its effective override snapshot before the source's later setter; the
+setter may remerge disk state, which the example does not change.

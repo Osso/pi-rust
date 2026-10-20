@@ -11,6 +11,9 @@
 | `sdk_06_extensions` | Native registry plus inline agent-start hook |
 | `sdk_07_context_files` | Merge AGENTS.md discovery with inline context |
 | `sdk_08_prompt_templates` | Merge prompt discovery with deploy template |
+| `sdk_09_api_keys_and_oauth` | Runtime locations and ephemeral API key |
+| `sdk_10_settings` | Disk overrides, flush/errors, in-memory settings |
+| `sdk_11_sessions` | Create, continue, list and reopen sessions |
 
 Run with `cargo run -p pi-coding-agent --example <target>`. Like 01,
 entrypoints are opt-in SDK clients and may contact configured providers. Tests
