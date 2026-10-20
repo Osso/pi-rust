@@ -24,9 +24,10 @@ implementation retains its local formatting.
 | `src/core/tools/find.ts:55-66,167-183,355-361` | exists false becomes `Path not found: <path>`; custom operation rejection is not filesystem-wrapped | No wrapping defect; unchanged. New real-tool/source differential covers custom exists false |
 | `src/core/tools/bash.ts:101-126,782-804` | arbitrary exec errors propagate; `aborted`/`timeout:` become output-aware tool status errors | No wrapping defect; unchanged. New real-tool/source differential covers arbitrary error and both special statuses |
 
-`custom_operation_errors` runs two tests: 13 read/write/edit/ls failure fixtures,
-plus five grep/find/bash fixtures. All use the actual pinned tool modules through
-`oracle/custom-operation-errors-oracle.ts`, not copied error expectations.
+The original two `custom_operation_errors` tests cover 13 read/write/edit/ls
+failure fixtures plus five grep/find/bash fixtures. Six additional tests cover
+fallible exists/glob and abort behavior below. All use the actual pinned tool
+modules through `oracle/custom-operation-errors-oracle.ts`, not copied expectations.
 
 ### Fallible ls/find operations
 
@@ -50,6 +51,11 @@ Fixtures compare the actual pinned modules, including empty, multiline and Unico
 error messages. Cancellation races the operation future, then is checked again
 before returning its result so synchronous abort-and-reject cannot win the race.
 Proof commands/results: `/tmp/pi-rust-core-ops-fallible/ledger.md` and `NN-*.log`.
+RED: four behavioral failures before implementation. Final GREEN: 28 distinct
+passing tests across eight integration targets plus three focused bwrap unit tests.
+Two aggregate mutation runs rejected changes at all eight reached sites (three
+core error conversions, two abort races, three bwrap error conversions), producing
+nine expected test failures. Original source bytes were restored after each run.
 The existing String boundary excludes direct lone-surrogate inputs; error object
 identity/properties remain within [compatibility exclusions](../../specs/compatibility.md#out-of-scope).
 
