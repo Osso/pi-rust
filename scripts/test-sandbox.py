@@ -105,7 +105,18 @@ def enter(command):
     # This runs only after bwrap created a fresh network namespace. No host
     # interface changes; no veth/default route. Local HTTP fixtures need lo up.
     subprocess.run(["/usr/bin/ip", "link", "set", "lo", "up"], check=True)
-    os.execvpe(command[0], command, os.environ)
+    # Do not pass bootstrap capabilities into tests: nested bwrap rejects them.
+    os.execvpe(
+        "/usr/bin/setpriv",
+        [
+            "setpriv",
+            "--inh-caps=-net_admin",
+            "--ambient-caps=-net_admin",
+            "--",
+            *command,
+        ],
+        os.environ,
+    )
 
 
 def launch(command):

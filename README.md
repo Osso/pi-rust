@@ -20,7 +20,8 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 ## Test-process isolation
 
-Linux tests require `bubblewrap`, `iproute2`, Python 3, and permitted unprivileged
+Linux tests require `bubblewrap`, `iproute2`, `util-linux` (`setpriv`), Python 3,
+and permitted unprivileged
 network/mount namespaces. Missing/unsupported isolation fails closed; no unsandboxed
 fallback. `.cargo/config.toml` routes compiled test binaries through
 `scripts/cargo-runner.sh` and `scripts/test-sandbox.py`, including the Cargo phases
@@ -48,7 +49,8 @@ collecting proof.
 
 Every protected process gets new user/network namespaces with loopback enabled
 but no external interface/route. NET_ADMIN is retained only within those child
-namespaces to bring up their loopback; host interfaces are unchanged. Local HTTP/oracle fixtures, PTY descriptors, process
+namespaces to bring up their loopback, then dropped before executing tests;
+host interfaces are unchanged. Local HTTP/oracle fixtures, PTY descriptors, process
 groups and parent watchdogs remain usable. The bounded regression uses an outer
 namespace with a forbidden fake at the absolute helper path, real default Pi
 startup/double-Ctrl+C shutdown, and real loopback HTTP across nested guards. It
