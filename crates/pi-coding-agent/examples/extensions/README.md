@@ -90,3 +90,17 @@ changes in the session cwd and commits at shutdown. Enable only deliberately.
 stash refs at turns and offers restoration before forks. Both use the host's
 `ExtensionApi::exec`; tests run exclusively in private temporary repos with
 global/system git config disabled. Neither example loads by default.
+
+## Modes (batch G)
+
+`minimal_mode.rs` exports `minimal_mode_extension(&ExtensionApi)`; register its
+factory explicitly using the pattern above. It overrides seven built-in tools'
+renderers while executing the built-ins against the invocation context cwd.
+`plan_mode/utils.rs` contains pure planning helpers with lossless UTF-16 text.
+Full plan-mode registration is not shipped: existing native APIs cannot preserve
+the pinned example's mutable custom-entry data aliasing; see
+[`extension-examples-g`](../../../../docs/porting/traceability/extension-examples-g.md).
+
+`preset.rs` exports `preset_extension(&ExtensionApi)`. Register its factory
+explicitly; it reads global/project `presets.json` on session start. No providers
+are called by this example. Config loading failures are printed, matching TS.
