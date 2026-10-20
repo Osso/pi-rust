@@ -42,6 +42,15 @@ impl ExtensionUiTuiBackend for Backend {
 }
 struct Ui(Trace);
 impl ExtensionUiContext for Ui {
+    fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
+        Arc::new(
+            pi_coding_agent::modes::interactive::theme::load_theme_from_path(
+                &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+                Some(pi_coding_agent::modes::interactive::theme::ColorMode::Truecolor),
+            )
+            .unwrap(),
+        )
+    }
     fn custom<'a>(
         &'a self,
         factory: ExtensionUiCustomFactory,
@@ -175,7 +184,12 @@ fn shell_inherits_input_output_error_and_emits_screen_clear() {
         .unwrap();
     child.stdin.take().unwrap().write_all(b"fixture-input\n").unwrap();
     let output = child.wait_with_output().unwrap();
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "worker stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8(output.stdout).unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stdout.contains("\x1b[2J\x1b[Hchild-out:fixture-input"), "{stdout}");
