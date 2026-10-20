@@ -212,7 +212,12 @@ fn assert_worker_crash(kind: &str, fullscreen: bool) {
         &fixture.work,
     );
     let original = child.termios();
-    child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
+    let ready = if fullscreen {
+        "bwrap: full access"
+    } else {
+        "Ctrl+C twice to exit"
+    };
+    child.wait_for(ready, Duration::from_secs(20));
     // A DA reply without Kitty support enables modifyOtherKeys.
     child.write_input("\x1b[?1;2c");
     child.wait_for("\x1b[>4;2m", Duration::from_secs(5));

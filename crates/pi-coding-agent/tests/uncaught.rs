@@ -114,6 +114,23 @@ fn clearing_the_process_crash_handler_restores_the_default_report() {
 }
 
 #[test]
+fn process_crash_handler_receives_panics_from_other_threads() {
+    let output = run_crash_handler_child("worker");
+    assert_eq!(output.status.code(), Some(7));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "crash handler: Error: boom"
+    );
+}
+
+#[test]
+fn unregistering_from_another_thread_restores_the_default_report() {
+    let output = run_crash_handler_child("unregister-worker");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), "Error: boom");
+}
+
+#[test]
 fn swallowed_panics_do_not_reach_the_handler_or_stop_later_steps() {
     let output = run_crash_handler_child("swallowed");
     assert_eq!(output.status.code(), Some(1));
@@ -140,6 +157,19 @@ fn crash_handler_child() {
     match mode.to_str() {
         Some("panic") => {
             set_process_crash_handler(Some(reporting_handler()));
+            panic!("boom");
+        }
+        Some("worker") => {
+            set_process_crash_handler(Some(reporting_handler()));
+            std::thread::spawn(|| panic!("boom"))
+                .join()
+                .expect("handler exits first");
+        }
+        Some("unregister-worker") => {
+            set_process_crash_handler(Some(reporting_handler()));
+            std::thread::spawn(|| set_process_crash_handler(None))
+                .join()
+                .expect("unregister");
             panic!("boom");
         }
         Some("throw") => {
