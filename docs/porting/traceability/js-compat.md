@@ -53,7 +53,7 @@ Exponent spelling outside that range matches JavaScript (`1e+21`).
 |---|---|---|
 | V8 single-number legacy dates: `0`, months `1..12`, invalid `13..31`, two-digit years `32..99`, longer years, sign/whitespace/`Z`; strict ISO years retain precedence | `parse_numeric_date` | `tests/differential_date_parse.rs::numeric_dates_match_node_in_utc_and_chicago` (RED `"0"`: Rust NaN vs Node 946684800000; development GREEN at `b9ed3c9`, below) |
 | HTTP-date forms (`RFC 1123`, `RFC 850`, asctime), including observed pre-epoch forms | `parse_http_date` and `parse_legacy_date`; asctime wall clock is resolved in local time like V8 | `tests/date.rs`, `tests/differential_date_parse.rs` |
-| Observed named-month/slash grammar, two-digit years and local/zoned legacy times | `legacy_date_fields`, `legacy_time`, `parse_legacy_date` | `tests/differential_date_parse.rs::legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones` |
+| Observed named-month/slash grammar, two-digit years and local/zoned legacy times | `partition_legacy_date_words`, `legacy_date_fields`, `legacy_time`, `parse_legacy_date` | `tests/differential_date_parse.rs::legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones` |
 | ECMAScript ISO 8601: 4-digit and signed 6-digit years, `YYYY[-M[-D]]`, `T`/`t`/whitespace separators, optional seconds/fraction, `Z`/`z`/`±HH:MM`/`±HHMM` | `parse_iso8601_millis` | `tests/date.rs`, `tests/differential_date_parse.rs` |
 | Zone-less date-time = local; strict date-only = UTC; non-padded legacy date-only = local; `Z` on any date-only = UTC | `resolve_local_from_wall`, `finish_date` | `tests/date.rs`, differential under `TZ=UTC` and `TZ=America/Chicago` |
 | DST gap/fold disambiguation | `jiff::civil::DateTime::to_zoned` (`compatible`: gap uses the pre-transition offset, fold uses the earlier instant) | `tests/date.rs::uses_compatible_disambiguation_for_dst_transitions` |
@@ -71,9 +71,12 @@ V8 compatibility quirk (not a TS source bug): named-month legacy seconds `60`, `
 
 Implementer GREEN at `b9ed3c9`: eight date integration tests and five differential
 tests passed (`/tmp/model-data-tools-date-green-3.log`). The date changes are
-integrated at `622fdad`; independent proof remains pending shared JSON prerequisite
-integration. Precommit `cargo fmt --check` passed; ledger:
-`/tmp/pi-rust-date-integration/ledger.json`.
+integrated at `622fdad`. Independent proof at `e31b4c8` passed: eight date unit
+and five differential tests, shared-crate check and all-feature Clippy; full ledger
+`/tmp/pi-rust-e31b4c8-json-date-proof/ledger.json`. The subsequent token-partition
+extraction resolves the new 40-line helper finding without changing its grammar;
+post-extraction date proof is pending. Unchanged JSON proof remains valid.
+Precommit formatting ledger: `/tmp/pi-rust-date-integration/ledger.json`.
 
 The finite corpus does not establish complete V8 legacy grammar parity; untested legacy forms remain unproven, not approved exclusions.
 

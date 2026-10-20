@@ -38,10 +38,11 @@ bash manifests/completions, supervisor request rows, persisted process identity)
 ## Discrepancies
 
 - Legacy `parse` replaces lone surrogate escapes with U+FFFD before key insertion, preserving existing serde-facing behavior. This is a known lossy API boundary, not valid proof of raw-file validator parity: `JSON.stringify` must escape those units rather than replace them. New `parse_lossless` retains them. A non-BMP character reported as V8's single-unit error token still prints as U+FFFD at the UTF-8 diagnostic boundary; the existing mutation oracle applies `toWellFormed()` only to errors. The new bounded lossless oracle applies no normalization.
-- Integers above 2^53 are stored exactly by `serde_json` but lose precision in JavaScript. Values read
-  from JavaScript-written files are already rounded, so round-trips match; a Rust writer emitting an
-  integer above 2^53 would print the exact value where JavaScript prints the rounded one. No writer in
-  this port produces such values (timestamps and costs stay below the limit).
+- `JsValue::Number`, conversion from serde values and explicit lossy conversion retain
+  serde-number storage. Parsing converts through JavaScript doubles and maps non-finite
+  values to null; current negative-zero behavior is retained. The writer converts through
+  `as_f64()` and `js_number_to_string`, so it does not print arbitrary serde integers
+  exactly above 2^53. No general JavaScript numeric representation parity is claimed.
 
 ## Additive UTF-16 API (bounded prerequisite)
 
@@ -59,9 +60,16 @@ Contract: [shared JSON UTF-16 spec](../../specs/js-json.md). No caller migration
 
 One parser and writer serve both representations. Legacy parse chooses replacement at string completion, before duplicate-key insertion; converting an already-lossless object later can yield different collision winners and is explicitly named lossy. Numbers retain existing `serde_json::Number`/double behavior; no general JavaScript numeric representation claim.
 
-Development evidence: `/tmp/pi-rust-js-json-utf16-proof/ledger.md` records baseline Node differential RED (nine mismatches), targeted GREEN, source scopes, and formatting. Parent owns independent integration verification; no broad gates performed by this slice.
+Development evidence: `/tmp/pi-rust-js-json-utf16-proof/ledger.md` records baseline
+Node differential RED (nine mismatches), targeted GREEN and formatting at `850b6e8`.
+Independent integration proof at `e31b4c8` passed all 11 JSON tests, shared-crate
+check and all-feature Clippy. Formatting inherits the identical integrated precommit
+source check; full commands/scope hashes: `/tmp/pi-rust-e31b4c8-json-date-proof/ledger.json`.
+Model-data consumption remains a separate slice; no full-port claim follows.
 
 ## Proof inventory
 
-- Focused cases: 6.
-- Differential cases: 1617.
+- Legacy focused cases: 6; total lossless target: 9 (six inherited, three new).
+- Legacy differential inputs: 1,617; existing split-error `toWellFormed()` normalization remains.
+- New lossless differential inputs: 45; compact/pretty bytes and key units compared without normalization.
+- Independent merged proof: nine focused tests plus two differential test functions, all passed at `e31b4c8`.
