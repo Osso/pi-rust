@@ -9,7 +9,7 @@ none loads by default. Only JavaScript stack frames may be omitted.
 | `git-merge-and-resolve.ts` default / `agent_end` | `examples/extensions/git_merge_and_resolve.rs::git_merge_and_resolve_extension` | `example_git_merge_and_resolve`: complete metadata, notifications, follow-up delivery options/messages, errors, file contents and git status against real pinned loader/runner |
 | `findConflicts`, `formatRange`, `formatConflicts` | private native helpers | New/existing merge, malformed markers, single/multiline/empty sections; conflict instruction mutation rejected |
 | `interactive-shell.ts` default / `user_bash` | Not shipped | Missing native terminal lifecycle API; see below |
-| `handoff.ts` | Pending | — |
+| `handoff.ts` default / `/handoff` | `examples/extensions/handoff.rs::handoff_extension` | `example_handoff`: fourteen complete-result scenarios including original-context invalidation, replacement UI, parent tracking and compaction; metadata mutation rejected |
 | `summarize.ts` default / `/summarize` | `examples/extensions/summarize.rs::summarize_extension` | `example_summarize`: ten cases, complete command/tool metadata, notifications, model requests, outputs/errors, custom renders at 32/80 columns, Enter/Esc/irrelevant input |
 | `ssh.ts` default / flag, four tools, three events | Not shipped | Native custom-operation errors cannot propagate arbitrary Error messages; see below |
 
@@ -27,6 +27,28 @@ Pinned per-file conflict-read errors are intentionally ignored, as in source.
 Development logs and proof ledger: `/tmp/pi-rust-ext-examples-i/`.
 RED: missing native example (01). GREEN: ten scenarios (02). Mutation:
 `Resolve these conflicts.` → `Ignore these conflicts.` fails (03), reverted.
+
+## Handoff proof
+
+`entryToMessage` / `getHandoffMessages` map to `entry_message` /
+`handoff_messages`: message entries, ignored entries, latest compaction summary,
+first-kept retained range, missing first-kept ID, post-compaction messages.
+Normalize numeric JSON object keys to JavaScript enumeration order before
+native conversation serialization; model input preserves source order.
+
+Command cases: non-TUI, no model, blank goal, no conversation, cancelled draft,
+nonempty/empty edited draft, cancelled session replacement, aborted model
+response, Escape loader cancellation, empty response, and compaction kept ranges
+at 0/2/missing. Original runtime is invalidated before `withSession`; native and
+TS replacement runners have separate UI traces. Compare complete metadata,
+notifications, loader renders at 32/80 columns, completion request, editor draft,
+new-session parent/options and replacement-editor/notification effects.
+Both managers are in-memory; explicit parent file paths stay under temp roots.
+
+BorderedLoader has no animation frames in pinned TS. Its native Rc components
+are ephemeral per render, while the cancellation token/done callback persist at
+the Send+Sync extension bridge. Completion uses the real registry/faux provider.
+RED: 18; GREEN: 22/23; metadata mutation rejected: 24, reverted.
 
 ## Summarize proof
 

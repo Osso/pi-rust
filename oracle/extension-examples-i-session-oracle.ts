@@ -17,23 +17,28 @@ async function main(){
    const captured=JSON.parse(JSON.stringify(context));captured.messages[0].timestamp='<clock>';
    calls.push({model:[model.provider,model.id],context:captured,options:{cacheRetention:options.cacheRetention,sessionId:'<uuidv7>',reasoningEffort:options.reasoningEffort??null}});
    if(request.error)throw new Error(request.error);
-   return fauxModule.fauxAssistantMessage(request.response??[{type:'text',text:'## Summary\n\nDone **one**.'},{type:'thinking',thinking:'hidden'},{type:'text',text:'Next: `two`.'}],{timestamp:0});
+   return fauxModule.fauxAssistantMessage(request.response??[{type:'text',text:'## Summary\n\nDone **one**.'},{type:'thinking',thinking:'hidden'},{type:'text',text:'Next: `two`.'}],{timestamp:0,stopReason:request.aborted?'aborted':'stop'});
   }]);
-  const manager=sessions.SessionManager.inMemory('/fixture');for(const message of request.messages??[])manager.appendMessage(message);
+  const manager=sessions.SessionManager.inMemory('/fixture');if(request.sessionFile)manager.setSessionFile(request.sessionFile);for(const message of request.messages??[])manager.appendMessage(message);
+  if(request.compaction!==undefined){const id=manager.getEntries()[request.compaction]?.id??'missing';manager.appendCompaction('Earlier summary',id,12000);manager.appendMessage({role:'user',content:'after compaction',timestamp:0});}
   const runner=new runners.ExtensionRunner([extension],runtime,'/fixture',manager,registry);
   runner.bindCore({sendMessage(){},sendUserMessage(){},appendEntry(){},requestResumeContinuation(){},setSessionName(){},getSessionName(){},setLabel(){},getActiveTools:()=>[],getAllTools:()=>[],setActiveTools(){},callTool:async()=>({content:[]}),callCommand:async()=>undefined,refreshTools(){},getCommands:()=>[],setModel:async()=>false,getThinkingLevel:()=>"off",setThinkingLevel(){}},{getModel:()=>request.noModel?undefined:registry.find('openai','gpt-5.2'),isIdle:()=>true,hasActiveRetry:()=>false,isProjectTrusted:()=>true,getSignal(){},abort(){},hasPendingMessages:()=>false,shutdown(){},restart:async()=>{},getContextUsage(){},compact(){},getSystemPrompt:()=>'',getScopedModels:()=>[]});
   themeModule.initTheme('dark',false);
   const ui={theme:themeModule.theme,notify:(s:string,level:string)=>trace.push(['notify',s,level]),editor:async(title:string,prefill:string)=>{trace.push(['editor',title,prefill]);return request.editor;},setEditorText:(s:string)=>trace.push(['setEditorText',s]),custom:async(factory:any)=>{
    let completed=false,resolve:any;const result=new Promise(done=>{resolve=done;});
-   const component=factory({requestRender(){},terminal:{rows:40,columns:80}},themeModule.theme,{},(value:any)=>{completed=true;resolve(value);});
+   const component=factory({requestRender(){},requestComponentRender(){},terminal:{rows:40,columns:80}},themeModule.theme,{},(value:any)=>{completed=true;resolve(value);});
    for(const width of [32,80])trace.push(['render',width,component.render(width)]);
    component.invalidate();component.handleInput?.('x');component.handleInput?.(request.key??'\r');
    const timer=setTimeout(()=>resolve(Promise.reject(new Error('custom UI did not complete'))),3000);
    try{return await result;}finally{clearTimeout(timer);component.dispose?.();}
   }};
+  const transitions:any[]=[],replacementUi:any[]=[];
+  const replacement=new runners.ExtensionRunner([],loader.createExtensionRuntime(),'/fixture',sessions.SessionManager.inMemory('/fixture'),registry);
+  replacement.setUIContext({notify:(s:string,level:string)=>replacementUi.push(['notify',s,level]),setEditorText:(s:string)=>replacementUi.push(['setEditorText',s])},'tui');
+  runner.bindCommandContext({newSession:async(options:any)=>{transitions.push(['newSession',options.parentSession??null,!!options.setup,!!options.withSession]);if(!request.cancelSession){runner.invalidate();await options.withSession?.(replacement.createCommandContext());}return {cancelled:!!request.cancelSession};}});
   runner.setUIContext(request.hasUI===false?undefined:ui,request.mode??'tui');runner.onError((e:any)=>errors.push([e.event,e.error]));
   let result:any=null;try{await runner.getCommand(source.includes('handoff.ts')?'handoff':'summarize').handler(request.args??'',runner.createCommandContext());}catch(e:any){result=e.message;}
-  return {metadata,trace,calls,errors,result};
+  return {metadata,trace,calls,errors,result,transitions,replacementUi};
  }
  let pending='';process.stdin.setEncoding('utf8');for await(const chunk of process.stdin){pending+=chunk;let end;while((end=pending.indexOf('\n'))!==-1){const line=pending.slice(0,end);pending=pending.slice(end+1);console.log(JSON.stringify(await run(JSON.parse(line))));}}
  if(pending)throw new Error('Unterminated oracle request');

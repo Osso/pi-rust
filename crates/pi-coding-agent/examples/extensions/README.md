@@ -119,3 +119,8 @@ add `/summarize`. It completes with the host registry’s `openai/gpt-5.2`, then
 shows a Markdown summary in TUI mode. Nothing loads by default. SSH is blocked
 on preserving arbitrary remote errors through native filesystem operations;
 see batch I traceability.
+
+`handoff.rs` exports `handoff_extension`; explicitly register its factory to add
+`/handoff <goal>`. It generates a focused draft through the host model registry,
+lets the user edit it, then replaces the session with parent tracking. Post-switch
+UI uses the replacement context. Nothing loads by default.

@@ -166,13 +166,24 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let log = calls.clone();
     let response=request.get("response").cloned().unwrap_or(json!([{"type":"text","text":"## Summary\n\nDone **one**."},{"type":"thinking","thinking":"hidden"},{"type":"text","text":"Next: `two`."}]));
     let error = request["error"].as_str().map(str::to_owned);
+    let aborted = request["aborted"] == true;
     faux.set_responses(vec![FauxResponseStep::Factory(Arc::new(move|context,options,_,model|{
   let options=options.unwrap_or_default();let id=options.stream.session_id.as_deref().unwrap();assert_eq!(id.len(),36);assert_eq!(&id[14..15],"7");
   let mut context=serde_json::to_value(context).unwrap();context["messages"][0]["timestamp"]=json!("<clock>");
   log.lock().unwrap().push(json!({"model":[model.provider,model.id],"context":context,"options":{"cacheRetention":options.stream.cache_retention,"sessionId":"<uuidv7>","reasoningEffort":options.stream.extra.get("reasoningEffort")}}));
-  let response=response.clone();let error=error.clone();Box::pin(async move{if let Some(error)=error{return Err(pi_ai::request::CallbackError::new(error));}let mut message=faux_assistant_message("",FauxAssistantMessageOptions{timestamp:Some(0),..Default::default()});message.content=serde_json::from_value(response).unwrap();Ok(message)})
+  let response=response.clone();let error=error.clone();Box::pin(async move{if let Some(error)=error{return Err(pi_ai::request::CallbackError::new(error));}let mut message=faux_assistant_message("",FauxAssistantMessageOptions{timestamp:Some(0),..Default::default()});message.content=serde_json::from_value(response).unwrap();if aborted {message.stop_reason=pi_ai::types::StopReason::Aborted;}Ok(message)})
  }))]);
     let manager = Arc::new(Mutex::new(SessionManager::in_memory(Some("/fixture"), None).unwrap()));
+    let session_root = tempfile::tempdir().unwrap();
+    if name == "handoff" {
+        let path = session_root.path().join("old.jsonl");
+        manager
+            .lock()
+            .unwrap()
+            .set_session_file(path.to_str().unwrap())
+            .unwrap();
+        request["sessionFile"] = json!(path);
+    }
     for message in request["messages"].as_array().into_iter().flatten() {
         manager
             .lock()
@@ -180,10 +191,27 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
             .append_message(serde_json::from_value(message.clone()).unwrap())
             .unwrap();
     }
+    if let Some(index) = request["compaction"].as_u64() {
+        let mut manager = manager.lock().unwrap();
+        let kept = manager
+            .get_entries()
+            .get(index as usize)
+            .and_then(|entry| entry.id())
+            .unwrap_or("missing")
+            .to_owned();
+        manager
+            .append_compaction("Earlier summary", &kept, 12000.0, Default::default())
+            .unwrap();
+        manager
+            .append_message(
+                serde_json::from_value(json!({"role":"user","content":"after compaction","timestamp":0})).unwrap(),
+            )
+            .unwrap();
+    }
     let registry = Arc::new(ModelRegistry::new(models));
     let mut runner = ExtensionRunner::new(
         vec![extension],
-        runtime,
+        runtime.clone(),
         "/fixture",
         manager.clone(),
         registry.clone(),
@@ -209,7 +237,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let trace: Trace = Arc::default();
     let ui = Arc::new(Ui {
         trace: trace.clone(),
-        theme,
+        theme: theme.clone(),
         request: request.clone(),
     });
     runner.set_ui_context(
@@ -220,12 +248,65 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         },
         serde_json::from_value(request.get("mode").cloned().unwrap_or(json!("tui"))).unwrap(),
     );
+    let replacements: Trace = Arc::default();
+    let transitions: Trace = Arc::default();
+    let mut replacement = support::runner_for(vec![], "/fixture", create_extension_runtime(), registry.clone());
+    support::bind(&mut replacement);
+    replacement.set_ui_context(
+        Some(Arc::new(Ui {
+            trace: replacements.clone(),
+            theme,
+            request: request.clone(),
+        })),
+        ExtensionMode::Tui,
+    );
+    let replacement_context = replacement.create_command_context();
+    let cancelled = request["cancelSession"] == true;
+    let log = transitions.clone();
+    let previous = runtime.clone();
+    runner.bind_command_context(Some(ExtensionCommandContextActions {
+        show_approval_selector: Arc::new(|| Ok(())),
+        show_sandbox_selector: Arc::new(|| Ok(())),
+        set_sandbox_profile: Arc::new(|_, _| Ok(())),
+        wait_for_idle: Arc::new(|| Box::pin(async {})),
+        new_session: Arc::new(move |options| {
+            let options = options.unwrap_or_default();
+            let context = replacement_context.clone();
+            let log = log.clone();
+            let previous = previous.clone();
+            Box::pin(async move {
+                log.lock().unwrap().push(json!([
+                    "newSession",
+                    options.parent_session,
+                    options.setup.is_some(),
+                    options.with_session.is_some()
+                ]));
+                if !cancelled {
+                    previous.invalidate(None);
+                    if let Some(callback) = options.with_session {
+                        callback(ReplacedSessionContext {
+                            command: context,
+                            send_message: Arc::new(|_, _| Box::pin(async { Ok(()) })),
+                            send_user_message: Arc::new(|_, _| Box::pin(async { Ok(()) })),
+                        })
+                        .await?;
+                    }
+                }
+                Ok(SessionTransitionResult { cancelled })
+            })
+        }),
+        fork: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        navigate_tree: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        switch_session: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        reload: Arc::new(|| Box::pin(async {})),
+        restart: Arc::new(|_| Box::pin(async { Ok(()) })),
+    }));
     let result = (runner.get_command(name).unwrap().handler)(
         request["args"].as_str().unwrap_or("").into(),
         runner.create_command_context(),
     )
     .await;
-    let actual = json!({"metadata":metadata,"trace":trace.lock().unwrap().clone(),"calls":calls.lock().unwrap().clone(),"errors":errors.lock().unwrap().clone(),"result":result.err().map(|e|e.message)});
+    let actual = json!({"metadata":metadata,"trace":trace.lock().unwrap().clone(),"calls":calls.lock().unwrap().clone(),"errors":errors.lock().unwrap().clone(),"result":result.err().map(|e|e.message),"transitions":transitions.lock().unwrap().clone(),"replacementUi":replacements.lock().unwrap().clone()});
     let mut oracle = oracle::TsOracle::spawn_with_environment(
         "extension-examples-i-session-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
