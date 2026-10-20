@@ -28,8 +28,8 @@ impl FindOperations for Fault {
     fn supports_glob(&self) -> bool {
         true
     }
-    fn exists<'a>(&'a self, _: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async { false })
+    fn exists<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async { Ok(false) })
     }
 }
 impl BashOperations for Fault {
@@ -100,8 +100,8 @@ impl EditOperations for Fault {
     }
 }
 impl LsOperations for Fault {
-    fn exists<'a>(&'a self, _: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async { true })
+    fn exists<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async { Ok(true) })
     }
     fn is_directory<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async { self.result("stat", true) })
@@ -203,4 +203,128 @@ async fn intentional_grep_find_and_bash_error_handling_matches_source() {
             "{name}/{stage}"
         );
     }
+}
+
+struct RejectingOperations {
+    stage: &'static str,
+    message: &'static str,
+    abort: &'static str,
+    signal: tokio_util::sync::CancellationToken,
+}
+impl RejectingOperations {
+    async fn reject<T>(&self, stage: &str, value: T) -> io::Result<T> {
+        if self.stage != stage {
+            return Ok(value);
+        }
+        if self.abort == "pending" {
+            self.signal.cancel();
+            return std::future::pending().await;
+        }
+        if self.abort == "reject" {
+            self.signal.cancel();
+        }
+        Err(io::Error::other(self.message))
+    }
+}
+impl LsOperations for RejectingOperations {
+    fn exists<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async { self.reject("exists", true).await })
+    }
+    fn is_directory<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async { Err(io::Error::other("later stat failure")) })
+    }
+    fn readdir<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<Vec<String>>> {
+        Box::pin(async { Err(io::Error::other("later readdir failure")) })
+    }
+}
+impl FindOperations for RejectingOperations {
+    fn supports_glob(&self) -> bool {
+        true
+    }
+    fn exists<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async { self.reject("exists", self.stage != "missing").await })
+    }
+    fn glob<'a>(&'a self, _: &'a str, _: &'a str, _: &'a [String], _: usize) -> BoxFuture<'a, io::Result<Vec<String>>> {
+        Box::pin(async { self.reject("glob", Vec::new()).await })
+    }
+}
+
+async fn compare_rejection(tool_name: &str, stage: &'static str, abort: &'static str, message: &'static str) {
+    let mut oracle = oracle::TsOracle::spawn(
+        "custom-operation-errors-oracle.ts",
+        "packages/coding-agent/src/core/tools/read.ts",
+    );
+    let signal = tokio_util::sync::CancellationToken::new();
+    if abort == "before" {
+        signal.cancel();
+    }
+    let ops = Arc::new(RejectingOperations {
+        stage,
+        message,
+        abort,
+        signal: signal.clone(),
+    });
+    let tool: Box<dyn AgentTool> = if tool_name == "ls" {
+        Box::new(LsTool::with_options(
+            "/fixture",
+            LsToolOptions { operations: Some(ops) },
+        ))
+    } else {
+        Box::new(FindTool::with_options(
+            "/fixture",
+            FindToolOptions { operations: Some(ops) },
+        ))
+    };
+    let params = json!({"path":"file.txt","pattern":"needle"});
+    let expected =
+        oracle.request(&json!({"tool":tool_name,"stage":stage,"message":message,"abort":abort,"params":params}));
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        tool.execute("fault".into(), params, Some(signal), Arc::new(|_| {}), None),
+    )
+    .await;
+    let actual = outcome
+        .expect("abort must settle without waiting for pending operation")
+        .err()
+        .map(|error| error.message);
+    assert_eq!(json!({"error":actual}), expected, "{tool_name}/{stage}/{abort}");
+}
+
+#[tokio::test]
+async fn core_ops_ls_exists_rejection_precedes_stat_and_readdir() {
+    for message in ["SSH failed (7): scripted failure\n", "", "拒否: é\nsecond line"] {
+        compare_rejection("ls", "exists", "none", message).await;
+    }
+}
+#[tokio::test]
+async fn core_ops_find_exists_rejection_precedes_glob() {
+    for message in ["SSH failed (7): scripted failure\n", "", "拒否: é\nsecond line"] {
+        compare_rejection("find", "exists", "none", message).await;
+    }
+}
+#[tokio::test]
+async fn core_ops_find_glob_rejection_propagates_without_wrapping() {
+    for message in ["SSH failed (7): scripted failure\n", "", "拒否: é\nsecond line"] {
+        compare_rejection("find", "glob", "none", message).await;
+    }
+}
+async fn compare_operation_aborts(tool: &str, stage: &'static str) {
+    for abort in ["before", "reject", "pending"] {
+        compare_rejection(tool, stage, abort, "remote denied").await;
+    }
+}
+
+#[tokio::test]
+async fn core_ops_ls_exists_abort_wins_before_rejection_or_while_pending() {
+    compare_operation_aborts("ls", "exists").await;
+}
+
+#[tokio::test]
+async fn core_ops_find_exists_abort_wins_before_rejection_or_while_pending() {
+    compare_operation_aborts("find", "exists").await;
+}
+
+#[tokio::test]
+async fn core_ops_find_glob_abort_wins_before_rejection_or_while_pending() {
+    compare_operation_aborts("find", "glob").await;
 }

@@ -6,6 +6,7 @@ interface Request {
     stage: string;
     message?: string;
     params: Record<string, unknown>;
+    abort?: "before" | "reject" | "pending";
 }
 
 function failingOperation<T>(request: Request, stage: string, value: T) {
@@ -21,6 +22,17 @@ async function run(request: Request) {
     const modulePath = join(dirname(process.argv[2]), `${request.tool}.ts`);
     const module = await import(pathToFileURL(modulePath).href);
     const fault = <T>(stage: string, value: T) => failingOperation(request, stage, value);
+    const controller = new AbortController();
+    if (request.abort === "before") controller.abort();
+    const rejectOperation = async (stage: string, value: unknown) => {
+        if (request.stage !== stage) return value;
+        if (request.abort === "pending") {
+            setTimeout(() => controller.abort(), 0);
+            return new Promise(() => {});
+        }
+        if (request.abort === "reject") controller.abort();
+        throw new Error(request.message ?? "SSH failed (7): scripted failure\n");
+    };
     const operations = {
         access: fault("access", undefined),
         readFile: fault(request.stage === "image" ? "image" : "readFile", Buffer.from("old")),
@@ -28,17 +40,17 @@ async function run(request: Request) {
         stat: fault("stat", { size: 100000, isDirectory: () => true }),
         mkdir: fault("mkdir", undefined),
         writeFile: fault("writeFile", undefined),
-        exists: async () => request.stage !== "missing",
+        exists: () => rejectOperation("exists", request.stage !== "missing"),
         readdir: fault("readdir", []),
         isDirectory: fault("directory", true),
-        glob: async () => [],
+        glob: () => rejectOperation("glob", []),
         exec: fault(request.stage, { exitCode: 0 }),
         ...(request.stage === "range" ? { readRange: fault("range", Buffer.alloc(0)) } : {}),
     };
     const factoryName = `create${request.tool[0].toUpperCase() + request.tool.slice(1)}Tool`;
     const create = module[factoryName];
     try {
-        await create("/fixture", { operations }).execute("fault", request.params);
+        await create("/fixture", { operations }).execute("fault", request.params, controller.signal);
         return { error: null };
     } catch (error) {
         if (error instanceof Error) return { error: error.message };
