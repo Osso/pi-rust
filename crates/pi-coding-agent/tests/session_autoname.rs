@@ -179,6 +179,7 @@ struct Env {
     faux: FauxProviderHandle,
     control_db_path: String,
     session_file: String,
+    extension_name_events: Arc<Mutex<Vec<Option<String>>>>,
     _dir: tempfile::TempDir,
 }
 
@@ -226,8 +227,23 @@ async fn env() -> Env {
     manager.persist_for_recovery().expect("persist header");
     let session_file = manager.get_session_file().expect("session file").to_owned();
 
-    let factory: pi_coding_agent::core::extensions::ExtensionFactory = Arc::new(|api| {
-        let result = pi_coding_agent::bundled_extensions::session_autoname::session_autoname_extension(api);
+    let extension_name_events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = Arc::clone(&extension_name_events);
+    let factory: pi_coding_agent::core::extensions::ExtensionFactory = Arc::new(move |api| {
+        let event_sink = Arc::clone(&event_sink);
+        let result =
+            pi_coding_agent::bundled_extensions::session_autoname::session_autoname_extension(api).and_then(|()| {
+                api.on_session_info_changed(
+                    move |event: pi_coding_agent::core::extensions::types::SessionInfoChangedEvent, _ctx| {
+                        let event_sink = Arc::clone(&event_sink);
+                        Box::pin(async move {
+                            event_sink.lock().expect("extension events").push(event.name);
+                            Ok(None)
+                        }) as pi_ai::request::BoxFuture<'static, _>
+                    },
+                )
+                .map_err(pi_coding_agent::core::extensions::types::HandlerError::new)
+            });
         Box::pin(async move { result })
     });
     let settings_manager = SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default());
@@ -266,6 +282,7 @@ async fn env() -> Env {
         faux,
         control_db_path,
         session_file,
+        extension_name_events,
         _dir: dir,
     }
 }
@@ -1009,4 +1026,22 @@ async fn title_requests_carry_the_source_limits_and_abort_after_fifteen_seconds(
     assert_eq!(env.session.session_name(), None);
     assert_eq!(faux_call_count(&env.faux), 1);
     assert!(!env.session.session_manager().has_session_name_state());
+}
+
+#[tokio::test]
+async fn set_and_clear_publish_name_events_to_extensions_in_order() {
+    let env = env().await;
+    env.session.set_session_name("first").expect("first name");
+    env.session.set_session_name("second").expect("second name");
+    env.session.clear_session_name().expect("clear name");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while env.extension_name_events.lock().expect("events").len() < 3 {
+        assert!(Instant::now() < deadline, "extension name events missing");
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    assert_eq!(
+        *env.extension_name_events.lock().expect("events"),
+        vec![Some("first".to_owned()), Some("second".to_owned()), None,]
+    );
+    assert!(env.session.session_manager().has_session_name_state());
 }

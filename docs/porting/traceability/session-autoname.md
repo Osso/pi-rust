@@ -23,7 +23,7 @@ request path. JS trim/whitespace/UTF-16 utilities are shared through `pi-js-comp
 
 ## Behavioral and differential proof
 
-`tests/session_autoname.rs` has 21 tests, including the TS file's nonblocking prompt
+`tests/session_autoname.rs` has 22 tests, including the TS file's nonblocking prompt
 settlement, RPC/print/JSON/ephemeral/child boundaries, first-user recovery after
 empty/failed/aborted responses, partial-failure exchanges, cwd continuations,
 metadata-clear/history rules, and pending shutdown/manual-clear/manual-name races.
