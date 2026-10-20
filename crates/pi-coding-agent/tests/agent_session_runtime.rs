@@ -528,3 +528,39 @@ async fn dispose_emits_session_shutdown_quit_before_invalidating_the_session() {
     assert!(logs.contains(&"shutdown:quit".to_owned()), "logs: {logs:?}");
     assert!(invalidated.load(Ordering::SeqCst));
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn import_through_a_symlinked_session_dir_preserves_the_source_file() {
+    let mut harness = build_harness(false, false).await;
+    let source = tempfile::tempdir().expect("source dir");
+    let source_cwd = source.path().display().to_string();
+    let source_sessions = source.path().join("sessions");
+    std::fs::create_dir_all(&source_sessions).expect("source sessions");
+    let mut source_manager = SessionManager::create(&source_cwd, Some(&source_sessions.display().to_string()), None)
+        .expect("source manager");
+    source_manager
+        .append_message(AgentMessage::User(pi_ai::types::UserMessage {
+            role: pi_ai::types::UserRole::Tag,
+            content: pi_ai::types::UserContent::Text("symlinked import".to_owned()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 1_700_000_000_001,
+        }))
+        .expect("append");
+    source_manager.persist_for_recovery().expect("persist");
+    let source_file = source_manager.get_session_file().expect("source file").to_owned();
+
+    let session_dir = harness.runtime.session().session_manager().get_session_dir().to_owned();
+    std::fs::remove_dir_all(&session_dir).expect("remove harness session dir");
+    std::os::unix::fs::symlink(&source_sessions, &session_dir).expect("symlink session dir");
+
+    let result = harness
+        .runtime
+        .import_from_jsonl(&source_file, Some(&source_cwd))
+        .await
+        .expect("import");
+    assert!(!result.cancelled);
+    let content = std::fs::read_to_string(&source_file).expect("source file readable");
+    assert!(content.contains("symlinked import"), "content: {content}");
+}

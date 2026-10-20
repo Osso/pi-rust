@@ -734,7 +734,7 @@ impl AgentSessionRuntime {
         )
         .map_err(|error| error.to_string())?;
         if resolved_destination != resolved {
-            std::fs::copy(&resolved, &destination_path).map_err(|error| error.to_string())?;
+            copy_imported_session(&resolved, &destination_path)?;
         }
         let session_manager = SessionManager::open(&destination_path, Some(&session_dir), cwd_override)
             .map_err(|error| error.to_string())?;
@@ -768,6 +768,35 @@ impl AgentSessionRuntime {
             handler();
         }
         self.session.dispose();
+    }
+}
+
+/// Copies an imported session file. `copyFileSync` treats source and destination
+/// that name the same file as a no-op, which is reachable once the caller
+/// compares lexical `path.resolve` paths instead of canonical paths.
+fn copy_imported_session(source: &str, destination: &str) -> Result<(), String> {
+    if is_same_file(source, destination) {
+        return Ok(());
+    }
+    std::fs::copy(source, destination)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(unix)]
+fn is_same_file(left: &str, right: &str) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::metadata(left), std::fs::metadata(right)) {
+        (Ok(left), Ok(right)) => left.dev() == right.dev() && left.ino() == right.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn is_same_file(left: &str, right: &str) -> bool {
+    match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
     }
 }
 
