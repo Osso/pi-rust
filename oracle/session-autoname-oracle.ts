@@ -10,7 +10,7 @@ async function main(): Promise<void> {
 	const packages = resolve(dirname(extensionPath), "../../../..");
 	const { default: register } = await import(pathToFileURL(extensionPath).href);
 	const ai = await import(pathToFileURL(resolve(packages, "ai/src/compat.ts")).href);
-	
+
 	for await (const line of createInterface({ input: process.stdin })) {
 		if (!line.trim()) continue;
 		const request = JSON.parse(line);
