@@ -12,6 +12,15 @@ ln -s /home/osso/.worktrees/pi-rust-source-532f7d12/node_modules target/session-
 ln -s /home/osso/.worktrees/pi-rust-source-532f7d12/packages/ai/src/providers/data target/session-name-oracle/packages/ai/src/providers/data
 ```
 
+`./run-tests.sh all` and `differential` run `node oracle/session-name-reference.mjs`
+before Cargo (and before the type gate for `all`). This read-only preflight requires
+the locked HEAD, tsx, tsconfig and model-data directory; missing/mismatched fixtures
+fail immediately with this setup document, never clone, edit or select another pin.
+Run it directly after the explicit setup above. Each isolated worktree needs its own
+`target/session-name-oracle`; canonical preparation does not prepare sibling targets.
+`node --test oracle/session-name-reference.test.mjs` proves missing/wrong-HEAD
+runner failures occur before Cargo and checks valid/missing-environment preflights.
+
 `TsOracle::spawn` accepts `session-names:packages/...` for this explicit reference.
 It verifies the checkout's full commit SHA, then uses the same process-group teardown
 and parent watchdog as every other oracle. DB schema/name differentials compare all
