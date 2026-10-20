@@ -1,5 +1,5 @@
 use pi_ai::request::SimpleStreamOptions;
-use pi_ai::types::{Context, Model};
+use pi_ai::types::{Context, Model, ThinkingLevel};
 use pi_js_compat::number::js_number_value;
 use serde_json::{Value, json};
 
@@ -182,17 +182,19 @@ pub(super) fn build_params(model: &Model, context: &Context, options: &SimpleStr
     }).collect::<Vec<_>>());
     }
     if let Some(reasoning) = options.reasoning.filter(|_| model.reasoning) {
-        let level = serde_json::to_value(reasoning).expect("reasoning string");
-        let budgets = serde_json::to_value(&options.thinking_budgets).expect("typed budgets");
-        let budget = budgets
-            .get(text(&level))
-            .and_then(Value::as_f64)
-            .unwrap_or_else(|| match text(&level) {
-                "minimal" => 1024.0,
-                "low" => 4096.0,
-                "high" => 20480.0,
-                _ => 10240.0,
-            });
+        let custom = options.thinking_budgets.as_ref().and_then(|budgets| match reasoning {
+            ThinkingLevel::Minimal => budgets.minimal,
+            ThinkingLevel::Low => budgets.low,
+            ThinkingLevel::Medium => budgets.medium,
+            ThinkingLevel::High => budgets.high,
+            _ => None,
+        });
+        let budget = custom.unwrap_or(match reasoning {
+            ThinkingLevel::Minimal => 1024.0,
+            ThinkingLevel::Low => 4096.0,
+            ThinkingLevel::High => 20480.0,
+            _ => 10240.0,
+        });
         params["thinking"] = json!({"type":"enabled","budget_tokens":js_number_value(budget)});
     }
     params

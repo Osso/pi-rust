@@ -82,7 +82,9 @@ async function execute(input: any) {
   } catch (e) { return { calls, error: e instanceof Error ? e.message : String(e) }; }
  }
  const model = { ...config.models[input.modelIndex ?? 0], api: config.api, provider: config.id, baseUrl: config.baseUrl, ...input.model };
- config.streamSimple(model, input.context ?? { messages: [] }, { ...input.options, signal: controller.signal });
+ const options = { ...input.options, signal: controller.signal };
+ if (input.numericBudget) options.thinkingBudgets = { high: Number(input.numericBudget) };
+ config.streamSimple(model, input.context ?? { messages: [] }, options);
  await finished;
  return { calls, events };
 }

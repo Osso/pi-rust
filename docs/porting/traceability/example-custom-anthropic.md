@@ -37,4 +37,6 @@ Full logs: `/tmp/pi-rust-example-anthropic-proof/`.
 
 - Stronger composed-auth/name fixture RED exposed native provider name (`custom-anthropic` vs OAuth display name), availability check and auth source differences. Reuse of existing typed pure composer repairs these without a JSON stream slot or new framework; GREEN 1/1 (10 source/native cases). No config files or default registries loaded.
 
+- Native nonfinite f64 budget fixture RED exposed premature JSON serialization losing NaN/Infinity before `??` selection; selecting typed fields directly preserves source null serialization. `pinned_native_numeric_budgets_preserve_nonfinite_null_serialization` GREEN for NaN/±Infinity; no input-domain exclusion added.
+
 Coverage is partial until all source branches are proven and parent verification completes.

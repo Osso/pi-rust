@@ -18,6 +18,12 @@ fn options(input: &Value, signal: CancellationToken) -> SimpleStreamOptions {
         .map(serde_json::from_value)
         .transpose()
         .unwrap();
+    if let Some(number) = input["numericBudget"].as_str() {
+        options.thinking_budgets = Some(pi_ai::types::ThinkingBudgets {
+            high: Some(number.parse().unwrap()),
+            ..Default::default()
+        });
+    }
     options
 }
 fn terminal(reason: &str) -> Value {
@@ -163,6 +169,14 @@ async fn native_registered_api_key_auth_matches_pinned_composed_registration() {
             };
             assert_eq!(actual, expected, "{input}");
         }
+    }
+}
+
+#[tokio::test]
+async fn pinned_native_numeric_budgets_preserve_nonfinite_null_serialization() {
+    let mut oracle = oracle();
+    for number in ["NaN", "Infinity", "-Infinity"] {
+        compare(json!({"events":[terminal("end_turn")],"options":{"apiKey":"FAKE-key","reasoning":"high"},"numericBudget":number}),&mut oracle).await;
     }
 }
 
