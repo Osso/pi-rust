@@ -147,12 +147,11 @@ fn messages(context: &Context, oauth: bool) -> Vec<Value> {
         }
         index += 1;
     }
-    if let Some(last) = params.last_mut() {
-        if last["role"] == "user" {
-            if let Some(block) = last["content"].as_array_mut().and_then(|blocks| blocks.last_mut()) {
-                block["cache_control"] = json!({"type":"ephemeral"});
-            }
-        }
+    if let Some(last) = params.last_mut()
+        && last["role"] == "user"
+        && let Some(block) = last["content"].as_array_mut().and_then(|blocks| blocks.last_mut())
+    {
+        block["cache_control"] = json!({"type":"ephemeral"});
     }
     params
 }

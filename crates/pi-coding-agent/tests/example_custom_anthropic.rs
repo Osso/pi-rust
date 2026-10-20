@@ -51,10 +51,10 @@ impl HttpBody for StreamBody {
             if let Some(bytes) = self.bytes.take() {
                 return Some(Ok(bytes));
             }
-            if self.abort {
-                if let Some(signal) = &self.signal {
-                    signal.cancel();
-                }
+            if self.abort
+                && let Some(signal) = &self.signal
+            {
+                signal.cancel();
             }
             self.failure.take().map(|error| Err(CallbackError::new(error)))
         })
