@@ -107,3 +107,5 @@ Rust-created DB → TS reads, and concurrent TS/Rust writers. All DBs are tempor
 `differential_control_db` retains all operation comparisons, replacing deleted TS named-session
 APIs with `writeSessionName`/`readSessionNameState`. No v14 version expectation is masked.
 The writer-lock migration-state race remains enforced in code; no deterministic race harness yet.
+
+Quiescence errors preserve TS Set encounter order (runtime PIDs, then owner identities), not numeric sorting; `name_migration_errors_preserve_owner_pid_encounter_order` reproduces the prior Rust ordering failure with live parent/current process identities.

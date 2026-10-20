@@ -1,6 +1,6 @@
 //! Control database schema and migrations (`initializeSchema` in `session-control-db.ts`).
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value};
@@ -517,9 +517,10 @@ fn assert_control_db_migration_quiescent(
             }
         }
     }
-    let unique_live_pids: BTreeSet<u32> = live_runtime_pids
+    let mut seen = HashSet::new();
+    let unique_live_pids: Vec<u32> = live_runtime_pids
         .into_iter()
-        .filter(|pid| Some(*pid) != self_restart_process_id)
+        .filter(|pid| seen.insert(*pid) && Some(*pid) != self_restart_process_id)
         .collect();
     if unique_live_pids.is_empty() {
         return Ok(());

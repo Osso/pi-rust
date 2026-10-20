@@ -2008,3 +2008,51 @@ fn session_metadata_write_preserves_archived_state_and_index_flag() {
     assert!(read.archived_at.is_some());
     assert_eq!(read.all_messages_text, "");
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn name_migration_errors_preserve_owner_pid_encounter_order() {
+    let (_dir, db) = temp_db();
+    create_version_fourteen_database(&db);
+    let stat = std::fs::read_to_string("/proc/self/stat").expect("process stat");
+    let fields = stat
+        .rsplit_once(')')
+        .expect("stat command")
+        .1
+        .split_whitespace()
+        .collect::<Vec<_>>();
+    let parent: u32 = fields[1].parse().expect("parent pid");
+    let identity = pi_coding_agent::core::runtime_process::read_process_identity(parent).expect("parent identity");
+    let raw = rusqlite::Connection::open(&db).expect("database");
+    raw.execute_batch(
+        "CREATE TABLE multi_agent_runtime_owners (
+        session_path TEXT NOT NULL, agent_id TEXT NOT NULL, process_identity TEXT,
+        owner_session_id TEXT, owner_agent_id TEXT, PRIMARY KEY(session_path, agent_id));
+        CREATE TABLE session_health (
+        session_id TEXT PRIMARY KEY, agent_generation INTEGER NOT NULL, pid INTEGER,
+        last_active_at TEXT, last_checked_at TEXT, check_status TEXT NOT NULL,
+        checked_generation INTEGER, check_latency_ms INTEGER, updated_at TEXT NOT NULL);",
+    )
+    .expect("owners");
+    raw.execute(
+        "INSERT INTO session_health(session_id,agent_generation,pid,check_status,updated_at)
+        VALUES ('current',1,?,'ok','2026-10-20T00:00:00.000Z')",
+        [std::process::id()],
+    )
+    .expect("health");
+    raw.execute(
+        "INSERT INTO multi_agent_runtime_owners(session_path,agent_id,process_identity)
+        VALUES ('/owner','parent',?)",
+        [serde_json::to_string(&identity).expect("identity")],
+    )
+    .expect("owner");
+    drop(raw);
+    let failure = read_session_metadata(&db, "/sessions/legacy-name.jsonl").expect_err("live owners");
+    assert_eq!(
+        failure.message(),
+        format!(
+            "Cannot activate session name schema version 15 while lifecycle owners are active (PIDs: {}, {parent}). Stop all Pi and detached runner processes, then retry",
+            std::process::id()
+        )
+    );
+}
