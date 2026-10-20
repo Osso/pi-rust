@@ -25,7 +25,7 @@ runOracle(async (api, request) => {
    if(completed) break;
    if(step.invalidate) component.invalidate();
    if(step.input !== undefined) component.handleInput(step.input);
-   if(step.inputUnits) component.handleInput(String.fromCharCode(...step.inputUnits));
+   if(step.inputUnits) component.handleInput(String.fromCharCode(...step.inputUnits).toWellFormed());
    record();
   }
   return result;
