@@ -35,7 +35,8 @@ async function run(r: any) {
   const keys = await import(pathToFileURL(sourcePath).href);
   const tui = await import(pathToFileURL(join(dirname(sourcePath),"../../../../tui/src/index.ts")).href);
   tui.setKittyProtocolActive(r.kitty);
-  return {constants:Object.entries(keys.DoomKeys),mapped:r.inputs.map((input:string)=>keys.mapKeyToDoom(input))};
+  const inputs=r.units?r.units.map((units:number[])=>String.fromCharCode(...units)):r.inputs;
+  return {constants:Object.entries(keys.DoomKeys),mapped:inputs.map((input:string)=>keys.mapKeyToDoom(input))};
  }
  if (r.kind === "engine") {
   const trace:any[]=[];

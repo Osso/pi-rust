@@ -1,4 +1,5 @@
 //! Separable key mapper from the pinned Doom overlay; no extension is loaded.
+use pi_js_compat::js_json::JsString;
 use pi_tui::keys::{matches_key, parse_key};
 
 pub const DOOM_KEYS: &[(&str, u32)] = &[
@@ -34,7 +35,12 @@ pub const DOOM_KEYS: &[(&str, u32)] = &[
     ("KEY_RALT", 0xb8),
 ];
 
-pub fn map_key_to_doom(data: &str) -> Vec<u32> {
+pub fn map_key_to_doom(input: &JsString) -> Vec<u32> {
+    let units = input.units();
+    // Existing pi-tui String-typed key APIs use the approved U+FFFD projection;
+    // raw code units remain available for the example's charCodeAt branches.
+    let projected = input.to_utf8_lossy();
+    let data = projected.as_str();
     for (key, code) in [("up", 0xad), ("down", 0xaf), ("right", 0xae), ("left", 0xac)] {
         if matches_key(data, key) {
             return vec![code];
@@ -62,13 +68,13 @@ pub fn map_key_to_doom(data: &str) -> Vec<u32> {
     if parse_key(data).is_some_and(|key| key.starts_with("ctrl+") && key != "ctrl+c") {
         return vec![0xa3];
     }
-    let first = data.encode_utf16().next();
-    let single = data.encode_utf16().count() == 1;
+    let first = units.first().copied();
+    let single = units.len() == 1;
     if single && first.is_some_and(|unit| unit < 32) && data != "\u{3}" {
         return vec![0xa3];
     }
     // Preserve the source's lexical comparison, including strings like "12".
-    if ("0"..="9").contains(&data) {
+    if units >= [48].as_slice() && units <= [57].as_slice() {
         return vec![u32::from(first.unwrap())];
     }
     if data == "+" || data == "=" {
@@ -84,6 +90,10 @@ pub fn map_key_to_doom(data: &str) -> Vec<u32> {
         return vec![u32::from(b'n')];
     }
     if single && first.is_some_and(|unit| unit >= 32) {
+        let first = first.unwrap();
+        if (0xd800..=0xdfff).contains(&first) {
+            return vec![u32::from(first)];
+        }
         return vec![u32::from(data.to_lowercase().encode_utf16().next().unwrap())];
     }
     Vec::new()

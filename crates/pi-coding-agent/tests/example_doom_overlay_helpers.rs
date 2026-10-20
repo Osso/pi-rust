@@ -9,11 +9,15 @@ mod oracle;
 mod wad_finder;
 
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
+static KEY_PROTOCOL: Mutex<()> = Mutex::new(());
+
 #[test]
 fn keys_match_pinned_raw_kitty_and_legacy_inputs() {
+    let _protocol = KEY_PROTOCOL.lock().unwrap();
     let mut inputs: Vec<String> = (0..=127).map(|n| char::from(n).to_string()).collect();
     inputs.extend(
         [
@@ -36,16 +40,50 @@ fn keys_match_pinned_raw_kitty_and_legacy_inputs() {
     for kitty in [false, true] {
         pi_tui::keys::set_kitty_protocol_active(kitty);
         let expected = ts.request(&json!({"kind":"keys", "inputs":inputs, "kitty":kitty}));
-        let mapped: Vec<_> = inputs.iter().map(|input| doom_keys::map_key_to_doom(input)).collect();
+        let mapped: Vec<_> = inputs
+            .iter()
+            .map(|input| doom_keys::map_key_to_doom(&JsString::from(input.as_str())))
+            .collect();
         assert_eq!(json!(mapped), expected["mapped"], "kitty={kitty}");
         assert_eq!(json!(doom_keys::DOOM_KEYS), expected["constants"]);
         assert_eq!(
-            doom_keys::map_key_to_doom("12"),
+            doom_keys::map_key_to_doom(&JsString::from("12")),
             vec![49],
             "source lexicographic weapon branch accepts multi-character input"
         );
     }
     pi_tui::keys::set_kitty_protocol_active(false);
+}
+
+#[test]
+fn lone_surrogates_survive_mapping_with_explicit_string_core_projection() {
+    let _protocol = KEY_PROTOCOL.lock().unwrap();
+    pi_tui::keys::set_kitty_protocol_active(false);
+    let units = vec![
+        vec![0xd800],
+        vec![0xdfff],
+        vec![0xfffd],
+        vec![0xd800, 0x77],
+        vec![0x30, 0xd800],
+    ];
+    let mut ts = oracle::TsOracle::spawn(
+        "example-doom-helpers-oracle.ts",
+        "packages/coding-agent/examples/extensions/doom-overlay/doom-keys.ts",
+    );
+    let expected = ts.request(&json!({"kind":"keys", "units":units, "kitty":false}));
+    let mapped: Vec<_> = units
+        .iter()
+        .map(|units| doom_keys::map_key_to_doom(&JsString::from_utf16(units.clone())))
+        .collect();
+    assert_eq!(json!(mapped), expected["mapped"]);
+    assert_eq!(mapped[0], vec![0xd800]);
+    assert_eq!(mapped[1], vec![0xdfff]);
+    // Existing pi-tui key APIs take UTF-8 String input. Their boundary projects
+    // lone units to U+FFFD, while this helper retains raw units for charCodeAt.
+    let projected = JsString::from_utf16(vec![0xd800]).to_utf8_lossy();
+    assert_eq!(projected, "\u{fffd}");
+    assert!(pi_tui::keys::matches_key(&projected, "\u{fffd}"));
+    assert_eq!(mapped[2], vec![65533]);
 }
 
 #[derive(Clone)]
