@@ -66,3 +66,7 @@ Tests use private temporary directories only.
 factory explicitly using the pattern above. It overrides seven built-in tools'
 renderers while executing the built-ins against the invocation context cwd.
 `plan_mode/utils.rs` contains pure planning helpers used by the plan-mode example.
+
+`preset.rs` exports `preset_extension(&ExtensionApi)`. Register its factory
+explicitly; it reads global/project `presets.json` on session start. No providers
+are called by this example. Config loading failures are printed, matching TS.

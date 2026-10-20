@@ -1,0 +1,368 @@
+//! Modes extend A/B's registry + real-runner pattern; shared base actions live in extensions.rs.
+use pi_coding_agent::core::{
+    extensions::*,
+    model_registry::ModelRegistry,
+    model_runtime::{CreateModelRuntimeOptions, ModelRuntime},
+    session_manager::SessionManager,
+};
+use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path};
+use serde_json::{Map, Value, json};
+use std::sync::{Arc, Mutex};
+#[path = "oracle.rs"]
+mod oracle;
+#[path = "extensions.rs"]
+mod support;
+pub type Trace = Arc<Mutex<Vec<Value>>>;
+struct Ui {
+    trace: Trace,
+    step: Value,
+    theme: Arc<Theme>,
+}
+struct Backend;
+impl ExtensionUiTuiBackend for Backend {
+    fn request_render(&self) {}
+    fn terminal_rows(&self) -> usize {
+        40
+    }
+    fn terminal_columns(&self) -> usize {
+        80
+    }
+    fn mode(&self) -> pi_tui::tui::TuiMode {
+        pi_tui::tui::TuiMode::Regular
+    }
+}
+impl ExtensionUiContext for Ui {
+    fn theme(&self) -> Arc<Theme> {
+        self.theme.clone()
+    }
+    fn notify(&self, text: &str, level: Option<NotifyType>) {
+        self.trace.lock().unwrap().push(json!(["notify", text, level]));
+    }
+    fn set_status(&self, key: &str, text: Option<&str>) {
+        self.trace.lock().unwrap().push(json!(["status", key, text]));
+    }
+    fn set_widget(&self, key: &str, text: Option<&[String]>, options: Option<&ExtensionWidgetOptions>) {
+        self.trace.lock().unwrap().push(json!(["widget", key, text, options]));
+    }
+    fn select<'a>(
+        &'a self,
+        title: &str,
+        items: &[String],
+        _: Option<&ExtensionUiDialogOptions>,
+    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+        self.trace.lock().unwrap().push(json!(["select", title, items]));
+        let selected = self.step["selected"].as_str().map(str::to_owned);
+        Box::pin(async move { Ok(selected) })
+    }
+    fn editor<'a>(&'a self, title: &str, prefill: Option<&str>) -> BoxFuture<'a, Result<Option<String>, String>> {
+        self.trace.lock().unwrap().push(json!(["editor", title, prefill]));
+        let result = self.step["editor"].as_str().map(str::to_owned);
+        Box::pin(async move { Ok(result) })
+    }
+    fn custom<'a>(
+        &'a self,
+        factory: ExtensionUiCustomFactory,
+        _: Option<ExtensionUiCustomOptions>,
+    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+        let result = Arc::new(Mutex::new(None));
+        let captured = result.clone();
+        let context = ExtensionUiFactoryContext {
+            tui: ExtensionUiTui::new(Arc::new(Backend)),
+            theme: self.theme.clone(),
+            keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
+        };
+        let component = factory(
+            context,
+            ExtensionUiDone::new(Arc::new(move |value| *captured.lock().unwrap() = value)),
+        );
+        self.trace.lock().unwrap().push(json!(["custom", component.render(80)]));
+        let keys = self.step["keys"]
+            .as_array()
+            .cloned()
+            .unwrap_or_else(|| vec![json!("\u{1b}")]);
+        for key in keys {
+            component.handle_input(key.as_str().unwrap());
+        }
+        let value = result.lock().unwrap().clone();
+        Box::pin(async move { Ok(value) })
+    }
+}
+pub async fn compare(
+    name: &str,
+    register: fn(&ExtensionApi, Trace) -> Result<(), HandlerError>,
+    request: Value,
+) -> Value {
+    let cwd = request["cwd"].as_str().unwrap_or("/fixture");
+    let trace: Trace = Arc::default();
+    let factory_trace = trace.clone();
+    let runtime = create_extension_runtime();
+    let mut factories = ExtensionRegistry::new();
+    factories.register(
+        name,
+        Arc::new(move |api| {
+            let result = register(api, factory_trace.clone());
+            Box::pin(async move { result })
+        }),
+    );
+    let extension = load_extension_from_factory(
+        factories.get(name).unwrap().clone(),
+        cwd,
+        support::event_bus(),
+        runtime.clone(),
+        "<example:g>",
+    )
+    .await
+    .unwrap();
+    let metadata = json!({"commands":extension.commands.values().map(|c|json!([c.name,c.description,c.get_argument_completions.is_some()])).collect::<Vec<_>>(),"flags":extension.flags.values().map(|f|json!([f.name,f.description,f.flag_type,f.default])).collect::<Vec<_>>(),"shortcuts":extension.shortcuts.values().map(|s|json!([s.shortcut,s.description])).collect::<Vec<_>>()});
+    let registry = Arc::new(ModelRegistry::new(
+        ModelRuntime::create(CreateModelRuntimeOptions {
+            credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
+                Map::new(),
+            ))),
+            models_path: Some(None),
+            allow_model_network: false,
+            ..Default::default()
+        })
+        .await
+        .unwrap(),
+    ));
+    if let Some(models) = request["models"].as_array() {
+        registry
+            .register_provider(
+                "fixture",
+                pi_coding_agent::core::provider_composer::ProviderConfigInput {
+                    name: Some("fixture".into()),
+                    api: Some("openai-completions".into()),
+                    base_url: Some("https://fixture.invalid/v1".into()),
+                    api_key: Some("fixture-key".into()),
+                    models: Some(serde_json::from_value(json!(models)).unwrap()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    let manager = Arc::new(Mutex::new(SessionManager::in_memory(Some(cwd), None).unwrap()));
+    let mut runner = ExtensionRunner::new(vec![extension.clone()], runtime, cwd, manager.clone(), registry, None);
+    let tools = Arc::new(Mutex::new(
+        serde_json::from_value::<Vec<String>>(
+            request
+                .get("tools")
+                .cloned()
+                .unwrap_or(json!(["read", "bash", "edit", "write", "custom"])),
+        )
+        .unwrap(),
+    ));
+    let thinking = Arc::new(Mutex::new(pi_agent_core::harness::ThinkingLevel::Off));
+    let model = Arc::new(Mutex::new(None));
+    let mut actions = support::actions();
+    let mut context = support::context_actions();
+    let state = tools.clone();
+    actions.get_active_tools = Arc::new(move || Ok(state.lock().unwrap().clone()));
+    let state = tools.clone();
+    let log = trace.clone();
+    actions.set_active_tools = Arc::new(move |value| {
+        *state.lock().unwrap() = value.to_vec();
+        log.lock().unwrap().push(json!(["tools", value]));
+        Ok(())
+    });
+    actions.get_all_tools = Arc::new(|| {
+        Ok([
+            "read",
+            "bash",
+            "edit",
+            "write",
+            "grep",
+            "find",
+            "ls",
+            "ask_questions",
+            "custom",
+        ]
+        .map(|name| ToolInfo {
+            name: name.into(),
+            description: name.into(),
+            parameters: json!({}),
+            prompt_guidelines: None,
+            source_info: serde_json::from_value(
+                json!({"path":"<fixture>","source":"fixture","scope":"temporary","origin":"top-level"}),
+            )
+            .unwrap(),
+        })
+        .into())
+    });
+    let state = thinking.clone();
+    actions.get_thinking_level = Arc::new(move || Ok(*state.lock().unwrap()));
+    let state = thinking.clone();
+    let log = trace.clone();
+    actions.set_thinking_level = Arc::new(move |value| {
+        *state.lock().unwrap() = value;
+        log.lock().unwrap().push(json!(["thinking", value]));
+        Ok(())
+    });
+    let state = model.clone();
+    let log = trace.clone();
+    let success = request["modelSuccess"] != false;
+    actions.set_model = Arc::new(move |value| {
+        log.lock().unwrap().push(json!(["model", value]));
+        if success {
+            *state.lock().unwrap() = Some(value);
+        }
+        Box::pin(async move { Ok(success) })
+    });
+    let state = model.clone();
+    context.get_model = Arc::new(move || state.lock().unwrap().clone());
+    let entries = manager.clone();
+    let log = trace.clone();
+    actions.append_entry = Arc::new(move |kind, data| {
+        entries
+            .lock()
+            .unwrap()
+            .append_custom_entry(kind, data.clone())
+            .map_err(|e| HandlerError::new(e.to_string()))?;
+        log.lock().unwrap().push(json!(["append", kind, data]));
+        Ok(())
+    });
+    let log = trace.clone();
+    actions.send_message = Arc::new(move |message, options| {
+        log.lock().unwrap().push(json!(["message", message, options]));
+        Ok(())
+    });
+    let log = trace.clone();
+    actions.send_user_message = Arc::new(move |message, options| {
+        log.lock().unwrap().push(json!(["user", message, options]));
+        Ok(())
+    });
+    runner.bind_core(actions, context, None);
+    let log = trace.clone();
+    let _errors = runner.on_error(Arc::new(move |error| {
+        log.lock()
+            .unwrap()
+            .push(json!(["handlerError", error.event, error.error]))
+    }));
+    for (key, value) in request["flags"].as_object().into_iter().flatten() {
+        runner.set_flag_value(key, serde_json::from_value(value.clone()).unwrap());
+    }
+    for item in request["entries"].as_array().into_iter().flatten() {
+        let mut m = manager.lock().unwrap();
+        match item["type"].as_str().unwrap() {
+            "custom" => {
+                m.append_custom_entry(item["customType"].as_str().unwrap(), item.get("data").cloned())
+                    .unwrap();
+            }
+            "custom_message" => {
+                m.append_custom_message_entry(
+                    item["customType"].as_str().unwrap(),
+                    serde_json::from_value(item["content"].clone()).unwrap(),
+                    item["display"].as_bool().unwrap(),
+                    item.get("details").cloned(),
+                )
+                .unwrap();
+            }
+            _ => {
+                m.append_message(serde_json::from_value(item["message"].clone()).unwrap())
+                    .unwrap();
+            }
+        }
+    }
+    let theme = Arc::new(
+        load_theme_from_path(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+            Some(ColorMode::Truecolor),
+        )
+        .unwrap(),
+    );
+    for step in request["steps"].as_array().unwrap() {
+        runner.set_ui_context(
+            if step["hasUI"] == false {
+                None
+            } else {
+                Some(Arc::new(Ui {
+                    trace: trace.clone(),
+                    step: step.clone(),
+                    theme: theme.clone(),
+                }))
+            },
+            ExtensionMode::Tui,
+        );
+        match step["op"].as_str().unwrap() {
+            "command" => {
+                let command = runner.get_command(step["name"].as_str().unwrap()).unwrap();
+                if let Err(error) = (command.handler)(
+                    step["args"].as_str().unwrap_or("").into(),
+                    runner.create_command_context(),
+                )
+                .await
+                {
+                    trace.lock().unwrap().push(json!(["error", error.message]));
+                }
+            }
+            "shortcut" => {
+                (extension
+                    .shortcuts
+                    .values()
+                    .find(|s| s.shortcut.to_string() == step["key"].as_str().unwrap())
+                    .unwrap()
+                    .handler)(runner.create_context())
+                .await
+                .unwrap();
+            }
+            "event" => {
+                runner
+                    .emit(&mut serde_json::from_value(step["event"].clone()).unwrap())
+                    .await;
+            }
+            "before" => {
+                let value = runner
+                    .emit_before_agent_start(
+                        "task",
+                        None,
+                        step["prompt"].as_str().unwrap_or("base"),
+                        Default::default(),
+                    )
+                    .await;
+                trace.lock().unwrap().push(json!(["before", value]));
+            }
+            "context" => {
+                let value = runner
+                    .emit_context(serde_json::from_value(step["messages"].clone()).unwrap())
+                    .await;
+                trace.lock().unwrap().push(json!(["context", value]));
+            }
+            "tool" => {
+                let mut event=serde_json::from_value(json!({"toolName":step["name"],"toolCallId":"fixture","input":step["input"],"bypassPermissions":false})).unwrap();
+                let value = runner.emit_tool_call(&mut event).await.unwrap();
+                trace.lock().unwrap().push(json!(["tool", value]));
+            }
+            "tools" => *tools.lock().unwrap() = serde_json::from_value(step["value"].clone()).unwrap(),
+            other => panic!("unknown op {other}"),
+        }
+    }
+    let entries: Vec<_> = manager
+        .lock()
+        .unwrap()
+        .get_entries()
+        .iter()
+        .map(|entry| {
+            let mut entry = serde_json::to_value(entry).unwrap();
+            for key in ["id", "parentId", "timestamp"] {
+                entry.as_object_mut().unwrap().remove(key);
+            }
+            entry
+        })
+        .collect();
+    let actual = json!({"metadata":metadata,"trace":trace.lock().unwrap().clone(),"tools":tools.lock().unwrap().clone(),"thinking":*thinking.lock().unwrap(),"model":model.lock().unwrap().clone(),"entries":entries});
+    let module = if name == "plan-mode" { "plan-mode/index" } else { name };
+    let mut oracle = oracle::TsOracle::spawn(
+        "extension-examples-g-oracle.ts",
+        &format!("packages/coding-agent/examples/extensions/{module}.ts"),
+    );
+    let expected = oracle.request(&request);
+    assert_eq!(actual["metadata"], expected["metadata"], "{name} metadata");
+    for (index, entry) in actual["trace"].as_array().unwrap().iter().enumerate() {
+        assert_eq!(
+            *entry, expected["trace"][index],
+            "{name} trace {index}; request {request}"
+        );
+    }
+    assert_eq!(actual, expected, "{name}");
+    actual
+}
