@@ -38,9 +38,13 @@ failures rather than converting them to false/empty results, matching pinned
 
 | Source branch | Differential behavioral proof (`custom_operation_errors`) |
 | --- | --- |
-| `ls.ts:150-168,225-227`: exists rejects unchanged, before stat/readdir | `ls_exists_rejection_precedes_stat_and_readdir` |
-| `find.ts:171-183,355-361`: exists/glob reject unchanged, no filesystem prefix | `find_exists_rejection_precedes_glob`, `find_glob_rejection_propagates_without_wrapping` |
-| `ls.ts:128-133`, `find.ts:143-165,355-358`: abort wins before execution and during pending/rejecting operations | `operation_abort_wins_before_rejection_or_while_pending` |
+| `ls.ts:150-168,225-227`: exists rejects unchanged, before stat/readdir | `core_ops_ls_exists_rejection_precedes_stat_and_readdir` |
+| `find.ts:171-183,355-361`: exists/glob reject unchanged, no filesystem prefix | `core_ops_find_exists_rejection_precedes_glob`, `core_ops_find_glob_rejection_propagates_without_wrapping` |
+| `ls.ts:128-133`, `find.ts:143-165,355-358`: abort wins before execution and during pending/rejecting operations | `core_ops_{ls_exists,find_exists,find_glob}_abort_wins_before_rejection_or_while_pending` |
+
+Bwrap unit tests `core_ops_bwrap_{ls_exists,find_exists,find_glob}_preserves_runner_failure`
+exercise each real adapter against a missing executable in a private temp directory.
+They assert the exact runner failure, not a missing-path or empty-search result.
 
 Fixtures compare the actual pinned modules, including empty, multiline and Unicode
 error messages. Cancellation races the operation future, then is checked again

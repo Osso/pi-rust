@@ -37,6 +37,10 @@ use super::backend::{
     run_bwrap_availability_check,
 };
 
+#[cfg(test)]
+#[path = "operation_tests.rs"]
+mod operation_tests;
+
 const DEFAULT_BWRAP_COMMAND: &str = "bwrap";
 const DEFAULT_GREP_LIMIT: f64 = 100.0;
 const DEFAULT_MAX_BYTES: usize = 10 * 1024;

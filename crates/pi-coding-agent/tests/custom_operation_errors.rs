@@ -291,34 +291,40 @@ async fn compare_rejection(tool_name: &str, stage: &'static str, abort: &'static
 }
 
 #[tokio::test]
-async fn ls_exists_rejection_precedes_stat_and_readdir() {
+async fn core_ops_ls_exists_rejection_precedes_stat_and_readdir() {
     for message in ["SSH failed (7): scripted failure\n", "", "拒否: é\nsecond line"] {
         compare_rejection("ls", "exists", "none", message).await;
     }
 }
 #[tokio::test]
-async fn find_exists_rejection_precedes_glob() {
+async fn core_ops_find_exists_rejection_precedes_glob() {
     for message in ["SSH failed (7): scripted failure\n", "", "拒否: é\nsecond line"] {
         compare_rejection("find", "exists", "none", message).await;
     }
 }
 #[tokio::test]
-async fn find_glob_rejection_propagates_without_wrapping() {
+async fn core_ops_find_glob_rejection_propagates_without_wrapping() {
     for message in ["SSH failed (7): scripted failure\n", "", "拒否: é\nsecond line"] {
         compare_rejection("find", "glob", "none", message).await;
     }
 }
-#[tokio::test]
-async fn operation_abort_wins_before_rejection_or_while_pending() {
-    for tool in ["ls", "find"] {
-        for stage in if tool == "ls" {
-            vec!["exists"]
-        } else {
-            vec!["exists", "glob"]
-        } {
-            for abort in ["before", "reject", "pending"] {
-                compare_rejection(tool, stage, abort, "remote denied").await;
-            }
-        }
+async fn compare_operation_aborts(tool: &str, stage: &'static str) {
+    for abort in ["before", "reject", "pending"] {
+        compare_rejection(tool, stage, abort, "remote denied").await;
     }
+}
+
+#[tokio::test]
+async fn core_ops_ls_exists_abort_wins_before_rejection_or_while_pending() {
+    compare_operation_aborts("ls", "exists").await;
+}
+
+#[tokio::test]
+async fn core_ops_find_exists_abort_wins_before_rejection_or_while_pending() {
+    compare_operation_aborts("find", "exists").await;
+}
+
+#[tokio::test]
+async fn core_ops_find_glob_abort_wins_before_rejection_or_while_pending() {
+    compare_operation_aborts("find", "glob").await;
 }
