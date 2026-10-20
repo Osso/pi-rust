@@ -72,6 +72,13 @@ impl pi_tui::terminal::Terminal for GameTerminal {
         std::mem::take(&mut self.events)
     }
 }
+struct GameHost {
+    terminal: std::rc::Rc<std::cell::RefCell<GameTerminal>>,
+    host: std::rc::Rc<pi_tui::tui::TuiRenderer>,
+}
+thread_local! {
+    static GAME_HOST: std::cell::RefCell<Option<GameHost>> = const {std::cell::RefCell::new(None)};
+}
 struct GameInput(Arc<dyn ExtensionUiComponent>);
 impl pi_tui::tui::Component for GameInput {
     fn render(&mut self, width: usize) -> Vec<String> {
@@ -127,11 +134,14 @@ impl ExtensionUiContext for Ui {
             );
             let component: Arc<dyn ExtensionUiComponent> = component.into();
             use pi_tui::tui::TuiExt;
-            let terminal = std::rc::Rc::new(std::cell::RefCell::new(GameTerminal::default()));
-            let host = pi_tui::tui::TuiRenderer::new(terminal.clone());
-            let input = pi_tui::tui::component(GameInput(component.clone()));
-            host.add_child(input.clone());
-            host.set_focus(Some(input));
+            GAME_HOST.with(|slot| {
+                let terminal = std::rc::Rc::new(std::cell::RefCell::new(GameTerminal::default()));
+                let host = pi_tui::tui::TuiRenderer::new(terminal.clone());
+                let input = pi_tui::tui::component(GameInput(component.clone()));
+                host.add_child(input.clone());
+                host.set_focus(Some(input));
+                *slot.borrow_mut() = Some(GameHost { terminal, host });
+            });
             tokio::task::yield_now().await;
             let render = |width| {
                 let frame = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| component.render(width))) {
@@ -145,15 +155,17 @@ impl ExtensionUiContext for Ui {
             }
             for step in self.item["steps"].as_array().unwrap() {
                 match step["op"].as_str().unwrap() {
-                    "key" => {
-                        terminal
+                    "key" => GAME_HOST.with(|slot| {
+                        let slot = slot.borrow();
+                        let game = slot.as_ref().unwrap();
+                        game.terminal
                             .borrow_mut()
                             .events
                             .push(pi_tui::terminal::TerminalEvent::Input(
                                 step["key"].as_str().unwrap().into(),
                             ));
-                        host.process_events();
-                    }
+                        game.host.process_events();
+                    }),
                     "ticks" => {
                         for _ in 0..step["count"].as_u64().unwrap() {
                             tokio::time::advance(Duration::from_millis(step["ms"].as_u64().unwrap_or(100))).await;
@@ -169,6 +181,7 @@ impl ExtensionUiContext for Ui {
             }
             assert!(*completed.lock().unwrap(), "script must close custom component");
             component.dispose();
+            GAME_HOST.with(|slot| slot.borrow_mut().take());
             Ok(None)
         })
     }
