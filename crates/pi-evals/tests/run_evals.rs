@@ -35,7 +35,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let child = temp.path().join("fake-child");
+        let child = temp.path().join("cargo");
         fs::write(&child, FAKE_CHILD).unwrap();
         fs::set_permissions(&child, fs::Permissions::from_mode(0o700)).unwrap();
         Self {
@@ -56,10 +56,19 @@ impl Fixture {
             .env_remove("EVAL_SIGNAL")
             .env_remove("EVAL_READ_STDIN")
             .env("PI_EVAL_ARTIFACT_DIR", &self.artifacts)
-            .env("PI_EVAL_CHILD_PROGRAM", &self.child)
+            .env("PATH", self.path())
+            .env_remove("PI_EVAL_CHILD_PROGRAM")
             .env("EVAL_RECORD", &self.record)
             .env("EVAL_INHERITED", "kept");
         command
+    }
+
+    fn path(&self) -> std::ffi::OsString {
+        std::env::join_paths(
+            std::iter::once(self.temp.path().to_path_buf())
+                .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+        )
+        .unwrap()
     }
 
     fn record(&self) -> Value {
@@ -78,16 +87,11 @@ impl Fixture {
 #[test]
 fn default_child_is_cargo_with_native_test_prefix() {
     let fixture = Fixture::new();
-    symlink(&fixture.child, fixture.temp.path().join("cargo")).unwrap();
-    let path = std::env::join_paths(
-        std::iter::once(fixture.temp.path().to_path_buf())
-            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
-    )
-    .unwrap();
+    // An obsolete environment seam must not override the PATH-resolved cargo.
+    let missing = fixture.temp.path().join("missing-child");
     let output = fixture
         .command()
-        .env_remove("PI_EVAL_CHILD_PROGRAM")
-        .env("PATH", path)
+        .env("PI_EVAL_CHILD_PROGRAM", missing)
         .args(["--test", "smoke_eval"])
         .output()
         .unwrap();
@@ -98,9 +102,7 @@ fn default_child_is_cargo_with_native_test_prefix() {
     );
 }
 
-#[test]
-fn pinned_node_script_matches_validation_selection_and_forwarding() {
-    let fixture = Fixture::new();
+fn copy_pinned_script(fixture: &Fixture) -> PathBuf {
     let reference = fixture.temp.path().join("reference");
     let scripts = reference.join("scripts");
     let vitest = reference.join("node_modules/vitest");
@@ -125,6 +127,13 @@ console.error('fake stderr');
 "#,
     )
     .unwrap();
+    scripts.join("run-evals.mjs")
+}
+
+#[test]
+fn pinned_node_script_matches_validation_selection_and_forwarding() {
+    let fixture = Fixture::new();
+    let script = copy_pinned_script(&fixture);
     let cases: &[(&[&str], &str, &str)] = &[
         (&["--provider"], "", ""),
         (&["--model", "-bad"], "", ""),
@@ -156,7 +165,7 @@ console.error('fake stderr');
             .unwrap();
         let native_record = native.status.success().then(|| fixture.record());
         let node = Command::new("node")
-            .arg(scripts.join("run-evals.mjs"))
+            .arg(&script)
             .args(*args)
             .env("PI_PROVIDER", provider)
             .env("PI_MODEL", model)
@@ -379,7 +388,7 @@ fn absolute_artifacts_do_not_canonicalize_symlinks_or_change_existing_permission
 }
 
 #[test]
-fn default_artifacts_use_iso_timestamp_and_unique_uuid() {
+fn default_artifacts_use_iso_timestamp_and_uuid_v4_syntax() {
     for empty in [false, true] {
         let fixture = Fixture::new();
         // The Cargo runner mounts the checkout read-only. Overlay only this child's
@@ -463,18 +472,109 @@ fn child_inherits_stdin() {
 #[test]
 fn spawn_failure_reports_error_and_nonzero_status() {
     let fixture = Fixture::new();
-    let missing = fixture.temp.path().join("missing-child");
-    let output = fixture
-        .command()
-        .env("PI_EVAL_CHILD_PROGRAM", &missing)
-        .output()
-        .unwrap();
+    fs::remove_file(&fixture.child).unwrap();
+    let output = fixture.command().env("PATH", fixture.temp.path()).output().unwrap();
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.starts_with("[eval] default-model=none\n[eval] artifacts="));
-    assert!(stderr.contains("No such file or directory"), "{stderr}");
-    assert!(stderr.contains(missing.to_str().unwrap()), "{stderr}");
+    assert!(stderr.contains("Error: spawnSync cargo ENOENT"), "{stderr}");
     assert!(!fixture.record.exists());
+}
+
+// Keep only the uncaught error and own-property block. Stack frames can carry
+// the opening brace; retain it while removing JS-only locations and excerpts.
+fn node_diagnostic(stderr: &[u8]) -> String {
+    let text = std::str::from_utf8(stderr).unwrap();
+    let start = text.find("Error: ").unwrap();
+    let mut result = String::new();
+    for line in text[start..].lines() {
+        if line.starts_with("    at ") {
+            if line.ends_with(" {") {
+                result.push_str(" {\n");
+            }
+        } else if line.starts_with("Node.js ") || line.is_empty() {
+            continue;
+        } else {
+            result.push_str(line);
+            if !line.starts_with("Error: ") || line.ends_with(" {") {
+                result.push('\n');
+            }
+        }
+    }
+    result
+}
+
+#[test]
+fn pinned_node_mkdir_diagnostics_match_before_announcements() {
+    for denied in [false, true] {
+        let fixture = Fixture::new();
+        let script = copy_pinned_script(&fixture);
+        let parent = fixture.artifacts.parent().unwrap();
+        if denied {
+            fs::create_dir(parent).unwrap();
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o500)).unwrap();
+        } else {
+            fs::write(parent, "regular file").unwrap();
+        }
+        let node = Command::new("node")
+            .arg(script)
+            .env_remove("PI_PROVIDER")
+            .env_remove("PI_MODEL")
+            .env("PI_EVAL_ARTIFACT_DIR", &fixture.artifacts)
+            .output()
+            .unwrap();
+        let native = fixture.command().output().unwrap();
+        if denied {
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        assert_eq!(
+            node.status.code(),
+            Some(1),
+            "sandbox must enforce directory permissions"
+        );
+        assert_eq!(native.status.code(), node.status.code());
+        let expected = node_diagnostic(&node.stderr);
+        assert!(expected.contains(if denied { "EACCES" } else { "ENOTDIR" }));
+        assert_eq!(String::from_utf8_lossy(&native.stderr), expected);
+        assert!(native.stdout.is_empty());
+        assert!(!fixture.record.exists());
+    }
+}
+
+#[test]
+fn node_spawnsync_enoent_diagnostic_matches_with_forwarded_arguments() {
+    for args in [
+        vec![],
+        vec!["--test", "two words", "a'b", "", "line\nfeed"],
+        vec!["x"; 12],
+    ] {
+        let fixture = Fixture::new();
+        fs::remove_file(&fixture.child).unwrap();
+        let native = fixture
+            .command()
+            .env("PATH", fixture.temp.path())
+            .args(&args)
+            .output()
+            .unwrap();
+        // The pinned script spawns process.execPath, which cannot faithfully be
+        // made missing. Exercise Node's same spawnSync + throw boundary instead.
+        let node = Command::new("node")
+            .args(["-e", "const {spawnSync}=require('node:child_process'); throw spawnSync('cargo', ['test','-p','pi-evals',...process.argv.slice(2)], {env:{...process.env,PATH:process.argv[1]}}).error", "--"])
+            .arg(fixture.temp.path())
+            .args(&args)
+            .output()
+            .unwrap();
+        assert_eq!(node.status.code(), Some(1));
+        assert_eq!(native.status.code(), node.status.code());
+        let expected = format!(
+            "[eval] default-model=none\n[eval] artifacts={}\n{}",
+            fixture.artifacts.display(),
+            node_diagnostic(&node.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&native.stderr), expected);
+        assert!(native.stdout.is_empty());
+        assert!(!fixture.record.exists());
+    }
 }
 
 #[test]

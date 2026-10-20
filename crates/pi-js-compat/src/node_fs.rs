@@ -17,6 +17,124 @@ pub struct NodeFsError {
     pub message: String,
 }
 
+impl NodeFsError {
+    /// Node's uncaught-error line and own properties, excluding JS stack frames.
+    /// `spawnargs` is present only for a `spawnSync` failure.
+    pub fn console_message(&self, spawnargs: Option<&[String]>) -> String {
+        let mut output = format!("{}: {} {{\n", self.name, self.message);
+        if let Some(errno) = self.errno {
+            output.push_str(&format!("  errno: {errno},\n"));
+        }
+        output.push_str(&format!(
+            "  code: {},\n  syscall: {}",
+            inspect_string(self.code),
+            inspect_string(&self.syscall)
+        ));
+        if let Some(path) = &self.path {
+            output.push_str(&format!(",\n  path: {}", inspect_string(path)));
+        }
+        if let Some(args) = spawnargs {
+            output.push_str(&format!(",\n  spawnargs: {}", inspect_spawnargs(args)));
+        }
+        output.push_str("\n}");
+        output
+    }
+}
+
+// Node util.inspect's string quoting for native UTF-8 error properties.
+fn inspect_string(value: &str) -> String {
+    let quote = if !value.contains('\'') {
+        '\''
+    } else if !value.contains('"') {
+        '"'
+    } else if !value.contains('`') && !value.contains("${") {
+        '`'
+    } else {
+        '\''
+    };
+    let escaped: String = value.chars().map(|ch| escape_inspect_char(ch, quote)).collect();
+    format!("{quote}{escaped}{quote}")
+}
+
+fn escape_inspect_char(ch: char, quote: char) -> String {
+    match ch {
+        '\\' => "\\\\".into(),
+        '\n' => "\\n".into(),
+        '\r' => "\\r".into(),
+        '\t' => "\\t".into(),
+        '\u{8}' => "\\b".into(),
+        '\u{c}' => "\\f".into(),
+        '\u{b}' => "\\v".into(),
+        ch if ch == quote => format!("\\{ch}"),
+        ch if ch <= '\u{1f}' || ('\u{7f}'..='\u{9f}').contains(&ch) => format!("\\x{:02X}", ch as u32),
+        ch => ch.to_string(),
+    }
+}
+
+// The error is at depth zero: spawnargs has indentation 2, breakLength 80,
+// compact 3 and maxArrayLength 100 in Node's default uncaught-error inspector.
+fn inspect_spawnargs(args: &[String]) -> String {
+    let mut entries: Vec<String> = args.iter().take(100).map(|arg| inspect_string(arg)).collect();
+    let grouped = group_inspect_entries(&entries);
+    let is_grouped = grouped.len() != entries.len();
+    if args.len() > 100 {
+        entries.push(format!("... {} more items", args.len() - 100));
+    }
+    let single_line_length =
+        entries.iter().map(|entry| entry.encode_utf16().count()).sum::<usize>() + entries.len() * 2 + 13;
+    if !is_grouped && single_line_length <= 80 {
+        return format!("[ {} ]", entries.join(", "));
+    }
+    let mut lines = grouped;
+    if args.len() > 100 {
+        lines.push(entries.pop().unwrap());
+    }
+    format!("[\n    {}\n  ]", lines.join(",\n    "))
+}
+
+// Port of util.inspect's compact string-array layout, with the fixed defaults
+// used above. Padding is right-aligned only for numbers, never spawn strings.
+fn group_inspect_entries(entries: &[String]) -> Vec<String> {
+    let widths: Vec<usize> = entries.iter().map(|entry| entry.chars().count()).collect();
+    let maximum = widths.iter().copied().max().unwrap_or(0);
+    let actual_maximum = maximum + 2;
+    let total: usize = widths.iter().map(|width| width + 2).sum();
+    if entries.len() <= 6 || actual_maximum * 3 + 2 >= 80 {
+        return entries.to_vec();
+    }
+    if total as f64 / actual_maximum as f64 <= 5.0 && maximum > 6 {
+        return entries.to_vec();
+    }
+    let average_bias = (actual_maximum as f64 - total as f64 / entries.len() as f64).sqrt();
+    let biased_maximum = (actual_maximum as f64 - 3.0 - average_bias).max(1.0);
+    let columns = ((2.5 * biased_maximum * entries.len() as f64).sqrt() / biased_maximum).round() as usize;
+    let columns = columns.min(78 / actual_maximum).min(12);
+    if columns <= 1 {
+        return entries.to_vec();
+    }
+    let column_widths: Vec<usize> = (0..columns)
+        .map(|column| widths.iter().skip(column).step_by(columns).max().unwrap() + 2)
+        .collect();
+    entries
+        .chunks(columns)
+        .map(|row| inspect_row(row, &column_widths))
+        .collect()
+}
+
+fn inspect_row(row: &[String], widths: &[usize]) -> String {
+    row.iter()
+        .enumerate()
+        .map(|(column, entry)| {
+            if column + 1 == row.len() {
+                entry.clone()
+            } else {
+                let padding = widths[column] - entry.chars().count() - 2;
+                format!("{entry}, {}", " ".repeat(padding))
+            }
+        })
+        .collect()
+}
+
 /// Construct a Node filesystem error without touching the filesystem.
 ///
 /// Pass the failing Node syscall, e.g. `open`, `read`, `mkdir`, or `scandir`.
