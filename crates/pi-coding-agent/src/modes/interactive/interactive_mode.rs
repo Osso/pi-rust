@@ -518,7 +518,7 @@ fn home_directory() -> String {
     #[cfg(windows)]
     {
         pi_js_compat::process_env::get("USERPROFILE")
-            .or_else(|_| pi_js_compat::process_env::get("HOME"))
+            .or_else(|| pi_js_compat::process_env::get("HOME"))
             .unwrap_or_default()
     }
     #[cfg(not(windows))]
