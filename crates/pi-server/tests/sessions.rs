@@ -200,6 +200,54 @@ impl PiServerService for WrongIdService {
     }
 }
 
+struct GatedOpenService {
+    inner: TestServerService,
+    gated_id: &'static str,
+    entered: Deferred<()>,
+    release: Deferred<()>,
+    gated_open_count: AtomicUsize,
+}
+
+impl GatedOpenService {
+    fn new(gated_id: &'static str) -> Self {
+        Self {
+            inner: TestServerService::new(),
+            gated_id,
+            entered: Deferred::new(),
+            release: Deferred::new(),
+            gated_open_count: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl PiServerService for GatedOpenService {
+    fn list_sessions(&self) -> BoxFuture<'_, pi_server::ServiceResult<Vec<SessionMetadata>>> {
+        self.inner.list_sessions()
+    }
+
+    fn list_models(&self) -> BoxFuture<'_, pi_server::ServiceResult<Vec<ModelMetadata>>> {
+        self.inner.list_models()
+    }
+
+    fn create_session(
+        &self,
+        options: CreateSessionOptions,
+    ) -> BoxFuture<'_, pi_server::ServiceResult<Arc<dyn PiSessionRuntime>>> {
+        self.inner.create_session(options)
+    }
+
+    fn open_session(&self, session_id: String) -> BoxFuture<'_, pi_server::ServiceResult<Arc<dyn PiSessionRuntime>>> {
+        Box::pin(async move {
+            if session_id == self.gated_id {
+                self.gated_open_count.fetch_add(1, Ordering::SeqCst);
+                self.entered.resolve(());
+                self.release.wait().await;
+            }
+            self.inner.open_session(session_id).await
+        })
+    }
+}
+
 #[tokio::test]
 async fn serializes_server_snapshot_revisions() {
     let service = Arc::new(OrderedSnapshotService::new());
@@ -765,5 +813,120 @@ async fn maps_service_lock_errors_and_rejects_control_from_unattached_clients() 
     assert_eq!(error_code(&unattached), "invalid_request");
 
     client.close().await;
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn attaches_an_unrelated_live_session_while_another_session_is_still_opening() {
+    let service = Arc::new(GatedOpenService::new("slow-a"));
+    service.inner.seed("slow-a");
+    service.inner.seed("live-b");
+    let fixture = ServerFixture::start(service.clone()).await;
+    let owner_b = fixture.connect().await;
+    let client_a = fixture.connect().await;
+    let client_b = fixture.connect().await;
+    for client in [&owner_b, &client_a, &client_b] {
+        client.hello_default().await.expect("hello must succeed");
+    }
+    attach(&owner_b, "live-b").await;
+
+    let attach_slow = attach_command("slow-a");
+    let attach_live = attach_command("live-b");
+    let slow = client_a.request(&attach_slow, "attach-a");
+    let fast = async {
+        service.entered.wait().await;
+        let attached = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client_b.request(&attach_live, "attach-b"),
+        )
+        .await;
+        service.release.resolve(());
+        attached
+    };
+    let (slow, fast) = tokio::join!(slow, fast);
+
+    let fast = fast.expect("attaching live-b must not wait for slow-a to open");
+    assert!(matches!(
+        success_result(&fast.expect("attach-b must respond")),
+        CommandResult::Attach(_)
+    ));
+    assert!(matches!(
+        success_result(&slow.expect("attach-a must respond")),
+        CommandResult::Attach(_)
+    ));
+
+    for client in [&owner_b, &client_a, &client_b] {
+        client.close().await;
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn concurrent_opens_of_one_session_share_a_single_service_open() {
+    let service = Arc::new(GatedOpenService::new("slow-a"));
+    service.inner.seed("slow-a");
+    let fixture = ServerFixture::start(service.clone()).await;
+    let first = fixture.connect().await;
+    let second = fixture.connect().await;
+    first.hello_default().await.expect("hello must succeed");
+    second.hello_default().await.expect("hello must succeed");
+
+    let attach = attach_command("slow-a");
+    let first_attach = first.request(&attach, "attach-1");
+    let second_attach = async {
+        service.entered.wait().await;
+        let response = second.request(&attach, "attach-2");
+        let release = async {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            service.release.resolve(());
+        };
+        tokio::join!(response, release).0
+    };
+    let (first_response, second_response) = tokio::join!(first_attach, second_attach);
+
+    for response in [first_response, second_response] {
+        assert!(matches!(
+            success_result(&response.expect("attach must respond")),
+            CommandResult::Attach(_)
+        ));
+    }
+    assert_eq!(service.gated_open_count.load(Ordering::SeqCst), 1);
+
+    first.close().await;
+    second.close().await;
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn concurrent_opens_share_the_failure_of_the_single_service_open() {
+    let service = Arc::new(GatedOpenService::new("slow-a"));
+    service.inner.seed("slow-a");
+    service.inner.lock("slow-a");
+    let fixture = ServerFixture::start(service.clone()).await;
+    let first = fixture.connect().await;
+    let second = fixture.connect().await;
+    first.hello_default().await.expect("hello must succeed");
+    second.hello_default().await.expect("hello must succeed");
+
+    let attach = attach_command("slow-a");
+    let first_attach = first.request(&attach, "attach-1");
+    let second_attach = async {
+        service.entered.wait().await;
+        let response = second.request(&attach, "attach-2");
+        let release = async {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            service.release.resolve(());
+        };
+        tokio::join!(response, release).0
+    };
+    let (first_response, second_response) = tokio::join!(first_attach, second_attach);
+
+    for response in [first_response, second_response] {
+        assert_eq!(error_code(&response.expect("attach must respond")), "session_locked");
+    }
+    assert_eq!(service.gated_open_count.load(Ordering::SeqCst), 1);
+
+    first.close().await;
+    second.close().await;
     fixture.close().await;
 }

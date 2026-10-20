@@ -1,4 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::error::Error;
+use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
@@ -65,11 +67,73 @@ impl LiveSession {
     }
 }
 
+type OpenResult = Result<Arc<LiveSession>, Arc<ServiceError>>;
+type OpenReceiver = tokio::sync::watch::Receiver<Option<OpenResult>>;
+
+/// One failed open delivered to every caller that joined it, as the source rejects each
+/// waiter with the same error object. [`unwrap_shared_error`] restores the original for
+/// protocol error mapping.
+#[derive(Debug)]
+pub(crate) struct SharedServiceError(Arc<ServiceError>);
+
+impl fmt::Display for SharedServiceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+impl Error for SharedServiceError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.0.as_ref().as_ref())
+    }
+}
+
+pub(crate) fn unwrap_shared_error<'a>(
+    error: &'a (dyn Error + Send + Sync + 'static),
+) -> &'a (dyn Error + Send + Sync + 'static) {
+    match error.downcast_ref::<SharedServiceError>() {
+        Some(shared) => shared.0.as_ref().as_ref(),
+        None => error,
+    }
+}
+
+enum Acquisition {
+    Live(Arc<LiveSession>),
+    Join(OpenReceiver),
+    Lead(tokio::sync::watch::Sender<Option<OpenResult>>),
+}
+
+/// Removes the in-flight open for `id` when the leading caller finishes or is cancelled.
+struct OpeningEntry<'a> {
+    manager: &'a LiveSessionManager,
+    id: &'a str,
+}
+
+impl Drop for OpeningEntry<'_> {
+    fn drop(&mut self) {
+        self.manager
+            .openings
+            .lock()
+            .expect("opening session mutex poisoned")
+            .remove(self.id);
+    }
+}
+
+async fn wait_for_opening(mut receiver: OpenReceiver) -> Option<OpenResult> {
+    let settled = receiver.wait_for(Option::is_some).await.ok()?;
+    settled.clone()
+}
+
+fn shared_failure(error: Arc<ServiceError>) -> ServiceError {
+    Box::new(SharedServiceError(error))
+}
+
 pub(crate) struct LiveSessionManager {
     core: Weak<ServerCore>,
     service: Arc<dyn PiServerService>,
     live_sessions: Mutex<Vec<(String, Arc<LiveSession>)>>,
-    acquire_lock: tokio::sync::Mutex<()>,
+    /// `openingSessions`: at most one service open per session id; later callers join it.
+    openings: Mutex<HashMap<String, OpenReceiver>>,
 }
 
 impl LiveSessionManager {
@@ -78,7 +142,7 @@ impl LiveSessionManager {
             core,
             service,
             live_sessions: Mutex::new(Vec::new()),
-            acquire_lock: tokio::sync::Mutex::new(()),
+            openings: Mutex::new(HashMap::new()),
         }
     }
 
@@ -231,35 +295,73 @@ impl LiveSessionManager {
         id: String,
         acquire_runtime: BoxFuture<'static, ServiceResult<Arc<dyn PiSessionRuntime>>>,
     ) -> ServiceResult<Arc<LiveSession>> {
-        let _guard = self.acquire_lock.lock().await;
         let mut acquire_runtime = Some(acquire_runtime);
         loop {
-            let existing = self
-                .live_sessions
-                .lock()
-                .expect("live session mutex poisoned")
-                .iter()
-                .find(|(session_id, _)| session_id == &id)
-                .map(|(_, live)| live.clone());
-            if let Some(existing) = existing {
-                if existing.is_terminal() {
-                    return Err(Box::new(PiServerError::session_locked(
-                        format!("Session runtime is terminating: {id}"),
-                        None,
-                    )));
+            match self.lookup(&id) {
+                Acquisition::Live(existing) => {
+                    if existing.is_terminal() {
+                        return Err(Box::new(PiServerError::session_locked(
+                            format!("Session runtime is terminating: {id}"),
+                            None,
+                        )));
+                    }
+                    if existing.is_disposing() {
+                        let _dispose_guard = existing.dispose_lock.lock().await;
+                        continue;
+                    }
+                    return Ok(existing);
                 }
-                if existing.is_disposing() {
-                    let _dispose_guard = existing.dispose_lock.lock().await;
-                    continue;
+                Acquisition::Join(receiver) => {
+                    // A leader that was cancelled before settling leaves nothing to join.
+                    if let Some(result) = wait_for_opening(receiver).await {
+                        return result.map_err(shared_failure);
+                    }
                 }
-                return Ok(existing);
+                Acquisition::Lead(sender) => {
+                    let acquire_runtime = acquire_runtime.take().expect("runtime acquisition is consumed once");
+                    return self.lead_opening(id, sender, acquire_runtime).await;
+                }
             }
-            let runtime = acquire_runtime
-                .take()
-                .expect("runtime acquisition is consumed once")
-                .await?;
-            return self.create(id, runtime).await;
         }
+    }
+
+    /// Looks up live and in-flight sessions under the `openings` lock so a leader finishing
+    /// between the two checks cannot be missed.
+    fn lookup(&self, id: &str) -> Acquisition {
+        let mut openings = self.openings.lock().expect("opening session mutex poisoned");
+        let existing = self
+            .live_sessions
+            .lock()
+            .expect("live session mutex poisoned")
+            .iter()
+            .find(|(session_id, _)| session_id == id)
+            .map(|(_, live)| live.clone());
+        if let Some(existing) = existing {
+            return Acquisition::Live(existing);
+        }
+        if let Some(receiver) = openings.get(id) {
+            return Acquisition::Join(receiver.clone());
+        }
+        let (sender, receiver) = tokio::sync::watch::channel(None);
+        openings.insert(id.to_owned(), receiver);
+        Acquisition::Lead(sender)
+    }
+
+    async fn lead_opening(
+        self: &Arc<Self>,
+        id: String,
+        sender: tokio::sync::watch::Sender<Option<OpenResult>>,
+        acquire_runtime: BoxFuture<'static, ServiceResult<Arc<dyn PiSessionRuntime>>>,
+    ) -> ServiceResult<Arc<LiveSession>> {
+        let opening = OpeningEntry { manager: self, id: &id };
+        let created = match acquire_runtime.await {
+            Ok(runtime) => self.create(id.clone(), runtime).await,
+            Err(error) => Err(error),
+        };
+        let result = created.map_err(Arc::new);
+        drop(opening);
+        sender.send_replace(Some(result.clone()));
+        result.map_err(shared_failure)
     }
 
     async fn create(
@@ -612,7 +714,7 @@ impl LiveSessionManager {
 
     pub(crate) fn close(&self) -> BoxFuture<'_, ServiceResult<()>> {
         Box::pin(async move {
-            let _guard = self.acquire_lock.lock().await;
+            self.settle_openings().await;
             let sessions: Vec<Arc<LiveSession>> = {
                 let mut map = self.live_sessions.lock().expect("live session mutex poisoned");
                 std::mem::take(&mut *map).into_iter().map(|(_, live)| live).collect()
@@ -633,6 +735,24 @@ impl LiveSessionManager {
             }
             Ok(())
         })
+    }
+
+    /// `Promise.allSettled(openingSessions)`: wait for in-flight opens, reporting failures.
+    async fn settle_openings(&self) {
+        let receivers: Vec<OpenReceiver> = self
+            .openings
+            .lock()
+            .expect("opening session mutex poisoned")
+            .values()
+            .cloned()
+            .collect();
+        for receiver in receivers {
+            if let Some(Err(error)) = wait_for_opening(receiver).await
+                && let Some(core) = self.core.upgrade()
+            {
+                core.report_error(error.as_ref().as_ref());
+            }
+        }
     }
 
     fn broadcast_server_snapshot(&self) {

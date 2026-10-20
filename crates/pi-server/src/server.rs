@@ -12,7 +12,7 @@ use crate::errors::{
     PiServerOperationErrorCode,
 };
 use crate::listener::{ListenerError, ListenerResult, PiServerListener};
-use crate::sessions::LiveSessionManager;
+use crate::sessions::{LiveSessionManager, unwrap_shared_error};
 use crate::snapshots::ServerSnapshotPublisher;
 use crate::types::{BoxFuture, PiServerService, handshake_signal};
 use pi_protocol::{
@@ -556,6 +556,7 @@ impl ServerCore {
     }
 
     fn to_protocol_error(&self, error: &(dyn Error + Send + Sync + 'static)) -> ProtocolError {
+        let error = unwrap_shared_error(error);
         if let Some(internal) = error.downcast_ref::<InternalServerError>() {
             self.report_error(internal.cause());
             return ProtocolError::new(
