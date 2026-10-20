@@ -5,6 +5,7 @@
 //! mode itself. Component factories and the TUI event loop are Rust-native;
 //! deviations are recorded in `docs/porting/traceability/interactive-mode.md`.
 
+use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -119,7 +120,6 @@ use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor, with_theme};
 use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, watch_with_error_handler};
 use crate::utils::git::parse_git_url;
 use crate::utils::paths::{PathInputOptions, get_cwd_relative_path, relative_path, resolve_path};
-#[cfg(unix)]
 use crate::utils::shell::kill_tracked_detached_children;
 use serde_json::Value;
 
@@ -130,6 +130,70 @@ pub(crate) const FOLLOW_UP_BODY_PREVIEW_LENGTH: usize = 50;
 
 pub(crate) fn is_unknown_model(model: Option<&pi_ai::types::Model>) -> bool {
     model.is_some_and(|model| model.provider == "unknown" && model.id == "unknown" && model.api == "unknown")
+}
+
+/// `DEAD_TERMINAL_ERROR_CODES`: `EIO`, `EPIPE`, `ENOTCONN`.
+const DEAD_TERMINAL_ERROR_CODES: [i32; 3] = [
+    rustix::io::Errno::IO.raw_os_error(),
+    rustix::io::Errno::PIPE.raw_os_error(),
+    rustix::io::Errno::NOTCONN.raw_os_error(),
+];
+
+/// `isDeadTerminalError`: the terminal is gone (closed pty, dead SSH pipe).
+pub fn is_dead_terminal_error(error: &std::io::Error) -> bool {
+    error
+        .raw_os_error()
+        .is_some_and(|code| DEAD_TERMINAL_ERROR_CODES.contains(&code))
+}
+
+/// Decision made by `uncaughtCrash` before it touches the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CrashAction {
+    /// The terminal is gone: exit 129 without running restore writes.
+    EmergencyExit,
+    /// A crash is already being handled: exit 1 immediately.
+    ExitOne,
+    /// Restore the terminal, report the error, exit 1.
+    RestoreAndReport,
+}
+
+fn crash_action(dead_terminal: bool, is_shutting_down: bool) -> CrashAction {
+    if dead_terminal {
+        return CrashAction::EmergencyExit;
+    }
+    if is_shutting_down {
+        return CrashAction::ExitOne;
+    }
+    CrashAction::RestoreAndReport
+}
+
+/// A value reaching the process-level uncaught handler (`uncaughtCrash`).
+pub(crate) enum UncaughtFailure<'a> {
+    /// A panic payload from `throw_uncaught` or `panic!`.
+    Payload(&'a (dyn Any + Send)),
+    /// A terminal I/O error rethrown by the stream error handler.
+    Io(&'a std::io::Error),
+    /// A rejected restart promise.
+    Message(String),
+}
+
+impl UncaughtFailure<'_> {
+    fn is_dead_terminal_error(&self) -> bool {
+        match self {
+            Self::Payload(payload) => payload.downcast_ref::<std::io::Error>().is_some_and(is_dead_terminal_error),
+            Self::Io(error) => is_dead_terminal_error(error),
+            Self::Message(_) => false,
+        }
+    }
+
+    /// `console.error(error)`: Node prints `<name>: <message>` and the stack.
+    fn report(&self) -> String {
+        match self {
+            Self::Payload(payload) => crate::utils::uncaught::format_uncaught(*payload),
+            Self::Io(error) => format!("Error: {error}"),
+            Self::Message(message) => format!("Error: {message}"),
+        }
+    }
 }
 
 /// `getDirectoryCompletions`: directories under `prefix` resolved against `cwd`.

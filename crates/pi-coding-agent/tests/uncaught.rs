@@ -3,9 +3,11 @@
 use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::Command;
+use std::rc::Rc;
 
 use pi_coding_agent::utils::uncaught::{
-    ERROR, UncaughtError, format_uncaught, install_uncaught_handler, throw_uncaught,
+    ERROR, ThreadCrashHandler, UncaughtError, format_uncaught, install_uncaught_handler, set_thread_crash_handler,
+    throw_uncaught,
 };
 
 #[test]
@@ -61,4 +63,84 @@ fn uncaught_handler_child() {
     }
     install_uncaught_handler();
     throw_uncaught(ERROR, "boom");
+}
+
+fn crash_handler_child(mode: &str) -> std::process::Output {
+    Command::new(std::env::current_exe().expect("test executable"))
+        .env("PI_RUST_UNCAUGHT_PROBE", mode)
+        .args([
+            "--ignored",
+            "--exact",
+            "crash_handler_child",
+            "--test-threads=1",
+            "--nocapture",
+        ])
+        .output()
+        .expect("child must run")
+}
+
+fn reporting_handler() -> ThreadCrashHandler {
+    Rc::new(|payload| {
+        eprintln!("crash handler: {}", format_uncaught(payload));
+        std::process::exit(7);
+    })
+}
+
+#[test]
+fn thread_crash_handler_receives_uncaught_panics() {
+    let output = crash_handler_child("panic");
+    assert_eq!(output.status.code(), Some(7));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "crash handler: Error: boom"
+    );
+}
+
+#[test]
+fn thread_crash_handler_receives_uncaught_throws() {
+    let output = crash_handler_child("throw");
+    assert_eq!(output.status.code(), Some(7));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "crash handler: TypeError: not a function"
+    );
+}
+
+#[test]
+fn clearing_the_thread_crash_handler_restores_the_default_report() {
+    let output = crash_handler_child("cleared");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), "Error: boom");
+}
+
+#[test]
+fn set_thread_crash_handler_reports_the_previous_handler() {
+    assert!(set_thread_crash_handler(Some(reporting_handler())).is_none());
+    assert!(set_thread_crash_handler(None).is_some());
+    assert!(set_thread_crash_handler(None).is_none());
+}
+
+#[test]
+#[ignore = "child process entry point"]
+fn crash_handler_child() {
+    let Some(mode) = std::env::var_os("PI_RUST_UNCAUGHT_PROBE") else {
+        return;
+    };
+    install_uncaught_handler();
+    match mode.to_str() {
+        Some("panic") => {
+            set_thread_crash_handler(Some(reporting_handler()));
+            panic!("boom");
+        }
+        Some("throw") => {
+            set_thread_crash_handler(Some(reporting_handler()));
+            throw_uncaught("TypeError", "not a function");
+        }
+        Some("cleared") => {
+            set_thread_crash_handler(Some(reporting_handler()));
+            set_thread_crash_handler(None);
+            panic!("boom");
+        }
+        _ => panic!("unknown probe mode {mode:?}"),
+    }
 }
