@@ -465,7 +465,7 @@ impl ExtensionRunner {
                 })
             });
             state.reload_handler = Arc::new(|| Box::pin(async {}));
-            state.restart_fn = Arc::new(|_| Box::pin(async {}));
+            state.restart_fn = Arc::new(|_| Box::pin(async { Ok(()) }));
             return;
         };
         state.show_approval_selector_handler = actions.show_approval_selector;

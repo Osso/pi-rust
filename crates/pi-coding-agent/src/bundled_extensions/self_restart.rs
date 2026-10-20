@@ -17,7 +17,7 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         None,
         Arc::new(|_args, ctx| {
             Box::pin(async move {
-                ctx.restart(Some(restart_options()))?.await;
+                ctx.restart(Some(restart_options()))?.await?;
                 Ok(())
             })
         }),
@@ -50,7 +50,7 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
              _on_update: Option<AgentToolUpdateCallback>,
              ctx: ExtensionContext| {
                 Box::pin(async move {
-                    ctx.restart(Some(restart_options()))?.await;
+                    ctx.restart(Some(restart_options()))?.await?;
                     Ok(AgentToolResult {
                         content: vec![TextOrImageContent::Text(TextContent::new(
                             "Restart requested. Current session was reloaded.",

@@ -724,8 +724,16 @@ impl AgentSessionRuntime {
             return Ok(SessionTransitionResult { cancelled: true });
         }
         let previous_session_file = self.session.session_file();
-        if std::fs::canonicalize(&destination_path).ok().as_deref() != std::fs::canonicalize(&resolved).ok().as_deref()
-        {
+        let resolved_destination = resolve_path(
+            &destination_path,
+            &process_cwd(),
+            &PathInputOptions {
+                expand_tilde: Some(false),
+                ..PathInputOptions::default()
+            },
+        )
+        .map_err(|error| error.to_string())?;
+        if resolved_destination != resolved {
             std::fs::copy(&resolved, &destination_path).map_err(|error| error.to_string())?;
         }
         let session_manager = SessionManager::open(&destination_path, Some(&session_dir), cwd_override)
@@ -747,6 +755,15 @@ impl AgentSessionRuntime {
 
     /// Disposes the runtime and its session.
     pub async fn dispose(&mut self) {
+        let runner = self.session.extension_runner();
+        emit_session_shutdown_event(
+            &runner,
+            SessionShutdownEvent {
+                reason: SessionShutdownReason::Quit,
+                target_session_file: None,
+            },
+        )
+        .await;
         if let Some(handler) = &self.before_session_invalidate {
             handler();
         }

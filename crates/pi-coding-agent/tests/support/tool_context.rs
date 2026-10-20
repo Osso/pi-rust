@@ -61,7 +61,7 @@ pub fn command_context_actions(switch_session: SwitchSessionCallback) -> Extensi
         navigate_tree: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         switch_session,
         reload: Arc::new(|| Box::pin(async {})),
-        restart: Arc::new(|_| Box::pin(async {})),
+        restart: Arc::new(|_| Box::pin(async { Ok(()) })),
     }
 }
 
@@ -252,7 +252,7 @@ fn context_actions(
         abort: Arc::new(|| {}),
         has_pending_messages: Arc::new(|| false),
         shutdown: Arc::new(|| {}),
-        restart: Arc::new(|_| Box::pin(async {})),
+        restart: Arc::new(|_| Box::pin(async { Ok(()) })),
         get_control_db_path: Some(Arc::new(move || control_db_path.clone())),
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: Some(Arc::new(move || agent_id.clone())),

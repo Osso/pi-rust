@@ -512,3 +512,19 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
         .expect("activate tool-result relocation");
     assert_eq!(runtime.lock().await.cwd(), third);
 }
+
+#[tokio::test]
+async fn dispose_emits_session_shutdown_quit_before_invalidating_the_session() {
+    let mut harness = build_harness(false, false).await;
+    let invalidated = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&invalidated);
+    harness.runtime.set_before_session_invalidate(Some(Arc::new(move || {
+        flag.store(true, Ordering::SeqCst);
+    })));
+
+    harness.runtime.dispose().await;
+
+    let logs = harness.logs.lock().unwrap().clone();
+    assert!(logs.contains(&"shutdown:quit".to_owned()), "logs: {logs:?}");
+    assert!(invalidated.load(Ordering::SeqCst));
+}

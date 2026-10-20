@@ -438,7 +438,7 @@ fn context_actions() -> ExtensionContextActions {
         abort: Arc::new(|| {}),
         has_pending_messages: Arc::new(|| false),
         shutdown: Arc::new(|| {}),
-        restart: Arc::new(|_| Box::pin(async {})),
+        restart: Arc::new(|_| Box::pin(async { Ok(()) })),
         get_control_db_path: None,
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: None,
@@ -534,7 +534,7 @@ async fn harness() -> Harness {
     let restarted_for_context = Arc::clone(&restarted);
     context_actions.restart = Arc::new(move |_| {
         restarted_for_context.store(true, Ordering::SeqCst);
-        Box::pin(async {})
+        Box::pin(async { Ok(()) })
     });
     runner.bind_core(actions, context_actions, None);
     Harness {

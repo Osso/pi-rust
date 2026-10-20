@@ -341,3 +341,144 @@ fn share_command_reports_a_missing_gh_login() {
         "stdout:\n{text}"
     );
 }
+
+fn spawn_pty_command(
+    fixture: &Fixture,
+    command_line: &str,
+    environment: &[(String, String)],
+) -> (
+    Child,
+    std::sync::Arc<std::sync::Mutex<String>>,
+    std::thread::JoinHandle<()>,
+) {
+    let mut command = Command::new("script");
+    command
+        .arg("-qefc")
+        .arg(command_line)
+        .arg("/dev/null")
+        .current_dir(&fixture.work)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let mut child = command.spawn().expect("script must allocate a pty");
+    let stdout = child.stdout.take().expect("pty stdout");
+    let output = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let buffer = std::sync::Arc::clone(&output);
+    let reader = std::thread::spawn(move || {
+        let mut stdout = stdout;
+        let mut bytes = [0_u8; 4096];
+        loop {
+            let Ok(read) = stdout.read(&mut bytes) else {
+                return;
+            };
+            if read == 0 {
+                return;
+            }
+            buffer
+                .lock()
+                .expect("pty buffer")
+                .push_str(&String::from_utf8_lossy(&bytes[..read]));
+        }
+    });
+    (child, output, reader)
+}
+
+fn wait_for_pidfile(path: &Path) -> u32 {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        if let Ok(content) = std::fs::read_to_string(path)
+            && let Ok(pid) = content.trim().parse::<u32>()
+        {
+            return pid;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("pid file {:?} was not written", path);
+}
+
+fn wait_for_marker_count(output: &std::sync::Arc<std::sync::Mutex<String>>, marker: &str, count: usize) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        let occurrences = output.lock().expect("pty buffer").matches(marker).count();
+        if occurrences >= count {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!(
+        "marker {marker:?} did not render {count} times; output:\n{}",
+        output.lock().expect("pty buffer")
+    );
+}
+
+fn process_group_of(pid: u32) -> u32 {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).expect("process stat");
+    let (_, fields) = stat.rsplit_once(')').expect("stat command terminator");
+    fields
+        .split_whitespace()
+        .nth(2)
+        .expect("stat pgrp field")
+        .parse()
+        .expect("numeric pgrp")
+}
+
+fn kill_group(group: u32) {
+    let Some(pgid) = rustix::process::Pid::from_raw(group as i32) else {
+        return;
+    };
+    rustix::process::kill_process_group(pgid, rustix::process::Signal::KILL).ok();
+}
+
+#[test]
+fn sigterm_shuts_down_interactive_mode_gracefully() {
+    let fixture = fixture();
+    let pidfile = fixture._temp.path().join("pi.pid");
+    let binary = env!("CARGO_BIN_EXE_pi");
+    let command_line = format!("echo $$ > {}; exec {binary}", pidfile.display());
+    let (mut child, output, reader) = spawn_pty_command(&fixture, &command_line, &agent_environment(&fixture));
+
+    wait_for_marker(&output, "Ctrl+C twice to exit");
+    let pid = wait_for_pidfile(&pidfile);
+    let Some(target) = rustix::process::Pid::from_raw(pid as i32) else {
+        panic!("invalid pid {pid}");
+    };
+    rustix::process::kill_process(target, rustix::process::Signal::TERM).expect("SIGTERM");
+
+    let code = wait_with_timeout(&mut child, Duration::from_secs(20));
+    reader.join().expect("pty reader");
+    let text = visible(&output.lock().expect("pty buffer"));
+    assert_eq!(code, 0, "stdout:\n{text}");
+    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text}");
+}
+
+#[test]
+fn sighup_restarts_interactive_mode_in_place() {
+    let fixture = fixture();
+    let pidfile = fixture._temp.path().join("pi.pid");
+    let binary = env!("CARGO_BIN_EXE_pi");
+    let command_line = format!(
+        "{binary} < /dev/tty & echo $! > {}; wait $!; sleep 30",
+        pidfile.display()
+    );
+    let (mut child, output, reader) = spawn_pty_command(&fixture, &command_line, &agent_environment(&fixture));
+
+    wait_for_marker(&output, "Ctrl+C twice to exit");
+    let pid = wait_for_pidfile(&pidfile);
+    let group = process_group_of(pid);
+    let Some(target) = rustix::process::Pid::from_raw(pid as i32) else {
+        panic!("invalid pid {pid}");
+    };
+    rustix::process::kill_process(target, rustix::process::Signal::HUP).expect("SIGHUP");
+
+    wait_for_marker_count(&output, "Ctrl+C twice to exit", 2);
+    let text = visible(&output.lock().expect("pty buffer"));
+    assert!(text.contains("Pi can explain its own features"), "stdout:\n{text}");
+
+    kill_group(group);
+    child.kill().ok();
+    child.wait().ok();
+    reader.join().expect("pty reader");
+}

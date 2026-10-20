@@ -80,6 +80,7 @@ use crate::modes::interactive::components::extension_editor::{ExtensionEditorCom
 use crate::modes::interactive::components::extension_input::{ExtensionInputComponent, ExtensionInputOptions};
 use crate::modes::interactive::components::extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions};
 use crate::modes::interactive::components::footer::{FooterComponent, format_tokens};
+use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::components::login_dialog::LoginDialogComponent;
 use crate::modes::interactive::components::oauth_selector::{
     AuthSelectorMode, AuthSelectorProvider, OAuthSelectorComponent,
@@ -118,6 +119,7 @@ use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor, with_theme};
 use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, watch_with_error_handler};
 use crate::utils::git::parse_git_url;
 use crate::utils::paths::{PathInputOptions, get_cwd_relative_path, relative_path, resolve_path};
+use crate::utils::shell::kill_tracked_detached_children;
 use serde_json::Value;
 
 pub(crate) const PARTIAL_UPDATE_RENDER_THROTTLE_MS: u64 = 50;
@@ -2008,7 +2010,7 @@ enum UiRequest {
     },
     RuntimeRestart {
         options: Option<crate::core::extensions::types::RestartOptions>,
-        respond: tokio::sync::oneshot::Sender<()>,
+        respond: tokio::sync::oneshot::Sender<Result<(), crate::core::extensions::types::HandlerError>>,
     },
     AbortAndRestoreQueued,
     ShutdownRequested,
@@ -2529,6 +2531,8 @@ pub struct InteractiveMode {
     ui_id: Cell<usize>,
     unsubscribe: Cell<Option<u64>>,
     shutdown_requested: Cell<bool>,
+    is_shutting_down: Cell<bool>,
+    signal_handlers: RefCell<Vec<tokio::task::JoinHandle<()>>>,
     tool_output_expanded: Cell<bool>,
     hide_thinking_block: Cell<bool>,
     hidden_thinking_label: RefCell<String>,
@@ -2837,6 +2841,8 @@ impl InteractiveMode {
             ui_id: Cell::new(0),
             unsubscribe: Cell::new(None),
             shutdown_requested: Cell::new(false),
+            is_shutting_down: Cell::new(false),
+            signal_handlers: RefCell::new(Vec::new()),
             tool_output_expanded: Cell::new(false),
             hide_thinking_block: Cell::new(hide_thinking_block),
             hidden_thinking_label: RefCell::new("Thinking...".to_owned()),
@@ -5596,6 +5602,18 @@ impl InteractiveMode {
         self.set_tools_expanded(!self.tool_output_expanded.get());
     }
 
+    fn detach_running_tool(&self) -> bool {
+        let session = self.session();
+        if !session.has_detachable_tool() {
+            return false;
+        }
+        if !session.detach_running_tool() {
+            return false;
+        }
+        self.show_status("Detached tool to background job");
+        true
+    }
+
     fn toggle_thinking_block_visibility(&self) {
         let hidden = !self.hide_thinking_block.get();
         self.hide_thinking_block.set(hidden);
@@ -5766,6 +5784,7 @@ impl InteractiveMode {
         *self.multi_agent_updates.borrow_mut() = None;
         self.clear_child_agent_view();
         self.clipboard_temp_files.borrow_mut().cleanup_all();
+        self.unregister_signal_handlers();
         self.ui.stop();
     }
 
@@ -5867,6 +5886,42 @@ impl pi_tui::components::markdown::MarkdownTheme for SettingsMarkdownTheme {
     fn code_block_indent(&self) -> &str {
         &self.code_block_indent
     }
+}
+
+#[cfg(unix)]
+fn spawn_signal_handlers(mode: &Rc<InteractiveMode>) -> Vec<tokio::task::JoinHandle<()>> {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    let terminate = {
+        let mode = Rc::clone(mode);
+        tokio::task::spawn_local(async move {
+            let Ok(mut signals) = signal(SignalKind::terminate()) else {
+                return;
+            };
+            if signals.recv().await.is_some() {
+                kill_tracked_detached_children();
+                mode.shutdown_from_signal().await;
+            }
+        })
+    };
+    let hangup = {
+        let mode = Rc::clone(mode);
+        tokio::task::spawn_local(async move {
+            let Ok(mut signals) = signal(SignalKind::hangup()) else {
+                return;
+            };
+            if signals.recv().await.is_some() {
+                kill_tracked_detached_children();
+                mode.restart_from_signal().await;
+            }
+        })
+    };
+    vec![terminate, hangup]
+}
+
+#[cfg(not(unix))]
+fn spawn_signal_handlers(_mode: &Rc<InteractiveMode>) -> Vec<tokio::task::JoinHandle<()>> {
+    Vec::new()
 }
 
 /// Entry point used by `ca-main`: runs interactive mode on a local task set.
@@ -6059,6 +6114,12 @@ impl InteractiveMode {
             action(self, InteractiveMode::toggle_tool_output_expansion),
         );
         self.default_editor.borrow_mut().on_action(
+            "app.tool.background",
+            action(self, |mode| {
+                mode.detach_running_tool();
+            }),
+        );
+        self.default_editor.borrow_mut().on_action(
             "app.thinking.toggle",
             action(self, InteractiveMode::toggle_thinking_block_visibility),
         );
@@ -6131,6 +6192,8 @@ impl InteractiveMode {
             return Ok(());
         }
 
+        self.register_signal_handlers();
+
         self.bind_callbacks();
 
         let http_idle_timeout_ms = self
@@ -6197,21 +6260,22 @@ impl InteractiveMode {
             with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("v{}", self.version)))
         );
         let instructions = [
-            "Esc to interrupt",
-            "Ctrl+C to clear",
-            "Ctrl+C twice to exit",
-            "Ctrl+D to exit (empty)",
-            "Shift+Tab to cycle thinking level",
-            "Ctrl+P/Ctrl+N to cycle models",
-            "Ctrl+L to select model",
-            "Ctrl+O to expand tools",
-            "Ctrl+T to expand thinking",
-            "Ctrl+G for external editor",
-            "/ for commands",
-            "! to run bash",
-            "!! to run bash (no context)",
-            "Alt+Enter to queue follow-up",
-            "Alt+Up to edit queued messages",
+            "Esc to interrupt".to_owned(),
+            "Ctrl+C to clear".to_owned(),
+            "Ctrl+C twice to exit".to_owned(),
+            "Ctrl+D to exit (empty)".to_owned(),
+            "Shift+Tab to cycle thinking level".to_owned(),
+            "Ctrl+P/Ctrl+N to cycle models".to_owned(),
+            "Ctrl+L to select model".to_owned(),
+            "Ctrl+O to expand tools".to_owned(),
+            key_hint("app.tool.background", "to background tools"),
+            "Ctrl+T to expand thinking".to_owned(),
+            "Ctrl+G for external editor".to_owned(),
+            "/ for commands".to_owned(),
+            "! to run bash".to_owned(),
+            "!! to run bash (no context)".to_owned(),
+            "Alt+Enter to queue follow-up".to_owned(),
+            "Alt+Up to edit queued messages".to_owned(),
         ]
         .join("\n");
         let onboarding = with_theme(|theme| {
@@ -6348,7 +6412,11 @@ impl InteractiveMode {
                     let (respond, receiver) = tokio::sync::oneshot::channel();
                     let _ = sender.send(UiRequest::RuntimeRestart { options, respond });
                     Box::pin(async move {
-                        let _ = receiver.await;
+                        receiver.await.unwrap_or_else(|_| {
+                            Err(crate::core::extensions::types::HandlerError::new(
+                                "Agent session runtime is not available",
+                            ))
+                        })
                     })
                 })
             },
@@ -9723,6 +9791,9 @@ impl InteractiveMode {
     }
 
     async fn shutdown(&self) {
+        if self.is_shutting_down.replace(true) {
+            return;
+        }
         self.clear_extension_widgets();
         self.close_response_complete_notification();
         if let Some(id) = self.unsubscribe.get() {
@@ -9731,6 +9802,39 @@ impl InteractiveMode {
         }
         self.stop();
         self.runtime.lock().await.dispose().await;
+    }
+
+    /// `registerSignalHandlers`: SIGTERM performs the graceful shutdown,
+    /// SIGHUP restarts the process. Both kill tracked detached children first.
+    fn register_signal_handlers(self: &Rc<Self>) {
+        self.unregister_signal_handlers();
+        let handlers = spawn_signal_handlers(self);
+        *self.signal_handlers.borrow_mut() = handlers;
+    }
+
+    fn unregister_signal_handlers(&self) {
+        for handler in self.signal_handlers.borrow_mut().drain(..) {
+            handler.abort();
+        }
+    }
+
+    async fn shutdown_from_signal(&self) {
+        if self.is_shutting_down.replace(true) {
+            return;
+        }
+        self.runtime.lock().await.dispose().await;
+        self.theme_controller.borrow_mut().disable_auto_sync();
+        self.ui.terminal().borrow_mut().drain_input(1000, 50);
+        self.stop();
+        std::process::exit(0);
+    }
+
+    async fn restart_from_signal(&self) {
+        self.theme_controller.borrow_mut().disable_auto_sync();
+        let result = self.runtime.lock().await.restart(None, true).await;
+        if let Err(error) = result {
+            eprintln!("{error}");
+        }
     }
 
     async fn handle_ui_requests(&self) {
@@ -10148,13 +10252,11 @@ impl InteractiveMode {
             }
             UiRequest::RuntimeRestart { options, respond } => {
                 let mut runtime = self.runtime.lock().await;
-                let _ = runtime
-                    .restart(
-                        options.as_ref().and_then(|options| options.notice.as_deref()),
-                        options.as_ref().and_then(|options| options.process).unwrap_or(false),
-                    )
-                    .await;
-                let _ = respond.send(());
+                let result = runtime
+                    .restart(options.as_ref().and_then(|options| options.notice.as_deref()), true)
+                    .await
+                    .map_err(crate::core::extensions::types::HandlerError::new);
+                let _ = respond.send(result);
             }
         }
     }
@@ -13256,6 +13358,178 @@ mod ui_tests {
         }
 
         fn set_text(&mut self, _text: &str) {}
+    }
+
+    struct TestDetachHandle {
+        detached: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl crate::core::tool_detach_registry::ToolDetachHandle for TestDetachHandle {
+        fn detach(&self) -> bool {
+            self.detached.store(true, std::sync::atomic::Ordering::SeqCst);
+            true
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn background_tool_keybinding_detaches_the_running_tool_and_shows_the_hint() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                let output = pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                assert!(output.contains("ctrl+b to background tools"), "output:\n{output}");
+
+                let context = mode.session().extension_runner().create_context();
+                let registry = context
+                    .tool_detach_registry()
+                    .expect("registry getter")
+                    .expect("session registry");
+                let detached = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let subscription = registry.register(Arc::new(TestDetachHandle {
+                    detached: Arc::clone(&detached),
+                }));
+                assert!(mode.session().has_detachable_tool());
+
+                terminal.borrow_mut().send_input("\u{2}");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Detached tool to background job")
+                })
+                .await;
+                assert!(detached.load(std::sync::atomic::Ordering::SeqCst), "output:\n{output}");
+                drop(subscription);
+            })
+            .await;
+    }
+
+    type RestartOutcome = Arc<Mutex<Option<Result<(), String>>>>;
+    type RestartCalls = Arc<Mutex<Vec<(Option<String>, String)>>>;
+
+    async fn build_mode_with_restart_extension() -> (
+        Rc<InteractiveMode>,
+        Rc<RefCell<CaptureTerminal>>,
+        tempfile::TempDir,
+        RestartOutcome,
+        RestartCalls,
+    ) {
+        let runtime = crate::core::extensions::create_extension_runtime();
+        let outcome: RestartOutcome = Arc::new(Mutex::new(None));
+        let command_outcome = Arc::clone(&outcome);
+        let factory: crate::core::extensions::ExtensionFactory = Arc::new(move |api| {
+            let command_outcome = Arc::clone(&command_outcome);
+            api.register_command(
+                "restart-test",
+                None,
+                None,
+                Arc::new(
+                    move |_args: String, ctx: crate::core::extensions::ExtensionCommandContext| {
+                        let command_outcome = Arc::clone(&command_outcome);
+                        Box::pin(async move {
+                            let result = match ctx.restart(Some(crate::core::extensions::types::RestartOptions {
+                                notice: None,
+                                process: None,
+                            })) {
+                                Ok(future) => future.await.map_err(|error| error.to_string()),
+                                Err(error) => Err(error.to_string()),
+                            };
+                            *command_outcome.lock().unwrap() = Some(result);
+                            Ok(())
+                        })
+                            as crate::core::extensions::BoxFuture<
+                                'static,
+                                Result<(), crate::core::extensions::HandlerError>,
+                            >
+                    },
+                ),
+            )
+            .expect("restart command");
+            Box::pin(async { Ok(()) })
+        });
+        let extension = crate::core::extensions::load_extension_from_factory(
+            factory,
+            "/tmp",
+            Arc::new(crate::core::event_bus::EventBusController::new()),
+            runtime.clone(),
+            "/tmp/restart-extension",
+        )
+        .await
+        .expect("extension");
+        let loader = Arc::new(StaticResourceLoader {
+            extensions: Some(crate::core::extensions::LoadExtensionsResult {
+                extensions: vec![extension],
+                errors: Vec::new(),
+                runtime,
+            }),
+            ..Default::default()
+        }) as Arc<dyn crate::core::resource_loader::ResourceLoader>;
+        let calls: RestartCalls = Arc::new(Mutex::new(Vec::new()));
+        let (mode, terminal, _faux, temp) = build_mode_with_extra_providers(
+            loader,
+            None,
+            SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default()),
+            Vec::new(),
+            serde_json::Map::new(),
+            true,
+            TestModeSetup::default(),
+        )
+        .await;
+        (mode, terminal, temp, outcome, calls)
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn command_restart_always_restarts_the_process_and_propagates_errors() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _temp, outcome, calls) = build_mode_with_restart_extension().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                let session_file = mode.session().session_file().expect("persisted session file");
+
+                {
+                    let calls = Arc::clone(&calls);
+                    let mut runtime = mode.runtime.lock().await;
+                    runtime.set_process_restarter(Arc::new(move |options| {
+                        let calls = Arc::clone(&calls);
+                        Box::pin(async move {
+                            calls
+                                .lock()
+                                .unwrap()
+                                .push((options.prompt.clone(), options.session_file.clone()));
+                            Err("restart failed".to_owned())
+                        })
+                    }));
+                }
+
+                terminal.borrow_mut().send_input("/restart-test");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+                while outcome.lock().unwrap().is_none() && tokio::time::Instant::now() < deadline {
+                    mode.ui.process_events();
+                    mode.ui.flush_pending();
+                    mode.poll_timers();
+                    while let Ok(event) = events.try_recv() {
+                        mode.handle_event(event).await;
+                    }
+                    mode.handle_ui_requests().await;
+                    mode.drain_actions().await;
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+
+                assert_eq!(
+                    outcome.lock().unwrap().clone(),
+                    Some(Err("restart failed".to_owned())),
+                    "the extension caller observes the restart failure"
+                );
+                let calls = calls.lock().unwrap().clone();
+                assert_eq!(calls, vec![(None, session_file)], "restart must use the process path");
+            })
+            .await;
     }
 }
 
