@@ -13,7 +13,10 @@ async fn merges_context_and_preserves_utf16_lengths_and_source_count_bug() {
     std::fs::write(&path, "# Local 😀\n").unwrap();
     let output = support::Output::default();
     let _main = example::main;
-    let files = example::run(fixture.options, output.clone()).await.unwrap();
+    let (files, session) = example::run(fixture.options, output.clone()).await.unwrap();
+    assert_eq!(session.resource_loader().get_agents_files().agents_files, files);
+    assert!(session.system_prompt().contains("# Local 😀"));
+    assert!(session.system_prompt().contains("- Prefer const over let"));
     let mut source = oracle::TsOracle::spawn(
         "sdk-examples-oracle.ts",
         "packages/coding-agent/examples/sdk/07-context-files.ts",

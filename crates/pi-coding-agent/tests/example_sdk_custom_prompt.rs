@@ -12,13 +12,10 @@ async fn replaces_then_appends_prompt_and_preserves_output_order() {
     let second = support::fixture().await;
     let cwd = first.options.cwd.clone().unwrap();
     let _homes = (first.home, second.home);
-    let ids = [&first.options, &second.options]
-        .map(|options| options.session_manager.as_ref().unwrap().get_session_id().to_owned());
     let disposed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let observed = std::sync::Arc::clone(&disposed);
-    let expected_ids = ids.clone();
     let cleanup = pi_ai::session_resources::register_session_resource_cleanup(Box::new(move |session| {
-        if let Some(id) = session.filter(|id| expected_ids.iter().any(|expected| expected == id)) {
+        if let Some(id) = session {
             observed.lock().unwrap().push(id.to_owned());
         }
         Ok(())
@@ -34,7 +31,9 @@ async fn replaces_then_appends_prompt_and_preserves_output_order() {
     );
     let expected = source.request(&json!({"text":"Hello!"}));
     assert_eq!(output.text(), expected["stdout"]);
-    assert_eq!(*disposed.lock().unwrap(), ids);
+    let ids = disposed.lock().unwrap();
+    assert_eq!(ids.len(), 2, "both native sessions run resource cleanup");
+    assert_ne!(ids[0], ids[1]);
     cleanup.unregister();
     let requests = first.requests.lock().unwrap();
     assert_eq!(

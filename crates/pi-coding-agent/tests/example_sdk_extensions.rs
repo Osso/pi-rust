@@ -19,6 +19,8 @@ async fn native_inline_extension_runs_before_streaming() {
             .join(id)
             .display()
             .to_string();
+        // Discovery requires an existing path; the native registry supplies its code.
+        std::fs::write(&path, "// native fixture registry ID\n").unwrap();
         let observed = std::sync::Arc::clone(&loaded);
         registry.register_hidden(
             path,

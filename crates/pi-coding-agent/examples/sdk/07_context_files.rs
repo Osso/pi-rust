@@ -2,6 +2,7 @@
 mod error;
 mod resources;
 use pi_coding_agent::core::{
+    agent_session::AgentSession,
     resource_loader::{DefaultResourceLoader, ResourceLoader},
     sdk::{CreateAgentSessionOptions, create_agent_session},
     session_manager::SessionManager,
@@ -10,7 +11,10 @@ use pi_coding_agent::core::{
 use std::io::Write;
 use std::sync::Arc;
 
-pub async fn run(mut options: CreateAgentSessionOptions, mut output: impl Write) -> Result<Vec<ContextFile>, String> {
+pub async fn run(
+    mut options: CreateAgentSessionOptions,
+    mut output: impl Write,
+) -> Result<(Vec<ContextFile>, AgentSession), String> {
     let mut loader_options = resources::options(&options)?;
     loader_options.agents_files_override = Some(Arc::new(|mut current| {
         current.agents_files.push(ContextFile {path: "/virtual/AGENTS.md".into(), content: "# Project Guidelines\n\n## Code Style\n- Use TypeScript strict mode\n- No any types\n- Prefer const over let".into()});
@@ -35,7 +39,7 @@ pub async fn run(mut options: CreateAgentSessionOptions, mut output: impl Write)
     // Source already appended the inline file, then adds one again in its label.
     writeln!(output, "Session created with {} context files", discovered.len() + 1).map_err(|e| e.to_string())?;
     session.dispose();
-    Ok(discovered)
+    Ok((discovered, session))
 }
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() -> Result<(), error::ExampleError> {

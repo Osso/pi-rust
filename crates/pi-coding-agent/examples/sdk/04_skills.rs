@@ -2,6 +2,7 @@
 mod error;
 mod resources;
 use pi_coding_agent::core::{
+    agent_session::AgentSession,
     resource_loader::{DefaultResourceLoader, ResourceLoader},
     sdk::{CreateAgentSessionOptions, create_agent_session},
     session_manager::SessionManager,
@@ -14,7 +15,7 @@ use std::sync::Arc;
 pub async fn run(
     mut options: CreateAgentSessionOptions,
     mut output: impl Write + Send + 'static,
-) -> Result<(), String> {
+) -> Result<AgentSession, String> {
     let mut loader_options = resources::options(&options)?;
     loader_options.skills_override = Some(Arc::new(|mut current| {
         current
@@ -61,11 +62,12 @@ pub async fn run(
     let session = create_agent_session(options).await?.session;
     writeln!(output, "Session created with filtered skills").map_err(|e| e.to_string())?;
     session.dispose();
-    Ok(())
+    Ok(session)
 }
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() -> Result<(), error::ExampleError> {
     run(CreateAgentSessionOptions::default(), std::io::stdout())
         .await
+        .map(|_| ())
         .map_err(error::ExampleError)
 }

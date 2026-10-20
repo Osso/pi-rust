@@ -2,6 +2,7 @@
 mod error;
 mod resources;
 use pi_coding_agent::core::{
+    agent_session::AgentSession,
     prompt_templates::PromptTemplate,
     resource_loader::{DefaultResourceLoader, ResourceLoader},
     sdk::{CreateAgentSessionOptions, create_agent_session},
@@ -14,7 +15,7 @@ use std::sync::Arc;
 pub async fn run(
     mut options: CreateAgentSessionOptions,
     mut output: impl Write,
-) -> Result<Vec<PromptTemplate>, String> {
+) -> Result<(Vec<PromptTemplate>, AgentSession), String> {
     let mut loader_options = resources::options(&options)?;
     loader_options.prompts_override = Some(Arc::new(|mut current| {
         current.prompts.push(PromptTemplate {
@@ -49,7 +50,7 @@ pub async fn run(
     // Preserve the source's double-counted inline template in the printed label.
     writeln!(output, "Session created with {} prompt templates", discovered.len() + 1).map_err(|e| e.to_string())?;
     session.dispose();
-    Ok(discovered)
+    Ok((discovered, session))
 }
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() -> Result<(), error::ExampleError> {

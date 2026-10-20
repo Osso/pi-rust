@@ -20,7 +20,14 @@ async fn filters_discovered_skills_and_appends_virtual_skill() {
     }
     let output = support::Output::default();
     let _main = example::main;
-    example::run(fixture.options, output.clone()).await.unwrap();
+    let session = example::run(fixture.options, output.clone()).await.unwrap();
+    let skills = session.resource_loader().get_skills().skills;
+    assert_eq!(
+        skills.iter().map(|skill| skill.name.as_str()).collect::<Vec<_>>(),
+        ["browser-local", "search-local", "my-skill"]
+    );
+    assert!(session.system_prompt().contains("my-skill"));
+    assert!(!session.system_prompt().contains("<name>other</name>"));
     let mut source = oracle::TsOracle::spawn(
         "sdk-examples-oracle.ts",
         "packages/coding-agent/examples/sdk/04-skills.ts",

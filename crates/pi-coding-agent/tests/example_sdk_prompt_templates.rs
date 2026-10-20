@@ -14,7 +14,9 @@ async fn appends_deploy_template_and_preserves_source_count_bug() {
     std::fs::write(path.join("hello.md"), "---\ndescription: Greet the user\n---\nHello $1").unwrap();
     let output = support::Output::default();
     let _main = example::main;
-    let prompts = example::run(fixture.options, output.clone()).await.unwrap();
+    let (prompts, session) = example::run(fixture.options, output.clone()).await.unwrap();
+    assert_eq!(session.prompt_templates(), prompts);
+    assert_eq!(session.resource_loader().get_prompts().prompts, prompts);
     let mut source = oracle::TsOracle::spawn(
         "sdk-examples-oracle.ts",
         "packages/coding-agent/examples/sdk/08-prompt-templates.ts",
