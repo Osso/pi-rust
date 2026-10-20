@@ -153,7 +153,8 @@ async function run(request: any) {
      await new Promise<void>((done,reject) => {
       const timeout = originalTimers[0](() => reject(new Error("trigger fixture timeout")),3000);
       fileChanged = () => { originalTimers[1](timeout); fileChanged = undefined; done(); };
-      fileOps.writeFileSync(request.triggerPath,step.content);
+      const fd = fs.openSync(request.triggerPath,"r+");
+      fs.writeSync(fd,step.content); fs.closeSync(fd);
      });
      trace.push(["file",fileOps.readFileSync(request.triggerPath,"utf8")]);
      break;

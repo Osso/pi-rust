@@ -44,7 +44,7 @@ async fn protocols_precedence_external_fixture_and_output_errors_match_ts() {
         pi_js_compat::process_env::set("KITTY_WINDOW_ID", kitty);
         pi_js_compat::process_env::set("PATH", &path);
         pi_js_compat::process_env::set("NOTIFY_RECEIPT", receipt.to_str().unwrap());
-        let factory = move |trace| {
+        let factory = move |trace: harness::Trace| {
             let factory: ExtensionFactory = Arc::new(move |api| {
                 let result = example::notify_with_output(
                     api,

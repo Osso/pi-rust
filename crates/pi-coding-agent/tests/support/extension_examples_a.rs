@@ -303,7 +303,13 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
                 let path = request["triggerPath"].as_str().unwrap();
                 let content = step["content"].as_str().unwrap();
                 let previous_messages = trace.lock().unwrap().iter().filter(|v| v[0] == "sendMessage").count();
-                std::fs::write(path, content).unwrap();
+                // One external write event, not truncate + write (which can race
+                // the watcher into processing the same content twice).
+                use std::io::Write;
+                let mut file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+                assert!(file.metadata().unwrap().len() <= content.len() as u64);
+                file.write_all(content.as_bytes()).unwrap();
+                drop(file);
                 let receiver = &mut trigger_events.as_mut().unwrap().1;
                 tokio::time::timeout(std::time::Duration::from_secs(3), async {
                     loop {
