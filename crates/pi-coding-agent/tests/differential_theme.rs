@@ -251,8 +251,6 @@ fn load_cases(package_dir: &Path) -> Vec<Value> {
     ]
 }
 
-const ORACLE_TEMP_PATTERN: &str = r"/tmp/pi-theme-oracle-[^/]+/";
-
 /// Substitute each side's temp directory prefix so only the message body is compared.
 fn normalize_temp_path(value: Value, pattern: &str, replacement: &str) -> Value {
     match value {
@@ -331,9 +329,12 @@ fn theme_loading_matches_typescript() {
 
     assert_eq!(actual.len(), expected.len());
     let actual_prefix = format!("{}/", directory.path().display());
+    // The oracle uses mkdtemp(join(os.tmpdir(), "pi-theme-oracle-")).
+    let oracle_prefix = std::env::temp_dir().join("pi-theme-oracle-");
+    let oracle_pattern = format!(r"{}[^/]+/", regex::escape(&oracle_prefix.to_string_lossy()));
     let expected = expected
         .into_iter()
-        .map(|case| normalize_temp_path(case, ORACLE_TEMP_PATTERN, "<tmp>/"))
+        .map(|case| normalize_temp_path(case, &oracle_pattern, "<tmp>/"))
         .collect::<Vec<_>>();
     let actual = actual
         .into_iter()
