@@ -1,6 +1,6 @@
 #[path = "../examples/extensions/todo.rs"]
 mod example;
-#[path = "support/extension_examples_b.rs"]
+#[path = "support/extension_examples_l_todo.rs"]
 mod support;
 use pi_coding_agent::core::extensions::*;
 use serde_json::{Value, json};
@@ -66,15 +66,14 @@ async fn todo_state_errors_branch_restore_and_all_renderers_match() {
 }
 
 #[tokio::test]
-#[ignore = "blocked: native SessionManager has no mutable/shared message-details entry API"]
-async fn todo_stored_details_aliases_survive_branch_back_and_reload() {
+async fn todo_stored_details_are_isolated_on_branch_back_and_reload() {
     let first = json!({"action":"list","todos":[{"id":9,"text":"restored","done":true}],"nextId":10});
     let second = json!({"action":"list","todos":[{"id":20,"text":"other branch","done":false}],"nextId":21});
     let factory: ExtensionFactory = Arc::new(|api| {
         let result = example::todo_extension(api);
         Box::pin(async move { result })
     });
-    support::compare("todo",factory,json!({"cases":[
+    support::compare("todo",factory,json!({"fixed":true,"cases":[
         {"event":"append","message":{"role":"toolResult","toolCallId":"a","toolName":"todo","content":[],"details":first,"isError":false,"timestamp":0}},
         {"event":"event","value":{"type":"session_tree","newLeafId":null,"oldLeafId":null}},
         {"event":"execute","toolName":"todo","params":{"action":"add","text":"after restore"}},
@@ -85,6 +84,7 @@ async fn todo_stored_details_aliases_survive_branch_back_and_reload() {
         {"event":"event","value":{"type":"session_tree","newLeafId":null,"oldLeafId":null}},
         {"event":"execute","toolName":"todo","params":{"action":"add","text":"after branch"}},
         {"event":"session_start"},
-        {"event":"execute","toolName":"todo","params":{"action":"list"}}
+        {"event":"execute","toolName":"todo","params":{"action":"list"}},
+        {"event":"entries"}
     ]})).await;
 }

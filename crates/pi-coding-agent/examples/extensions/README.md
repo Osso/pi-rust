@@ -180,3 +180,23 @@ see batch I traceability.
 `/handoff <goal>`. It generates a focused draft through the host model registry,
 lets the user edit it, then replaces the session with parent tracking. Post-switch
 UI uses the replacement context. Nothing loads by default.
+
+## Batch L: isolated session reads
+
+The historical Todo/plan-mode alias blockers above are superseded by the approved
+TS read-isolation fix `bf55d9fd6`. Todo now has a passing branch/reload/read-back
+regression, not an ignored test. See [batch L traceability](../../../../docs/porting/traceability/extension-examples-l.md).
+
+`plan_mode/index.rs` now exports `plan_mode_extension(&ExtensionApi)`. Embed and
+register explicitly; no default loading. Native state owns its todos and appends
+snapshots, matching approved TS read/write isolation. Pure helpers remain in
+`plan_mode/utils.rs`.
+
+`snake.rs` exports `snake_extension(&ExtensionApi)` for explicit native factory
+registration. `/snake` owns its restored state, uses a 100ms Tokio timer and OS
+randomness, saves on ESC, clears on Q, and starts restored games paused. No
+default loading.
+
+Space Invaders remains unported: native custom components lack the required
+Kitty key-release opt-in. `example_space_invaders` characterizes that requirement
+through the real pinned TS TUI; it does not claim a native game implementation.
