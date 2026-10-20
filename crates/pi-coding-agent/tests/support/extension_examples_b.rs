@@ -15,6 +15,9 @@ struct Ui {
     calls: Mutex<Vec<Value>>,
     selected: Mutex<Option<String>>,
     item: Mutex<Value>,
+    custom_tools: Mutex<std::collections::BTreeMap<String, ToolDefinition>>,
+    custom_context: Mutex<Option<ExtensionContext>>,
+    custom_before: Mutex<Vec<HandlerHandle<BeforeAgentStartEvent, BeforeAgentStartEventResult>>>,
 }
 impl ExtensionUiContext for Ui {
     fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
@@ -51,6 +54,51 @@ impl ExtensionUiContext for Ui {
                 .push(json!(["render", component.render(width)]));
             for key in item["keys"].as_array().into_iter().flatten() {
                 component.handle_input(key.as_str().unwrap());
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(json!(["render", component.render(width)]));
+            }
+            for step in item["gameScript"].as_array().into_iter().flatten() {
+                if let Some(prompt) = step["before"].as_str() {
+                    let handlers = self.custom_before.lock().unwrap().clone();
+                    let context = self.custom_context.lock().unwrap().clone().unwrap();
+                    for handler in handlers {
+                        let result = handler
+                            .call(
+                                BeforeAgentStartEvent {
+                                    prompt: "fixture".into(),
+                                    images: None,
+                                    system_prompt: prompt.into(),
+                                    system_prompt_options: Default::default(),
+                                },
+                                context.clone(),
+                            )
+                            .await
+                            .unwrap();
+                        self.calls.lock().unwrap().push(json!(["before", result]));
+                    }
+                }
+                if let Some(key) = step["key"].as_str() {
+                    component.handle_input(key);
+                }
+                if let Some(name) = step["execute"].as_str() {
+                    let tool = self.custom_tools.lock().unwrap()[name].clone();
+                    let context = self.custom_context.lock().unwrap().clone().unwrap();
+                    let started = tokio::time::Instant::now();
+                    let result =
+                        (tool.execute)("fixture-call".into(), step["params"].clone(), None, None, context).await;
+                    self.calls
+                        .lock()
+                        .unwrap()
+                        .push(json!(["elapsed", started.elapsed().as_millis()]));
+                    let result = match result {
+                        Ok(value) => json!({"value":value}),
+                        Err(error) => json!({"error":error.message}),
+                    };
+                    self.calls.lock().unwrap().push(json!(["execute", result]));
+                }
+                let width = step["width"].as_u64().unwrap_or(width as u64) as usize;
                 self.calls
                     .lock()
                     .unwrap()
@@ -147,9 +195,16 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     )
     .await
     .unwrap();
-    let metadata = {
+    let (metadata, custom_before, custom_tools) = {
         let registration = extension.read();
-        json!({"commands":registration.commands.keys().collect::<Vec<_>>(),"tools":registration.tools.keys().collect::<Vec<_>>()})
+        let metadata = json!({"commands":registration.commands.keys().collect::<Vec<_>>(),"tools":registration.tools.keys().collect::<Vec<_>>()});
+        let custom_before = registration.handlers.before_agent_start.clone();
+        let custom_tools = registration
+            .tools
+            .iter()
+            .map(|(name, tool)| (name.clone(), tool.definition.clone()))
+            .collect();
+        (metadata, custom_before, custom_tools)
     };
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(Map::new())) as Arc<dyn CredentialStore>),
@@ -187,6 +242,8 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
             log.lock().unwrap().push(json!(["setActiveTools", names]));
             Ok(())
         });
+    }
+    if request.get("allTools").is_some() || request["captureEffects"] == true {
         let manager = runner.create_context().session_manager().unwrap();
         let log = effects.clone();
         actions.append_entry = Arc::new(move |kind, data| {
@@ -196,6 +253,18 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                 .append_custom_entry(kind, data.clone())
                 .map_err(|e| HandlerError::new(e.to_string()))?;
             log.lock().unwrap().push(json!(["appendEntry", kind, data]));
+            Ok(())
+        });
+    }
+    if request["captureEffects"] == true {
+        let log = effects.clone();
+        actions.send_message = Arc::new(move |message, options| {
+            log.lock().unwrap().push(json!(["sendMessage", message, options]));
+            Ok(())
+        });
+        let log = effects.clone();
+        actions.set_session_name = Arc::new(move |name| {
+            log.lock().unwrap().push(json!(["setSessionName", name]));
             Ok(())
         });
     }
@@ -210,6 +279,9 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
         captured_errors.lock().unwrap().push(json!([error.event, error.error]));
     }));
     let ui = Arc::new(Ui::default());
+    *ui.custom_tools.lock().unwrap() = custom_tools;
+    *ui.custom_context.lock().unwrap() = Some(runner.create_context());
+    *ui.custom_before.lock().unwrap() = custom_before;
     let mut cases = Vec::new();
     for case in request["cases"].as_array().unwrap() {
         ui.calls.lock().unwrap().clear();
@@ -314,6 +386,22 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                     Err(error) => json!({"error":error.message}),
                 }
             }
+            "entries" => {
+                let manager = runner.create_context().session_manager().unwrap();
+                let entries = manager
+                    .lock()
+                    .unwrap()
+                    .get_entries()
+                    .into_iter()
+                    .filter_map(|entry| match entry {
+                        pi_coding_agent::core::session_manager::SessionEntry::Known(
+                            pi_coding_agent::core::session_manager::KnownSessionEntry::Custom(entry),
+                        ) => Some(json!([entry.custom_type, entry.data])),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                json!(entries)
+            }
             "tool_call" => {
                 let mut event=serde_json::from_value::<ToolCallEvent>(json!({"toolName":case["toolName"],"toolCallId":"fixture-call","input":case["input"],"bypassPermissions":false})).unwrap();
                 json!(runner.emit_tool_call(&mut event).await.unwrap())
@@ -359,7 +447,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
         cases.push(json!({"result":result,"ui":ui.calls.lock().unwrap().clone()}));
     }
     let mut actual = json!({"metadata":metadata,"cases":cases,"errors":errors.lock().unwrap().clone()});
-    if request.get("allTools").is_some() {
+    if request.get("allTools").is_some() || request["captureEffects"] == true {
         actual["effects"] = json!(effects.lock().unwrap().clone());
     }
     if request["modelFixture"].is_object() {
@@ -449,7 +537,7 @@ fn render_context(case: &Value) -> ToolRenderContext {
         is_partial: false,
         expanded: false,
         show_images: false,
-        is_error: false,
+        is_error: case["isError"].as_bool().unwrap_or(false),
     }
 }
 
