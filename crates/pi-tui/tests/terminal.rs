@@ -283,3 +283,42 @@ fn environment_numbers_use_javascript_number_parsing() {
     assert_eq!(resolve_rows(None, Some("0b1010".to_owned())), 10);
     assert_eq!(resolve_columns(None, Some("1e2".to_owned())), 100);
 }
+
+struct FailingWriter(i32);
+
+impl Write for FailingWriter {
+    fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::from_raw_os_error(self.0))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Err(std::io::Error::from_raw_os_error(self.0))
+    }
+}
+
+#[test]
+fn write_failures_are_queued_for_the_stream_error_handler() {
+    let eio = rustix::io::Errno::IO.raw_os_error();
+    let mut terminal = ProcessTerminal::with_output(Box::new(FailingWriter(eio)));
+
+    terminal.write("first");
+    terminal.write("second");
+
+    let errors = terminal.take_errors();
+    let codes: Vec<Option<i32>> = errors.iter().map(std::io::Error::raw_os_error).collect();
+    assert_eq!(
+        codes,
+        vec![Some(eio); 4],
+        "each write and flush failure is reported once"
+    );
+    assert!(terminal.take_errors().is_empty(), "take_errors drains the queue");
+}
+
+#[test]
+fn successful_writes_queue_no_errors() {
+    let mut terminal = ProcessTerminal::with_output(Box::new(SharedWriter::default()));
+
+    terminal.write("ok");
+
+    assert!(terminal.take_errors().is_empty());
+}

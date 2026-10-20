@@ -34,6 +34,9 @@ thread_local! {
     /// Guards against a handler panic re-entering the hook forever. Rust has
     /// no analogue of a second uncaught exception inside `uncaughtCrash`.
     static HANDLING_CRASH: Cell<bool> = const { Cell::new(false) };
+    /// Set while [`swallow_panics`] runs: the hook stays silent so the panic
+    /// unwinds into `catch_unwind`.
+    static SWALLOWING: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Installs `handler` for the current thread and returns the previous one.
@@ -48,20 +51,27 @@ pub fn thread_crash_handler() -> Option<ThreadCrashHandler> {
 
 /// `throw` an error that nothing catches.
 pub fn throw_uncaught(label: &'static str, message: impl Into<String>) -> ! {
-    let error = UncaughtError {
+    std::panic::panic_any(UncaughtError {
         label,
         message: message.into(),
-    };
-    if let Some(handler) = thread_crash_handler() {
-        handler(&error);
-    }
-    std::panic::panic_any(error)
+    })
+}
+
+/// `try { step } catch {}`: runs `step` and discards a panic from it. The
+/// hook runs before unwinding, so it must know the panic is expected.
+pub fn swallow_panics(step: impl FnOnce()) {
+    let previous = SWALLOWING.replace(true);
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(step));
+    SWALLOWING.set(previous);
 }
 
 /// Formats a panic payload the way Node's uncaught handler prints it.
 pub fn format_uncaught(payload: &(dyn Any + Send)) -> String {
     if let Some(error) = payload.downcast_ref::<UncaughtError>() {
         return format!("{}: {}", error.label, error.message);
+    }
+    if let Some(error) = payload.downcast_ref::<std::io::Error>() {
+        return format!("{ERROR}: {error}");
     }
     if let Some(message) = payload.downcast_ref::<&str>() {
         return format!("{ERROR}: {message}");
@@ -75,12 +85,12 @@ pub fn format_uncaught(payload: &(dyn Any + Send)) -> String {
 /// Installs the process-level handler: print the error, exit 1 (not 101).
 pub fn install_uncaught_handler() {
     std::panic::set_hook(Box::new(|info| {
-        if HANDLING_CRASH.get() {
-            eprintln!("{}", format_uncaught(info.payload()));
-            std::process::exit(1);
+        if SWALLOWING.get() {
+            return;
         }
-        if let Some(handler) = thread_crash_handler() {
-            HANDLING_CRASH.set(true);
+        if !HANDLING_CRASH.replace(true)
+            && let Some(handler) = thread_crash_handler()
+        {
             handler(info.payload());
         }
         eprintln!("{}", format_uncaught(info.payload()));

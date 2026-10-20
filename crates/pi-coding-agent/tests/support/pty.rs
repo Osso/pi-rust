@@ -9,8 +9,10 @@
 
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
+use std::os::fd::AsFd;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -19,8 +21,12 @@ pub struct PtyChild {
     master: Option<File>,
     child: Child,
     output: Arc<Mutex<String>>,
+    reader_stop: Arc<AtomicBool>,
     reader: Option<std::thread::JoinHandle<()>>,
 }
+
+/// How long the reader thread blocks before re-checking its stop flag.
+const READER_POLL_INTERVAL_MS: u8 = 20;
 
 /// Spawn `binary` with the pty slave as stdin/stdout/stderr.
 pub fn spawn(binary: &Path, args: &[&str], environment: &[(String, String)], cwd: &Path) -> PtyChild {
@@ -31,6 +37,9 @@ pub fn spawn(binary: &Path, args: &[&str], environment: &[(String, String)], cwd
         ws_ypixel: 0,
     };
     let openpty = nix::pty::openpty(Some(&winsize), None).expect("openpty must allocate a pty");
+    // The child must not inherit the master: it would keep the pty open
+    // after `close_master`.
+    rustix::io::fcntl_setfd(&openpty.master, rustix::io::FdFlags::CLOEXEC).expect("master must close on exec");
     let master = File::from(openpty.master);
     let slave = File::from(openpty.slave);
     let mut command = Command::new(binary);
@@ -49,9 +58,21 @@ pub fn spawn(binary: &Path, args: &[&str], environment: &[(String, String)], cwd
     let output = Arc::new(Mutex::new(String::new()));
     let mut reader_master = master.try_clone().expect("clone pty master");
     let buffer = Arc::clone(&output);
+    let reader_stop = Arc::new(AtomicBool::new(false));
+    let stop = Arc::clone(&reader_stop);
     let reader = std::thread::spawn(move || {
         let mut bytes = [0_u8; 4096];
-        loop {
+        while !stop.load(Ordering::Relaxed) {
+            let mut fds = [nix::poll::PollFd::new(
+                reader_master.as_fd(),
+                nix::poll::PollFlags::POLLIN,
+            )];
+            match nix::poll::poll(&mut fds, nix::poll::PollTimeout::from(READER_POLL_INTERVAL_MS)) {
+                Ok(0) => continue,
+                Ok(_) => {}
+                Err(nix::errno::Errno::EINTR) => continue,
+                Err(_) => break,
+            }
             match reader_master.read(&mut bytes) {
                 Ok(0) => break,
                 Ok(count) => buffer
@@ -68,6 +89,7 @@ pub fn spawn(binary: &Path, args: &[&str], environment: &[(String, String)], cwd
         master: Some(master),
         child,
         output,
+        reader_stop,
         reader: Some(reader),
     }
 }
@@ -101,18 +123,25 @@ impl PtyChild {
         master.flush().expect("pty input flush");
     }
 
-    /// Close the master so later terminal reads/writes fail.
+    /// Close the master so later terminal reads/writes fail. The reader
+    /// thread holds a duplicate of the master, so it is stopped first.
     pub fn close_master(&mut self) {
+        self.stop_reader();
         self.master = None;
+    }
+
+    fn stop_reader(&mut self) {
+        self.reader_stop.store(true, Ordering::Relaxed);
+        if let Some(reader) = self.reader.take() {
+            reader.join().expect("pty reader");
+        }
     }
 
     pub fn wait(&mut self, timeout: Duration) -> i32 {
         let deadline = Instant::now() + timeout;
         loop {
             if let Some(status) = self.child.try_wait().expect("child status") {
-                if let Some(reader) = self.reader.take() {
-                    reader.join().expect("pty reader");
-                }
+                self.stop_reader();
                 return status.code().unwrap_or(-1);
             }
             if Instant::now() >= deadline {
@@ -129,16 +158,15 @@ impl PtyChild {
     fn kill(&mut self) {
         self.child.kill().ok();
         self.child.wait().ok();
-        if let Some(reader) = self.reader.take() {
-            reader.join().expect("pty reader");
-        }
+        self.stop_reader();
     }
 }
 
 impl Drop for PtyChild {
     fn drop(&mut self) {
-        if self.reader.is_some() {
+        if self.child.try_wait().is_ok_and(|status| status.is_none()) {
             self.kill();
         }
+        self.stop_reader();
     }
 }

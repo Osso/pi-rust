@@ -100,7 +100,7 @@ doc = false
 tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
 # `pty::openpty` for process-boundary crash tests that need a pty without a
 # controlling terminal (`script(1)` delivers SIGHUP when its master closes).
-nix = { version = "=0.30.1", features = ["process", "term"] }
+nix = { version = "=0.30.1", features = ["poll", "process", "term"] }
 
 [lints]
 workspace = true

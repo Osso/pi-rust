@@ -67,7 +67,10 @@ fn agent_environment(fixture: &Fixture) -> Vec<(String, String)> {
     vec![
         ("HOME".to_owned(), fixture.home.display().to_string()),
         ("PI_PACKAGE_DIR".to_owned(), fixture.package_dir.display().to_string()),
-        ("PI_CODING_AGENT_DIR".to_owned(), fixture.agent_dir.display().to_string()),
+        (
+            "PI_CODING_AGENT_DIR".to_owned(),
+            fixture.agent_dir.display().to_string(),
+        ),
         (
             "PI_CODING_AGENT_STATE_DIR".to_owned(),
             fixture.state_dir.display().to_string(),
@@ -78,12 +81,7 @@ fn agent_environment(fixture: &Fixture) -> Vec<(String, String)> {
 }
 
 fn spawn_interactive(fixture: &Fixture, environment: &[(String, String)]) -> pty::PtyChild {
-    pty::spawn(
-        Path::new(env!("CARGO_BIN_EXE_pi")),
-        &[],
-        environment,
-        &fixture.work,
-    )
+    pty::spawn(Path::new(env!("CARGO_BIN_EXE_pi")), &[], environment, &fixture.work)
 }
 
 #[test]
@@ -141,22 +139,20 @@ fn uncaught_exception_restores_the_terminal_and_exits_one() {
         .unwrap_or_else(|| panic!("bracketed paste was not disabled; output:\n{text}"));
     assert!(restore < banner, "the terminal is restored before the report");
     assert!(text.contains("\x1b[?25h"), "the cursor is shown again; output:\n{text}");
-    assert!(text.contains("\x1b[<u"), "the kitty protocol is popped; output:\n{text}");
+    assert!(
+        text.contains("\x1b[<u"),
+        "the kitty protocol is popped; output:\n{text}"
+    );
 }
 
-/// `emergencyTerminalExit`: once the terminal is gone, restore writes would
-/// fail again, so the process exits 129 without the crash report.
+/// `emergencyTerminalExit`: once the terminal is gone (the pty master closed,
+/// so the stdin read fails with `EIO`), restore writes would fail again, so
+/// the process exits 129 without the crash report.
 #[test]
 fn dead_terminal_exits_129_without_restoring() {
     let fixture = fixture();
-    let mut environment = agent_environment(&fixture);
-    // Hold a lone ESC until after the pty is closed; the delayed flush then
-    // forces one more render, whose write reports EIO.
-    environment.push(("PI_TUI_ESC_TIMEOUT".to_owned(), "2000".to_owned()));
-    let mut child = spawn_interactive(&fixture, &environment);
+    let mut child = spawn_interactive(&fixture, &agent_environment(&fixture));
     child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
-    child.write_input("\x1b");
-    std::thread::sleep(Duration::from_millis(250));
     child.close_master();
 
     let code = child.wait(Duration::from_secs(20));
@@ -174,10 +170,10 @@ fn dead_terminal_exits_129_without_restoring() {
 fn sighup_restart_failure_restores_the_terminal_and_exits_one() {
     let fixture = fixture();
     let binary = fixture._temp.path().join("pi-restart");
-    std::fs::hard_link(env!("CARGO_BIN_EXE_pi"), &binary).expect("hard link the pi binary");
+    std::fs::copy(env!("CARGO_BIN_EXE_pi"), &binary).expect("copy the pi binary");
     let mut child = pty::spawn(&binary, &[], &agent_environment(&fixture), &fixture.work);
     child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
-    std::fs::remove_file(&binary).expect("remove the linked binary so restart fails");
+    std::fs::remove_file(&binary).expect("remove the copied binary so restart fails");
     let Some(target) = rustix::process::Pid::from_raw(child.id() as i32) else {
         panic!("invalid pid");
     };
@@ -189,7 +185,10 @@ fn sighup_restart_failure_restores_the_terminal_and_exits_one() {
     let banner = text
         .find("pi exiting due to uncaughtException:")
         .unwrap_or_else(|| panic!("missing crash banner; output:\n{text}"));
-    assert!(text.contains("Error: "), "the restart error is reported; output:\n{text}");
+    assert!(
+        text.contains("Error: "),
+        "the restart error is reported; output:\n{text}"
+    );
     let restore = text
         .find("\x1b[?2004l")
         .unwrap_or_else(|| panic!("bracketed paste was not disabled; output:\n{text}"));

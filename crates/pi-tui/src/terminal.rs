@@ -518,9 +518,9 @@ impl ProcessTerminal {
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                     Err(error) => {
-                        if error_sender.send(error).is_err() {
-                            break;
-                        }
+                        // The receiver is gone once the terminal stopped; the
+                        // reader ends either way.
+                        let _ = error_sender.send(error);
                         break;
                     }
                 }

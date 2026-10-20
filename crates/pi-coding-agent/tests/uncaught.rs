@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use pi_coding_agent::utils::uncaught::{
     ERROR, ThreadCrashHandler, UncaughtError, format_uncaught, install_uncaught_handler, set_thread_crash_handler,
-    throw_uncaught,
+    swallow_panics, throw_uncaught,
 };
 
 #[test]
@@ -65,7 +65,7 @@ fn uncaught_handler_child() {
     throw_uncaught(ERROR, "boom");
 }
 
-fn crash_handler_child(mode: &str) -> std::process::Output {
+fn run_crash_handler_child(mode: &str) -> std::process::Output {
     Command::new(std::env::current_exe().expect("test executable"))
         .env("PI_RUST_UNCAUGHT_PROBE", mode)
         .args([
@@ -88,7 +88,7 @@ fn reporting_handler() -> ThreadCrashHandler {
 
 #[test]
 fn thread_crash_handler_receives_uncaught_panics() {
-    let output = crash_handler_child("panic");
+    let output = run_crash_handler_child("panic");
     assert_eq!(output.status.code(), Some(7));
     assert_eq!(
         String::from_utf8_lossy(&output.stderr).trim(),
@@ -98,7 +98,7 @@ fn thread_crash_handler_receives_uncaught_panics() {
 
 #[test]
 fn thread_crash_handler_receives_uncaught_throws() {
-    let output = crash_handler_child("throw");
+    let output = run_crash_handler_child("throw");
     assert_eq!(output.status.code(), Some(7));
     assert_eq!(
         String::from_utf8_lossy(&output.stderr).trim(),
@@ -108,9 +108,19 @@ fn thread_crash_handler_receives_uncaught_throws() {
 
 #[test]
 fn clearing_the_thread_crash_handler_restores_the_default_report() {
-    let output = crash_handler_child("cleared");
+    let output = run_crash_handler_child("cleared");
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), "Error: boom");
+}
+
+#[test]
+fn swallowed_panics_do_not_reach_the_handler_or_stop_later_steps() {
+    let output = run_crash_handler_child("swallowed");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "after swallowed panic\nError: boom"
+    );
 }
 
 #[test]
@@ -138,6 +148,14 @@ fn crash_handler_child() {
         }
         Some("cleared") => {
             set_thread_crash_handler(Some(reporting_handler()));
+            set_thread_crash_handler(None);
+            panic!("boom");
+        }
+        Some("swallowed") => {
+            set_thread_crash_handler(Some(reporting_handler()));
+            swallow_panics(|| panic!("swallowed"));
+            swallow_panics(|| throw_uncaught("TypeError", "also swallowed"));
+            eprintln!("after swallowed panic");
             set_thread_crash_handler(None);
             panic!("boom");
         }
