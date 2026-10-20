@@ -133,3 +133,9 @@ Todo parity is **partial**: native session snapshots cannot reproduce the pinned
 example's mutation of stored tool-result details by reference. See
 [batch F traceability](../../../../docs/porting/traceability/extension-examples-f.md)
 for the blocked API and test.
+
+## Batch L: isolated session reads
+
+The historical Todo/plan-mode alias blockers above are superseded by the approved
+TS read-isolation fix `bf55d9fd6`. Todo now has a passing branch/reload/read-back
+regression, not an ignored test. See [batch L traceability](../../../../docs/porting/traceability/extension-examples-l.md).
