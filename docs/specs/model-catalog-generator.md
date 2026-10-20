@@ -27,7 +27,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Execute original automatic CLI catch and native maintenance option handling, immediate logs/statistics, strict failure/exit order with fixture HTTP; reject invalid CLI mode in a real subprocess before fetching.
 - [x] Preserve four fetchers' strict/default HTTP-status, transport and JSON-parse error identity/log order without retries; preserve NVIDIA Map overwrite order and strict Qwen individual filtering/exact IDs.
 - [x] Preserve staged write/validation failure, include-write failure, failed data rename, post-swap manifest/provider/include validation, rollback and cleanup-error behavior against actual source, including filesystem metadata.
-- [ ] Prove remaining data-only/public-output guards and native transport identity.
+- [x] Prove empty/duplicate/missing-provider data-only guards and native transport identity; four public mkdir/write failures preserve committed native outputs, partial public files, error metadata and log order. Public remove/reset failure remains unexercised.
 - [x] Default generation updates native provider include-table glue with JSON values; data-only preserves the include table. Runtime catalog APIs and every current embedded value remain unchanged.
 - [ ] Preserve failure names/messages, log order and exit behavior; omit JS-specific stack frames (approved “Omit JS frames (Recommended)”, 2026-10-20), retaining full raw TS diagnostics in oracle logs.
 
@@ -55,7 +55,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/tests/model_catalog_generator_fetch.rs`: all-fetcher error matrix, NVIDIA Map order, strict Qwen set checks and original automatic CLI catch.
 - `crates/pi-ai/tests/model_catalog_generator_native_http.rs`: actual refused connections/premature bodies against Node native fetch and shared sanitized causes through generator catches.
 - `crates/pi-ai/tests/model_catalog_generator_options.rs`: source flags and validation ordering.
-- `crates/pi-ai/tests/model_catalog_generator_raw.rs`: malformed provider errors and UTF-16 identity.
+- `crates/pi-ai/tests/model_catalog_generator_raw.rs`: distinct UTF-16 provider keys/names; malformed-type policy is tested in receiver fixtures.
 - `crates/pi-ai/tests/model_catalog_generator_receivers.rs`: approved native receiver errors, source short-circuits and deferred reasoning failure order.
 - `crates/pi-ai/tests/model_catalog_generator_metadata.rs`: 675 merged-model cases against original source metadata mutations.
 - `crates/pi-ai/tests/model_catalog_generator_models_dev.rs`: all-provider pipeline with independently mocked models.dev/NVIDIA responses.
@@ -65,7 +65,8 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 ## Known gaps (current cycle)
 
 - [ ] Remaining fetching/transformation/metadata/CLI/FS orchestration branches listed in traceability.
-- [ ] Native model-data helper integration pending parent integration.
+- [x] Reuse integrated native model-data validators, manifests and shared provider-structure reader.
+- [ ] Complete remaining response/metadata field-guard audit, public remove/reset failure proof and independent module gate.
 
 ## Out of scope
 

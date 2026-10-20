@@ -38,6 +38,10 @@ impl pi_ai::model_catalog_generator::CatalogFileSystem for FaultFs {
         self.native.read(path)
     }
     fn mkdir(&mut self, path: &std::path::Path) -> Result<(), pi_ai::model_catalog_generator::GeneratorError> {
+        if !self.injected && self.fault == "public-mkdir" && path == self.root.join("catalog/providers") {
+            self.injected = true;
+            self.native.write(path, "blocking file")?;
+        }
         self.native.mkdir(path)
     }
     fn exists(&mut self, path: &std::path::Path) -> bool {
@@ -54,6 +58,16 @@ impl pi_ai::model_catalog_generator::CatalogFileSystem for FaultFs {
         path: &std::path::Path,
         content: &str,
     ) -> Result<(), pi_ai::model_catalog_generator::GeneratorError> {
+        let target = match self.fault {
+            "public-write-models" => Some(self.root.join("catalog/models.json")),
+            "public-write-providers" => Some(self.root.join("catalog/providers.json")),
+            "public-write-provider" => Some(self.root.join("catalog/providers/openai.json")),
+            _ => None,
+        };
+        if !self.injected && target.as_deref() == Some(path) {
+            self.injected = true;
+            self.native.mkdir(path)?;
+        }
         let stage = path.to_string_lossy().contains(".model-generation-");
         let include = self.root.join("crates/pi-ai/src/providers/model_catalogs_generated.rs");
         if !self.injected
@@ -654,5 +668,188 @@ fn source_artifacts_manifest_pretty_modes_and_native_include_compile_match() {
                 .collect::<std::collections::BTreeSet<_>>();
             assert_eq!(ids.into_iter().collect::<std::collections::BTreeSet<_>>(), expected_ids);
         }
+    }
+}
+
+#[test]
+fn data_only_import_guards_run_after_fetches_without_mutating_existing_files() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    for providers in [vec![], vec!["openai", "openai"], vec!["missing-z", "missing-a"]] {
+        let root = Sandbox::new();
+        let native = root.0.join("crates/pi-ai/src/providers");
+        fs::create_dir_all(&native).unwrap();
+        let include = providers
+            .iter()
+            .map(|id| format!("(\"{id}\", include_str!(\"../../data/providers/{id}.json\")),\n"))
+            .collect::<String>();
+        fs::write(native.join("model_catalogs_generated.rs"), &include).unwrap();
+        let data = root.0.join("crates/pi-ai/data/providers");
+        fs::create_dir_all(&data).unwrap();
+        fs::write(data.join("old"), "old data").unwrap();
+        let imports = providers
+            .iter()
+            .map(|id| format!("import {{ ANY_MODELS }} from \"./providers/{id}.models.ts\";\n"))
+            .collect::<String>();
+        let observed=source.request(&json!({"operation":"generateModels","argv":["--data-only"],"initialFiles":{"src/models.generated.ts":imports,"src/providers/data/old":"old data"},"http":{"https://models.dev/api.json":{"body":"{}"},"https://openrouter.ai/api/v1/models":{"body":"{\"data\":[]}"},"https://ai-gateway.vercel.sh/v1/models":{"body":"{\"data\":[]}"}}}));
+        let mut requests = vec![];
+        let mut fetch = |url: &str| {
+            requests.push(url.to_owned());
+            Ok(HttpResponse {
+                status: 200,
+                body: if url == "https://models.dev/api.json" {
+                    "{}"
+                } else {
+                    "{\"data\":[]}"
+                }
+                .into(),
+            })
+        };
+        let mut generator = Generator::new(
+            GeneratorOptions {
+                data_only: true,
+                ..Default::default()
+            },
+            &mut fetch,
+        );
+        let error = generator
+            .generate(&root.0, &JsString::from("2026-10-20T00:00:00.000Z"))
+            .unwrap_err();
+        assert_eq!(error.name, observed["error"]["name"].as_str().unwrap());
+        assert_eq!(
+            normalized_error(&error.message.to_utf8_lossy(), root.0.to_str().unwrap(), false),
+            normalized_error(
+                observed["error"]["message"].as_str().unwrap(),
+                observed["root"].as_str().unwrap(),
+                true
+            )
+        );
+        assert_eq!(
+            pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::Array(generator.logs)),
+            observed["logs"].to_string()
+        );
+        assert_eq!(requests.len(), 3);
+        assert_eq!(
+            fs::read_to_string(native.join("model_catalogs_generated.rs")).unwrap(),
+            include
+        );
+        assert_eq!(fs::read_to_string(data.join("old")).unwrap(), "old data");
+        assert_eq!(fs::read_dir(&native).unwrap().count(), 1);
+    }
+}
+
+#[test]
+fn public_output_failure_keeps_committed_native_catalog_and_partial_public_files() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    for fault in [
+        "public-mkdir",
+        "public-write-models",
+        "public-write-providers",
+        "public-write-provider",
+    ] {
+        let root = Sandbox::new();
+        let native = root.0.join("crates/pi-ai/src/providers");
+        fs::create_dir_all(&native).unwrap();
+        fs::write(native.join("model_catalogs_generated.rs"), "old include").unwrap();
+        let output = root.0.join("catalog");
+        fs::create_dir_all(&output).unwrap();
+        fs::write(output.join("old"), "old public").unwrap();
+        let expected=source.request(&json!({"operation":"generateModels","argv":["--json-output","@OUTPUT@"],"fault":fault,"initialFiles":{"catalog/old":"old public"},"http":{"https://models.dev/api.json":{"body":"{}"},"https://openrouter.ai/api/v1/models":{"body":"{\"data\":[]}"},"https://ai-gateway.vercel.sh/v1/models":{"body":"{\"data\":[]}"}}}));
+        let mut fetch = |url: &str| {
+            Ok(HttpResponse {
+                status: 200,
+                body: if url == "https://models.dev/api.json" {
+                    "{}"
+                } else {
+                    "{\"data\":[]}"
+                }
+                .into(),
+            })
+        };
+        let mut generator = Generator::new(
+            GeneratorOptions {
+                json_output_dir: Some(output.clone()),
+                ..Default::default()
+            },
+            &mut fetch,
+        );
+        let mut filesystem = FaultFs {
+            root: root.0.clone(),
+            fault,
+            injected: false,
+            native: pi_ai::model_catalog_generator::NativeCatalogFileSystem,
+        };
+        let error = generator
+            .generate_with_filesystem(&root.0, &JsString::from("2026-10-20T00:00:00.000Z"), &mut filesystem)
+            .unwrap_err();
+        assert!(filesystem.injected);
+        assert_eq!(error.name, expected["error"]["name"].as_str().unwrap(), "{expected}");
+        assert_eq!(
+            normalized_error(&error.message.to_utf8_lossy(), root.0.to_str().unwrap(), false),
+            normalized_error(
+                expected["error"]["message"].as_str().unwrap(),
+                expected["root"].as_str().unwrap(),
+                true
+            ),
+            "{fault}"
+        );
+        let Some(pi_ai::model_catalog_generator::GeneratorErrorDetails::FileSystem { record, .. }) = error.details
+        else {
+            panic!("missing error metadata")
+        };
+        assert_eq!(record.code, expected["error"]["code"].as_str().unwrap());
+        assert_eq!(record.syscall, expected["error"]["syscall"].as_str().unwrap());
+        assert_eq!(record.errno.map(i64::from), expected["error"]["errno"].as_i64());
+        assert!(!output.join("old").exists());
+        for path in [
+            "catalog/models.json",
+            "catalog/providers.json",
+            "catalog/providers/openai.json",
+            "crates/pi-ai/data/providers/openai.json",
+            "crates/pi-ai/data/providers/.manifest.json",
+        ] {
+            let source_path = path.replace("crates/pi-ai/data/providers", "src/providers/data");
+            if let Some(content) = expected["files"][&source_path].as_str() {
+                assert_eq!(
+                    fs::read_to_string(root.0.join(path)).unwrap(),
+                    content,
+                    "{fault} {path}"
+                );
+            } else {
+                assert!(!root.0.join(path).is_file(), "{fault} {path}");
+            }
+        }
+        assert_ne!(
+            fs::read_to_string(native.join("model_catalogs_generated.rs")).unwrap(),
+            "old include"
+        );
+        assert_eq!(
+            fs::read_dir(&native).unwrap().count(),
+            1,
+            "native staging cleaned before public writes"
+        );
+        let logs = generator
+            .logs
+            .into_iter()
+            .map(|value| {
+                normalized_error(
+                    &pi_js_compat::js_json::stringify_lossless(&value),
+                    root.0.to_str().unwrap(),
+                    false,
+                )
+            })
+            .collect::<Vec<_>>();
+        let source_logs = expected["logs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| normalized_error(&value.to_string(), expected["root"].as_str().unwrap(), true))
+            .collect::<Vec<_>>();
+        assert_eq!(logs, source_logs, "{fault}");
     }
 }

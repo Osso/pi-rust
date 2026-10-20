@@ -156,6 +156,20 @@ async function main(): Promise<void> {
 						const data = join(root!, "src/providers/data");
 						const aggregator = join(root!, "src/models.generated.ts");
 						const staged = path.includes(".model-generation-");
+						const publicDir = join(root!, "catalog");
+						if (!injected && request.fault === "public-mkdir" && operation === "mkdirSync" && path === join(publicDir, "providers")) {
+							injected = true;
+							fs.writeFileSync(path, "blocking file");
+						}
+						const publicWrites: Record<string, string> = {
+							"public-write-models": join(publicDir, "models.json"),
+							"public-write-providers": join(publicDir, "providers.json"),
+							"public-write-provider": join(publicDir, "providers/openai.json"),
+						};
+						if (!injected && operation === "writeFileSync" && path === publicWrites[request.fault]) {
+							injected = true;
+							fs.mkdirSync(path);
+						}
 						if (
 							!injected &&
 							operation === "writeFileSync" &&
