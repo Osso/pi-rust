@@ -21,6 +21,10 @@ async function main() {
   const registry = await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
   const runner = new runnerModule.ExtensionRunner([extension], runtime, request.cwd, session.SessionManager.inMemory(request.cwd), registry);
   const theme = new themeModule.Theme({...request.colors, thinkingXhigh:"#ffffff", text:"#ffffff"}, {selectedBg:"#000000"}, "truecolor");
+  // Approved compatibility.md:177 exclusion: String-typed Theme::fg cannot
+  // receive unpaired UTF-16 units. Project at that boundary, before Text wraps.
+  const fg = theme.fg.bind(theme);
+  theme.fg = (role: any, text: string) => fg(role, text.toWellFormed());
   const tools = [...extension.tools.values()].map(({definition: d}: any) => ({
    name:d.name,label:d.label,description:d.description,parameters:d.parameters,renderShell:d.renderShell ?? null,
    promptSnippet:d.promptSnippet ?? null,promptGuidelines:d.promptGuidelines ?? null,
@@ -33,9 +37,7 @@ async function main() {
     executionStarted:true,argsComplete:true,isPartial:item.isPartial,expanded:item.expanded,showImages:false,isError:item.isError ?? false};
    const component = item.result === undefined ? tool.renderCall(item.args,theme,context) :
     tool.renderResult(item.result,{expanded:item.expanded,isPartial:item.isPartial},theme,context);
-   // Compatibility spec excludes lone surrogates at String-typed TUI boundaries.
-   // Preserve every scalar/ANSI byte; project only unpaired UTF-16 units to U+FFFD.
-   renders.push(request.widths.map((width: number) => component.render(width).map((line: string) => line.toWellFormed())));
+   renders.push(request.widths.map((width: number) => component.render(width)));
   }
   for (const [name, text] of Object.entries(request.initial)) await writeFile(resolve(request.cwd,name),text as string);
   const executions = [];
