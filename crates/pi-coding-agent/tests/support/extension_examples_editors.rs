@@ -188,7 +188,9 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     extensions::bind(&mut runner);
     let errors = Arc::new(Mutex::new(Vec::new()));
     let captured = errors.clone();
-    let _errors = runner.on_error(Arc::new(move |error| captured.lock().unwrap().push(error.error)));
+    let _errors = runner.on_error(Arc::new(move |error| {
+        captured.lock().unwrap().push(error.error.clone())
+    }));
     let ui = Arc::new(Ui {
         theme,
         effects: Mutex::new(Vec::new()),
