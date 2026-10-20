@@ -260,6 +260,11 @@ pub struct TerminalInputResult {
 /// `render` takes `&self`; implementors use interior mutability when rendering
 /// mutates state, matching the source component contract.
 pub trait ExtensionUiComponent: Send + Sync {
+    /// Optional source `width` property used by `custom({ overlay: true })`.
+    fn width(&self) -> Option<pi_tui::tui::SizeValue> {
+        None
+    }
+
     /// `None` means the source component has no `focused` property.
     fn focused(&self) -> Option<bool> {
         None
@@ -422,6 +427,26 @@ pub struct ExtensionUiOverlayOptions {
     pub margin: Option<pi_tui::tui::OverlayMargin>,
     pub visible: Option<Arc<dyn Fn(usize, usize) -> bool + Send + Sync>>,
     pub non_capturing: bool,
+}
+
+impl From<ExtensionUiOverlayOptions> for pi_tui::tui::OverlayOptions {
+    fn from(options: ExtensionUiOverlayOptions) -> Self {
+        Self {
+            width: options.width,
+            min_width: options.min_width,
+            max_height: options.max_height,
+            anchor: options.anchor,
+            offset_x: options.offset_x,
+            offset_y: options.offset_y,
+            row: options.row,
+            col: options.col,
+            margin: options.margin,
+            visible: options
+                .visible
+                .map(|visible| Rc::new(move |w, h| visible(w, h)) as Rc<dyn Fn(usize, usize) -> bool>),
+            non_capturing: options.non_capturing,
+        }
+    }
 }
 
 /// `custom` options: overlay mode, dynamic overlay options, and handle callback.

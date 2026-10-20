@@ -2506,7 +2506,7 @@ const MAX_WIDGET_LINES: usize = 10;
 
 /// Adapts a thread-safe extension component to the `pi-tui` component contract.
 struct ExtensionComponentAdapter {
-    inner: Box<dyn ExtensionUiComponent>,
+    inner: Arc<dyn ExtensionUiComponent>,
 }
 
 impl Focusable for ExtensionComponentAdapter {
@@ -10530,7 +10530,7 @@ impl InteractiveMode {
             } => {
                 let widget = content.map(|factory| {
                     let component_ref = component(ExtensionComponentAdapter {
-                        inner: factory(self.extension_factory_context()),
+                        inner: factory(self.extension_factory_context()).into(),
                     });
                     ExtensionWidget::Component(component_ref)
                 });
@@ -10772,7 +10772,7 @@ impl InteractiveMode {
             footer_data: (*self.footer_data_provider).clone(),
         };
         component(ExtensionComponentAdapter {
-            inner: factory(context),
+            inner: factory(context).into(),
         })
     }
 
@@ -10794,7 +10794,7 @@ impl InteractiveMode {
         match factory {
             Some(factory) => {
                 let component_ref = component(ExtensionComponentAdapter {
-                    inner: factory(self.extension_factory_context()),
+                    inner: factory(self.extension_factory_context()).into(),
                 });
                 *self.custom_header.borrow_mut() = Some(Rc::clone(&component_ref));
                 self.header_container.borrow_mut().add_child(component_ref);
@@ -10813,6 +10813,8 @@ impl InteractiveMode {
         let context = self.extension_factory_context();
         let respond = Arc::new(std::sync::Mutex::new(Some(respond)));
         let done_respond = Arc::clone(&respond);
+        let component_slot = Arc::new(std::sync::Mutex::new(None::<std::sync::Weak<dyn ExtensionUiComponent>>));
+        let done_component = Arc::clone(&component_slot);
         let mode = self.ui_id.get();
         let overlay = options.as_ref().and_then(|options| options.overlay).unwrap_or(false);
         let done = ExtensionUiDone::new(Arc::new(move |value| {
@@ -10820,17 +10822,51 @@ impl InteractiveMode {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .take();
-            if let Some(respond) = respond {
-                let _ = respond.send(value);
-            }
-            if !overlay {
-                with_mode(mode, |mode| mode.restore_editor());
+            let Some(respond) = respond else {
+                return;
+            };
+            let component = done_component
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+                .and_then(std::sync::Weak::upgrade);
+            with_mode(mode, |mode| {
+                if overlay {
+                    mode.ui.hide_overlay();
+                } else {
+                    mode.restore_editor();
+                }
+            });
+            let _ = respond.send(value);
+            if let Some(component) = component {
+                component.dispose();
             }
         }));
-        let inner = factory(context, done);
+        let inner: Arc<dyn ExtensionUiComponent> = factory(context, done).into();
+        if respond
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_none()
+        {
+            return;
+        }
+        *component_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::downgrade(&inner));
+        let overlay_options = options
+            .as_ref()
+            .and_then(|options| options.overlay_options.as_ref())
+            .map(|resolve| resolve().into())
+            .or_else(|| {
+                inner
+                    .width()
+                    .filter(|width| !matches!(width, pi_tui::tui::SizeValue::Absolute(0.0)))
+                    .map(|width| OverlayOptions {
+                        width: Some(width),
+                        ..Default::default()
+                    })
+            });
         let component_ref = component(ExtensionComponentAdapter { inner });
         if overlay {
-            self.ui.show_overlay(component_ref, None);
+            self.ui.show_overlay(component_ref, overlay_options);
         } else {
             self.show_selector(component_ref);
         }
@@ -14218,6 +14254,157 @@ mod ui_tests {
                 }
             )]
         }
+    }
+
+    struct SizedExtensionInput {
+        done: ExtensionUiDone,
+        focus: std::sync::atomic::AtomicBool,
+        rendered_width: Arc<std::sync::atomic::AtomicUsize>,
+        disposed: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl ExtensionUiComponent for SizedExtensionInput {
+        fn handle_input(&self, data: &str) {
+            if data == "\r" {
+                self.done.call(Some(serde_json::json!({"action":"Search","query":"x"})));
+            }
+        }
+        fn width(&self) -> Option<pi_tui::tui::SizeValue> {
+            Some(pi_tui::tui::SizeValue::Absolute(70.0))
+        }
+        fn focused(&self) -> Option<bool> {
+            Some(self.focus.load(std::sync::atomic::Ordering::SeqCst))
+        }
+        fn set_focused(&self, focused: bool) {
+            self.focus.store(focused, std::sync::atomic::Ordering::SeqCst);
+        }
+        fn render(&self, width: usize) -> Vec<String> {
+            self.rendered_width.store(width, std::sync::atomic::Ordering::SeqCst);
+            vec![format!(
+                "overlay{}",
+                if self.focused() == Some(true) {
+                    pi_tui::tui::CURSOR_MARKER
+                } else {
+                    ""
+                }
+            )]
+        }
+        fn dispose(&self) {
+            self.disposed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_overlay_uses_component_width_and_closes_once() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                mode.ui.set_show_hardware_cursor(true);
+                let width = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let disposed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let done = Arc::new(std::sync::Mutex::new(None::<ExtensionUiDone>));
+                let (w, d, callback) = (width.clone(), disposed.clone(), done.clone());
+                let (send, receive) = tokio::sync::oneshot::channel();
+                mode.show_extension_custom(
+                    Arc::new(move |_, done| {
+                        *callback.lock().unwrap() = Some(done.clone());
+                        Box::new(SizedExtensionInput {
+                            done,
+                            focus: std::sync::atomic::AtomicBool::new(false),
+                            rendered_width: w.clone(),
+                            disposed: d.clone(),
+                        })
+                    }),
+                    Some(ExtensionUiCustomOptions {
+                        overlay: Some(true),
+                        ..Default::default()
+                    }),
+                    send,
+                );
+                mode.ui.render_now();
+                assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 70);
+                assert!(
+                    !terminal.borrow().output().contains(pi_tui::tui::CURSOR_MARKER),
+                    "renderer must consume cursor markers"
+                );
+                let done = done.lock().unwrap().clone().unwrap();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                assert_eq!(
+                    receive.await.unwrap(),
+                    Some(serde_json::json!({"action":"Search","query":"x"}))
+                );
+                assert!(!mode.ui.has_overlay_entries());
+                assert_eq!(disposed.load(std::sync::atomic::Ordering::SeqCst), 1);
+                done.call(None);
+                assert_eq!(disposed.load(std::sync::atomic::Ordering::SeqCst), 1);
+                assert!(
+                    mode.editor()
+                        .borrow_mut()
+                        .render(40)
+                        .iter()
+                        .any(|line| line.contains(pi_tui::tui::CURSOR_MARKER))
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_overlay_explicit_options_and_synchronous_close() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let width = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let captured = width.clone();
+                let done = Arc::new(std::sync::Mutex::new(None::<ExtensionUiDone>));
+                let callback = done.clone();
+                let (send, receive) = tokio::sync::oneshot::channel();
+                mode.show_extension_custom(
+                    Arc::new(move |_, done| {
+                        *callback.lock().unwrap() = Some(done.clone());
+                        Box::new(SizedExtensionInput {
+                            done,
+                            focus: std::sync::atomic::AtomicBool::new(false),
+                            rendered_width: captured.clone(),
+                            disposed: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                        })
+                    }),
+                    Some(ExtensionUiCustomOptions {
+                        overlay: Some(true),
+                        overlay_options: Some(Arc::new(|| crate::core::extensions::types::ExtensionUiOverlayOptions {
+                            width: Some(pi_tui::tui::SizeValue::Absolute(47.0)),
+                            ..Default::default()
+                        })),
+                        ..Default::default()
+                    }),
+                    send,
+                );
+                mode.ui.render_now();
+                assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 47);
+                done.lock().unwrap().clone().unwrap().call(None);
+                assert_eq!(receive.await.unwrap(), None);
+                assert!(!mode.ui.has_overlay_entries());
+                let (send, receive) = tokio::sync::oneshot::channel();
+                mode.show_extension_custom(
+                    Arc::new(|_, done| {
+                        done.call(Some(serde_json::json!("immediate")));
+                        Box::new(StaticWidget)
+                    }),
+                    Some(ExtensionUiCustomOptions {
+                        overlay: Some(true),
+                        ..Default::default()
+                    }),
+                    send,
+                );
+                assert_eq!(receive.await.unwrap(), Some(serde_json::json!("immediate")));
+                assert!(
+                    !mode.ui.has_overlay_entries(),
+                    "factory completed synchronously: do not mount"
+                );
+            })
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]

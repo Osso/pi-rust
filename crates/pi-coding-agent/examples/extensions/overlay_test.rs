@@ -79,6 +79,10 @@ impl OverlayTest {
     }
 }
 impl ExtensionUiComponent for OverlayTest {
+    fn width(&self) -> Option<pi_tui::tui::SizeValue> {
+        Some(pi_tui::tui::SizeValue::Absolute(70.0))
+    }
+
     fn focused(&self) -> Option<bool> {
         Some(self.focused.load(Ordering::SeqCst))
     }
