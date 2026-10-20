@@ -9,7 +9,8 @@ Proof: behavioral tests in `crates/pi-coding-agent/tests/detached_job_bootstrap.
 | `PAYLOAD_GATE_SCRIPT` | Block on the gate until `run\n`, then `exec "$@"` | `PAYLOAD_GATE_SCRIPT`, prefixed with `exec 3<&0 </dev/null` to map stdin onto the source's fd 3 |
 | `GatedDetachedPayloadInput` | args, command, cwd, env, identity/stderr/stdout paths | `GatedDetachedPayloadInput` |
 | `spawnGatedDetachedPayload` spawn | `/bin/sh` gate, detached session, stdout+stderr on one file, gate pipe | `setsid(1)` + `/bin/sh` with piped stdin; `persists_identity_before_releasing_payload_with_direct_artifact_descriptors` asserts fds 1/2, parent pid, and session leadership |
-| Missing pid | `Could not start detached payload: <command>` | `DetachedPayloadError::SpawnFailed`; also raised by the up-front `execvp` search; `reports_a_missing_command` |
+| Missing pid | `Could not start detached payload: <command>` (Node: `/bin/sh` could not spawn, e.g. unusable `cwd`) | `DetachedPayloadError::SpawnFailed`; `reports_an_unusable_cwd_as_a_spawn_failure`. TS has no command pre-check: a missing command exits 127 inside the shell after release (`a_missing_command_fails_inside_the_shell_after_release`) |
+| `env` / `command` lookup | `env: undefined` inherits `process.env`; `env` set replaces the child env exactly; `exec "$@"` resolves the command in the child's `cwd`/`PATH` | `env: None` → `process_env::vars()`, `Some` → manifest env only (`env_clear` + manifest); `resolves_a_relative_command_against_the_manifest_cwd`, `resolves_a_bare_command_against_the_manifest_path`, `replaces_the_child_environment_with_the_manifest_environment`, `inherits_the_process_environment_when_the_manifest_has_none` |
 | `openSharedOutputFile` | Split paths rejected; `O_CREAT\|O_EXCL\|O_WRONLY\|O_APPEND`, mode `0600` | `open_shared_output_file`; `rejects_split_output_files`, `rejects_an_existing_output_file` |
 | `persistIdentity` | `{pgid, pid, startTimeTicks}` written to `<path>.tmp`, fsynced, renamed, directory fsynced, mode `0600` | `persist_identity`/`write_identity_file`; main test asserts content, mode, and no leftover `.tmp` |
 | `release` | Requires persisted identity; single use; writes `run\n` | `release`; `refuses_to_release_before_persisting_the_identity`, `refuses_a_second_release` |
@@ -22,7 +23,7 @@ Node uses `spawn(..., { detached: true })` plus a pipe on fd 3. `unsafe_code = "
 
 - Linux-only (the module already depends on `/proc` for identity).
 - The payload's stdin is `/dev/null` instead of `/dev/null`-equivalent inherited ignore — identical observable behavior.
-- `setsid(1)` must exist on `PATH`; a missing command is detected by an `execvp`-style search before spawn so the launch error matches the source (small TOCTOU window, documented).
+- `setsid(1)` is located on this process's `PATH` (`find_setsid`), never on the payload's manifest `PATH`; if absent the spawn fails with `Could not start detached payload`.
 
 ## Discrepancies
 
