@@ -279,7 +279,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/latex.ts` | 1373 | 1 | done | `crates/pi-tui/src/latex.rs` | TS test suite + generated differential corpus; byte-identical output incl. layout markers |
 | `tui/src/terminal.ts` | 594 | 1 | done | `crates/pi-tui/src/terminal.rs` | differential negotiation/timeout/normalization; ProcessTerminal event-queue seam; resize polling |
 | `tui/src/word-navigation.ts` | 117 | 1 | done | `crates/pi-tui/src/word_navigation.rs` | TS tests + boundary differential; ICU4X dictionary-word mismatches pinned as approved deviation |
-| `tui/src/tui.ts` | 2534 | 2 | done | `crates/pi-tui/src/tui.rs` | differential byte stream (main+renderer), overlays/focus/fixed cells/render regions, viewport helpers and start/stop hooks |
+| `tui/src/tui.ts` | 2534 | 2 | done | `crates/pi-tui/src/tui.rs` | differential byte stream (main+renderer), overlays/focus/fixed cells/render regions, viewport helpers and start/stop hooks; debug/crash logs use the TS `logDirectory` default and ISO timestamps |
 | `tui/src/components/alt-screen-flash.ts` | 51 | 3 | done | `crates/pi-tui/src/components/alt_screen_flash.rs` | differential flash/render/dispose; expiry timer driver-owned |
 | `tui/src/components/box.ts` | 137 | 3 | done | `crates/pi-tui/src/components/box.rs` | differential padding/background/cache-sample matrix |
 | `tui/src/components/dynamic-border.ts` | 15 | 3 | done | `crates/pi-tui/src/components/dynamic_border.rs` | TS tests ported + differential |

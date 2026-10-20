@@ -723,5 +723,45 @@ fn writes_redraw_logs_to_the_provided_directory() {
     }
     let contents = std::fs::read_to_string(log_dir.join("pi-debug.log")).unwrap();
     assert!(contents.contains("fullRender: first render"));
+    let stamp = contents.trim_start_matches('[').split(']').next().expect("timestamp");
+    assert!(
+        stamp.len() == 24 && stamp.ends_with('Z') && stamp.as_bytes()[10] == b'T',
+        "expected new Date().toISOString(): {contents}"
+    );
+    let _ = std::fs::remove_dir_all(log_dir);
+}
+
+#[test]
+fn crash_logs_use_iso_timestamps() {
+    let log_dir = std::env::temp_dir().join(format!(
+        "pi-tui-crash-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&log_dir).unwrap();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let (terminal, handle) = concrete(10, 5);
+        let tui = TuiMainScreen::with_options(handle, None, Some(log_dir.clone()));
+        let (child, state) = test_component(&["short"]);
+        tui.add_child(child);
+        tui.start().unwrap();
+        wait(&tui, &terminal);
+        state.borrow_mut().set_lines(&["this line is wider than ten cells"]);
+        tui.request_render(false);
+        wait(&tui, &terminal);
+    }));
+    assert!(outcome.is_err(), "an over-wide line must panic");
+    let contents = std::fs::read_to_string(log_dir.join("pi-crash.log")).unwrap();
+    let stamp = contents
+        .strip_prefix("Crash at ")
+        .and_then(|rest| rest.split('\n').next())
+        .expect("crash timestamp");
+    assert!(
+        stamp.len() == 24 && stamp.ends_with('Z') && stamp.as_bytes()[10] == b'T',
+        "expected new Date().toISOString(): {contents}"
+    );
     let _ = std::fs::remove_dir_all(log_dir);
 }
