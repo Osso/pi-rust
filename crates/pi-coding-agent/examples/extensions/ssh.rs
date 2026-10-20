@@ -36,7 +36,7 @@ struct Remote {
 }
 impl Remote {
     fn path(&self, path: &str) -> String {
-        path.replacen(&self.local, &self.cwd, 1)
+        pi_js_compat::string::replace(path, &self.local, &self.cwd)
     }
     fn quote_path(&self, path: &str) -> String {
         quote(&self.path(path))
@@ -320,10 +320,10 @@ pub fn ssh_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         let remote = resolved.lock().expect("SSH state").clone();
         Box::pin(async move {
             Ok(remote.map(|r| BeforeAgentStartEventResult {
-                system_prompt: Some(event.system_prompt.replacen(
+                system_prompt: Some(pi_js_compat::string::replace(
+                    &event.system_prompt,
                     &format!("Current working directory: {}", r.local),
                     &format!("Current working directory: {} (via SSH: {})", r.cwd, r.host),
-                    1,
                 )),
                 ..Default::default()
             }))

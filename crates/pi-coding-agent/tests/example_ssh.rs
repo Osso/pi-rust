@@ -166,7 +166,7 @@ async fn native(request: &Value) -> Value {
             let cancel = token.clone();
             let command = match mode {
                 "timeout" => "exec sleep 30",
-                "abort" => "printf ready; exec sleep 30",
+                "abort" => "exec python3 -c 'import time; print(\"ready\",flush=True); time.sleep(30)'",
                 "exit" => "printf code; exit 7",
                 _ => "printf 'user output'",
             };
@@ -182,7 +182,7 @@ async fn native(request: &Value) -> Value {
                             }
                         }),
                         signal: Some(token),
-                        timeout: (mode == "timeout").then_some(0.03),
+                        timeout: (mode == "timeout").then_some(1.0),
                         env: BTreeMap::new(),
                         detach: None,
                     },
@@ -243,15 +243,19 @@ async fn ssh_fixture_remote_matches_pinned_example() {
         json!(format!("fixture:{}", remote.display())),
         json!(format!("fixture:{}:ignored", remote.display())),
         json!("bad"),
+        json!(format!("fixture$&:{}", remote.display())),
+        json!(format!("fixture:{}/$&", remote.display())),
     ] {
         seed(&cwd, &remote);
         std::fs::write(&log, "").unwrap();
+        let projected = String::from_utf16_lossy(&[0xd800]);
+        assert_eq!(projected, "\u{fffd}");
         let request = json!({"cwd":cwd,"flag":flag,"calls":[
             {"tool":"read","params":{"path":"read.txt","offset":2,"limit":1}},
             {"tool":"read","params":{"path":"quote \" λ.txt"}},
             {"tool":"read","params":{"path":"invalid.txt"}},
             {"tool":"edit","params":{"path":"edit.txt","edits":[{"oldText":"before","newText":"after"}]}},
-            {"tool":"write","params":{"path":"new.txt","content":"written\nλ🚀"}},
+            {"tool":"write","params":{"path":"new.txt","content":format!("written\nλ🚀{projected}")}},
             {"tool":"bash","params":{"command":"printf stdout"}},
             {"tool":"bash","params":{"command":"printf stderr >&2; exit 7"}},
             {"tool":"read","params":{"path":"fail.txt"}},

@@ -7,8 +7,8 @@ async function run(request: any) {
   return value;
  };
  const operations = {
-  access: fault("access", undefined), readFile: fault("readFile", Buffer.from("old")),
-  detectImageMimeType: fault("mime", null), stat: fault("stat", {size:100000,isDirectory:()=>true}),
+  access: fault("access", undefined), readFile: fault(request.stage === "image" ? "image" : "readFile", Buffer.from("old")),
+  detectImageMimeType: fault("mime", request.stage === "image" ? "image/png" : null), stat: fault("stat", {size:100000,isDirectory:()=>true}),
   mkdir: fault("mkdir", undefined), writeFile: fault("writeFile", undefined),
   exists: async()=>true, readdir: fault("readdir", []),
   ...(request.stage === "range" ? {readRange:fault("range", Buffer.alloc(0))}:{}),

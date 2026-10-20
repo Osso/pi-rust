@@ -27,7 +27,7 @@ impl ReadOperations for Fault {
         Box::pin(async { self.result("access", ()) })
     }
     fn read_file<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>> {
-        Box::pin(async { self.result("readFile", b"old".to_vec()) })
+        Box::pin(async { self.result(if self.0 == "image" { "image" } else { "readFile" }, b"old".to_vec()) })
     }
     fn detect_image_mime_type<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<Option<String>>> {
         Box::pin(async {
@@ -95,7 +95,7 @@ async fn custom_errors_match_pinned_tool_catch_boundaries() {
         "packages/coding-agent/src/core/tools/read.ts",
     );
     for (name, stages) in [
-        ("read", vec!["access", "mime", "stat", "readFile", "range"]),
+        ("read", vec!["access", "mime", "stat", "readFile", "range", "image"]),
         ("write", vec!["mkdir", "writeFile"]),
         ("edit", vec!["access", "readFile", "writeFile"]),
         ("ls", vec!["stat", "readdir"]),
