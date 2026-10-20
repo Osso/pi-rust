@@ -29,9 +29,12 @@ pub async fn stream<W: Write + Send + 'static>(
         }) = event
             && let AssistantMessageEvent::TextDelta { delta, .. } = assistant_message_event.as_ref()
         {
-            let mut writer = stream_output.lock().expect("output mutex poisoned");
-            if let Err(error) = writer.write_all(delta.as_bytes()).and_then(|()| writer.flush()) {
-                *stream_failure.lock().expect("failure mutex poisoned") = Some(error.to_string());
+            let mut failure = stream_failure.lock().expect("failure mutex poisoned");
+            if failure.is_none() {
+                let mut writer = stream_output.lock().expect("output mutex poisoned");
+                if let Err(error) = writer.write_all(delta.as_bytes()).and_then(|()| writer.flush()) {
+                    *failure = Some(error.to_string());
+                }
             }
         }
     }));
@@ -41,13 +44,8 @@ pub async fn stream<W: Write + Send + 'static>(
             .expect("output mutex poisoned")
             .write_all(prefix.as_bytes())
             .map_err(|e| e.to_string())?;
-        session
-            .prompt(prompt, PromptOptions::default())
-            .await
-            .map_err(|e| e.message().to_owned())?;
-        if let Some(error) = failure.lock().expect("failure mutex poisoned").take() {
-            return Err(error);
-        }
+        let prompt_result = session.prompt(prompt, PromptOptions::default()).await;
+        complete_prompt(prompt_result, failure.lock().expect("failure mutex poisoned").take())?;
         let mut writer = output.lock().expect("output mutex poisoned");
         writer
             .write_all(suffix.as_bytes())
@@ -57,4 +55,36 @@ pub async fn stream<W: Write + Send + 'static>(
     .await;
     session.dispose();
     outcome
+}
+
+fn complete_prompt(
+    prompt_result: Result<(), pi_coding_agent::core::agent_session::AgentSessionError>,
+    writer_error: Option<String>,
+) -> Result<(), String> {
+    if let Some(error) = writer_error {
+        return Err(error);
+    }
+    prompt_result.map_err(|error| error.message().to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::complete_prompt;
+    use pi_coding_agent::core::agent_session::AgentSessionError;
+
+    #[test]
+    fn first_writer_error_precedes_later_prompt_error() {
+        assert_eq!(
+            complete_prompt(
+                Err(AgentSessionError::new("later prompt error")),
+                Some("first writer error".into())
+            ),
+            Err("first writer error".into())
+        );
+        assert_eq!(
+            complete_prompt(Err(AgentSessionError::new("prompt error")), None),
+            Err("prompt error".into())
+        );
+        assert_eq!(complete_prompt(Ok(()), None), Ok(()));
+    }
 }

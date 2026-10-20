@@ -106,3 +106,7 @@ None.
   backed by `ExtensionContextState`; each method performs the stale check and
   reads live state. `toolExecutionStartedAt`/`toolExecutionAgentId` remain
   per-invocation fields.
+
+## Provider response header order
+
+`AfterProviderResponseEvent.headers` is `IndexMap<String, String>`, forwarded unchanged from `ProviderResponse.headers` by SDK hooks. `tests/sdk.rs::custom_provider_response_preserves_header_order_through_sdk_and_json` registers a custom provider through `ExtensionApi`, invokes its response callback, and asserts z-first/a-second handler and serialized event order (the pinned TS JSON.stringify contract).

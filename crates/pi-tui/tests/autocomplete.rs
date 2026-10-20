@@ -493,6 +493,11 @@ fn should_trigger_file_completion_rejects_slash_command_names() {
 #[test]
 fn home_directory_expansion_is_used_for_tilde_prefixes() {
     let home = std::env::var("HOME").expect("HOME is set");
+    let entry = tempfile::Builder::new()
+        .prefix("pi-home-completion-")
+        .tempfile_in(&home)
+        .expect("HOME completion fixture");
+    let expected = format!("~/{}", entry.path().file_name().unwrap().to_string_lossy());
     let provider = provider(Vec::new(), "/tmp", None);
     let suggestions = futures_lite_block_on(provider.get_suggestions(
         &["~/".to_string()],
@@ -511,7 +516,7 @@ fn home_directory_expansion_is_used_for_tilde_prefixes() {
             .iter()
             .all(|item| item.value.trim_start_matches('"').starts_with("~/"))
     );
-    assert!(!home.is_empty());
+    assert!(suggestions.items.iter().any(|item| item.value == expected));
 }
 
 fn futures_lite_block_on<F: std::future::Future>(future: F) -> F::Output {

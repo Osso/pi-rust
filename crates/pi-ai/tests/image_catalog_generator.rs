@@ -48,11 +48,6 @@ fn parser_matches_actual_pinned_export_for_raw_json() {
                 _ => None,
             };
             if let Some(field) = rejected_field {
-                std::fs::write(
-                    format!("/tmp/pi-rust-image-generator-proof/validation-parser-{case}-{strict}-source.json"),
-                    serde_json::to_string_pretty(&expected).unwrap(),
-                )
-                .unwrap();
                 let error = parse_openrouter_image_models(&parse_lossless(payload).unwrap(), strict).unwrap_err();
                 assert_eq!(error.name, "TypeError");
                 assert_eq!(

@@ -18,8 +18,8 @@ ryu-js = "=1.0.3"
 serde = "=1.0.229"
 # `JSON.stringify(number)` value construction for extension payloads.
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
-# Resolves the system UTC offset for zone-less `Date.parse` values.
-jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system"] }
+# Local offsets and IANA TZ lookup for Date.parse and en-US date formatting.
+jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 # `String.prototype.localeCompare` / `Intl.Collator`.
 icu_collator = { version = "=2.3.1", features = ["compiled_data"] }
 icu_locale_core = "=2.3.0"
@@ -35,12 +35,6 @@ serde = { version = "=1.0.229", features = ["derive"] }
 # Process-group teardown for tsx oracle children in tests.
 rustix = { version = "=1.1.5", features = ["process"] }
 serde_json = "=1.0.151"
-# `TimeZone::get` for the explicit-zone differential tests.
-jiff = { version = "=0.2.38", default-features = false, features = [
-    "std",
-    "tz-system",
-    "tzdb-zoneinfo",
-] }
 
 [lints]
 workspace = true

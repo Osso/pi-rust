@@ -12,18 +12,36 @@ async fn native_inline_extension_runs_before_streaming() {
     let _home = fixture.home;
     let output = support::Output::default();
     let _main = example::main;
-    example::run(
-        fixture.options,
-        std::sync::Arc::new(pi_coding_agent::core::extensions::loader::ExtensionRegistry::new()),
-        output.clone(),
-    )
-    .await
-    .unwrap();
+    let mut registry = pi_coding_agent::core::extensions::loader::ExtensionRegistry::new();
+    let loaded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    for id in ["my-logging-extension.ts", "my-safety-extension.ts"] {
+        let path = std::path::Path::new(fixture.options.cwd.as_ref().unwrap())
+            .join(id)
+            .display()
+            .to_string();
+        // Discovery requires an existing path; the native registry supplies its code.
+        std::fs::write(&path, "// native fixture registry ID\n").unwrap();
+        let observed = std::sync::Arc::clone(&loaded);
+        registry.register_hidden(
+            path,
+            std::sync::Arc::new(move |_| {
+                observed.lock().unwrap().push(id);
+                Box::pin(async { Ok(()) })
+            }),
+        );
+    }
+    example::run(fixture.options, std::sync::Arc::new(registry), output.clone())
+        .await
+        .unwrap();
     let mut source = oracle::TsOracle::spawn(
         "sdk-examples-oracle.ts",
         "packages/coding-agent/examples/sdk/06-extensions.ts",
     );
     let expected = source.request(&json!({}));
+    assert_eq!(
+        *loaded.lock().unwrap(),
+        ["my-logging-extension.ts", "my-safety-extension.ts"]
+    );
     assert_eq!(output.text(), expected["stdout"]);
     assert_eq!(output.text(), "[Inline Extension] Agent starting\nHello!\n");
     assert_eq!(

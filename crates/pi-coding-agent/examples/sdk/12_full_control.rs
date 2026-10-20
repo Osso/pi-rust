@@ -13,16 +13,20 @@ use serde_json::json;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-pub async fn run(
+pub fn read_api_key() -> Option<String> {
+    std::env::var("MY_ANTHROPIC_KEY").ok()
+}
+
+pub async fn configure_options(
     mut options: CreateAgentSessionOptions,
     api_key: Option<&str>,
-    output: impl Write + Send + 'static,
-) -> Result<(), String> {
+) -> Result<CreateAgentSessionOptions, String> {
+    let agent_dir = options.agent_dir.clone().unwrap_or_else(|| "/tmp/my-agent".into());
     let runtime = match options.model_runtime.take() {
         Some(runtime) => runtime,
         None => ModelRuntime::create(CreateModelRuntimeOptions {
-            auth_path: Some("/tmp/my-agent/auth.json".into()),
-            models_path: Some(Some("/tmp/my-agent/models.json".into())),
+            auth_path: Some(format!("{agent_dir}/auth.json")),
+            models_path: Some(Some(format!("{agent_dir}/models.json"))),
             ..Default::default()
         })
         .await
@@ -41,7 +45,7 @@ pub async fn run(
         .ok_or_else(|| "Model not found".to_owned())?;
     options.model = Some(model);
     options.model_runtime = Some(runtime);
-    options.agent_dir = Some(options.agent_dir.unwrap_or_else(|| "/tmp/my-agent".into()));
+    options.agent_dir = Some(agent_dir);
     options.thinking_level = Some(ThinkingLevel::Off);
     options.tools = Some(vec!["read".into(), "bash".into()]);
     options.resource_loader = Some(Arc::new(StaticResourceLoader {
@@ -56,8 +60,16 @@ pub async fn run(
         Default::default(),
     ))));
     options.session_manager = Some(SessionManager::in_memory(options.cwd.as_deref(), None).map_err(|e| e.to_string())?);
+    Ok(options)
+}
+
+pub async fn run(
+    options: CreateAgentSessionOptions,
+    api_key: Option<&str>,
+    output: impl Write + Send + 'static,
+) -> Result<(), String> {
     common::stream(
-        options,
+        configure_options(options, api_key).await?,
         "List files in the current directory.",
         "",
         "\n",
@@ -69,7 +81,7 @@ pub async fn run(
 pub async fn main() -> Result<(), error::ExampleError> {
     run(
         CreateAgentSessionOptions::default(),
-        std::env::var("MY_ANTHROPIC_KEY").ok().as_deref(),
+        read_api_key().as_deref(),
         std::io::stdout(),
     )
     .await

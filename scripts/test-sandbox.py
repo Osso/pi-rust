@@ -66,7 +66,6 @@ def private_environment(state):
         "TMPDIR": str(state / "tmp"),
         "PI_CODING_AGENT_DIR": str(state / "agent"),
         "PI_CODING_AGENT_STATE_DIR": str(state / "state/pi"),
-        "PI_OFFLINE": "1",
         "CARGO_NET_OFFLINE": "true",
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": "/dev/null",
@@ -80,6 +79,7 @@ def private_environment(state):
         "NO_COLOR",
         "RUST_BACKTRACE",
         "RUST_TEST_THREADS",
+        "PI_OFFLINE",
         "CARGO_MANIFEST_DIR",
         "CARGO_TARGET_DIR",
         "LLVM_PROFILE_FILE",
@@ -105,13 +105,27 @@ def enter(command):
     # This runs only after bwrap created a fresh network namespace. No host
     # interface changes; no veth/default route. Local HTTP fixtures need lo up.
     subprocess.run(["/usr/bin/ip", "link", "set", "lo", "up"], check=True)
-    # Do not pass bootstrap capabilities into tests: nested bwrap rejects them.
+    # Create devpts only AFTER configuring the network namespace: --dev creates
+    # another user namespace whose NET_ADMIN cannot configure the earlier netns.
+    devices = [
+        "/usr/bin/bwrap", "--die-with-parent", "--unshare-user",
+        "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
+    ]
+    # /tmp is already the outer guard's private tmpfs. Keep it writable for
+    # env-cleared probe children that use the platform temp directory directly.
+    bind(devices, "/tmp", writable=True)
+    state = Path(os.environ["PI_CODING_AGENT_DIR"]).parent
+    for writable in dict.fromkeys([state, Path(os.environ["TMPDIR"])]):
+        bind(devices, writable, writable=True)
+    # Drop bootstrap capabilities before the device namespace and test process.
     os.execvpe(
         "/usr/bin/setpriv",
         [
             "setpriv",
             "--inh-caps=-net_admin",
             "--ambient-caps=-net_admin",
+            "--",
+            *devices,
             "--",
             *command,
         ],
@@ -165,8 +179,8 @@ def launch(command):
         "/run",
         "--tmpfs",
         "/tmp",
-        # --dev creates another devpts user namespace: NET_ADMIN there cannot
-        # configure the earlier network namespace. Bind only PTY/null devices.
+        # Bootstrap devices only; enter() replaces these with private devpts
+        # after enabling loopback and dropping the bootstrap capabilities.
         "--dev-bind",
         "/dev/pts",
         "/dev/pts",

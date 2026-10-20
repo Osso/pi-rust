@@ -2,12 +2,13 @@
 
 Pinned source: `532f7d12`, `packages/coding-agent/examples/sdk/`.
 Examples compile their shipped files directly in integration tests. Private cwd,
-agent directory, in-memory credentials/settings, empty extensions and Faux streams
+agent directory, in-memory credentials/settings, native extension fixtures and Faux streams
 replace live discovery/provider state in fixtures, following 01. Entrypoints remain
 opt-in SDK clients, not CLI wrappers. No new dependencies.
 
 `oracle/sdk-examples-oracle.ts` transpiles the complete unchanged pinned program;
-only SDK imports are replaced. Console argument values, prompt ordering, chosen
+SDK imports, process cwd/env/stdout, console log/warn formatting, and the compat
+model lookup are replaced. Console argument values, prompt ordering, chosen
 models/tools, error names/messages and disposal order are returned. Arrays and
 objects print as JSON rather than Node inspect syntax; no values are omitted.
 Native SDK-added cwd text in system prompts remains intact.
@@ -15,8 +16,8 @@ Native SDK-added cwd text in system prompts remains intact.
 | Source lines / behavior | Native implementation | Behavioral proof |
 | --- | --- | --- |
 | 02:9–49 runtime/model lookup; available ordering; medium thinking; streamed greeting; finally | `examples/sdk/02_custom_model.rs::run`, `common::stream` | `example_sdk_custom_model`: real authenticated Faux runtime, first available model, exact prompt, complete stdout differential |
-| 03:16–75 replace prompt/clear append; append to default; sequential prompts/output; finally | `03_custom_prompt.rs::run`, `resources::options`, `common::stream` | `example_sdk_custom_prompt`: full stdout differential; actual provider contexts assert pirate prompt + cwd, added instructions, exact prompts |
-| 04:19–55 filter browser/search; synthetic source; diagnostics; session | `04_skills.rs::run` | `example_sdk_skills`: private disk discovery of three skills; filtered ordered names + inline skill; stdout differential; no provider calls |
+| 03:14–75 replace prompt/clear append; append to default; sequential prompts/output; native cleanup/finally | `03_custom_prompt.rs::run`, `resources::options`, `common::stream` | `example_sdk_custom_prompt`: full stdout differential; actual provider contexts assert pirate prompt + cwd, added instructions, exact prompts |
+| 04:18–55 filter browser/search; synthetic source; diagnostics; session | `04_skills.rs::run` | `example_sdk_skills`: private disk discovery of three skills; filtered ordered names + inline skill; stdout differential; no provider calls |
 
 Shared output helper propagates prompt and writer errors and disposes on all
 streaming exits. `error::ExampleError` retains Error messages without Debug quotes;
@@ -31,7 +32,8 @@ and formatting run; no broad checks, clippy or live providers.
 
 ## Remaining scope
 
-02–13 implemented. No API gap identified. Optional model lookup/empty availability,
+02–13 have native examples. Example 13 has a blocked queue-output error-ordering
+gap described below; successful transitions remain covered. Optional model lookup/empty availability,
 skill-warning, model-fallback-note, empty session listing and absent initial file
 branches are implemented but lack independent native fixtures. Those are explicit
 proof gaps, not missing APIs or intentionally changed behavior. Common streamed
@@ -42,10 +44,10 @@ fixtures; tests do not claim exhaustive SDK branch parity.
 
 | Source lines / behavior | Rust example | Test target |
 | --- | --- | --- |
-| 05:20–56 four ordered tool sets; custom cwd; in-memory sessions/disposal | `05_tools.rs::run` | `example_sdk_tools`: stdout differential; real active tool names including SDK-required end_turn; custom cwd snapshots |
-| 06:31–64 configured paths; inline agent-start; streamed prompt; finally | `06_extensions.rs::run` | `example_sdk_extensions`: actual native extension fires before provider stream; full stdout differential |
-| 07:17–53 context merge; JS UTF-16 length; count/output; disposal | `07_context_files.rs::run` | `example_sdk_context_files`: real private AGENTS.md with emoji, exact context values and stdout differential |
-| 08:21–63 synthetic deploy source/content; merge; output/disposal | `08_prompt_templates.rs::run` | `example_sdk_prompt_templates`: real private template, ordered merge, deploy body and source metadata; stdout differential |
+| 05:15–48 four ordered tool sets; custom cwd; in-memory sessions/disposal | `05_tools.rs::run` | `example_sdk_tools`: stdout differential; real active tool names including SDK-required end_turn; custom cwd snapshots |
+| 06:26–56 configured paths; inline agent-start; streamed prompt; finally | `06_extensions.rs::run` | `example_sdk_extensions`: actual native extension fires before provider stream; full stdout differential |
+| 07:15–47 context merge; JS UTF-16 length; count/output; disposal | `07_context_files.rs::run` | `example_sdk_context_files`: real private AGENTS.md with emoji, exact context values and stdout differential |
+| 08:17–51 synthetic deploy source/content; merge; output/disposal | `08_prompt_templates.rs::run` | `example_sdk_prompt_templates`: real private template, ordered merge, deploy body and source metadata; stdout differential |
 
 Source bugs classified/preserved: 07 and 08 add one to a discovered list that
 already contains the inline resource. Printed counts intentionally exceed actual
@@ -55,17 +57,19 @@ comment says disable context but its executable override appends; code wins.
 06 uses the approved native ExtensionRegistry instead of executing TS files.
 The two configured `.ts` strings remain registry IDs; embedders register native
 factories for those IDs. Missing paths remain loader diagnostics as in the source.
-Comment-only extension sketches are not executed or registered. The native inline
-hook is real. 05/07/08 return state snapshots to fixture callers without adding
-stdout lines. 04 now follows its source's non-finally output/disposal ordering.
+Comment-only extension sketches are not executed or registered. Both configured IDs are registered as hidden native factories at existing private
+fixture paths; removing the configured paths fails the loaded-ID assertion. The
+inline hook is real. 04/07/08/09 return already-disposed session handles for fixture
+observation without extra stdout. 05/07/08 also return state snapshots. 04 follows
+its source's non-finally output/disposal ordering.
 
 ## 09–11 mapping
 
 | Source lines / behavior | Rust example | Test target |
 | --- | --- | --- |
-| 09:9–37 default/custom runtime, memory sessions, temporary key and disposal | `09_api_keys_and_oauth.rs::run` | `example_sdk_api_keys_and_oauth`: stdout differential, actual default-runtime override visibility, no auth file persisted |
-| 10:11–58 disk settings, overrides, low/flush/errors, isolated memory settings | `10_settings.rs::run` | `example_sdk_settings`: stdout differential, actual pre-setter effective overrides, durable low level with overrides absent from disk |
-| 11:12–58 memory/new/continue/list/first-three/open | `11_sessions.rs::run` | `example_sdk_sessions`: real private session files, four results prove three-item limit, lazy new-file behavior, full stdout differential |
+| 09:9–34 default/custom runtime, memory sessions, temporary key and disposal | `09_api_keys_and_oauth.rs::run` | `example_sdk_api_keys_and_oauth`: stdout differential, actual default-runtime override visibility, no auth file persisted |
+| 10:9–53 disk settings, overrides, low/flush/errors, isolated memory settings | `10_settings.rs::run` | `example_sdk_settings`: stdout differential, actual pre-setter effective overrides, durable low level with overrides absent from disk |
+| 11:10–44 memory/new/continue/list/first-three/open | `11_sessions.rs::run` | `example_sdk_sessions`: real private session files, four results prove three-item limit, lazy new-file behavior, full stdout differential |
 
 11 additionally runs real pinned TS SessionManager.continueRecent and list,
 separately, on the exact same files Rust reads. Fixture byte identity is asserted
@@ -82,8 +86,8 @@ setter may remerge disk state, which the example does not change.
 
 | Source lines / behavior | Rust example | Test target |
 | --- | --- | --- |
-| 12:23–76 custom runtime/key, explicit model, no discovery, off thinking, read/bash, prompt/finally | `12_full_control.rs::run` | `example_sdk_full_control`: full stdout differential; actual provider sees exact custom prompt + cwd, selected tools and prompt |
-| 13:23–67 service/runtime factory, initial/new/switch, bind/unsubscribe/queue updates/dispose | `13_session_runtime.rs::{create_runtime,bind_session,run}` | `example_sdk_session_runtime`: full three-stage stdout differential; real service/runtime replacement, distinct new file and original switch target; second test proves queue counts, stale listener removal and explicit unsubscribe |
+| 12:17–76 custom runtime/key, explicit model, no discovery, off thinking, read/bash, prompt/finally | `12_full_control.rs::run` | `example_sdk_full_control`: full stdout differential; actual provider sees exact custom prompt + cwd, selected tools and prompt |
+| 13:20–67 service/runtime factory, initial/new/switch, bind/unsubscribe/queue updates/dispose | `13_session_runtime.rs::{create_runtime,bind_session,run}` | `example_sdk_session_runtime`: full three-stage stdout differential; real service/runtime replacement, distinct new file and original switch target; second test proves non-empty extension binding, queue counts, stale listener removal while the old session remains alive, and explicit unsubscribe |
 
 13 observer IDs are paired with the session they belong to, so rebinding removes
 the previous session's subscription, not an equal numeric ID on its replacement.
@@ -93,7 +97,8 @@ private. Runtime teardown aborts the outgoing session before invalidating it;
 therefore `Queued: 0` precedes each replacement label. Oracle seam behavior is
 anchored in pinned `agent-session-runtime.ts:179–186` and
 `agent-session.ts:3749–3756`. Final explicit unsubscribe precedes disposal, as in
-source. No new API gap or semantic deviation identified.
+source on successful output paths. Queue-output failure is an explicit parity gap,
+not covered by stdout equality.
 
 ## Error-stream and reasoning regressions
 
@@ -109,3 +114,49 @@ file and obtains exact error messages. Both TS and Rust leave the corrupt bytes
 unchanged; the complete pinned example then receives those real errors, and both
 stdout/stderr streams compare exactly. `sdk-settings-state-oracle.ts` is this real
 manager seam. Source's successful sessions and warning output order remain intact.
+
+## Accepted review fixes and proof levels
+
+All twelve source ranges were rechecked against the pinned files, including the
+03 cwd/agentDir declarations, 04 skill declaration, and 10 cwd declaration.
+
+| Finding | Native observation / proof | Remaining gap |
+| --- | --- | --- |
+| First streamed writer error | 02 emits two concrete deltas; first error survives and only one delta write occurs. Shared completion arbiter separately receives a later prompt `Err` and preserves the writer error. Both original failure modes have behavioral RED logs. 02/03/06/12 targets pass. | Error precedence uses a pure unit test; the multi-delta/finally test uses the real native session. A provider-stream failure is not a prompt `Err` and is not claimed as such. |
+| 03 native disposal | Native session-resource cleanup records two distinct session IDs in execution order; deleting native disposal fails the assertion. | The stdout oracle's disposed IDs no longer stand in for native disposal. |
+| 04/07/08 loader attachment | Inspect the actual disposed session's resource loader, system prompt, and prompt templates. Deleting each assignment fails. `sdk-resources-state-oracle.ts` executes the unchanged pinned programs with real pinned loaders/sessions and compares complete skills/context/templates. | Fixture roots, settings/runtime/model selection and console handling remain injected; no live prompt/provider runs in these three examples. |
+| 06 configured extensions | Hidden factories at both configured private paths record exact loaded IDs and order. Deleting configured paths fails. | Native factories intentionally replace TS extension loading. |
+| 09 custom runtime | Custom session has no injected runtime. Actual session runtime reads private `auth.json` and `models.json`; wrong filenames independently fail. `sdk-runtime-state-oracle.ts` reads the same files through real pinned ModelRuntime and compares model/auth values. | Default runtime is still the isolated fixture runtime. |
+| 12 defaults/key | No injected model/runtime. Default Sonnet matches the real pinned compat lookup. Runtime reads private auth/models files. Child processes cover nonempty, empty, and absent `MY_ANTHROPIC_KEY`, exact resolved key, and unchanged auth bytes. Wrong model/path/env lookup each fail. | Default fixture root substitutes for `/tmp/my-agent`; no production provider is contacted. |
+| 13 binding/rebinding | Non-empty native extension records session_start only after binding. Independent replacement runtime leaves the old session undisposed; a separate observer proves it still emits when testing stale-listener removal. Omitting binding and omitting unsubscribe independently fail. | Queue-output failure ordering remains blocked below. |
+
+09 and 12 use an explicitly supplied `agent_dir` as the private auth/models root
+when constructing their fixture runtime, retaining the exact source filenames.
+Without that fixture input, executable defaults remain `/tmp/my-app` (09) and
+`/tmp/my-agent` (12). No test reads those shared locations. Runtime construction
+and option assembly are exposed for observation; executable stdout is unchanged.
+
+### Blocked: 13 queue-output failure before disposal
+
+`sdk-runtime-order-oracle.ts` constructs real pinned AgentSession and
+AgentSessionRuntime objects, binds a non-empty extension, then throws from the
+queue listener during `newSession()`. Observed before explicit fixture cleanup:
+
+```json
+{"error":"queue output failed","disposed":false,"replacements":0,"sameSession":true,"bindStarts":1}
+```
+
+Pinned `agent-session.ts:3749–3758` emits the queue update inside `abort()`;
+`agent-session-runtime.ts:179–193` awaits it before disposal. The real-object
+experiment confirms that the listener error stops replacement, not merely output.
+
+Rust `AgentSessionEventListener` (`agent_session.rs:643`) returns `()`, and
+`emit` (`:3217–3225`) has no fallible listener result. Runtime teardown
+(`agent_session_runtime.rs:247–268`) discards the `abort()` result and then
+disposes. Example 13 records its writer error and checks it only after transition.
+Faithful ordinary-error propagation therefore needs a fallible public listener
+path plus runtime propagation. Per the explicit stop condition, no public runtime
+API or example-13 production code was changed. This remains an unsatisfied
+accepted finding; panic-based control flow and extra pre-transition aborts were
+not substituted.
+

@@ -111,6 +111,13 @@ Protected oracle configuration and dynamic compiler fixtures are created only in
 
 Run final integration in two phases: `python3 scripts/test-sandbox.py -- ./run-tests.sh oracle`, then Cargo outside the runtime namespace (`cargo test --workspace --all-targets`), whose compiled tests enter the mandatory Cargo runner guard. Do not place Cargo itself inside the runtime guard: checkout/cache are read-only and Cargo is absent from its restricted PATH. No writable-checkout or unsandboxed fallback is introduced.
 
+The runtime guard does not inject `PI_OFFLINE`; it preserves an explicitly
+supplied value. Injected fetch/npm/git tests exercise normal product behavior
+inside loopback-only networking. Startup proofs requiring application offline
+mode must set it themselves. Private devpts is established after loopback
+bootstrap and capability dropping; nested guards retain private temporary files
+and a fresh proc mount for namespace setup.
+
 ## Development proof ledger
 
 | Command | Exact scope | Result |
