@@ -1,8 +1,7 @@
 //! Native entry point for `packages/evals/scripts/run-evals.mjs`.
 //!
-//! The child program is injected by the binary; production uses `cargo`.
+//! The child program is always `cargo`, resolved through PATH.
 
-use std::ffi::OsStr;
 use std::fs::DirBuilder;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -10,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use pi_ai::utils::uuid::random_uuid;
 use pi_js_compat::date::to_iso_string;
+use pi_js_compat::node_fs::node_fs_error_record;
 use pi_js_compat::string::js_trim;
 
 const PACKAGE_ROOT: &str = env!("CARGO_MANIFEST_DIR");
@@ -84,18 +84,18 @@ fn resolve_artifact_path(value: &Path) -> PathBuf {
     resolved
 }
 
-fn read_artifact_directory() -> Result<PathBuf, String> {
+fn read_artifact_directory() -> PathBuf {
     if let Some(value) = std::env::var_os("PI_EVAL_ARTIFACT_DIR").filter(|value| !value.is_empty()) {
-        return Ok(resolve_artifact_path(Path::new(&value)));
+        return resolve_artifact_path(Path::new(&value));
     }
-    let elapsed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| error.to_string())?;
-    let millis = i64::try_from(elapsed.as_millis()).map_err(|error| error.to_string())?;
+    let millis = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(elapsed) => elapsed.as_millis() as i64,
+        Err(before_epoch) => -(before_epoch.duration().as_millis() as i64),
+    };
     let timestamp = to_iso_string(millis).replace(':', "-");
-    Ok(Path::new(PACKAGE_ROOT)
+    Path::new(PACKAGE_ROOT)
         .join(".eval")
-        .join(format!("{timestamp}_{}", random_uuid())))
+        .join(format!("{timestamp}_{}", random_uuid()))
 }
 
 fn create_artifact_directory(path: &Path) -> Result<(), String> {
@@ -108,16 +108,11 @@ fn create_artifact_directory(path: &Path) -> Result<(), String> {
     }
     builder
         .create(path)
-        .map_err(|error| format!("Creating artifacts {}: {error}", path.display()))
+        .map_err(|error| node_fs_error_record(&error, "mkdir", &path.to_string_lossy()).console_message(None))
 }
 
-fn configure_child(
-    program: &OsStr,
-    args: Vec<String>,
-    artifacts: &Path,
-    selection: Option<(String, String)>,
-) -> Command {
-    let mut child = Command::new(program);
+fn configure_child(args: Vec<String>, artifacts: &Path, selection: Option<(String, String)>) -> Command {
+    let mut child = Command::new("cargo");
     child
         .args(["test", "-p", "pi-evals"])
         .args(args)
@@ -136,13 +131,12 @@ fn configure_child(
 
 /// Validate selection, create artifacts, announce the run, and wait for the child.
 ///
-/// `program` replaces only the executable, not the native Cargo argument prefix.
 /// Child processes inherit the caller's environment and standard streams.
-pub fn run(args: &[String], program: &OsStr) -> Result<i32, String> {
+pub fn run(args: &[String]) -> Result<i32, String> {
     let parsed = parse_arguments(args)?;
     let environment = [std::env::var("PI_PROVIDER").ok(), std::env::var("PI_MODEL").ok()];
     let selection = resolve_selection(&parsed, environment)?;
-    let artifacts = read_artifact_directory()?;
+    let artifacts = read_artifact_directory();
     create_artifact_directory(&artifacts)?;
     let label = selection
         .as_ref()
@@ -150,8 +144,12 @@ pub fn run(args: &[String], program: &OsStr) -> Result<i32, String> {
         .unwrap_or_else(|| "none".into());
     eprintln!("[eval] default-model={label}");
     eprintln!("[eval] artifacts={}", artifacts.display());
-    let status = configure_child(program, parsed.forwarded, &artifacts, selection)
-        .status()
-        .map_err(|error| format!("Spawning {}: {error}", program.to_string_lossy()))?;
+    let mut child = configure_child(parsed.forwarded, &artifacts, selection);
+    let status = child.status().map_err(|error| {
+        let mut record = node_fs_error_record(&error, "spawnSync cargo", "cargo");
+        record.message = format!("spawnSync cargo {}", record.code);
+        let args: Vec<String> = child.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        record.console_message(Some(&args))
+    })?;
     Ok(status.code().unwrap_or(1))
 }

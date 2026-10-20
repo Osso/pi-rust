@@ -68,6 +68,32 @@ fn real_filesystem_messages_and_own_metadata_match_node() {
 }
 
 #[test]
+fn console_messages_match_node_inspection() {
+    let cases = [
+        ("plain", None),
+        ("single'quote", None),
+        ("both'\"quotes", None),
+        ("all'\"`quotes\n\t\u{0}\u{1b}", None),
+        ("cargo", Some(vec!["test".into(), "-p".into(), "pi-evals".into()])),
+        ("cargo", Some(vec!["x".into(); 101])),
+    ];
+    for (path, args) in cases {
+        let record = node_fs_error_record(&io::Error::from_raw_os_error(2), "mkdir", path);
+        let input = json!({"name":record.name,"message":record.message,"errno":record.errno,
+            "code":record.code,"syscall":record.syscall,"path":record.path,"args":args});
+        let node = std::process::Command::new("node")
+            .args(["-e", r#"const p=JSON.parse(process.argv[1]); const e=Object.assign(new Error(p.message), {errno:p.errno,code:p.code,syscall:p.syscall,path:p.path}); e.stack=`${p.name}: ${p.message}\n    at fixture`; if(p.args!==null)e.spawnargs=p.args; console.log(require('node:util').inspect(e).replace('\n    at fixture',''));"#])
+            .arg(input.to_string())
+            .output().unwrap();
+        assert!(node.status.success());
+        assert_eq!(
+            format!("{}\n", record.console_message(args.as_deref())),
+            String::from_utf8(node.stdout).unwrap()
+        );
+    }
+}
+
+#[test]
 fn constructed_error_kinds_keep_existing_messages_without_invented_errno() {
     for (kind, code, description) in [
         (io::ErrorKind::NotFound, "ENOENT", "no such file or directory"),
