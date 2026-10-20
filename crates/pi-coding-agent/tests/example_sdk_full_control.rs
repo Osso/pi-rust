@@ -7,6 +7,83 @@ mod support;
 use serde_json::json;
 
 #[tokio::test]
+async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
+    if std::env::var_os("SDK_DEFAULTS_CHILD").is_none() {
+        for key in [Some("private-env-key"), Some(""), None] {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "defaults_use_private_runtime_paths_sonnet_and_environment_key",
+                    "--nocapture",
+                ])
+                .env("SDK_DEFAULTS_CHILD", "1")
+                .env_remove("ANTHROPIC_API_KEY");
+            match key {
+                Some(key) => {
+                    command.env("MY_ANTHROPIC_KEY", key);
+                }
+                None => {
+                    command.env_remove("MY_ANTHROPIC_KEY");
+                }
+            }
+            let result = command.output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+        return;
+    }
+    let mut fixture = support::fixture().await;
+    fixture.options.model = None;
+    fixture.options.model_runtime = None;
+    let agent = fixture.home.path().join("agent");
+    let auth = r#"{"fixture-path":{"type":"api_key","key":"private-path-key"}}"#;
+    std::fs::write(agent.join("auth.json"), auth).unwrap();
+    std::fs::write(agent.join("models.json"), r#"{"providers":{"fixture-path":{"baseUrl":"https://unused.invalid","api":"openai-completions","models":[{"id":"private-model","name":"Private model"}]}}}"#).unwrap();
+    let key = example::read_api_key();
+    let options = example::configure_options(fixture.options, key.as_deref())
+        .await
+        .unwrap();
+    assert_eq!(options.agent_dir.as_deref(), agent.to_str());
+    let model = options.model.unwrap();
+    assert_eq!(
+        (model.provider.as_str(), model.id.as_str()),
+        ("anthropic", "claude-sonnet-4-5")
+    );
+    let runtime = options.model_runtime.unwrap();
+    assert_eq!(
+        runtime.get_model("fixture-path", "private-model").unwrap().name,
+        "Private model"
+    );
+    assert!(runtime.has_configured_auth("fixture-path"));
+    let expected_key = key.filter(|key| !key.is_empty());
+    assert_eq!(runtime.has_configured_auth("anthropic"), expected_key.is_some());
+    if let Some(expected_key) = expected_key {
+        assert_eq!(
+            runtime
+                .get_auth("anthropic", Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+                .auth
+                .api_key
+                .as_deref(),
+            Some(expected_key.as_str())
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(agent.join("auth.json")).unwrap(),
+        auth,
+        "environment key is never persisted"
+    );
+    assert!(fixture.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn replaces_discovery_settings_prompt_and_tools() {
     let fixture = support::fixture().await;
     let cwd = fixture.options.cwd.clone().unwrap();
