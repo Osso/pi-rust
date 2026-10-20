@@ -77,7 +77,11 @@ pub struct LocalReadOperations;
 
 impl ReadOperations for LocalReadOperations {
     fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>> {
-        Box::pin(async move { tokio::fs::read(absolute_path).await })
+        Box::pin(async move {
+            tokio::fs::read(absolute_path)
+                .await
+                .map_err(|error| io::Error::other(node_fs_error(&error, "open", absolute_path)))
+        })
     }
 
     fn supports_read_range(&self) -> bool {
@@ -87,12 +91,19 @@ impl ReadOperations for LocalReadOperations {
     fn read_range<'a>(&'a self, absolute_path: &'a str, start: u64, end: u64) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async move {
             let length = end.saturating_sub(start);
-            let mut file = tokio::fs::File::open(absolute_path).await?;
-            file.seek(io::SeekFrom::Start(start)).await?;
+            let mut file = tokio::fs::File::open(absolute_path)
+                .await
+                .map_err(|error| io::Error::other(node_fs_error(&error, "read", absolute_path)))?;
+            file.seek(io::SeekFrom::Start(start))
+                .await
+                .map_err(|error| io::Error::other(node_fs_error(&error, "read", absolute_path)))?;
             let mut buffer = vec![0; length as usize];
             let mut bytes_read = 0;
             while bytes_read < buffer.len() {
-                let read = file.read(&mut buffer[bytes_read..]).await?;
+                let read = file
+                    .read(&mut buffer[bytes_read..])
+                    .await
+                    .map_err(|error| io::Error::other(node_fs_error(&error, "read", absolute_path)))?;
                 if read == 0 {
                     break;
                 }
@@ -108,12 +119,15 @@ impl ReadOperations for LocalReadOperations {
             tokio::fs::metadata(absolute_path)
                 .await
                 .map(|metadata| Some(metadata.len()))
+                .map_err(|error| io::Error::other(node_fs_error(&error, "stat", absolute_path)))
         })
     }
 
     fn access<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
-            tokio::fs::metadata(absolute_path).await?;
+            tokio::fs::metadata(absolute_path)
+                .await
+                .map_err(|error| io::Error::other(node_fs_error(&error, "access", absolute_path)))?;
             Ok(())
         })
     }
@@ -122,6 +136,7 @@ impl ReadOperations for LocalReadOperations {
         Box::pin(async move {
             detect_supported_image_mime_type_from_file(std::path::Path::new(absolute_path))
                 .map(|mime_type| mime_type.map(|value| value.to_owned()))
+                .map_err(|error| io::Error::other(node_fs_error(&error, "open", absolute_path)))
         })
     }
 }
@@ -229,13 +244,13 @@ async fn execute_read(
     operations
         .access(&absolute_path)
         .await
-        .map_err(|error| ToolError::new(node_fs_error(&error, "access", &absolute_path)))?;
+        .map_err(|error| ToolError::new(error.to_string()))?;
     check_aborted(signal.as_ref())?;
 
     let mime_type = operations
         .detect_image_mime_type(&absolute_path)
         .await
-        .map_err(|error| ToolError::new(node_fs_error(&error, "open", &absolute_path)))?;
+        .map_err(|error| ToolError::new(error.to_string()))?;
 
     let (content, details) = match mime_type {
         Some(mime_type) => read_image(operations.as_ref(), &absolute_path, &mime_type, auto_resize_images).await?,
@@ -290,7 +305,7 @@ async fn read_image(
     let buffer = operations
         .read_file(absolute_path)
         .await
-        .map_err(|error| ToolError::new(node_fs_error(&error, "open", absolute_path)))?;
+        .map_err(|error| ToolError::new(error.to_string()))?;
     let processed = process_image(
         &buffer,
         mime_type,
@@ -332,18 +347,18 @@ async fn read_text(
     let file_stat = operations
         .stat(absolute_path)
         .await
-        .map_err(|error| ToolError::new(node_fs_error(&error, "stat", absolute_path)))?;
+        .map_err(|error| ToolError::new(error.to_string()))?;
     let range_limited = can_use_head_range_read(file_stat, operations, input.offset, input.limit);
     let buffer = if range_limited {
         operations
             .read_range(absolute_path, 0, DEFAULT_MAX_BYTES as u64)
             .await
-            .map_err(|error| ToolError::new(node_fs_error(&error, "read", absolute_path)))?
+            .map_err(|error| ToolError::new(error.to_string()))?
     } else {
         operations
             .read_file(absolute_path)
             .await
-            .map_err(|error| ToolError::new(node_fs_error(&error, "open", absolute_path)))?
+            .map_err(|error| ToolError::new(error.to_string()))?
     };
     let text_content = String::from_utf8_lossy(&buffer);
     let all_lines = text_content.split('\n').collect::<Vec<_>>();

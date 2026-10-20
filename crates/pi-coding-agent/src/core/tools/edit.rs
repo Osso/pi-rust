@@ -59,11 +59,19 @@ pub struct LocalEditOperations;
 
 impl EditOperations for LocalEditOperations {
     fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>> {
-        Box::pin(async move { tokio::fs::read(absolute_path).await })
+        Box::pin(async move {
+            tokio::fs::read(absolute_path)
+                .await
+                .map_err(|error| io::Error::other(super::node_fs::node_fs_error(&error, "open", absolute_path)))
+        })
     }
 
     fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, io::Result<()>> {
-        Box::pin(async move { tokio::fs::write(absolute_path, content).await })
+        Box::pin(async move {
+            tokio::fs::write(absolute_path, content)
+                .await
+                .map_err(|error| io::Error::other(super::node_fs::node_fs_error(&error, "open", absolute_path)))
+        })
     }
 
     fn access<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<()>> {
@@ -257,7 +265,7 @@ async fn execute_edit(
         let buffer = operations
             .read_file(&absolute_path)
             .await
-            .map_err(|error| ToolError::new(super::node_fs::node_fs_error(&error, "open", &absolute_path)))?;
+            .map_err(|error| ToolError::new(error.to_string()))?;
         check_aborted(signal.as_ref())?;
 
         let raw_content = String::from_utf8_lossy(&buffer);
@@ -276,7 +284,7 @@ async fn execute_edit(
         operations
             .write_file(&absolute_path, &final_content)
             .await
-            .map_err(|error| ToolError::new(super::node_fs::node_fs_error(&error, "open", &absolute_path)))?;
+            .map_err(|error| ToolError::new(error.to_string()))?;
         check_aborted(signal.as_ref())?;
 
         let diff_result = generate_diff_string(&applied.base_content, &applied.new_content, DIFF_CONTEXT_LINES);
