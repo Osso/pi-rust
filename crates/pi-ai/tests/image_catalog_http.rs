@@ -64,16 +64,34 @@ async fn native_closed_loopback_failure_matches_pinned_generator_error_header() 
     let proof = std::path::Path::new("/tmp/pi-rust-image-generator-proof");
     std::fs::create_dir_all(proof).unwrap();
     std::fs::write(
-        proof.join("closed-loopback-source.json"),
+        proof.join("closed-loopback-native-cause-source.json"),
         serde_json::to_string_pretty(&expected).unwrap(),
     )
     .unwrap();
-    std::fs::write(proof.join("closed-loopback-native-stderr.txt"), &native_stderr).unwrap();
+    std::fs::write(proof.join("closed-loopback-native-cause-stderr.txt"), &native_stderr).unwrap();
     std::fs::remove_dir_all(root).unwrap();
-    assert_eq!(
-        native_stderr.lines().next(),
-        expected["stderr"].as_str().unwrap().lines().next()
-    );
+    // Explicit native-cause approval: compare top-level headers exactly, not native cause text
+    // against Node's ECONNREFUSED metadata. Both complete diagnostics remain in separate files.
+    assert_eq!(error.name, "TypeError");
+    assert_eq!(error.message, "fetch failed");
+    assert_eq!(String::from_utf8(stdout).unwrap(), expected["stdout"].as_str().unwrap());
+    let native_headers: Vec<_> = native_stderr
+        .lines()
+        .filter(|line| !line.starts_with(' ') && *line != "}")
+        .collect();
+    let source_headers: Vec<_> = expected["stderr"]
+        .as_str()
+        .unwrap()
+        .lines()
+        .filter(|line| !line.starts_with(' ') && *line != "}")
+        .collect();
+    assert_eq!(native_headers, source_headers);
+    assert_eq!(native_stderr.matches("[cause]:").count(), 2);
+    assert!(native_stderr.contains("127.0.0.1"));
+    assert_eq!(expected["events"].as_array().unwrap().len(), 3);
+    assert_eq!(expected["events"][0]["stream"], "stdout");
+    assert_eq!(expected["events"][1]["stream"], "stderr");
+    assert_eq!(expected["events"][2]["stream"], "stderr");
 }
 
 #[tokio::test]
