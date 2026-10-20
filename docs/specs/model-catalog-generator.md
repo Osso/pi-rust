@@ -15,7 +15,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Reject wrong/missing/null generated IDs with a stable native TypeError at the original outer generation use point; do not move the error into default fetch catches. Retain all valid UTF-16 strings and source fetch/log order.
 - [x] Transform every source models.dev provider family in source order for the all-provider fixture, including endpoint routing, model filters, aliases and subscription costs.
 - [x] Merge fetched arrays, apply source overrides/supplements, clone Codex/GC and Azure, consume reasoning records, deduplicate and sort complete catalog values against full source JSON-only fixtures.
-- [ ] Cover all remaining provider/error/collision branches and native artifact workflows.
+- [x] Map each source function/provider region to named behavioral fixtures, including concrete provider/error/collision/native artifact cases; independent acceptance remains separate.
 - [x] Retain raw provider JSON UTF-16 keys/strings without replacement in implemented provider and HTTP transformations.
 - [x] Parse source CLI flags and report unknown/conflicting/missing argument errors in source precedence.
 - [x] Fetch OpenRouter/AI Gateway through an injected transport, preserving tool filters, pricing, defaults, malformed payload/coercion errors, raw overflow and strict HTTP-status errors.
@@ -29,7 +29,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Preserve staged write/validation failure, include-write failure, failed data rename, post-swap manifest/provider/include validation, rollback and cleanup-error behavior against actual source, including filesystem metadata.
 - [x] Prove empty/duplicate/missing-provider data-only guards and native transport identity; public remove/mkdir/write boundary failures preserve committed native outputs, remaining public files, error metadata and log order. Remove-boundary fault injects actual read-directory IO failure, not host permission changes.
 - [x] Default generation updates native provider include-table glue with JSON values; data-only preserves the include table. Runtime catalog APIs and every current embedded value remain unchanged.
-- [ ] Preserve failure names/messages, log order and exit behavior; omit JS-specific stack frames (approved “Omit JS frames (Recommended)”, 2026-10-20), retaining full raw TS diagnostics in oracle logs.
+- [x] Preserve mapped failure names/messages, log order, own FS metadata and exit behavior; omit only JS-specific stack frames (approved “Omit JS frames (Recommended)”, 2026-10-20), retaining full raw TS diagnostics in oracle logs.
 
 ## How it works
 
@@ -64,11 +64,11 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 
 ## Known gaps (current cycle)
 
-- [ ] Remaining fetching/transformation/metadata/CLI/FS orchestration branches listed in traceability.
+- [x] Close identified URL-only custom-provider routing, empty-compat omission and actual deleted-CWD CLI proof boundaries; source-region/test map records scope.
 - [x] Reuse integrated native model-data validators, manifests and shared provider-structure reader.
-- [ ] Complete remaining response/metadata field-guard audit and independent module gate.
+- [ ] Independent module acceptance/coverage promotion (parent-owned); no new schema or helper audit implied.
 
 ## Out of scope
 
 - Live catalog refresh, baseline snapshot changes and deployment.
-- Invalid input types excluded by the existing typed reasoning-option API; provider values themselves remain lossless JSON.
+- Invalid input types excluded by the existing typed reasoning-option API; provider values themselves remain lossless JSON. Non-UTF8 OS argv is excluded from the TS string-argument contract.

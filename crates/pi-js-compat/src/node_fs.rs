@@ -20,8 +20,9 @@ pub struct NodeFsError {
 /// Construct a Node filesystem error without touching the filesystem.
 ///
 /// Pass the failing Node syscall, e.g. `open`, `read`, `mkdir`, or `scandir`.
-/// Raw EISDIR from `read` has no path; ErrorKind-only errors retain legacy text
-/// and have no invented errno. Negative errno parity is bounded to Unix.
+/// Raw EISDIR from `read` and `uv_cwd` errors have no path. Deleted-CWD ENOENT
+/// retains Node's contextual message. ErrorKind-only errors have no invented
+/// errno. Negative errno parity is bounded to Unix.
 pub fn node_fs_error_record(error: &io::Error, syscall: &str, path: &str) -> NodeFsError {
     let code = node_error_code(error);
     let description = match error.kind() {
@@ -35,8 +36,12 @@ pub fn node_fs_error_record(error: &io::Error, syscall: &str, path: &str) -> Nod
         _ if code == "ELOOP" => "too many symbolic links encountered".to_owned(),
         _ => error.to_string(),
     };
-    let omit_path = syscall == "read" && code == "EISDIR" && error.raw_os_error().is_some();
-    let message = if omit_path {
+    let omit_path = syscall == "uv_cwd" || (syscall == "read" && code == "EISDIR" && error.raw_os_error().is_some());
+    let message = if syscall == "uv_cwd" && code == "ENOENT" {
+        format!(
+            "{code}: process.cwd failed with error {description}, the current working directory was likely removed without changing the working directory, uv_cwd"
+        )
+    } else if omit_path {
         format!("{code}: {description}, {syscall}")
     } else {
         format!("{code}: {description}, {syscall} '{path}'")

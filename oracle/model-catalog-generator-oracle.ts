@@ -117,6 +117,7 @@ async function main(): Promise<void> {
 		const requests: string[] = [];
 		const diagnostics: string[] = [];
 		let root: string | undefined;
+		let previousCwd: string | undefined;
 		let cli = false;
 		try {
 			const request = JSON.parse(line);
@@ -301,6 +302,12 @@ async function main(): Promise<void> {
 					};
 				},
 			});
+			if (request.deletedCwd) {
+				previousCwd = process.cwd();
+				const cwd = fs.mkdtempSync(join(tmpdir(), "pi-generator-deleted-cwd-"));
+				process.chdir(cwd);
+				fs.rmdirSync(cwd);
+			}
 			vm.runInContext(cli ? cliOutput : output, context, {
 				filename: sourcePath,
 			});
@@ -353,6 +360,7 @@ async function main(): Promise<void> {
 				exitCode: cli ? 1 : undefined,
 			});
 		} finally {
+			if (previousCwd) process.chdir(previousCwd);
 			if (root) fs.rmSync(root, { recursive: true, force: true });
 		}
 	}

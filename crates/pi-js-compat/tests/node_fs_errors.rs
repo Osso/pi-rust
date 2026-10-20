@@ -121,3 +121,18 @@ fn errno_names_and_unproven_description_behavior_remain_unchanged() {
         format!("ETXTBSY: {error}, open 'busy'")
     );
 }
+
+#[test]
+fn removed_current_directory_error_has_node_message_and_pathless_own_fields() {
+    let error = io::Error::from_raw_os_error(2);
+    let record = node_fs_error_record(&error, "uv_cwd", "");
+    assert_eq!(record.name, "Error");
+    assert_eq!(record.errno, Some(-2));
+    assert_eq!(record.code, "ENOENT");
+    assert_eq!(record.syscall, "uv_cwd");
+    assert_eq!(record.path, None);
+    assert_eq!(
+        record.message,
+        "ENOENT: process.cwd failed with error no such file or directory, the current working directory was likely removed without changing the working directory, uv_cwd"
+    );
+}

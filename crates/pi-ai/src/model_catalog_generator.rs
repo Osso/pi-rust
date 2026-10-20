@@ -372,7 +372,17 @@ pub fn read_generator_options(args: &[String]) -> Result<GeneratorOptions, Gener
                     path
                 } else {
                     std::env::current_dir()
-                        .map_err(|error| GeneratorError::error(&error.to_string()))?
+                        .map_err(|error| {
+                            let record = pi_js_compat::node_fs::node_fs_error_record(&error, "uv_cwd", "");
+                            GeneratorError {
+                                name: record.name.to_owned(),
+                                message: JsString::from(record.message.as_str()),
+                                details: Some(GeneratorErrorDetails::FileSystem {
+                                    record,
+                                    destination: None,
+                                }),
+                            }
+                        })?
                         .join(path)
                 };
                 let mut resolved = std::path::PathBuf::new();
