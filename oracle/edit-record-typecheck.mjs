@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { buildSourceTsconfig } from "./source-tsconfig.mjs";
+import { runCompiler } from "./typecheck-report.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
@@ -20,7 +21,6 @@ const highlightDeclarationPath = join(
 const tsconfigPath = join(sourceWorktree, "tsconfig.json");
 const typescriptPath = join(sourceWorktree, "node_modules/typescript/lib/typescript.js");
 const tsgoPath = join(sourceWorktree, "node_modules/.bin/tsgo");
-const typeRoots = join(sourceWorktree, "node_modules/@types");
 const require = createRequire(import.meta.url);
 const ts = require(typescriptPath);
 
@@ -352,15 +352,8 @@ function typecheckArguments(fixturePath) {
 }
 
 function runValidFixture(fixturePath) {
-	const result = spawnSync(tsgoPath, typecheckArguments(fixturePath), { cwd: repoRoot, encoding: "utf8" });
-	if (result.error !== undefined) throw new Error(`tsgo failed to start: ${result.error.message}`);
-	const report = spawnSync(process.execPath, [join(repoRoot, "oracle/typecheck-report.mjs"), repoRoot], {
-		input: `${result.stdout ?? ""}${result.stderr ?? ""}`,
-		encoding: "utf8",
-	});
-	if (report.stdout !== "") process.stdout.write(report.stdout);
-	if (report.stderr !== "") process.stderr.write(report.stderr);
-	if (report.status !== 0) throw new Error(`valid record fixture failed with status ${report.status}`);
+	const status = runCompiler(tsgoPath, typecheckArguments(fixturePath), repoRoot);
+	if (status !== 0) throw new Error(`valid record fixture failed with status ${status}`);
 }
 
 function createProgramForFixture(source, options, prefix) {

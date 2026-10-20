@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { buildSourceTsconfig } from "./source-tsconfig.mjs";
+import { runCompiler } from "./typecheck-report.mjs";
 
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -18,7 +19,6 @@ const definingTypesPath = join(sourceWorktree, "packages/agent/src/types.ts");
 const tsconfigPath = join(sourceWorktree, "tsconfig.json");
 const tsgoPath = join(sourceWorktree, "node_modules/.bin/tsgo");
 const typescriptPath = join(sourceWorktree, "node_modules/typescript/lib/typescript.js");
-const typeRoots = join(sourceWorktree, "node_modules/@types");
 const require = createRequire(import.meta.url);
 const ts = require(typescriptPath);
 
@@ -709,20 +709,7 @@ function runTypecheck(fixturePath) {
 		`${JSON.stringify(buildSourceTsconfig(sourceWorktree, [fixturePath]), null, 2)}\n`,
 		"utf8",
 	);
-	const result = spawnSync(tsgoPath, ["-p", configPath], {
-		cwd: repoRoot,
-		encoding: "utf8",
-	});
-	if (result.error !== undefined) {
-		throw new Error(`pinned tsgo failed to start: ${result.error.message}`);
-	}
-	const report = spawnSync(process.execPath, [join(repoRoot, "oracle/typecheck-report.mjs"), repoRoot], {
-		input: `${result.stdout ?? ""}${result.stderr ?? ""}`,
-		encoding: "utf8",
-	});
-	if (report.stdout !== "") process.stdout.write(report.stdout);
-	if (report.stderr !== "") process.stderr.write(report.stderr);
-	return report.status ?? 1;
+	return runCompiler(tsgoPath, ["-p", configPath], repoRoot);
 }
 
 function typecheckFixture() {

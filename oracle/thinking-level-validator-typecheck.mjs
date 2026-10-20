@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { buildSourceTsconfig } from "./source-tsconfig.mjs";
+import { runCompiler } from "./typecheck-report.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
@@ -17,7 +18,6 @@ const highlightDeclarationPath = join(
 const tsgoPath = join(sourceWorktree, "node_modules/.bin/tsgo");
 const tsxPath = join(sourceWorktree, "node_modules/.bin/tsx");
 const tsconfigPath = join(sourceWorktree, "tsconfig.json");
-const typeRoots = join(sourceWorktree, "node_modules/@types");
 
 const fixtureSource = `
 import { isValidThinkingLevel } from ${JSON.stringify(argsModulePath)};
@@ -101,8 +101,8 @@ function typecheckArguments(fixturePath) {
   return ["-p", configPath];
 }
 
-function runProcess(command, args, input) {
-  const result = spawnSync(command, args, { cwd: repoRoot, encoding: "utf8", input });
+function runProcess(command, args) {
+  const result = spawnSync(command, args, { cwd: repoRoot, encoding: "utf8" });
   if (result.stdout !== "") process.stdout.write(result.stdout);
   if (result.stderr !== "") process.stderr.write(result.stderr);
   if (result.error !== undefined) throw new Error(`${command} failed to start: ${result.error.message}`);
@@ -116,10 +116,7 @@ function main() {
   const fixturePath = join(directory, "thinking-level-validator.ts");
   writeFileSync(fixturePath, fixtureSource, "utf8");
   try {
-    const typecheckStatus = runProcess(process.execPath, [join(repoRoot, "oracle/typecheck-report.mjs"), repoRoot], (() => {
-      const raw = spawnSync(tsgoPath, typecheckArguments(fixturePath), { cwd: repoRoot, encoding: "utf8" });
-      return `${raw.stdout ?? ""}${raw.stderr ?? ""}`;
-    })());
+    const typecheckStatus = runCompiler(tsgoPath, typecheckArguments(fixturePath), repoRoot);
     if (typecheckStatus !== 0) return typecheckStatus;
     return runProcess(tsxPath, ["--tsconfig", tsconfigPath, fixturePath]);
   } finally {
