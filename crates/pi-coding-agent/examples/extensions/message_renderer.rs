@@ -86,7 +86,7 @@ pub fn message_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
                         custom_type: "status-update".into(),
                         content: CustomMessageContent::Text(content),
                         display: true,
-                        details: Some(json!({"level":level,"timestamp":js_now_millis()})),
+                        details: Some(json!({"level":level,"timestamp":js_now_millis() as i64})),
                     },
                     None,
                 )?;

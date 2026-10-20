@@ -20,7 +20,7 @@ pub fn entry_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 .data
                 .clone()
                 .filter(|data| !data.is_null())
-                .unwrap_or_else(|| json!({"message":"No data","timestamp":js_now_millis()}));
+                .unwrap_or_else(|| json!({"message":"No data","timestamp":js_now_millis() as i64}));
             let theme = theme.clone();
             let bg_theme = theme.clone();
             let mut card = BoxComponent::new(
@@ -54,7 +54,7 @@ pub fn entry_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         let api = api.clone();
         Box::pin(async move {
             let message=js_trim(&args);
-            api.append_entry("status-card",Some(json!({"message":if message.is_empty() {"Status card"} else {message},"timestamp":js_now_millis()})))?;
+            api.append_entry("status-card",Some(json!({"message":if message.is_empty() {"Status card"} else {message},"timestamp":js_now_millis() as i64})))?;
             Ok(())
         })
     })).map_err(HandlerError::new)
