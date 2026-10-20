@@ -61,7 +61,7 @@ Answer: **“Allow native causes (Recommended)”**. Only native cause diagnosti
 - [x] Required-name workflows exercise missing/null/bool/number/array/object names in both modes, name-before-pricing rejection, and unread skipped/duplicate name/pricing fields.
 - [x] Actual isolated closed-loopback and truncated-body transport exercise both strict modes: `TypeError: fetch failed` / `TypeError: terminated`, retained native causes, source-exact event order/status/stdout and catalog/write boundary.
 - [x] Shared ICU4C UTF-16 collation passes 256 Node pairs; shared Node filesystem records pass both generator write-failure cases.
-- [ ] Parent owns integrated verification; no check, clippy, readability, broad suites, final gate, merge, deployment, or live refresh is part of this development slice.
+- [ ] Integrated at `abc0058`; independent protected verification remains pending. Development slice ran no check/Clippy/readability or broad gate; no deployment or live refresh. [Current proof](../porting/batch-a-proof.md).
 
 ## Out of scope
 

@@ -28,7 +28,7 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 
 ## Known gaps (current cycle)
 
-- [ ] Parent integration and independent verification pending; coverage remains partial.
+- [ ] Integrated at `3961631`; independent protected examples verification remains pending. Coverage remains partial; [current proof](../porting/batch-a-proof.md).
 
 ## Out of scope
 
