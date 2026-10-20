@@ -59,4 +59,11 @@ Logs and command/revision scopes: `/tmp/pi-rust-ext-examples-k/ledger.md`.
 `03-tic-tac-toe-red.log`: two behavioral failures with unregistered game APIs.
 `05-tic-tac-toe-green-attempt.log`: two tests pass.
 `06-tic-tac-toe-expanded.log`: expanded tests pass, including prompt and tree paths.
-Mutation evidence and final committed-revision proof are recorded after commit.
+Implementation commit: `3438b26`.
+`08-tic-tac-toe-mutation.log`: temporarily resetting the agent cursor row to 1
+instead of 0 fails the scripted game differential (one failed, one passed).
+Mutation reverted; `git status` confirmed the implementation byte-identical to
+`3438b26`. `09-tic-tac-toe-restored-green.log`: the exact targeted Cargo command
+passes both tests on that committed source (11.72 seconds). No later production
+or test changes. `cargo fmt --all --check` passed before implementation commit;
+no clippy, cargo check, broad suites, merge, push, or delegated work performed.
