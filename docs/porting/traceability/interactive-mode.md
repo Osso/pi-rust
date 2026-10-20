@@ -166,7 +166,13 @@ Proof: `interactive_crash::{extension_thread_panic_restores_the_terminal,
 blocking_pool_panic_restores_the_terminal,
 tokio_worker_panic_restores_the_fullscreen_terminal}` drive real PTYs, checking
 exit 1, original termios, banner/error and restoration before the banner.
-The trigger exists only in an ignored integration-test child; production has
+`worker_restore_matches_normal_ui_stop_bytes` additionally compares complete
+normal-stop and worker-restore byte streams in both renderer modes, with
+progress and color notifications enabled and modifyOtherKeys negotiated.
+`dead_terminal_error_on_a_worker_exits_129_without_restoring` proves the
+process-wide emergency branch. `uncaught` tests prove cross-thread dispatch
+and handler removal from another thread.
+The triggers exist only in ignored integration-test children; production has
 no test environment switch. Existing UI-thread, dead-terminal and SIGHUP
 failure tests remain required. OS/process behavior is tested at that boundary,
 not through a deterministic TypeScript oracle.
@@ -180,9 +186,14 @@ actions, breaking when shutdown is requested, then `shutdown`.
 
 ## Gaps (explicit)
 
-None for this module. The fullscreen dock and transcript-tail layout are placed
-by the layout root in the source as well; the fullscreen renderer intentionally
-has no separate render-region callbacks.
+No remaining crash-handler gap. The coverage row stays `partial`: custom-editor
+initial-history replay differs from `populateHistory` (below), and whole-mode
+TypeScript differential coverage remains unavailable. This slice does not
+approve or resolve those pre-existing discrepancies.
+
+The fullscreen dock and transcript-tail layout are placed by the layout root
+in the source as well; the fullscreen renderer intentionally has no separate
+render-region callbacks.
 
 ## Discrepancies
 
