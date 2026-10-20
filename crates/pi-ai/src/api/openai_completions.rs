@@ -932,6 +932,22 @@ fn nullish_effort(model: &Model, effort: &str) -> String {
         .unwrap_or_else(|| effort.to_owned())
 }
 
+fn insert_nullish_reasoning_effort(
+    params: &mut Map<String, Value>,
+    model: &Model,
+    effort: Option<&str>,
+    supports_reasoning_effort: bool,
+) {
+    if let Some(effort) = effort
+        && supports_reasoning_effort
+    {
+        params.insert(
+            "reasoning_effort".to_owned(),
+            Value::String(nullish_effort(model, effort)),
+        );
+    }
+}
+
 /// `map[level]` where a missing key falls back to the requested effort and an
 /// explicit `null` stays `None`.
 fn strict_effort(model: &Model, effort: &str) -> Option<String> {
@@ -1094,14 +1110,7 @@ pub fn build_params(
         }
     } else if compat.thinking_format == ThinkingFormat::Qwen && model.reasoning {
         params.insert("enable_thinking".to_owned(), Value::Bool(effort.is_some()));
-        if let Some(effort) = effort
-            && compat.supports_reasoning_effort
-        {
-            params.insert(
-                "reasoning_effort".to_owned(),
-                Value::String(nullish_effort(model, effort)),
-            );
-        }
+        insert_nullish_reasoning_effort(&mut params, model, effort, compat.supports_reasoning_effort);
     } else if compat.thinking_format == ThinkingFormat::QwenChatTemplate && model.reasoning {
         params.insert(
             "chat_template_kwargs".to_owned(),
@@ -1139,14 +1148,7 @@ pub fn build_params(
                 json_object(vec![("type", Value::String("disabled".to_owned()))]),
             );
         }
-        if let Some(effort) = effort
-            && compat.supports_reasoning_effort
-        {
-            params.insert(
-                "reasoning_effort".to_owned(),
-                Value::String(nullish_effort(model, effort)),
-            );
-        }
+        insert_nullish_reasoning_effort(&mut params, model, effort, compat.supports_reasoning_effort);
     } else if compat.thinking_format == ThinkingFormat::Openrouter && model.reasoning {
         if let Some(effort) = effort {
             params.insert(
@@ -1178,14 +1180,7 @@ pub fn build_params(
             "reasoning".to_owned(),
             json_object(vec![("enabled", Value::Bool(effort.is_some()))]),
         );
-        if let Some(effort) = effort
-            && compat.supports_reasoning_effort
-        {
-            params.insert(
-                "reasoning_effort".to_owned(),
-                Value::String(nullish_effort(model, effort)),
-            );
-        }
+        insert_nullish_reasoning_effort(&mut params, model, effort, compat.supports_reasoning_effort);
     } else if compat.thinking_format == ThinkingFormat::StringThinking && model.reasoning {
         if let Some(effort) = effort {
             params.insert("thinking".to_owned(), Value::String(nullish_effort(model, effort)));
