@@ -83,3 +83,5 @@ Raw provider values use shared `JsValue`/`JsString`, preserving UTF-16 code unit
 ## Shared native HTTP checkpoint
 
 `62-native-http-red.log` establishes missing native transport identity; `63-native-http.log` GREEN compares actual refused TCP connection and premature response-body EOF with Node native fetch (full diagnostics retained). `fetch_native` consumes shared `default_fetch`, `read_body_text` and structured CallbackError name/message/cause; the binary no longer defines local transport mapping. Both strict/default generator catches preserve names/messages and sanitized native causes. Non-success status/body-read ordering still requires focused proof.
+
+`65-native-status-red.log` reproduces wrong native `terminated` instead of source 503 Error when the error body is truncated. `66-native-status.log` GREEN2: native helper returns non-success status without reading its body, preserving actual original generator fetch status/log/error order; send/body identity regression remains GREEN. Oracle permits only explicitly supplied HTTP loopback targets for this actual-network fixture.

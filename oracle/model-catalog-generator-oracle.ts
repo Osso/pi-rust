@@ -270,6 +270,12 @@ async function main(): Promise<void> {
 					const fixture = request.http?.[url];
 					if (!fixture) throw new Error(`Unmocked request: ${url}`);
 					if (fixture.error) throw new Error(fixture.error);
+					if (fixture.nativeUrl) {
+						const target = new URL(fixture.nativeUrl);
+						if (target.hostname !== "127.0.0.1" || target.protocol !== "http:")
+							throw new Error("Native fixture must use HTTP loopback");
+						return fetch(target);
+					}
 					return {
 						ok: (fixture.status ?? 200) >= 200 && (fixture.status ?? 200) < 300,
 						status: fixture.status ?? 200,

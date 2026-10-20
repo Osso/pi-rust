@@ -96,3 +96,60 @@ async fn generator_native_send_and_body_failures_use_shared_identity_and_sanitiz
     assert_native_error(&url, "terminated").await;
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn unsuccessful_status_is_reported_before_a_broken_body_is_read() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        for _ in 0..2 {
+            tokio::time::timeout(Duration::from_secs(4), async {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = vec![];
+                let mut chunk = [0; 1024];
+                while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let count = socket.read(&mut chunk).await.unwrap();
+                    assert_ne!(count, 0);
+                    bytes.extend_from_slice(&chunk[..count]);
+                }
+                socket
+                    .write_all(
+                        b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabc",
+                    )
+                    .await
+                    .unwrap();
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                socket.shutdown().await.unwrap();
+            })
+            .await
+            .unwrap();
+        }
+    });
+    let source_url = url.clone();
+    let source=tokio::task::spawn_blocking(move||{
+        let mut source=oracle::TsOracle::spawn("model-catalog-generator-oracle.ts","packages/ai/scripts/generate-models.ts");
+        source.request(&json!({"operation":"fetchOpenRouterModels","argv":["--strict"],"http":{"https://openrouter.ai/api/v1/models":{"nativeUrl":source_url}}}))
+    }).await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(4), fetch_native(&url))
+        .await
+        .unwrap();
+    let mut fetch = |_: &str| result.clone();
+    let mut generator = Generator::new(
+        GeneratorOptions {
+            strict: true,
+            ..Default::default()
+        },
+        &mut fetch,
+    );
+    let actual = generator.fetch_open_router_models().unwrap_err();
+    assert_eq!(actual.name, source["error"]["name"].as_str().unwrap());
+    assert_eq!(
+        actual.message.to_utf8().unwrap(),
+        source["error"]["message"].as_str().unwrap()
+    );
+    assert_eq!(
+        pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::Array(generator.logs)),
+        source["logs"].to_string()
+    );
+    server.await.unwrap();
+}

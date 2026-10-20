@@ -477,9 +477,14 @@ pub async fn fetch_native(url: &str) -> Result<HttpResponse, GeneratorError> {
         .await
         .map_err(transport_error)?;
     let status = response.status;
-    let body = crate::request::read_body_text(response.body)
-        .await
-        .map_err(transport_error)?;
+    // Source fetchers inspect status before consuming JSON; a broken error body must not mask it.
+    let body = if (200..300).contains(&status) {
+        crate::request::read_body_text(response.body)
+            .await
+            .map_err(transport_error)?
+    } else {
+        String::new()
+    };
     Ok(HttpResponse { status, body })
 }
 fn transport_error(error: crate::request::CallbackError) -> GeneratorError {
