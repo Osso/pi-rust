@@ -14280,6 +14280,7 @@ mod ui_tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn extension_ui_release_opt_in_reaches_real_tui() {
+        assert!(!StaticWidget.wants_key_release());
         tokio::task::LocalSet::new()
             .run_until(async {
                 let (mode, terminal, _, _temp) = build_mode().await;

@@ -5,6 +5,7 @@ async function main(){
  const load=(p:string)=>import(pathToFileURL(resolve(base,p)).href);
  const [{default:factory},loader,runnerModule,events,session,auth,utils]=await Promise.all([import(pathToFileURL(source).href),load('core/extensions/loader.ts'),load('core/extensions/runner.ts'),load('core/event-bus.ts'),load('core/session-manager.ts'),load('core/auth-storage.ts'),load('../test/model-runtime-test-utils.ts')]);
  async function run(request:any){
+  if(request.projectUnits){const projected=String.fromCharCode(...request.projectUnits).toWellFormed();request.commands=[projected];request.env.INTERACTIVE_COMMANDS=projected;}
   const keys=['INTERACTIVE_COMMANDS','INTERACTIVE_EXCLUDE','SHELL'],previous=keys.map(k=>process.env[k]);
   for(const key of keys){if(request.env?.[key]===undefined)delete process.env[key];else process.env[key]=request.env?.[key];}
   try{

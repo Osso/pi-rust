@@ -197,3 +197,18 @@ fn shell_inherits_input_output_error_and_emits_screen_clear() {
     let value: Value = serde_json::from_slice(&std::fs::read(result).unwrap()).unwrap();
     assert_eq!(value[0]["result"]["exitCode"], 3);
 }
+
+#[tokio::test]
+async fn lone_surrogate_projects_to_replacement_at_string_api_boundary() {
+    let projected = String::from_utf16_lossy(&[0xd800]);
+    assert_eq!(projected, "\u{fffd}");
+    let request =
+        json!({"mode":"rpc","env":{"INTERACTIVE_COMMANDS":projected},"commands":[projected],"projectUnits":[0xd800]});
+    let mut ts = oracle::TsOracle::spawn(
+        "example-interactive-shell-oracle.ts",
+        "packages/coding-agent/examples/extensions/interactive-shell.ts",
+    );
+    let expected = ts.request(&request);
+    assert_eq!(expected[0]["result"]["exitCode"], 1);
+    assert_eq!(native(&request).await, expected);
+}

@@ -119,3 +119,33 @@ async fn alien_edges_drop_invasion_shooting_speed_and_pause_quit_match() {
     s["gameOver"] = json!(true);
     saved(s, json!([{"op":"ticks","count":2,"ms":50},{"op":"key","key":"q"}])).await;
 }
+
+#[tokio::test(start_paused = true)]
+async fn speed_bands_column_shooters_caps_and_screen_edges_match() {
+    for count in [0, 5, 10, 20, 21] {
+        let mut s = state();
+        s["aliens"] = json!(
+            (0..count)
+                .map(|i| json!({"x":4+(i%5)*5,"y":2+(i/5)*2,"type":i%3,"alive":true}))
+                .collect::<Vec<_>>()
+        );
+        s["alienMoveCounter"] = json!(17);
+        s["alienShootCounter"] = json!(29);
+        s["player"]["x"] = json!(2);
+        saved(s,json!([{"op":"key","key":"x"},{"op":"key","key":"A"},{"op":"key","key":"f"},{"op":"ticks","count":32,"ms":50},{"op":"key","key":"\x1b[102;1:3u"},{"op":"key","key":"\x1b"}])).await;
+    }
+    let mut s = state();
+    s["player"]["x"] = json!(57);
+    saved(s,json!([{"op":"key","key":"x"},{"op":"key","key":"D"},{"op":"ticks","count":4,"ms":50},{"op":"key","key":"\x1b"}])).await;
+}
+#[tokio::test(start_paused = true)]
+async fn multiple_hits_reproduce_negative_lives_source_error() {
+    let mut s = state();
+    s["player"]["lives"] = json!(1);
+    s["bullets"] = json!([{"x":29,"y":21,"direction":1},{"x":30,"y":21,"direction":1},{"x":31,"y":21,"direction":1}]);
+    saved(
+        s,
+        json!([{"op":"key","key":"x"},{"op":"ticks","count":1,"ms":50},{"op":"key","key":"q"}]),
+    )
+    .await;
+}
