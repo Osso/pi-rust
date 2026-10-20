@@ -201,7 +201,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         .unwrap()
         .borrow_mut()
         .render(80);
-    let actual = json!({"metadata":{"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"executionMode":tool.execution_mode},"result":result,"renders":*ui.renders.lock().unwrap(),"renderCall":render_call,"renderResult":render_result,"fallback":fallback});
+    let actual = json!({"metadata":{"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"executionMode":tool.execution_mode.map(|mode| mode.as_str())},"result":result,"renders":*ui.renders.lock().unwrap(),"renderCall":render_call,"renderResult":render_result,"fallback":fallback});
     let mut oracle = oracle::TsOracle::spawn(
         "example-forms-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
