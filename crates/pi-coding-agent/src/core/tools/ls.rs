@@ -64,6 +64,7 @@ impl LsOperations for LocalLsOperations {
             tokio::fs::metadata(absolute_path)
                 .await
                 .map(|metadata| metadata.is_dir())
+                .map_err(|error| io::Error::other(super::node_fs::node_fs_error(&error, "stat", absolute_path)))
         })
     }
 
@@ -192,7 +193,7 @@ async fn list_with_operations(
     let is_directory = operations
         .is_directory(&dir_path)
         .await
-        .map_err(|error| ToolError::new(super::node_fs::node_fs_error(&error, "stat", &dir_path)))?;
+        .map_err(|error| ToolError::new(error.to_string()))?;
     if !is_directory {
         return Err(ToolError::new(format!("Not a directory: {dir_path}")));
     }

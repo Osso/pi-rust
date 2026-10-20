@@ -19,6 +19,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Classify truncation limits as typed non-negative integers and single-line truncation as Unicode-scalar-safe, approved August 12, 2026.
 - [x] Preserve the shell sanitizer's explicit code-point ranges rather than applying broad Unicode control categories.
 - [x] Preserve exact filesystem/execution error-code literals, names, messages, constructor ordering, optional path, and typed causes over the Rust-representable boundary.
+- [x] Keep Node filesystem formatting inside local read/write/edit/ls operations; preserve custom-operation messages except where pinned tools explicitly transform them. Prove remote read/write/edit/bash through the opt-in SSH example, including real TUI error output and U+FFFD projection; [proof and interface limits](../porting/traceability/core-ssh-errors.md).
 - [x] Map typed-error constructors, public fields, mutation, and error-chain behavior to focused Rust tests; compare normalized constructor and cause values through 14 pinned TypeScript differential fixtures (`13000..=13013`) using the public agent package exports.
 - [x] Preserve distinct compaction and branch-summary code literals, names, messages, constructor ordering, public mutation, and typed causes in focused Rust tests.
 - [x] Compare 10 normalized compaction and branch-summary constructor and cause values through direct pinned TypeScript differential fixtures (`13036..=13045`) using the public agent package exports; the persistent harness-error proof contains 24 typed-error fixtures total.
@@ -137,6 +138,8 @@ This slice does not claim all `Intl` options, arbitrary calendar ranges, or exha
 - `crates/pi-coding-agent/tests/differential_default_thinking_level.rs`
 - `oracle/default-thinking-level-oracle.ts`
 - `oracle/default-thinking-level-typecheck.mjs`
+- `crates/pi-coding-agent/tests/custom_operation_errors.rs`
+- `crates/pi-coding-agent/tests/example_ssh.rs`
 - `crates/pi-coding-agent/tests/skill_block.rs`
 - `crates/pi-coding-agent/tests/differential_skill_block.rs`
 - `oracle/skill-block-typecheck.mjs`

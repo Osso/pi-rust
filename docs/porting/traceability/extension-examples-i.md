@@ -11,7 +11,7 @@ none loads by default. Only JavaScript stack frames may be omitted.
 | `interactive-shell.ts` default / `user_bash` | Not shipped | Missing native terminal lifecycle API; see below |
 | `handoff.ts` default / `/handoff` | `examples/extensions/handoff.rs::handoff_extension` | `example_handoff`: fourteen complete-result scenarios including original-context invalidation, replacement UI, parent tracking and compaction; metadata mutation rejected |
 | `summarize.ts` default / `/summarize` | `examples/extensions/summarize.rs::summarize_extension` | `example_summarize`: ten cases, complete command/tool metadata, notifications, model requests, outputs/errors, custom renders at 32/80 columns, Enter/Esc/irrelevant input |
-| `ssh.ts` default / flag, four tools, three events | Not shipped | Native custom-operation errors cannot propagate arbitrary Error messages; see below |
+| `ssh.ts` default / flag, four tools, three events | `examples/extensions/ssh.rs::ssh_extension` | `example_ssh`: nine complete pinned-TS scenarios, fake-only remote, real tool-error TUI and 11 rejected SSH mutations; [core proof](core-ssh-errors.md) |
 
 ## Git proof
 
@@ -75,22 +75,13 @@ or file-backed sessions. No-auth uses the unrefreshed in-memory auth snapshot;
 configured scenarios refresh native provider auth before invoking the command.
 RED: 12; GREEN: 16; notification mutation rejected: 17, reverted.
 
-## Missing native API: SSH arbitrary-operation errors
+## SSH error boundary: resolved
 
-The prototype passed five flag variants and every entrypoint's successful path
-(log 08), then failed expanded error tests (log 11): native read returned
-`EIO: SSH failed (7): scripted failure\\n, access '<tmp>/fail.txt'`; pinned TS
-returned `SSH failed (7): scripted failure\\n`. Both used the same fake `ssh`
-executable, which recorded argv/stdin and exited 7 with scripted stderr.
-
-`ReadOperations` (`core/tools/read.rs:45–68`), `WriteOperations`
-(`core/tools/write.rs:43–46`) and `EditOperations` (`core/tools/edit.rs:50–53`)
-accept only `io::Result`. Callers unconditionally apply Node filesystem wrapping
-(e.g. `read.rs:230–232,344–346`, `write.rs:161–168`), including arbitrary remote
-errors. Missing API: custom-operation error pass-through, distinct from errno
-filesystem failures. Stop this example; do not add core APIs or brittle string
-unwrapping in the example. Prototype and its tests/oracle removed; failure logs
-retained in the ledger. No SSH port is claimed.
+The historical prototype exposed unconditional Node wrapping of remote operation
+errors. The [core SSH slice](core-ssh-errors.md) moves filesystem formatting into
+local operations, proves custom error propagation and retained local messages,
+and ships the complete opt-in example. No new core API or error-string unwrapping
+was needed. That traceability doc owns current proof and remaining interface limits.
 
 ## Missing native API: interactive shell
 

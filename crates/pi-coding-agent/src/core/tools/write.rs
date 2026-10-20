@@ -51,11 +51,19 @@ pub struct LocalWriteOperations;
 
 impl WriteOperations for LocalWriteOperations {
     fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, io::Result<()>> {
-        Box::pin(async move { tokio::fs::write(absolute_path, content).await })
+        Box::pin(async move {
+            tokio::fs::write(absolute_path, content)
+                .await
+                .map_err(|error| io::Error::other(node_fs_error(&error, "open", absolute_path)))
+        })
     }
 
     fn mkdir<'a>(&'a self, directory: &'a str) -> BoxFuture<'a, io::Result<()>> {
-        Box::pin(async move { tokio::fs::create_dir_all(directory).await })
+        Box::pin(async move {
+            tokio::fs::create_dir_all(directory)
+                .await
+                .map_err(|error| io::Error::other(node_fs_error(&error, "mkdir", directory)))
+        })
     }
 }
 
@@ -160,12 +168,12 @@ async fn execute_write(
         operations
             .mkdir(&directory)
             .await
-            .map_err(|error| ToolError::new(node_fs_error(&error, "mkdir", &directory)))?;
+            .map_err(|error| ToolError::new(error.to_string()))?;
         check_aborted(signal.as_ref())?;
         operations
             .write_file(&absolute_path, &content)
             .await
-            .map_err(|error| ToolError::new(node_fs_error(&error, "open", &absolute_path)))?;
+            .map_err(|error| ToolError::new(error.to_string()))?;
         check_aborted(signal.as_ref())?;
         Ok(AgentToolResult {
             content: vec![TextOrImageContent::Text(TextContent::new(format!(
