@@ -186,6 +186,30 @@ async fn refresh_posts_the_rotated_token_and_reads_the_account_id() {
 }
 
 #[tokio::test]
+async fn base64url_jwt_payloads_fail_like_atob() {
+    let token = (0xa0..0x3000_u32)
+        .filter_map(char::from_u32)
+        .map(|character| access_token(&format!("account{character}")))
+        .find(|token| token.contains('+'))
+        .expect("some account id encodes to a standard-base64 plus")
+        .replace('+', "-");
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::json(
+        200,
+        &json!({"access_token": token, "refresh_token": "new-refresh", "expires_in": 3600}).to_string(),
+    )]);
+    let oauth = OpenAICodexOAuth::with_runtime(runtime(fetch, NOW));
+
+    let error = oauth
+        .refresh(
+            OAuthCredential::new("old-refresh", "old-access", 0.0),
+            CancellationToken::new(),
+        )
+        .await
+        .expect_err("atob rejects base64url '-'");
+    assert_eq!(error.detail(), Some("Failed to extract accountId from token"));
+}
+
+#[tokio::test]
 async fn rejects_unknown_login_methods_and_missing_account_ids() {
     let oauth = OpenAICodexOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), NOW));
     let interaction = TestInteraction::new(vec![PromptAnswer::Text("carrier-pigeon".to_owned())]);

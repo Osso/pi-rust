@@ -292,34 +292,8 @@ pub fn decode_jwt_payload(token: &str) -> Option<Value> {
     if parts.next().is_some() {
         return None;
     }
-    let bytes = base64_decode(payload)?;
+    let bytes = pi_js_compat::base64::atob(payload).ok()?;
     serde_json::from_slice(&bytes).ok()
-}
-
-fn base64_decode(value: &str) -> Option<Vec<u8>> {
-    let mut output = Vec::with_capacity(value.len() * 3 / 4);
-    let mut buffer = 0_u32;
-    let mut bits = 0_u32;
-    for character in value.bytes() {
-        let digit = match character {
-            b'A'..=b'Z' => character - b'A',
-            b'a'..=b'z' => character - b'a' + 26,
-            b'0'..=b'9' => character - b'0' + 52,
-            b'+' | b'-' => 62,
-            b'/' | b'_' => 63,
-            b'=' => break,
-            b' ' | b'\t' | b'\r' | b'\n' => continue,
-            _ => return None,
-        };
-        buffer = (buffer << 6) | u32::from(digit);
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            output.push((buffer >> bits) as u8);
-            buffer &= (1 << bits) - 1;
-        }
-    }
-    Some(output)
 }
 
 /// One HTTP request received by a loopback callback server.

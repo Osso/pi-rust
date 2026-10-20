@@ -93,7 +93,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | done | `crates/pi-ai/src/auth/oauth/anthropic.rs` | manual-code/callback race, localhost:53692 server, JSON exchange, refresh skew; differential manual + callback + refresh. |
 | `ai/src/auth/oauth/kimi-coding.ts` | 310 | 2 | done | `crates/pi-ai/src/auth/oauth/kimi_coding.rs` | RFC 8628 device flow, host overrides, retry/unauthorized refresh; differential device + refresh. |
 | `ai/src/auth/oauth/load.ts` | 68 | 2 | done | `crates/pi-ai/src/auth/oauth/load.rs` | Bundled-loader registry with direct-construction fallback; github-copilot fallback gap. |
-| `ai/src/auth/oauth/openai-codex.ts` | 544 | 2 | done | `crates/pi-ai/src/auth/oauth/openai_codex.rs` | select prompt, device grant, localhost:1455 callback, JWT accountId, form exchange/refresh; differential device + refresh. |
+| `ai/src/auth/oauth/openai-codex.ts` | 544 | 2 | done | `crates/pi-ai/src/auth/oauth/openai_codex.rs` | select prompt, device grant, localhost:1455 callback, JWT accountId decoded with `atob` semantics (base64url rejected), form exchange/refresh; differential device + refresh. |
 | `ai/src/auth/oauth/openrouter.ts` | 311 | 2 | done | `crates/pi-ai/src/auth/oauth/openrouter.rs` | ephemeral PKCE callback, one-shot claim, key exchange, manual code, identity refresh; differential manual + callback. |
 | `ai/src/auth/oauth/xai.ts` | 239 | 2 | done | `crates/pi-ai/src/auth/oauth/xai.rs` | https-only verification URIs, device polling, refresh-token preservation, one-hour default; differential device + refresh. |
 | `ai/src/bedrock-provider.ts` | 6 | 2 | done | `crates/pi-ai/src/bedrock_provider.rs` | `bedrock_provider_module`; provider module test |
