@@ -50,6 +50,14 @@ files into Pi's live extension directories expecting discovery or compilation.
 The behavioral test compiles the actual nested example via `#[path]`; no
 library re-export or built-in registry entry is necessary.
 
+## Built-in tool renderer
+
+`built_in_tool_renderer.rs` exports `built_in_tool_renderer_extension(&ExtensionApi)`.
+Embed via `#[path]` and explicitly register its factory using the pattern above.
+It replaces read/bash/edit/write renderers, delegates execution to original tools,
+and captures process cwd when the factory loads. Edit renders its own shell.
+Nothing loads by default. Differential test: `example_built_in_tool_renderer`.
+
 ## Provider payload logging
 
 `provider_payload.rs` exports `provider_payload_extension(&ExtensionApi)`. Embed it
@@ -68,3 +76,69 @@ register its factory explicitly using the pattern above. It registers
 echo tool at runtime. New permitted tool names become active immediately through
 the host AgentSession's refresh action. Re-registering an inactive existing name
 does not reactivate it. Names allow lowercase letters, numbers, and underscores.
+
+## Batch E: prompts, trust and resources
+
+Embed `prompt_customizer.rs`, `claude_rules.rs`, or `project_trust.rs` via
+`#[path]` and register the corresponding `<name>_extension` factory explicitly
+using the registry pattern above. Nothing loads by default.
+
+`dynamic-resources/index.rs` exports `dynamic_resources_extension(api, base_dir)`.
+Pass the installed directory containing its companion `SKILL.md`, `dynamic.md`,
+and `dynamic.json`; it returns these paths during resource discovery. This
+explicit native directory replaces TS module-relative `import.meta.url`, not
+the session's cwd. Assets are unchanged pinned copies.
+
+`trigger_compact.rs` exports `trigger_compact_extension`; compaction triggers on
+upward crossings of 100,000 known tokens or `/trigger-compact [instructions]`.
+The host supplies its normal compaction callbacks.
+
+`auto_commit_on_exit.rs` exports `auto_commit_on_exit_extension`; it stages **all**
+changes in the session cwd and commits at shutdown. Enable only deliberately.
+`git_checkpoint.rs` exports `git_checkpoint_extension`; it creates ephemeral git
+stash refs at turns and offers restoration before forks. Both use the host's
+`ExtensionApi::exec`; tests run exclusively in private temporary repos with
+global/system git config disabled. Neither example loads by default.
+
+## Modes (batch G)
+
+`minimal_mode.rs` exports `minimal_mode_extension(&ExtensionApi)`; register its
+factory explicitly using the pattern above. It overrides seven built-in tools'
+renderers while executing the built-ins against the invocation context cwd.
+`plan_mode/utils.rs` contains pure planning helpers with lossless UTF-16 text.
+Full plan-mode registration is not shipped: existing native APIs cannot preserve
+the pinned example's mutable custom-entry data aliasing; see
+[`extension-examples-g`](../../../../docs/porting/traceability/extension-examples-g.md).
+
+`preset.rs` exports `preset_extension(&ExtensionApi)`. Register its factory
+explicitly; it reads global/project `presets.json` on session start. No providers
+are called by this example. Config loading failures are printed, matching TS.
+
+## Batch F examples
+
+Embed `with_deps.rs` (`with_deps_extension`) for `parse_duration`, and
+`inline_bash.rs` (`inline_bash_extension`) for prompt expansion. Register each
+factory explicitly as above. Inline commands execute in the loaded cwd; enable
+only for trusted prompts. Native duration parsing matches the example's npm `ms`
+string overload without adding dependencies.
+
+`tool_override.rs` (`tool_override_extension`) registers audited `read` and
+`/read-log`; audit output goes to the configured agent directory. `todo.rs`
+(`todo_extension`) registers `todo` and `/todos`, restoring tool-result state
+from the current session branch. Both require explicit factory registration.
+
+`tools.rs` (`tools_extension`) provides `/tools`, with branch-local persisted
+selection. `truncated_tool.rs` (`truncated_tool_extension`) provides `rg`, storing
+truncated full output in a private temporary directory. Its shell-joined command
+matches the pinned example; enable only for trusted tool inputs.
+
+`custom_compaction.rs` (`custom_compaction_extension`) summarizes all prepared
+messages using registry model `google/gemini-2.5-flash`. `qna.rs`
+(`qna_extension`) extracts questions using the current model into the editor.
+Both can make model requests when explicitly enabled; tests use private faux
+providers only.
+
+Todo parity is **partial**: native session snapshots cannot reproduce the pinned
+example's mutation of stored tool-result details by reference. See
+[batch F traceability](../../../../docs/porting/traceability/extension-examples-f.md)
+for the blocked API and test.
