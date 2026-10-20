@@ -119,6 +119,7 @@ use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor, with_theme};
 use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, watch_with_error_handler};
 use crate::utils::git::parse_git_url;
 use crate::utils::paths::{PathInputOptions, get_cwd_relative_path, relative_path, resolve_path};
+#[cfg(unix)]
 use crate::utils::shell::kill_tracked_detached_children;
 use serde_json::Value;
 
