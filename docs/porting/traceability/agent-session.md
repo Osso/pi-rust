@@ -156,5 +156,5 @@ Name methods follow `c248b0067` ([reference lock](../session-name-source-lock.js
 Both publish `SessionInfoChanged` to subscribers and extensions; neither appends JSONL.
 Proof: `agent_session::session_name_round_trips_through_session_metadata_state`,
 `rpc_mode_session_name` (real RPC process; metadata value and no session-info entry),
-`session_autoname` (explicit-clear gating). The broad pinned AgentSession/RPC differentials
+`session_autoname` (explicit-clear gating and exact extension set/clear event ordering). The broad pinned AgentSession/RPC differentials
 retain name commands/events but capture JSONL before renaming; v15 persistence has separate proof.

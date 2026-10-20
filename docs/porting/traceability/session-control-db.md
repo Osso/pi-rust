@@ -109,3 +109,5 @@ APIs with `writeSessionName`/`readSessionNameState`. No v14 version expectation 
 The writer-lock migration-state race remains enforced in code; no deterministic race harness yet.
 
 Quiescence errors preserve TS Set encounter order (runtime PIDs, then owner identities), not numeric sorting; `name_migration_errors_preserve_owner_pid_encounter_order` reproduces the prior Rust ordering failure with live parent/current process identities.
+
+Existing v15 databases with live lifecycle owners accept name updates without rerunning lifecycle migration or mutating running-agent payloads: `existing_v15_names_update_without_reentering_lifecycle_migrations`. Schema comparison initializes separate TS/Rust databases and compares every schema/PRAGMA field.

@@ -243,11 +243,18 @@ fn concurrent_typescript_and_rust_writers_keep_every_row() {
 #[test]
 fn schema_text_and_pragmas_match_the_typescript_module() {
     let (_directory, db) = temp_db();
-    // Create the schema from the Rust side.
-    let _ = read_session_health(&db, "missing").expect("initialize");
+    let _ = read_session_health(&db, "missing").expect("initialize Rust schema");
+    let (_oracle_directory, oracle_db) = temp_db();
     let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
-    let outputs = oracle_call(&mut oracle, 4, vec![json!({"op": "schema", "path": db.clone()})]);
-    let oracle_schema = &outputs[0];
+    let outputs = oracle_call(
+        &mut oracle,
+        4,
+        vec![
+            json!({"op":"call", "args":["readSessionHealth",[oracle_db.clone(),"missing"]]}),
+            json!({"op":"schema", "path":oracle_db}),
+        ],
+    );
+    let oracle_schema = &outputs[1];
 
     let connection = pi_coding_agent::core::sqlite::create_sqlite_database(&db).expect("open");
     pi_coding_agent::core::sqlite::configure_shared_sqlite_database(&connection, 5000).expect("configure");

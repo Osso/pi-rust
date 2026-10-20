@@ -8,8 +8,8 @@ Session display names follow the authorized [c248b0067 reference](../porting/ses
 - [x] Make metadata authoritative: NULL means never named, empty means explicitly cleared, and generic metadata updates preserve both dedicated names and explicit clears.
 - [x] Ignore historical JSONL names; reset/rehydrate names on switching and do not inherit names into forks or copied imports.
 - [x] Persist CLI/RPC name changes without appending JSONL session-info entries.
-- [ ] Name eligible persisted TUI/RPC sessions in the background after a real-user turn; preserve manual names/clears and cancel pending work on shutdown.
-- [ ] Match TypeScript's SQLite stored names when title truncation splits a surrogate pair; use U+FFFD rather than dropping the sliced code unit.
+- [x] Name eligible persisted TUI/RPC sessions in the background after a real-user turn; preserve manual names/clears and cancel pending work on shutdown.
+- [x] Match TypeScript's SQLite stored names when title truncation splits a surrogate pair; use U+FFFD rather than dropping the sliced code unit.
 
 ## How it works
 
@@ -31,7 +31,7 @@ Session display names follow the authorized [c248b0067 reference](../porting/ses
 
 ## Known gaps (current cycle)
 
-- [ ] Complete targeted proof for the generated-name surrogate-to-SQLite boundary and the background timeout/cancellation cases.
+No outstanding behavior gap in this scope; the approved intermediate-string representation difference is listed below.
 
 ## Out of scope
 
