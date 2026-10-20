@@ -8,6 +8,7 @@ pub mod bun_oauth;
 pub mod compat;
 pub mod env_api_keys;
 pub mod http;
+pub mod image_catalog_generator;
 pub mod image_models;
 pub mod image_models_generated;
 pub mod images;
