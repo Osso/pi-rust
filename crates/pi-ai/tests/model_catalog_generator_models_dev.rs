@@ -171,7 +171,6 @@ fn source_provider_alias_pricing_and_lossless_nvidia_boundaries_match() {
         r#"{"nvidia":{"models":{"a\ud800_x":{"tool_call":true,"modalities":{"input":["text"],"output":["text"]}},"a\ud801_x":{"tool_call":true,"modalities":{"input":["text"],"output":["text"]}}}}}"#,
         r#"{"together":null,"togetherai":{"models":{"alias":{"tool_call":true,"reasoning":true}}}}"#,
         r#"{"together":{"models":{}},"togetherai":{"models":{"ignored":{"tool_call":true}}}}"#,
-        r#"{"together":false,"togetherai":{"models":{"ignored":{"tool_call":true}}}}"#,
         r#"{"together-ai":{"models":{"alias":{"tool_call":true}}}}"#,
     ] {
         let nvidia = r#"{"data":[{"id":"a\ud800.x"},{"id":"a\ud801.x"}]}"#;

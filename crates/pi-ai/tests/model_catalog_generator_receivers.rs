@@ -173,3 +173,45 @@ fn deferred_reasoning_type_failure_remains_outside_fetch_catches() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn malformed_selected_provider_keeps_default_and_strict_fetch_catch_regions() {
+    let body = r#"{"together":false,"togetherai":{"models":{"ignored":{"tool_call":true}}}}"#;
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    let observed =
+        source.request(&json!({"operation":"loadModelsDevData","http":{"https://models.dev/api.json":{"body":body}}}));
+    assert_eq!(observed["json"], "[]");
+    for strict in [false, true] {
+        let mut fetch = |_: &str| {
+            Ok(HttpResponse {
+                status: 200,
+                body: body.to_owned(),
+            })
+        };
+        let mut generator = Generator::new(
+            GeneratorOptions {
+                strict,
+                ..Default::default()
+            },
+            &mut fetch,
+        );
+        let result = generator.load_models_dev_data();
+        if strict {
+            let error = result.unwrap_err();
+            assert_eq!(error.name, "TypeError");
+            assert_eq!(
+                error.message.to_utf8().unwrap(),
+                "models.dev provider must be an object"
+            );
+        } else {
+            assert_eq!(stringify_lossless(&result.unwrap()), "[]");
+        }
+        assert_eq!(
+            stringify_lossless(&pi_js_compat::js_json::JsValue::Array(generator.logs)),
+            r#"[["log","Fetching models from models.dev API..."],["error","Failed to load models.dev data:","TypeError: models.dev provider must be an object"]]"#
+        );
+    }
+}
