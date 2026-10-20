@@ -124,7 +124,19 @@ The reporter caller uses the new generator signature and selected reference,
 retaining every diagnostic assertion. The truncation proof's literal pin now
 checks `typecheckReference.baseCommit`; the shared helper separately checks both
 actual HEADs. Its API/diagnostic/runtime assertions remain unchanged, with a new
-subprocess regression. Targeted GREEN for that correction is pending.
+subprocess regression.
+
+| Command | Exact scope | Result |
+| --- | --- | --- |
+| `node --test --test-name-pattern=truncation oracle/typecheck-reference.test.mjs` | `b36bcb8` | GREEN: 1/1; exact types/aliases, retained negative diagnostics and original-source runtime imports pass |
+| `cargo fmt --check` | Before each implementation/fix commit (`95254cf`, `a50a719`, `b36bcb8`) | PASS, exit 0 each |
+
+The three earlier reference tests at `95254cf` remain valid: subsequent code
+changes touch only the reporter test caller and truncation pin check/new test.
+Reporter regressions pass 9/9 at `a50a719`. Documentation-only follow-ups do not
+invalidate those results. Formatters: installed Biome on new helper/tests and
+updated generator/reporter test; unrelated existing whole-file formatting was
+left unchanged.
 Full `./run-tests.sh oracle` and `./run-tests.sh all` are reserved for the independent
 verifier; no new full-gate, broad Rust, lint, build, deployment or final-acceptance
 pass is claimed by this slice.
