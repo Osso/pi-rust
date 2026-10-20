@@ -12,6 +12,14 @@ fn raw_provider_errors_and_lone_surrogates_are_not_typed_away() {
     );
     for (operation, input) in [
         ("getModelsDevCost", r#"{"tiers":{}}"#),
+        (
+            "processBasetenModels",
+            r#"{"models":{"string-effort":{"reasoning_options":[{"type":"effort","values":"low"}]}}}"#,
+        ),
+        (
+            "processBasetenModels",
+            r#"{"models":[{"name":"first"},{"name":"second"}]}"#,
+        ),
         ("getModelsDevCost", r#"{"tiers":[null]}"#),
         ("processBasetenModels", r#"{"models":{"bad":null}}"#),
         ("processBasetenModels", r#"{"models":{"bad":{"reasoning_options":{}}}}"#),

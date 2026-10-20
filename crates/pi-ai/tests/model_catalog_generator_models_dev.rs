@@ -161,6 +161,45 @@ fn fixture() -> Value {
 }
 
 #[test]
+fn source_provider_alias_pricing_and_lossless_nvidia_boundaries_match() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    for body in [
+        r#"{"mistral":{"models":{"trailing":{"tool_call":true,"cost":{"input":"1bad"}},"hex":{"tool_call":true,"cost":{"input":"0x10"}},"false-cache":{"tool_call":true,"cost":{"cache_read":false}}}}}"#,
+        r#"{"nvidia":{"models":{"a\ud800_x":{"tool_call":true,"modalities":{"input":["text"],"output":["text"]}},"a\ud801_x":{"tool_call":true,"modalities":{"input":["text"],"output":["text"]}}}}}"#,
+        r#"{"together":null,"togetherai":{"models":{"alias":{"tool_call":true,"reasoning":true}}}}"#,
+        r#"{"together":{"models":{}},"togetherai":{"models":{"ignored":{"tool_call":true}}}}"#,
+        r#"{"together":false,"togetherai":{"models":{"ignored":{"tool_call":true}}}}"#,
+        r#"{"together-ai":{"models":{"alias":{"tool_call":true}}}}"#,
+    ] {
+        let nvidia = r#"{"data":[{"id":"a\ud800.x"},{"id":"a\ud801.x"}]}"#;
+        let expected=source.request(&json!({"operation":"loadModelsDevData","http":{"https://models.dev/api.json":{"body":body},"https://integrate.api.nvidia.com/v1/models":{"body":nvidia}}}));
+        let mut fetch = |url: &str| {
+            Ok(HttpResponse {
+                status: 200,
+                body: if url == "https://models.dev/api.json" {
+                    body.to_owned()
+                } else {
+                    nvidia.to_owned()
+                },
+            })
+        };
+        let mut generator = Generator::new(GeneratorOptions::default(), &mut fetch);
+        assert_eq!(
+            stringify_lossless(&generator.load_models_dev_data().unwrap()),
+            expected["json"].as_str().unwrap(),
+            "{body}"
+        );
+        assert_eq!(
+            stringify_lossless(&pi_js_compat::js_json::JsValue::Array(generator.logs)),
+            expected["logs"].to_string()
+        );
+    }
+}
+
+#[test]
 fn source_models_dev_every_provider_pipeline_matches_in_source_order() {
     let mut source = oracle::TsOracle::spawn(
         "model-catalog-generator-oracle.ts",

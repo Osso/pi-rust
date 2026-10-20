@@ -73,6 +73,32 @@ fn entries(value: &JsValue) -> Vec<(&JsString, &JsValue)> {
         _ => vec![],
     }
 }
+fn property_entries(value: &JsValue) -> Vec<(JsString, JsValue)> {
+    match value {
+        JsValue::Object(map) => object_entries_lossless(map)
+            .into_iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+        JsValue::Array(values) => values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| (JsString::from(index.to_string().as_str()), value.clone()))
+            .collect(),
+        JsValue::String(value) => value
+            .units()
+            .iter()
+            .enumerate()
+            .map(|(index, unit)| {
+                (
+                    JsString::from(index.to_string().as_str()),
+                    JsValue::String(JsString::from_utf16(vec![*unit])),
+                )
+            })
+            .collect(),
+        _ => vec![],
+    }
+}
+
 fn equal(value: &JsValue, expected: &str) -> bool {
     value == &text(expected)
 }
@@ -169,7 +195,7 @@ fn common_model(id: &JsString, model: &JsValue, provider: &str) -> JsValue {
 /// Baseten accepts non-tool models and excludes only deprecated entries.
 pub fn process_baseten_models(provider: &JsValue) -> Result<JsValue, GeneratorError> {
     let mut models = Vec::new();
-    for (id, model) in entries(field(provider, "models")) {
+    for (id, model) in &property_entries(field(provider, "models")) {
         if matches!(model, JsValue::Null) {
             return Err(GeneratorError::type_error(
                 "Cannot read properties of null (reading 'status')",
@@ -262,8 +288,10 @@ fn reasoning_map(options: &JsValue) -> Option<JsValue> {
             .filter_map(|option| {
                 let kind = field(option, "type");
                 if equal(kind, "effort") {
-                    let JsValue::Array(values) = field(option, "values") else {
-                        return None;
+                    let values = match field(option, "values") {
+                        JsValue::Array(values) => values.as_slice(),
+                        value @ JsValue::String(_) => std::slice::from_ref(value),
+                        _ => return None,
                     };
                     let values = values
                         .iter()
@@ -292,7 +320,7 @@ fn reasoning_map(options: &JsValue) -> Option<JsValue> {
 /// Fireworks uses Anthropic except GLM-5p2/Kimi-K3 completions families.
 pub fn process_fireworks_models(provider: &JsValue) -> Result<JsValue, GeneratorError> {
     let mut models = Vec::new();
-    for (id, model) in entries(field(provider, "models")) {
+    for (id, model) in &property_entries(field(provider, "models")) {
         if matches!(model, JsValue::Null) {
             return Err(GeneratorError::type_error(
                 "Cannot read properties of null (reading 'tool_call')",

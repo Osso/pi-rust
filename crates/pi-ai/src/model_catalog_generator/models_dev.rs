@@ -35,7 +35,25 @@ fn matches_id(id: &JsString, names: &[&str]) -> bool {
     names.iter().any(|name| id == &JsString::from(*name))
 }
 fn normalized_nvidia(id: &JsString) -> JsString {
-    JsString::from(id.to_utf8_lossy().to_lowercase().replace('_', ".").as_str())
+    let mut units = Vec::new();
+    let mut run = String::new();
+    for character in char::decode_utf16(id.units().iter().copied()) {
+        match character {
+            Ok(character) => run.push(character),
+            Err(surrogate) => {
+                units.extend(run.to_lowercase().encode_utf16());
+                run.clear();
+                units.push(surrogate.unpaired_surrogate());
+            }
+        }
+    }
+    units.extend(run.to_lowercase().encode_utf16());
+    for unit in &mut units {
+        if *unit == u16::from(b'_') {
+            *unit = u16::from(b'.');
+        }
+    }
+    JsString::from_utf16(units)
 }
 fn starts(id: &JsString, prefix: &str) -> bool {
     id.units().starts_with(JsString::from(prefix).units())
@@ -368,15 +386,20 @@ impl Generator<'_> {
             for entry in tool_models(data, key) {
                 let (id, m) = entry?;
                 let mut model = source_model(id, m, key, api, url)?;
-                if key == "mistral" && matches!(field(field(m, "cost"), "cache_read"), JsValue::Null) {
+                if key == "mistral" {
                     let input = field(field(m, "cost"), "input");
-                    let read = if is_truthy(input) {
-                        round_cost(pricing_number(input, true)? * 0.1)
+                    let cache = field(field(m, "cost"), "cache_read");
+                    let read = if matches!(cache, JsValue::Null) {
+                        JsValue::Number(if is_truthy(input) {
+                            round_cost(catalog::numeric(input)? * 0.1)
+                        } else {
+                            0.0
+                        })
                     } else {
-                        0.0
+                        cache.clone()
                     };
                     let mut cost = field(&model, "cost").clone();
-                    set(&mut cost, "cacheRead", JsValue::Number(read));
+                    set(&mut cost, "cacheRead", read);
                     set(&mut model, "cost", cost);
                 }
                 if key == "huggingface" {

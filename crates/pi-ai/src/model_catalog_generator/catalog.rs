@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 fn same(model: &JsValue, key: &str, value: &str) -> bool {
     equal(field(model, key), value)
 }
-fn numeric(value: &JsValue) -> Result<f64, GeneratorError> {
+pub(super) fn numeric(value: &JsValue) -> Result<f64, GeneratorError> {
     Ok(match value {
         JsValue::Null => 0.0,
         JsValue::Bool(value) => {

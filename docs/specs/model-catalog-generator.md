@@ -16,6 +16,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Fetch OpenRouter/AI Gateway through an injected transport, preserving tool filters, pricing, defaults, malformed payload/coercion errors, raw overflow and strict HTTP-status errors.
 - [x] Preserve earlier models.dev reasoning records when a later raw provider model throws; discard returned models at the source failure boundary, not partial state.
 - [x] Report implemented Baseten/Fireworks/cost malformed raw-input errors instead of silently narrowing them away.
+- [x] Preserve scalar effort membership, array model maps, Mistral Number/nullish-cache semantics, and distinct NVIDIA normalized lone-surrogate aliases.
 - [x] Generate grouped private and flat public JSON, source-identical manifests/checksums/timestamps and pretty/compact bytes in default/public/json-only/data-only fixtures.
 - [x] Execute maintenance CLI option handling, immediate log emission and statistics with fixture HTTP; reject invalid CLI mode in a real subprocess before fetching.
 - [ ] Prove staged validation failures, rollback and filesystem/transport error formatting.
