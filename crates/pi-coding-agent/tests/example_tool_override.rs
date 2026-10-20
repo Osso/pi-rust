@@ -68,5 +68,22 @@ async fn audits_reads_and_blocks_sensitive_paths_with_complete_results() {
             .count(),
         20
     );
+    let missing_agent = temp.path().join("missing-agent");
+    pi_js_compat::process_env::set("PI_CODING_AGENT_DIR", missing_agent.to_str().unwrap());
+    let factory: ExtensionFactory = Arc::new(|api| {
+        let result = example::tool_override_extension(api);
+        Box::pin(async move { result })
+    });
+    support::compare(
+        "tool-override",
+        factory,
+        json!({"cwd":temp.path(),"agentDir":missing_agent,"cases":[
+            {"event":"execute","toolName":"read","params":{"path":"file.txt"}},
+            {"event":"execute","toolName":"read","params":{"path":".env"}},
+            {"event":"command","name":"read-log"}
+        ]}),
+    )
+    .await;
+    assert!(!missing_agent.exists());
     pi_js_compat::process_env::clear();
 }

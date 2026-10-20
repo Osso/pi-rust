@@ -34,6 +34,16 @@ async fn todo_state_errors_branch_restore_and_all_renderers_match() {
     cases.push(json!({"event":"event","value":{"type":"session_tree","newLeafId":null,"oldLeafId":null}}));
     cases.push(json!({"event":"execute","toolName":"todo","params":{"action":"add","text":"after restore"}}));
     cases.push(json!({"event":"command","name":"todos","keys":["x","\u{3}"],"width":24}));
+    let other = json!({"action":"list","todos":[{"id":20,"text":"other branch","done":false}],"nextId":21});
+    cases.push(json!({"event":"append","message":{"role":"toolResult","toolCallId":"b","toolName":"todo","content":[],"details":other,"isError":false,"timestamp":0}}));
+    cases.push(json!({"event":"event","value":{"type":"session_tree","newLeafId":null,"oldLeafId":null}}));
+    cases.push(json!({"event":"execute","toolName":"todo","params":{"action":"list"}}));
+    cases.push(json!({"event":"branch","index":0}));
+    cases.push(json!({"event":"event","value":{"type":"session_tree","newLeafId":null,"oldLeafId":null}}));
+    let branch_add = cases.len();
+    cases.push(json!({"event":"execute","toolName":"todo","params":{"action":"add","text":"after branch"}}));
+    cases.push(json!({"event":"session_start"}));
+    cases.push(json!({"event":"execute","toolName":"todo","params":{"action":"list"}}));
     let mut todos = vec![];
     for id in 1..=7 {
         todos.push(json!({"id":id,"text":format!("item {id} with longer text"),"done":id%2==0}));
@@ -59,6 +69,10 @@ async fn todo_state_errors_branch_restore_and_all_renderers_match() {
         Box::pin(async move { result })
     });
     let actual = support::compare("todo", factory, json!({"cases":cases})).await;
+    assert_eq!(
+        actual["cases"][branch_add]["result"]["value"]["content"][0]["text"],
+        "Added todo #10: after branch"
+    );
     assert_eq!(
         actual["cases"][4]["result"]["value"],
         json!({"content":[{"type":"text","text":"No todos"}],"details":{"action":"list","todos":[],"nextId":1}})
