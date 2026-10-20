@@ -70,6 +70,7 @@ async function run(request: any) {
   clock = end;
  };
  runner.bindCore({
+  refreshTools: () => {}, // No AgentSession in this runner-only fixture.
   sendMessage(message: any, options: any) {
    trace.push(["sendMessage",message,options]);
    if (request.sendError) throw new Error(request.sendError);
@@ -201,6 +202,9 @@ async function run(request: any) {
     }
     case "append": manager.appendMessage(step.message); break;
     case "label": manager.appendLabelChange(manager.getEntries()[step.index].id,step.value ?? undefined); break;
+    case "tools": {
+     trace.push(["tools", runner.getAllRegisteredTools().map(({definition: d}: any) => ({name:d.name,label:d.label,description:d.description,parameters:d.parameters,promptSnippet:d.promptSnippet ?? null,promptGuidelines:d.promptGuidelines ?? null}))]); break;
+    }
     case "renderEntry": {
      const component = extension.entryRenderers.get(step.entry.customType)(step.entry, {expanded:step.expanded}, theme);
      trace.push(["renderEntry",component.render(step.width)]); break;
@@ -216,7 +220,7 @@ async function run(request: any) {
     case "footer": footer.invalidate(); trace.push(["footer",footer.render(step.width)]); break;
     case "branchChange": branch = step.name; branchCallback?.(); break;
     case "tool": {
-     const tool = extension.tools.get(step.name).definition;
+     const tool = runner.getToolDefinition(step.name);
      try {
       const update = request.updates ? (result: any) => trace.push(["update",result]) : undefined;
       const result = await tool.execute("fixture-call",step.params,undefined,update,runner.createContext());

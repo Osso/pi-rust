@@ -614,6 +614,7 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
     let extensions = loader.get_extensions();
     assert!(extensions.errors.is_empty());
     let definition = extensions.extensions[0]
+        .read()
         .tools
         .get("read_project_spec")
         .expect("registered tool")

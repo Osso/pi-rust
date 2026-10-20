@@ -89,6 +89,7 @@ impl Harness {
     fn registrations(&self) -> serde_json::Value {
         let tools: Vec<serde_json::Value> = self
             .extension
+            .read()
             .tools
             .values()
             .map(|registered| {
@@ -106,6 +107,7 @@ impl Harness {
             .collect();
         let commands: Vec<serde_json::Value> = self
             .extension
+            .read()
             .commands
             .values()
             .map(|command| {
@@ -122,13 +124,13 @@ impl Harness {
             "flags": [],
             "shortcuts": Vec::<String>::new(),
             "handlers": handler_names(&self.extension),
-            "toolGates": self.extension.tool_gates.len(),
+            "toolGates": self.extension.read().tool_gates.len(),
         })
     }
 }
 
 fn handler_names(extension: &Extension) -> Vec<&'static str> {
-    let handlers = &extension.handlers;
+    let handlers = &extension.read().handlers;
     let mut names = Vec::new();
     if !handlers.session_start.is_empty() {
         names.push("session_start");
@@ -168,7 +170,7 @@ async fn start_docs(harness: &Harness) {
         reason: SessionStartReason::Startup,
         previous_session_file: None,
     };
-    let handler = harness.extension.handlers.session_start[0].clone();
+    let handler = harness.extension.read().handlers.session_start[0].clone();
     handler.call(event, harness.context()).await.unwrap();
 }
 
@@ -182,7 +184,7 @@ fn before_agent_event(system_prompt: &str, prompt: &str) -> BeforeAgentStartEven
 }
 
 async fn run_before_agent(harness: &Harness, system_prompt: &str, prompt: &str) -> serde_json::Value {
-    let handler = harness.extension.handlers.before_agent_start[0].clone();
+    let handler = harness.extension.read().handlers.before_agent_start[0].clone();
     let result = handler
         .call(before_agent_event(system_prompt, prompt), harness.context())
         .await
@@ -368,7 +370,7 @@ async fn claude_memory_session_end_skips_ephemeral_sessions() {
         reason: pi_coding_agent::core::extensions::types::SessionShutdownReason::Quit,
         target_session_file: None,
     };
-    let handler = harness.extension.handlers.session_shutdown[0].clone();
+    let handler = harness.extension.read().handlers.session_shutdown[0].clone();
     let ctx: ExtensionContext = harness.context();
     handler.call(event, ctx).await.unwrap();
     process_env::clear();

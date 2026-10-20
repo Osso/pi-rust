@@ -138,8 +138,8 @@ async fn run_native(request: &Value) -> Value {
     )
     .await
     .unwrap();
-    assert_eq!(extension.commands.len(), 1);
-    let registered = extension.commands.get("commands").unwrap();
+    assert_eq!(extension.read().commands.len(), 1);
+    let registered = extension.read().commands.get("commands").unwrap().clone();
     let metadata = json!([{
         "name":registered.name,"description":registered.description,
         "hasArgumentCompletions":registered.get_argument_completions.is_some(),"hasHandler":true,

@@ -179,7 +179,13 @@ async fn usage_command_sends_formatted_message_and_headers() {
     options.model = Some(test_model(false));
     options.auth = auth(&token);
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let handler = extension.commands.get("usage").expect("usage command").handler.clone();
+    let handler = extension
+        .read()
+        .commands
+        .get("usage")
+        .expect("usage command")
+        .handler
+        .clone();
 
     handler(String::new(), harness.command_context()).await.expect("usage");
 
@@ -215,6 +221,7 @@ async fn usage_command_argument_completions() {
     let runtime = create_extension_runtime();
     let extension = load(&runtime, fetch).await;
     let completions = extension
+        .read()
         .commands
         .get("usage")
         .expect("usage command")
@@ -235,7 +242,13 @@ async fn usage_command_rejects_extra_arguments() {
     let runtime = create_extension_runtime();
     let extension = load(&runtime, fetch).await;
     let harness = Harness::new(vec![extension.clone()], runtime, HarnessOptions::new("/repo")).await;
-    let handler = extension.commands.get("usage").expect("usage command").handler.clone();
+    let handler = extension
+        .read()
+        .commands
+        .get("usage")
+        .expect("usage command")
+        .handler
+        .clone();
 
     handler("bogus".to_owned(), harness.command_context())
         .await
@@ -260,7 +273,13 @@ async fn reset_asks_for_confirmation_before_consuming() {
     options.auth = auth(&token);
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
     harness.ui.confirm_result(false);
-    let handler = extension.commands.get("usage").expect("usage command").handler.clone();
+    let handler = extension
+        .read()
+        .commands
+        .get("usage")
+        .expect("usage command")
+        .handler
+        .clone();
 
     handler("reset".to_owned(), harness.command_context())
         .await
@@ -291,7 +310,13 @@ async fn reset_consumes_credit_and_reports_new_usage() {
     options.auth = auth(&token);
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
     harness.ui.confirm_result(true);
-    let handler = extension.commands.get("usage").expect("usage command").handler.clone();
+    let handler = extension
+        .read()
+        .commands
+        .get("usage")
+        .expect("usage command")
+        .handler
+        .clone();
 
     handler("reset".to_owned(), harness.command_context())
         .await
@@ -331,7 +356,13 @@ async fn reset_without_credits_reports_unavailable() {
     options.model = Some(test_model(false));
     options.auth = auth(&token);
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let handler = extension.commands.get("usage").expect("usage command").handler.clone();
+    let handler = extension
+        .read()
+        .commands
+        .get("usage")
+        .expect("usage command")
+        .handler
+        .clone();
 
     handler("reset".to_owned(), harness.command_context())
         .await
@@ -351,7 +382,13 @@ async fn reports_missing_login() {
     let runtime = create_extension_runtime();
     let extension = load(&runtime, fetch).await;
     let harness = Harness::new(vec![extension.clone()], runtime, HarnessOptions::new("/repo")).await;
-    let handler = extension.commands.get("usage").expect("usage command").handler.clone();
+    let handler = extension
+        .read()
+        .commands
+        .get("usage")
+        .expect("usage command")
+        .handler
+        .clone();
 
     let error = handler(String::new(), harness.command_context()).await.unwrap_err();
 
@@ -373,7 +410,13 @@ async fn reports_failed_usage_requests() {
     options.model = Some(test_model(false));
     options.auth = auth(&token);
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let handler = extension.commands.get("usage").expect("usage command").handler.clone();
+    let handler = extension
+        .read()
+        .commands
+        .get("usage")
+        .expect("usage command")
+        .handler
+        .clone();
 
     let error = handler(String::new(), harness.command_context()).await.unwrap_err();
 

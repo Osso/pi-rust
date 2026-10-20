@@ -831,7 +831,7 @@ async fn registration_exposes_the_source_tools_and_commands() {
     .await
     .expect("extension");
 
-    let mut tool_names: Vec<&str> = extension.tools.keys().map(String::as_str).collect();
+    let mut tool_names: Vec<String> = extension.read().tools.keys().cloned().collect();
     tool_names.sort_unstable();
     assert_eq!(
         tool_names,
@@ -847,7 +847,13 @@ async fn registration_exposes_the_source_tools_and_commands() {
             "wait_agent",
         ]
     );
-    let spawn = &extension.tools.get("spawn_agent").expect("spawn tool").definition;
+    let spawn = extension
+        .read()
+        .tools
+        .get("spawn_agent")
+        .expect("spawn tool")
+        .definition
+        .clone();
     assert_eq!(spawn.label, "Spawn Agent");
     assert_eq!(
         spawn.description,
@@ -872,17 +878,29 @@ async fn registration_exposes_the_source_tools_and_commands() {
             }
         })
     );
-    let wait = &extension.tools.get("wait_agent").expect("wait tool").definition;
+    let wait = extension
+        .read()
+        .tools
+        .get("wait_agent")
+        .expect("wait tool")
+        .definition
+        .clone();
     assert_eq!(
         wait.parameters,
         json!({"type": "object", "properties": {}, "additionalProperties": false})
     );
     assert_eq!(
-        extension.commands.get("bg").expect("bg").description.as_deref(),
+        extension.read().commands.get("bg").expect("bg").description.as_deref(),
         Some("Run a prompt as a background agent job.")
     );
     assert_eq!(
-        extension.commands.get("jobs").expect("jobs").description.as_deref(),
+        extension
+            .read()
+            .commands
+            .get("jobs")
+            .expect("jobs")
+            .description
+            .as_deref(),
         Some("List background agent jobs.")
     );
 }

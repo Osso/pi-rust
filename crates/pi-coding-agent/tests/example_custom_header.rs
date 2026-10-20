@@ -134,12 +134,12 @@ async fn pinned_custom_header_composition_matches_all_modes_and_colors() {
             .unwrap();
             // RED boundary: an inert registration compiles but cannot install the header.
             assert_eq!(
-                extension.handlers.session_start.len(),
+                extension.read().handlers.session_start.len(),
                 1,
                 "example must register session_start"
             );
-            assert_eq!(extension.commands.len(), 1);
-            let command = extension.commands.get("builtin-header").unwrap();
+            assert_eq!(extension.read().commands.len(), 1);
+            let command = extension.read().commands.get("builtin-header").unwrap().clone();
             assert!(command.get_argument_completions.is_none());
             let registrations = json!([["on", "session_start"], ["command", command.name, command.description],]);
             let ui = Arc::new(CaptureUi {
@@ -153,7 +153,8 @@ async fn pinned_custom_header_composition_matches_all_modes_and_colors() {
                 ui.calls.lock().unwrap().is_empty(),
                 "loading alone must not install a header"
             );
-            extension.handlers.session_start[0]
+            let handler = extension.read().handlers.session_start[0].clone();
+            handler
                 .call(
                     SessionStartEvent {
                         reason: SessionStartReason::Startup,

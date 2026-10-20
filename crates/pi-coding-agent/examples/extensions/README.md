@@ -68,6 +68,15 @@ exist. Append failures surface through the runner's error listeners. Logs can
 contain credentials and private prompts: enable deliberately, never by default.
 Tests use private temporary directories only.
 
+## Dynamic tools
+
+`dynamic_tools.rs` exports `dynamic_tools_extension(&ExtensionApi)`. Embed and
+register its factory explicitly using the pattern above. It registers
+`echo_session` during `session_start`; `/add-echo-tool <name>` registers another
+echo tool at runtime. New permitted tool names become active immediately through
+the host AgentSession's refresh action. Re-registering an inactive existing name
+does not reactivate it. Names allow lowercase letters, numbers, and underscores.
+
 ## Batch E: prompts, trust and resources
 
 Embed `prompt_customizer.rs`, `claude_rules.rs`, or `project_trust.rs` via

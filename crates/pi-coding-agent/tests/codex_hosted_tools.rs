@@ -158,7 +158,13 @@ fn identifies_hosted_models() {
 async fn web_search_registers_tool_and_payload_handler() {
     let runtime = create_extension_runtime();
     let extension = load_web_search(&runtime, WebSearchToolOptions::default()).await;
-    let tool = &extension.tools.get("web_search").expect("web_search tool").definition;
+    let tool = extension
+        .read()
+        .tools
+        .get("web_search")
+        .expect("web_search tool")
+        .definition
+        .clone();
     assert_eq!(tool.name, "web_search");
     assert_eq!(tool.label, "Web Search");
     assert_eq!(tool.approval_required, Some(true));
@@ -175,7 +181,7 @@ async fn web_search_registers_tool_and_payload_handler() {
             }
         })
     );
-    assert!(extension.handlers.before_provider_request.len() == 1);
+    assert!(extension.read().handlers.before_provider_request.len() == 1);
 
     let mut options = HarnessOptions::new("/repo");
     options.model = Some(model_with("openai-responses", "openai"));
@@ -195,7 +201,13 @@ async fn web_search_registers_tool_and_payload_handler() {
 async fn image_generation_registers_tool_without_payload_handler() {
     let runtime = create_extension_runtime();
     let extension = load_image_gen(&runtime, ImageGenerationToolOptions::default()).await;
-    let tool = &extension.tools.get("image_gen").expect("image_gen tool").definition;
+    let tool = extension
+        .read()
+        .tools
+        .get("image_gen")
+        .expect("image_gen tool")
+        .definition
+        .clone();
     assert_eq!(tool.name, "image_gen");
     assert_eq!(tool.label, "Image Generation");
     assert_eq!(tool.approval_required, Some(true));
@@ -212,7 +224,7 @@ async fn image_generation_registers_tool_without_payload_handler() {
             }
         })
     );
-    assert!(extension.handlers.before_provider_request.is_empty());
+    assert!(extension.read().handlers.before_provider_request.is_empty());
 }
 
 #[tokio::test(start_paused = true)]
@@ -236,7 +248,13 @@ async fn web_search_executes_with_injected_search() {
     options.model = Some(model_with("openai-responses", "openai-codex"));
     options.auth = oauth_auth("openai-codex", "test-key");
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let tool = extension.tools.get("web_search").expect("tool").definition.clone();
+    let tool = extension
+        .read()
+        .tools
+        .get("web_search")
+        .expect("tool")
+        .definition
+        .clone();
 
     let result = (tool.execute)(
         "call-1".to_owned(),
@@ -276,7 +294,13 @@ async fn web_search_times_out_with_source_message() {
     options.model = Some(model_with("openai-responses", "openai-codex"));
     options.auth = oauth_auth("openai-codex", "test-key");
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let tool = extension.tools.get("web_search").expect("tool").definition.clone();
+    let tool = extension
+        .read()
+        .tools
+        .get("web_search")
+        .expect("tool")
+        .definition
+        .clone();
     let context = harness.context();
 
     let future = (tool.execute)(
@@ -325,7 +349,13 @@ async fn web_search_preserves_caller_abort() {
     options.model = Some(model_with("openai-responses", "openai-codex"));
     options.auth = oauth_auth("openai-codex", "test-key");
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let tool = extension.tools.get("web_search").expect("tool").definition.clone();
+    let tool = extension
+        .read()
+        .tools
+        .get("web_search")
+        .expect("tool")
+        .definition
+        .clone();
 
     let error = (tool.execute)(
         "call-1".to_owned(),
@@ -360,7 +390,13 @@ async fn web_search_validates_query_and_model() {
     let mut options = HarnessOptions::new("/repo");
     options.model = Some(model_with("anthropic-messages", "anthropic"));
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let tool = extension.tools.get("web_search").expect("tool").definition.clone();
+    let tool = extension
+        .read()
+        .tools
+        .get("web_search")
+        .expect("tool")
+        .definition
+        .clone();
 
     let error = (tool.execute)(
         "call-1".to_owned(),
@@ -406,7 +442,13 @@ async fn image_generation_saves_png_and_returns_content() {
     options.model = Some(model_with("openai-codex-responses", "openai-codex"));
     options.auth = oauth_auth("openai-codex", "test-key");
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let tool = extension.tools.get("image_gen").expect("tool").definition.clone();
+    let tool = extension
+        .read()
+        .tools
+        .get("image_gen")
+        .expect("tool")
+        .definition
+        .clone();
 
     let result = (tool.execute)(
         "call-1".to_owned(),
@@ -455,7 +497,13 @@ async fn image_generation_validates_prompt_and_model() {
     let mut options = HarnessOptions::new("/repo");
     options.model = Some(model_with("openai-responses", "openai"));
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let tool = extension.tools.get("image_gen").expect("tool").definition.clone();
+    let tool = extension
+        .read()
+        .tools
+        .get("image_gen")
+        .expect("tool")
+        .definition
+        .clone();
 
     let error = (tool.execute)(
         "call-1".to_owned(),
@@ -502,7 +550,13 @@ async fn image_generation_applies_timeout_to_the_request_signal() {
     options.model = Some(model_with("openai-codex-responses", "openai-codex"));
     options.auth = oauth_auth("openai-codex", "test-key");
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let tool = extension.tools.get("image_gen").expect("tool").definition.clone();
+    let tool = extension
+        .read()
+        .tools
+        .get("image_gen")
+        .expect("tool")
+        .definition
+        .clone();
     let context = harness.context();
 
     let handle = tokio::spawn((tool.execute)(

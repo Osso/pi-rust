@@ -199,13 +199,17 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     )
     .await
     .unwrap();
-    let metadata = json!({"commands":extension.commands.keys().collect::<Vec<_>>(),"tools":extension.tools.keys().collect::<Vec<_>>()});
-    let custom_before = extension.handlers.before_agent_start.clone();
-    let custom_tools = extension
-        .tools
-        .iter()
-        .map(|(name, tool)| (name.clone(), tool.definition.clone()))
-        .collect();
+    let (metadata, custom_before, custom_tools) = {
+        let registration = extension.read();
+        let metadata = json!({"commands":registration.commands.keys().collect::<Vec<_>>(),"tools":registration.tools.keys().collect::<Vec<_>>()});
+        let custom_before = registration.handlers.before_agent_start.clone();
+        let custom_tools = registration
+            .tools
+            .iter()
+            .map(|(name, tool)| (name.clone(), tool.definition.clone()))
+            .collect();
+        (metadata, custom_before, custom_tools)
+    };
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(Map::new())) as Arc<dyn CredentialStore>),
         models_path: Some(None),

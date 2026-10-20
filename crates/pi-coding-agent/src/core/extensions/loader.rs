@@ -5,7 +5,7 @@
 //! load order, and diagnostics text follow the source loader.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use serde_json::Value;
@@ -20,7 +20,7 @@ use crate::utils::paths::{PathInputOptions, resolve_path};
 use super::extension_runtime::{ExtensionRuntime, create_extension_runtime};
 use super::types::{
     BoxFuture, CommandHandler, Extension, ExtensionApi, ExtensionEventBus, ExtensionHandlers, ExtensionLoadError,
-    ExtensionShortcut, HandlerError, LoadExtensionsResult, RegisteredCommand, RegisteredTool,
+    ExtensionShortcut, ExtensionState, HandlerError, LoadExtensionsResult, RegisteredCommand, RegisteredTool,
 };
 
 /// Extension entry point receiving the registration API.
@@ -101,8 +101,8 @@ impl ExtensionRegistry {
             )
             .await
             {
-                Ok(mut extension) => {
-                    extension.hidden = Some(entry.hidden);
+                Ok(extension) => {
+                    extension.read().hidden = Some(entry.hidden);
                     extensions.push(extension);
                 }
                 Err(error) => errors.push(ExtensionLoadError {
@@ -157,7 +157,7 @@ fn create_extension(extension_path: &str, resolved_path: &str) -> Extension {
             .parent()
             .map(|parent| parent.to_string_lossy().into_owned())
     };
-    Extension {
+    Extension::new(ExtensionState {
         path: extension_path.to_owned(),
         resolved_path: resolved_path.to_owned(),
         hidden: None,
@@ -180,7 +180,7 @@ fn create_extension(extension_path: &str, resolved_path: &str) -> Extension {
         commands: IndexMap::new(),
         flags: IndexMap::new(),
         shortcuts: IndexMap::new(),
-    }
+    })
 }
 
 /// Create an extension from an inline Rust factory.
@@ -193,14 +193,9 @@ pub async fn load_extension_from_factory(
 ) -> Result<Extension, HandlerError> {
     let extension = create_extension(extension_path, extension_path);
     let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options());
-    let extension = Arc::new(Mutex::new(extension));
-    let api = ExtensionApi::new(Arc::clone(&extension), runtime, resolved_cwd, event_bus);
+    let api = ExtensionApi::new(extension.clone(), runtime, resolved_cwd, event_bus);
     factory(&api).await?;
     time(&format!("{extension_path} factory"), TimingLabel::Extensions);
-    let extension = extension
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone();
     Ok(extension)
 }
 
@@ -499,7 +494,7 @@ pub async fn discover_and_load_extensions(
 
 /// Convenience: create the API used by inline test extensions.
 pub fn create_extension_api(
-    extension: Arc<Mutex<Extension>>,
+    extension: Extension,
     runtime: ExtensionRuntime,
     cwd: &str,
     event_bus: Arc<dyn EventBus>,

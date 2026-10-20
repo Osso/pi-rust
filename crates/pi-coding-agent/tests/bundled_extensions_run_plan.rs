@@ -156,7 +156,7 @@ async fn emit_agent_end(harness: &Harness, event: serde_json::Value) {
     let event: pi_coding_agent::core::extensions::types::AgentEndEvent =
         serde_json::from_value(json!({"messages": [], "sessionContinuation": event.get("sessionContinuation")}))
             .unwrap();
-    let handler = harness.extension.handlers.agent_end[0].clone();
+    let handler = harness.extension.read().handlers.agent_end[0].clone();
     handler.call(event, harness.context()).await.unwrap();
 }
 
@@ -165,7 +165,7 @@ async fn emit_session_start(harness: &Harness) {
         reason: pi_coding_agent::core::extensions::types::SessionStartReason::Resume,
         previous_session_file: None,
     };
-    let handler = harness.extension.handlers.session_start[0].clone();
+    let handler = harness.extension.read().handlers.session_start[0].clone();
     handler.call(event, harness.context()).await.unwrap();
 }
 

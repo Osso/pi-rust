@@ -92,3 +92,18 @@ drives the real TypeScript runner through 13 scripted scenarios (`dispatch`,
   observed after `createContext()`, matching the TypeScript getters.
 - `set_cwd` is a Rust-only runner setter used to express the live-cwd scenario;
   the TypeScript oracle assigns the private `runner.cwd` field at runtime.
+
+## Live registration identity (2026-10-20)
+
+Runner stores shared extension handles, not load-time registry copies. See
+[registration audit](extensions-loader.md#live-registration-identity-2026-10-20).
+Queries read current tools/commands/flags/shortcuts/renderers; dispatch retrieves
+one callback at a time and releases the registration guard before user code.
+Live array iteration includes handlers appended during the same emission;
+`emitRuntimeMailbox` retains its explicit gather-before-dispatch semantics.
+
+Proof: `runtime_registration_from_command_is_visible_to_runner` covers late tools,
+commands, flags, shortcuts, renderers, transformers, handlers, gates, and reviewers;
+`handlers_appended_during_dispatch_run_in_the_same_event` covers live appends.
+[Dynamic-tools proof](extension-example-dynamic-tools.md) covers the actual pinned
+example and real AgentSession refresh/execution/deactivation timing.

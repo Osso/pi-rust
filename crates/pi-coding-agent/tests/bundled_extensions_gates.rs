@@ -30,7 +30,7 @@ fn tool_call(tool_name: &str) -> ToolCallEvent {
 
 async fn gate(harness: &Harness, tool_name: &str) -> Value {
     let ctx: ExtensionContext = harness.context();
-    let gate = harness.extension.tool_gates[0].clone();
+    let gate = harness.extension.read().tool_gates[0].clone();
     let result = gate.call(tool_call(tool_name), ctx).await.unwrap();
     match result {
         Some(result) => json!(result),

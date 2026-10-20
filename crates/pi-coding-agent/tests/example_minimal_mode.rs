@@ -33,6 +33,7 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
     .await
     .unwrap();
     let metadata: Vec<_> = extension
+        .read()
         .tools
         .values()
         .map(|tool| {
@@ -99,7 +100,7 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
                         show_images: false,
                         is_error: false,
                     };
-                    let tool = &extension.tools[name].definition;
+                    let tool = runner.get_tool_definition(name).unwrap();
                     let call = tool.render_call.as_ref().unwrap()(&args, &theme, &context)
                         .unwrap()
                         .borrow_mut()
@@ -147,7 +148,7 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
     std::fs::remove_file(tmp.path().join("out.txt")).unwrap();
     let mut executed = Vec::new();
     for item in executions.as_array().unwrap() {
-        let tool = &extension.tools[item["name"].as_str().unwrap()].definition;
+        let tool = runner.get_tool_definition(item["name"].as_str().unwrap()).unwrap();
         executed.push(
             match (tool.execute)(
                 "fixture".into(),

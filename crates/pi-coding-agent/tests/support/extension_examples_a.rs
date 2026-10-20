@@ -192,6 +192,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
     .await
     .unwrap();
     let commands: Vec<_> = extension
+        .read()
         .commands
         .values()
         .map(|command| {
@@ -203,6 +204,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
         })
         .collect();
     let tools: Vec<_> = extension
+        .read()
         .tools
         .values()
         .map(|tool| {
@@ -569,9 +571,16 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     .to_owned();
                 entries.append_label_change(&id, step["value"].as_str()).unwrap();
             }
+            "tools" => {
+                let tools: Vec<_> = runner.get_all_registered_tools().iter().map(|registered| {
+                    let tool = &registered.definition;
+                    json!({"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"promptSnippet":tool.prompt_snippet,"promptGuidelines":tool.prompt_guidelines})
+                }).collect();
+                trace.lock().unwrap().push(json!(["tools", tools]));
+            }
             "renderEntry" => {
                 let entry: CustomEntry = serde_json::from_value(step["entry"].clone()).unwrap();
-                let renderer = &extension.entry_renderers.as_ref().unwrap()[&entry.custom_type];
+                let renderer = runner.get_entry_renderer(&entry.custom_type).unwrap();
                 let component = renderer(
                     &entry,
                     &EntryRenderOptions {
@@ -585,7 +594,8 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
             }
             "renderMessage" => {
                 let message: CustomMessageValue = serde_json::from_value(step["message"].clone()).unwrap();
-                let component = extension.message_renderers[&message.custom_type](
+                let renderer = runner.get_message_renderer(&message.custom_type).unwrap();
+                let component = renderer(
                     &message,
                     &MessageRenderOptions {
                         expanded: step["expanded"].as_bool().unwrap(),
@@ -598,7 +608,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                 trace.lock().unwrap().push(json!(["renderMessage", lines]));
             }
             "renderTool" => {
-                let tool = &extension.tools[step["name"].as_str().unwrap()].definition;
+                let tool = runner.get_tool_definition(step["name"].as_str().unwrap()).unwrap();
                 let result = serde_json::from_value(step["result"].clone()).unwrap();
                 let options = ToolRenderResultOptions {
                     expanded: true,
@@ -643,7 +653,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                 footer_data.as_ref().unwrap().set_cwd(dir);
             }
             "tool" => {
-                let tool = &extension.tools.get(step["name"].as_str().unwrap()).unwrap().definition;
+                let tool = runner.get_tool_definition(step["name"].as_str().unwrap()).unwrap();
                 let result = (tool.execute)(
                     "fixture-call".into(),
                     step["params"].clone(),

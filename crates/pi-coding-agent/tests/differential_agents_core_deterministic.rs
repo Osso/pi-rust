@@ -300,6 +300,7 @@ async fn registration_metadata_matches_the_pinned_typescript_registration() {
     .expect("extension");
 
     let tools: Vec<Value> = extension
+        .read()
         .tools
         .values()
         .map(|registered| {
@@ -315,6 +316,7 @@ async fn registration_metadata_matches_the_pinned_typescript_registration() {
         })
         .collect();
     let commands: Vec<Value> = extension
+        .read()
         .commands
         .values()
         .map(|command| json!({"name": command.name, "description": command.description}))

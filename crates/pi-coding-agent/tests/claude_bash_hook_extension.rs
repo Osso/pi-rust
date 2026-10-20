@@ -238,8 +238,8 @@ async fn registers_an_approval_reviewer() {
         r#"{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"blocked"}}"#,
     );
     let extension = load_extension(&script).await;
-    assert_eq!(extension.approval_reviewers.len(), 1);
-    let reviewer = extension.approval_reviewers[0].clone();
+    assert_eq!(extension.read().approval_reviewers.len(), 1);
+    let reviewer = extension.read().approval_reviewers[0].clone();
     let harness = bundled::Harness::new(
         vec![extension],
         create_extension_runtime(),

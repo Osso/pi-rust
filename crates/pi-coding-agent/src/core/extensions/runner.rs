@@ -189,12 +189,17 @@ pub async fn emit_project_trust_event(
 ) -> (Option<ProjectTrustEventResult>, Vec<ExtensionError>) {
     let mut errors = Vec::new();
     for extension in &extensions_result.extensions {
-        for handler in &extension.handlers.project_trust {
+        let mut callback_index = 0;
+        while let Some(handler) = {
+            let registration = extension.read();
+            registration.handlers.project_trust.get(callback_index).cloned()
+        } {
+            callback_index += 1;
             match handler.call(event.clone(), ctx.clone()).await {
                 Ok(result) if result.trusted == ProjectTrustEventDecision::Undecided => {}
                 Ok(result) => return (Some(result), errors),
                 Err(error) => errors.push(ExtensionError {
-                    extension_path: extension.path.clone(),
+                    extension_path: extension.read().path.clone(),
                     event: event_type_name("project_trust"),
                     error: error.message,
                     stack: error.stack,
@@ -509,14 +514,17 @@ impl ExtensionRunner {
     }
 
     pub fn get_extension_paths(&self) -> Vec<String> {
-        self.extensions.iter().map(|extension| extension.path.clone()).collect()
+        self.extensions
+            .iter()
+            .map(|extension| extension.read().path.clone())
+            .collect()
     }
 
     /// All registered tools; the first registration per name wins.
     pub fn get_all_registered_tools(&self) -> Vec<RegisteredTool> {
         let mut tools_by_name: IndexMap<String, RegisteredTool> = IndexMap::new();
         for extension in &self.extensions {
-            for tool in extension.tools.values() {
+            for tool in extension.read().tools.values() {
                 if !tools_by_name.contains_key(&tool.definition.name) {
                     tools_by_name.insert(tool.definition.name.clone(), tool.clone());
                 }
@@ -527,7 +535,7 @@ impl ExtensionRunner {
 
     pub fn get_tool_definition(&self, tool_name: &str) -> Option<ToolDefinition> {
         for extension in &self.extensions {
-            if let Some(tool) = extension.tools.get(tool_name) {
+            if let Some(tool) = extension.read().tools.get(tool_name) {
                 return Some(tool.definition.clone());
             }
         }
@@ -537,7 +545,7 @@ impl ExtensionRunner {
     pub fn get_flags(&self) -> IndexMap<String, ExtensionFlag> {
         let mut all_flags = IndexMap::new();
         for extension in &self.extensions {
-            for (name, flag) in &extension.flags {
+            for (name, flag) in &extension.read().flags {
                 if !all_flags.contains_key(name) {
                     all_flags.insert(name.clone(), flag.clone());
                 }
@@ -578,7 +586,7 @@ impl ExtensionRunner {
         };
 
         for extension in &self.extensions {
-            for (key, shortcut) in &extension.shortcuts {
+            for (key, shortcut) in &extension.read().shortcuts {
                 let normalized = key.to_lowercase();
                 if let Some(built_in) = builtin.get(&normalized) {
                     if built_in.restrict_override {
@@ -672,7 +680,8 @@ impl ExtensionRunner {
 
     pub fn has_handlers(&self, event_type: &str) -> bool {
         self.extensions.iter().any(|extension| {
-            let handlers = &extension.handlers;
+            let registration = extension.read();
+            let handlers = &registration.handlers;
             match event_type {
                 "project_trust" => !handlers.project_trust.is_empty(),
                 "resources_discover" => !handlers.resources_discover.is_empty(),
@@ -718,16 +727,18 @@ impl ExtensionRunner {
     pub fn has_approval_reviewers(&self) -> bool {
         self.extensions
             .iter()
-            .any(|extension| !extension.approval_reviewers.is_empty())
+            .any(|extension| !extension.read().approval_reviewers.is_empty())
     }
 
     pub fn has_tool_gates(&self) -> bool {
-        self.extensions.iter().any(|extension| !extension.tool_gates.is_empty())
+        self.extensions
+            .iter()
+            .any(|extension| !extension.read().tool_gates.is_empty())
     }
 
     pub fn get_message_renderer(&self, custom_type: &str) -> Option<MessageRenderer> {
         for extension in &self.extensions {
-            if let Some(renderer) = extension.message_renderers.get(custom_type) {
+            if let Some(renderer) = extension.read().message_renderers.get(custom_type) {
                 return Some(Arc::clone(renderer));
             }
         }
@@ -737,13 +748,14 @@ impl ExtensionRunner {
     pub fn get_markdown_transformers(&self) -> Vec<MarkdownTransformer> {
         self.extensions
             .iter()
-            .filter_map(|extension| extension.markdown_transformer.clone())
+            .filter_map(|extension| extension.read().markdown_transformer.clone())
             .collect()
     }
 
     pub fn get_entry_renderer(&self, custom_type: &str) -> Option<EntryRenderer> {
         for extension in &self.extensions {
             if let Some(renderer) = extension
+                .read()
                 .entry_renderers
                 .as_ref()
                 .and_then(|renderers| renderers.get(custom_type))
@@ -758,7 +770,7 @@ impl ExtensionRunner {
         let mut commands: Vec<RegisteredCommand> = Vec::new();
         let mut counts: IndexMap<String, usize> = IndexMap::new();
         for extension in &self.extensions {
-            for command in extension.commands.values() {
+            for command in extension.read().commands.values() {
                 commands.push(command.clone());
                 *counts.entry(command.name.clone()).or_insert(0) += 1;
             }
@@ -874,7 +886,12 @@ impl ExtensionRunner {
     ) -> EmitResult {
         let mut result = None;
         for extension in &self.extensions {
-            for handler in &extension.handlers.session_before_switch {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.session_before_switch.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if handler_result.cancel == Some(true) {
@@ -896,7 +913,12 @@ impl ExtensionRunner {
     async fn emit_session_before_fork(&self, event: &mut SessionBeforeForkEvent, ctx: &ExtensionContext) -> EmitResult {
         let mut result = None;
         for extension in &self.extensions {
-            for handler in &extension.handlers.session_before_fork {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.session_before_fork.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if handler_result.cancel == Some(true) {
@@ -922,7 +944,16 @@ impl ExtensionRunner {
     ) -> EmitResult {
         let mut result = None;
         for extension in &self.extensions {
-            for handler in &extension.handlers.session_before_compact {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration
+                    .handlers
+                    .session_before_compact
+                    .get(callback_index)
+                    .cloned()
+            } {
+                callback_index += 1;
                 match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if handler_result.cancel == Some(true) {
@@ -944,7 +975,12 @@ impl ExtensionRunner {
     async fn emit_session_before_tree(&self, event: &mut SessionBeforeTreeEvent, ctx: &ExtensionContext) -> EmitResult {
         let mut result = None;
         for extension in &self.extensions {
-            for handler in &extension.handlers.session_before_tree {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.session_before_tree.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if handler_result.cancel == Some(true) {
@@ -966,7 +1002,12 @@ impl ExtensionRunner {
     async fn emit_compaction(&self, event: &mut CompactionEvent, ctx: &ExtensionContext) -> EmitResult {
         let mut result = None;
         for extension in &self.extensions {
-            for handler in &extension.handlers.compaction {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.compaction.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if handler_result.cancel == Some(true) || handler_result.compaction.is_some() {
@@ -986,8 +1027,9 @@ impl ExtensionRunner {
     }
 
     fn emit_handler_error(&self, extension: &Extension, event: &str, error: HandlerError) {
+        let extension_path = extension.read().path.clone();
         self.emit_error(ExtensionError {
-            extension_path: extension.path.clone(),
+            extension_path,
             event: event.to_owned(),
             error: error.message,
             stack: error.stack,
@@ -1015,7 +1057,16 @@ impl ExtensionRunner {
             }
             ExtensionEvent::BeforeProviderHeaders(event) => {
                 for extension in &self.extensions {
-                    for handler in &extension.handlers.before_provider_headers {
+                    let mut callback_index = 0;
+                    while let Some(handler) = {
+                        let registration = extension.read();
+                        registration
+                            .handlers
+                            .before_provider_headers
+                            .get(callback_index)
+                            .cloned()
+                    } {
+                        callback_index += 1;
                         match handler.call(event.clone(), ctx.clone()).await {
                             Ok(Some(headers)) => event.headers = headers,
                             Ok(None) => {}
@@ -1030,7 +1081,16 @@ impl ExtensionRunner {
             ExtensionEvent::SessionCompactionSource(event) => {
                 let mut result = None;
                 for extension in &self.extensions {
-                    for handler in &extension.handlers.session_compaction_source {
+                    let mut callback_index = 0;
+                    while let Some(handler) = {
+                        let registration = extension.read();
+                        registration
+                            .handlers
+                            .session_compaction_source
+                            .get(callback_index)
+                            .cloned()
+                    } {
+                        callback_index += 1;
                         match handler.call(event.clone(), ctx.clone()).await {
                             Ok(Some(handler_result)) => result = Some(handler_result),
                             Ok(None) => {}
@@ -1055,7 +1115,12 @@ impl ExtensionRunner {
         macro_rules! dispatch {
             ($payload:expr, $field:ident, $name:literal) => {{
                 for extension in &self.extensions {
-                    for handler in &extension.handlers.$field {
+                    let mut callback_index = 0;
+                    while let Some(handler) = {
+                        let registration = extension.read();
+                        registration.handlers.$field.get(callback_index).cloned()
+                    } {
+                        callback_index += 1;
                         if let Err(error) = handler.call((*$payload).clone(), ctx.clone()).await {
                             self.emit_handler_error(extension, $name, error);
                         }
@@ -1123,8 +1188,13 @@ impl ExtensionRunner {
         let ctx = self.create_context();
         let mut registrations = Vec::new();
         for extension in &self.extensions {
-            for handler in &extension.handlers.runtime_mailbox {
-                registrations.push((extension, handler));
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.runtime_mailbox.get(callback_index).cloned()
+            } {
+                callback_index += 1;
+                registrations.push((extension, handler.clone()));
             }
         }
         for (extension, handler) in registrations {
@@ -1132,7 +1202,8 @@ impl ExtensionRunner {
                 Ok(Some(result)) if result.handled => return Ok(result),
                 Ok(_) => {}
                 Err(error) => {
-                    self.report_runtime_mailbox_handler_error(&extension.path, &event, &error);
+                    let path = extension.read().path.clone();
+                    self.report_runtime_mailbox_handler_error(&path, &event, &error);
                     return Err(error);
                 }
             }
@@ -1161,7 +1232,12 @@ impl ExtensionRunner {
         let mut modified = false;
 
         for extension in &self.extensions {
-            for handler in &extension.handlers.message_end {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.message_end.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 let current_event = MessageEndEvent {
                     message: current_message.clone(),
                 };
@@ -1171,8 +1247,9 @@ impl ExtensionRunner {
                             continue;
                         };
                         if message.role() != current_message.role() {
+                            let extension_path = extension.read().path.clone();
                             self.emit_error(ExtensionError {
-                                extension_path: extension.path.clone(),
+                                extension_path,
                                 event: "message_end".to_owned(),
                                 error: "message_end handlers must return a message with the same role".to_owned(),
                                 stack: None,
@@ -1197,7 +1274,12 @@ impl ExtensionRunner {
         let mut modified = false;
 
         for extension in &self.extensions {
-            for handler in &extension.handlers.tool_result {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.tool_result.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 match handler.call(current_event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if let Some(content) = handler_result.content {
@@ -1234,7 +1316,12 @@ impl ExtensionRunner {
         let ctx = self.create_context();
         let mut result = None;
         for extension in &self.extensions {
-            for handler in &extension.handlers.tool_call {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.tool_call.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 let handler_result = handler.call(event.clone(), ctx.clone()).await?;
                 if let Some(handler_result) = handler_result {
                     if let Some(input) = &handler_result.input {
@@ -1256,7 +1343,12 @@ impl ExtensionRunner {
     ) -> Result<Option<ToolCallEventResult>, HandlerError> {
         let ctx = self.create_context();
         for extension in &self.extensions {
-            for gate in &extension.tool_gates {
+            let mut callback_index = 0;
+            while let Some(gate) = {
+                let registration = extension.read();
+                registration.tool_gates.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 let result = gate.call(event.clone(), ctx.clone()).await?;
                 if let Some(result) = &result
                     && let Some(input) = &result.input
@@ -1277,7 +1369,12 @@ impl ExtensionRunner {
     ) -> Result<Option<ApprovalReviewerResult>, HandlerError> {
         let ctx = self.create_context();
         for extension in &self.extensions {
-            for reviewer in &extension.approval_reviewers {
+            let mut callback_index = 0;
+            while let Some(reviewer) = {
+                let registration = extension.read();
+                registration.approval_reviewers.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 let result = reviewer.call(event.clone(), ctx.clone()).await?;
                 let decision = apply_approval_reviewer_result(event, result);
                 if decision.is_some() {
@@ -1291,7 +1388,12 @@ impl ExtensionRunner {
     pub async fn emit_user_bash(&self, event: &UserBashEvent) -> Option<UserBashEventResult> {
         let ctx = self.create_context();
         for extension in &self.extensions {
-            for handler in &extension.handlers.user_bash {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.user_bash.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => return Some(handler_result),
                     Ok(None) => {}
@@ -1311,7 +1413,12 @@ impl ExtensionRunner {
         let mut current_messages = messages;
 
         for extension in &self.extensions {
-            for handler in &extension.handlers.context {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.context.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 let event = ContextEvent {
                     messages: current_messages.clone(),
                 };
@@ -1344,7 +1451,16 @@ impl ExtensionRunner {
         let ctx = self.create_context();
         let mut current_payload = payload;
         for extension in &self.extensions {
-            for handler in &extension.handlers.before_provider_request {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration
+                    .handlers
+                    .before_provider_request
+                    .get(callback_index)
+                    .cloned()
+            } {
+                callback_index += 1;
                 let event = BeforeProviderRequestEvent {
                     payload: current_payload.clone(),
                 };
@@ -1390,7 +1506,12 @@ impl ExtensionRunner {
         let mut system_prompt_modified = false;
 
         for extension in &self.extensions {
-            for handler in &extension.handlers.before_agent_start {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.before_agent_start.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 let event = BeforeAgentStartEvent {
                     prompt: prompt.to_owned(),
                     images: images.clone(),
@@ -1440,7 +1561,12 @@ impl ExtensionRunner {
         let ctx = self.create_context();
         let mut result = ResourcesDiscoverPaths::default();
         for extension in &self.extensions {
-            for handler in &extension.handlers.resources_discover {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.resources_discover.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 let event = ResourcesDiscoverEvent {
                     cwd: cwd.to_owned(),
                     reason,
@@ -1450,19 +1576,19 @@ impl ExtensionRunner {
                         if let Some(paths) = handler_result.skill_paths.filter(|paths| !paths.is_empty()) {
                             result.skill_paths.extend(paths.into_iter().map(|path| DiscoveredPath {
                                 path,
-                                extension_path: extension.path.clone(),
+                                extension_path: extension.read().path.clone(),
                             }));
                         }
                         if let Some(paths) = handler_result.prompt_paths.filter(|paths| !paths.is_empty()) {
                             result.prompt_paths.extend(paths.into_iter().map(|path| DiscoveredPath {
                                 path,
-                                extension_path: extension.path.clone(),
+                                extension_path: extension.read().path.clone(),
                             }));
                         }
                         if let Some(paths) = handler_result.theme_paths.filter(|paths| !paths.is_empty()) {
                             result.theme_paths.extend(paths.into_iter().map(|path| DiscoveredPath {
                                 path,
-                                extension_path: extension.path.clone(),
+                                extension_path: extension.read().path.clone(),
                             }));
                         }
                     }
@@ -1487,7 +1613,12 @@ impl ExtensionRunner {
         let mut current_images = images.clone();
 
         for extension in &self.extensions {
-            for handler in &extension.handlers.input {
+            let mut callback_index = 0;
+            while let Some(handler) = {
+                let registration = extension.read();
+                registration.handlers.input.get(callback_index).cloned()
+            } {
+                callback_index += 1;
                 let event = InputEvent {
                     text: current_text.clone(),
                     images: current_images.clone(),

@@ -122,7 +122,10 @@ pub async fn compare(
     )
     .await
     .unwrap();
-    let metadata = json!({"commands":extension.commands.values().map(|c|json!([c.name,c.description,c.get_argument_completions.is_some()])).collect::<Vec<_>>(),"flags":extension.flags.values().map(|f|json!([f.name,f.description,f.flag_type,f.default])).collect::<Vec<_>>(),"shortcuts":extension.shortcuts.values().map(|s|json!([s.shortcut,s.description])).collect::<Vec<_>>()});
+    let metadata = {
+        let registration = extension.read();
+        json!({"commands":registration.commands.values().map(|c|json!([c.name,c.description,c.get_argument_completions.is_some()])).collect::<Vec<_>>(),"flags":registration.flags.values().map(|f|json!([f.name,f.description,f.flag_type,f.default])).collect::<Vec<_>>(),"shortcuts":registration.shortcuts.values().map(|s|json!([s.shortcut,s.description])).collect::<Vec<_>>()})
+    };
     let registry = Arc::new(ModelRegistry::new(
         ModelRuntime::create(CreateModelRuntimeOptions {
             credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
@@ -313,14 +316,15 @@ pub async fn compare(
                 }
             }
             "shortcut" => {
-                (extension
+                let handler = extension
+                    .read()
                     .shortcuts
                     .values()
                     .find(|s| s.shortcut.to_string() == step["key"].as_str().unwrap())
                     .unwrap()
-                    .handler)(runner.create_context())
-                .await
-                .unwrap();
+                    .handler
+                    .clone();
+                handler(runner.create_context()).await.unwrap();
             }
             "event" => {
                 runner

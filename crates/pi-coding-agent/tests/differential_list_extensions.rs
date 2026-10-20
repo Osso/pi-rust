@@ -51,17 +51,17 @@ async fn build_extension(spec: &ExtensionSpec) -> Extension {
         }
         Box::pin(async { Ok(()) })
     });
-    let mut extension =
+    let extension =
         load_extension_from_factory(factory, "/tmp", Arc::new(EventBusController::new()), runtime, spec.path)
             .await
             .expect("extension factory succeeds");
-    extension.source_info.scope = match spec.scope {
+    extension.read().source_info.scope = match spec.scope {
         "user" => pi_coding_agent::core::source_info::SourceScope::User,
         "project" => pi_coding_agent::core::source_info::SourceScope::Project,
         "temporary" => pi_coding_agent::core::source_info::SourceScope::Temporary,
         other => panic!("unknown scope {other}"),
     };
-    extension.source_info.source = spec.source.to_owned();
+    extension.read().source_info.source = spec.source.to_owned();
     extension
 }
 
@@ -102,15 +102,16 @@ fn wire(extensions: &[Extension]) -> Value {
         extensions
             .iter()
             .map(|extension| {
+                let registration = extension.read();
                 json!({
-                    "path": extension.path,
+                    "path": registration.path,
                     "sourceInfo": {
-                        "scope": extension.source_info.scope.as_str(),
-                        "source": extension.source_info.source,
+                        "scope": registration.source_info.scope.as_str(),
+                        "source": registration.source_info.source,
                     },
-                    "commands": extension.commands.len(),
-                    "tools": extension.tools.len(),
-                    "handlers": extension.handlers.len(),
+                    "commands": registration.commands.len(),
+                    "tools": registration.tools.len(),
+                    "handlers": registration.handlers.len(),
                 })
             })
             .collect(),

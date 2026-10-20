@@ -114,6 +114,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     .unwrap();
     let metadata = json!(
         extension
+            .read()
             .commands
             .values()
             .map(|c| json!([c.name, c.description]))

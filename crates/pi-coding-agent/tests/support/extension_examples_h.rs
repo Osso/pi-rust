@@ -23,7 +23,11 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
     )
     .await
     .unwrap();
-    assert_eq!(extension.tools.len(), 4, "example must replace all four built-ins");
+    assert_eq!(
+        extension.read().tools.len(),
+        4,
+        "example must replace all four built-ins"
+    );
     let model_registry = support::model_registry().await;
     let runner = support::runner_for(vec![extension.clone()], cwd, runtime, model_registry);
     let theme = Theme::new(
@@ -40,6 +44,7 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
     )
     .unwrap();
     let tools = extension
+        .read()
         .tools
         .values()
         .map(|tool| {
@@ -51,7 +56,7 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
         .collect::<Vec<_>>();
     let mut renders = Vec::new();
     for item in request["renders"].as_array().unwrap() {
-        let tool = &extension.tools.get(item["tool"].as_str().unwrap()).unwrap().definition;
+        let tool = runner.get_tool_definition(item["tool"].as_str().unwrap()).unwrap();
         let options = ToolRenderResultOptions {
             expanded: item["expanded"].as_bool().unwrap_or(false),
             is_partial: item["isPartial"].as_bool().unwrap_or(false),
@@ -91,7 +96,7 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
     }
     let mut executions = Vec::new();
     for item in request["executions"].as_array().unwrap() {
-        let tool = &extension.tools.get(item["tool"].as_str().unwrap()).unwrap().definition;
+        let tool = runner.get_tool_definition(item["tool"].as_str().unwrap()).unwrap();
         executions.push(
             match (tool.execute)(
                 "fixture-call".into(),
@@ -119,7 +124,7 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
             )
         })
         .collect::<serde_json::Map<_, _>>();
-    let actual = json!({"commands":extension.commands.keys().collect::<Vec<_>>(),"tools":tools,"renders":renders,"executions":executions,"files":files});
+    let actual = json!({"commands":extension.read().commands.keys().collect::<Vec<_>>(),"tools":tools,"renders":renders,"executions":executions,"files":files});
     let mut oracle = oracle::TsOracle::spawn(
         "extension-examples-h-oracle.ts",
         "packages/coding-agent/examples/extensions/built-in-tool-renderer.ts",

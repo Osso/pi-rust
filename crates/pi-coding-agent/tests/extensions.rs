@@ -1280,6 +1280,7 @@ async fn extensions_match_the_pinned_typescript_runner() {
 
 // ===== Behavioral runner cases =====
 
+use pi_coding_agent::core::extensions::loader::{command_handler, shortcut_handler};
 use tokio_util::sync::CancellationToken;
 
 fn tool_definition(name: &str, description: &str) -> ToolDefinition {
@@ -1639,8 +1640,14 @@ async fn handler_count_is_the_number_of_events_with_handlers() {
         api.on_input(h!(InputEvent, |_e, _c| Ok(None))).unwrap();
     })
     .await;
-    assert_eq!((empty.handlers.len(), empty.handlers.is_empty()), (0, true));
-    assert_eq!((a.handlers.len(), a.handlers.is_empty()), (2, false));
+    {
+        let empty = empty.read();
+        assert_eq!((empty.handlers.len(), empty.handlers.is_empty()), (0, true));
+    }
+    {
+        let a = a.read();
+        assert_eq!((a.handlers.len(), a.handlers.is_empty()), (2, false));
+    }
 }
 
 #[tokio::test]
@@ -1925,7 +1932,7 @@ async fn registry_loads_enabled_factories_in_registration_order() {
     assert!(result.errors.is_empty(), "{:?}", result.errors);
     assert_eq!(result.extensions.len(), 1);
     assert_eq!(
-        Path::new(&result.extensions[0].path)
+        Path::new(&result.extensions[0].read().path)
             .file_name()
             .unwrap()
             .to_string_lossy(),
@@ -1971,9 +1978,9 @@ async fn registered_extensions_honor_hidden_and_disabled_ids() {
         .await;
     assert!(errors.is_empty());
     assert_eq!(extensions.len(), 1);
-    assert_eq!(extensions[0].path, "<first-party:a>");
-    assert_eq!(extensions[0].hidden, Some(false));
-    assert_eq!(extensions[0].source_info.source, "first-party");
+    assert_eq!(extensions[0].read().path, "<first-party:a>");
+    assert_eq!(extensions[0].read().hidden, Some(false));
+    assert_eq!(extensions[0].read().source_info.source, "first-party");
 }
 
 #[tokio::test]
@@ -2189,4 +2196,129 @@ async fn wrapped_definitions_propagate_prepare_execution_errors() {
         .await
         .expect_err("prepare execution must fail");
     assert_eq!(error.message, "prepare failed");
+}
+
+#[tokio::test]
+async fn runtime_registration_from_command_is_visible_to_runner() {
+    let runtime = support::runtime();
+    let extension = support::extension(&runtime, "/tmp", "<runtime-registration>", |api| {
+        let live = api.clone();
+        api.register_command(
+            "install",
+            None,
+            None,
+            command_handler(move |_, _| {
+                let live = live.clone();
+                Box::pin(async move {
+                    live.register_tool(tool_definition("late", "registered after load"))?;
+                    live.register_command(
+                        "late-command",
+                        None,
+                        None,
+                        command_handler(|_, ctx| {
+                            Box::pin(async move {
+                                ctx.ui()?.notify("late command ran", None);
+                                Ok(())
+                            })
+                        }),
+                    )?;
+                    live.register_flag("late-flag", None, FlagType::Boolean, Some(FlagValue::Boolean(true)))?;
+                    live.register_shortcut("ctrl+9".into(), None, shortcut_handler(|_| Box::pin(async { Ok(()) })))?;
+                    live.register_message_renderer("late", Arc::new(|_, _, _| None))?;
+                    live.register_entry_renderer("late", Arc::new(|_, _, _| None))?;
+                    live.register_markdown_transformer(Arc::new(|text, _| format!("{text}!")))?;
+                    live.register_tool_gate(Arc::new(|mut event: ToolCallEvent, _: ExtensionContext| {
+                        event.input.insert("late_gate".into(), json!(true));
+                        Box::pin(async move {
+                            Ok(Some(ToolCallEventResult {
+                                input: Some(event.input),
+                                ..Default::default()
+                            }))
+                        })
+                            as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>
+                    }))?;
+                    live.register_approval_reviewer(Arc::new(|_: ToolCallEvent, _: ExtensionContext| {
+                        Box::pin(async {
+                            Ok(Some(ApprovalReviewerResult::Allow {
+                                updated_input: Some(Map::from_iter([("late_review".into(), json!(true))])),
+                            }))
+                        })
+                            as BoxFuture<'static, Result<Option<ApprovalReviewerResult>, HandlerError>>
+                    }))?;
+                    live.on_agent_start(h!(AgentStartEvent, |_event, ctx| {
+                        ctx.ui()?.notify("late handler ran", None);
+                        Ok(None)
+                    }))?;
+                    Ok(())
+                })
+            }),
+        )
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![extension], "/tmp", runtime, support::model_registry().await);
+    support::bind(&mut runner);
+    let command = runner.get_prompt_command("install").unwrap();
+    (command.handler)(String::new(), runner.create_command_context())
+        .await
+        .unwrap();
+    assert_eq!(runner.get_all_registered_tools()[0].definition.name, "late");
+    assert_eq!(
+        runner.get_tool_definition("late").unwrap().description,
+        "registered after load"
+    );
+    let command = runner.get_prompt_command("late-command").unwrap();
+    (command.handler)(String::new(), runner.create_command_context())
+        .await
+        .unwrap();
+    assert!(runner.get_flags().contains_key("late-flag"));
+    assert!(runner.get_shortcuts(&Default::default()).contains_key("ctrl+9"));
+    assert!(runner.get_message_renderer("late").is_some());
+    assert!(runner.get_entry_renderer("late").is_some());
+    assert_eq!(runner.get_markdown_transformers().len(), 1);
+    assert!(runner.has_handlers("agent_start"));
+    runner.emit(&mut ExtensionEvent::AgentStart(AgentStartEvent {})).await;
+    assert!(runner.has_tool_gates());
+    assert!(runner.has_approval_reviewers());
+    let mut event = ToolCallEvent {
+        tool_name: ToolName::Bash,
+        tool_call_id: "late".into(),
+        bypass_permissions: false,
+        input: Map::new(),
+    };
+    runner.emit_tool_gates(&mut event).await.unwrap();
+    assert_eq!(event.input["late_gate"], true);
+    runner.emit_approval_reviewers(&mut event).await.unwrap();
+    assert_eq!(event.input["late_review"], true);
+}
+
+#[tokio::test]
+async fn handlers_appended_during_dispatch_run_in_the_same_event() {
+    let runtime = support::runtime();
+    let observed = Arc::new(Mutex::new(Vec::<String>::new()));
+    let output = observed.clone();
+    let extension = support::extension(&runtime, "/tmp", "<append-handler>", move |api| {
+        let live = api.clone();
+        api.on_agent_start(move |_: AgentStartEvent, _: ExtensionContext| {
+            let live = live.clone();
+            let output = output.clone();
+            Box::pin(async move {
+                output.lock().unwrap().push("first".into());
+                live.on_agent_start(move |_: AgentStartEvent, _: ExtensionContext| {
+                    let output = output.clone();
+                    Box::pin(async move {
+                        output.lock().unwrap().push("appended".into());
+                        Ok(None)
+                    }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
+                })?;
+                Ok(None)
+            }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
+        })
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![extension], "/tmp", runtime, support::model_registry().await);
+    support::bind(&mut runner);
+    runner.emit(&mut ExtensionEvent::AgentStart(AgentStartEvent {})).await;
+    assert_eq!(*observed.lock().unwrap(), ["first", "appended"]);
 }

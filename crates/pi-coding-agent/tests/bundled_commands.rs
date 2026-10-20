@@ -52,7 +52,7 @@ async fn build_harness(extension: Extension, runtime: ExtensionRuntime, options:
 }
 
 fn tool(extension: &Extension, name: &str) -> pi_coding_agent::core::extensions::types::ToolDefinition {
-    extension.tools.get(name).expect("tool").definition.clone()
+    extension.read().tools.get(name).expect("tool").definition.clone()
 }
 
 fn text(result: &pi_agent_core::AgentToolResult) -> String {
@@ -109,6 +109,7 @@ async fn loop_registers_command_and_tool() {
     );
     assert_eq!(
         extension
+            .read()
             .commands
             .get("loop")
             .expect("loop command")
@@ -123,7 +124,13 @@ async fn loop_command_injects_prompt_at_interval() {
     let runtime = create_extension_runtime();
     let extension = load_loop(&runtime, "/repo").await;
     let harness = build_harness(extension.clone(), runtime.clone(), HarnessOptions::new("/repo")).await;
-    let command = extension.commands.get("loop").expect("loop command").handler.clone();
+    let command = extension
+        .read()
+        .commands
+        .get("loop")
+        .expect("loop command")
+        .handler
+        .clone();
 
     command("10s check progress".to_owned(), harness.command_context())
         .await
@@ -156,7 +163,13 @@ async fn loop_command_stops_active_loop() {
     let runtime = create_extension_runtime();
     let extension = load_loop(&runtime, "/repo").await;
     let harness = build_harness(extension.clone(), runtime.clone(), HarnessOptions::new("/repo")).await;
-    let command = extension.commands.get("loop").expect("loop command").handler.clone();
+    let command = extension
+        .read()
+        .commands
+        .get("loop")
+        .expect("loop command")
+        .handler
+        .clone();
 
     command("5s check progress".to_owned(), harness.command_context())
         .await
@@ -216,7 +229,13 @@ async fn loop_shutdown_clears_timer() {
     let runtime = create_extension_runtime();
     let extension = load_loop(&runtime, "/repo").await;
     let harness = build_harness(extension.clone(), runtime.clone(), HarnessOptions::new("/repo")).await;
-    let command = extension.commands.get("loop").expect("loop command").handler.clone();
+    let command = extension
+        .read()
+        .commands
+        .get("loop")
+        .expect("loop command")
+        .handler
+        .clone();
 
     command("2s keep going".to_owned(), harness.command_context())
         .await
@@ -237,7 +256,13 @@ async fn loop_command_reports_usage_and_missing_prompt() {
     let runtime = create_extension_runtime();
     let extension = load_loop(&runtime, "/repo").await;
     let harness = build_harness(extension.clone(), runtime.clone(), HarnessOptions::new("/repo")).await;
-    let command = extension.commands.get("loop").expect("loop command").handler.clone();
+    let command = extension
+        .read()
+        .commands
+        .get("loop")
+        .expect("loop command")
+        .handler
+        .clone();
 
     command("bogus".to_owned(), harness.command_context())
         .await
@@ -267,7 +292,13 @@ async fn fast_toggles_priority_and_updates_status() {
     let mut options = HarnessOptions::new("/repo");
     options.model = Some(test_model(true));
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
-    let command = extension.commands.get("fast").expect("fast command").handler.clone();
+    let command = extension
+        .read()
+        .commands
+        .get("fast")
+        .expect("fast command")
+        .handler
+        .clone();
 
     command(String::new(), harness.command_context())
         .await
@@ -297,7 +328,13 @@ async fn fast_persists_explicit_on_and_off() {
     let mut options = HarnessOptions::new("/repo");
     options.model = Some(test_model(false));
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
-    let command = extension.commands.get("fast").expect("fast command").handler.clone();
+    let command = extension
+        .read()
+        .commands
+        .get("fast")
+        .expect("fast command")
+        .handler
+        .clone();
 
     command("on".to_owned(), harness.command_context()).await.expect("on");
     command("off".to_owned(), harness.command_context()).await.expect("off");
@@ -319,7 +356,13 @@ async fn fast_ultra_adds_service_tier_until_disabled() {
     let mut options = HarnessOptions::new("/repo");
     options.model = Some(test_model(true));
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
-    let command = extension.commands.get("fast").expect("fast command").handler.clone();
+    let command = extension
+        .read()
+        .commands
+        .get("fast")
+        .expect("fast command")
+        .handler
+        .clone();
 
     command("ultra".to_owned(), harness.command_context())
         .await
@@ -359,7 +402,13 @@ async fn fast_rejects_unsupported_providers() {
     model.api = "anthropic-messages".to_owned();
     options.model = Some(model);
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
-    let command = extension.commands.get("fast").expect("fast command").handler.clone();
+    let command = extension
+        .read()
+        .commands
+        .get("fast")
+        .expect("fast command")
+        .handler
+        .clone();
 
     command("on".to_owned(), harness.command_context()).await.expect("on");
 
@@ -381,7 +430,13 @@ async fn fast_skips_non_object_payload_without_losing_mode() {
     let mut options = HarnessOptions::new("/repo");
     options.model = Some(test_model(true));
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
-    let command = extension.commands.get("fast").expect("fast command").handler.clone();
+    let command = extension
+        .read()
+        .commands
+        .get("fast")
+        .expect("fast command")
+        .handler
+        .clone();
     command("on".to_owned(), harness.command_context()).await.expect("on");
 
     assert_eq!(
@@ -492,6 +547,7 @@ async fn effort_registers_command_and_opens_selector() {
     let extension = load_effort(&runtime, "/repo").await;
     assert_eq!(
         extension
+            .read()
             .commands
             .get("effort")
             .expect("effort command")
@@ -504,6 +560,7 @@ async fn effort_registers_command_and_opens_selector() {
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
     harness.ui.select_result(Some("high"));
     let command = extension
+        .read()
         .commands
         .get("effort")
         .expect("effort command")
@@ -533,6 +590,7 @@ async fn effort_only_offers_supported_levels() {
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
     harness.ui.select_result(Some("off"));
     let command = extension
+        .read()
         .commands
         .get("effort")
         .expect("effort command")
@@ -554,6 +612,7 @@ async fn effort_cancelled_selector_changes_nothing() {
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
     harness.ui.select_result(None);
     let command = extension
+        .read()
         .commands
         .get("effort")
         .expect("effort command")
@@ -575,6 +634,7 @@ async fn effort_rejects_unsupported_levels() {
     options.model = Some(test_model(false));
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
     let command = extension
+        .read()
         .commands
         .get("effort")
         .expect("effort command")
@@ -601,6 +661,7 @@ async fn effort_reports_missing_model() {
     let extension = load_effort(&runtime, "/repo").await;
     let harness = build_harness(extension.clone(), runtime.clone(), HarnessOptions::new("/repo")).await;
     let command = extension
+        .read()
         .commands
         .get("effort")
         .expect("effort command")
@@ -638,6 +699,7 @@ async fn effort_injects_proactive_policy_and_restores_explicit_mode() {
     );
 
     let multi_agent = extension
+        .read()
         .commands
         .get("multi-agent")
         .expect("multi-agent command")
@@ -709,6 +771,7 @@ async fn effort_ultra_activates_proactive_and_maps_thinking() {
     options.thinking_level = ThinkingLevel::High;
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
     let command = extension
+        .read()
         .commands
         .get("effort")
         .expect("effort command")
@@ -739,6 +802,7 @@ async fn effort_explicit_from_ultra_keeps_max_reasoning() {
     options.thinking_level = ThinkingLevel::Ultra;
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
     let multi_agent = extension
+        .read()
         .commands
         .get("multi-agent")
         .expect("multi-agent command")
@@ -760,6 +824,7 @@ async fn effort_thinking_level_ultra_reactivates_proactive() {
     options.model = Some(test_model(true));
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
     let multi_agent = extension
+        .read()
         .commands
         .get("multi-agent")
         .expect("multi-agent command")
@@ -791,6 +856,7 @@ async fn effort_child_runtime_cannot_change_mode_or_receive_policy() {
     options.multi_agent_agent_id = Some("child-agent".to_owned());
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
     let multi_agent = extension
+        .read()
         .commands
         .get("multi-agent")
         .expect("multi-agent command")

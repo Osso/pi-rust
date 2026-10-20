@@ -7,6 +7,7 @@ use super::support::Harness;
 impl Harness {
     pub fn command(&self, name: &str) -> RegisteredCommand {
         self.extension
+            .read()
             .commands
             .get(name)
             .unwrap_or_else(|| panic!("command {name} registered"))

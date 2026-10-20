@@ -66,5 +66,5 @@ async fn registers_a_compaction_handler() {
     let extensions = loader.get_extensions();
     assert!(extensions.errors.is_empty());
     assert_eq!(extensions.extensions.len(), 1);
-    assert_eq!(extensions.extensions[0].handlers.compaction.len(), 1);
+    assert_eq!(extensions.extensions[0].read().handlers.compaction.len(), 1);
 }

@@ -7,6 +7,7 @@ use super::support::Harness;
 impl Harness {
     pub fn tool(&self, name: &str) -> ToolDefinition {
         self.extension
+            .read()
             .tools
             .get(name)
             .unwrap_or_else(|| panic!("tool {name} registered"))

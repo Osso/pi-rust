@@ -343,9 +343,9 @@ async fn registers_all_small_extensions_under_source_ids() {
         .await;
     assert!(errors.is_empty(), "{errors:?}");
     assert_eq!(extensions.len(), 23);
-    let tool_names: Vec<&str> = extensions
+    let tool_names: Vec<String> = extensions
         .iter()
-        .flat_map(|extension| extension.tools.keys().map(String::as_str))
+        .flat_map(|extension| extension.read().tools.keys().cloned().collect::<Vec<_>>())
         .collect();
     assert_eq!(
         tool_names,
@@ -358,9 +358,9 @@ async fn registers_all_small_extensions_under_source_ids() {
             "restart_self",
         ]
     );
-    let command_names: Vec<&str> = extensions
+    let command_names: Vec<String> = extensions
         .iter()
-        .flat_map(|extension| extension.commands.keys().map(String::as_str))
+        .flat_map(|extension| extension.read().commands.keys().cloned().collect::<Vec<_>>())
         .collect();
     assert_eq!(
         command_names,
