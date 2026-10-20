@@ -4,7 +4,8 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 
 ## What it must do
 
-- [ ] Reject wrong declared catalog response field types with stable meaningful errors (approved “Reject wrong field types (Recommended)”, 2026-10-20), retaining valid UTF-16 strings; do not port accidental V8 malformed-input sort behavior.
+- [x] Reject wrong copied Model field types at actual artifact emission, including JSON-only, outside fetch catches and after existing staged validators; validate only emitted data-only subsets. No added finite/range/domain limits.
+- [ ] Finish consumed receiver-specific type errors (approved “Reject wrong field types (Recommended)”, 2026-10-20), retaining valid UTF-16 strings; do not port accidental V8 malformed-input sort behavior.
 - [ ] Permit native HTTP causes while retaining Node top-level fetch error name/message, status and failure order (approved “Allow native causes (Recommended)”, 2026-10-20).
 
 - [x] Preserve models.dev plain costs and context-sized pricing tiers.
@@ -42,6 +43,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/src/model_catalog_generator/models_dev.rs`: models.dev/NVIDIA fetching and provider transformations.
 - `crates/pi-ai/src/model_catalog_generator/catalog.rs`: complete fetched-value merge, overrides, supplements, clones and sorted public catalog.
 - `crates/pi-ai/src/model_catalog_generator/artifacts.rs`: native JSON/include staging, manifest validation and public output.
+- `crates/pi-ai/src/model_catalog_generator/emission_types.rs`: minimal actual-Model field-type checks at emission, after source filters/defaults.
 - `crates/pi-ai/src/providers/model_catalogs_generated.rs`: extracted provider include table consumed by unchanged `models_data` APIs.
 - `oracle/model-catalog-generator-oracle.ts`: instrumented pinned source functions with mocked HTTP.
 

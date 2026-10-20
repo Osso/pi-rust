@@ -242,6 +242,7 @@ impl Generator<'_> {
             let providers = output.join("providers");
             filesystem.remove(&output)?;
             filesystem.mkdir(&providers)?;
+            emission_types::public_catalog(&catalog)?;
             filesystem.write(&output.join("models.json"), &serialize(&catalog, self.options.pretty))?;
             filesystem.write(
                 &output.join("providers.json"),
@@ -300,6 +301,7 @@ impl Generator<'_> {
                 &serialize(&manifest.to_json(), self.options.pretty),
             )?;
             validate_model_data_directory(structure, &staged).map_err(checked)?;
+            emission_types::grouped_catalog(groups)?;
             if !self.options.data_only {
                 let path = include_path(root);
                 restore_include = Some(filesystem.read(&path)?);

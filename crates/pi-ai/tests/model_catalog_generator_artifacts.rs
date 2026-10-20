@@ -149,6 +149,163 @@ fn normalized_error(text: &str, root: &str, source: bool) -> String {
         .replace_all(&text, ".model-generation-<STAGE>")
         .into_owned()
 }
+
+#[test]
+fn copied_model_types_reject_at_json_emission_not_inside_fetch_catches() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    let mut cases = vec![];
+    for name in [
+        None,
+        Some(json!(null)),
+        Some(json!(3)),
+        Some(json!(false)),
+        Some(json!([])),
+        Some(json!({})),
+    ] {
+        let mut model = json!({"id":"copied","supported_parameters":["tools"]});
+        if let Some(name) = name {
+            model["name"] = name;
+        }
+        cases.push((json!({}), json!({"data":[model]}), "name"));
+    }
+    for (field, value, suffix) in [
+        ("cost", json!({"input":"wrong"}), "cost.input"),
+        ("limit", json!({"context":"wrong"}), "contextWindow"),
+        ("limit", json!({"output":"wrong"}), "maxTokens"),
+    ] {
+        let mut model = json!({"name":"Copied","tool_call":true});
+        model[field] = value;
+        cases.push((
+            json!({"openai":{"models":{"copied":model}}}),
+            json!({"data":[]}),
+            suffix,
+        ));
+    }
+    for (dev, router, suffix) in cases {
+        let root = Sandbox::new();
+        let output = root.0.join("catalog");
+        fs::create_dir_all(&output).unwrap();
+        fs::write(output.join("old"), "old public output").unwrap();
+        let fixtures = [
+            ("https://models.dev/api.json", dev.to_string()),
+            ("https://openrouter.ai/api/v1/models", router.to_string()),
+            ("https://ai-gateway.vercel.sh/v1/models", "{\"data\":[]}".to_owned()),
+        ];
+        let http: serde_json::Map<String, serde_json::Value> = fixtures
+            .iter()
+            .map(|(url, body)| (url.to_string(), json!({"body":body})))
+            .collect();
+        let expected=source.request(&json!({"operation":"generateModels","argv":["--json-only","--json-output","@OUTPUT@"],"initialFiles":{"catalog/old":"old public output"},"http":http}));
+        assert!(
+            expected.get("error").is_none(),
+            "classify original JSON-only acceptance: {expected}"
+        );
+        let mut fetch = |url: &str| {
+            Ok(HttpResponse {
+                status: 200,
+                body: fixtures.iter().find(|(key, _)| *key == url).unwrap().1.clone(),
+            })
+        };
+        let mut generator = Generator::new(
+            GeneratorOptions {
+                json_only: true,
+                json_output_dir: Some(output.clone()),
+                ..Default::default()
+            },
+            &mut fetch,
+        );
+        let error = generator
+            .generate(&root.0, &JsString::from("2026-10-20T00:00:00.000Z"))
+            .unwrap_err();
+        assert_eq!(error.name, "TypeError");
+        assert!(
+            error.message.to_utf8().unwrap().ends_with(&format!(
+                "{suffix} must be a {}",
+                if suffix == "name" { "string" } else { "number" }
+            )),
+            "{error}"
+        );
+        assert_eq!(
+            generator.logs.len(),
+            6,
+            "new validation must not become a fetch error/default-empty result"
+        );
+        assert!(output.join("providers").is_dir());
+        assert!(!output.join("models.json").exists());
+        assert!(
+            !output.join("old").exists(),
+            "preserve existing output reset before model emission"
+        );
+    }
+}
+
+#[test]
+fn copied_model_checks_preserve_existing_stage_validator_errors_and_unemitted_subsets() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    for subset in [false, true] {
+        let root = Sandbox::new();
+        let providers = root.0.join("crates/pi-ai/src/providers");
+        fs::create_dir_all(&providers).unwrap();
+        let include = "const PROVIDER_CATALOGS: &[(&str, &str)] = &[(\"openai\", include_str!(\"../../data/providers/openai.json\"))];\n";
+        fs::write(providers.join("model_catalogs_generated.rs"), include).unwrap();
+        let body = if subset {
+            json!({"github-copilot":{"models":{"copied":{"name":"Copied","tool_call":true,"cost":{"tiers":[{"tier":{"type":"context","size":"wrong"}}]}}}}})
+        } else {
+            json!({})
+        };
+        let router = if subset {
+            json!({"data":[]})
+        } else {
+            json!({"data":[{"id":"copied","name":3,"supported_parameters":["tools"]}]})
+        };
+        let fixtures = [
+            ("https://models.dev/api.json", body.to_string()),
+            ("https://openrouter.ai/api/v1/models", router.to_string()),
+            ("https://ai-gateway.vercel.sh/v1/models", "{\"data\":[]}".to_owned()),
+        ];
+        let http: serde_json::Map<String, serde_json::Value> = fixtures
+            .iter()
+            .map(|(url, body)| (url.to_string(), json!({"body":body})))
+            .collect();
+        let expected=source.request(&json!({"operation":"generateModels","argv":if subset{vec!["--data-only"]}else{vec![]},"initialFiles":{"src/models.generated.ts":"import { OPENAI_MODELS } from \"./providers/openai.models.ts\";\n","src/providers/openai.models.ts":"old"},"http":http}));
+        let mut fetch = |url: &str| {
+            Ok(HttpResponse {
+                status: 200,
+                body: fixtures.iter().find(|(key, _)| *key == url).unwrap().1.clone(),
+            })
+        };
+        let mut generator = Generator::new(
+            GeneratorOptions {
+                data_only: subset,
+                ..Default::default()
+            },
+            &mut fetch,
+        );
+        let actual = generator.generate(&root.0, &JsString::from("2026-10-20T00:00:00.000Z"));
+        if subset {
+            actual.unwrap();
+            assert!(expected.get("error").is_none());
+            assert_eq!(
+                fs::read_to_string(root.0.join("crates/pi-ai/data/providers/openai.json")).unwrap(),
+                expected["files"]["src/providers/data/openai.json"].as_str().unwrap()
+            );
+        } else {
+            let error = actual.unwrap_err();
+            assert_eq!(error.name, expected["error"]["name"].as_str().unwrap());
+            assert_eq!(
+                error.message.to_utf8().unwrap(),
+                expected["error"]["message"].as_str().unwrap()
+            );
+        }
+    }
+}
+
 #[test]
 fn source_transaction_failures_restore_values_include_and_cleanup_at_exact_boundaries() {
     use pi_ai::model_catalog_generator::{GeneratorErrorDetails, NativeCatalogFileSystem};

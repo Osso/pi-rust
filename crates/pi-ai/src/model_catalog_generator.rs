@@ -22,6 +22,7 @@ pub fn run_generator_cli<'a>(
 mod artifacts;
 pub use artifacts::{CatalogFileSystem, NativeCatalogFileSystem};
 mod catalog;
+mod emission_types;
 mod metadata;
 mod models_dev;
 pub use metadata::apply_model_metadata;
