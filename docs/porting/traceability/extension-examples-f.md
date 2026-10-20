@@ -66,3 +66,25 @@ Mutation proof and exact command logs: /tmp/pi-rust-ext-examples-f/ledger.md.
   thread, retaining request cancellation across the Send+Sync boundary. The
   loader's pinned empty animation frames require no persistent timer state.
   Async completion runs on the host Tokio runtime; UI done resolves once.
+
+## Blocked Todo source-aliasing behavior
+
+**Todo is partial; no semantic deviation approved.**
+
+Pinned `todo.ts:124–126` assigns `todos = details.todos`; later `push` (165) and
+`todo.done = !todo.done` (191) mutate the same arrays/objects held by session
+entries. Pinned `session-manager.ts:1991–1996` returns original entry references.
+This is a classified source aliasing bug: revisiting the same entry can retain
+new todos while restoring the old nextId, producing duplicate IDs.
+
+Rust `crates/pi-coding-agent/src/core/session_manager.rs:3019–3027` clones branch
+entries; `get_entry` at 2847 returns only `&SessionEntry`. No exposed shared entry
+or arbitrary mutable message-details API exists. A private extension-side overlay
+would not mutate observable session state and is not an equivalent port. No core
+API changes or such workaround were made.
+
+`example_todo::todo_stored_details_aliases_survive_branch_back_and_reload`
+reproduces restore → add → restore different entry → branch back → add → reload.
+It remains explicitly ignored with the missing API named; forcing it fails
+against the real pinned TS runtime. Normal Todo tool results/UI/renderers remain
+proven by the non-ignored differential, not whole-module parity.

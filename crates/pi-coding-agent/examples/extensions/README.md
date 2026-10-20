@@ -83,3 +83,7 @@ messages using registry model `google/gemini-2.5-flash`. `qna.rs`
 (`qna_extension`) extracts questions using the current model into the editor.
 Both can make model requests when explicitly enabled; tests use private faux
 providers only.
+
+Todo parity is **partial**: native session snapshots cannot reproduce the pinned
+example's mutation of stored tool-result details by reference. See
+`docs/porting/traceability/extension-examples-f.md` for the blocked API and test.
