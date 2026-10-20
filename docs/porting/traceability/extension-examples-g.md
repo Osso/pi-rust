@@ -52,7 +52,7 @@ models, no network/provider completion calls.
 
 ## Plan-mode blocked — not shipped
 
-TS `plan-mode/index.ts:354–356` aliases `planModeEntry.data.todos`;
+TS `plan-mode/index.ts:354` aliases `planModeEntry.data.todos`;
 `index.ts:382` and `utils.ts:159–165` mutate those same todo objects when restoring
 completion. Existing session entries therefore change in memory. Differential log
 `14-plan-green.log` finds identical UI/action traces but different complete session
@@ -67,3 +67,16 @@ of this batch's permitted scope; the incomplete plan-mode implementation was
 removed. `example_plan_mode` is a behavioral discrepancy reproduction, not parity.
 Do not mark `plan-mode/index.ts` done without classifying this source aliasing
 behavior or exposing an approved native API.
+
+## Final targeted results
+
+| Target | RED | GREEN / latest scope | Mutation |
+| --- | --- | --- | --- |
+| `example_plan_mode_utils` | Missing module; later lossless Unicode regression | 1 passed; >500 input cases, all five helpers, ba98058 | Completion count changed to zero: test fails; restored |
+| `example_minimal_mode` | Missing module | 1 passed; 392 call/result render pairs, seven successes plus seven errors, 9ed3074 | Limit text changed: test fails; restored |
+| `example_preset` | Missing module | 1 passed; config/CLI/shortcut/custom UI/redraw/model/thinking/tools/prompt/persistence/errors, 9ed3074 | Activation text changed: test fails; restored |
+| `example_plan_mode` | Attempted port: 2 failures; one exposed API gap | 1 passed discrepancy-only reproduction; NO native plan-mode port | Not applicable: stopped, incomplete source removed |
+
+No new dependencies, live state, providers, default registration, shared core API
+changes, agents, model CLIs, merge, or push. Only targeted Cargo tests and fmt run.
+No clippy/check/workspace suites. Plan-mode remains blocked, not done.
