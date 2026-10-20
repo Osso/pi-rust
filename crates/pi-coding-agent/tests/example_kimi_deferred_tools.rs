@@ -9,7 +9,7 @@ async fn deferred_tools_activate_once_and_reset_on_session_start() {
     let actual = harness::compare(
         "kimi-deferred-tools",
         harness::factory(example::kimi_deferred_tools_extension),
-        json!({"steps":[
+        json!({"metadata":true,"steps":[
         {"op":"event","event":{"type":"session_start","reason":"startup"}},
         {"op":"tool","name":"tool_search","params":{"query":"weather"}},
         {"op":"tool","name":"tool_search","params":{"query":"CALCULATE 100 + 500"}},

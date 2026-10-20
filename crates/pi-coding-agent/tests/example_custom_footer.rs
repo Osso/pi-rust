@@ -47,8 +47,10 @@ async fn footer_without_git_branch_omits_parentheses() {
     let actual = harness::compare(
         "custom-footer",
         harness::factory(example::custom_footer_extension),
-        json!({"footer":true,"steps":[{"op":"command","name":"footer"},{"op":"footer","width":80}]}),
+        json!({"footer":true,"model":{"id":"faux-footer-1","name":"Fixture","api":"faux","provider":"faux","baseUrl":"http://invalid","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":4096,"maxTokens":128},"steps":[{"op":"command","name":"footer"},{"op":"footer","width":80}]}),
     )
     .await;
-    assert!(!actual["trace"][2][1][0].as_str().unwrap().contains('('));
+    let line = actual["trace"][2][1][0].as_str().unwrap();
+    assert!(!line.contains('('));
+    assert!(line.contains("faux-footer-1"));
 }
