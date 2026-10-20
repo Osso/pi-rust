@@ -38,6 +38,7 @@ bash manifests/completions, supervisor request rows, persisted process identity)
 ## Discrepancies
 
 - Legacy `parse` replaces lone surrogate escapes with U+FFFD before key insertion, preserving existing serde-facing behavior. This is a known lossy API boundary, not valid proof of raw-file validator parity: `JSON.stringify` must escape those units rather than replace them. New `parse_lossless` retains them. A non-BMP character reported as V8's single-unit error token still prints as U+FFFD at the UTF-8 diagnostic boundary; the existing mutation oracle applies `toWellFormed()` only to errors. The new bounded lossless oracle applies no normalization.
+- Number formatting uses the shared ECMAScript primitive; same-bit compact/pretty, coercion, serde writer and parse/write proof: [number trace](js-compat.md#number--parseint--parsefloat--numbertostring-srcnumberrs). Generic serde storage remains numeric-semantic, not byte-exact JavaScript text; [boundary contract](../../specs/js-number-format.md).
 - The shared writer converts serde numbers to binary64, matching JavaScript rounding
   above 2^53. Lossless parsing now retains overflow infinities and signed zero until
   serialization; legacy serde-facing parsing still maps non-finite numbers to null.

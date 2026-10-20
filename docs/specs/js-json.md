@@ -11,6 +11,7 @@
 - [x] Supply UTF-16 construction/access, code-unit equality/hash/order, valid Rust-string construction, checked UTF-8 conversion, and explicitly lossy UTF-8 conversion.
 - [x] Preserve existing null/bool/number/array/object support and V8 diagnostic text/UTF-16 positions.
 - [x] Retain JavaScript binary64 numbers, including negative zero and overflow infinities, until stringify or explicit serde conversion maps non-finite values to null.
+- [x] Format numeric JSON/coercion using [shared shortest-decimal semantics](js-number-format.md), distinct from generic serde numeric storage.
 - [x] Provide JSON-value Boolean and fallible String coercions without losing UTF-16 units; objects shadowing `toString` throw rather than silently stringify.
 - [x] Keep legacy serde parse behavior, including replacement before duplicate-key collision handling. Explicit later lossy conversion need not produce the same collisions as legacy parsing.
 
