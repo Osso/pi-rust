@@ -181,9 +181,12 @@ has no separate render-region callbacks.
 
 Not implemented for the whole mode: driving the real TypeScript
 `InteractiveMode` requires a TTY/faux runtime harness that this slice did not
-build. Deterministic helpers are covered by unit tests; the interactive
-behavior tests drive the real Rust mode in a capture terminal with the faux
-provider. This is recorded as a coverage gap in `coverage.md`.
+build, and importing `interactive-mode.ts` under standalone `tsx` fails in the
+pinned worktree (`jiti` does not export `./static`). Deterministic compaction
+helpers are covered by unit tests ported from
+`packages/coding-agent/test/interactive-mode-compaction.test.ts`; the
+interactive behavior tests drive the real Rust mode in a capture terminal with
+the faux provider. This is recorded as a coverage gap in `coverage.md`.
 
 Behavior tests drive the real mode through a capture terminal: startup,
 prompt submission, bash mode, settings, scoped models, trust, sandbox,
