@@ -121,6 +121,19 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
             (path, bytes)
         })
         .collect();
+    let keys = request["keybindings"]
+        .as_object()
+        .map(|bindings| {
+            bindings
+                .iter()
+                .map(|(id, keys)| (id.clone(), serde_json::from_value(keys.clone()).unwrap()))
+                .collect()
+        })
+        .unwrap_or_default();
+    pi_tui::keybindings::set_keybindings(pi_tui::keybindings::KeybindingsManager::new(
+        pi_tui::keybindings::tui_keybindings(),
+        keys,
+    ));
     let cwd = request["cwd"].as_str().unwrap_or("/fixture");
     let runtime = create_extension_runtime();
     let mut registry = ExtensionRegistry::new();

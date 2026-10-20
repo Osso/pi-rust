@@ -33,4 +33,13 @@ async fn tool_selection_ui_persists_order_and_restores_current_branch() {
         Box::pin(async move { result })
     });
     support::compare("tools",factory,json!({"allTools":[],"activeTools":[],"cases":[{"event":"session_start"},{"event":"command","name":"tools","keys":["\r","\u{1b}[B","\u{1b}"]}]})).await;
+    selector_retains_native_cursor_with_remapped_navigation().await;
+}
+
+async fn selector_retains_native_cursor_with_remapped_navigation() {
+    let factory: ExtensionFactory = Arc::new(|api| {
+        let result = example::tools_extension(api);
+        Box::pin(async move { result })
+    });
+    support::compare("tools",factory,json!({"allTools":["read","bash","write"],"activeTools":["read"],"keybindings":{"tui.select.down":["j"],"tui.select.up":["k"]},"cases":[{"event":"session_start"},{"event":"command","name":"tools","keys":["j","j"," ","k","\r","k","\u{1b}"]}]})).await;
 }

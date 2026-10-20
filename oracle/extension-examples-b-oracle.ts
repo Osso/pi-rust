@@ -8,7 +8,7 @@ async function main() {
 const source = process.argv[2];
 const packages = resolve(source.slice(0, source.indexOf("/packages/") + "/packages/".length));
 const moduleUrl = (path: string) => pathToFileURL(resolve(packages, path)).href;
-const [{ default: factory }, loader, runnerModule, session, auth, utils, events, themeModule, fauxModule] = await Promise.all([
+const [{ default: factory }, loader, runnerModule, session, auth, utils, events, themeModule, fauxModule, keysModule] = await Promise.all([
  import(pathToFileURL(source).href),
  import(moduleUrl("coding-agent/src/core/extensions/loader.ts")),
  import(moduleUrl("coding-agent/src/core/extensions/runner.ts")),
@@ -18,8 +18,10 @@ const [{ default: factory }, loader, runnerModule, session, auth, utils, events,
  import(moduleUrl("coding-agent/src/core/event-bus.ts")),
  import(moduleUrl("coding-agent/src/modes/interactive/theme/theme.ts")),
  import(moduleUrl("ai/src/providers/faux.ts")),
+ import(moduleUrl("tui/src/keybindings.ts")),
 ]);
 async function run(request: any) {
+ keysModule.setKeybindings(new keysModule.KeybindingsManager(keysModule.TUI_KEYBINDINGS,request.keybindings ?? {}));
  const cwd = request.cwd ?? "/fixture";
  if (request.home) { process.env.HOME = request.home; process.chdir(cwd); }
  const runtime = loader.createExtensionRuntime();

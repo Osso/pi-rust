@@ -61,7 +61,7 @@ pub fn tools_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                                 names: names.clone(),
                                 enabled: enabled.clone(),
                                 api: api.clone(),
-                                selected: Mutex::new(0),
+                                cursor: Mutex::default(),
                                 theme: context.theme,
                                 tui: context.tui,
                                 done,
@@ -112,7 +112,7 @@ struct ToolSelector {
     names: Vec<String>,
     enabled: Arc<Mutex<IndexSet<String>>>,
     api: ExtensionApi,
-    selected: Mutex<usize>,
+    cursor: Mutex<Cursor>,
     theme: Arc<Theme>,
     tui: ExtensionUiTui,
     done: ExtensionUiDone,
@@ -122,6 +122,24 @@ impl ToolSelector {
     // Native TUI components use Rc; keep only the selection snapshot across the
     // Send+Sync extension boundary and reconstruct the non-search SettingsList
     // locally. Native rendering/keybindings remain the source of truth.
+    fn replay_selection(&self, list: &mut SettingsList) {
+        let cursor = self.cursor.lock().unwrap();
+        if cursor.index == 0 {
+            return;
+        }
+        let (key, down) = cursor
+            .navigation
+            .as_ref()
+            .expect("selected cursor has navigation input");
+        let steps = if *down {
+            cursor.index
+        } else {
+            self.names.len() - cursor.index
+        };
+        for _ in 0..steps {
+            list.handle_input(key);
+        }
+    }
     fn list(&self) -> SettingsList {
         let enabled = self.enabled.lock().unwrap();
         let items = self
@@ -167,9 +185,7 @@ impl ToolSelector {
             Rc::new(move || close.call(None)),
             SettingsListOptions::default(),
         );
-        for _ in 0..*self.selected.lock().unwrap() {
-            list.handle_input("\x1b[B");
-        }
+        self.replay_selection(&mut list);
         list
     }
 }
@@ -186,9 +202,23 @@ impl ExtensionUiComponent for ToolSelector {
     fn handle_input(&self, data: &str) {
         let mut list = self.list();
         list.handle_input(data);
-        *self.selected.lock().unwrap() = list.selected_index();
+        let keys = pi_tui::keybindings::get_keybindings();
+        let down = keys.matches(data, "tui.select.down");
+        let up = keys.matches(data, "tui.select.up");
+        let mut cursor = self.cursor.lock().unwrap();
+        cursor.index = list.selected_index();
+        if down || up {
+            cursor.navigation = Some((data.into(), down));
+        }
+        drop(cursor);
         if self.error.lock().unwrap().is_none() {
             self.tui.request_render();
         }
     }
+}
+
+#[derive(Default)]
+struct Cursor {
+    index: usize,
+    navigation: Option<(String, bool)>,
 }
