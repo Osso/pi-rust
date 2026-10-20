@@ -1,6 +1,7 @@
 import { readFile, rm } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { resolve, dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 
 // Execute unchanged pinned examples through their real native TS loader/runner.
 // No discovery, live credentials, settings, providers, or session databases.
@@ -61,6 +62,14 @@ async function run(request: any) {
  const errors: unknown[] = [];
  runner.onError((error: any) => errors.push([error.event, error.error]));
  const metadata = {commands: [...extension.commands.keys()], tools: [...extension.tools.keys()]};
+ const github = source.endsWith("/github-issue-autocomplete.ts");
+ const allCalls: any[] = [];
+ let wrapper: any;
+ let provider: any = {
+  getSuggestions: async () => ({items:[{value:"base",label:"Base",description:"delegate"}],prefix:"base-prefix"}),
+  applyCompletion(lines: string[], line: number, col: number, item: any, prefix: string) { const updated=[...lines]; updated[line]=lines[line].slice(0,col-prefix.length)+item.value; return {lines:updated,cursorLine:line,cursorCol:col-prefix.length+item.value.length}; },
+  shouldTriggerFileCompletion: () => false,
+ };
  const cases = [];
  const originalDate = Date;
  if (request.nowMillis !== undefined) {
@@ -70,11 +79,12 @@ async function run(request: any) {
   } as DateConstructor;
  }
  for (const item of request.cases) {
-  const calls: any[] = [];
+  const calls: any[] = github ? allCalls : [];
   const roles=["accent","dim","muted","text","success","error","warning","toolTitle","borderMuted","border","selectedBg"];
   const theme={fg:(role:string,text:string)=>`\x1b[38;2;${50+roles.indexOf(role)};32;32m${text}\x1b[39m`,bold:(text:string)=>text};
   themeModule.setThemeInstance(theme as any);
   const ui = {
+   addAutocompleteProvider: (factory: any) => { wrapper=factory; },
    theme,
    custom: async (factory:any) => {
     let completed=false, value:any;
@@ -116,6 +126,18 @@ async function run(request: any) {
   let result: unknown;
   switch (item.event) {
    case "session_start": result = await runner.emit({type: "session_start", reason: "startup"}); break;
+   case "autocomplete": {
+    if (wrapper) { provider=wrapper(provider); wrapper=undefined; }
+    const text=item.text, lines=[text], abort=new AbortController();
+    if (item.aborted) abort.abort();
+    const suggestions=await provider.getSuggestions(lines,0,text.length,{signal:abort.signal,force:false});
+    // Compatibility: native String UI boundaries encode lone surrogates as U+FFFD.
+    if (suggestions) for (const item of suggestions.items) {
+     for (const key of ["value","label","description"]) if (typeof item[key] === "string") item[key]=Buffer.from(item[key],"utf8").toString("utf8");
+    }
+    result={suggestions,applied:provider.applyCompletion(lines,0,text.length,{value:"#101",label:"#101"},text),trigger:provider.shouldTriggerFileCompletion(lines,0,text.length)};
+    break;
+   }
    case "append_custom": manager.appendCustomEntry(item.kind,item.data);break;
    case "append": manager.appendMessage(item.message); break;
    case "branch": manager.branch(manager.getEntries()[item.index].id); break;
@@ -153,10 +175,15 @@ async function run(request: any) {
    result.value.content[0].text=result.value.content[0].text.replaceAll(path,"<temporary>/pi-rg/output.txt");
    await rm(dirname(path),{recursive:true});
   }
-  cases.push(JSON.parse(JSON.stringify({result: result ?? null, ui: calls})));
+  cases.push(JSON.parse(JSON.stringify({result: result ?? null, ui: github ? [] : calls})));
  }
  globalThis.Date = originalDate;
  globalThis.setTimeout = originalTimeout;
+ if (github) {
+  const receipt=resolve(cwd,"requests");
+  const requests=existsSync(receipt) ? readFileSync(receipt,"utf8").trim().split("\n").filter(Boolean).map(line=>JSON.parse(line)) : [];
+  return {metadata,cases,errors,ui:allCalls,requests};
+ }
  return {metadata,cases,errors,...(request.allTools || request.captureEffects ? {effects}: {}),...(request.modelFixture ? {modelCalls}: {})};
 }
 process.stdin.setEncoding("utf8");

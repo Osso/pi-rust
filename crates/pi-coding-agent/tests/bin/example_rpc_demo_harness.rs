@@ -1,0 +1,160 @@
+#[path = "../../examples/extensions/rpc_demo.rs"]
+mod example;
+use pi_coding_agent::core::{
+    agent_session::AgentSession,
+    agent_session_runtime::*,
+    agent_session_services::*,
+    auth_storage::AuthStorage,
+    extensions::*,
+    model_runtime::*,
+    resource_loader::StaticResourceLoader,
+    sdk::{CreateAgentSessionOptions, create_agent_session},
+    session_manager::SessionManager,
+};
+use serde_json::{Value, json};
+use std::sync::{Arc, Mutex};
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let cwd = std::env::args().nth(1).unwrap();
+    let agent = std::path::Path::new(&cwd).join("rust-agent");
+    std::fs::create_dir_all(&agent).unwrap();
+    let slot: Arc<Mutex<Option<AgentSession>>> = Arc::default();
+    let captured = slot.clone();
+    let factory: ExtensionFactory = Arc::new(move |api| {
+        let result = example::rpc_demo_extension(api);
+        let captured = captured.clone();
+        let registered = api.register_command(
+            "fixture-event",
+            Some("Private RPC event driver".into()),
+            None,
+            Arc::new(move |args, ctx| {
+                let session = captured.lock().unwrap().clone().unwrap();
+                Box::pin(async move {
+                    let input: Value = serde_json::from_str(&args).unwrap();
+                    let mut runner = session.extension_runner();
+                    let ui = ctx.ui()?;
+                    if input["noUi"] == true {
+                        runner.set_ui_context(None, ExtensionMode::Rpc);
+                    }
+                    let result = if input["type"] == "tool_call" {
+                        let mut event = serde_json::from_value(input).unwrap();
+                        json!(runner.emit_tool_call(&mut event).await?)
+                    } else {
+                        let mut event = serde_json::from_value(input).unwrap();
+                        match runner.emit(&mut event).await {
+                            EmitResult::None => Value::Null,
+                            EmitResult::SessionBeforeSwitch(result) => json!(result),
+                            other => panic!("unsupported fixture result: {other:?}"),
+                        }
+                    };
+                    runner.set_ui_context(Some(ui.clone()), ExtensionMode::Rpc);
+                    ui.notify(&format!("fixture result: {result}"), Some(NotifyType::Info));
+                    Ok(())
+                })
+            }),
+        );
+        Box::pin(async move {
+            result?;
+            registered.map_err(HandlerError::new)
+        })
+    });
+    let runtime = create_extension_runtime();
+    let mut registry = ExtensionRegistry::new();
+    registry.register("rpc-demo", factory);
+    let extension = load_extension_from_factory(
+        registry.get("rpc-demo").unwrap().clone(),
+        &cwd,
+        Arc::new(pi_coding_agent::core::event_bus::create_event_bus()),
+        runtime.clone(),
+        "/fixture/rpc-demo",
+    )
+    .await
+    .unwrap();
+    let loader = Arc::new(StaticResourceLoader {
+        extensions: Some(LoadExtensionsResult {
+            extensions: vec![extension],
+            errors: vec![],
+            runtime,
+        }),
+        ..Default::default()
+    });
+    let models = ModelRuntime::create(CreateModelRuntimeOptions {
+        credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::new()))),
+        models_path: Some(None),
+        allow_model_network: false,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let settings = Arc::new(Mutex::new(
+        pi_coding_agent::core::settings_manager::SettingsManager::in_memory(Default::default(), Default::default()),
+    ));
+    let services = AgentSessionServices {
+        cwd: cwd.clone(),
+        agent_dir: agent.display().to_string(),
+        model_runtime: models.clone(),
+        settings_manager: settings.clone(),
+        resource_loader: loader.clone(),
+        diagnostics: vec![],
+    };
+    let manager = SessionManager::in_memory(Some(&cwd), None).unwrap();
+    let options = |manager, reason| CreateAgentSessionOptions {
+        cwd: Some(cwd.clone()),
+        agent_dir: Some(agent.display().to_string()),
+        model_runtime: Some(models.clone()),
+        resource_loader: Some(loader.clone()),
+        settings_manager: Some(settings.clone()),
+        session_manager: Some(manager),
+        tools: Some(vec![]),
+        disable_runtime_coordination_inbound: true,
+        session_start_event: Some(SessionStartEvent {
+            reason,
+            previous_session_file: None,
+        }),
+        ..Default::default()
+    };
+    let initial = create_agent_session(options(manager, SessionStartReason::Startup))
+        .await
+        .unwrap();
+    *slot.lock().unwrap() = Some(initial.session.clone());
+    let services_next = services.clone();
+    let factory: CreateAgentSessionRuntimeFactory = Arc::new(move |input| {
+        let services = services_next.clone();
+        let slot = slot.clone();
+        Box::pin(async move {
+            let result = create_agent_session(CreateAgentSessionOptions {
+                cwd: Some(input.cwd),
+                agent_dir: Some(input.agent_dir),
+                model_runtime: Some(services.model_runtime.clone()),
+                resource_loader: Some(services.resource_loader.clone()),
+                settings_manager: Some(services.settings_manager.clone()),
+                session_manager: Some(input.session_manager),
+                tools: Some(vec![]),
+                disable_runtime_coordination_inbound: true,
+                session_start_event: Some(SessionStartEvent {
+                    reason: SessionStartReason::New,
+                    previous_session_file: input.previous_session_file,
+                }),
+                ..Default::default()
+            })
+            .await?;
+            *slot.lock().unwrap() = Some(result.session.clone());
+            Ok(CreateAgentSessionRuntimeResult {
+                session: result.session,
+                services,
+                diagnostics: vec![],
+                model_fallback_message: result.model_fallback_message,
+            })
+        })
+    });
+    let runtime = share_agent_session_runtime(AgentSessionRuntime::new(
+        initial.session,
+        services,
+        factory,
+        vec![],
+        None,
+    ))
+    .await;
+    pi_coding_agent::modes::rpc::rpc_mode::run_rpc_mode(runtime).await;
+}
