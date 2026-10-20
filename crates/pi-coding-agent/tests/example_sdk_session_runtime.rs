@@ -32,14 +32,57 @@ async fn queue_subscription_rebinds_without_duplicate_or_stale_output() {
     fixture.options.session_manager = None;
     let _home = fixture.home;
     let output = std::sync::Arc::new(std::sync::Mutex::new(support::Output::default()));
+    let starts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = std::sync::Arc::clone(&starts);
+    let mut registry = pi_coding_agent::core::extensions::loader::ExtensionRegistry::new();
+    registry.register(
+        "fixture",
+        std::sync::Arc::new(move |api| {
+            let observed = std::sync::Arc::clone(&observed);
+            let result = api.on_session_start(
+                move |_: pi_coding_agent::core::extensions::types::SessionStartEvent,
+                      _: pi_coding_agent::core::extensions::types::ExtensionContext| {
+                    observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Box::pin(async { Ok(None) })
+                        as pi_coding_agent::core::extensions::types::BoxFuture<
+                            'static,
+                            Result<Option<()>, pi_coding_agent::core::extensions::types::HandlerError>,
+                        >
+                },
+            );
+            Box::pin(async move { result.map_err(pi_coding_agent::core::extensions::types::HandlerError::new) })
+        }),
+    );
+    let extensions = registry
+        .load_extensions(&["fixture".into()], fixture.options.cwd.as_ref().unwrap(), None, None)
+        .await;
+    assert!(extensions.errors.is_empty());
+    fixture.options.resource_loader = Some(std::sync::Arc::new(
+        pi_coding_agent::core::resource_loader::StaticResourceLoader {
+            extensions: Some(extensions),
+            ..Default::default()
+        },
+    ));
     let mut runtime = example::create_runtime(fixture.options).await.unwrap();
     let first = example::bind_session(&runtime, None, std::sync::Arc::clone(&output)).await;
+    assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), 1);
     first.0.steer("first", &[]).await.unwrap();
-    runtime.new_session(Default::default()).await.unwrap();
+    let replacement_fixture = support::fixture().await;
+    let mut replacement = example::create_runtime(replacement_fixture.options).await.unwrap();
     let old = first.0.clone();
-    let second = example::bind_session(&runtime, Some(first), std::sync::Arc::clone(&output)).await;
+    let second = example::bind_session(&replacement, Some(first), std::sync::Arc::clone(&output)).await;
+    let live_events = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = std::sync::Arc::clone(&live_events);
+    old.subscribe(std::sync::Arc::new(move |_| {
+        observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }));
     let before = output.lock().unwrap().text();
     old.clear_queue();
+    assert_eq!(
+        live_events.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "outgoing session still emits events before disposal"
+    );
     assert_eq!(output.lock().unwrap().text(), before);
     second.0.steer("second", &[]).await.unwrap();
     second.0.follow_up("third", &[]).await.unwrap();
@@ -48,6 +91,7 @@ async fn queue_subscription_rebinds_without_duplicate_or_stale_output() {
     let before = output.lock().unwrap().text();
     second.0.clear_queue();
     assert_eq!(output.lock().unwrap().text(), before);
+    replacement.dispose().await;
     runtime.dispose().await;
     assert!(fixture.requests.lock().unwrap().is_empty());
 }

@@ -12,6 +12,17 @@ async fn replaces_then_appends_prompt_and_preserves_output_order() {
     let second = support::fixture().await;
     let cwd = first.options.cwd.clone().unwrap();
     let _homes = (first.home, second.home);
+    let ids = [&first.options, &second.options]
+        .map(|options| options.session_manager.as_ref().unwrap().get_session_id().to_owned());
+    let disposed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = std::sync::Arc::clone(&disposed);
+    let expected_ids = ids.clone();
+    let cleanup = pi_ai::session_resources::register_session_resource_cleanup(Box::new(move |session| {
+        if let Some(id) = session.filter(|id| expected_ids.iter().any(|expected| expected == id)) {
+            observed.lock().unwrap().push(id.to_owned());
+        }
+        Ok(())
+    }));
     let output = support::Output::default();
     let _main = example::main;
     example::run([first.options, second.options], output.clone())
@@ -23,7 +34,8 @@ async fn replaces_then_appends_prompt_and_preserves_output_order() {
     );
     let expected = source.request(&json!({"text":"Hello!"}));
     assert_eq!(output.text(), expected["stdout"]);
-    assert_eq!(expected["disposed"], json!([0, 1]));
+    assert_eq!(*disposed.lock().unwrap(), ids);
+    cleanup.unregister();
     let requests = first.requests.lock().unwrap();
     assert_eq!(
         requests[0]["context"]["systemPrompt"],
