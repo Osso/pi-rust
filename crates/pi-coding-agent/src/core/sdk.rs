@@ -556,22 +556,7 @@ fn block_images(message: Message) -> Message {
             if let UserContent::Blocks(blocks) = &user.content
                 && blocks.iter().any(|block| matches!(block, TextOrImageContent::Image(_)))
             {
-                let mut filtered: Vec<TextOrImageContent> = Vec::new();
-                for block in blocks {
-                    match block {
-                        TextOrImageContent::Image(_) => {
-                            push_placeholder(&mut filtered);
-                        }
-                        TextOrImageContent::Text(text) => {
-                            if text.text == "Image reading is disabled." {
-                                push_placeholder(&mut filtered);
-                            } else {
-                                filtered.push(TextOrImageContent::Text(text.clone()));
-                            }
-                        }
-                    }
-                }
-                user.content = UserContent::Blocks(filtered);
+                user.content = UserContent::Blocks(block_image_blocks(blocks));
             }
             Message::User(user)
         }
@@ -581,25 +566,26 @@ fn block_images(message: Message) -> Message {
                 .iter()
                 .any(|block| matches!(block, TextOrImageContent::Image(_)))
             {
-                let mut filtered: Vec<TextOrImageContent> = Vec::new();
-                for block in result.content {
-                    match block {
-                        TextOrImageContent::Image(_) => push_placeholder(&mut filtered),
-                        TextOrImageContent::Text(text) => {
-                            if text.text == "Image reading is disabled." {
-                                push_placeholder(&mut filtered);
-                            } else {
-                                filtered.push(TextOrImageContent::Text(text));
-                            }
-                        }
-                    }
-                }
-                result.content = filtered;
+                result.content = block_image_blocks(&result.content);
             }
             Message::ToolResult(result)
         }
         other => other,
     }
+}
+
+fn block_image_blocks(blocks: &[TextOrImageContent]) -> Vec<TextOrImageContent> {
+    let mut filtered: Vec<TextOrImageContent> = Vec::new();
+    for block in blocks {
+        match block {
+            TextOrImageContent::Image(_) => push_placeholder(&mut filtered),
+            TextOrImageContent::Text(text) if text.text == "Image reading is disabled." => {
+                push_placeholder(&mut filtered);
+            }
+            TextOrImageContent::Text(text) => filtered.push(TextOrImageContent::Text(text.clone())),
+        }
+    }
+    filtered
 }
 
 fn push_placeholder(blocks: &mut Vec<TextOrImageContent>) {
