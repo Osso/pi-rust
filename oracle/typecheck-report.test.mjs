@@ -1,15 +1,14 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { selectTypecheckReference } from "./typecheck-reference.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const { worktree } = JSON.parse(
-	readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"),
-);
+const { worktree } = selectTypecheckReference(repoRoot);
 const compiler = join(worktree, "node_modules/.bin/tsgo");
 const reporter = join(repoRoot, "oracle/typecheck-report.mjs");
 
@@ -28,12 +27,7 @@ function checkFixture(t, directoryRoot, source) {
 	writeFileSync(fixture, source);
 	const config = spawnSync(
 		process.execPath,
-		[
-			join(repoRoot, "oracle/oracle-tsconfig.mjs"),
-			worktree,
-			directory,
-			"fixture.ts",
-		],
+		[join(repoRoot, "oracle/oracle-tsconfig.mjs"), directory, "fixture.ts"],
 		{ encoding: "utf8" },
 	);
 	assert.equal(config.status, 0, config.stderr);

@@ -113,7 +113,13 @@ Original source diagnostics are not reclassified as expected negatives.
 | `node --test oracle/typecheck-reference.test.mjs` | New regression before implementation | RED: missing separately pinned `typecheckReference` metadata |
 | `node --test oracle/typecheck-reference.test.mjs` | Shared helper/setup and one boundary regression, before caller wiring/additional cases | GREEN: 1/1; original compiler exit 2 with exactly TS2353/TS2322; corrected reference exit 0; both JS byte comparisons pass; missing/dirty/stale/wrong-base references rejected |
 
-Later caller wiring and added regression cases require targeted GREEN proof.
+| `node --test oracle/typecheck-reference.test.mjs oracle/typecheck-report.test.mjs` | `95254cf` | New reference regressions 3/3 pass; existing reporter regressions 7/9 pass, two negative fixture failures expose the reporter test caller's obsolete generator argument |
+| `node oracle/default-thinking-level-typecheck.mjs` | `95254cf` | PASS, exit 0; selected-reference compiler check followed by original-source runtime fixture |
+| `cargo fmt --check` | `95254cf` implementation, before commit | PASS, exit 0 |
+
+The reporter test caller now uses the new generator signature and selected
+reference, retaining every existing diagnostic/error assertion. Its fix requires
+another targeted GREEN run; earlier reference evidence remains valid.
 Full `./run-tests.sh oracle` and `./run-tests.sh all` are reserved for the independent
 verifier; no new full-gate, broad Rust, lint, build, deployment or final-acceptance
 pass is claimed by this slice.
