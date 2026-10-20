@@ -75,17 +75,22 @@ fn raw_http_payloads_preserve_failure_boundaries_and_error_names() {
             } else {
                 "fetchOpenRouterModels"
             };
-            for body in [
+            let mut bodies = vec![
                 "null",
                 "{",
                 "{\"data\":[null]}",
                 "{\"data\":[{\"id\":\"valid\",\"supported_parameters\":[\"tools\"],\"tags\":[\"tool-use\"]},null]}",
                 "{\"data\":[{\"supported_parameters\":true,\"tags\":true}]}",
                 "{\"data\":[{\"supported_parameters\":[\"tools\"],\"tags\":[\"tool-use\"],\"architecture\":{\"modality\":2}}]}",
-                "{\"data\":[{\"supported_parameters\":[\"tools\"],\"tags\":[\"tool-use\"],\"pricing\":{\"prompt\":{\"toString\":0},\"input\":{\"toString\":0}}}]}",
                 "{\"data\":[{\"supported_parameters\":[\"tools\"],\"tags\":[\"tool-use\"]}]}",
                 "{\"data\":[{\"id\":\"x\",\"supported_parameters\":[\"tools\"],\"tags\":[\"tool-use\"],\"pricing\":{\"prompt\":1e400,\"input\":1e400}}]}",
-            ] {
+            ];
+            // Gateway pricing objects use the approved declared-type rejection matrix.
+            // OpenRouter's `any` pricing still follows the original coercion failure.
+            if !gateway {
+                bodies.push(r#"{"data":[{"supported_parameters":["tools"],"pricing":{"prompt":{"toString":0}}}]}"#);
+            }
+            for body in bodies {
                 let expected=source.request(&json!({"operation":operation,"argv":if strict{vec!["--strict"]}else{vec![]},"http":{url:{"body":body}}}));
                 let mut fetch = |_: &str| {
                     Ok(HttpResponse {

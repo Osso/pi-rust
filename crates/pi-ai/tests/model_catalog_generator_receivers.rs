@@ -215,3 +215,141 @@ fn malformed_selected_provider_keeps_default_and_strict_fetch_catch_regions() {
         );
     }
 }
+
+#[test]
+fn gateway_consumed_tags_and_pricing_reject_wrong_declared_types_inside_fetch_catch() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    for (extra, message) in [
+        (
+            json!({"tags":[3,"tool-use"]}),
+            "AI Gateway tags entries must be strings",
+        ),
+        (
+            json!({"pricing":{"input":false}}),
+            "AI Gateway pricing.input must be a string or number",
+        ),
+        (
+            json!({"pricing":{"input":{}}}),
+            "AI Gateway pricing.input must be a string or number",
+        ),
+        (json!({"pricing":[]}), "AI Gateway pricing must be an object"),
+    ] {
+        let mut model = json!({"id":"copied","name":"Copied","tags":["tool-use"]});
+        for (key, value) in extra.as_object().unwrap() {
+            model[key] = value.clone();
+        }
+        let body = json!({"data":[model]}).to_string();
+        let observed=source.request(&json!({"operation":"fetchAiGatewayModels","http":{"https://ai-gateway.vercel.sh/v1/models":{"body":body}}}));
+        assert!(
+            observed.get("error").is_none(),
+            "classify original malformed acceptance: {observed}"
+        );
+        for strict in [false, true] {
+            let mut fetch = |_: &str| {
+                Ok(HttpResponse {
+                    status: 200,
+                    body: body.clone(),
+                })
+            };
+            let mut generator = Generator::new(
+                GeneratorOptions {
+                    strict,
+                    ..Default::default()
+                },
+                &mut fetch,
+            );
+            let result = generator.fetch_ai_gateway_models();
+            if strict {
+                let error = result.unwrap_err();
+                assert_eq!(error.name, "TypeError");
+                assert_eq!(error.message.to_utf8().unwrap(), message);
+            } else {
+                assert_eq!(stringify_lossless(&result.unwrap()), "[]");
+            }
+            assert_eq!(
+                stringify_lossless(&pi_js_compat::js_json::JsValue::Array(generator.logs)),
+                json!([
+                    ["log", "Fetching models from Vercel AI Gateway API..."],
+                    [
+                        "error",
+                        "Failed to fetch Vercel AI Gateway models:",
+                        format!("TypeError: {message}")
+                    ]
+                ])
+                .to_string()
+            );
+        }
+    }
+}
+
+#[test]
+fn gateway_explicit_array_defaults_filters_nullish_pricing_and_valid_utf16_stay_literal() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    for body in [
+        r#"{"data":{}}"#,
+        r#"{"data":[{"tags":"tool-use","pricing":false}]}"#,
+        r#"{"data":[{"tags":[],"pricing":false},{"id":"valid","tags":["tool-use","\ud800"],"pricing":{"input":null,"output":"0.001","unknown":false}}]}"#,
+    ] {
+        let observed=source.request(&json!({"operation":"fetchAiGatewayModels","http":{"https://ai-gateway.vercel.sh/v1/models":{"body":body}}}));
+        let mut fetch = |_: &str| {
+            Ok(HttpResponse {
+                status: 200,
+                body: body.to_owned(),
+            })
+        };
+        let mut generator = Generator::new(GeneratorOptions::default(), &mut fetch);
+        assert_eq!(
+            stringify_lossless(&generator.fetch_ai_gateway_models().unwrap()),
+            observed["json"].as_str().unwrap()
+        );
+        assert_eq!(
+            stringify_lossless(&pi_js_compat::js_json::JsValue::Array(generator.logs)),
+            observed["logs"].to_string()
+        );
+    }
+}
+
+#[test]
+fn nvidia_null_response_is_a_fetch_failure_not_successful_empty_catalog() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    for strict in [false, true] {
+        let observed=source.request(&json!({"operation":"fetchNvidiaNimModelIds","mapEntries":true,"argv":if strict{vec!["--strict"]}else{vec![]},"http":{"https://integrate.api.nvidia.com/v1/models":{"body":"null"}}}));
+        let mut fetch = |_: &str| {
+            Ok(HttpResponse {
+                status: 200,
+                body: "null".to_owned(),
+            })
+        };
+        let mut generator = Generator::new(
+            GeneratorOptions {
+                strict,
+                ..Default::default()
+            },
+            &mut fetch,
+        );
+        let actual = generator.fetch_nvidia_nim_model_ids();
+        if strict {
+            let error = actual.unwrap_err();
+            assert_eq!(error.name, observed["error"]["name"].as_str().unwrap());
+            assert_eq!(
+                error.message.to_utf8().unwrap(),
+                observed["error"]["message"].as_str().unwrap()
+            );
+        } else {
+            assert!(actual.unwrap().is_empty());
+        }
+        assert_eq!(
+            stringify_lossless(&pi_js_compat::js_json::JsValue::Array(generator.logs)),
+            observed["logs"].to_string()
+        );
+    }
+}
