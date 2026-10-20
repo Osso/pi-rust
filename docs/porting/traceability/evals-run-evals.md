@@ -19,7 +19,7 @@ Behavior tests: `crates/pi-evals/tests/run_evals.rs`, executed against `CARGO_BI
 
 ## Differential proof
 
-`pinned_node_script_matches_validation_selection_and_forwarding` copies the **unchanged pinned script** into a temporary package with a fake `node_modules/vitest/{package.json,vitest.mjs}`. Node executes the real script; the fake Vitest records selection, artifact directory, and forwarded arguments. Nineteen concrete argument/environment cases compare exit code, stdout, stderr, and normalized child arguments/selection against the actual Rust binary. Only the approved child-command prefix differs. Native tests separately assert cwd, inherited streams/environment, filesystem permissions, timestamp/UUID syntax, and failure behavior. No live providers or real evals run.
+`pinned_node_script_matches_validation_selection_and_forwarding` copies the **unchanged pinned script** into a temporary package with a fake `node_modules/vitest/{package.json,vitest.mjs}`. Node executes the real script; the fake Vitest records selection, artifact directory, and forwarded arguments. Nineteen concrete argument/environment cases compare exit code, stdout, stderr, and normalized child arguments/selection against the actual Rust binary. Only the approved child-command prefix differs. Native tests separately assert cwd, inherited streams/environment, filesystem permissions, timestamp/UUID syntax, and failure behavior. The Cargo runner mounts the checkout read-only; the default-directory test uses a nested Bubblewrap mount to overlay only the child's package root with a writable temporary fixture, preserving the enclosing sandbox. No live providers or real evals run.
 
 ## Approved adaptation and proof boundaries
 

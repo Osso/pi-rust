@@ -382,13 +382,30 @@ fn absolute_artifacts_do_not_canonicalize_symlinks_or_change_existing_permission
 fn default_artifacts_use_iso_timestamp_and_unique_uuid() {
     for empty in [false, true] {
         let fixture = Fixture::new();
-        let mut command = fixture.command();
+        // The Cargo runner mounts the checkout read-only. Overlay only this child's
+        // package root with a writable fixture; keep the enclosing sandbox intact.
+        let template = fixture.command();
+        let mut command = Command::new("bwrap");
+        command
+            .args(["--ro-bind", "/", "/", "--bind"])
+            .arg(fixture.temp.path())
+            .arg(ROOT)
+            .arg("--")
+            .arg(BINARY);
+        for (key, value) in template.get_envs() {
+            if let Some(value) = value {
+                command.env(key, value);
+            } else {
+                command.env_remove(key);
+            }
+        }
         if empty {
             command.env("PI_EVAL_ARTIFACT_DIR", "");
         } else {
             command.env_remove("PI_EVAL_ARTIFACT_DIR");
         }
-        assert!(command.output().unwrap().status.success());
+        let output = command.output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         let record = fixture.record();
         let path = Path::new(record["artifacts"].as_str().unwrap());
         assert_eq!(path.parent().unwrap(), Path::new(ROOT).join(".eval"));
@@ -404,8 +421,9 @@ fn default_artifacts_use_iso_timestamp_and_unique_uuid() {
                 .unwrap()
                 .is_match(uuid)
         );
-        assert_eq!(fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o700);
-        fs::remove_dir(path).unwrap();
+        let created = fixture.temp.path().join(".eval").join(name);
+        assert_eq!(fs::metadata(&created).unwrap().permissions().mode() & 0o777, 0o700);
+        fs::remove_dir(created).unwrap();
     }
 }
 
