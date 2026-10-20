@@ -1,7 +1,10 @@
 //! `Date.parse` parity for the ECMAScript ISO 8601 and HTTP-date forms.
 
 use jiff::tz::TimeZone;
-use pi_js_compat::date::{LocalDateFields, date_parse_with_time_zone, days_from_civil, local_date_fields_in};
+use pi_js_compat::date::{
+    LocalDateFields, UtcDateTime, date_parse_with_time_zone, days_from_civil, local_date_fields_in, to_iso_string,
+    utc_date_time,
+};
 
 fn utc(value: &str) -> f64 {
     date_parse_with_time_zone(value, &TimeZone::UTC)
@@ -155,4 +158,36 @@ fn reads_local_date_fields_like_date_getters() {
         })
     );
     assert_eq!(local_date_fields_in(8_640_000_000_000_001, &TimeZone::UTC), None);
+}
+
+#[test]
+fn formats_iso_strings_like_date_to_iso_string() {
+    // Values from `new Date(ms).toISOString()` in Node.
+    let cases: &[(i64, &str)] = &[
+        (0, "1970-01-01T00:00:00.000Z"),
+        (1_700_000_000_123, "2023-11-14T22:13:20.123Z"),
+        (-1, "1969-12-31T23:59:59.999Z"),
+        (951_782_400_000, "2000-02-29T00:00:00.000Z"),
+        (253_402_300_800_000, "+010000-01-01T00:00:00.000Z"),
+        (-62_198_755_200_000, "-000001-01-01T00:00:00.000Z"),
+    ];
+    for (millis, expected) in cases {
+        assert_eq!(to_iso_string(*millis), *expected, "{millis}");
+    }
+}
+
+#[test]
+fn splits_epoch_millis_into_utc_fields() {
+    assert_eq!(
+        utc_date_time(1_700_000_000_123),
+        UtcDateTime {
+            year: 2023,
+            month: 11,
+            day: 14,
+            hour: 22,
+            minute: 13,
+            second: 20,
+            millisecond: 123,
+        }
+    );
 }

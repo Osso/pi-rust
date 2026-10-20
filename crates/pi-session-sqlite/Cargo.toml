@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
+pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
 rusqlite = { version = "=0.37.0", features = ["bundled"] }

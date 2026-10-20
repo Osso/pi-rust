@@ -273,7 +273,15 @@ fn finish_date(
 }
 
 fn resolve_local_from_wall(wall_millis: i64, zone: &TimeZone) -> Option<i64> {
-    let (year, month, day, hour, minute, second, millis) = civil_from_millis(wall_millis);
+    let UtcDateTime {
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        millisecond: millis,
+    } = utc_date_time(wall_millis);
     let datetime = clamped_datetime(year, month, day, hour, minute, second, millis)?;
     if (-9999..=9999).contains(&year)
         && let Ok(zoned) = datetime.to_zoned(zone.clone())
@@ -432,15 +440,51 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-fn civil_from_millis(millis: i64) -> (i64, i64, i64, i64, i64, i64, i64) {
-    let days = millis.div_euclid(MS_PER_DAY);
+/// Proleptic-Gregorian UTC fields of epoch milliseconds; `month` is 1-based.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UtcDateTime {
+    pub year: i64,
+    pub month: i64,
+    pub day: i64,
+    pub hour: i64,
+    pub minute: i64,
+    pub second: i64,
+    pub millisecond: i64,
+}
+
+/// Splits epoch milliseconds into UTC calendar fields.
+pub fn utc_date_time(millis: i64) -> UtcDateTime {
     let within_day = millis.rem_euclid(MS_PER_DAY);
-    let (year, month, day) = civil_from_days(days);
-    let hour = within_day / 3_600_000;
-    let minute = (within_day % 3_600_000) / 60_000;
-    let second = (within_day % 60_000) / 1_000;
-    let millis = within_day % 1_000;
-    (year, month, day, hour, minute, second, millis)
+    let (year, month, day) = civil_from_days(millis.div_euclid(MS_PER_DAY));
+    UtcDateTime {
+        year,
+        month,
+        day,
+        hour: within_day / 3_600_000,
+        minute: (within_day % 3_600_000) / 60_000,
+        second: (within_day % 60_000) / 1_000,
+        millisecond: within_day % 1_000,
+    }
+}
+
+/// `new Date(millis).toISOString()` for a valid date: four-digit years in
+/// 0..=9999, otherwise a signed six-digit expanded year.
+pub fn to_iso_string(millis: i64) -> String {
+    let UtcDateTime {
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        millisecond,
+    } = utc_date_time(millis);
+    let year = if (0..=9999).contains(&year) {
+        format!("{year:04}")
+    } else {
+        format!("{}{:06}", if year < 0 { '-' } else { '+' }, year.abs())
+    };
+    format!("{year}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millisecond:03}Z")
 }
 
 /// `MakeDay` normalization: day `31` of a 30-day month rolls into the next month;

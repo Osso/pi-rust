@@ -15,12 +15,11 @@ use pi_ai::types::{
 };
 use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy};
 use pi_ai::utils::text::{ContentText, content_text};
-use pi_js_compat::date::date_parse_millis;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use super::utils::{SUMMARIZATION_SYSTEM_PROMPT, serialize_conversation};
-use super::{complete_summarization, estimate_tokens};
+use super::{complete_summarization, estimate_tokens, timestamp_millis};
 use crate::core::session_manager::{KnownSessionEntry, SessionEntry, SessionManager};
 
 /// Result of a branch-summary generation attempt.
@@ -83,10 +82,6 @@ pub struct GenerateBranchSummaryOptions<'a> {
     pub reserve_tokens: Option<f64>,
     pub stream_fn: Option<&'a StreamFn>,
     pub retry: Option<&'a RetryPolicy>,
-}
-
-fn timestamp_millis(timestamp: &str) -> i64 {
-    date_parse_millis(timestamp).unwrap_or(0)
 }
 
 /// Collect entries to summarize when navigating from one position to another.
