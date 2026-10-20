@@ -48,7 +48,11 @@ def interactive(command, environment, work):
                 time.sleep(0.2)
                 os.write(master, b"\x03")
                 first_signal = time.monotonic()
-            elif first_signal and not second_signal and time.monotonic() - first_signal > 0.2:
+            elif (
+                first_signal
+                and not second_signal
+                and time.monotonic() - first_signal > 0.2
+            ):
                 os.write(master, b"\x03")
                 second_signal = True
             finished, child_status = os.waitpid(pid, os.WNOHANG)
@@ -92,7 +96,15 @@ def inside(proof, binary):
         "PI_OFFLINE": "1",
         "TERM": "xterm-256color",
     }
-    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_STATE_DIR", "TMPDIR"]:
+    for key in [
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME",
+        "PI_CODING_AGENT_DIR",
+        "PI_CODING_AGENT_STATE_DIR",
+        "TMPDIR",
+    ]:
         Path(environment[key]).mkdir(parents=True, exist_ok=True)
     (proof / "agent/auth.json").write_text("{}")
     work = proof / "work"
@@ -100,11 +112,17 @@ def inside(proof, binary):
     (proof / "deps").mkdir()
     test_binary = proof / "deps/pi"
     test_binary.symlink_to(binary)
-    cli_pid = interactive([str(ROOT / "scripts/cargo-runner.sh"), str(test_binary)], environment, work)
+    cli_pid = interactive(
+        [str(ROOT / "scripts/cargo-runner.sh"), str(test_binary)], environment, work
+    )
     forbidden = proof / "forbidden.jsonl"
     controlled = proof / "helper.jsonl"
     deadline = time.monotonic() + 5
-    while not forbidden.exists() and not controlled.exists() and time.monotonic() < deadline:
+    while (
+        not forbidden.exists()
+        and not controlled.exists()
+        and time.monotonic() < deadline
+    ):
         time.sleep(0.02)
     records = []
     for log in [forbidden, controlled]:
@@ -113,17 +131,27 @@ def inside(proof, binary):
     for record in records:
         assert_gone(record["pid"])
     assert_gone(cli_pid)
-    assert not forbidden.exists(), "old boundary executed forbidden absolute helper on default shutdown"
+    assert not forbidden.exists(), (
+        "old boundary executed forbidden absolute helper on default shutdown"
+    )
     assert len(records) == 1, records
     assert records[0]["argv"][0] == "index-file", records
-    assert len(records[0]["argv"]) == 2 and records[0]["argv"][1].endswith(".jsonl"), records
+    assert len(records[0]["argv"]) == 2 and records[0]["argv"][1].endswith(".jsonl"), (
+        records
+    )
     hook_log = proof / "cache/claude-memory/pi-index.log"
-    assert "starting index-file for session " + records[0]["argv"][1] in hook_log.read_text()
+    assert (
+        "starting index-file for session " + records[0]["argv"][1]
+        in hook_log.read_text()
+    )
     db = sqlite3.connect(f"file:{proof}/state/pi/control.sqlite?mode=ro", uri=True)
     assert db.execute("PRAGMA user_version").fetchone() == (15,)
     assert db.execute("PRAGMA quick_check").fetchone() == ("ok",)
     db.close()
-    print("PASS default startup, PTY, shutdown hook argv, private DB, no forbidden helper, no running children", flush=True)
+    print(
+        "PASS default startup, PTY, shutdown hook argv, private DB, no forbidden helper, no running children",
+        flush=True,
+    )
     probe_network_and_nested_inputs(proof)
 
 
@@ -133,7 +161,7 @@ def probe_network_and_nested_inputs(proof):
     literal = proof / "tmp/parent fixture.txt"
     literal.write_text("parent fixture")
     probe = proof / "network-probe.py"
-    probe.write_text('''import errno, http.server, os, pathlib, socket, threading, urllib.request
+    probe.write_text("""import errno, http.server, os, pathlib, socket, threading, urllib.request
 assert pathlib.Path(os.environ["LITERAL_FIXTURE"]).read_text() == "parent fixture"
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -161,7 +189,7 @@ with socket.socket() as client:
 assert "ANTHROPIC_API_KEY" not in os.environ
 assert not pathlib.Path("/home/osso/.ssh").exists()
 print("PASS actual loopback HTTP, denied external route, nested literal fixture, private environment")
-''')
+""")
     # Put the literal path in argv, not an inherited arbitrary environment entry.
     payload = proof / "network-entry.py"
     payload.write_text(
@@ -171,10 +199,26 @@ print("PASS actual loopback HTTP, denied external route, nested literal fixture,
     )
     launcher = str(ROOT / "scripts/test-sandbox.py")
     result = subprocess.run(
-        ["/usr/bin/python3", launcher, "--", "/usr/bin/python3", launcher, "--",
-         "/usr/bin/python3", str(payload), str(literal)],
-        env={"PATH": "/usr/bin:/bin", "TMPDIR": str(proof / "tmp"), "ANTHROPIC_API_KEY": "forbidden-sentinel"},
-        cwd=ROOT, capture_output=True, text=True, timeout=15,
+        [
+            "/usr/bin/python3",
+            launcher,
+            "--",
+            "/usr/bin/python3",
+            launcher,
+            "--",
+            "/usr/bin/python3",
+            str(payload),
+            str(literal),
+        ],
+        env={
+            "PATH": "/usr/bin:/bin",
+            "TMPDIR": str(proof / "tmp"),
+            "ANTHROPIC_API_KEY": "forbidden-sentinel",
+        },
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=15,
     )
     (proof / "network.stdout").write_text(result.stdout)
     (proof / "network.stderr").write_text(result.stderr)
@@ -193,17 +237,40 @@ def outer(binary):
         )
         fake.chmod(0o755)
         command = [
-            "/usr/bin/bwrap", "--die-with-parent", "--ro-bind", "/", "/",
-            "--bind", str(proof), str(proof), "--unshare-net", "--dev", "/dev",
-            "--ro-bind", str(fake), HELPER, "--",
-            "/usr/bin/python3", str(Path(__file__).resolve()), "--inside", str(proof), binary,
+            "/usr/bin/bwrap",
+            "--die-with-parent",
+            "--ro-bind",
+            "/",
+            "/",
+            "--bind",
+            str(proof),
+            str(proof),
+            "--unshare-net",
+            "--dev",
+            "/dev",
+            "--ro-bind",
+            str(fake),
+            HELPER,
+            "--",
+            "/usr/bin/python3",
+            str(Path(__file__).resolve()),
+            "--inside",
+            str(proof),
+            binary,
         ]
-        result = subprocess.run(command, env={"PATH": "/usr/bin:/bin"}, capture_output=True, text=True, timeout=45)
+        result = subprocess.run(
+            command,
+            env={"PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+            timeout=45,
+        )
         print(result.stdout, end="")
         print(result.stderr, end="", file=sys.stderr)
         artifact = os.environ.get("PI_ISOLATION_PROOF_DIR")
         if artifact:
             import shutil
+
             shutil.copytree(proof, Path(artifact) / proof.name, symlinks=True)
         return result.returncode
 

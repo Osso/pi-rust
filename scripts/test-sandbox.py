@@ -25,12 +25,18 @@ def bind(arguments, source, writable=False):
 
 def reference_inputs():
     lock = json.loads((ROOT / "docs/porting/source-lock.json").read_text())
-    references = [ROOT, Path(lock["worktree"]), Path(lock["typecheckReference"]["worktree"])]
+    references = [
+        ROOT,
+        Path(lock["worktree"]),
+        Path(lock["typecheckReference"]["worktree"]),
+    ]
     for reference in references:
         yield reference
         git_file = reference / ".git"
         if git_file.is_file():
-            git_dir = (reference / git_file.read_text().strip().removeprefix("gitdir: ")).resolve()
+            git_dir = (
+                reference / git_file.read_text().strip().removeprefix("gitdir: ")
+            ).resolve()
             # Linked worktree metadata points back to its repository's common Git directory.
             yield git_dir.parent.parent
 
@@ -66,10 +72,30 @@ def private_environment(state):
         "GIT_CONFIG_GLOBAL": "/dev/null",
         "PYTHONDONTWRITEBYTECODE": "1",
     }
-    for key in ["TERM", "COLORTERM", "LANG", "LC_ALL", "NO_COLOR", "RUST_BACKTRACE", "RUST_TEST_THREADS", "CARGO_MANIFEST_DIR", "CARGO_TARGET_DIR", "LLVM_PROFILE_FILE"]:
+    for key in [
+        "TERM",
+        "COLORTERM",
+        "LANG",
+        "LC_ALL",
+        "NO_COLOR",
+        "RUST_BACKTRACE",
+        "RUST_TEST_THREADS",
+        "CARGO_MANIFEST_DIR",
+        "CARGO_TARGET_DIR",
+        "LLVM_PROFILE_FILE",
+    ]:
         if key in os.environ:
             environment[key] = os.environ[key]
-    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "TMPDIR", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_STATE_DIR"]:
+    for key in [
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_RUNTIME_DIR",
+        "TMPDIR",
+        "PI_CODING_AGENT_DIR",
+        "PI_CODING_AGENT_STATE_DIR",
+    ]:
         Path(environment[key]).mkdir(parents=True, exist_ok=True)
     (state / "agent/auth.json").write_text("{}")
     return environment
@@ -84,10 +110,16 @@ def enter(command):
 
 def launch(command):
     if not shutil.which("bwrap"):
-        raise RuntimeError("test isolation requires bubblewrap; no unsandboxed fallback")
+        raise RuntimeError(
+            "test isolation requires bubblewrap; no unsandboxed fallback"
+        )
     parent_tmp = Path(os.environ.get("TMPDIR", "/tmp")).absolute()
     selected = os.environ.get("PI_TEST_SANDBOX_DIR")
-    state = Path(selected).absolute() if selected else Path(tempfile.mkdtemp(prefix="pi-test-", dir=parent_tmp))
+    state = (
+        Path(selected).absolute()
+        if selected
+        else Path(tempfile.mkdtemp(prefix="pi-test-", dir=parent_tmp))
+    )
     state.mkdir(parents=True, exist_ok=True)
     if state in [Path("/"), Path("/tmp"), Path.home()]:
         raise RuntimeError("PI_TEST_SANDBOX_DIR must be a private test directory")
@@ -103,9 +135,22 @@ def launch(command):
     )
     helper.chmod(0o755)
     arguments = [
-        "/usr/bin/bwrap", "--die-with-parent", "--unshare-net", "--ro-bind", "/", "/",
-        "--tmpfs", "/home", "--tmpfs", "/root", "--tmpfs", "/run", "--tmpfs", "/tmp",
-        "--dev", "/dev",
+        "/usr/bin/bwrap",
+        "--die-with-parent",
+        "--unshare-net",
+        "--ro-bind",
+        "/",
+        "/",
+        "--tmpfs",
+        "/home",
+        "--tmpfs",
+        "/root",
+        "--tmpfs",
+        "/run",
+        "--tmpfs",
+        "/tmp",
+        "--dev",
+        "/dev",
     ]
     for source in dict.fromkeys([*reference_inputs(), *pyrun_inputs()]):
         bind(arguments, source)
@@ -114,8 +159,12 @@ def launch(command):
     if parent_tmp != Path("/tmp"):
         bind(arguments, parent_tmp, writable=True)
     bind(arguments, state, writable=True)
-    arguments.extend(["--ro-bind", str(helper), HELPER, "--chdir", str(Path.cwd()), "--"])
-    arguments.extend(["/usr/bin/python3", str(Path(__file__).resolve()), "--enter", *command])
+    arguments.extend(
+        ["--ro-bind", str(helper), HELPER, "--chdir", str(Path.cwd()), "--"]
+    )
+    arguments.extend(
+        ["/usr/bin/python3", str(Path(__file__).resolve()), "--enter", *command]
+    )
     print(f"test isolation: state/logs {state}", file=sys.stderr, flush=True)
     # Replacing the runner retains normal PTY descriptors and process groups;
     # no PID namespace or wrapper wait changes the oracle watchdog contract.
@@ -131,5 +180,7 @@ if __name__ == "__main__":
         else:
             raise RuntimeError("usage: test-sandbox.py -- COMMAND [ARG ...]")
     except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
-        print(f"test isolation failed (no unsandboxed fallback): {error}", file=sys.stderr)
+        print(
+            f"test isolation failed (no unsandboxed fallback): {error}", file=sys.stderr
+        )
         raise SystemExit(1)
