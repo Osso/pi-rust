@@ -1,13 +1,13 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { selectTypecheckReference } from "./typecheck-reference.mjs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 import { buildSourceTsconfig } from "./source-tsconfig.mjs";
 import { runCompiler } from "./typecheck-report.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
+const sourceLock = selectTypecheckReference(repoRoot);
 const sourceWorktree = sourceLock.worktree;
 const modeModulePath = join(sourceWorktree, "packages/coding-agent/src/cli/args.ts");
 const highlightDeclarationPath = join(
@@ -54,16 +54,6 @@ function validateSourceLock() {
   }
 }
 
-function verifyPinnedSourceHead() {
-  const result = spawnSync("git", ["-C", sourceWorktree, "rev-parse", "HEAD"], { encoding: "utf8" });
-  if (result.error !== undefined) throw new Error(`source HEAD check failed to start git: ${result.error.message}`);
-  if (result.status !== 0) throw new Error(`source HEAD check failed: ${result.stderr.trim()}`);
-  const actualCommit = result.stdout.trim();
-  if (actualCommit !== sourceLock.commit) {
-    throw new Error(`pinned TypeScript source HEAD mismatch: expected ${sourceLock.commit}, got ${actualCommit}`);
-  }
-}
-
 function runTypecheck(fixturePath) {
 	const configPath = join(dirname(fixturePath), "tsconfig.json");
 	writeFileSync(configPath, `${JSON.stringify(buildSourceTsconfig(sourceWorktree, [fixturePath, highlightDeclarationPath]), null, 2)}\n`, "utf8");
@@ -72,7 +62,6 @@ function runTypecheck(fixturePath) {
 
 function main() {
   validateSourceLock();
-  verifyPinnedSourceHead();
   const directory = mkdtempSync(join(tmpdir(), "pi-cli-mode-typecheck-"));
   const fixturePath = join(directory, "cli-mode.ts");
   writeFileSync(fixturePath, fixtureSource, "utf8");

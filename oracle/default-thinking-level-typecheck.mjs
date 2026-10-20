@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { selectTypecheckReference, prepareRuntimeFixture } from "./typecheck-reference.mjs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,13 +8,12 @@ import { buildSourceTsconfig } from "./source-tsconfig.mjs";
 import { runCompiler } from "./typecheck-report.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
+const sourceLock = selectTypecheckReference(repoRoot);
 const sourceWorktree = sourceLock.worktree;
 const defaultsModulePath = join(sourceWorktree, "packages/coding-agent/src/core/defaults.ts");
 const thinkingLevelModulePath = join(sourceWorktree, "packages/agent/src/types.ts");
-const tsconfigPath = join(sourceWorktree, "tsconfig.json");
 const tsgoPath = join(sourceWorktree, "node_modules/.bin/tsgo");
-const tsxPath = join(sourceWorktree, "node_modules/.bin/tsx");
+const tsxPath = join(sourceLock.runtimeWorktree, "node_modules/.bin/tsx");
 
 const fixtureSource = `
 import { DEFAULT_THINKING_LEVEL } from ${JSON.stringify(defaultsModulePath)};
@@ -42,16 +42,6 @@ function validateSourceLock() {
   }
 }
 
-function verifyPinnedSourceHead() {
-  const result = spawnSync("git", ["-C", sourceWorktree, "rev-parse", "HEAD"], { encoding: "utf8" });
-  if (result.error !== undefined) throw new Error(`source HEAD check failed to start git: ${result.error.message}`);
-  if (result.status !== 0) throw new Error(`source HEAD check failed: ${result.stderr.trim()}`);
-  const actualCommit = result.stdout.trim();
-  if (actualCommit !== sourceLock.commit) {
-    throw new Error(`pinned TypeScript source HEAD mismatch: expected ${sourceLock.commit}, got ${actualCommit}`);
-  }
-}
-
 function runProcess(command, args) {
   const result = spawnSync(command, args, { cwd: repoRoot, encoding: "utf8" });
   if (result.stdout !== "") process.stdout.write(result.stdout);
@@ -67,12 +57,11 @@ function runTypecheck(fixturePath) {
 }
 
 function runRuntimeValueProof(fixturePath) {
-  return runProcess(tsxPath, ["--tsconfig", tsconfigPath, fixturePath]);
+  return runProcess(tsxPath, ["--tsconfig", join(sourceLock.runtimeWorktree, "tsconfig.json"), prepareRuntimeFixture(fixturePath, sourceLock)]);
 }
 
 function main() {
   validateSourceLock();
-  verifyPinnedSourceHead();
   const directory = mkdtempSync(join(tmpdir(), "pi-default-thinking-level-typecheck-"));
   const fixturePath = join(directory, "default-thinking-level.ts");
   writeFileSync(fixturePath, fixtureSource, "utf8");

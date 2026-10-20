@@ -1,12 +1,12 @@
+import { selectTypecheckReference } from "./typecheck-reference.mjs";
 import { createRequire } from "node:module";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
+const sourceLock = selectTypecheckReference(repoRoot);
 const sourceWorktree = sourceLock.worktree;
 const sourceInfoPath = join(sourceWorktree, "packages/coding-agent/src/core/source-info.ts");
 const publicIndexPath = join(sourceWorktree, "packages/coding-agent/src/index.ts");
@@ -72,16 +72,6 @@ function validateSourceLock() {
 	}
 	if (typeof sourceLock.commit !== "string" || !/^[0-9a-f]{40}$/.test(sourceLock.commit)) {
 		throw new Error("source lock commit must be a 40-character hexadecimal string");
-	}
-}
-
-function verifySourceHead() {
-	const result = spawnSync("git", ["-C", sourceWorktree, "rev-parse", "HEAD"], { encoding: "utf8" });
-	if (result.error !== undefined) throw new Error(`source HEAD check failed to start git: ${result.error.message}`);
-	if (result.status !== 0) throw new Error(`source HEAD check failed: ${result.stderr.trim()}`);
-	const actualCommit = result.stdout.trim();
-	if (actualCommit !== sourceLock.commit) {
-		throw new Error(`pinned source HEAD mismatch: expected ${sourceLock.commit}, got ${actualCommit}`);
 	}
 }
 
@@ -274,7 +264,6 @@ function proveValidFixture(options) {
 
 try {
 	validateSourceLock();
-	verifySourceHead();
 	const options = readPinnedCompilerOptions();
 	const program = ts.createProgram({ rootNames: [publicIndexPath, sourceInfoPath, highlightDeclarationPath], options });
 	const packageIndexFile = sourceFileAt(program, publicIndexPath, "coding-agent package index");

@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { selectTypecheckReference, prepareRuntimeFixture } from "./typecheck-reference.mjs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,7 +8,7 @@ import { buildSourceTsconfig } from "./source-tsconfig.mjs";
 import { runCompiler } from "./typecheck-report.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
+const sourceLock = selectTypecheckReference(repoRoot);
 const sourceWorktree = sourceLock.worktree;
 const argsModulePath = join(sourceWorktree, "packages/coding-agent/src/cli/args.ts");
 const thinkingLevelModulePath = join(sourceWorktree, "packages/agent/src/types.ts");
@@ -16,8 +17,7 @@ const highlightDeclarationPath = join(
   "packages/coding-agent/src/utils/highlight-js-lib-index.d.ts",
 );
 const tsgoPath = join(sourceWorktree, "node_modules/.bin/tsgo");
-const tsxPath = join(sourceWorktree, "node_modules/.bin/tsx");
-const tsconfigPath = join(sourceWorktree, "tsconfig.json");
+const tsxPath = join(sourceLock.runtimeWorktree, "node_modules/.bin/tsx");
 
 const fixtureSource = `
 import { isValidThinkingLevel } from ${JSON.stringify(argsModulePath)};
@@ -81,16 +81,6 @@ function validateSourceLock() {
   }
 }
 
-function verifyPinnedSourceHead() {
-  const result = spawnSync("git", ["-C", sourceWorktree, "rev-parse", "HEAD"], { encoding: "utf8" });
-  if (result.error !== undefined) throw new Error(`source HEAD check failed to start git: ${result.error.message}`);
-  if (result.status !== 0) throw new Error(`source HEAD check failed: ${result.stderr.trim()}`);
-  const actualCommit = result.stdout.trim();
-  if (actualCommit !== sourceLock.commit) {
-    throw new Error(`pinned TypeScript source HEAD mismatch: expected ${sourceLock.commit}, got ${actualCommit}`);
-  }
-}
-
 function typecheckArguments(fixturePath) {
   const configPath = join(dirname(fixturePath), "tsconfig.json");
   writeFileSync(
@@ -111,14 +101,13 @@ function runProcess(command, args) {
 
 function main() {
   validateSourceLock();
-  verifyPinnedSourceHead();
   const directory = mkdtempSync(join(tmpdir(), "pi-thinking-level-validator-typecheck-"));
   const fixturePath = join(directory, "thinking-level-validator.ts");
   writeFileSync(fixturePath, fixtureSource, "utf8");
   try {
     const typecheckStatus = runCompiler(tsgoPath, typecheckArguments(fixturePath), repoRoot);
     if (typecheckStatus !== 0) return typecheckStatus;
-    return runProcess(tsxPath, ["--tsconfig", tsconfigPath, fixturePath]);
+    return runProcess(tsxPath, ["--tsconfig", join(sourceLock.runtimeWorktree, "tsconfig.json"), prepareRuntimeFixture(fixturePath, sourceLock)]);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

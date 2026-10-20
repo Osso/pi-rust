@@ -9,12 +9,12 @@ read_source_worktree() {
 }
 
 typecheck_oracle() {
-	node --test oracle/typecheck-report.test.mjs
+	node --test oracle/typecheck-report.test.mjs oracle/typecheck-reference.test.mjs
 	local source_worktree
 	source_worktree="$(read_source_worktree)"
 	local config
 	config="$(mktemp "$ROOT_DIR/oracle/.tsconfig-oracles.XXXXXX.json")"
-	node oracle/oracle-tsconfig.mjs "$source_worktree" "$ROOT_DIR/oracle" \
+	node oracle/oracle-tsconfig.mjs "$ROOT_DIR/oracle" \
 		protocol-oracle.ts rpc-jsonl-oracle.ts truncate-oracle.ts \
 		auth-command-oracle.ts config-value-reference-oracle.ts skill-block-oracle.ts \
 		default-thinking-level-oracle.ts cli-mode-oracle.ts thinking-level-validator-oracle.ts \
