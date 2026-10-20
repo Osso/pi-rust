@@ -225,6 +225,10 @@ fn manifest_directory_and_json_failures_match_ts() {
         "0",
         "Thu, 23 Jul 2026 10:00:00 GMT",
         "2026-02-30T00:00:00Z",
+        "Jan 1 2020",
+        "1/1/2020",
+        "Fri, 01 Jan 1960 00:00:00 GMT",
+        "Fri, 01 Jan 1960 00:00:60 GMT",
     ] {
         let fixture = Fixture::new();
         fixture.manifest(|m| m["generatedAt"] = json!(timestamp));
@@ -362,9 +366,20 @@ fn oracle_flag_watchdog_owner() {
     let response = oracle.request(&json!({"op":"watchdog_probe"}));
     assert_eq!(response["ok"], true);
     assert_eq!(response["output"]["callerFlag"], true);
-    println!("WATCHDOG_ORACLE_PID={}", response["output"]["pid"]);
+    let pid = rustix::process::Pid::from_raw(response["output"]["pid"].as_i64().unwrap() as i32).unwrap();
+    let group = rustix::process::getpgid(Some(pid)).unwrap();
+    println!("WATCHDOG_ORACLE_PID={}", pid.as_raw_nonzero());
+    println!("WATCHDOG_GROUP_PID={}", group.as_raw_nonzero());
     // Deliberately bypass Drop: the watchdog must reap the orphan process group.
     std::process::exit(0);
+}
+
+fn process_running(pid: i32) -> bool {
+    match fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Ok(stat) => !stat.split_once(") ").is_some_and(|(_, tail)| tail.starts_with('Z')),
+        Err(error) => panic!("cannot inspect oracle lifetime: {error}"),
+    }
 }
 
 #[test]
@@ -382,14 +397,14 @@ fn caller_node_flag_and_parent_death_watchdog_both_work() {
         .expect("oracle pid")
         .parse()
         .unwrap();
+    let group: i32 = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("WATCHDOG_GROUP_PID="))
+        .expect("oracle process-group leader pid")
+        .parse()
+        .unwrap();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        match fs::read_to_string(format!("/proc/{pid}/stat")) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
-            Ok(stat) if stat.split_once(") ").is_some_and(|(_, tail)| tail.starts_with('Z')) => break,
-            Err(error) => panic!("cannot inspect oracle lifetime: {error}"),
-            Ok(_) => {}
-        }
+    while process_running(pid) || process_running(group) {
         if std::time::Instant::now() >= deadline {
             use rustix::process::{Pid, Signal, getpgid, kill_process, kill_process_group};
             let pid = Pid::from_raw(pid).unwrap();
@@ -401,4 +416,66 @@ fn caller_node_flag_and_parent_death_watchdog_both_work() {
         }
         std::thread::sleep(std::time::Duration::from_millis(25));
     }
+}
+
+#[test]
+fn json_model_identity_with_unpaired_surrogate_matches_ts() {
+    let mut fixture = Fixture::new();
+    fixture.groups["openai-completions"]["model-a"]["id"] = json!("SURROGATE_FIXTURE");
+    fixture.write();
+    let path = fixture.dir.join("test-provider.json");
+    let content = fs::read_to_string(&path)
+        .unwrap()
+        .replace("SURROGATE_FIXTURE", "\\ud800");
+    fs::write(path, content).unwrap();
+    let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
+    fixture.compare(&mut oracle);
+}
+
+#[test]
+fn filesystem_io_failures_and_ignored_non_catalog_entries_match_ts() {
+    let fixture = Fixture::new();
+    let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
+    fs::write(fixture.dir.join("notes.txt"), "not catalog data").unwrap();
+    fs::write(fixture.root.join("src/providers/notes.ts"), "not a shard").unwrap();
+    assert_eq!(fixture.compare(&mut oracle), json!({"ok":true,"output":null}));
+    let data = fixture.dir.join("test-provider.json");
+    fs::remove_file(&data).unwrap();
+    fs::create_dir(&data).unwrap();
+    expect_error(
+        &fixture.compare(&mut oracle),
+        "EISDIR: illegal operation on a directory, read",
+    );
+    assert_eq!(
+        result(read_model_data_structure(&fixture.root).map(|v| json!(v))),
+        oracle.request(&json!({"op":"structure","root":fixture.root}))
+    );
+    fs::remove_dir_all(fixture.root.join("src/providers")).unwrap();
+    assert_eq!(
+        result(read_model_data_structure(&fixture.root).map(|v| json!(v))),
+        oracle.request(&json!({"op":"structure","root":fixture.root}))
+    );
+}
+
+#[test]
+fn numeric_provider_model_and_api_keys_keep_js_diagnostic_order() {
+    let mut fixture = Fixture::new();
+    fixture.structure =
+        serde_json::from_value(json!({"10":{"10":"api","2":"api"},"2":{"10":"api","2":"api"}})).unwrap();
+    fs::remove_file(fixture.dir.join("test-provider.json")).unwrap();
+    let mut contents = indexmap::IndexMap::new();
+    for provider in ["10", "2"] {
+        let content = r#"{"9":{"10":null,"2":null},"api":{"10":null}}"#;
+        let filename = format!("{provider}.json");
+        fs::write(fixture.dir.join(&filename), content).unwrap();
+        contents.insert(filename, content.to_owned());
+    }
+    let manifest = create_model_data_manifest(&fixture.structure, &contents, GENERATED_AT);
+    fs::write(
+        fixture.dir.join(MODEL_DATA_MANIFEST_FILE),
+        serde_json::to_string(&manifest).unwrap(),
+    )
+    .unwrap();
+    let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
+    expect_error(&fixture.compare(&mut oracle), "2/2 must be an object");
 }

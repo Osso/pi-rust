@@ -51,7 +51,7 @@ Exponent spelling outside that range matches JavaScript (`1e+21`).
 
 | Source behaviour | Rust item | Proof |
 |---|---|---|
-| V8 single-number legacy dates: `0`, months `1..12`, invalid `13..31`, two-digit years `32..99`, longer years, sign/whitespace/`Z`; strict ISO years retain precedence | `parse_numeric_date` | `tests/differential_date_parse.rs::numeric_dates_match_node_in_utc_and_chicago` (RED `"0"`: Rust NaN vs Node 946684800000; GREEN pending) |
+| V8 single-number legacy dates: `0`, months `1..12`, invalid `13..31`, two-digit years `32..99`, longer years, sign/whitespace/`Z`; strict ISO years retain precedence | `parse_numeric_date` | `tests/differential_date_parse.rs::numeric_dates_match_node_in_utc_and_chicago` (RED `"0"`: Rust NaN vs Node 946684800000; GREEN `a75fd1a`, 130 inputs per explicit zone) |
 | HTTP-date forms (`RFC 1123`, `RFC 850`, asctime) | `httpdate` for zoned forms; asctime wall clock is resolved in local time like V8 | `tests/date.rs`, `tests/differential_date_parse.rs` |
 | ECMAScript ISO 8601: 4-digit and signed 6-digit years, `YYYY[-M[-D]]`, `T`/`t`/whitespace separators, optional seconds/fraction, `Z`/`z`/`±HH:MM`/`±HHMM` | `parse_iso8601_millis` | `tests/date.rs`, `tests/differential_date_parse.rs` |
 | Zone-less date-time = local; strict date-only = UTC; non-padded legacy date-only = local; `Z` on any date-only = UTC | `resolve_local_from_wall`, `finish_date` | `tests/date.rs`, differential under `TZ=UTC` and `TZ=America/Chicago` |
@@ -64,7 +64,7 @@ Exponent spelling outside that range matches JavaScript (`1e+21`).
 Differential: 100 inputs under `TZ=UTC`, `TZ=America/Chicago`, and the inherited
 process zone.
 
-V8 month-name/slash legacy dates, local/zoned times, two-digit year pivots, pre-1970 HTTP and asctime dates now use the shared legacy date grammar. Proof: `legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones` (RED `"Jan 1 2020"`: NaN vs Node 1577836800000; GREEN pending), UTC and Chicago including DST gap/fold and adjacent invalid dates/times.
+V8 month-name/slash legacy dates, local/zoned times, two-digit year pivots, pre-1970 HTTP and asctime dates now use the shared legacy date grammar. Proof: `legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones` (RED `"Jan 1 2020"`: NaN vs Node 1577836800000; GREEN `b9ed3c9`, 54 inputs per explicit zone), UTC and Chicago including DST gap/fold and adjacent invalid dates/times.
 
 V8 compatibility quirk (not a TS source bug): named-month legacy seconds `60`, `61`, `99` are discarded to zero; slash and ISO second `60` are rejected. The Node boundary corpus preserves that distinction. No semantic correction is intended.
 
