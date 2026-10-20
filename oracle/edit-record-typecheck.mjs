@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { buildSourceTsconfig } from "./source-tsconfig.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
@@ -341,35 +342,25 @@ function proveExports(checker, editModuleFile, toolsIndexFile, packageIndexFile)
 }
 
 function typecheckArguments(fixturePath) {
-	return [
-		"--noEmit",
-		"--strict",
-		"--skipLibCheck",
-		"--target",
-		"ES2022",
-		"--module",
-		"NodeNext",
-		"--moduleResolution",
-		"NodeNext",
-		"--allowImportingTsExtensions",
-		"--types",
-		"node",
-		"--typeRoots",
-		typeRoots,
-		fixturePath,
-		highlightDeclarationPath,
-	];
+	const configPath = join(dirname(fixturePath), "tsconfig.json");
+	writeFileSync(
+		configPath,
+		`${JSON.stringify(buildSourceTsconfig(sourceLock.worktree, [fixturePath, highlightDeclarationPath]), null, 2)}\n`,
+		"utf8",
+	);
+	return ["-p", configPath];
 }
 
 function runValidFixture(fixturePath) {
-	const result = spawnSync(tsgoPath, typecheckArguments(fixturePath), {
-		cwd: repoRoot,
+	const result = spawnSync(tsgoPath, typecheckArguments(fixturePath), { cwd: repoRoot, encoding: "utf8" });
+	if (result.error !== undefined) throw new Error(`tsgo failed to start: ${result.error.message}`);
+	const report = spawnSync(process.execPath, [join(repoRoot, "oracle/typecheck-report.mjs"), repoRoot], {
+		input: `${result.stdout ?? ""}${result.stderr ?? ""}`,
 		encoding: "utf8",
 	});
-	if (result.stdout !== "") process.stdout.write(result.stdout);
-	if (result.stderr !== "") process.stderr.write(result.stderr);
-	if (result.error !== undefined) throw new Error(`tsgo failed to start: ${result.error.message}`);
-	if (result.status !== 0) throw new Error(`valid record fixture failed with status ${result.status}`);
+	if (report.stdout !== "") process.stdout.write(report.stdout);
+	if (report.stderr !== "") process.stderr.write(report.stderr);
+	if (report.status !== 0) throw new Error(`valid record fixture failed with status ${report.status}`);
 }
 
 function createProgramForFixture(source, options, prefix) {

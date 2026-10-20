@@ -11,33 +11,24 @@ read_source_worktree() {
 typecheck_oracle() {
 	local source_worktree
 	source_worktree="$(read_source_worktree)"
-	"$source_worktree/node_modules/.bin/tsgo" \
-		--noEmit \
-		--strict \
-		--target ES2022 \
-		--module NodeNext \
-		--moduleResolution NodeNext \
-		--types node \
-		--typeRoots "$source_worktree/node_modules/@types" \
-		oracle/protocol-oracle.ts \
-		oracle/rpc-jsonl-oracle.ts \
-		oracle/truncate-oracle.ts \
-		oracle/auth-command-oracle.ts \
-		oracle/config-value-reference-oracle.ts \
-		oracle/skill-block-oracle.ts \
-		oracle/default-thinking-level-oracle.ts \
-		oracle/cli-mode-oracle.ts \
-		oracle/thinking-level-validator-oracle.ts \
-		oracle/tool-output-persistence-constants-oracle.ts \
-		oracle/harness-tools-oracle.ts \
-		oracle/current-session-version-oracle.ts \
-		oracle/source-info-oracle.ts \
-		oracle/coding-agent-format-size-oracle.ts \
-		oracle/coding-agent-truncation-constants-oracle.ts \
-		oracle/evals-summary-oracle.ts \
-		oracle/evals-harness-table-oracle.ts \
-		oracle/evals-artifacts-oracle.ts \
-		oracle/evals-pi-harness-oracle.ts
+	local config
+	config="$(mktemp "$ROOT_DIR/oracle/.tsconfig-oracles.XXXXXX.json")"
+	node oracle/oracle-tsconfig.mjs "$source_worktree" "$ROOT_DIR/oracle" \
+		protocol-oracle.ts rpc-jsonl-oracle.ts truncate-oracle.ts \
+		auth-command-oracle.ts config-value-reference-oracle.ts skill-block-oracle.ts \
+		default-thinking-level-oracle.ts cli-mode-oracle.ts thinking-level-validator-oracle.ts \
+		tool-output-persistence-constants-oracle.ts harness-tools-oracle.ts \
+		current-session-version-oracle.ts source-info-oracle.ts \
+		coding-agent-format-size-oracle.ts coding-agent-truncation-constants-oracle.ts \
+		evals-summary-oracle.ts evals-harness-table-oracle.ts evals-artifacts-oracle.ts \
+		evals-pi-harness-oracle.ts >"$config"
+	local status=0
+	"$source_worktree/node_modules/.bin/tsgo" -p "$config" 2>&1 |
+		node oracle/typecheck-report.mjs "$ROOT_DIR" || status=$?
+	rm -f "$config"
+	if [ "$status" -ne 0 ]; then
+		return "$status"
+	fi
 	node oracle/public-index-typecheck.mjs
 	node oracle/skill-block-typecheck.mjs
 	node oracle/summarization-system-prompt-typecheck.mjs

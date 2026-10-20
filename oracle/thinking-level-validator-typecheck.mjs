@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { buildSourceTsconfig } from "./source-tsconfig.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
@@ -91,29 +92,17 @@ function verifyPinnedSourceHead() {
 }
 
 function typecheckArguments(fixturePath) {
-  return [
-    "--noEmit",
-    "--strict",
-    "--skipLibCheck",
-    "--target",
-    "ES2022",
-    "--module",
-    "NodeNext",
-    "--moduleResolution",
-    "NodeNext",
-    "--allowImportingTsExtensions",
-    "--resolveJsonModule",
-    "--types",
-    "node",
-    "--typeRoots",
-    typeRoots,
-    fixturePath,
-    highlightDeclarationPath,
-  ];
+  const configPath = join(dirname(fixturePath), "tsconfig.json");
+  writeFileSync(
+    configPath,
+    `${JSON.stringify(buildSourceTsconfig(sourceWorktree, [fixturePath, highlightDeclarationPath]), null, 2)}\n`,
+    "utf8",
+  );
+  return ["-p", configPath];
 }
 
-function runProcess(command, args) {
-  const result = spawnSync(command, args, { cwd: repoRoot, encoding: "utf8" });
+function runProcess(command, args, input) {
+  const result = spawnSync(command, args, { cwd: repoRoot, encoding: "utf8", input });
   if (result.stdout !== "") process.stdout.write(result.stdout);
   if (result.stderr !== "") process.stderr.write(result.stderr);
   if (result.error !== undefined) throw new Error(`${command} failed to start: ${result.error.message}`);
@@ -127,7 +116,10 @@ function main() {
   const fixturePath = join(directory, "thinking-level-validator.ts");
   writeFileSync(fixturePath, fixtureSource, "utf8");
   try {
-    const typecheckStatus = runProcess(tsgoPath, typecheckArguments(fixturePath));
+    const typecheckStatus = runProcess(process.execPath, [join(repoRoot, "oracle/typecheck-report.mjs"), repoRoot], (() => {
+      const raw = spawnSync(tsgoPath, typecheckArguments(fixturePath), { cwd: repoRoot, encoding: "utf8" });
+      return `${raw.stdout ?? ""}${raw.stderr ?? ""}`;
+    })());
     if (typecheckStatus !== 0) return typecheckStatus;
     return runProcess(tsxPath, ["--tsconfig", tsconfigPath, fixturePath]);
   } finally {

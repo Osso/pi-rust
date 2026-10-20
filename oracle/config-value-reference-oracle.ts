@@ -78,7 +78,10 @@ type StatusOutput = {
 	configured: boolean;
 };
 
-type Output = ReferenceOutput | StatusOutput;
+type ResolveOutput = { value: string | null };
+type ThrowOutput = { value: string };
+type HeadersOutput = { headers: Record<string, string> | null };
+type Output = ReferenceOutput | StatusOutput | ResolveOutput | ThrowOutput | HeadersOutput;
 
 type Response =
 	| {
@@ -135,7 +138,7 @@ function statusOutput(request: StatusRequest, api: ConfigValueReferenceApi): Sta
 	}));
 }
 
-function resolveOutput(request: ResolveRequest, api: ConfigValueReferenceApi): { value: string | null } {
+function resolveOutput(request: ResolveRequest, api: ConfigValueReferenceApi): ResolveOutput {
 	const env = request.env ?? undefined;
 	return withProcessEnvironment(request.processEnv, () => {
 		const value = request.uncached
@@ -145,17 +148,14 @@ function resolveOutput(request: ResolveRequest, api: ConfigValueReferenceApi): {
 	});
 }
 
-function throwOutput(request: ThrowRequest, api: ConfigValueReferenceApi): { value: string } {
+function throwOutput(request: ThrowRequest, api: ConfigValueReferenceApi): ThrowOutput {
 	const env = request.env ?? undefined;
 	return withProcessEnvironment(request.processEnv, () => ({
 		value: api.resolveConfigValueOrThrow(request.config, request.description, env),
 	}));
 }
 
-function headersOutput(
-	request: HeadersRequest,
-	api: ConfigValueReferenceApi,
-): { headers: Record<string, string> | null } {
+function headersOutput(request: HeadersRequest, api: ConfigValueReferenceApi): HeadersOutput {
 	const env = request.env ?? undefined;
 	const headers = request.headers ?? undefined;
 	return withProcessEnvironment(request.processEnv, () => {
