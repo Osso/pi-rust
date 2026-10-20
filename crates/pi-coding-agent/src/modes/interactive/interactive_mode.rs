@@ -14318,14 +14318,16 @@ mod ui_tests {
                 let (mode, terminal, _, _temp) = build_mode().await;
                 let _events = start(&mode).await;
                 let tui = mode.extension_factory_context().tui;
+                mode.set_extension_header(Some(Arc::new(|_| Box::new(StaticWidget))));
                 mode.ui.render_now();
                 terminal.borrow_mut().writes.clear();
                 tui.request_render_force();
                 mode.handle_ui_requests().await;
                 mode.ui.flush_pending();
                 assert!(
-                    terminal.borrow().output().contains("╭"),
-                    "forced redraw must repaint unchanged editor frame"
+                    terminal.borrow().output().contains("custom widget"),
+                    "forced redraw must repaint unchanged frame: {:?}",
+                    terminal.borrow().writes
                 );
                 terminal.borrow_mut().writes.clear();
                 tui.stop();
