@@ -29,7 +29,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `protocol/src/cbor/index.ts` | 9 | 2 | done | `crates/pi-protocol/src/cbor/mod.rs` | Public re-exports |
 | `protocol/src/codec.ts` | 172 | 3 | done | `crates/pi-protocol/src/codec.rs` + `src/codec/*` | TS protocol test port; parse/serialize round-trips |
 | `protocol/src/index.ts` | 4 | 4 | done | `crates/pi-protocol/src/lib.rs` | Package-root re-exports |
-| `protocol/vitest.config.ts` | 9 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `protocol/vitest.config.ts` | 9 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
 
 ## ai (187 files, 27235 lines)
 
@@ -220,8 +220,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/scripts/generate-test-image.ts` | 33 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `ai/scripts/model-data.ts` | 280 | `pi-ai/src/model_data_tools.rs` | partial | [trace](traceability/model-data-tools.md) | All exports implemented; shared lossless UTF-16 structure/metadata/diagnostics, schema-3 hashes, validation and ordered errors proven against pinned TS. 15-test module GREEN plus targeted typed-surrogate API proof; parent final integration/verification pending. |
 | `ai/scripts/models-dev-reasoning-options.ts` | 32 | `pi-ai::models_dev_reasoning_options` | done | Public API + pinned TS differential | Typed option union and exact ordered effort map; 1,110 source cases, invalid JS inputs excluded ([traceability](traceability/models-dev-reasoning-options.md)). |
-| `ai/src/providers/data-json.d.ts` | 4 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `ai/vitest.config.ts` | 17 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/src/providers/data-json.d.ts` | 4 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. TypeScript-only declaration. |
+| `ai/vitest.config.ts` | 17 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
 
 ## agent (53 files, 13256 lines)
 
@@ -278,8 +278,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/session/testing/conformance.ts` | 1016 | — | done | `crates/pi-agent-core/src/harness/session/testing/{conformance,cases}.rs` | Public reusable factory: 28 applicable cases on memory + SQLite; complete 30-case pinned TS helper execution; two invalid-JS payload cases and one negative unsigned-limit branch explicitly excluded ([traceability](traceability/session-testing-conformance.md)). |
 | `agent/src/harness/session/testing/index.ts` | 6 | — | done | `crates/pi-agent-core/src/harness/session/testing/mod.rs` | All public exports consumed externally by memory and SQLite integration tests ([traceability](traceability/session-testing-index.md)). |
 | `agent/src/harness/session/testing/types.ts` | 16 | — | done | `crates/pi-agent-core/src/harness/session/testing/types.rs` | Native fixture/factory/case contracts, backend-native repository adapter, async disposal and typed/suppressed error behavior ([traceability](traceability/session-testing-types.md)). |
-| `agent/vitest.config.ts` | 25 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `agent/vitest.harness.config.ts` | 32 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `agent/vitest.config.ts` | 25 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
+| `agent/vitest.harness.config.ts` | 32 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
 
 ## tui (45 files, 19009 lines)
 
@@ -326,9 +326,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/layout.ts` | 410 | 5 | done | `crates/pi-tui/src/layout.rs` | TS layout tests ported; differential frame geometry, scrollbar, kitty crop |
 | `tui/src/tui-alt-screen.ts` | 1291 | 6 | done | `crates/pi-tui/src/tui_alt_screen.rs` | 36 TS test cases + 23-scenario differential (full write stream and viewport/scroll/search state) |
 | `tui/src/index.ts` | 161 | 7 | done | `crates/pi-tui/src/lib.rs` | Every source export maps to a package-root path; `Key` and `Marked` differential in `tests/index_exports.rs` ([traceability](traceability/tui-index.md)) |
-| `tui/native/darwin/build.sh` | 62 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `tui/native/darwin/build.sh` | 62 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Native addon build follows the 2026-10-19 macOS/Windows addon gap. |
 | `tui/native/darwin/src/darwin-modifiers.c` | 70 | — | gap | — | Existing 2026-10-19 macOS/Windows addon approval; actual exports mapped, not native parity. [Traceability](traceability/native-modifiers.md#native-addon-implementation-rows). |
-| `tui/native/win32/build.mjs` | 229 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `tui/native/win32/build.mjs` | 229 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Native addon build follows the 2026-10-19 macOS/Windows addon gap. |
 | `tui/native/win32/src/win32-console-mode.c` | 119 | — | gap | — | Existing 2026-10-19 macOS/Windows addon approval; actual exports mapped, not native parity. [Traceability](traceability/native-modifiers.md#native-addon-implementation-rows). |
 
 ## client (11 files, 1240 lines)
@@ -345,7 +345,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `client/src/state.ts` | 156 | 6 | done | `crates/pi-client/src/state.rs` | Snapshot reduction, listener isolation |
 | `client/src/client.ts` | 432 | 7 | done | `crates/pi-client/src/client.rs` | Requests, leases, attachment serialization |
 | `client/src/index.ts` | 18 | 8 | done | `crates/pi-client/src/lib.rs` | Public re-exports; static connect renamed `connect_new` |
-| `client/vitest.config.ts` | 15 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `client/vitest.config.ts` | 15 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
 
 ## server (18 files, 2320 lines)
 
@@ -368,7 +368,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `server/src/testing/index.ts` | 5 | 6 | done | `crates/pi-server/src/testing/mod.rs` | Testing re-exports |
 | `server/src/testing/server.ts` | 27 | 6 | done | `crates/pi-server/src/testing/server.rs` | Deterministic test server factory |
 | `server/src/testing/service.ts` | 287 | 6 | done | `crates/pi-server/src/testing/service.rs` | In-memory service/runtime with shared snapshots |
-| `server/vitest.config.ts` | 15 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `server/vitest.config.ts` | 15 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
 
 ## session-backends (21 files, 2579 lines)
 
@@ -394,7 +394,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `session-backends/sqlite-node/src/index.ts` | 114 | 20 | done | `crates/pi-session-sqlite/src/sqlite/connection.rs + src/lib.rs` | node:sqlite adapter becomes rusqlite connection/transaction; async-callback and factory-injection cases are documented gaps. |
 | `session-backends/sqlite-node/scripts/prepare-dist.mjs` | 35 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `session-backends/sqlite-node/src/sqlite/migrations/001_initial.sql` | 122 | — | done | `crates/pi-session-sqlite/src/sqlite/migrations/001_initial.sql` | Byte-identical embedded/applied SQL; named migration pass. [Traceability](traceability/sqlite-initial-schema.md). |
-| `session-backends/sqlite-node/vitest.config.ts` | 33 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `session-backends/sqlite-node/vitest.config.ts` | 33 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
 
 ## coding-agent (460 files, 122781 lines)
 
@@ -858,8 +858,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/theme/dark.json` | 90 | — | done | `crates/pi-coding-agent/theme/dark.json` | Byte-identical embedded built-in theme; existing loading proof. [Traceability](traceability/theme-assets.md). |
 | `coding-agent/src/modes/interactive/theme/light.json` | 89 | — | done | `crates/pi-coding-agent/theme/light.json` | Byte-identical embedded built-in theme; existing loading proof. [Traceability](traceability/theme-assets.md). |
 | `coding-agent/src/modes/interactive/theme/theme-schema.json` | 352 | — | todo | `crates/pi-coding-agent/theme/theme-schema.json` | Bytes match, but shipped inclusion remains unproven; no waiver. [Traceability](traceability/theme-assets.md). |
-| `coding-agent/src/utils/highlight-js-lib-index.d.ts` | 19 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/vitest.config.ts` | 50 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/src/utils/highlight-js-lib-index.d.ts` | 19 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. TypeScript-only declaration. |
+| `coding-agent/vitest.config.ts` | 50 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
 
 ## evals (10 files, 1394 lines)
 
@@ -874,4 +874,4 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `evals/src/extensions.eval.ts` | 140 | 24 | done | `crates/pi-evals/src/evals/extensions.rs` + `tests/extensions_eval.rs` | Harness factory, prompt transforms, judge, and comparative table; live run opt-in via `PI_PROVIDER`/`PI_MODEL` ([traceability](traceability/evals-extensions-eval.md)). |
 | `evals/src/smoke.eval.ts` | 17 | 24 | done | `crates/pi-evals/src/evals/smoke.rs` + `tests/smoke_eval.rs` | Smoke harness and faux end-to-end run; live run opt-in via `PI_PROVIDER`/`PI_MODEL` ([traceability](traceability/evals-smoke-eval.md)). |
 | `evals/scripts/run-evals.mjs` | 97 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `evals/vitest.config.ts` | 20 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `evals/vitest.config.ts` | 20 | — | gap | — | User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
