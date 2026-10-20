@@ -28,11 +28,7 @@ impl ExtensionUiContext for Ui {
         self.theme.clone()
     }
     fn set_status(&self, key: &str, text: Option<&str>) {
-        self.trace.lock().unwrap().push(json!([
-            "status",
-            key,
-            text.map(pi_coding_agent::utils::ansi::strip_ansi)
-        ]));
+        self.trace.lock().unwrap().push(json!(["status", key, text]));
     }
     fn notify(&self, text: &str, level: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", text, level]));
@@ -162,51 +158,57 @@ async fn native(request: &Value) -> Value {
             cwd: cwd.into(),
         })
         .await;
-    let mut user = Vec::new();
-    if let Some(ops) = ops.and_then(|o| o.operations) {
-        for mode in ["success", "exit", "timeout", "abort", "preabort"] {
-            let output = Arc::new(Mutex::new(Vec::new()));
-            let data = output.clone();
-            let token = CancellationToken::new();
-            let cancel = token.clone();
-            if mode == "preabort" {
-                token.cancel();
-            }
-            let command = match mode {
-                "timeout" => "exec sleep 30",
-                "abort" => {
-                    "exec python3 -c 'import signal,sys,time; signal.signal(signal.SIGTERM,lambda *_:(print(\"terminated\",flush=True),sys.exit(0))); print(\"ready\",flush=True); time.sleep(30)'"
-                }
-                "exit" => "printf code; exit 7",
-                _ => "printf 'user output'",
-            };
-            let result = ops
-                .exec(
-                    command,
-                    cwd,
-                    BashExecOptions {
-                        on_data: Arc::new(move |bytes| {
-                            data.lock().unwrap().extend_from_slice(bytes);
-                            if mode == "abort" {
-                                cancel.cancel();
-                            }
-                        }),
-                        signal: Some(token),
-                        timeout: (mode == "timeout").then_some(1.0),
-                        env: BTreeMap::new(),
-                        detach: None,
-                    },
-                )
-                .await;
-            let output = String::from_utf8_lossy(&output.lock().unwrap()).into_owned();
-            user.push(match result {
-                Ok(r) => json!({"mode":mode,"output":output,"result":{"exitCode":r.exit_code}}),
-                Err(e) => json!({"mode":mode,"output":output,"error":e.message}),
-            });
-        }
-    }
+    let user = run_user_operations(ops, cwd).await;
     json!({"metadata":metadata,"before":before,"trace":trace,"startError":errors.lock().unwrap().first(),"prompt":changed.and_then(|r|r.system_prompt),"results":results,"user":user})
 }
+async fn run_user_operations(ops: Option<UserBashEventResult>, cwd: &str) -> Vec<Value> {
+    let Some(ops) = ops.and_then(|result| result.operations) else {
+        return Vec::new();
+    };
+    let mut user = Vec::new();
+    for mode in ["success", "exit", "timeout", "abort", "preabort"] {
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let data = output.clone();
+        let token = CancellationToken::new();
+        let cancel = token.clone();
+        if mode == "preabort" {
+            token.cancel();
+        }
+        let command = match mode {
+            "timeout" => "exec sleep 30",
+            "abort" => {
+                "exec python3 -c 'import signal,sys,time; signal.signal(signal.SIGTERM,lambda *_:(print(\"terminated\",flush=True),sys.exit(0))); print(\"ready\",flush=True); time.sleep(30)'"
+            }
+            "exit" => "printf code; exit 7",
+            _ => "printf 'user output'",
+        };
+        let result = ops
+            .exec(
+                command,
+                cwd,
+                BashExecOptions {
+                    on_data: Arc::new(move |bytes| {
+                        data.lock().unwrap().extend_from_slice(bytes);
+                        if mode == "abort" {
+                            cancel.cancel();
+                        }
+                    }),
+                    signal: Some(token),
+                    timeout: (mode == "timeout").then_some(1.0),
+                    env: BTreeMap::new(),
+                    detach: None,
+                },
+            )
+            .await;
+        let output = String::from_utf8_lossy(&output.lock().unwrap()).into_owned();
+        user.push(match result {
+            Ok(r) => json!({"mode":mode,"output":output,"result":{"exitCode":r.exit_code}}),
+            Err(e) => json!({"mode":mode,"output":output,"error":e.message}),
+        });
+    }
+    user
+}
+
 fn snapshot(cwd: &Path, remote: &Path) -> Value {
     let read = |root: &Path| {
         ["edit.txt", "new.txt"]
