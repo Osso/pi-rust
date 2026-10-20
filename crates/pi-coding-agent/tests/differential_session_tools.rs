@@ -927,7 +927,30 @@ async fn resume_session_tool_differential() {
     let current_path = root.path().join("sessions/current.jsonl").display().to_string();
     let target_path = root.path().join("sessions/target.jsonl").display().to_string();
 
-    let mut oracle = Oracle::new();
+    let control_db_path = get_control_db_path(root.path());
+    for (file, name) in [
+        ("current.jsonl", Some("current session")),
+        ("target.jsonl", Some("named target")),
+        ("short.jsonl", None),
+        ("dup-a.jsonl", Some("duplicate target")),
+        ("dup-b.jsonl", Some("duplicate target")),
+    ] {
+        let path = root.path().join("sessions").join(file).display().to_string();
+        let mut manager = SessionManager::open(&path, Some(&sessions_dir), None).expect("fixture manager");
+        manager
+            .set_metadata_control_db_path(Some(&control_db_path), Default::default())
+            .expect("metadata");
+        if let Some(name) = name {
+            manager.set_session_name(Some(name)).expect("fixture name");
+        }
+    }
+    let mut oracle = Oracle {
+        inner: oracle::TsOracle::spawn(
+            "coding-agent-session-tools-oracle.ts",
+            "session-names:packages/coding-agent/src",
+        ),
+        next_id: 0,
+    };
     for (name, params) in [
         ("by-id", json!({ "id": "019f7421-2000" })),
         ("by-name", json!({ "name": "named target" })),
@@ -958,6 +981,7 @@ async fn resume_session_tool_differential() {
             params.clone(),
             json!({
                 "cwd": root_path,
+                "controlDbPath": control_db_path,
                 "sessionFile": current_path,
                 "sessionDir": sessions_dir,
                 "toolMode": "resume",
@@ -967,6 +991,7 @@ async fn resume_session_tool_differential() {
         let recorder = Recorder::new(name == "cancelled");
         let manager = SessionManager::open(&current_path, Some(&sessions_dir), None).expect("open session");
         let (mut runner, context) = tool_context::TestContextBuilder::new(&root_path, Arc::new(Mutex::new(manager)))
+            .control_db_path(&control_db_path)
             .build()
             .await;
         runner.bind_command_context(Some(tool_context::command_context_actions(

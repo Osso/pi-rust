@@ -660,7 +660,6 @@ fn rehydrates_the_sqlite_session_name_when_switching_files() {
 
 #[test]
 fn does_not_carry_a_session_name_into_a_branched_session() {
-    let dir = temp_dir("session-name-branch");
     let mut session = SessionManager::in_memory(Some("/tmp"), None).unwrap();
     let leaf_id = session.append_message(user_message("branch me", 1)).unwrap();
     session.set_session_name(Some("Parent Name")).expect("name");
@@ -1739,4 +1738,23 @@ fn relocation_moves_control_db_rows() {
         None,
         "control-db rows move with the session file"
     );
+}
+
+#[test]
+fn opening_an_empty_file_resets_names_without_restoring_stale_metadata() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let cwd = dir.path().display().to_string();
+    let db = dir.path().join("control.sqlite").display().to_string();
+    let empty = dir.path().join("empty.jsonl").display().to_string();
+    fs::write(&empty, "").expect("empty session file");
+    write_session_metadata(&db, &metadata_row(&empty, "stale", &cwd, Some("Stale Name"))).expect("stale metadata");
+    let mut manager = SessionManager::create(&cwd, Some(&cwd), None).expect("manager");
+    manager
+        .set_metadata_control_db_path(Some(&db), Default::default())
+        .expect("attach metadata");
+    manager.set_session_name(Some("Original Name")).expect("original name");
+    manager.set_session_file(&empty).expect("initialize empty file");
+    assert_eq!(manager.get_session_name(), None);
+    assert!(!manager.has_session_name_state());
+    assert_ne!(manager.get_session_id(), "stale");
 }

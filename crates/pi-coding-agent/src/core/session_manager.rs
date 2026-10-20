@@ -2276,7 +2276,6 @@ impl SessionManager {
         };
         if Path::new(&current).exists() {
             self.load_existing_session_file(&current)?;
-            self.restore_persisted_metadata()?;
         } else {
             let explicit_path = self.session_file.clone();
             self.new_session(None)?;
@@ -2304,6 +2303,7 @@ impl SessionManager {
             self.rewrite_file()?;
         }
         self.build_index();
+        self.restore_persisted_metadata()?;
         self.flushed = true;
         Ok(())
     }

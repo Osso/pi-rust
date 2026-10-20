@@ -84,3 +84,5 @@ state, and `has_session_name_state` distinguishes never named from explicitly cl
 Source consequence: agents-core path-based attach opens a manager without attaching its metadata
 DB; the name therefore stays unset and display name uses `Session <id>`. This slice does not add
 a new metadata lookup to that unchanged source path.
+
+Empty-file initialization returns after `new_session`/header recovery without rehydrating stale metadata, matching the source early return. RED→GREEN proof: `opening_an_empty_file_resets_names_without_restoring_stale_metadata`.
