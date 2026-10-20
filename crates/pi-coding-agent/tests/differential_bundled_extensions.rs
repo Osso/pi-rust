@@ -478,12 +478,16 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
             .iter()
             .map(|(title, options)| json!([title, options]))
             .collect();
+        let descriptions = {
+            let registration = extension.read();
+            json!({
+                "effort": registration.commands.get("effort").and_then(|command| command.description.clone()),
+                "multiAgent": registration.commands.get("multi-agent").and_then(|command| command.description.clone()),
+            })
+        };
         results.push(json!({
             "name": case.get("name").cloned().unwrap_or(Value::Null),
-            "commandDescriptions": {
-                "effort": extension.read().commands.get("effort").and_then(|command| command.description.clone()),
-                "multiAgent": extension.read().commands.get("multi-agent").and_then(|command| command.description.clone()),
-            },
+            "commandDescriptions": descriptions,
             "thinkingLevel": harness.thinking.lock().unwrap().as_str(),
             "notifications": notification_value(&harness.ui.notifications()),
             "statuses": status_value(&harness.ui.status_calls.lock().unwrap()),

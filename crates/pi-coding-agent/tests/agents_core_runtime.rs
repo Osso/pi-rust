@@ -831,7 +831,7 @@ async fn registration_exposes_the_source_tools_and_commands() {
     .await
     .expect("extension");
 
-    let mut tool_names: Vec<&str> = extension.read().tools.keys().map(String::as_str).collect();
+    let mut tool_names: Vec<String> = extension.read().tools.keys().cloned().collect();
     tool_names.sort_unstable();
     assert_eq!(
         tool_names,

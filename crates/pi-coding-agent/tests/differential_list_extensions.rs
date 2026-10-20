@@ -51,7 +51,7 @@ async fn build_extension(spec: &ExtensionSpec) -> Extension {
         }
         Box::pin(async { Ok(()) })
     });
-    let mut extension =
+    let extension =
         load_extension_from_factory(factory, "/tmp", Arc::new(EventBusController::new()), runtime, spec.path)
             .await
             .expect("extension factory succeeds");
@@ -102,15 +102,16 @@ fn wire(extensions: &[Extension]) -> Value {
         extensions
             .iter()
             .map(|extension| {
+                let registration = extension.read();
                 json!({
-                    "path": extension.read().path,
+                    "path": registration.path,
                     "sourceInfo": {
-                        "scope": extension.read().source_info.scope.as_str(),
-                        "source": extension.read().source_info.source,
+                        "scope": registration.source_info.scope.as_str(),
+                        "source": registration.source_info.source,
                     },
-                    "commands": extension.read().commands.len(),
-                    "tools": extension.read().tools.len(),
-                    "handlers": extension.read().handlers.len(),
+                    "commands": registration.commands.len(),
+                    "tools": registration.tools.len(),
+                    "handlers": registration.handlers.len(),
                 })
             })
             .collect(),

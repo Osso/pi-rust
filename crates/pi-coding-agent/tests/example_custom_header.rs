@@ -150,7 +150,8 @@ async fn pinned_custom_header_composition_matches_all_modes_and_colors() {
                 ui.calls.lock().unwrap().is_empty(),
                 "loading alone must not install a header"
             );
-            extension.read().handlers.session_start[0]
+            let handler = extension.read().handlers.session_start[0].clone();
+            handler
                 .call(
                     SessionStartEvent {
                         reason: SessionStartReason::Startup,

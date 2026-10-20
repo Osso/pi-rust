@@ -32,13 +32,16 @@ pub fn format_extension_inventory(extensions: &[Extension]) -> String {
     });
     let rows: Vec<ExtensionInventoryRow> = sorted
         .into_iter()
-        .map(|extension| ExtensionInventoryRow {
-            scope: scope_label(extension),
-            source: source_label(extension),
-            extension: extension_label(extension),
-            commands: extension.read().commands.len().to_string(),
-            tools: extension.read().tools.len().to_string(),
-            handlers: extension.read().handlers.len().to_string(),
+        .map(|extension| {
+            let registration = extension.read();
+            ExtensionInventoryRow {
+                scope: scope_label(&registration),
+                source: source_label(&registration),
+                extension: extension_label(&registration),
+                commands: registration.commands.len().to_string(),
+                tools: registration.tools.len().to_string(),
+                handlers: registration.handlers.len().to_string(),
+            }
         })
         .collect();
 
@@ -56,8 +59,7 @@ fn is_first_party_path(path: &str) -> bool {
     path.starts_with(FIRST_PARTY_PREFIX) && path.ends_with('>')
 }
 
-fn extension_label(extension: &Extension) -> String {
-    let extension = extension.read();
+fn extension_label(extension: &crate::core::extensions::ExtensionState) -> String {
     if is_first_party_path(&extension.path) {
         let start = FIRST_PARTY_PREFIX.len();
         return extension.path[start..extension.path.len() - 1].to_owned();
@@ -65,16 +67,14 @@ fn extension_label(extension: &Extension) -> String {
     basename(&extension.path)
 }
 
-fn scope_label(extension: &Extension) -> String {
-    let extension = extension.read();
+fn scope_label(extension: &crate::core::extensions::ExtensionState) -> String {
     if is_first_party_path(&extension.path) {
         return "runtime".to_owned();
     }
     extension.source_info.scope.as_str().to_owned()
 }
 
-fn source_label(extension: &Extension) -> String {
-    let extension = extension.read();
+fn source_label(extension: &crate::core::extensions::ExtensionState) -> String {
     if is_first_party_path(&extension.path) {
         return "built-in".to_owned();
     }
