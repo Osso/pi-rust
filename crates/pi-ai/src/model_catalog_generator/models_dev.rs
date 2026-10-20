@@ -58,9 +58,10 @@ fn normalized_nvidia(id: &JsString) -> JsString {
 fn starts(id: &JsString, prefix: &str) -> bool {
     id.units().starts_with(JsString::from(prefix).units())
 }
-fn source_models<'a>(data: &'a JsValue, key: &str) -> Vec<(&'a JsString, &'a JsValue)> {
-    entries(field(field(data, key), "models"))
+fn source_models<'a>(data: &'a JsValue, key: &str) -> Result<Vec<(&'a JsString, &'a JsValue)>, GeneratorError> {
+    receiver_types::model_entries(field(data, key))
 }
+
 fn insert_before(model: &mut JsValue, key: &str, extra: JsValue) {
     let (JsValue::Object(model), JsValue::Object(extra)) = (model, extra) else {
         return;
@@ -81,8 +82,8 @@ fn source_model(
     api: &str,
     url: &str,
 ) -> Result<JsValue, GeneratorError> {
-    validate_modalities(source, "m")?;
-    let common = common_model(id, source, provider);
+    validate_modalities(source)?;
+    let common = common_model(id, source, provider)?;
     Ok(object([
         ("id", field(&common, "id").clone()),
         ("name", field(&common, "name").clone()),
@@ -99,19 +100,18 @@ fn source_model(
 fn tool_models<'a>(
     data: &'a JsValue,
     key: &str,
-) -> impl Iterator<Item = Result<(&'a JsString, &'a JsValue), GeneratorError>> {
-    source_models(data, key).into_iter().filter_map(|(id, model)| {
-        if matches!(model, JsValue::Null) {
-            Some(Err(GeneratorError::type_error(
-                "Cannot read properties of null (reading 'tool_call')",
-            )))
+) -> Result<impl Iterator<Item = Result<(&'a JsString, &'a JsValue), GeneratorError>>, GeneratorError> {
+    Ok(source_models(data, key)?.into_iter().filter_map(|(id, model)| {
+        if let Err(error) = receiver_types::model(model) {
+            Some(Err(error))
         } else if field(model, "tool_call") == &JsValue::Bool(true) {
             Some(Ok((id, model)))
         } else {
             None
         }
-    })
+    }))
 }
+
 fn base_openai_compat() -> JsValue {
     literal(
         json!({"supportsStore":false,"supportsDeveloperRole":false,"supportsReasoningEffort":false,"maxTokensField":"max_tokens","supportsStrictMode":false,"supportsLongCacheRetention":false}),
@@ -176,6 +176,8 @@ impl Generator<'_> {
         let result = self
             .fetch_json("https://models.dev/api.json", "models.dev")
             .and_then(|data| {
+                emission_types::expect(&data, "models.dev response", "object")?;
+                receiver_types::optional_object(field(&data, "nvidia"), "models.dev provider")?;
                 let nvidia = if is_truthy(field(field(&data, "nvidia"), "models")) {
                     self.fetch_nvidia_nim_model_ids()?
                 } else {
@@ -249,7 +251,7 @@ impl Generator<'_> {
             ("cloudflare-ai-gateway", "cloudflare-ai-gateway", "", ""),
             ("xai", "xai", "openai-completions", "https://api.x.ai/v1"),
         ] {
-            for entry in tool_models(data, key) {
+            for entry in tool_models(data, key)? {
                 let (id, m) = entry?;
                 if provider == "amazon-bedrock"
                     && (matches_id(id, &["anthropic.claude-opus-5"])
@@ -354,7 +356,7 @@ impl Generator<'_> {
             ("zai", "https://api.z.ai/api/coding/paas/v4"),
             ("zai-coding-cn", "https://open.bigmodel.cn/api/coding/paas/v4"),
         ] {
-            for entry in tool_models(data, "zai-coding-plan") {
+            for entry in tool_models(data, "zai-coding-plan")? {
                 let (id, m) = entry?;
                 let glm = matches_id(id, &["glm-5.2"]);
                 let mut model = source_model(id, m, provider, "openai-completions", url)?;
@@ -383,7 +385,7 @@ impl Generator<'_> {
             ("mistral", "mistral-conversations", "https://api.mistral.ai"),
             ("huggingface", "openai-completions", "https://router.huggingface.co/v1"),
         ] {
-            for entry in tool_models(data, key) {
+            for entry in tool_models(data, key)? {
                 let (id, m) = entry?;
                 let mut model = source_model(id, m, key, api, url)?;
                 if key == "mistral" {
@@ -416,11 +418,11 @@ impl Generator<'_> {
         if let JsValue::Array(fireworks) = process_fireworks_models(field(data, "fireworks-ai"))? {
             models.extend(fireworks);
         }
-        for entry in tool_models(data, "fireworks-ai") {
+        for entry in tool_models(data, "fireworks-ai")? {
             let (id, m) = entry?;
             self.record("fireworks", id, m);
         }
-        for entry in tool_models(data, "nvidia") {
+        for entry in tool_models(data, "nvidia")? {
             let (id, m) = entry?;
             if !includes(field(field(m, "modalities"), "input"), "text")
                 || !includes(field(field(m, "modalities"), "output"), "text")
@@ -453,7 +455,7 @@ impl Generator<'_> {
             .into_iter()
             .find(|key| !matches!(field(data, key), JsValue::Null));
         if let Some(key) = together {
-            for entry in tool_models(data, key) {
+            for entry in tool_models(data, key)? {
                 let (id, m) = entry?;
                 if equal(field(m, "status"), "deprecated") {
                     continue;
@@ -504,7 +506,7 @@ impl Generator<'_> {
             ("opencode", "https://opencode.ai/zen"),
             ("opencode-go", "https://opencode.ai/zen/go"),
         ] {
-            for entry in tool_models(data, provider) {
+            for entry in tool_models(data, provider)? {
                 let (id, m) = entry?;
                 if equal(field(m, "status"), "deprecated") {
                     continue;
@@ -569,7 +571,7 @@ impl Generator<'_> {
         Ok(())
     }
     fn transform_subscriptions(&mut self, data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
-        for entry in tool_models(data, "github-copilot") {
+        for entry in tool_models(data, "github-copilot")? {
             let (id, m) = entry?;
             if equal(field(m, "status"), "deprecated") {
                 continue;
@@ -629,7 +631,7 @@ impl Generator<'_> {
             ("minimax", "https://api.minimax.io/anthropic"),
             ("minimax-cn", "https://api.minimaxi.com/anthropic"),
         ] {
-            for entry in tool_models(data, provider) {
+            for entry in tool_models(data, provider)? {
                 let (id, m) = entry?;
                 models.push(source_model(id, m, provider, "anthropic-messages", url)?);
                 self.record(provider, id, m);
@@ -637,7 +639,7 @@ impl Generator<'_> {
         }
         let kimi = field(field(data, "kimi-for-coding"), "models");
         let canonical = matches!(kimi,JsValue::Object(map) if map.contains_key(&JsString::from("kimi-for-coding")));
-        for entry in tool_models(data, "kimi-for-coding") {
+        for entry in tool_models(data, "kimi-for-coding")? {
             let (id, m) = entry?;
             let alias = matches_id(id, &["k2p5", "k2p6", "k2p7"]);
             if alias && canonical {
@@ -694,7 +696,7 @@ impl Generator<'_> {
             ("moonshotai", "https://api.moonshot.ai/v1"),
             ("moonshotai-cn", "https://api.moonshot.cn/v1"),
         ] {
-            for entry in tool_models(data, provider) {
+            for entry in tool_models(data, provider)? {
                 let (id, m) = entry?;
                 let k3 = matches_id(id, &["kimi-k3"]);
                 let mut model = source_model(id, m, provider, "openai-completions", url)?;
@@ -728,7 +730,7 @@ impl Generator<'_> {
             ("xiaomi-token-plan-ams", "https://token-plan-ams.xiaomimimo.com/v1"),
             ("xiaomi-token-plan-sgp", "https://token-plan-sgp.xiaomimimo.com/v1"),
         ] {
-            for entry in tool_models(data, provider) {
+            for entry in tool_models(data, provider)? {
                 let (id, m) = entry?;
                 let mut model = source_model(id, m, provider, "openai-completions", url)?;
                 insert_before(
@@ -763,7 +765,7 @@ impl Generator<'_> {
             ),
         ] {
             let mut emitted = vec![];
-            for entry in tool_models(data, key) {
+            for entry in tool_models(data, key)? {
                 let (id, m) = entry?;
                 if matches_id(id, &["qwen3.8-max-preview"]) || (individual && !matches_id(id, INDIVIDUAL_IDS)) {
                     continue;

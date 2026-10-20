@@ -12,11 +12,18 @@ fn kind(value: &JsValue) -> &'static str {
         JsValue::Object(_) => "object",
     }
 }
-fn expect(value: &JsValue, path: &str, expected: &str) -> Result<(), GeneratorError> {
+pub(super) fn expect(value: &JsValue, path: &str, expected: &str) -> Result<(), GeneratorError> {
     if kind(value) == expected {
         Ok(())
     } else {
-        Err(GeneratorError::type_error(&format!("{path} must be a {expected}")))
+        Err(GeneratorError::type_error(&format!(
+            "{path} must be {} {expected}",
+            if matches!(expected, "array" | "object") {
+                "an"
+            } else {
+                "a"
+            }
+        )))
     }
 }
 fn properties<'a>(value: &'a JsValue, path: &str) -> Result<&'a JsObject, GeneratorError> {

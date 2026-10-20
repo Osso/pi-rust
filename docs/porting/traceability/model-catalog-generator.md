@@ -75,3 +75,7 @@ Alessio, 2026-10-20: “Omit JS frames (Recommended)”. Native failures preserv
 ## Representation and exclusions
 
 Raw provider values use shared `JsValue`/`JsString`, preserving UTF-16 code units and JS object enumeration. Existing typed reasoning converter is reused, not cloned; unknown efforts cannot produce a supported Pi effort. No runtime-model migration. Raw tests additionally prove distinct lone-surrogate IDs/names and errors for malformed cost tiers, null models, malformed Baseten reasoning options and malformed Fireworks modalities. Other malformed-payload branches remain open; do not treat these fixtures as whole-module parity.
+
+## Consumed receiver validation checkpoint
+
+`56-receiver-type-red.log` establishes missing native receiver errors and accepted malformed deferred reasoning. `57-receiver-type.log` GREEN3 proves ten cost/Baseten/Fireworks receiver cases, source filter/default/unknown-string/unused-budget short-circuits, and five deferred reasoning failures after all three HTTP requests outside fetch catches. Native messages replace classified accidental V8 errors under the approved type-rejection policy; actual-source observations remain in diagnostics. This checkpoint does not establish exhaustive response or metadata type validation.

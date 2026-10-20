@@ -5,7 +5,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 ## What it must do
 
 - [x] Reject wrong copied Model field types at actual artifact emission, including JSON-only, outside fetch catches and after existing staged validators; validate only emitted data-only subsets. No added finite/range/domain limits.
-- [ ] Finish consumed receiver-specific type errors (approved “Reject wrong field types (Recommended)”, 2026-10-20), retaining valid UTF-16 strings; do not port accidental V8 malformed-input sort behavior.
+- [x] Reject malformed consumed models.dev provider/model/cost/tier/modalities/reasoning receivers at their use points with native TypeErrors; preserve filters, defaults, unknown strings, unused controls and deferred outer reasoning failures. Remaining response/metadata branches stay partial (approved “Reject wrong field types (Recommended)”, 2026-10-20).
 - [ ] Permit native HTTP causes while retaining Node top-level fetch error name/message, status and failure order (approved “Allow native causes (Recommended)”, 2026-10-20).
 
 - [x] Preserve models.dev plain costs and context-sized pricing tiers.
@@ -44,6 +44,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/src/model_catalog_generator/catalog.rs`: complete fetched-value merge, overrides, supplements, clones and sorted public catalog.
 - `crates/pi-ai/src/model_catalog_generator/artifacts.rs`: native JSON/include staging, manifest validation and public output.
 - `crates/pi-ai/src/model_catalog_generator/emission_types.rs`: minimal actual-Model field-type checks at emission, after source filters/defaults.
+- `crates/pi-ai/src/model_catalog_generator/receiver_types.rs`: consumed models.dev receiver checks, preserving source short-circuit order.
 - `crates/pi-ai/src/providers/model_catalogs_generated.rs`: extracted provider include table consumed by unchanged `models_data` APIs.
 - `oracle/model-catalog-generator-oracle.ts`: instrumented pinned source functions with mocked HTTP.
 
@@ -54,6 +55,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/tests/model_catalog_generator_fetch.rs`: all-fetcher error matrix, NVIDIA Map order, strict Qwen set checks and original automatic CLI catch.
 - `crates/pi-ai/tests/model_catalog_generator_options.rs`: source flags and validation ordering.
 - `crates/pi-ai/tests/model_catalog_generator_raw.rs`: malformed provider errors and UTF-16 identity.
+- `crates/pi-ai/tests/model_catalog_generator_receivers.rs`: approved native receiver errors, source short-circuits and deferred reasoning failure order.
 - `crates/pi-ai/tests/model_catalog_generator_metadata.rs`: 675 merged-model cases against original source metadata mutations.
 - `crates/pi-ai/tests/model_catalog_generator_models_dev.rs`: all-provider pipeline with independently mocked models.dev/NVIDIA responses.
 - `crates/pi-ai/tests/model_catalog_generator_workflow.rs`: full source module workflow with fixture HTTP and sandboxed temporary filesystem.

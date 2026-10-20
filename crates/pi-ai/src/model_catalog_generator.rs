@@ -25,6 +25,7 @@ mod catalog;
 mod emission_types;
 mod metadata;
 mod models_dev;
+mod receiver_types;
 pub use metadata::apply_model_metadata;
 
 fn field<'a>(value: &'a JsValue, key: &str) -> &'a JsValue {
@@ -75,32 +76,6 @@ fn entries(value: &JsValue) -> Vec<(&JsString, &JsValue)> {
         _ => vec![],
     }
 }
-fn property_entries(value: &JsValue) -> Vec<(JsString, JsValue)> {
-    match value {
-        JsValue::Object(map) => object_entries_lossless(map)
-            .into_iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect(),
-        JsValue::Array(values) => values
-            .iter()
-            .enumerate()
-            .map(|(index, value)| (JsString::from(index.to_string().as_str()), value.clone()))
-            .collect(),
-        JsValue::String(value) => value
-            .units()
-            .iter()
-            .enumerate()
-            .map(|(index, unit)| {
-                (
-                    JsString::from(index.to_string().as_str()),
-                    JsValue::String(JsString::from_utf16(vec![*unit])),
-                )
-            })
-            .collect(),
-        _ => vec![],
-    }
-}
-
 fn require_model_id(model: &JsValue) -> Result<&JsString, GeneratorError> {
     match field(model, "id") {
         JsValue::String(value) => Ok(value),
@@ -114,37 +89,39 @@ fn equal(value: &JsValue, expected: &str) -> bool {
 
 /// models.dev costs retain source values and only context-size tiers, in source order.
 pub fn get_models_dev_cost(cost: &JsValue) -> Result<JsValue, GeneratorError> {
+    receiver_types::optional_object(cost, "models.dev cost")?;
     let mut result = plain_cost(cost);
     let source_tiers = field(cost, "tiers");
     if !matches!(source_tiers, JsValue::Null | JsValue::Array(_)) {
-        return Err(GeneratorError::type_error("cost?.tiers?.flatMap is not a function"));
+        return Err(GeneratorError::type_error("models.dev cost.tiers must be an array"));
     }
     if let JsValue::Array(tiers) = source_tiers {
-        if tiers.iter().any(|tier| matches!(tier, JsValue::Null)) {
-            return Err(GeneratorError::type_error(
-                "Cannot read properties of null (reading 'tier')",
-            ));
+        let mut output = vec![];
+        for tier in tiers {
+            if !matches!(tier, JsValue::Object(_)) {
+                return Err(GeneratorError::type_error(
+                    "models.dev cost.tiers entries must be objects",
+                ));
+            }
+            let context = field(tier, "tier");
+            receiver_types::optional_object(context, "models.dev cost.tiers.tier")?;
+            if !equal(field(context, "type"), "context") {
+                continue;
+            }
+            let JsValue::Object(context) = context else {
+                continue;
+            };
+            let Some(size) = context.get(&JsString::from("size")) else {
+                continue;
+            };
+            let mut rates = object([("inputTokensAbove", size.clone())]);
+            if let (JsValue::Object(rates), JsValue::Object(cost)) = (&mut rates, plain_cost(tier)) {
+                rates.extend(cost);
+            }
+            output.push(rates);
         }
-        let tiers: Vec<_> = tiers
-            .iter()
-            .filter_map(|tier| {
-                let context = field(tier, "tier");
-                if !equal(field(context, "type"), "context") {
-                    return None;
-                }
-                let JsValue::Object(context_object) = context else {
-                    return None;
-                };
-                let size = context_object.get(&JsString::from("size"))?;
-                let mut rates = object([("inputTokensAbove", size.clone())]);
-                if let (JsValue::Object(rates), JsValue::Object(cost)) = (&mut rates, plain_cost(tier)) {
-                    rates.extend(cost);
-                }
-                Some(rates)
-            })
-            .collect();
-        if !tiers.is_empty() {
-            set(&mut result, "tiers", JsValue::Array(tiers));
+        if !output.is_empty() {
+            set(&mut result, "tiers", JsValue::Array(output));
         }
     }
     Ok(result)
@@ -159,21 +136,16 @@ fn plain_cost(cost: &JsValue) -> JsValue {
     ])
 }
 
-fn validate_modalities(model: &JsValue, variable: &str) -> Result<(), GeneratorError> {
-    if !matches!(
-        field(field(model, "modalities"), "input"),
-        JsValue::Null | JsValue::String(_) | JsValue::Array(_)
-    ) {
-        return Err(GeneratorError::type_error(&format!(
-            "{variable}.modalities?.input?.includes is not a function"
-        )));
-    }
-    Ok(())
+fn validate_modalities(model: &JsValue) -> Result<(), GeneratorError> {
+    receiver_types::modalities(model, "input")
 }
 
-fn common_model(id: &JsString, model: &JsValue, provider: &str) -> JsValue {
+fn common_model(id: &JsString, model: &JsValue, provider: &str) -> Result<JsValue, GeneratorError> {
+    receiver_types::model(model)?;
+    receiver_types::optional_object(field(model, "cost"), "models.dev cost")?;
+    receiver_types::optional_object(field(model, "limit"), "models.dev limit")?;
     let id = JsValue::String(id.clone());
-    object([
+    Ok(object([
         ("id", id.clone()),
         ("name", fallback(field(model, "name"), id)),
         ("provider", text(provider)),
@@ -198,18 +170,14 @@ fn common_model(id: &JsString, model: &JsValue, provider: &str) -> JsValue {
             "maxTokens",
             fallback(field(field(model, "limit"), "output"), number(4096)),
         ),
-    ])
+    ]))
 }
 
 /// Baseten accepts non-tool models and excludes only deprecated entries.
 pub fn process_baseten_models(provider: &JsValue) -> Result<JsValue, GeneratorError> {
     let mut models = Vec::new();
-    for (id, model) in &property_entries(field(provider, "models")) {
-        if matches!(model, JsValue::Null) {
-            return Err(GeneratorError::type_error(
-                "Cannot read properties of null (reading 'status')",
-            ));
-        }
+    for (id, model) in receiver_types::model_entries(provider)? {
+        receiver_types::model(model)?;
         if equal(field(model, "status"), "deprecated") {
             continue;
         }
@@ -218,18 +186,8 @@ pub fn process_baseten_models(provider: &JsValue) -> Result<JsValue, GeneratorEr
             .any(|name| id == &JsString::from(*name));
         let options = field(model, "reasoning_options");
         let has_option = |kind| -> Result<bool, GeneratorError> {
-            let options = match options {
-                JsValue::Null => return Ok(false),
-                JsValue::Array(options) => options,
-                _ => return Err(GeneratorError::type_error("reasoningOptions.some is not a function")),
-            };
-            for option in options {
-                if matches!(option, JsValue::Null) {
-                    return Err(GeneratorError::type_error(
-                        "Cannot read properties of null (reading 'type')",
-                    ));
-                }
-                if equal(field(option, "type"), kind) {
+            for option in receiver_types::options(options)? {
+                if equal(receiver_types::option_kind(option)?, kind) {
                     return Ok(true);
                 }
             }
@@ -237,7 +195,7 @@ pub fn process_baseten_models(provider: &JsValue) -> Result<JsValue, GeneratorEr
         };
         let toggle = has_option("toggle")? || is_glm;
         let effort = has_option("effort")? || is_glm;
-        validate_modalities(model, "model")?;
+        validate_modalities(model)?;
         let mut compat = literal(
             json!({"supportsStore":false,"supportsDeveloperRole":false,"supportsReasoningEffort":effort,"supportsUsageInStreaming":true,"maxTokensField":"max_tokens","supportsStrictMode":true,"supportsLongCacheRetention":false}),
         );
@@ -261,10 +219,10 @@ pub fn process_baseten_models(provider: &JsValue) -> Result<JsValue, GeneratorEr
                 json!({"off":"off","minimal":null,"low":null,"medium":null,"high":"high","xhigh":null,"max":null}),
             ))
         } else {
-            reasoning_map(options)
+            reasoning_map(options)?
         };
         // Preserve source insertion order, including its API/baseUrl placement.
-        let common = common_model(id, model, "baseten");
+        let common = common_model(id, model, "baseten")?;
         let mut result = object([
             ("id", field(&common, "id").clone()),
             ("name", field(&common, "name").clone()),
@@ -288,58 +246,59 @@ pub fn process_baseten_models(provider: &JsValue) -> Result<JsValue, GeneratorEr
     Ok(JsValue::Array(models))
 }
 
-fn reasoning_map(options: &JsValue) -> Option<JsValue> {
-    // Invalid JS option shapes remain outside the approved typed reasoning API boundary.
-    // Do not convert the provider payload itself through lossy UTF-8.
-    let options: Vec<ModelsDevReasoningOption> = match options {
-        JsValue::Array(options) => options
-            .iter()
-            .filter_map(|option| {
-                let kind = field(option, "type");
-                if equal(kind, "effort") {
-                    let values = match field(option, "values") {
-                        JsValue::Array(values) => values.as_slice(),
-                        value @ JsValue::String(_) => std::slice::from_ref(value),
-                        _ => return None,
-                    };
-                    let values = values
-                        .iter()
-                        .filter_map(|value| match value {
-                            JsValue::Null => Some(None),
-                            JsValue::String(value) => value
-                                .to_utf8()
-                                .ok()
-                                .and_then(|value| serde_json::from_value(json!(value)).ok())
-                                .map(Some),
-                            _ => None,
-                        })
-                        .collect();
-                    Some(ModelsDevReasoningOption::Effort { values })
-                } else {
-                    None
+fn reasoning_map(options: &JsValue) -> Result<Option<JsValue>, GeneratorError> {
+    let mut typed = vec![];
+    for option in receiver_types::options(options)? {
+        if !equal(receiver_types::option_kind(option)?, "effort") {
+            continue;
+        }
+        let values = match option {
+            JsValue::Object(option) => option.get(&JsString::from("values")),
+            _ => unreachable!("checked reasoning object"),
+        };
+        let Some(values) = values else {
+            continue;
+        };
+        let JsValue::Array(values) = values else {
+            return Err(GeneratorError::type_error("models.dev effort values must be an array"));
+        };
+        let mut supported = vec![];
+        for value in values {
+            match value {
+                JsValue::Null => supported.push(None),
+                JsValue::String(value) => {
+                    // Unknown strings do not select Pi efforts in the source Set-membership algorithm.
+                    if let Some(value) = value
+                        .to_utf8()
+                        .ok()
+                        .and_then(|value| serde_json::from_value(json!(value)).ok())
+                    {
+                        supported.push(Some(value));
+                    }
                 }
-            })
-            .collect(),
-        _ => vec![],
-    };
-    get_effort_thinking_level_map(&options)
-        .map(|value| literal(serde_json::to_value(value).expect("reasoning map serializes")))
+                _ => {
+                    return Err(GeneratorError::type_error(
+                        "models.dev effort values must contain strings or null",
+                    ));
+                }
+            }
+        }
+        typed.push(ModelsDevReasoningOption::Effort { values: supported });
+    }
+    Ok(get_effort_thinking_level_map(&typed)
+        .map(|map| literal(serde_json::to_value(map).expect("reasoning map serializes"))))
 }
 
 /// Fireworks uses Anthropic except GLM-5p2/Kimi-K3 completions families.
 pub fn process_fireworks_models(provider: &JsValue) -> Result<JsValue, GeneratorError> {
     let mut models = Vec::new();
-    for (id, model) in &property_entries(field(provider, "models")) {
-        if matches!(model, JsValue::Null) {
-            return Err(GeneratorError::type_error(
-                "Cannot read properties of null (reading 'tool_call')",
-            ));
-        }
+    for (id, model) in receiver_types::model_entries(provider)? {
+        receiver_types::model(model)?;
         if field(model, "tool_call") != &JsValue::Bool(true) {
             continue;
         }
-        validate_modalities(model, "model")?;
-        let mut result = common_model(id, model, "fireworks");
+        validate_modalities(model)?;
+        let mut result = common_model(id, model, "fireworks")?;
         let id = JsValue::String(id.clone());
         let completions = includes(&id, "glm-5p2") || includes(&id, "kimi-k3");
         set(

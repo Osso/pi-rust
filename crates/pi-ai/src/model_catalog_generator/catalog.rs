@@ -191,7 +191,7 @@ impl Generator<'_> {
             key.extend_from_slice(id.units());
             if let Some(options) = self.reasoning_options.get(&JsString::from_utf16(key)) {
                 if is_truthy(options) && direct_effort(model)? {
-                    if let Some(map) = reasoning_map(options) {
+                    if let Some(map) = reasoning_map(options)? {
                         let mut existing = field(model, "thinkingLevelMap").clone();
                         if !matches!(existing, JsValue::Object(_)) {
                             existing = object([]);
