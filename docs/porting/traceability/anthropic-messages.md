@@ -8,7 +8,7 @@ Rust: `crates/pi-ai/src/api/anthropic_messages.rs`,
 `crates/pi-ai/src/api/anthropic_messages_lazy.rs`.
 
 Tests: `crates/pi-ai/tests/anthropic_messages.rs` (27 behavioral tests),
-`crates/pi-ai/tests/differential_anthropic_messages.rs` (41 recorded-fixture
+`crates/pi-ai/tests/differential_anthropic_messages.rs` (44 recorded-fixture
 scenarios against the pinned TypeScript module).
 
 ## Exports → proof
@@ -18,7 +18,7 @@ scenarios against the pinned TypeScript module).
 | `AnthropicEffort` | `AnthropicEffort` | adaptive/effort request bodies in differential scenarios |
 | `AnthropicThinkingDisplay` | `AnthropicThinkingDisplay` | `thinkingDisplay` scenarios |
 | `AnthropicOptions` | `AnthropicOptions` + `from_stream_options` | every request-body test |
-| `stream` | `stream`, `AnthropicMessagesApi::stream` | behavioral suite + 41 differential scenarios |
+| `stream` | `stream`, `AnthropicMessagesApi::stream` | behavioral suite + 44 differential scenarios |
 | `streamSimple` | `stream_simple` | seven thinking-level scenarios, legacy budgets, no-reasoning |
 | `anthropicMessagesApi` (`lazy.ts`) | `anthropic_messages_api` | `lazy_api_wrapper_streams_without_deferred_capabilities` |
 
@@ -69,7 +69,9 @@ reproduces the observable request:
 | `message_start` usage/response id/cost | `apply_message_start` | usage/cost tests and scenarios |
 | `content_block_start` text/thinking/redacted/tool_use | `apply_content_block_start` | content-start, redacted, tool-call tests |
 | `content_block_delta` text/thinking/signature/input_json | `apply_content_block_delta` | multi-block and malformed-JSON scenarios |
-| `content_block_stop` end events and tool JSON finalization | `apply_content_block_stop` | tool-call scenarios |
+| `content_block_stop` end events and tool JSON finalization; remove `index` and tool `partialJson` before end snapshots | `apply_content_block_stop` | strict multi-block differential scenario |
+| text/thinking/redacted/tool start and delta retain literal `index`; tool start/delta retain `partialJson` | content start/delta handlers | strict text and multi-block differential scenarios |
+| error before block stop clears indices and tool JSON buffer before error/result snapshots | `run_stream` error branch | three open-block SSE error differential scenarios (text/thinking/tool, index 3) |
 | `message_delta` stop reason, usage, reasoning tokens, cost | `apply_message_delta` | usage/reasoning and stop-reason tests |
 | unknown SSE events skipped; `error` event throws data | `SseState`, `AnthropicEventReader` | `ignores_unknown_sse_events_after_message_stop` |
 | stream ends without `message_stop` | `check_complete` | `truncated_stream_without_message_stop_is_an_error` |
@@ -94,17 +96,21 @@ affinity, empty signatures, temperature compat, and tool-call ID normalization.
 Normalizations:
 
 - `timestamp` is set to `0` in both event snapshots and the final message.
-- The TS stream leaks private `index` and `partialJson` scratch properties into
-  `partial` content blocks; the oracle removes them. Rust never emits them.
+- No `index`/`partialJson` filtering remains in either oracle or Rust observation
+  helpers. Prior 41-scenario normalized proof was **not strict event parity**;
+  the current 44-scenario comparison preserves these valid output properties.
 - Request bodies are compared as exact strings; events and the final message are
   compared as exact JSON values (the oracle transport uses `serde_json` with
   `float_roundtrip`, matching JavaScript decimal parsing).
 
 ## Discrepancies / explicit exclusions
 
-1. **Scratch fields in partial events.** TS content blocks carry `index` and
-   (for streamed tool calls) `partialJson` until the block stops. The declared
-   `AssistantMessage` contract has neither; Rust omits them from every event.
+1. **Bounded scratch proof.** `index` and `partialJson` now match this adapter's
+   source start/delta/stop/error lifecycle. This does not prove other providers'
+   scratch fields (`customInput`, `streamIndex`, `partialArgs`) or the custom
+   Anthropic example's distinct SDK/error lifecycle. Shared types preserve that
+   example's valid fields; its native producer proof belongs to the example slice.
+   See [contract](../../specs/content-stream-scratch.md).
 2. **`client` option.** A pre-built `Anthropic` SDK instance cannot be
    represented; the Rust API always constructs the private SDK request path.
 3. **`streamSimple` auth failure.** TS throws synchronously; the Rust

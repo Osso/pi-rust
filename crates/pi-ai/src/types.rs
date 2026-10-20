@@ -301,6 +301,12 @@ pub struct TextContent {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_signature: Option<String>,
+    /// Provider block index while streaming; absent after finalization.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "js_number::serialize_option"
+    )]
+    pub index: Option<f64>,
 }
 
 impl TextContent {
@@ -309,6 +315,7 @@ impl TextContent {
             r#type: TextTag::Tag,
             text: text.into(),
             text_signature: None,
+            index: None,
         }
     }
 }
@@ -323,6 +330,12 @@ pub struct ThinkingContent {
     /// The thinking was redacted; the opaque payload is in `thinking_signature`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redacted: Option<bool>,
+    /// Provider block index while streaming; absent after finalization.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "js_number::serialize_option"
+    )]
+    pub index: Option<f64>,
 }
 
 impl ThinkingContent {
@@ -332,6 +345,7 @@ impl ThinkingContent {
             thinking: thinking.into(),
             thinking_signature: None,
             redacted: None,
+            index: None,
         }
     }
 }
@@ -375,6 +389,15 @@ pub struct ToolCall {
     pub thought_signature: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
+    /// Provider block index while streaming; absent after finalization.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "js_number::serialize_option"
+    )]
+    pub index: Option<f64>,
+    /// Unparsed tool input accumulated during streaming.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial_json: Option<String>,
 }
 
 impl ToolCall {
@@ -387,6 +410,8 @@ impl ToolCall {
             execution: None,
             thought_signature: None,
             namespace: None,
+            index: None,
+            partial_json: None,
         }
     }
 }

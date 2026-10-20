@@ -45,22 +45,9 @@ function normalizeError(error: unknown): { name: string; message: string } {
 	return { name: "UnknownError", message: String(error) };
 }
 
-// The TypeScript stream stores an `index` scratch property on content blocks and
-// a `partialJson` buffer on streamed tool calls. Neither is part of the declared
-// AssistantMessage contract; the Rust port keeps them private and never emits
-// them. Drop both from recorded content blocks so the comparison covers the
-// declared payload only.
-function normalizeContentBlock(block: unknown): unknown {
-	if (!block || typeof block !== "object") return block;
-	const { index: _index, partialJson: _partialJson, ...rest } = block as Record<string, unknown>;
-	return rest;
-}
-
 function normalizeMessage(message: unknown): unknown {
 	if (!message || typeof message !== "object") return message;
 	const copy: Record<string, unknown> = { ...(message as Record<string, unknown>), timestamp: 0 };
-	const content = copy.content;
-	if (Array.isArray(content)) copy.content = content.map(normalizeContentBlock);
 	return copy;
 }
 
@@ -72,7 +59,6 @@ function normalizeEvent(event: unknown): unknown {
 	for (const key of ["partial", "message", "error"]) {
 		if (copy[key]) copy[key] = normalizeMessage(copy[key]);
 	}
-	if (copy.toolCall) copy.toolCall = normalizeContentBlock(copy.toolCall);
 	return copy;
 }
 

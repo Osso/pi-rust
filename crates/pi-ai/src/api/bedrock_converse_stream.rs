@@ -1151,6 +1151,7 @@ fn handle_content_block_delta(
                         thinking: String::new(),
                         thinking_signature: Some(String::new()),
                         redacted: None,
+                        index: None,
                     }),
                     index: Some(content_block_index),
                     partial_json: None,
