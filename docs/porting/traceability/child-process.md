@@ -16,7 +16,9 @@ Differential test skipped: behavior depends on process lifetime, pipes, and timi
 ## Shared Node errno mapping (ca-errno)
 
 Node/libuv reports `uv_err_name` (`ETXTBSY`, `ENOTDIR`, ...), not the OS description. One Rust
-mapping serves every spawn and filesystem caller:
+mapping serves every spawn and filesystem caller. Implementation now lives in `pi-js-compat::node_fs`; existing public paths re-export unchanged signatures. [Shared filesystem proof and gaps](node-fs-errors.md).
+
+Existing public contracts:
 
 | Item | Contract | Proof |
 |---|---|---|
@@ -26,7 +28,7 @@ mapping serves every spawn and filesystem caller:
 | Callers: pyrun runner, bwrap availability check, browser-cli, ask-secret, claude-memory enrich/session-end, rpc client, config spawnSync, session-selector trash, ls rtk, bwrap fs worker | All use the shared mapping instead of hand-rolled 2-3 entry matches that collapsed unknown codes to `EIO` | `tests/errno_codes.rs` (pyrun + bwrap at the real exec boundary); focused caller suites |
 
 Discrepancy: `core::tools::node_fs::node_fs_error` uses Node's lowercase libuv descriptions only for
-`ENOENT`/`EACCES`/`EISDIR`/`ENOTDIR`/`EEXIST`/`EINVAL`/`ENOTEMPTY`. Other codes now report the
+`ENOENT`/`EACCES`/`EISDIR`/`ENOTDIR`/`EEXIST`/`EINVAL`/`ENOTEMPTY`. The separately proven ELOOP description now also matches Node. Other codes report the
 correct Node code but keep std's description (for example `ETXTBSY: Text file busy (os error 26), open 'x'`
 instead of Node's `ETXTBSY: text file busy, open 'x'`). The code itself matches; a full `uv_strerror`
 table is out of this slice's scope.

@@ -21,9 +21,11 @@ Source: pinned `packages/ai/scripts/model-data.ts` (280 lines). Rust: `crates/pi
 | Caller Node flag plus orphan process-group teardown | existing oracle support | `caller_node_flag_and_parent_death_watchdog_both_work` |
 | Raw JSON unpaired surrogate diagnostic | shared `parse_lossless` and lossless diagnostic storage | `json_model_identity_with_unpaired_surrogate_matches_ts`, GREEN |
 | Raw surrogate model/API keys, distinct surrogate/U+FFFD/pairs, nested metadata strings | shared `JsString`/`JsValue`/`JsObject` throughout traversal | `raw_surrogate_keys_and_nested_values_match_full_ts_responses`, GREEN; exact whole encoded response bytes |
-| Authorized no-argument native checker | `native_model_data_structure`, `validate_native_model_data` | [checker proof](check-model-data.md) |
+| No-argument native checker, source-location default | `native_model_data_structure`, `validate_model_data_directory`; explicit-root API `validate_native_model_data` retained | [checker proof](check-model-data.md): sandboxed source-root positive/error cases from unrelated CWDs; previous CWD inference corrected |
 
-Implementation complete for this pair's bounded scope; coverage rows remain partial pending parent-owned final integration/verification. No unresolved surrogate implementation blocker. Existing catalog-state discrepancy is recorded in checker traceability, not silently repaired.
+Coverage rows remain partial pending parent-owned final integration/verification; bounded source-root correction proof lives in [checker traceability](check-model-data.md). No unresolved surrogate implementation blocker. Existing catalog-state discrepancy is recorded in checker traceability, not silently repaired.
+
+Filesystem errors now use the [shared Node filesystem prerequisite](node-fs-errors.md); the private adapter wraps its message in `JsString` without local errno/message mappings. Model-data source contracts and UTF-16 diagnostics are unchanged.
 
 ## API and representation boundary
 
@@ -57,7 +59,7 @@ Commands run in `/home/osso/.worktrees/pi-rust-model-data-tools`. Historical run
 | `908c2ce` corpus (production unchanged from `fa543e5`) | module target, `raw_surrogate_keys` filter | RED collisions/API/nested values; `model-data-tools-surrogate-keys-red.log` | Historical RED resolved by `f139cff` |
 | `f139cff` production/tests (run on `cf0e110` + consumer diff, then formatted) | `cargo test -p pi-ai --test model_data_tools -- --nocapture` | GREEN 14/14, 0 ignored; `model-data-tools-lossless-green-1.log` | Native checker subsequently replaced; consumer proof retained |
 | `f139cff` + native fixture | same target, `native_checker_defaults` filter | RED usage exit 2 vs expected 0; `model-data-tools-native-red.log` | Historical native RED |
-| `cbe93f4` production/tests (run on `f139cff` + native diff, then formatted) | full module target above | GREEN 15/15, 0 ignored; `model-data-tools-native-green-1.log` | Current 15-test scope, production unchanged |
+| `cbe93f4` production/tests (run on `f139cff` + native diff, then formatted) | full module target above | GREEN 15/15, 0 ignored; `model-data-tools-native-green-1.log` | Historical native CWD behavior superseded by source-root correction; unaffected API proof retained |
 | `cbe93f4` + typed UTF-16 corpus and opaque request transport | same target, `typed_utf16_ids` filter | GREEN 1/1, 15 filtered; `model-data-tools-typed-utf16-proof.log` | Additive API proof; no production change |
 
-Latest evidence is 15 existing tests plus one newly targeted test, not a claimed single 16-test run. The added transport branch does not change existing requests lacking `requestJson`. Formatter-only edits do not invalidate behavior. No broad/check/clippy/readability/final-integration/deployment gates run; parent owns those gates. No catalog refresh, live HTTP/config/DB or canonical edits.
+Before the source-root correction, evidence was 15 existing tests plus one newly targeted test, not a claimed single 16-test run. Source-root correction reran only 3 checker-filter tests (13 filtered), preserving exact complete-stream differential comparison; see [checker ledger](check-model-data.md#proof-ledger). The added transport branch does not change existing requests lacking `requestJson`. Formatter-only edits do not invalidate behavior. No broad/check/clippy/readability/final-integration/deployment gates run; parent owns those gates. No catalog refresh, live HTTP/config/DB or canonical edits.
