@@ -46,8 +46,9 @@ to a dedicated proof directory to retain state/logs there; otherwise a fresh
 `pi-test-*` directory is retained under TMPDIR. Remove retained directories after
 collecting proof.
 
-Every protected process gets a new network namespace with loopback enabled but
-no external interface/route. Local HTTP/oracle fixtures, PTY descriptors, process
+Every protected process gets new user/network namespaces with loopback enabled
+but no external interface/route. NET_ADMIN is retained only within those child
+namespaces to bring up their loopback; host interfaces are unchanged. Local HTTP/oracle fixtures, PTY descriptors, process
 groups and parent watchdogs remain usable. The bounded regression uses an outer
 namespace with a forbidden fake at the absolute helper path, real default Pi
 startup/double-Ctrl+C shutdown, and real loopback HTTP across nested guards. It

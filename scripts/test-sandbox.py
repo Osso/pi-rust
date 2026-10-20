@@ -137,6 +137,7 @@ def launch(command):
     arguments = [
         "/usr/bin/bwrap",
         "--die-with-parent",
+        "--unshare-user",
         "--unshare-net",
         "--cap-add",
         "CAP_NET_ADMIN",
