@@ -172,6 +172,15 @@ exit 1, original termios, banner/error and restoration before the banner.
 `worker_restore_matches_normal_ui_stop_bytes` additionally compares complete
 normal-stop and worker-restore byte streams in both renderer modes, with
 progress and color notifications enabled and modifyOtherKeys negotiated.
+The PTY harness captures immutable initial termios immediately after `openpty`,
+before spawning the child; worker-crash and stop-output tests use that baseline.
+The stop-output regression waits for `STOP_READY` (after `ui.start()`) before
+fetching the stored baseline, asserts live raw termios differs, then asserts
+final live termios equals the baseline in all four regular/fullscreen ×
+normal/worker cases. Sampling live termios after that handshake deterministically
+fails the raw-versus-baseline assertion (RED); pre-spawn capture removes the
+baseline race. Proof is handshake ordering, not stress reruns; no production
+restoration change is involved.
 `dead_terminal_error_on_a_worker_exits_129_without_restoring` proves the
 process-wide emergency branch. `uncaught` tests prove cross-thread dispatch
 and handler removal from another thread.

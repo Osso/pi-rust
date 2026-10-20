@@ -212,7 +212,7 @@ fn assert_worker_crash(kind: &str, fullscreen: bool) {
         &environment,
         &fixture.work,
     );
-    let original = child.termios();
+    let original = child.initial_termios();
     let ready = if fullscreen {
         "bwrap: full access"
     } else {
@@ -324,8 +324,10 @@ fn capture_stop_output(fixture: &Fixture, fullscreen: bool, worker: bool) -> Str
         &environment,
         &fixture.work,
     );
-    let original = child.termios();
     child.wait_for("STOP_READY", Duration::from_secs(10));
+    // Fetch the stored baseline only after the child has entered raw mode.
+    let original = child.initial_termios();
+    assert_ne!(child.termios(), original, "interactive mode must enter raw mode");
     child.write_input("\x1b[?1;2c");
     child.wait_for("\x1b[>4;2m", Duration::from_secs(5));
     child.write_input("x");
