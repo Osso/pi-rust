@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 /// A child process attached to a pty the test owns.
 pub struct PtyChild {
     master: Option<File>,
+    initial_termios: rustix::termios::Termios,
     child: Child,
     output: Arc<Mutex<String>>,
     reader_stop: Arc<AtomicBool>,
@@ -37,6 +38,7 @@ pub fn spawn(binary: &Path, args: &[&str], environment: &[(String, String)], cwd
         ws_ypixel: 0,
     };
     let openpty = nix::pty::openpty(Some(&winsize), None).expect("openpty must allocate a pty");
+    let initial_termios = rustix::termios::tcgetattr(&openpty.master).expect("initial pty termios");
     // The child must not inherit the master: it would keep the pty open
     // after `close_master`.
     rustix::io::fcntl_setfd(&openpty.master, rustix::io::FdFlags::CLOEXEC).expect("master must close on exec");
@@ -87,6 +89,7 @@ pub fn spawn(binary: &Path, args: &[&str], environment: &[(String, String)], cwd
 
     PtyChild {
         master: Some(master),
+        initial_termios,
         child,
         output,
         reader_stop,
@@ -95,6 +98,11 @@ pub fn spawn(binary: &Path, args: &[&str], environment: &[(String, String)], cwd
 }
 
 impl PtyChild {
+    /// Immutable baseline captured before the child can change terminal modes.
+    pub fn initial_termios(&self) -> String {
+        format!("{:?}", self.initial_termios)
+    }
+
     pub fn termios(&self) -> String {
         let termios =
             rustix::termios::tcgetattr(self.master.as_ref().expect("pty master is open")).expect("pty termios");
