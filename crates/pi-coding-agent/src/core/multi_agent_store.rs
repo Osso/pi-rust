@@ -765,6 +765,14 @@ impl<T> ListenerList<T> {
         id
     }
 
+    fn clear(&self) -> Result<(), MultiAgentStoreError> {
+        self.listeners
+            .lock()
+            .map_err(|error| MultiAgentStoreError::new(error.to_string()))?
+            .clear();
+        Ok(())
+    }
+
     fn remove(&self, id: u64) {
         self.listeners
             .lock()
@@ -1711,8 +1719,7 @@ impl MultiAgentStore {
             Some(target) => read_multi_agent_state(&target.control_db_path, &target.session_path)?,
             None => None,
         };
-        self.restore_state(state);
-        Ok(())
+        self.restore_state(state)
     }
 
     pub fn from_session_manager(
@@ -1724,18 +1731,20 @@ impl MultiAgentStore {
         Ok(store)
     }
 
-    fn restore_state(&self, state: Option<MultiAgentPersistedState>) {
+    fn restore_state(&self, state: Option<MultiAgentPersistedState>) -> Result<(), MultiAgentStoreError> {
         let mut current = self.lock();
         current.agents.clear();
         current.agent_order.clear();
         current.mailbox_messages.clear();
         current.mailbox_order.clear();
         current.abort_handlers.clear();
+        self.lifecycle_notifications.clear()?;
+        self.transitions.clear()?;
         current.selected_agent_id = None;
         current.next_agent_number = state.as_ref().map_or(1, |state| state.counters.next_agent_number);
         current.next_message_number = state.as_ref().map_or(1, |state| state.counters.next_message_number);
         let Some(state) = state else {
-            return;
+            return Ok(());
         };
         for agent in state.agents {
             if let Ok(agent) = serde_json::from_value::<AgentSnapshot>(agent) {
@@ -1755,6 +1764,7 @@ impl MultiAgentStore {
                     .insert(message.id.clone(), copy_message(&message));
             }
         }
+        Ok(())
     }
 
     fn put_mailbox_message(&self, message: AgentMailboxMessage) -> Result<(), MultiAgentStoreError> {

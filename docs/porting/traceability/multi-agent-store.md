@@ -2,11 +2,13 @@
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
+`repin_store_persistence.rs` compares a real TS store restore/subscription probe against Rust: restore clears transition/lifecycle listener sets but retains update subscribers (RED callback counts1/1/1→GREEN0/0/1). Filesystem-blocked DB allocation/listing propagates errors without local-counter fallback; recovery starts at agent_1 and evicts absent rows. Old terminal snapshots cannot mint fresh notifications, compared with actual TS store. `store-reset-green.log`: differential operation script1 + persistence3 pass after final store changes. No broad acceptance command.
+
 `repin_multi_agent_store.rs` RED5→GREEN5 proves original snapshot returned on consume/removal, controlled relative creation age at 24h−1ms / exactly24h, peer-deleted DB rows evicted without failed-message resurrection, nested tool `detail` preserved and persisted top-level `extra.suppressTerminalNotification` enforced on terminal snapshot publication. `repin_control_agents.rs` additionally proves exact-owner model/activity updates visible to the same TS reader, wrong-owner rejection and typed `detail` roundtrip. The updated actual-source `differential_multi_agent_store` operation script passes including optional effective model publication with current activity.
 
 Source-throwing mailbox listing/consume/projection/publication and counter allocation now return `Result`; persistence errors no longer cause local counter fallback or `.ok()` mutation suppression. Mechanical callers propagate through existing error/logging boundaries. No effective-model producer timing parity is claimed: producer callsites pass absent optional model until their later module-group port.
 
-Remaining: persistent store restore/listener/error branches, terminal suppression in DB finalization/dead recovery, steering take/consume atomicity, full cross-state reverse-init/mutation proof, exact schema migrations and retained cleanup. Historical proof below is not renewed whole-module proof. Coverage row unchanged.
+Remaining: full cross-state reverse-init/mutation proof and exact schema migration proof; DB finalization/dead recovery, steering take/consume and retained cleanup have bounded dedicated evidence in control DB traceability. Untested historical branches are not promoted by this evidence. Historical proof below is not renewed whole-module proof. Coverage row unchanged.
 
 Runtime integration blocker: `agent_session::{mark_store_mailbox_message_delivered,mark_store_steering_delivered}` and `agents_core/wait_runtime::mark_wait_mailbox_store_message_delivered` still need durable claim → append refs/custom receipt → persist/fsync → fenced delete ordering. Source-style store deletion alone does not make these older callers safe. No deployment or live-state use is authorized from these fixture results.
 
