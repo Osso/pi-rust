@@ -6,6 +6,7 @@ PI_TEST_SANDBOX_DIR selects an explicit private writable proof directory.
 Otherwise logs/state are retained in a fresh pi-test-* directory under TMPDIR.
 """
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -23,11 +24,36 @@ def bind(arguments, source, writable=False):
     arguments.extend(["--bind" if writable else "--ro-bind", str(source), str(source)])
 
 
+def locked_delta_paths(lock):
+    for delta in lock["deltas"]:
+        checkout = Path(delta["checkout"])
+        result = subprocess.run(
+            ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"cannot verify locked delta HEAD at {checkout}: {result.stderr.strip()}")
+        actual = result.stdout.strip()
+        if actual != delta["commit"]:
+            raise RuntimeError(f"locked delta HEAD mismatch at {checkout}: expected {delta['commit']}, got {actual}")
+        for relative, expected in delta["modules"].items():
+            module = checkout / relative
+            try:
+                actual = hashlib.sha256(module.read_bytes()).hexdigest()
+            except OSError as error:
+                raise RuntimeError(f"cannot read locked delta module {module}: {error}") from error
+            if actual != expected:
+                raise RuntimeError(f"locked delta module SHA256 mismatch at {module}: expected {expected}, got {actual}")
+        yield checkout
+
+
 def reference_inputs():
     lock = json.loads((ROOT / "docs/porting/source-lock.json").read_text())
+    deltas = json.loads((ROOT / "docs/porting/delta-lock.json").read_text())
     references = [
         ROOT,
         Path(lock["worktree"]),
+        *locked_delta_paths(deltas),
     ]
     for reference in references:
         yield reference

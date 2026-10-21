@@ -6,6 +6,60 @@
 use rustix::io::Errno;
 use std::io;
 
+use crate::js_json::JsString;
+
+/// Node's path argument validation error, without invented IO syscall/errno fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodePathArgumentError {
+    pub name: &'static str,
+    pub code: &'static str,
+    pub message: JsString,
+}
+
+/// Validate a native string path before entering a Node filesystem operation.
+/// ERR_INVALID_ARG_VALUE inspects the value, then truncates at 128 UTF-16 units.
+pub fn node_path_argument_error(path: &str) -> Option<NodePathArgumentError> {
+    if !path.contains('\0') {
+        return None;
+    }
+    let inspected = inspect_path_argument(path);
+    let mut received: Vec<u16> = inspected.encode_utf16().take(128).collect();
+    if inspected.encode_utf16().count() > 128 {
+        received.extend("...".encode_utf16());
+    }
+    let mut message: Vec<u16> =
+        "The argument 'path' must be a string, Uint8Array, or URL without null bytes. Received "
+            .encode_utf16()
+            .collect();
+    message.extend(received);
+    Some(NodePathArgumentError {
+        name: "TypeError",
+        code: "ERR_INVALID_ARG_VALUE",
+        message: JsString::from_utf16(message),
+    })
+}
+
+fn inspect_path_argument(path: &str) -> String {
+    // util.inspect's default maxStringLength is 10000. A partial code point at
+    // that budget's end cannot reach the 128-unit error excerpt or change quotes.
+    let mut units = 0;
+    let end = path.char_indices().find_map(|(index, ch)| {
+        units += ch.len_utf16();
+        (units > 10000).then_some(index)
+    });
+    let value = &path[..end.unwrap_or(path.len())];
+    // Default breakLength 80, indentation 0: long strings split after newlines.
+    if value.encode_utf16().count() > 76 {
+        value
+            .split_inclusive('\n')
+            .map(inspect_string)
+            .collect::<Vec<_>>()
+            .join(" +\n  ")
+    } else {
+        inspect_string(value)
+    }
+}
+
 /// Node Error name, message and own filesystem metadata (stack is caller-owned).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeFsError {
@@ -64,7 +118,7 @@ fn escape_inspect_char(ch: char, quote: char) -> String {
         '\t' => "\\t".into(),
         '\u{8}' => "\\b".into(),
         '\u{c}' => "\\f".into(),
-        '\u{b}' => "\\v".into(),
+        '\u{b}' => "\\x0B".into(),
         ch if ch == quote => format!("\\{ch}"),
         ch if ch <= '\u{1f}' || ('\u{7f}'..='\u{9f}').contains(&ch) => format!("\\x{:02X}", ch as u32),
         ch => ch.to_string(),

@@ -1,0 +1,432 @@
+{
+  "classification": "frozen-baseline-with-approved-delta",
+  "approvedDeltaCommit": "8f8f3c2621a595ff799cd42cb4d14399cd1e286d",
+  "matrices": {
+    "reciprocal": [
+      {
+        "case": "architect/ordinary",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/unicode",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/relative",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/canonical-only",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/no-matching",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/underscore-prefix",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/absolute-dots",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/ordinary",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/unicode",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/relative",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/canonical-only",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/no-matching",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/underscore-prefix",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/absolute-dots",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      }
+    ],
+    "ownPid": [
+      {
+        "case": "architect/self-existing",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/self-missing",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/self-unmatched",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/self-directory",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/self-relative",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/self-outside",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/self-extension",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/self-symlink-dir",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/self-agent",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/no-path",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/self-empty-path",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/self-trailing-slash",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "architect/self-live-symlink",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\architect-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-existing",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-missing",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-unmatched",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-directory",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-relative",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-outside",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-extension",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-symlink-dir",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-agent",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/no-path",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-empty-path",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-trailing-slash",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "supervisor/self-live-symlink",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      }
+    ],
+    "ownedChild": [
+      {
+        "case": "dead",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      },
+      {
+        "case": "nonpi",
+        "sourceOnly": [
+          {
+            "id": "backslash",
+            "sessionPath": "ROOT\\supervisor-sessions\\missing.jsonl"
+          }
+        ],
+        "nativeOnly": []
+      }
+    ]
+  }
+}
