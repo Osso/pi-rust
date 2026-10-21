@@ -2,6 +2,8 @@
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
+Channel trim RED→GREEN: actual source public posts distinguish JS U+FEFF/NBSP whitespace from U+0085 NEL. Native post now uses the shared JS trim helper; empty U+FEFF rejects before DB mutation. `channel-trim-green.log` focused1 pass over all three cases.
+
 Notification-policy validation: `repin_control_validation` RED2→GREEN2 rejects null/string/number/array/object suppression values before DB setup and rejects invalid persisted policy at the restore boundary, matching TS errors. Typed input exclusions do not hide raw disk payloads.
 
 Mutation negative control at `12acddd6`: disabling only expected-payload equality makes the real-peer-update CAS test fail at stale delivery rejection; restoring byte-identical mailbox source (SHA256 `72c1365c1b9e8d7ff7d9f243fd4b54b783523c439569113483c55695064d66f9`) makes it pass. Mutation never committed/deployed. All 127 frozen exported function names have native counterparts by source inventory; this is not 127 behavioral proofs.

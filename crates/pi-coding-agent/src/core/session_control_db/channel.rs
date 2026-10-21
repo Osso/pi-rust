@@ -13,7 +13,7 @@ pub fn post_shared_channel_message(
     control_db_path: &str,
     input: &PostSharedChannelMessageInput,
 ) -> Result<i64, ControlDbError> {
-    let body = input.body.trim();
+    let body = pi_js_compat::string::js_trim(&input.body);
     if body.is_empty() {
         return Err(ControlDbError::new("shared channel message body must be non-empty"));
     }
