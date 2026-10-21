@@ -208,11 +208,18 @@ fn write_log_path() -> Option<PathBuf> {
     }
     let path = PathBuf::from(&configured);
     if path.is_dir() {
-        let seconds = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_secs())
-            .unwrap_or(0);
-        return Some(path.join(format!("tui-{seconds}-{}.log", std::process::id())));
+        let millis = pi_js_compat::date::js_now_millis() as i64;
+        let date = pi_js_compat::date::local_date_fields(millis).expect("resolve local write-log date");
+        let seconds = millis.div_euclid(1000).rem_euclid(60);
+        let stamp = format!(
+            "{}-{:02}-{:02}_{:02}-{:02}-{seconds:02}",
+            date.year,
+            date.month + 1,
+            date.day,
+            date.hours,
+            date.minutes
+        );
+        return Some(path.join(format!("tui-{stamp}-{}.log", std::process::id())));
     }
     Some(path)
 }
@@ -618,9 +625,6 @@ impl ProcessTerminal {
         let Some(path) = self.write_log_path.as_deref() else {
             return;
         };
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
             let _ = file.write_all(data.as_bytes());
         }

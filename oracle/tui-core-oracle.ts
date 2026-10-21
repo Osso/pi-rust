@@ -388,6 +388,27 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 	};
 }
 
+async function captureTerminalWriteLog(sourceDirectory: string): Promise<unknown> {
+    const api = await loadApi(sourceDirectory, "terminal.ts") as { ProcessTerminal: new () => { write(data: string): void } };
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "write-log-"));
+    const write = process.stdout.write;
+    process.env.PI_TUI_WRITE_LOG = directory;
+    try {
+        process.stdout.write = (() => true) as typeof write;
+        new api.ProcessTerminal().write("payload\n");
+        const filename = fs.readdirSync(directory)[0];
+        const normalized = filename.replace(/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/, "TIME").replace(`-${process.pid}.log`, "-PID.log");
+        const contents = fs.readFileSync(path.join(directory, filename), "utf8");
+        const missing = path.join(directory, "absent", "log.txt");
+        process.env.PI_TUI_WRITE_LOG = missing;
+        new api.ProcessTerminal().write("ignored log error");
+        return { normalized, contents, createdMissingParent: fs.existsSync(path.dirname(missing)) };
+    } finally {
+        process.stdout.write = write;
+        delete process.env.PI_TUI_WRITE_LOG;
+    }
+}
+
 async function captureTuiDebugFailure(request: Request, sourceDirectory: string): Promise<unknown> {
     const { TUI } = await loadApi(sourceDirectory, "tui.ts") as { TUI: new (terminal: CaptureTerminal) => any };
     process.env.HOME = request.home as string;
@@ -449,6 +470,8 @@ async function captureTerminalNumericDomains(request: Request, sourceDirectory: 
 
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
 	switch (request.operation) {
+		case "terminal_write_log":
+			return captureTerminalWriteLog(sourceDirectory);
 		case "tui_debug_failure":
 			return captureTuiDebugFailure(request, sourceDirectory);
 		case "tui_debug":
