@@ -14,6 +14,9 @@ runOracle(async (api, request) => {
  };
  const terminal = {rows:24, columns:80, write() {}, hideCursor() {}, showCursor() {}};
  const tui = new tuiApi.TUI(terminal, true);
+ let renderRequests = 0;
+ const requestRender = tui.requestRender.bind(tui);
+ tui.requestRender = (...args: unknown[]) => {renderRequests++;return requestRender(...args);};
  const renders: unknown[] = [];
  const ctx = {mode: request.mode ?? "tui", ui: {async custom(factory: Function) {
   let result: unknown = null;
@@ -43,5 +46,5 @@ runOracle(async (api, request) => {
   if(value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,wellFormed(v)]));
   return value;
  }
- return wellFormed({metadata,result,renders,renderCall,renderResult,fallback,extraResults});
+ return wellFormed({metadata,result,renders,renderRequests,renderCall,renderResult,fallback,extraResults});
 }).catch(error => {console.error(error);process.exitCode=1;});

@@ -32,14 +32,16 @@ impl EditorFixedCell for OwnedCell {
         self.cell.clear();
     }
 }
-struct Backend;
+struct Backend(Arc<std::sync::atomic::AtomicUsize>);
 impl ExtensionUiTuiBackend for Backend {
     fn create_fixed_cell(&self) -> Rc<dyn EditorFixedCell> {
         let tui = TuiRenderer::new(virtual_terminal::concrete(80, 24).1);
         let cell = tui.create_fixed_cell();
         Rc::new(OwnedCell { _tui: tui, cell })
     }
-    fn request_render(&self) {}
+    fn request_render(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
     fn terminal_rows(&self) -> usize {
         24
     }
@@ -61,6 +63,7 @@ struct Ui {
     theme: Arc<Theme>,
     request: Value,
     renders: Mutex<Vec<Value>>,
+    render_requests: Arc<std::sync::atomic::AtomicUsize>,
 }
 impl ExtensionUiContext for Ui {
     fn theme(&self) -> Arc<Theme> {
@@ -75,7 +78,7 @@ impl ExtensionUiContext for Ui {
         let captured = result.clone();
         let component = factory(
             ExtensionUiFactoryContext {
-                tui: ExtensionUiTui::new(Arc::new(Backend)),
+                tui: ExtensionUiTui::new(Arc::new(Backend(self.render_requests.clone()))),
                 theme: self.theme.clone(),
                 keybindings: KeybindingsManager::new(Vec::new(), None),
             },
@@ -168,6 +171,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         theme: theme.clone(),
         request: request.clone(),
         renders: Mutex::new(Vec::new()),
+        render_requests: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     });
     let (_runner, context) =
         tool_context::TestContextBuilder::new("/fixture", tool_context::in_memory_session("/fixture", name))
@@ -230,7 +234,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         .flatten()
         .map(|case| render_tool_result(&serde_json::from_value(case.clone()).unwrap()))
         .collect::<Vec<_>>();
-    let actual = json!({"metadata":{"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"executionMode":tool.execution_mode.map(|mode| mode.as_str())},"result":result,"renders":*ui.renders.lock().unwrap(),"renderCall":render_call,"renderResult":render_result,"fallback":fallback,"extraResults":extra_results});
+    let actual = json!({"metadata":{"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"executionMode":tool.execution_mode.map(|mode| mode.as_str())},"result":result,"renders":*ui.renders.lock().unwrap(),"renderRequests":ui.render_requests.load(std::sync::atomic::Ordering::SeqCst),"renderCall":render_call,"renderResult":render_result,"fallback":fallback,"extraResults":extra_results});
     if request["postPin"] == true {
         return actual;
     }

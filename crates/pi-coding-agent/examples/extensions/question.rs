@@ -120,6 +120,7 @@ impl ExtensionUiComponent for QuestionForm {
                 if trimmed.is_empty() {
                     state.editing = false;
                     state.editor.editor.set_text("");
+                    self.refresh(&mut state);
                 } else {
                     self.done.call(Some(json!({"answer":trimmed,"wasCustom":true})));
                 }
