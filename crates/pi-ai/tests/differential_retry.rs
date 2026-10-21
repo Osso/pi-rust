@@ -68,6 +68,7 @@ fn classification_messages() -> Vec<Value> {
     .map(|message| response("error", Some(message), ""))
     .collect();
     for text in [
+        "429",
         "500",
         "502",
         "503",
@@ -153,7 +154,7 @@ fn classification_messages() -> Vec<Value> {
         "Codex error: Unable to verify Daybreak Blue access. Please try again.\nOpenAI request ID: req_1\nextra",
         "ſerver error",
         "socKet hang up",
-        "bı ll ing",
+        "503 bılling",
         "unrecognized",
         "",
     ] {
@@ -164,6 +165,11 @@ fn classification_messages() -> Vec<Value> {
             messages.push(response(stop, text, ""));
         }
         for api in ["openai-codex-responses", "openai-responses", "OPENAI-CODEX-RESPONSES"] {
+            for text in [None, Some("")] {
+                let mut value = response(stop, text, "");
+                value["api"] = json!(api);
+                messages.push(value);
+            }
             for text in [
                 "This content was flagged for possible cybersecurity risk.",
                 "This content was flagged for possible cybersecurity risk. 503 request-id",
@@ -190,6 +196,13 @@ fn classification_messages() -> Vec<Value> {
             format!("WebSocket connection to 'wss://a{whitespace}b' failed: Expected 101 status code"),
         ] {
             messages.push(response("error", Some(&text), ""));
+        }
+    }
+    for api in ["openai-codex-responses", "openai-responses", "OPENAI-CODEX-RESPONSES"] {
+        for text in [websocket, daybreak] {
+            let mut value = response("error", Some(text), "");
+            value["api"] = json!(api);
+            messages.push(value);
         }
     }
     for request_id in ["req_1", "req_1\n", "req_1\r", "req_1\r\n", "😀", "req\u{2028}id", " "] {
