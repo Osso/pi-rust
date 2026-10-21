@@ -325,13 +325,6 @@ pub fn detect_capabilities_in(
             hyperlinks: false,
         };
     }
-    if environment.is_windows_console {
-        return TerminalCapabilities {
-            images: None,
-            true_color: true,
-            hyperlinks: false,
-        };
-    }
     TerminalCapabilities {
         images: None,
         true_color: has_true_color_hint,
@@ -435,10 +428,7 @@ pub fn delete_all_kitty_placements() -> String {
 }
 
 pub fn encode_iterm2(base64_data: &str, options: &Iterm2Options) -> String {
-    let mut params = vec![
-        format!("inline={}", if options.inline == Some(false) { 0 } else { 1 }),
-        format!("size={}", pi_js_compat::base64::buffer_decoded_len(base64_data)),
-    ];
+    let mut params = vec![format!("inline={}", if options.inline == Some(false) { 0 } else { 1 })];
 
     if let Some(width) = &options.width {
         params.push(format!("width={width}"));
@@ -856,17 +846,6 @@ pub fn hyperlink(text: &str, url: &str) -> String {
     format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
 }
 
-fn shorten_image_path(filename: &str) -> String {
-    let Some(home) = pi_js_compat::process_env::get("HOME").filter(|value| !value.is_empty()) else {
-        return filename.to_string();
-    };
-    if filename == home || filename.starts_with(&format!("{home}/")) || filename.starts_with(&format!("{home}\\")) {
-        format!("~{}", &filename[home.len()..])
-    } else {
-        filename.to_string()
-    }
-}
-
 /// Node `pathToFileURL` file URL for an absolute path (or `cwd`-joined relative path).
 pub fn path_to_file_url(filename: &str) -> String {
     let path = if Path::new(filename).is_absolute() {
@@ -912,13 +891,8 @@ pub fn path_to_file_url(filename: &str) -> String {
 /// Text fallback when the terminal cannot render inline images.
 pub fn image_fallback(mime_type: &str, dimensions: Option<ImageDimensions>, filename: Option<&str>) -> String {
     let mut parts = Vec::new();
-    if let Some(filename) = filename {
-        let display = shorten_image_path(filename);
-        if get_capabilities().hyperlinks && Path::new(filename).is_absolute() {
-            parts.push(hyperlink(&display, &path_to_file_url(filename)));
-        } else {
-            parts.push(display);
-        }
+    if let Some(filename) = filename.filter(|filename| !filename.is_empty()) {
+        parts.push(filename.to_string());
     }
     parts.push(format!("[{mime_type}]"));
     if let Some(dimensions) = dimensions {

@@ -52,6 +52,15 @@ impl Text {
         self.invalidate();
     }
 
+    pub fn set_padding(&mut self, padding_x: usize, padding_y: usize) {
+        if self.padding_x == padding_x && self.padding_y == padding_y {
+            return;
+        }
+        self.padding_x = padding_x;
+        self.padding_y = padding_y;
+        self.invalidate();
+    }
+
     pub fn set_custom_bg_fn(&mut self, custom_bg_fn: Option<StyleFn>) {
         self.custom_bg_fn = custom_bg_fn;
         self.invalidate();
@@ -101,7 +110,7 @@ impl Component for Text {
             return lines.clone();
         }
 
-        if self.text.trim().is_empty() {
+        if pi_js_compat::string::js_trim(&self.text).is_empty() {
             self.cached_text = Some(self.text.clone());
             self.cached_width = Some(width);
             self.cached_lines = Some(Vec::new());

@@ -254,21 +254,18 @@ impl SettingsList {
             } else {
                 state.selected_index + 1
             };
-        } else if keybindings.matches(data, "tui.select.confirm")
-            || (data == " "
-                && (!self.search_enabled
-                    || self
-                        .search_input
-                        .as_ref()
-                        .is_none_or(|input| input.get_value().is_empty())))
-        {
+        } else if keybindings.matches(data, "tui.select.confirm") || data == " " {
             self.activate_item();
         } else if keybindings.matches(data, "tui.select.cancel") {
             (self.on_cancel)();
         } else if self.search_enabled
             && let Some(search_input) = &mut self.search_input
         {
-            search_input.handle_input(data);
+            let sanitized = data.replace(' ', "");
+            if sanitized.is_empty() {
+                return;
+            }
+            search_input.handle_input(&sanitized);
             let query = search_input.get_value().to_string();
             self.apply_filter(&query);
         }
