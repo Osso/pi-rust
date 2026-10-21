@@ -100,27 +100,11 @@ fn strip_rgb_prefix(value: &str) -> &str {
     }
 }
 
-/// Parse a repeated OSC 997 color-scheme report.
-///
-/// The last report in the sequence wins, matching the TypeScript capture group.
+/// Parse one strictly framed OSC 997 color-scheme report.
 pub fn parse_terminal_color_scheme_report(data: &str) -> Option<TerminalColorScheme> {
-    let mut rest = data;
-    let mut last = None;
-    while !rest.is_empty() {
-        let after_prefix = rest.strip_prefix("\x1b[?997;")?;
-        let mut chars = after_prefix.chars();
-        let scheme = chars.next()?;
-        if scheme != '1' && scheme != '2' {
-            return None;
-        }
-        if chars.next()? != 'n' {
-            return None;
-        }
-        last = Some(scheme);
-        rest = chars.as_str();
-    }
-    match last? {
-        '2' => Some(TerminalColorScheme::Light),
-        _ => Some(TerminalColorScheme::Dark),
+    match data {
+        "\x1b[?997;1n" => Some(TerminalColorScheme::Dark),
+        "\x1b[?997;2n" => Some(TerminalColorScheme::Light),
+        _ => None,
     }
 }

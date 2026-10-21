@@ -44,3 +44,7 @@ Source: `packages/tui/src/terminal-colors.ts` (73 lines). Rust: `crates/pi-tui/s
 ## Discrepancies
 
 None.
+
+## Q1 re-pin audit (2026-10-21)
+
+Reference: immutable `4f9e6f8a4`. Frozen color-scheme regex accepts exactly one report, not repeated reports. Repeated-report differential RED then GREEN. Module proof pending final focused gate.

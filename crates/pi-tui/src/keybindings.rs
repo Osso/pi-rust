@@ -56,14 +56,6 @@ pub fn tui_keybindings() -> Vec<(String, KeybindingDefinition)> {
         ("tui.editor.cursorUp", definition(&["up"], "Move cursor up")),
         ("tui.editor.cursorDown", definition(&["down"], "Move cursor down")),
         (
-            "tui.editor.historyPrevious",
-            definition(&[], "Select previous prompt history entry"),
-        ),
-        (
-            "tui.editor.historyNext",
-            definition(&[], "Select next prompt history entry"),
-        ),
-        (
             "tui.editor.cursorLeft",
             definition(&["left", "ctrl+b"], "Move cursor left"),
         ),
@@ -81,11 +73,11 @@ pub fn tui_keybindings() -> Vec<(String, KeybindingDefinition)> {
         ),
         (
             "tui.editor.cursorLineStart",
-            definition(&["home", "ctrl+home", "ctrl+a"], "Move to line start"),
+            definition(&["home", "ctrl+a"], "Move to line start"),
         ),
         (
             "tui.editor.cursorLineEnd",
-            definition(&["end", "ctrl+end", "ctrl+e"], "Move to line end"),
+            definition(&["end", "ctrl+e"], "Move to line end"),
         ),
         (
             "tui.editor.jumpForward",
@@ -95,11 +87,8 @@ pub fn tui_keybindings() -> Vec<(String, KeybindingDefinition)> {
             "tui.editor.jumpBackward",
             definition(&["ctrl+alt+]"], "Jump backward to character"),
         ),
-        ("tui.editor.pageUp", definition(&["pageUp", "ctrl+pageUp"], "Page up")),
-        (
-            "tui.editor.pageDown",
-            definition(&["pageDown", "ctrl+pageDown"], "Page down"),
-        ),
+        ("tui.editor.pageUp", definition(&["pageUp"], "Page up")),
+        ("tui.editor.pageDown", definition(&["pageDown"], "Page down")),
         (
             "tui.editor.deleteCharBackward",
             definition(&["backspace"], "Delete character backward"),
@@ -146,56 +135,6 @@ pub fn tui_keybindings() -> Vec<(String, KeybindingDefinition)> {
         (
             "tui.select.cancel",
             definition(&["escape", "ctrl+c"], "Cancel selection"),
-        ),
-        (
-            "tui.altScreen.pageUp",
-            definition(&["pageUp"], "Scroll viewport up one page"),
-        ),
-        (
-            "tui.altScreen.pageDown",
-            definition(&["pageDown"], "Scroll viewport down one page"),
-        ),
-        (
-            "tui.altScreen.halfPageUp",
-            definition(&[], "Scroll viewport up half a page"),
-        ),
-        (
-            "tui.altScreen.halfPageDown",
-            definition(&[], "Scroll viewport down half a page"),
-        ),
-        ("tui.altScreen.lineUp", definition(&[], "Scroll viewport up one line")),
-        (
-            "tui.altScreen.lineDown",
-            definition(&[], "Scroll viewport down one line"),
-        ),
-        (
-            "tui.altScreen.previousPrompt",
-            definition(&["ctrl+shift+up"], "Jump to previous semantic prompt"),
-        ),
-        (
-            "tui.altScreen.nextPrompt",
-            definition(&["ctrl+shift+down"], "Jump to next semantic prompt"),
-        ),
-        (
-            "tui.altScreen.search",
-            definition(&["ctrl+shift+f"], "Search the primary scroll view"),
-        ),
-        (
-            "tui.altScreen.searchNext",
-            definition(&["enter", "ctrl+g"], "Select the next search match"),
-        ),
-        (
-            "tui.altScreen.searchPrevious",
-            definition(&["shift+enter", "ctrl+shift+g"], "Select the previous search match"),
-        ),
-        (
-            "tui.altScreen.searchClose",
-            definition(&["escape"], "Close transcript search"),
-        ),
-        ("tui.altScreen.top", definition(&["home"], "Scroll viewport to top")),
-        (
-            "tui.altScreen.bottom",
-            definition(&["end"], "Scroll viewport to bottom"),
         ),
     ];
     entries.into_iter().map(|(id, value)| (id.to_string(), value)).collect()

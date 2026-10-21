@@ -6,10 +6,7 @@
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::unicode_tables::{
-    east_asian_width, is_cjk_break, is_leading_non_printing, is_mark, is_non_printing, is_rgi_emoji, is_spacing_mark,
-    is_zero_width,
-};
+use crate::unicode_tables::{east_asian_width, is_cjk_break, is_leading_non_printing, is_rgi_emoji, is_zero_width};
 use pi_js_compat::string::{is_js_whitespace_char, js_trim, js_trim_end};
 
 /// An extracted terminal escape sequence and its byte length.
@@ -110,26 +107,6 @@ fn is_printable_ascii(value: &str) -> bool {
     value.bytes().all(|byte| (0x20..=0x7e).contains(&byte))
 }
 
-fn is_terminal_spacing_mark_char(value: char) -> bool {
-    let spacing_mark = is_spacing_mark(value) && !matches!(value, '\u{1734}' | '\u{302E}' | '\u{302F}');
-    spacing_mark
-        || matches!(
-            value,
-            '\u{065F}'
-                | '\u{0F7F}'
-                | '\u{102B}'
-                | '\u{102C}'
-                | '\u{1031}'
-                | '\u{1033}'..='\u{1035}'
-                | '\u{1038}'
-                | '\u{103A}'..='\u{103E}'
-        )
-}
-
-fn is_terminal_spacing_mark_segment(value: &str) -> bool {
-    !value.is_empty() && value.chars().all(is_terminal_spacing_mark_char)
-}
-
 fn is_zero_width_segment(value: &str) -> bool {
     !value.is_empty() && value.chars().all(is_zero_width)
 }
@@ -140,6 +117,7 @@ fn could_be_emoji(segment: &str) -> bool {
     };
     let code_point = first as u32;
     (0x1f000..=0x1fbff).contains(&code_point)
+        || (0x2300..=0x23ff).contains(&code_point)
         || (0x2600..=0x27bf).contains(&code_point)
         || (0x2b50..=0x2b55).contains(&code_point)
         || segment.contains('\u{fe0f}')
@@ -150,10 +128,6 @@ fn could_be_emoji(segment: &str) -> bool {
 fn grapheme_width(segment: &str) -> usize {
     if segment == "\t" {
         return 3;
-    }
-
-    if is_terminal_spacing_mark_segment(segment) {
-        return segment.chars().count();
     }
 
     if is_zero_width_segment(segment) {
@@ -175,21 +149,13 @@ fn grapheme_width(segment: &str) -> usize {
     }
 
     let mut width = east_asian_width(first);
-    let mut follows_mark = false;
-    for value in base.chars().skip(1) {
-        if is_terminal_spacing_mark_char(value) {
+    // TS slices one UTF-16 unit from the original segment, not its stripped base.
+    for value in segment.chars().skip(1) {
+        let next = value as u32;
+        if (0xff00..=0xffef).contains(&next) {
+            width += east_asian_width(value);
+        } else if next == 0x0e33 || next == 0x0eb3 {
             width += 1;
-            follows_mark = false;
-        } else if is_mark(value) {
-            follows_mark = true;
-        } else if !is_non_printing(value) {
-            let next = value as u32;
-            if follows_mark || (0xff00..=0xffef).contains(&next) {
-                width += east_asian_width(value);
-            } else if next == 0x0e33 || next == 0x0eb3 {
-                width += 1;
-            }
-            follows_mark = false;
         }
     }
 
@@ -318,27 +284,7 @@ pub fn normalize_terminal_output(value: &str) -> String {
         }
     }
 
-    if !normalized.contains('\t') {
-        return normalized;
-    }
-
-    let mut result = String::with_capacity(normalized.len());
-    let mut index = 0;
-    while index < normalized.len() {
-        if let Some(ansi) = extract_ansi_code(&normalized, index) {
-            result.push_str(ansi.code);
-            index += ansi.length;
-        } else {
-            let length = next_char_len(&normalized, index);
-            if &normalized[index..index + length] == "\t" {
-                result.push_str("   ");
-            } else {
-                result.push_str(&normalized[index..index + length]);
-            }
-            index += length;
-        }
-    }
-    result
+    normalized
 }
 
 fn parse_osc8_url(ansi_code: &str) -> Option<Option<&str>> {
@@ -397,28 +343,6 @@ fn format_osc8_close(terminator: Osc8Terminator) -> String {
         Osc8Terminator::Bel => "\x1b]8;;\x07".to_string(),
         Osc8Terminator::St => "\x1b]8;;\x1b\\".to_string(),
     }
-}
-
-fn get_active_osc8_close(prefix: &str) -> String {
-    if !prefix.contains("\x1b]8;") {
-        return String::new();
-    }
-
-    let mut active = None;
-    let mut index = 0;
-    while index < prefix.len() {
-        if let Some(ansi) = extract_ansi_code(prefix, index) {
-            match parse_osc8_hyperlink(ansi.code) {
-                Some(Some(hyperlink)) => active = Some(hyperlink),
-                Some(None) => active = None,
-                None => {}
-            }
-            index += ansi.length;
-        } else {
-            index += next_char_len(prefix, index);
-        }
-    }
-    active.map_or_else(String::new, |hyperlink| format_osc8_close(hyperlink.terminator))
 }
 
 #[derive(Debug, Default)]
@@ -712,27 +636,7 @@ pub fn wrap_text_with_ansi(text: &str, width: usize) -> Vec<String> {
 }
 
 fn split_lines(text: &str) -> Vec<&str> {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    let bytes = text.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\r' => {
-                lines.push(&text[start..index]);
-                index += if bytes.get(index + 1) == Some(&b'\n') { 2 } else { 1 };
-                start = index;
-            }
-            b'\n' => {
-                lines.push(&text[start..index]);
-                index += 1;
-                start = index;
-            }
-            _ => index += next_char_len(text, index),
-        }
-    }
-    lines.push(&text[start..]);
-    lines
+    text.split('\n').collect()
 }
 
 fn wrap_single_line(line: &str, width: usize) -> Vec<String> {
@@ -958,12 +862,11 @@ fn finalize_truncated_result(
     max_width: usize,
     pad: bool,
 ) -> String {
-    let hyperlink_close = get_active_osc8_close(prefix);
     let visible = prefix_width + ellipsis_width;
     let mut result = if ellipsis.is_empty() {
-        format!("{prefix}{hyperlink_close}\x1b[0m")
+        format!("{prefix}\x1b[0m")
     } else {
-        format!("{prefix}{hyperlink_close}\x1b[0m{ellipsis}\x1b[0m")
+        format!("{prefix}\x1b[0m{ellipsis}\x1b[0m")
     };
     if pad {
         result.push_str(&" ".repeat(max_width.saturating_sub(visible)));

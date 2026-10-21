@@ -63,3 +63,7 @@ and two-way conflict. It compares `getKeys` for every definition,
 `migrateKeybindingsConfig` uses a `serde_json::Map` (`preserve_order`) and `js_json::object_entries`,
 so JavaScript array-index key ordering and extras' default `Array.prototype.sort` (UTF-16 code units)
 are preserved. No reordering remains.
+
+## Q1 re-pin audit (2026-10-21)
+
+Reference: immutable `4f9e6f8a4`. Frozen defaults contain 32 actions; later historyPrevious/historyNext/altScreen actions and ctrl+home/end/pageUp/pageDown aliases removed. Seven-config differential RED then GREEN. Module proof pending final focused gate.
