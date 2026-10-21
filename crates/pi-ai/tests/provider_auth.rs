@@ -1,34 +1,28 @@
 //! Provider-owned auth behavior: Anthropic, Amazon Bedrock, Cloudflare, Vertex,
-//! GitHub Copilot model filtering, and the Radius provider.
+//! and GitHub Copilot model filtering.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use pi_ai::auth::{
     ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthEvent, AuthInfoLink, AuthOperationOptions, AuthPromptKind,
     AuthResult, Credential, CredentialStore, InMemoryCredentialStore, OAuthCredential,
 };
-use pi_ai::models::{
-    CreateModelsOptions, Models, ModelsPublication, MutableModels, Provider, RefreshModelsContext, create_models,
-};
-use pi_ai::models_store::ModelsStoreEntry;
-use pi_ai::providers::all::get_builtin_model;
+use pi_ai::models::{CreateModelsOptions, Models, MutableModels, Provider, create_models};
 use pi_ai::providers::amazon_bedrock::amazon_bedrock_provider;
 use pi_ai::providers::anthropic::anthropic_provider;
 use pi_ai::providers::cloudflare_ai_gateway::cloudflare_ai_gateway_provider;
 use pi_ai::providers::cloudflare_workers_ai::cloudflare_workers_ai_provider;
 use pi_ai::providers::github_copilot::github_copilot_provider;
 use pi_ai::providers::google_vertex::google_vertex_provider;
-use pi_ai::providers::radius::{RadiusProviderOptions, radius_provider, radius_provider_with_fetch};
-use pi_ai::request::{BoxFuture, Fetch};
-use pi_ai::types::{Model, ProviderEnv};
+use pi_ai::request::BoxFuture;
+use pi_ai::types::ProviderEnv;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 #[path = "support/oauth.rs"]
 mod oauth_support;
 
-use oauth_support::recording_fetch::{RecordingFetch, ScriptedResponse};
 use oauth_support::{PromptAnswer, TestInteraction};
 
 struct TestAuthContext {
@@ -697,221 +691,6 @@ fn github_copilot_available_models_follow_the_stored_oauth_credential() {
         .map(|model| model.id)
         .collect();
     assert_eq!(ids, vec!["gpt-5.4".to_owned()]);
-}
-
-#[test]
-fn radius_provider_defaults_and_overrides() {
-    let provider = radius_provider(RadiusProviderOptions::default());
-    assert_eq!(provider.id(), "radius");
-    assert_eq!(provider.name(), "Radius");
-    assert!(provider.base_url().is_none());
-    assert!(provider.get_models().is_empty());
-    assert!(provider.supports_refresh_models());
-    assert_eq!(
-        provider.auth().api_key.as_ref().expect("api key").name(),
-        "Radius API key"
-    );
-    assert_eq!(provider.auth().oauth.as_ref().expect("oauth").name(), "Radius");
-
-    let custom = radius_provider(RadiusProviderOptions {
-        id: Some("radius-work".to_owned()),
-        name: Some("Radius Work".to_owned()),
-        gateway: Some("radius.example///".to_owned()),
-    });
-    assert_eq!(custom.id(), "radius-work");
-    assert_eq!(custom.name(), "Radius Work");
-    assert_eq!(custom.auth().oauth.as_ref().expect("oauth").name(), "Radius Work");
-}
-
-type PublishRecord = (String, Option<Vec<String>>, Option<f64>);
-type PublishCollector = Arc<Mutex<Vec<PublishRecord>>>;
-type RecordingPublish =
-    Arc<dyn Fn(ModelsPublication) -> BoxFuture<'static, Result<bool, pi_ai::request::CallbackError>> + Send + Sync>;
-
-fn publish_collector() -> (PublishCollector, RecordingPublish) {
-    let published = Arc::new(Mutex::new(Vec::new()));
-    let collector = Arc::clone(&published);
-    let publish = Arc::new(move |publication: ModelsPublication| {
-        let collector = Arc::clone(&collector);
-        let record = match &publication.persist {
-            pi_ai::models::PersistAction::Write(entry) => (
-                "write".to_owned(),
-                Some(entry.models.iter().map(|model| model.id.clone()).collect()),
-                entry.checked_at,
-            ),
-            pi_ai::models::PersistAction::Delete => ("delete".to_owned(), None, None),
-            pi_ai::models::PersistAction::Unchanged => ("unchanged".to_owned(), None, None),
-        };
-        if let Some(update) = &publication.update {
-            update();
-        }
-        Box::pin(async move {
-            collector.lock().expect("published").push(record);
-            Ok(true)
-        }) as BoxFuture<'static, Result<bool, pi_ai::request::CallbackError>>
-    });
-    (published, publish)
-}
-
-fn refresh_context(
-    publish: RecordingPublish,
-    stored: Option<ModelsStoreEntry>,
-    credential: Option<Credential>,
-    allow_network: bool,
-) -> RefreshModelsContext {
-    RefreshModelsContext {
-        credential,
-        stored,
-        publish,
-        allow_network,
-        force: None,
-        signal: CancellationToken::new(),
-    }
-}
-
-fn stored_models(provider: &str, ids: &[&str]) -> Vec<Model> {
-    ids.iter()
-        .map(|id| {
-            let mut model = get_builtin_model("openai", "gpt-4o").expect("fixture model");
-            model.id = (*id).to_owned();
-            model.provider = provider.to_owned();
-            model
-        })
-        .collect()
-}
-
-#[test]
-fn radius_refresh_restores_stored_models_without_network() {
-    let fetch = RecordingFetch::new(Vec::new());
-    let provider = radius_provider_with_fetch(RadiusProviderOptions::default(), fetch.clone() as Arc<dyn Fetch>);
-    let (published, publish) = publish_collector();
-    let stored = ModelsStoreEntry::new(stored_models("radius", &["alpha", "beta"]));
-    let context = refresh_context(publish, Some(stored), None, false);
-
-    tokio::runtime::Runtime::new().expect("runtime").block_on(async {
-        provider
-            .refresh_models(context)
-            .expect("refresh")
-            .await
-            .expect("refresh result");
-    });
-
-    let ids: Vec<String> = provider.get_models().into_iter().map(|model| model.id).collect();
-    assert_eq!(ids, vec!["alpha".to_owned(), "beta".to_owned()]);
-    assert_eq!(published.lock().expect("published")[0].0, "unchanged");
-    assert!(fetch.requests().is_empty());
-}
-
-#[test]
-fn radius_refresh_imports_legacy_oauth_cached_catalog() {
-    let fetch = RecordingFetch::new(Vec::new());
-    let provider = radius_provider_with_fetch(RadiusProviderOptions::default(), fetch.clone() as Arc<dyn Fetch>);
-    let (published, publish) = publish_collector();
-    let mut credential = OAuthCredential::new("refresh", "access", 0.0);
-    credential.extra.insert(
-        "gatewayConfig".to_owned(),
-        json!({
-            "baseUrl": "https://radius.example/v1",
-            "models": [{
-                "id": "legacy",
-                "name": "Legacy",
-                "reasoning": false,
-                "input": ["text"],
-                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-                "contextWindow": 1000,
-                "maxTokens": 100
-            }]
-        }),
-    );
-    let context = refresh_context(publish, None, Some(Credential::OAuth(credential)), false);
-
-    tokio::runtime::Runtime::new().expect("runtime").block_on(async {
-        provider
-            .refresh_models(context)
-            .expect("refresh")
-            .await
-            .expect("refresh result");
-    });
-
-    let models = provider.get_models();
-    assert_eq!(models.len(), 1);
-    assert_eq!(models[0].id, "legacy");
-    assert_eq!(models[0].base_url, "https://radius.example/v1");
-    let published = published.lock().expect("published");
-    assert_eq!(published[0].0, "write");
-    assert!(published[0].2.is_some(), "checkedAt is published");
-    assert!(fetch.requests().is_empty(), "allowNetwork=false skips the gateway");
-}
-
-#[test]
-fn radius_refresh_loads_the_gateway_config_with_the_oauth_access_token() {
-    let fetch = RecordingFetch::new(vec![ScriptedResponse::json(
-        200,
-        &json!({
-            "baseUrl": "https://radius.example/v1",
-            "models": [{
-                "id": "remote",
-                "name": "Remote",
-                "reasoning": true,
-                "input": ["text"],
-                "cost": {"input": 1, "output": 2, "cacheRead": 0, "cacheWrite": 0},
-                "contextWindow": 1000,
-                "maxTokens": 100
-            }]
-        })
-        .to_string(),
-    )]);
-    let provider = radius_provider_with_fetch(
-        RadiusProviderOptions {
-            gateway: Some("https://radius.example".to_owned()),
-            ..Default::default()
-        },
-        fetch.clone() as Arc<dyn Fetch>,
-    );
-    let (published, publish) = publish_collector();
-    let context = refresh_context(
-        publish,
-        None,
-        Some(Credential::OAuth(OAuthCredential::new("refresh", "access-token", 0.0))),
-        true,
-    );
-
-    tokio::runtime::Runtime::new().expect("runtime").block_on(async {
-        provider
-            .refresh_models(context)
-            .expect("refresh")
-            .await
-            .expect("refresh result");
-    });
-
-    let requests = fetch.requests();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].url, "https://radius.example/v1/config");
-    assert!(
-        requests[0]
-            .headers
-            .iter()
-            .any(|(name, value)| name == "authorization" && value == "Bearer access-token")
-    );
-    let ids: Vec<String> = provider.get_models().into_iter().map(|model| model.id).collect();
-    assert_eq!(ids, vec!["remote".to_owned()]);
-    assert_eq!(published.lock().expect("published")[0].0, "write");
-}
-
-#[test]
-fn radius_refresh_propagates_gateway_errors() {
-    let fetch = RecordingFetch::new(vec![ScriptedResponse::json(500, "boom")]);
-    let provider = radius_provider_with_fetch(RadiusProviderOptions::default(), fetch as Arc<dyn Fetch>);
-    let (_, publish) = publish_collector();
-    let context = refresh_context(publish, None, None, true);
-    let error = tokio::runtime::Runtime::new().expect("runtime").block_on(async {
-        provider
-            .refresh_models(context)
-            .expect("refresh")
-            .await
-            .expect_err("gateway error")
-    });
-    assert!(error.message.contains("Could not load Radius config"));
 }
 
 #[test]

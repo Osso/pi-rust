@@ -19,7 +19,6 @@ use pi_ai::models::{
     merge_headers,
 };
 use pi_ai::providers::all::{builtin_providers, get_builtin_model_data_generated_at};
-use pi_ai::providers::radius::{RadiusProviderOptions, radius_provider};
 use pi_ai::request::{
     BoxFuture, CallbackError, DeferredCancelOptions, DeferredFetchOptions, SimpleStreamOptions, StreamOptions,
 };
@@ -261,7 +260,7 @@ impl ModelRuntime {
                 credential_gates: Mutex::new(HashMap::new()),
             }),
         };
-        runtime.configure_radius_providers();
+        runtime.reset_builtin_providers();
         runtime.rebuild_providers();
         let refresh_from_network = runtime.inner.model_network_enabled && options.allow_model_network;
         let signal = options.signal.clone();
@@ -305,40 +304,10 @@ impl ModelRuntime {
         Ok(runtime)
     }
 
-    fn configure_radius_providers(&self) {
+    fn reset_builtin_providers(&self) {
         let mut builtins = lock(&self.inner.builtins);
         builtins.clear();
         builtins.extend(self.inner.default_builtins.iter().cloned());
-        let config = lock(&self.inner.config);
-        for provider_id in config.get_provider_ids() {
-            let Some(provider_config) = config.get_provider(&provider_id) else {
-                continue;
-            };
-            let is_radius = provider_config.get("oauth").and_then(|value| value.as_str()) == Some("radius");
-            let Some(base_url) = provider_config.get("baseUrl").and_then(|value| value.as_str()) else {
-                continue;
-            };
-            if !is_radius {
-                continue;
-            }
-            let name = provider_config
-                .get("name")
-                .and_then(|value| value.as_str())
-                .unwrap_or(&provider_id);
-            let gateway = base_url
-                .strip_suffix("/v1/")
-                .or_else(|| base_url.strip_suffix("/v1"))
-                .unwrap_or(base_url);
-            let provider = radius_provider(RadiusProviderOptions {
-                id: Some(provider_id.clone()),
-                name: Some(name.to_owned()),
-                gateway: Some(gateway.to_owned()),
-            });
-            match builtins.iter_mut().find(|(id, _)| *id == provider_id) {
-                Some(entry) => entry.1 = provider,
-                None => builtins.push((provider_id, provider)),
-            }
-        }
     }
 
     fn provider_ids(&self) -> Vec<String> {
@@ -1203,7 +1172,7 @@ impl ModelRuntime {
         }
         let config = ModelConfig::load(self.inner.models_path.as_deref());
         *lock(&self.inner.config) = config;
-        self.configure_radius_providers();
+        self.reset_builtin_providers();
         self.rebuild_providers();
         self.refresh(ModelsRefreshOptions {
             allow_network: Some(false),
@@ -1216,7 +1185,7 @@ impl ModelRuntime {
     pub async fn refresh(&self, options: ModelsRefreshOptions) -> Result<ModelsRefreshResult, ModelRuntimeError> {
         let config = ModelConfig::load(self.inner.models_path.as_deref());
         *lock(&self.inner.config) = config;
-        self.configure_radius_providers();
+        self.reset_builtin_providers();
         if let Some(providers) = &options.providers {
             let mut seen: Vec<String> = Vec::new();
             for provider_id in providers {

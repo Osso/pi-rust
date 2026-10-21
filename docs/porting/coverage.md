@@ -96,7 +96,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/models.generated.ts` | 78 | 4 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
 | `ai/src/models.ts` | 450 | 1 | todo | `crates/pi-ai/src/models.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/models.rs`; providers/models, refresh generations+publication chains, auth application, login/logout, deferred, cost/thinking helpers; differential cost/thinking/refresh/apply-auth |
 | `ai/src/oauth.ts` | 1 | 3 | partial | `crates/pi-ai/src/oauth.rs` | frozen registry re-export; direct provider helper exports pending provider ports; [trace](traceability/oauth-registry.md) |
-| `ai/src/providers/all.ts` | 131 | 5 | todo | `crates/pi-ai/src/providers/all.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/all.rs`; All 40 factories including both `openai-codex` entries; catalog/order/generatedAt/images differential ([traceability](traceability/providers-all.md)). |
+| `ai/src/providers/all.ts` | 131 | 5 | todo | `crates/pi-ai/src/providers/all.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/all.rs`; Historical pre-repin factory/catalog differential only; frozen inventory now has 36 entries including default/GC/Team Codex, checked by `differential_provider_inventory`. Old-only public factories removed; whole-module parity remains TODO ([traceability](traceability/providers-all.md)). |
 | `ai/src/providers/amazon-bedrock.models.ts` | 1831 | 3 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
 | `ai/src/providers/amazon-bedrock.ts` | 35 | 4 | todo | `crates/pi-ai/src/providers/amazon_bedrock.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/amazon_bedrock.rs`; Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/providers/ant-ling.models.ts` | 62 | 3 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
@@ -779,19 +779,19 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/model-types.ts` | done | `crates/pi-ai/src/types.rs` |
 | `ai/src/models-store.ts` | done | `crates/pi-ai/src/models_store.rs` |
 | `ai/src/providers/azure-openai-responses.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
-| `ai/src/providers/azure-openai-responses.ts` | done | `crates/pi-ai/src/providers/azure_openai_responses.rs` |
+| `ai/src/providers/azure-openai-responses.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/baseten.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
-| `ai/src/providers/baseten.ts` | done | `crates/pi-ai/src/providers/baseten.rs` |
+| `ai/src/providers/baseten.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/cloudflare-stream.ts` | done | `crates/pi-ai/src/providers/cloudflare_stream.rs` |
 | `ai/src/providers/data-json.d.ts` | gap | — |
 | `ai/src/providers/qwen-token-plan-cn.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
-| `ai/src/providers/qwen-token-plan-cn.ts` | done | `crates/pi-ai/src/providers/qwen_token_plan_cn.rs` |
+| `ai/src/providers/qwen-token-plan-cn.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/qwen-token-plan-individual.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
-| `ai/src/providers/qwen-token-plan-individual.ts` | done | `crates/pi-ai/src/providers/qwen_token_plan_individual.rs` |
+| `ai/src/providers/qwen-token-plan-individual.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/qwen-token-plan.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
-| `ai/src/providers/qwen-token-plan.ts` | done | `crates/pi-ai/src/providers/qwen_token_plan.rs` |
+| `ai/src/providers/qwen-token-plan.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/radius-config.ts` | done | `crates/pi-ai/src/providers/radius_config.rs` |
-| `ai/src/providers/radius.ts` | done | `crates/pi-ai/src/providers/radius.rs` |
+| `ai/src/providers/radius.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/utils/abort.ts` | done | `crates/pi-ai/src/utils/abort.rs` |
 | `ai/src/utils/deferred-tools.ts` | done | `crates/pi-ai/src/utils/deferred_tools.rs` |
 | `ai/src/utils/provider-retry.ts` | done | `crates/pi-ai/src/utils/provider_retry.rs` |
