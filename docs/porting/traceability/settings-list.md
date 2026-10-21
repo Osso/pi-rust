@@ -1,5 +1,10 @@
 # components/settings-list.ts traceability
 
+## Q2 frozen revalidation
+
+Frozen settings-list.ts (250 lines) audited whole. SettingItem/SettingsListTheme/options; constructor/updateValue/invalidate/render; scrolling/alignment/description/hints; navigation/cancel; values cycling/submenu callback/selection restoration/filter map to settings_list.rs. A single Space always activates, including during search. Multi-character search input strips spaces. `differential_settings_list` compares render/callback/submenu/search matrix against frozen; native settings_list tests prove both Space and sanitized query behavior. Coding-agent row-order fixture explicitly enables Kitty capability, and search fixtures strip spaces. Space/sanitization mutants are killed. [Q2 proof](../q2-tui-components-proof.md).
+
+
 Source: `packages/tui/src/components/settings-list.ts` (249 lines). Rust:
 `crates/pi-tui/src/components/settings_list.rs`.
 

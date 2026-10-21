@@ -1,5 +1,10 @@
 # components/image.ts traceability
 
+## Q2 frozen revalidation
+
+Frozen image.ts (126 lines) audited whole. Constructor/dimension inference/defaults, options, Kitty ID allocation/reuse, max-width/max-height/cell aspect, Kitty versus iTerm blank-row/cursor-up layout, fallback, render cache and invalidate map to image.rs. `differential_components::image_render_matches_typescript` proves all three capability paths with explicit IDs. `repin_components::image_fallback_is_not_truncated_or_hyperlinked_by_the_component` proves full styled literal filename fallback even at width4 and hyperlinks enabled. Numeric u32/nonfinite restrictions are approved; see [terminal-image](terminal-image.md). Earlier claims of fallback truncation are obsolete. Q2 removed the truncation and preserved frozen truthiness for result imageId. [Proof](../q2-tui-components-proof.md).
+
+
 Source: `packages/tui/src/components/image.ts` (127 lines). Rust:
 `crates/pi-tui/src/components/image.rs`.
 

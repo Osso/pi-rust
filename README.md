@@ -25,7 +25,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 ## Test-process isolation
 
 Linux tests require `bubblewrap`, `iproute2`, `util-linux` (`setpriv`), Python 3,
-installed `rg` on the host PATH, and permitted unprivileged
+installed `rg` and `fd` on the host PATH, and permitted unprivileged
 network/mount namespaces. Missing/unsupported isolation fails closed; no unsandboxed
 fallback. `.cargo/config.toml` routes compiled test binaries through
 `scripts/cargo-runner.sh` and `scripts/test-sandbox.py`, including the Cargo phases
@@ -53,7 +53,7 @@ semantics are unchanged. Host helper files are never overwritten. Each test gets
 private HOME/XDG/Pi state and an allowlisted environment; homes, runtime sockets,
 and host `/tmp` are hidden. Root, checkout, pinned references/Git metadata and the
 optional installed Pyrun executable/venv/Python runtime are read-only. The guard
-also binds the resolved installed `rg` executable read-only and adds its parent
+also binds the resolved installed `rg` and `fd` executables read-only and adds their parents
 to the private PATH; it does not expose the parent's other tools or user config.
 Only private
 state, namespace-local `/tmp`, and an inherited private `TMPDIR` are writable.

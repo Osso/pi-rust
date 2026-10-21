@@ -4,7 +4,7 @@ Authority: [frozen source](source-lock.json). Contract: [components](../specs/tu
 
 Initial RED: `/tmp/pi-rust-repin-tui-components/red-inherited.log` reproduces component image iTerm2 bytes, markdown math, settings input, and stale editor oracle failures. `red-padding.log` proves absent Text.setPadding API. `sandbox-fd-red.log` proves missing fd inside the mandatory runner; fd exposure is separate commit `80e3c3ea`, execution remains blocked pending installed fd.
 
-First implementation restores Text padding/JS whitespace, image fallback, iTerm2 bytes and frozen settings search. Coverage rows remain unpromoted pending whole-module proof. Later-only terminal image metadata/layout deletion and Markdown/editor re-pin remain open.
+First implementation restores Text padding/JS whitespace, image fallback, iTerm2 bytes and frozen settings search. Coverage was promoted only after whole-module native/frozen proof and mutation checks. Later-only terminal image metadata/layout deletion and Markdown/editor re-pin remain open.
 
 Markdown restores frozen token-render caching, same-text/padding/theme identity guards and theme invalidation; removes later-only math/tokenizer/transform options and public Marked/Tokens facade. Literal math remains in frozen differential corpus. User/assistant Markdown consumers no longer install transforms (frozen counterparts do not); constructor compatibility is left to Q13. Editor oracle now loads frozen tui.ts/TUI rather than absent tui-main-screen.ts. RED cache API: `red-markdown-cache-api.log`; GREEN execution currently environment-blocked by missing required fd (`green-components-1.log`).
 
@@ -29,3 +29,17 @@ Consumer RED in `consumers-2.log`: five transformer expectations have no frozen 
 SelectList signed callback widths are now i64, with exact subtraction before callback and clamping only at terminal truncation. Widths 0..4 yield callback widths -4..0. RED `red-select-signed.log`, direct frozen observation `select-signed-frozen-node.log`, native+frozen differential in repin_components. Parent classified numeric nonfinite/zero-cell and >u32 terminal-image outputs as approved 2026-10-21 restrictions.
 
 Terminal-image whole-module audit found probeTmuxHyperlinks must reject nonzero process exits even when stdout contains hyperlinks (frozen execSync throws). Real subprocess RED `red-tmux-probe-exit.log` reproduces it; both exit0 and exit1 are covered with private executable fixtures inside mandatory sandbox.
+
+## Final proof ledger (updated at integration)
+
+Every Cargo execution used `CARGO_BUILD_JOBS=4`, `CARGO_TARGET_DIR=/home/osso/.worktrees/pi-rust-repin-tui-components/target` and the mandatory Cargo sandbox runner. No Bash, frozen-source writes, delegation, push/merge, clippy, or broad workspace test suites.
+
+- Native/frozen differentials exercise every retained component module and terminal-image; all pi-tui target execution is required at integration. Test counts and final revision are recorded in `/tmp/pi-rust-repin-tui-components/REPORT.md` and `proof-ledger.json`.
+- Twenty-two non-equivalent production mutants are killed by behavioral assertions, not compile failures: defaults, token cache lifetime/theme/style effects, fallback width/filename, iTerm bytes/numbers, image ASCII decoding, narrow input, description emptiness/JS trim, settings Space/sanitization, editor indicator bytes/overflow, retained forced-redraw image IDs, signed callback widths, tmux exit status. `mutations.json` records exact literals/argv/revision and source hashes. Every mutation is restored byte-for-byte; tracked source is clean.
+- `scripts/test_test_sandbox.py` passes all 11 cases through its own guard. Required installed fd is read-only bound; autocomplete22 + differential3 pass, including missing/broken/nonexecutable tool rejection.
+- Thirteen touched consumer targets are covered by `consumers-2.log` (nine unaffected passing targets) and `consumers-fixed.log` (four corrected targets). Do not rerun unchanged targets merely for a later documentation commit.
+- Final Cargo workspace all-targets check must contain zero warnings. No full coding-agent/workspace test suite was run; Q13 remains responsible for its whole interactive mode and legacy settings/extensions surface.
+
+Source references for migrated shrink tests: frozen `packages/tui/test/tui-render.test.ts:660-676` (viewport-only shrink), `711-727` (append after shrink), `740-781` (inflated transient component). Forced image cleanup is frozen `tui.ts:1001-1010` and `test/tui-render.test.ts:298-318`.
+
+Manual readability audit: new component mutators/cache helpers remain shallow and named; no warning suppressions added. Existing large editor/Markdown/TUI rendering functions and the moved render-utils file-URL helper remain pre-existing length/branch-density debt, not a second redesign. Oracle lifecycle code is explicit test sequencing at a dynamic module boundary; no production fallback path added.

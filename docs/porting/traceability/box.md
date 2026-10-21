@@ -1,5 +1,10 @@
 # components/box.ts traceability
 
+## Q2 frozen revalidation
+
+Frozen box.ts (137 lines) audited whole. Box children/add/remove-first/clear/setBgFn/invalidate/render, sampling `bgFn("test")`, width/child/cache checks and child invalidation map to box.rs. Default padding1/1 now matches source; `repin_components` native/frozen lifecycle proves it and kills wrong-default mutant. Existing box native/differential tests cover background/padding/child/cache branches. [Q2 proof](../q2-tui-components-proof.md).
+
+
 Source: `packages/tui/src/components/box.ts` (137 lines). Rust:
 `crates/pi-tui/src/components/box.rs` (`BoxComponent`; `Box` collides with the
 Rust prelude type).

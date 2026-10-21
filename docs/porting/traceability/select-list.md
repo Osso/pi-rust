@@ -1,5 +1,10 @@
 # components/select-list.ts traceability
 
+## Q2 frozen revalidation
+
+Frozen select-list.ts (229 lines) audited whole. Exports SelectItem/theme/layout/truncator context and constructor/filter/selected-index/invalidate/render/input/getSelectedItem map to select_list.rs. Primary bounds, label/value choice, descriptions, scroll info and callbacks have native select_list and differential_components proof. Empty JS-trimmed descriptions do not create columns. Custom truncator maxWidth/columnWidth are **i64**, preserving negative internally-derived widths: render0..4 yields -4..0 before output truncation. Native/frozen differential repin_components proves callback values and output. Signed-width/JS-trim/empty-description mutants are killed. Typed setter and UTF8/String boundaries remain explicit; no unsigned callback deviation remains. [Q2 proof](../q2-tui-components-proof.md).
+
+
 Source: `packages/tui/src/components/select-list.ts` (229 lines). Rust:
 `crates/pi-tui/src/components/select_list.rs`.
 

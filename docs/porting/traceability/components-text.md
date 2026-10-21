@@ -1,5 +1,10 @@
 # components/text.ts traceability
 
+## Q2 frozen revalidation
+
+Frozen text.ts (118 lines) audited whole. Text/setText/setPadding/setCustomBgFn/invalidate/render, width/text cache, blank JS whitespace, tab3 normalization, content width, margins/background/padding map to text.rs. Default is empty text with padding1/1. Added padding mutator invalidates only when changed; JS trim replaces Rust trim. Native text tests, differential_components text corpus and repin_components default/padding/lifecycle tests pass. Mutants for wrong defaults and image fallback boundaries are killed. [Q2 proof](../q2-tui-components-proof.md).
+
+
 Source: `packages/tui/src/components/text.ts` (106 lines). Rust:
 `crates/pi-tui/src/components/text.rs`.
 

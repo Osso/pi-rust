@@ -1,5 +1,10 @@
 # components/input.ts traceability
 
+## Q2 frozen revalidation
+
+Frozen input.ts (465 lines) audited whole. Input/options/callbacks/focus; get/setValue, input routing, paste state, submit/cancel/undo/delete/kill/yank/movement/Kitty/control rejection, masking/window/cursor rendering map to input.rs and existing native/differential input matrix. Width<=2 returns only `> `; added width2 native/frozen lifecycle regression, killed off-by-one mutant. Rust-only cursor restoration hook supports reconstructed extension widgets. UTF8 byte cursor and grapheme positions remain typed representation boundaries, not arbitrary JS UTF16 split-string parity. [Q2 proof](../q2-tui-components-proof.md).
+
+
 Source: `packages/tui/src/components/input.ts` (465 lines). Rust:
 `crates/pi-tui/src/components/input.rs`.
 
