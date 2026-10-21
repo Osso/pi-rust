@@ -3,14 +3,10 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::TextOrImageContent;
-use pi_coding_agent::bundled_extensions::agents_core::parent_agent_journal::{
-    ParentAgentJournalWriter, append_parent_agent_start,
-};
-use pi_coding_agent::bundled_extensions::agents_core::runtime_utils::create_failed_mailbox_message;
 use pi_coding_agent::bundled_extensions::agents_core::session_factories::{
     background_prompt_validation_message, spawn_prompt_validation_message, validate_goal_objective,
 };
@@ -21,9 +17,8 @@ use pi_coding_agent::bundled_extensions::agents_core::tool_results::{
 use pi_coding_agent::bundled_extensions::agents_core::viewer::{
     AgentViewerParams, ListAgentsParams, agent_viewer, list_agents,
 };
-use pi_coding_agent::core::extensions::HandlerError;
 use pi_coding_agent::core::multi_agent_store::{
-    AgentLifecycle, AgentSnapshot, MailboxMessageKindValue, MultiAgentStore, MultiAgentStoreOptions,
+    AgentLifecycle, AgentSnapshot, MultiAgentStore, MultiAgentStoreOptions,
 };
 use serde_json::{Value, json};
 
@@ -74,20 +69,6 @@ fn lifecycle(value: &str) -> AgentLifecycle {
     }
 }
 
-struct RecordingJournal {
-    entries: Mutex<Vec<(String, Option<Value>)>>,
-}
-
-impl ParentAgentJournalWriter for RecordingJournal {
-    fn append_entry(&self, custom_type: &str, data: Option<Value>) -> Result<(), HandlerError> {
-        self.entries
-            .lock()
-            .expect("journal")
-            .push((custom_type.to_owned(), data));
-        Ok(())
-    }
-}
-
 fn execute_case(case: &Value) -> Result<Value, String> {
     let op = case["op"].as_str().ok_or("op")?;
     match op {
@@ -103,24 +84,6 @@ fn execute_case(case: &Value) -> Result<Value, String> {
                 "spawn": spawn_prompt_validation_message(&validation),
                 "background": background_prompt_validation_message(&validation),
             }))
-        }
-        "createFailedMailboxMessage" => {
-            let kind = match case["kind"].as_str().ok_or("kind")? {
-                "message" => MailboxMessageKindValue::Message,
-                "ask" => MailboxMessageKindValue::Ask,
-                "reply" => MailboxMessageKindValue::Reply,
-                "steer" => MailboxMessageKindValue::Steer,
-                "parent_request" => MailboxMessageKindValue::ParentRequest,
-                "system" => MailboxMessageKindValue::System,
-                other => return Err(format!("unknown kind {other}")),
-            };
-            serde_json::to_value(create_failed_mailbox_message(
-                case["body"].as_str().ok_or("body")?,
-                case["fromAgentId"].as_str().ok_or("fromAgentId")?,
-                kind,
-                case["toAgentId"].as_str().ok_or("toAgentId")?,
-            ))
-            .map_err(|error| error.to_string())
         }
         "toolResults" => Ok(json!({
             "success": normalize_result(&tool_result("ok", json!({"value": 1}))),
@@ -157,21 +120,6 @@ fn execute_case(case: &Value) -> Result<Value, String> {
                 Ok(()) => Ok(json!({"ok": true})),
                 Err(error) => Ok(json!({"ok": false, "error": error.message})),
             }
-        }
-        "appendParentAgentStart" => {
-            let journal = RecordingJournal {
-                entries: Mutex::new(Vec::new()),
-            };
-            append_parent_agent_start(&journal, &parse_agent(&case["agent"])).map_err(|error| error.message)?;
-            Ok(json!(
-                journal
-                    .entries
-                    .lock()
-                    .expect("journal")
-                    .iter()
-                    .map(|(kind, data)| json!({"type": kind, "data": data}))
-                    .collect::<Vec<_>>()
-            ))
         }
         other => Err(format!("unsupported agents-core case {other}")),
     }
@@ -219,7 +167,6 @@ fn cases() -> Vec<Value> {
         json!({"name": "long", "op": "validateGoalObjective", "prompt": "a".repeat(10_001)}),
         json!({"name": "exact", "op": "validateGoalObjective", "prompt": "a".repeat(10_000)}),
         json!({"name": "emoji", "op": "validateGoalObjective", "prompt": "😀".repeat(5_001)}),
-        json!({"name": "failed-message", "op": "createFailedMailboxMessage", "body": "body", "fromAgentId": "child", "kind": "steer", "toAgentId": "target"}),
         json!({"name": "tool-results", "op": "toolResults"}),
         json!({"name": "list-all", "op": "listAgents", "agents": agents, "activeCount": 2}),
         json!({"name": "list-descendants", "op": "listAgents", "agents": agents, "parentId": "a"}),
@@ -233,7 +180,6 @@ fn cases() -> Vec<Value> {
         json!({"name": "wait-invalid", "op": "assertNoWaitParams", "params": {"parentId": "main"}}),
         json!({"name": "wait-array", "op": "assertNoWaitParams", "params": []}),
         json!({"name": "wait-invalid-name", "op": "assertNoWaitParams", "params": {"a": 1}, "message": "pi.agents.wait"}),
-        json!({"name": "journal", "op": "appendParentAgentStart", "agent": transcript_agent}),
     ]
 }
 

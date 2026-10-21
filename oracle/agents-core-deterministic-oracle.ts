@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { pathToFileURL } from "node:url";
+import { runInThisContext } from "node:vm";
+import ts from "typescript";
 
 type RequestId = string | number | null;
 
@@ -57,18 +61,11 @@ type Api = {
 	validateGoalObjective(prompt: string): unknown;
 	spawnPromptValidationMessage(validation: unknown): string;
 	backgroundPromptValidationMessage(validation: unknown): string;
-	createFailedMailboxMessage(input: {
-		body: string;
-		fromAgentId: string;
-		kind: string;
-		toAgentId: string;
-	}): unknown;
 	toolResult(text: string, details: Record<string, unknown>): ToolResult;
 	errorToolResult(text: string, details: Record<string, unknown>): ToolResult;
 	emptyToolResult(): ToolResult;
 	listAgents(store: StoreStub, params: { parentId?: string }): ToolResult;
 	agentViewer(store: StoreStub, params: { agentId: string; sessionId?: string }): ToolResult;
-	appendParentAgentStart(pi: { appendEntry(type: string, data: unknown): void }, agent: AgentSnapshot): void;
 	registerAgentsCoreTools(pi: unknown, options: unknown): void;
 	registerAllTools(pi: unknown, options: unknown): void;
 	assertNoWaitAgentsParams(params: unknown, apiName: string): void;
@@ -128,13 +125,6 @@ function executeCase(api: Api, testCase: Case): unknown {
 				background: api.backgroundPromptValidationMessage(validation),
 			};
 		}
-		case "createFailedMailboxMessage":
-			return api.createFailedMailboxMessage({
-				body: requireString(testCase.body, "body"),
-				fromAgentId: requireString(testCase.fromAgentId, "fromAgentId"),
-				kind: requireString(testCase.kind, "kind"),
-				toAgentId: requireString(testCase.toAgentId, "toAgentId"),
-			});
 		case "toolResults":
 			return {
 				success: normalizeResult(api.toolResult("ok", { value: 1 })),
@@ -218,14 +208,6 @@ function executeCase(api: Api, testCase: Case): unknown {
 				return { ok: false, error: normalizeError(error).message };
 			}
 		}
-		case "appendParentAgentStart": {
-			const entries: Array<{ type: string; data: unknown }> = [];
-			api.appendParentAgentStart(
-				{ appendEntry: (type, data) => entries.push({ type, data }) },
-				testCase.agent as AgentSnapshot,
-			);
-			return entries;
-		}
 		default:
 			throw new Error(`unsupported agents-core case ${testCase.op}`);
 	}
@@ -287,30 +269,50 @@ function readSourceModulePath(): string {
 	return sourceModulePath;
 }
 
+// Frozen runtime.ts now owns the private helpers formerly split across modules.
+// Expose declarations in a compiled in-memory copy; the frozen checkout stays immutable.
+function loadFrozenModule<T>(file: string, privateExports: string[]): T {
+	const source = readFileSync(file, "utf8");
+	const exposed = `${source}\nexport { ${privateExports.join(", ")} };\n`;
+	const compiled = ts.transpileModule(exposed, {
+		compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+	}).outputText;
+	const execute = runInThisContext(
+		`(function(require, module, exports, __filename, __dirname) { ${compiled}\n})`,
+		{ filename: file },
+	) as (require: NodeRequire, module: { exports: unknown }, exports: unknown, file: string, directory: string) => void;
+	const module = { exports: {} };
+	execute(createRequire(file), module, module.exports, file, dirname(file));
+	return module.exports as T;
+}
+
 async function main(): Promise<void> {
-	const sourceRoot = readSourceModulePath();
-	const shared = await import(pathToFileURL(`${sourceRoot}/shared.ts`).href);
-	const toolResults = await import(pathToFileURL(`${sourceRoot}/tool-results.ts`).href);
-	const runtimeUtils = await import(pathToFileURL(`${sourceRoot}/runtime-utils.ts`).href);
-	const sessionFactories = await import(pathToFileURL(`${sourceRoot}/session-factories.ts`).href);
-	const viewer = await import(pathToFileURL(`${sourceRoot}/viewer.ts`).href);
-	const parentAgentJournal = await import(pathToFileURL(`${sourceRoot}/parent-agent-journal.ts`).href);
-	const registration = await import(pathToFileURL(`${sourceRoot}/registration.ts`).href);
-	const runtime = await import(pathToFileURL(`${sourceRoot}/runtime.ts`).href);
+	const sourceRoot = resolve(readSourceModulePath());
+	const runtime = loadFrozenModule<Api & {
+		result: Api["toolResult"];
+		errorResult: Api["errorToolResult"];
+		emptyResult: Api["emptyToolResult"];
+		default: Api["registerAllTools"];
+	}>(`${sourceRoot}/runtime.ts`, [
+		"emptyAgent", "isInFlightLifecycle", "validateGoalObjective",
+		"spawnPromptValidationMessage", "backgroundPromptValidationMessage",
+		"result", "errorResult", "emptyResult", "listAgents", "assertNoWaitAgentsParams",
+	]);
+	const viewer = loadFrozenModule<Pick<Api, "agentViewer">>(
+		resolve(sourceRoot, "../../agent-viewer/src/runtime.ts"), ["agentViewer"],
+	);
 	serveRequests({
-		emptyAgent: shared.emptyAgent,
-		isInFlightLifecycle: shared.isInFlightLifecycle,
-		validateGoalObjective: sessionFactories.validateGoalObjective,
-		spawnPromptValidationMessage: sessionFactories.spawnPromptValidationMessage,
-		backgroundPromptValidationMessage: sessionFactories.backgroundPromptValidationMessage,
-		createFailedMailboxMessage: runtimeUtils.createFailedMailboxMessage,
-		toolResult: toolResults.toolResult,
-		errorToolResult: toolResults.errorToolResult,
-		emptyToolResult: toolResults.emptyToolResult,
-		listAgents: viewer.listAgents,
+		emptyAgent: runtime.emptyAgent,
+		isInFlightLifecycle: runtime.isInFlightLifecycle,
+		validateGoalObjective: runtime.validateGoalObjective,
+		spawnPromptValidationMessage: runtime.spawnPromptValidationMessage,
+		backgroundPromptValidationMessage: runtime.backgroundPromptValidationMessage,
+		toolResult: runtime.result,
+		errorToolResult: runtime.errorResult,
+		emptyToolResult: runtime.emptyResult,
+		listAgents: runtime.listAgents,
 		agentViewer: viewer.agentViewer,
-		appendParentAgentStart: parentAgentJournal.appendParentAgentStart,
-		registerAgentsCoreTools: registration.registerAgentsCoreTools,
+		registerAgentsCoreTools: runtime.registerAgentsCoreTools,
 		registerAllTools: runtime.default,
 		assertNoWaitAgentsParams: runtime.assertNoWaitAgentsParams,
 	});
