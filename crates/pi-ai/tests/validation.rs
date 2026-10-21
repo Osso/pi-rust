@@ -37,7 +37,10 @@ fn value_args(value: Value) -> ToolCall {
 }
 
 fn validate(tool: &Tool, tool_call: &ToolCall) -> Value {
-    validate_tool_arguments(tool, tool_call).expect("arguments must validate").to_serde().expect("scalar fixture")
+    validate_tool_arguments(tool, tool_call)
+        .expect("arguments must validate")
+        .to_serde()
+        .expect("scalar fixture")
 }
 
 fn validation_message(tool: &Tool, tool_call: &ToolCall) -> String {

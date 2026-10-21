@@ -12,13 +12,13 @@
 
 use std::fmt;
 
-use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, stringify_lossless_pretty};
-use pi_js_compat::js_json as json;
-use serde_json::Value as Schema;
 use super::validation_regex::JsRegex as Regex;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, stringify_lossless_pretty};
+use serde_json::Value as Schema;
 
 use crate::types::{Tool, ToolCall};
-use pi_js_compat::number::{js_number_to_string};
+use pi_js_compat::number::js_number_to_string;
 
 /// TypeBox's default `Settings.maxErrors`.
 const MAX_ERRORS: usize = 8;
@@ -39,7 +39,9 @@ impl fmt::Display for ValidationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.message.to_utf8() {
             Ok(text) => formatter.write_str(&text),
-            Err(_) => formatter.write_str(&pi_js_compat::js_json::stringify_lossless(&Value::String(self.message.clone()))),
+            Err(_) => formatter.write_str(&pi_js_compat::js_json::stringify_lossless(&Value::String(
+                self.message.clone(),
+            ))),
         }
     }
 }
@@ -59,25 +61,47 @@ pub fn validate_tool_call(tools: &[Tool], tool_call: &ToolCall) -> Result<Value,
 
 /// Validates tool call arguments against the tool's schema.
 pub fn validate_tool_arguments(tool: &Tool, tool_call: &ToolCall) -> Result<Value, ValidationError> {
-    validate_arguments(&Value::from(&tool.parameters), &Value::from(Schema::Object(tool_call.arguments.clone())), tool.typebox_kind, &tool_call.name)
+    validate_arguments(
+        &Value::from(&tool.parameters),
+        &Value::from(Schema::Object(tool_call.arguments.clone())),
+        tool.typebox_kind,
+        &tool_call.name,
+    )
 }
 
 /// Lossless authority. Clones arguments without crossing a Unicode-scalar boundary.
-pub fn validate_arguments(schema: &Value, arguments: &Value, typebox_kind: bool, tool_name: &str) -> Result<Value, ValidationError> {
+pub fn validate_arguments(
+    schema: &Value,
+    arguments: &Value,
+    typebox_kind: bool,
+    tool_name: &str,
+) -> Result<Value, ValidationError> {
     let mut args = arguments.clone();
-    if typebox_kind { let _ = convert(schema, &mut args, &JsObject::new()); }
+    if typebox_kind {
+        let _ = convert(schema, &mut args, &JsObject::new());
+    }
     let coerced = coerce(schema, args.clone());
     if coerced != args {
-        if args.is_object() && coerced.is_object() { args = coerced; }
-        else { return Ok(if check(schema, &coerced) { coerced } else { args }); }
+        if args.is_object() && coerced.is_object() {
+            args = coerced;
+        } else {
+            return Ok(if check(schema, &coerced) { coerced } else { args });
+        }
     }
     let issues = collect_issues(schema, &args);
-    if issues.is_empty() { return Ok(args); }
+    if issues.is_empty() {
+        return Ok(args);
+    }
     let errors = JsString::join(issues.items.iter().map(Issue::line), "\n");
-    let message = JsString::join([
-        JsString::from(format!("Validation failed for tool \"{tool_name}\":\n")), errors,
-        JsString::from("\n\nReceived arguments:\n"), JsString::from(stringify_lossless_pretty(arguments)),
-    ], "");
+    let message = JsString::join(
+        [
+            JsString::from(format!("Validation failed for tool \"{tool_name}\":\n")),
+            errors,
+            JsString::from("\n\nReceived arguments:\n"),
+            JsString::from(stringify_lossless_pretty(arguments)),
+        ],
+        "",
+    );
     Err(ValidationError { message })
 }
 
@@ -193,12 +217,7 @@ fn convert(schema: &Value, value: &mut Value, context: &JsObject) -> Conversion 
     convert_typed(schema, object, value, context)
 }
 
-fn convert_reference(
-    schema: &Value,
-    object: &JsObject,
-    value: &mut Value,
-    context: &JsObject,
-) -> Option<Conversion> {
+fn convert_reference(schema: &Value, object: &JsObject, value: &mut Value, context: &JsObject) -> Option<Conversion> {
     if object.contains_key("$defs")
         && let Some(reference) = string_field(schema, "$ref")
     {
@@ -222,12 +241,7 @@ fn convert_reference(
     None
 }
 
-fn convert_typed(
-    schema: &Value,
-    object: &JsObject,
-    value: &mut Value,
-    context: &JsObject,
-) -> Conversion {
+fn convert_typed(schema: &Value, object: &JsObject, value: &mut Value, context: &JsObject) -> Conversion {
     match string_field(schema, "type").as_deref() {
         Some("array") => convert_array(schema.get("items"), value, context),
         Some("object") => {
@@ -283,12 +297,7 @@ fn convert_enum(members: &[Value], value: &mut Value) -> Conversion {
     Conversion::InPlace
 }
 
-fn convert_union(
-    members: &[Value],
-    union_schema: &Value,
-    value: &mut Value,
-    context: &JsObject,
-) -> Conversion {
+fn convert_union(members: &[Value], union_schema: &Value, value: &mut Value, context: &JsObject) -> Conversion {
     if members.iter().any(|member| check(member, value)) {
         return Conversion::InPlace;
     }
@@ -361,7 +370,12 @@ fn convert_object_additional(schema: &JsObject, map: &mut JsObject, context: &Js
     let patterns: Vec<JsString> = schema
         .get("properties")
         .and_then(Value::as_object)
-        .map(|properties| properties.keys().map(|key| JsString::join([JsString::from("^"),key.clone(),JsString::from("$")], "")).collect())
+        .map(|properties| {
+            properties
+                .keys()
+                .map(|key| JsString::join([JsString::from("^"), key.clone(), JsString::from("$")], ""))
+                .collect()
+        })
         .unwrap_or_default();
     let keys: Vec<JsString> = map.keys().cloned().collect();
     for pattern in patterns {
@@ -403,12 +417,7 @@ fn convert_record_patterns(patterns: &JsObject, map: &mut JsObject, context: &Js
     }
 }
 
-fn convert_record_additional(
-    patterns: &JsObject,
-    schema: &JsObject,
-    map: &mut JsObject,
-    context: &JsObject,
-) {
+fn convert_record_additional(patterns: &JsObject, schema: &JsObject, map: &mut JsObject, context: &JsObject) {
     let Some(additional) = schema.get("additionalProperties").filter(|value| value.is_object()) else {
         return;
     };
@@ -732,16 +741,38 @@ impl Issue {
     fn path(&self) -> JsString {
         let units = self.instance_path.units();
         let units = units.strip_prefix(&[u16::from(b'/')]).unwrap_or(units);
-        let base = JsString::from_utf16(units.iter().map(|unit| if *unit == u16::from(b'/') { u16::from(b'.') } else { *unit }).collect());
+        let base = JsString::from_utf16(
+            units
+                .iter()
+                .map(|unit| {
+                    if *unit == u16::from(b'/') {
+                        u16::from(b'.')
+                    } else {
+                        *unit
+                    }
+                })
+                .collect(),
+        );
         if let Some(required) = &self.required_first {
-            return if base.is_empty() { required.clone() } else { JsString::join([base, JsString::from("."), required.clone()], "") };
+            return if base.is_empty() {
+                required.clone()
+            } else {
+                JsString::join([base, JsString::from("."), required.clone()], "")
+            };
         }
         if base.is_empty() { "root".into() } else { base }
     }
     fn line(&self) -> JsString {
-        JsString::join([JsString::from("  - "), self.path(), JsString::from(": "), self.message.clone()], "")
+        JsString::join(
+            [
+                JsString::from("  - "),
+                self.path(),
+                JsString::from(": "),
+                self.message.clone(),
+            ],
+            "",
+        )
     }
-
 }
 
 struct Issues {
@@ -793,11 +824,7 @@ fn collect_issues(schema: &Value, value: &Value) -> Issues {
 
 /// TypeBox-style validation lines (`  - path: message`) for a schema compiled by `Compile(...).Errors`.
 pub fn schema_error_lines(schema: &Value, value: &Value) -> Vec<JsString> {
-    collect_issues(schema, value)
-        .items
-        .iter()
-        .map(Issue::line)
-        .collect()
+    collect_issues(schema, value).items.iter().map(Issue::line).collect()
 }
 
 fn check(schema: &Value, value: &Value) -> bool {
@@ -819,7 +846,14 @@ fn child_path(instance_path: &JsString, key: impl Into<JsString>) -> JsString {
     JsString::join([instance_path.clone(), JsString::from("/"), key.into()], "")
 }
 
-fn collect_schema(root: &Value, base: &Value, schema: &Value, instance_path: &JsString, value: &Value, issues: &mut Issues) {
+fn collect_schema(
+    root: &Value,
+    base: &Value,
+    schema: &Value,
+    instance_path: &JsString,
+    value: &Value,
+    issues: &mut Issues,
+) {
     let base = if schema.get("$id").is_some() { schema } else { base };
     if schema.as_bool() == Some(false) {
         issues.message(instance_path, "schema is false".to_owned());
@@ -933,7 +967,14 @@ fn collect_not_keyword(
     }
 }
 
-fn collect_all_of(root: &Value, base: &Value, schema: &Value, instance_path: &JsString, value: &Value, issues: &mut Issues) {
+fn collect_all_of(
+    root: &Value,
+    base: &Value,
+    schema: &Value,
+    instance_path: &JsString,
+    value: &Value,
+    issues: &mut Issues,
+) {
     let Some(members) = array_field(schema, "allOf") else {
         return;
     };
@@ -1025,7 +1066,7 @@ fn type_message(type_spec: &Value) -> JsString {
         Value::String(schema_type) => JsString::join([JsString::from("must be "), schema_type.clone()], ""),
         Value::Array(types) => {
             let names = types.iter().filter_map(Value::as_string);
-            JsString::join([JsString::from("must be either "), JsString::join(names," or ")], "")
+            JsString::join([JsString::from("must be either "), JsString::join(names, " or ")], "")
         }
         _ => JsString::default(),
     }
@@ -1073,7 +1114,13 @@ fn collect_required(schema: &JsObject, instance_path: &JsString, map: &JsObject,
     }
     let mut issue = Issue::new(
         instance_path,
-        JsString::join([JsString::from("must have required properties "), JsString::join(&missing, ", ")], ""),
+        JsString::join(
+            [
+                JsString::from("must have required properties "),
+                JsString::join(&missing, ", "),
+            ],
+            "",
+        ),
     );
     issue.required_first = missing.first().cloned();
     issues.add(issue);
@@ -1226,17 +1273,19 @@ fn collect_property_names(
     if !invalid.is_empty() {
         issues.message(
             instance_path,
-            JsString::join([JsString::from("property names "), JsString::join(&invalid, ", "), JsString::from(" are invalid")], ""),
+            JsString::join(
+                [
+                    JsString::from("property names "),
+                    JsString::join(&invalid, ", "),
+                    JsString::from(" are invalid"),
+                ],
+                "",
+            ),
         );
     }
 }
 
-fn collect_property_counts(
-    schema: &JsObject,
-    instance_path: &JsString,
-    map: &JsObject,
-    issues: &mut Issues,
-) {
+fn collect_property_counts(schema: &JsObject, instance_path: &JsString, map: &JsObject, issues: &mut Issues) {
     if let Some(minimum) = object_number(schema, "minProperties")
         && (map.len() as f64) < minimum
     {
@@ -1288,20 +1337,30 @@ fn additional_properties_regex(schema: &JsObject) -> Option<Regex> {
         patterns.extend(patterns_object.keys().cloned());
     }
     if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
-        patterns.extend(properties.keys().map(|key| JsString::join([JsString::from("^"), escape_js_regex(key), JsString::from("$")], "")));
+        patterns.extend(
+            properties
+                .keys()
+                .map(|key| JsString::join([JsString::from("^"), escape_js_regex(key), JsString::from("$")], "")),
+        );
     }
     if patterns.is_empty() {
         return None;
     }
-    Regex::new(JsString::join([JsString::from("("), JsString::join(patterns, "|"), JsString::from(")")], "")).ok()
+    Regex::new(JsString::join(
+        [JsString::from("("), JsString::join(patterns, "|"), JsString::from(")")],
+        "",
+    ))
+    .ok()
 }
 
 /// JavaScript `key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')`.
 fn escape_js_regex(key: &JsString) -> JsString {
-    const SPECIAL: &[u16] = &[46,42,43,63,94,36,123,125,40,41,124,91,93,92];
+    const SPECIAL: &[u16] = &[46, 42, 43, 63, 94, 36, 123, 125, 40, 41, 124, 91, 93, 92];
     let mut escaped = Vec::new();
     for unit in key.units() {
-        if SPECIAL.contains(unit) { escaped.push(u16::from(b'\\')); }
+        if SPECIAL.contains(unit) {
+            escaped.push(u16::from(b'\\'));
+        }
         escaped.push(*unit);
     }
     JsString::from_utf16(escaped)
@@ -1328,7 +1387,16 @@ fn collect_dependencies(
             if names.iter().any(|name| !map.contains_key(*name)) {
                 issues.message(
                     instance_path,
-                    JsString::join([JsString::from("must have properties "), JsString::join(names.iter().copied(), ", "), JsString::from(" when property "), key.clone(), JsString::from(" is present")], ""),
+                    JsString::join(
+                        [
+                            JsString::from("must have properties "),
+                            JsString::join(names.iter().copied(), ", "),
+                            JsString::from(" when property "),
+                            key.clone(),
+                            JsString::from(" is present"),
+                        ],
+                        "",
+                    ),
                 );
             }
         } else if is_schema(dependency) {
@@ -1337,12 +1405,7 @@ fn collect_dependencies(
     }
 }
 
-fn collect_dependent_required(
-    dependencies: &JsObject,
-    instance_path: &JsString,
-    map: &JsObject,
-    issues: &mut Issues,
-) {
+fn collect_dependent_required(dependencies: &JsObject, instance_path: &JsString, map: &JsObject, issues: &mut Issues) {
     for (key, dependency) in dependencies {
         if !map.contains_key(key) {
             continue;
@@ -1355,7 +1418,16 @@ fn collect_dependent_required(
             if !map.contains_key(*name) {
                 issues.message(
                     instance_path,
-                    JsString::join([JsString::from("must have properties "), JsString::join(names.iter().copied(), ", "), JsString::from(" when property "), key.clone(), JsString::from(" is present")], ""),
+                    JsString::join(
+                        [
+                            JsString::from("must have properties "),
+                            JsString::join(names.iter().copied(), ", "),
+                            JsString::from(" when property "),
+                            key.clone(),
+                            JsString::from(" is present"),
+                        ],
+                        "",
+                    ),
                 );
             }
         }
@@ -1598,7 +1670,17 @@ fn collect_string_keywords(schema: &JsObject, instance_path: &JsString, text: &J
     if let Some(pattern) = object_string(schema, "pattern") {
         let matched = Regex::new(pattern).is_ok_and(|regex| regex.is_match(text));
         if !matched {
-            issues.message(instance_path, JsString::join([JsString::from("must match pattern \""), pattern.clone(), JsString::from("\"")], ""));
+            issues.message(
+                instance_path,
+                JsString::join(
+                    [
+                        JsString::from("must match pattern \""),
+                        pattern.clone(),
+                        JsString::from("\""),
+                    ],
+                    "",
+                ),
+            );
         }
     }
 }
@@ -1761,7 +1843,9 @@ fn find_id<'a>(schema: &'a Value, reference: &str) -> Option<&'a Value> {
 }
 
 fn find_anchor<'a>(schema: &'a Value, anchor: &str) -> Option<&'a Value> {
-    if string_field(schema, "$anchor").as_deref() == Some(anchor) || string_field(schema, "$dynamicAnchor").as_deref() == Some(anchor) {
+    if string_field(schema, "$anchor").as_deref() == Some(anchor)
+        || string_field(schema, "$dynamicAnchor").as_deref() == Some(anchor)
+    {
         return Some(schema);
     }
     match schema {
@@ -1945,6 +2029,11 @@ fn is_max_length_fast(units: &[u16], maximum: f64) -> bool {
     true
 }
 
-
-fn schema_text(value: &Value) -> Option<String> { value.as_string()?.to_utf8().ok() }
-fn parse_number(text: &JsString) -> f64 { text.to_utf8().map(|text| pi_js_compat::number::parse_number(&text)).unwrap_or(f64::NAN) }
+fn schema_text(value: &Value) -> Option<String> {
+    value.as_string()?.to_utf8().ok()
+}
+fn parse_number(text: &JsString) -> f64 {
+    text.to_utf8()
+        .map(|text| pi_js_compat::number::parse_number(&text))
+        .unwrap_or(f64::NAN)
+}
