@@ -749,12 +749,12 @@ impl AuthStorage {
                             self.record_error(error.clone());
                             self.reload();
                             let reloaded = lock(&self.source_state).load_error.is_none();
-                            if let Some(updated) = self.get(provider_id).filter(|_| reloaded) {
-                                if credential_type(&updated).as_deref() == Some("oauth") {
-                                    let updated = to_credential(&updated)?.into_oauth().expect("checked OAuth");
-                                    if source_now_millis() < updated.expires {
-                                        return Ok(Some(provider.get_api_key(&updated)));
-                                    }
+                            if let Some(updated) = self.get(provider_id).filter(|_| reloaded)
+                                && credential_type(&updated).as_deref() == Some("oauth")
+                            {
+                                let updated = to_credential(&updated)?.into_oauth().expect("checked OAuth");
+                                if source_now_millis() < updated.expires {
+                                    return Ok(Some(provider.get_api_key(&updated)));
                                 }
                             }
                             if options.throw_on_refresh_failure {
@@ -783,14 +783,14 @@ fn resolved_credential(credential: Credential, commands: bool) -> Credential {
     let Credential::ApiKey(mut key) = credential else {
         return credential;
     };
-    if let Some(value) = &key.key {
-        if commands || !is_command_config_value(value) {
-            let env = key
-                .env
-                .as_ref()
-                .map(|e| e.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
-            key.key = resolve_config_value(value, env.as_ref());
-        }
+    if let Some(value) = &key.key
+        && (commands || !is_command_config_value(value))
+    {
+        let env = key
+            .env
+            .as_ref()
+            .map(|e| e.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+        key.key = resolve_config_value(value, env.as_ref());
     }
     Credential::ApiKey(key)
 }
