@@ -100,6 +100,24 @@ impl JsString {
         result
     }
 
+    /// JavaScript-style lowercase preserves unmatched UTF-16 units as context boundaries.
+    pub fn to_lowercase(&self) -> Self {
+        let mut output = Self::default();
+        let mut chunk = String::new();
+        for decoded in char::decode_utf16(self.0.iter().copied()) {
+            match decoded {
+                Ok(character) => chunk.push(character),
+                Err(error) => {
+                    output.push_str(chunk.to_lowercase());
+                    chunk.clear();
+                    output.push_unit(error.unpaired_surrogate());
+                }
+            }
+        }
+        output.push_str(chunk.to_lowercase());
+        output
+    }
+
     /// Checked UTF-8 boundary; lone surrogates are rejected.
     pub fn to_utf8(&self) -> Result<String, std::string::FromUtf16Error> {
         String::from_utf16(&self.0)
