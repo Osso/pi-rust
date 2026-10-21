@@ -21,6 +21,9 @@ Trace: [validation](../porting/traceability/validation.md).
 - TypeBox string conversion turns null into `"null"`; plain string coercion turns
   null into `""`. Enum validation follows conversion/coercion. Invalid optional
   enum values are errors, not absent properties.
+- Overflow JSON numbers remain binary64 infinities in arguments. Number/integer
+  checks reject them with the frozen type error; numeric constraints skip non-finite
+  values. String coercion uses JavaScript spelling (`Infinity`, `-Infinity`).
 - Validation errors retain source ordering, paths, messages, and original received
   arguments. Caller-owned arguments remain unchanged on success and failure.
 

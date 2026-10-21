@@ -1345,3 +1345,47 @@ fn lossless_utf16_validation_matches_frozen_typescript() {
     );
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
+
+#[test]
+fn overflow_numbers_match_frozen_validation() {
+    use pi_ai::utils::validation::validate_arguments;
+    use pi_js_compat::js_json;
+    use pi_js_compat::js_json::{JsValue, parse_lossless};
+    let mut fixtures = Vec::new();
+    let mut wire_cases = Vec::new();
+    for kind in ["plain", "typebox"] {
+        for schema_type in ["number", "integer", "string", "boolean", "null"] {
+            for literal in ["1e400", "-1e400"] {
+                let schema = if kind == "plain" {
+                    json!({"type":"object","properties":{"value":{"type":schema_type,"maximum":10}}})
+                } else {
+                    json!({"t":"object","properties":{"value":{"t":schema_type,"options":{"maximum":10}}}})
+                };
+                let arguments = format!(r#"{{"value":{literal}}}"#);
+                wire_cases.push(format!(r#"{{"name":"{kind}-{schema_type}-{literal}","kind":"{kind}","schema":{schema},"arguments":{arguments}}}"#));
+                fixtures.push((kind, parse_lossless(&arguments).unwrap()));
+            }
+        }
+    }
+    let request = format!(
+        r#"{{"id":1,"operation":"validate_tool_arguments","cases":[{}]}}"#,
+        wire_cases.join(",")
+    );
+    let mut oracle = oracle::TsOracle::spawn("validation-oracle.ts", "packages/ai/src/utils/validation.ts");
+    let response = oracle.request_raw_json(&request);
+    assert_eq!(response["ok"], JsValue::Bool(true));
+    let results = response["output"]["results"].as_array().unwrap();
+    assert_eq!(results.len(), fixtures.len());
+    for ((kind, arguments), expected) in fixtures.iter().zip(results) {
+        let actual = match validate_arguments(&expected["schemas"][0], arguments, *kind == "typebox", "echo") {
+            Ok(value) => js_json!({"ok":true,"value":value}),
+            Err(error) => js_json!({"ok":false,"message":error.message()}),
+        };
+        let normalized = if expected["ok"] == JsValue::Bool(true) {
+            js_json!({"ok":true,"value":expected["value"]})
+        } else {
+            js_json!({"ok":false,"message":expected["error"]["message"]})
+        };
+        assert_eq!(actual, normalized, "{kind}: {arguments:?}");
+    }
+}

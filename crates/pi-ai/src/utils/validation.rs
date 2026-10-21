@@ -888,7 +888,7 @@ fn collect_value_keywords(
     if let Some(text) = value.as_string() {
         collect_string_keywords(schema, instance_path, text, issues);
     }
-    if let Some(number) = value.as_f64() {
+    if let Some(number) = value.as_f64().filter(|number| number.is_finite()) {
         collect_number_keywords(schema, instance_path, number, issues);
     }
 }
@@ -1062,7 +1062,7 @@ fn check_type_name(schema_type: &str, value: &Value) -> bool {
         "integer" => value
             .as_f64()
             .is_some_and(|number| number.is_finite() && number.fract() == 0.0),
-        "number" => value.as_f64().is_some(),
+        "number" => value.as_f64().is_some_and(f64::is_finite),
         "null" => value.is_null(),
         "string" => value.is_string(),
         _ => true,

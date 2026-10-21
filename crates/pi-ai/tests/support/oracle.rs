@@ -52,7 +52,13 @@ impl TsOracle {
         &mut self,
         request: &pi_js_compat::js_json::JsValue,
     ) -> pi_js_compat::js_json::JsValue {
-        serde_json::to_writer(&mut self.stdin, request).expect("oracle request must serialize");
+        self.request_raw_json(&pi_js_compat::js_json::stringify_lossless(request))
+    }
+
+    pub(crate) fn request_raw_json(&mut self, request: &str) -> pi_js_compat::js_json::JsValue {
+        self.stdin
+            .write_all(request.as_bytes())
+            .expect("oracle request must write");
         self.stdin
             .write_all(b"\n")
             .expect("oracle request must be newline-delimited");
