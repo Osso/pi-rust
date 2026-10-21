@@ -7,7 +7,7 @@
 //! the source relies on for focus, overlays, fixed cells, and render regions.
 
 use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 use std::time::{Duration, Instant};
@@ -118,6 +118,49 @@ pub struct Container {
     children: Vec<ComponentRef>,
 }
 
+type ListenerHandles<T> = RefCell<HashMap<usize, Weak<T>>>;
+
+// Insertion IDs order live dispatch; unsubscribe handles retain callback identity.
+fn register_listener<T: ?Sized>(
+    listeners: &RefCell<Vec<(usize, Rc<T>)>>,
+    handles: &ListenerHandles<T>,
+    next_id: &Cell<usize>,
+    listener: Rc<T>,
+) -> usize {
+    let mut listeners = listeners.borrow_mut();
+    if let Some((id, _)) = listeners
+        .iter()
+        .find(|(_, registered)| Rc::ptr_eq(registered, &listener))
+    {
+        return *id;
+    }
+    let id = next_id.get();
+    next_id.set(id + 1);
+    handles.borrow_mut().insert(id, Rc::downgrade(&listener));
+    listeners.push((id, listener));
+    id
+}
+
+fn remove_listener<T: ?Sized>(listeners: &RefCell<Vec<(usize, Rc<T>)>>, handles: &ListenerHandles<T>, id: usize) {
+    let Some(listener) = handles.borrow().get(&id).and_then(Weak::upgrade) else {
+        return;
+    };
+    listeners
+        .borrow_mut()
+        .retain(|(_, registered)| !Rc::ptr_eq(registered, &listener));
+}
+
+fn next_listener<T: ?Sized>(
+    listeners: &RefCell<Vec<(usize, Rc<T>)>>,
+    previous_id: Option<usize>,
+) -> Option<(usize, Rc<T>)> {
+    listeners
+        .borrow()
+        .iter()
+        .find(|(id, _)| previous_id.is_none_or(|previous| *id > previous))
+        .cloned()
+}
+
 impl Container {
     pub fn new() -> Self {
         Self::default()
@@ -138,7 +181,9 @@ impl Container {
     }
 
     pub fn remove_child(&mut self, component: &ComponentRef) {
-        self.children.retain(|child| !same_component(child, component));
+        if let Some(index) = self.children.iter().position(|child| same_component(child, component)) {
+            self.children.remove(index);
+        }
     }
 
     pub fn clear(&mut self) {
@@ -324,7 +369,7 @@ pub struct FlowRenderRegionLayout {
     pub viewport_height: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct CursorPosition {
     pub row: usize,
     pub col: usize,
@@ -503,6 +548,16 @@ impl RenderRegion {
         }
     }
 
+    /// Attempt a partial update without scheduling a root render on failure.
+    pub fn try_render(&self) -> bool {
+        match &self.writer {
+            RegionWriter::Immediate(renderer) => renderer
+                .upgrade()
+                .is_some_and(|renderer| renderer.try_render_region(&self.state)),
+            RegionWriter::Deferred(_) => false,
+        }
+    }
+
     pub fn request_render(&self) -> bool {
         match &self.writer {
             RegionWriter::Immediate(renderer) => match renderer.upgrade() {
@@ -677,6 +732,7 @@ struct TuiBaseInner {
     focused_component: RefCell<Option<ComponentRef>>,
     deferred_focus_updates: RefCell<Vec<(ComponentRef, bool)>>,
     input_listeners: RefCell<Vec<(usize, TuiInputListener)>>,
+    input_listener_handles: ListenerHandles<dyn Fn(&str) -> TuiInputListenerResult>,
     next_listener_id: Cell<usize>,
     on_debug: RefCell<Option<Rc<dyn Fn()>>>,
     render_requested: Cell<bool>,
@@ -687,14 +743,15 @@ struct TuiBaseInner {
     focus_reporting_enabled: Cell<bool>,
     show_hardware_cursor: Cell<bool>,
     clear_on_shrink: Cell<bool>,
-    termux_session: Cell<bool>,
-    debug_redraw: Cell<bool>,
+    termux_session: Cell<Option<bool>>,
+    debug_redraw: Cell<Option<bool>>,
     full_redraw_count: Cell<usize>,
     stopped: Cell<bool>,
     pending_osc11_queries: RefCell<VecDeque<Rc<RefCell<Osc11QueryState>>>>,
     pending_osc11_replies: Cell<usize>,
     pending_color_scheme_queries: RefCell<Vec<Rc<RefCell<ColorSchemeQueryState>>>>,
     terminal_color_scheme_listeners: RefCell<Vec<(usize, ColorSchemeListener)>>,
+    terminal_color_scheme_listener_handles: ListenerHandles<dyn Fn(TerminalColorScheme)>,
     terminal_color_scheme_notifications_enabled: Cell<bool>,
     log_directory: PathBuf,
     focus_order_counter: Cell<u64>,
@@ -726,6 +783,7 @@ impl TuiBase {
             focused_component: RefCell::new(None),
             deferred_focus_updates: RefCell::new(Vec::new()),
             input_listeners: RefCell::new(Vec::new()),
+            input_listener_handles: RefCell::new(HashMap::new()),
             next_listener_id: Cell::new(0),
             on_debug: RefCell::new(None),
             render_requested: Cell::new(false),
@@ -738,14 +796,15 @@ impl TuiBase {
                 show_hardware_cursor.unwrap_or_else(|| environment_flag("PI_HARDWARE_CURSOR")),
             ),
             clear_on_shrink: Cell::new(environment_flag("PI_CLEAR_ON_SHRINK")),
-            termux_session: Cell::new(pi_js_compat::process_env::get("TERMUX_VERSION").is_some()),
-            debug_redraw: Cell::new(environment_flag("PI_DEBUG_REDRAW")),
+            termux_session: Cell::new(None),
+            debug_redraw: Cell::new(None),
             full_redraw_count: Cell::new(0),
             stopped: Cell::new(false),
             pending_osc11_queries: RefCell::new(VecDeque::new()),
             pending_osc11_replies: Cell::new(0),
             pending_color_scheme_queries: RefCell::new(Vec::new()),
             terminal_color_scheme_listeners: RefCell::new(Vec::new()),
+            terminal_color_scheme_listener_handles: RefCell::new(HashMap::new()),
             terminal_color_scheme_notifications_enabled: Cell::new(false),
             log_directory: log_directory.unwrap_or_else(default_log_directory),
             focus_order_counter: Cell::new(0),
@@ -801,20 +860,26 @@ impl TuiBase {
 
     /// Explicit override for the source's `TERMUX_VERSION` environment check.
     pub fn set_termux_session(&self, enabled: bool) {
-        self.inner.termux_session.set(enabled);
+        self.inner.termux_session.set(Some(enabled));
     }
 
     /// Explicit override for the source's `PI_DEBUG_REDRAW` environment check.
     pub fn set_debug_redraw(&self, enabled: bool) {
-        self.inner.debug_redraw.set(enabled);
+        self.inner.debug_redraw.set(Some(enabled));
     }
 
     fn is_termux_session(&self) -> bool {
-        self.inner.termux_session.get()
+        self.inner
+            .termux_session
+            .get()
+            .unwrap_or_else(|| pi_js_compat::process_env::get("TERMUX_VERSION").is_some_and(|value| !value.is_empty()))
     }
 
     fn debug_redraw(&self) -> bool {
-        self.inner.debug_redraw.get()
+        self.inner
+            .debug_redraw
+            .get()
+            .unwrap_or_else(|| environment_flag("PI_DEBUG_REDRAW"))
     }
 
     pub fn get_focused_component(&self) -> Option<ComponentRef> {
@@ -830,10 +895,10 @@ impl TuiBase {
     }
 
     pub fn remove_child(&self, component: &ComponentRef) {
-        self.inner
-            .children
-            .borrow_mut()
-            .retain(|child| !same_component(child, component));
+        let mut children = self.inner.children.borrow_mut();
+        if let Some(index) = children.iter().position(|child| same_component(child, component)) {
+            children.remove(index);
+        }
     }
 
     pub fn clear_children(&self) {
@@ -929,34 +994,33 @@ impl TuiBase {
     }
 
     pub fn add_input_listener(&self, listener: TuiInputListener) -> usize {
-        let id = self.inner.next_listener_id.get();
-        self.inner.next_listener_id.set(id + 1);
-        self.inner.input_listeners.borrow_mut().push((id, listener));
-        id
+        register_listener(
+            &self.inner.input_listeners,
+            &self.inner.input_listener_handles,
+            &self.inner.next_listener_id,
+            listener,
+        )
     }
 
     pub fn remove_input_listener(&self, id: usize) {
-        self.inner
-            .input_listeners
-            .borrow_mut()
-            .retain(|(listener_id, _)| *listener_id != id);
+        remove_listener(&self.inner.input_listeners, &self.inner.input_listener_handles, id);
     }
 
     pub fn on_terminal_color_scheme_change(&self, listener: ColorSchemeListener) -> usize {
-        let id = self.inner.next_listener_id.get();
-        self.inner.next_listener_id.set(id + 1);
-        self.inner
-            .terminal_color_scheme_listeners
-            .borrow_mut()
-            .push((id, listener));
-        id
+        register_listener(
+            &self.inner.terminal_color_scheme_listeners,
+            &self.inner.terminal_color_scheme_listener_handles,
+            &self.inner.next_listener_id,
+            listener,
+        )
     }
 
     pub fn remove_terminal_color_scheme_listener(&self, id: usize) {
-        self.inner
-            .terminal_color_scheme_listeners
-            .borrow_mut()
-            .retain(|(listener_id, _)| *listener_id != id);
+        remove_listener(
+            &self.inner.terminal_color_scheme_listeners,
+            &self.inner.terminal_color_scheme_listener_handles,
+            id,
+        );
     }
 
     pub fn set_terminal_color_scheme_notifications(&self, enabled: bool) {
@@ -1031,9 +1095,6 @@ impl TuiBase {
             return;
         }
         if force {
-            if let Some(renderer) = self.renderer() {
-                renderer.reset_render_state();
-            }
             self.request_immediate_render();
             return;
         }
@@ -1133,25 +1194,12 @@ impl TuiBase {
 
     fn settle_terminal_queries(&self) {
         let now = Instant::now();
-        loop {
-            let expired = {
-                let mut queries = self.inner.pending_osc11_queries.borrow_mut();
-                match queries.front() {
-                    Some(query) if now >= query.borrow().deadline => queries.pop_front(),
-                    _ => None,
-                }
-            };
-            let Some(query) = expired else {
-                break;
-            };
+        for query in self.inner.pending_osc11_queries.borrow().iter() {
             let mut query = query.borrow_mut();
-            if !query.settled {
+            if !query.settled && now >= query.deadline {
                 query.settled = true;
                 query.result = Some(None);
             }
-            self.inner
-                .pending_osc11_replies
-                .set(self.inner.pending_osc11_replies.get().saturating_sub(1));
         }
         let now = Instant::now();
         let expired: Vec<Rc<RefCell<ColorSchemeQueryState>>> = {
@@ -1254,8 +1302,9 @@ impl TuiBase {
         let Some(scheme) = parse_terminal_color_scheme_report(data) else {
             return false;
         };
-        let listeners = self.inner.terminal_color_scheme_listeners.borrow().clone();
-        for (_, listener) in listeners {
+        let mut previous_id = None;
+        while let Some((id, listener)) = next_listener(&self.inner.terminal_color_scheme_listeners, previous_id) {
+            previous_id = Some(id);
             listener(scheme);
         }
         self.prune_settled_color_scheme_queries();
@@ -1270,6 +1319,10 @@ impl TuiBase {
         let (Some(height), Some(width), None) = (parts.next(), parts.next(), parts.next()) else {
             return false;
         };
+        let valid_digits = |value: &str| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit());
+        if !valid_digits(height) || !valid_digits(width) {
+            return false;
+        }
         let (Ok(height_px), Ok(width_px)) = (height.parse::<u32>(), width.parse::<u32>()) else {
             return false;
         };
@@ -1293,21 +1346,20 @@ impl TuiBase {
             return;
         }
 
-        let listeners = self.inner.input_listeners.borrow().clone();
         let mut current = data.to_string();
-        if !listeners.is_empty() {
-            for (_, listener) in listeners {
-                let result = listener(&current);
-                if result.consume {
-                    return;
-                }
-                if let Some(rewritten) = result.data {
-                    current = rewritten;
-                }
-            }
-            if current.is_empty() {
+        let mut previous_id = None;
+        while let Some((id, listener)) = next_listener(&self.inner.input_listeners, previous_id) {
+            previous_id = Some(id);
+            let result = listener(&current);
+            if result.consume {
                 return;
             }
+            if let Some(rewritten) = result.data {
+                current = rewritten;
+            }
+        }
+        if previous_id.is_some() && current.is_empty() {
+            return;
         }
         let data = current.as_str();
 
@@ -2098,11 +2150,11 @@ impl TuiBase {
         let row = row + options.offset_y.unwrap_or(0);
         let col = col + options.offset_x.unwrap_or(0);
         let row = row
-            .max(margin_top)
-            .min(term_height as i64 - margin_bottom - effective_height as i64);
+            .min(term_height as i64 - margin_bottom - effective_height as i64)
+            .max(margin_top);
         let col = col
-            .max(margin_left)
-            .min(term_width as i64 - margin_right - width as i64);
+            .min(term_width as i64 - margin_right - width as i64)
+            .max(margin_left);
 
         OverlayLayout {
             width: width as usize,
@@ -2300,11 +2352,11 @@ fn environment_flag(name: &str) -> bool {
 }
 
 fn default_log_directory() -> PathBuf {
-    if let Some(directory) = pi_js_compat::process_env::get("PI_CODING_AGENT_DIR") {
-        return PathBuf::from(directory);
-    }
-    let home = pi_js_compat::process_env::get("HOME").unwrap_or_else(|| ".".to_string());
-    PathBuf::from(home).join(".pi").join("agent")
+    let home = pi_js_compat::process_env::get("HOME")
+        .map(PathBuf::from)
+        .or_else(std::env::home_dir)
+        .expect("the terminal home directory must resolve");
+    home.join(".pi").join("agent")
 }
 
 fn find_upward_viewport_top_after_shrink(
@@ -2523,13 +2575,13 @@ fn log_redraw(base: &TuiBase, reason: &str, previous: usize, new: usize, height:
     let timestamp = log_timestamp();
     let message = format!("[{timestamp}] fullRender: {reason} (prev={previous}, new={new}, height={height})\n");
     let path = base.log_directory().join("pi-debug.log");
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
     use std::io::Write;
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = file.write_all(message.as_bytes());
-    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .expect("open TUI redraw log");
+    file.write_all(message.as_bytes()).expect("append TUI redraw log");
 }
 
 fn write_crash_log(base: &TuiBase, width: usize, line_index: usize, new_lines: &[String]) -> PathBuf {
@@ -2544,10 +2596,73 @@ fn write_crash_log(base: &TuiBase, width: usize, line_index: usize, new_lines: &
     }
     data.push('\n');
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        std::fs::create_dir_all(parent).expect("create TUI crash log directory");
     }
-    let _ = std::fs::write(&path, data);
+    std::fs::write(&path, data).expect("write TUI crash log");
     path
+}
+
+struct RenderDebug {
+    first_changed: i64,
+    viewport_top: i64,
+    line_diff: i64,
+    hardware_cursor_row: i64,
+    render_end: i64,
+    final_cursor_row: i64,
+}
+
+fn random_debug_suffix() -> String {
+    use std::io::Read;
+    let mut bytes = [0; 8];
+    std::fs::File::open("/dev/urandom")
+        .expect("open debug filename entropy")
+        .read_exact(&mut bytes)
+        .expect("read debug filename entropy");
+    let mut value = u64::from_ne_bytes(bytes) >> 11;
+    let mut suffix = Vec::new();
+    loop {
+        let digit = (value % 36) as u32;
+        suffix.push(char::from_digit(digit, 36).expect("base-36 digit"));
+        value /= 36;
+        if value == 0 {
+            break;
+        }
+    }
+    suffix.into_iter().rev().collect()
+}
+
+fn format_render_debug(state: &RenderFrameState, frame: &CommitFrame<'_>, diff: RenderDebug, buffer: &str) -> String {
+    let cursor = serde_json::to_string(&frame.cursor_pos).expect("serialize cursor position");
+    let next = serde_json::to_string_pretty(frame.new_lines).expect("serialize next debug lines");
+    let previous = serde_json::to_string_pretty(&state.previous_lines).expect("serialize previous debug lines");
+    let output = serde_json::to_string(buffer).expect("serialize terminal debug output");
+    let header = format!(
+        "firstChanged: {}\nviewportTop: {}\ncursorRow: {}\nheight: {}\nlineDiff: {}\nhardwareCursorRow: {}\nrenderEnd: {}\nfinalCursorRow: {}\ncursorPos: {cursor}\nnewLines.length: {}\npreviousLines.length: {}",
+        diff.first_changed,
+        diff.viewport_top,
+        state.cursor_row,
+        frame.height,
+        diff.line_diff,
+        diff.hardware_cursor_row,
+        diff.render_end,
+        diff.final_cursor_row,
+        frame.new_lines.len(),
+        state.previous_lines.len()
+    );
+    format!("{header}\n\n=== newLines ===\n{next}\n\n=== previousLines ===\n{previous}\n\n=== buffer ===\n{output}")
+}
+
+fn write_render_debug(state: &RenderFrameState, frame: &CommitFrame<'_>, diff: RenderDebug, buffer: &str) {
+    if !environment_flag("PI_TUI_DEBUG") {
+        return;
+    }
+    let directory = PathBuf::from("/tmp/tui");
+    std::fs::create_dir_all(&directory).expect("create /tmp/tui debug directory");
+    let millis = pi_js_compat::date::js_now_millis() as i64;
+    let suffix = random_debug_suffix();
+    let path = directory.join(format!("render-{millis}-{suffix}.log"));
+    let data = format_render_debug(state, frame, diff, buffer);
+    std::fs::write(path, data).expect("write TUI debug dump");
 }
 
 fn full_render(
@@ -2608,6 +2723,28 @@ fn full_render(
     state.previous_height = height as i64;
 }
 
+fn repaint_visible_window(base: &TuiBase, state: &mut RenderFrameState, frame: &CommitFrame<'_>, top: i64) {
+    let end = (top as usize + frame.height).min(frame.new_lines.len());
+    let visible = &frame.new_lines[top as usize..end];
+    let lines = visible
+        .iter()
+        .map(|line| format!("\x1b[2K{line}"))
+        .collect::<Vec<_>>()
+        .join("\r\n");
+    base.terminal()
+        .borrow_mut()
+        .write(&format!("\x1b[?2026h\x1b[H{lines}\x1b[J\x1b[?2026l"));
+    state.cursor_row = (frame.new_lines.len() as i64 - 1).max(0);
+    state.hardware_cursor_row = top + (visible.len() as i64 - 1).max(0);
+    state.max_lines_rendered = frame.new_lines.len();
+    state.previous_viewport_top = top;
+    position_hardware_cursor(base, state, frame.cursor_pos, frame.new_lines.len());
+    state.previous_lines = frame.new_lines.to_vec();
+    state.previous_kitty_image_ids = collect_kitty_image_ids(frame.new_lines);
+    state.previous_width = frame.width as i64;
+    state.previous_height = frame.height as i64;
+}
+
 pub(crate) struct CommitFrame<'a> {
     pub(crate) variant: CommitVariant,
     pub(crate) new_lines: &'a [String],
@@ -2617,7 +2754,12 @@ pub(crate) struct CommitFrame<'a> {
     pub(crate) allow_full_render: bool,
 }
 
-pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState, frame: CommitFrame<'_>) -> bool {
+pub(crate) fn commit_rendered_frame(
+    base: &TuiBase,
+    frame_state: &RefCell<RenderFrameState>,
+    frame: CommitFrame<'_>,
+) -> bool {
+    let mut state = frame_state.borrow_mut();
     let CommitFrame {
         variant,
         new_lines,
@@ -2648,7 +2790,10 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
 
     if state.previous_lines.is_empty() && !width_changed && !height_changed {
         log_redraw(base, "first render", 0, new_lines.len(), height);
-        full_render(base, state, new_lines, cursor_pos, width, height, false);
+        if !allow_full_render {
+            return false;
+        }
+        full_render(base, &mut state, new_lines, cursor_pos, width, height, false);
         return true;
     }
     if width_changed {
@@ -2659,7 +2804,10 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             new_lines.len(),
             height,
         );
-        full_render(base, state, new_lines, cursor_pos, width, height, true);
+        if !allow_full_render {
+            return false;
+        }
+        full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
         return true;
     }
     if height_changed && !base.is_termux_session() {
@@ -2670,7 +2818,10 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             new_lines.len(),
             height,
         );
-        full_render(base, state, new_lines, cursor_pos, width, height, true);
+        if !allow_full_render {
+            return false;
+        }
+        full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
         return true;
     }
     if base.get_clear_on_shrink() && new_lines.len() < state.max_lines_rendered && !base.has_overlay_entries() {
@@ -2681,7 +2832,10 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             new_lines.len(),
             height,
         );
-        full_render(base, state, new_lines, cursor_pos, width, height, true);
+        if !allow_full_render {
+            return false;
+        }
+        full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
         return true;
     }
     if variant.check_upward_shrink
@@ -2692,14 +2846,25 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             prev_viewport_top,
         )
     {
-        log_redraw(
-            base,
-            &format!("content shrink moved viewport up ({prev_viewport_top} -> {upward})"),
-            state.previous_lines.len(),
-            new_lines.len(),
-            height,
-        );
-        full_render(base, state, new_lines, cursor_pos, width, height, true);
+        let visible_end = (upward as usize + height).min(new_lines.len());
+        let has_images = new_lines[upward as usize..visible_end]
+            .iter()
+            .any(|line| is_image_line(line));
+        if has_images {
+            log_redraw(
+                base,
+                &format!("content shrink moved viewport up ({prev_viewport_top} -> {upward})"),
+                state.previous_lines.len(),
+                new_lines.len(),
+                height,
+            );
+            if !allow_full_render {
+                return false;
+            }
+            full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
+        } else {
+            repaint_visible_window(base, &mut state, &frame, upward);
+        }
         return true;
     }
 
@@ -2736,7 +2901,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
     let append_start = appended_lines && first_changed == state.previous_lines.len() as i64 && first_changed > 0;
 
     if first_changed == -1 {
-        position_hardware_cursor(base, state, cursor_pos, new_lines.len());
+        position_hardware_cursor(base, &mut state, cursor_pos, new_lines.len());
         state.previous_viewport_top = prev_viewport_top;
         state.previous_height = height as i64;
         return true;
@@ -2756,7 +2921,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
                     new_lines.len(),
                     height,
                 );
-                full_render(base, state, new_lines, cursor_pos, width, height, true);
+                full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
                 return true;
             }
             let mut buffer = String::from("\x1b[?2026h");
@@ -2784,7 +2949,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
                     new_lines.len(),
                     height,
                 );
-                full_render(base, state, new_lines, cursor_pos, width, height, true);
+                full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
                 return true;
             }
             let clear_start_offset = usize::from(!new_lines.is_empty());
@@ -2806,7 +2971,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             state.cursor_row = target_row;
             state.hardware_cursor_row = target_row;
         }
-        position_hardware_cursor(base, state, cursor_pos, new_lines.len());
+        position_hardware_cursor(base, &mut state, cursor_pos, new_lines.len());
         state.previous_lines = new_lines.to_vec();
         state.previous_kitty_image_ids = collect_kitty_image_ids(new_lines);
         state.previous_width = width as i64;
@@ -2826,7 +2991,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             new_lines.len(),
             height,
         );
-        full_render(base, state, new_lines, cursor_pos, width, height, true);
+        full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
         return true;
     }
 
@@ -2886,7 +3051,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
                     new_lines.len(),
                     height,
                 );
-                full_render(base, state, new_lines, cursor_pos, width, height, true);
+                full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
                 return true;
             }
             buffer.push_str("\x1b[2K");
@@ -2902,6 +3067,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
         buffer.push_str("\x1b[2K");
         if !image && visible_width(line) > width {
             let crash_path = write_crash_log(base, width, index as usize, new_lines);
+            drop(state);
             base.stop(TuiStopOptions::default());
             panic!(
                 "Rendered line {index} exceeds terminal width ({} > {width}).\n\nThis is likely caused by a custom TUI component not truncating its output.\nUse visibleWidth() to measure and truncateToWidth() to truncate lines.\n\nDebug log written to: {}",
@@ -2927,13 +3093,26 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
         buffer.push_str(&format!("\x1b[{extra_lines}A"));
     }
     buffer.push_str("\x1b[?2026l");
+    write_render_debug(
+        &state,
+        &frame,
+        RenderDebug {
+            first_changed,
+            viewport_top,
+            line_diff,
+            hardware_cursor_row,
+            render_end,
+            final_cursor_row,
+        },
+        &buffer,
+    );
     base.terminal().borrow_mut().write(&buffer);
 
     state.cursor_row = (new_lines.len() as i64 - 1).max(0);
     state.hardware_cursor_row = final_cursor_row;
     state.max_lines_rendered = state.max_lines_rendered.max(new_lines.len());
     state.previous_viewport_top = prev_viewport_top.max(final_cursor_row - height as i64 + 1);
-    position_hardware_cursor(base, state, cursor_pos, new_lines.len());
+    position_hardware_cursor(base, &mut state, cursor_pos, new_lines.len());
     state.previous_lines = new_lines.to_vec();
     state.previous_kitty_image_ids = collect_kitty_image_ids(new_lines);
     state.previous_width = width as i64;
@@ -3251,16 +3430,19 @@ impl TuiRenderer {
     }
 
     fn request_render_region(&self, state: &RenderRegionStateRef) -> bool {
-        let flow = state.borrow().flow_layout;
-        let rendered = match flow {
-            Some(_) => self.write_flow_render_region(state),
-            None => self.write_render_region(state),
-        };
-        if rendered {
+        if self.try_render_region(state) {
             return true;
         }
         self.base.request_render(false);
         false
+    }
+
+    fn try_render_region(&self, state: &RenderRegionStateRef) -> bool {
+        let flow = state.borrow().flow_layout;
+        match flow {
+            Some(_) => self.write_flow_render_region(state),
+            None => self.write_render_region(state),
+        }
     }
 
     fn write_fixed_cell(&self, state: &Rc<RefCell<FixedCellState>>) -> bool {
@@ -3337,12 +3519,13 @@ impl TuiRenderer {
         let Some(updates) = self.plan_flow_render_state_updates(state, layout, &frame) else {
             return false;
         };
-        let mut render_frame = self.frame.borrow_mut();
-        let width = render_frame.previous_width as usize;
-        let height = render_frame.previous_height as usize;
+        let (width, height) = {
+            let frame = self.frame.borrow();
+            (frame.previous_width as usize, frame.previous_height as usize)
+        };
         if !commit_rendered_frame(
             &self.base,
-            &mut render_frame,
+            &self.frame,
             crate::tui::CommitFrame {
                 variant: CommitVariant {
                     check_upward_shrink: false,
@@ -3357,7 +3540,6 @@ impl TuiRenderer {
         ) {
             return false;
         }
-        drop(render_frame);
         self.apply_flow_render_state_updates(state, updates);
         true
     }
@@ -3790,10 +3972,9 @@ impl RendererApi for TuiRenderer {
         }
         let cursor_pos = self.base.extract_cursor_position(&mut new_lines, height);
         self.base.apply_line_resets(&mut new_lines);
-        let mut frame = self.frame.borrow_mut();
         if commit_rendered_frame(
             &self.base,
-            &mut frame,
+            &self.frame,
             crate::tui::CommitFrame {
                 variant: CommitVariant {
                     check_upward_shrink: true,

@@ -34,13 +34,14 @@ fn parse_osc_hex_channel(channel: &str) -> Option<u8> {
     if channel.is_empty() || !channel.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
     }
-    let digits = u32::try_from(channel.len()).ok()?;
-    let max = 16_u64.pow(digits).checked_sub(1)?;
-    if max == 0 {
+    let max = 16_f64.powf(channel.len() as f64) - 1.0;
+    if max <= 0.0 {
         return None;
     }
-    let value = u64::from_str_radix(channel, 16).ok()?;
-    Some(((value as f64 / max as f64) * 255.0).round() as u8)
+    let value = pi_js_compat::number::parse_int(channel, 16);
+    let rounded = ((value / max) * 255.0).round();
+    // Non-finite source RGB channels cannot be represented by RgbColor's u8 API.
+    rounded.is_finite().then_some(rounded as u8)
 }
 
 fn osc11_value(data: &str) -> Option<&str> {
@@ -100,27 +101,11 @@ fn strip_rgb_prefix(value: &str) -> &str {
     }
 }
 
-/// Parse a repeated OSC 997 color-scheme report.
-///
-/// The last report in the sequence wins, matching the TypeScript capture group.
+/// Parse one strictly framed OSC 997 color-scheme report.
 pub fn parse_terminal_color_scheme_report(data: &str) -> Option<TerminalColorScheme> {
-    let mut rest = data;
-    let mut last = None;
-    while !rest.is_empty() {
-        let after_prefix = rest.strip_prefix("\x1b[?997;")?;
-        let mut chars = after_prefix.chars();
-        let scheme = chars.next()?;
-        if scheme != '1' && scheme != '2' {
-            return None;
-        }
-        if chars.next()? != 'n' {
-            return None;
-        }
-        last = Some(scheme);
-        rest = chars.as_str();
-    }
-    match last? {
-        '2' => Some(TerminalColorScheme::Light),
-        _ => Some(TerminalColorScheme::Dark),
+    match data {
+        "\x1b[?997;1n" => Some(TerminalColorScheme::Dark),
+        "\x1b[?997;2n" => Some(TerminalColorScheme::Light),
+        _ => None,
     }
 }

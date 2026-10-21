@@ -1,5 +1,7 @@
 #[path = "support/components.rs"]
 mod components;
+#[path = "support/oracle.rs"]
+mod oracle;
 #[path = "support/virtual_terminal.rs"]
 mod virtual_terminal;
 
@@ -663,5 +665,40 @@ fn falls_back_to_normal_rendering_for_an_unregistered_component() {
         &f.terminal.borrow().viewport()[..3],
         ["region one", "region two", "unrelated row"]
     );
+    stop_fixture(&f);
+}
+
+#[test]
+fn try_render_failure_does_not_schedule_root_render() {
+    let f = fixture();
+    f.region.clear();
+    let before = render_count(&f.unrelated);
+    assert!(!f.region.try_render());
+    wait(&f.tui, &f.terminal);
+    assert_eq!(render_count(&f.unrelated), before);
+    assert_eq!(f.terminal.borrow().writes(), "");
+    assert!(!f.region.request_render());
+    wait(&f.tui, &f.terminal);
+    assert!(render_count(&f.unrelated) > before);
+    let expected = oracle::TsOracle::spawn("tui-verifier-oracle.mjs", "packages/tui/src/tui.ts")
+        .request(&serde_json::json!({"scenario": "region"}));
+    assert_eq!(serde_json::json!([false, false, false, true]), expected);
+    stop_fixture(&f);
+}
+
+#[test]
+fn try_render_writes_valid_region_without_rendering_surroundings() {
+    let f = fixture();
+    let before = render_count(&f.unrelated);
+    set_lines(&f.descendant, &["changed", "second"]);
+    assert!(f.region.try_render());
+    wait(&f.tui, &f.terminal);
+    assert_eq!(
+        &f.terminal.borrow().viewport()[..3],
+        ["changed", "second", "unrelated row"]
+    );
+    assert_eq!(render_count(&f.unrelated), before);
+    f.region.dispose();
+    assert!(!f.region.try_render());
     stop_fixture(&f);
 }

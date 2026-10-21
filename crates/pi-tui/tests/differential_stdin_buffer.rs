@@ -66,7 +66,6 @@ fn cases() -> Vec<Vec<String>> {
 fn options() -> StdinBufferOptions {
     StdinBufferOptions {
         timeout: Duration::from_millis(10),
-        escape_timeout: Duration::from_millis(10),
     }
 }
 
@@ -114,5 +113,28 @@ fn stdin_buffer_matches_the_pinned_typescript_source() {
             expected["bufferAfterTimeout"].as_str().unwrap(),
             "buffer after timeout mismatch for chunks {chunks:?}"
         );
+    }
+}
+
+#[test]
+fn frozen_timeout_applies_to_escape_and_partial_sequences() {
+    let mut oracle = oracle::TsOracle::spawn("tui-leaves-oracle.ts", "packages/tui/src");
+    let cases = json!([
+        {"chunks": ["\u{1b}[" ]},
+        {"chunks": ["\u{1b}"], "timeout": 100},
+    ]);
+    let response = oracle.request(&json!({"id": "timeouts", "operation": "stdin_buffer", "cases": cases}));
+    assert_eq!(response["ok"], true, "{response}");
+    for (index, (chunk, custom)) in [("\x1b[", None), ("\x1b", Some(100))].into_iter().enumerate() {
+        let mut buffer = custom.map_or_else(StdinBuffer::new, |millis| {
+            StdinBuffer::with_options(StdinBufferOptions {
+                timeout: Duration::from_millis(millis),
+            })
+        });
+        assert!(buffer.process(chunk).is_empty());
+        let events = buffer.poll(Instant::now() + Duration::from_millis(30));
+        let expected = &response["output"]["results"][index];
+        assert_eq!(buffer.buffer(), expected["bufferAfterTimeout"].as_str().unwrap());
+        assert_eq!(events.len(), expected["events"].as_array().unwrap().len());
     }
 }

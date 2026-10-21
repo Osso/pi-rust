@@ -25,15 +25,12 @@ pub enum StdinBufferEvent {
 pub struct StdinBufferOptions {
     /// Maximum wait for an incomplete CSI/OSC/APC or mouse sequence.
     pub timeout: Duration,
-    /// Maximum wait after a lone ESC before treating it as Escape.
-    pub escape_timeout: Duration,
 }
 
 impl Default for StdinBufferOptions {
     fn default() -> Self {
         Self {
-            timeout: Duration::from_millis(50),
-            escape_timeout: Duration::from_millis(10),
+            timeout: Duration::from_millis(10),
         }
     }
 }
@@ -44,7 +41,6 @@ pub struct StdinBuffer {
     buffer: String,
     deadline: Option<Instant>,
     timeout: Duration,
-    escape_timeout: Duration,
     paste_mode: bool,
     paste_buffer: String,
     pending_kitty_printable_codepoint: Option<u32>,
@@ -67,7 +63,6 @@ impl StdinBuffer {
             buffer: String::new(),
             deadline: None,
             timeout: options.timeout,
-            escape_timeout: options.escape_timeout,
             paste_mode: false,
             paste_buffer: String::new(),
             pending_kitty_printable_codepoint: None,
@@ -100,12 +95,7 @@ impl StdinBuffer {
         }
 
         if !self.buffer.is_empty() {
-            let timeout = if self.buffer == ESC {
-                self.escape_timeout
-            } else {
-                self.timeout
-            };
-            self.deadline = Some(Instant::now() + timeout);
+            self.deadline = Some(Instant::now() + self.timeout);
         }
         events
     }

@@ -17,7 +17,9 @@ use pi_coding_agent::modes::interactive::theme::{
     ColorMode, ColorValue, REQUIRED_COLORS, TerminalTheme, Theme, set_theme_instance,
 };
 use pi_tui::components::scroll_view::ScrollViewScrollbar;
-use pi_tui::{Component, KeybindingsManager, TuiMode, set_keybindings, strip_terminal_sequences};
+use pi_tui::tui::TuiMode;
+use pi_tui::utils::strip_terminal_sequences;
+use pi_tui::{Component, KeybindingsManager, set_keybindings};
 
 fn install_theme() -> Arc<Theme> {
     let colors: Vec<(String, ColorValue)> = REQUIRED_COLORS

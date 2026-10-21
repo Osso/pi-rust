@@ -51,7 +51,8 @@ use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED
 use pi_coding_agent::modes::interactive::theme::{TerminalTheme, get_editor_theme};
 use pi_tui::components::editor::{EditorFixedCell, EditorHost, EditorOptions};
 use pi_tui::components::text::Text;
-use pi_tui::{Component, MarkdownTheme, strip_terminal_sequences};
+use pi_tui::utils::strip_terminal_sequences;
+use pi_tui::{Component, MarkdownTheme};
 
 const OSC133_ZONE_START: &str = "\u{1b}]133;A\u{7}";
 const OSC133_ZONE_END: &str = "\u{1b}]133;B\u{7}";

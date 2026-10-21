@@ -107,13 +107,14 @@ The harness events, messages, reducer, and orchestration-type slices add no runt
 - `unicode-segmentation = 1.13.3` (exact) — Unicode 17.0 grapheme cluster segmentation for `utils`, `components::input`, and the editor; matches the Unicode tables used by Node 26 `Intl.Segmenter`.
 - `regex = 1.13.1` (exact) — compiles the Unicode-property and whitespace patterns ported verbatim from `latex` (`\p{L}`, `\p{N}`, script spacing, environment row splitting), plus the editor paste-marker and autocomplete trigger/debounce patterns.
 - `fancy-regex = 0.16.2` (exact) — executes the marked 18.0.5 grammar ported into `components::markdown::lexer`, which needs lookaround and backreferences that `regex` rejects.
-- `serde = 1.0.229` (exact, `derive`) — serializes the ported marked token model for the markdown differential oracle; the model is also the component's internal token representation.
+- `serde = 1.0.229` (exact, `derive`) — serializes marked tokens and cursor positions.
+- `serde_json = 1.0.151` (exact) — emits the frozen TUI debug-dump JSON fields and terminal output; also drives differential-oracle transport in tests.
 - `icu_segmenter = 2.3.0` (exact, default `compiled_data`/`auto`) — dictionary/LSTM word segmentation behind `word_navigation`, chosen as the pure-Rust mapping of `Intl.Segmenter` (decision 2026-10-18; dictionary-word deviations documented in the traceability doc).
 - `tokio = 1.53.3` (`process`, `rt`, `sync`, `io-util`, `macros`; dev adds `rt-multi-thread`, `time`) — spawns `fd` asynchronously, drives autocomplete cancellation/select branches, and runs editor autocomplete futures and debounce timers in tests.
 - `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child; the editor aborts superseded requests and `CancellableLoader` maps its abort signal.
 - `tempfile = 3.27.0` (development) — creates isolated directory trees and symlinks for autocomplete tests.
 - `pi-js-compat` (path, `=0.0.0`) — shared ECMAScript string whitespace, `Number`, `Buffer` Base64, and `localeCompare`; `terminal_image` no longer carries a crate-local Base64 implementation.
-- `rustix = 1.1.5` (exact, `termios` feature; `process` as a development feature) — safe termios raw-mode and window-size syscalls for `ProcessTerminal`, plus `process::kill_process_group` for the shared tsx oracle teardown; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
+- `rustix = 1.1.5` (exact, `termios`/`event` features; `process` as a development feature) — safe termios raw-mode/window-size syscalls and cancellable stdin polling for `ProcessTerminal`, plus `process::kill_process_group` for the shared tsx oracle teardown; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
 - `src/unicode_tables.rs` is generated data, not a dependency: Unicode 17.0 emoji sequences, character-property ranges, and `get-east-asian-width` 1.6.0 width ranges (see `docs/porting/traceability/utils.md`).
 - The editor adds no dependency: it reuses `unicode-segmentation`, `regex`, `tokio`, and `tokio-util`.
 

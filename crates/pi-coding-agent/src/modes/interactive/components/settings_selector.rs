@@ -8,8 +8,9 @@ use pi_ai::types::Transport;
 use pi_js_compat::number::parse_int;
 use pi_tui::components::scroll_view::ScrollViewScrollbar;
 use pi_tui::components::settings_list::{SettingItem, SettingsList, SettingsListOptions, SubmenuDone};
+use pi_tui::tui::TuiMode;
 use pi_tui::tui::component;
-use pi_tui::{Component, SelectItem, SelectList, SelectListLayoutOptions, Spacer, Text, TuiMode};
+use pi_tui::{Component, SelectItem, SelectList, SelectListLayoutOptions, Spacer, Text};
 
 use crate::core::http_dispatcher::{HTTP_IDLE_TIMEOUT_CHOICES, format_http_idle_timeout_ms};
 use crate::core::settings_manager::{

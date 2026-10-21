@@ -1,121 +1,38 @@
-# tui.ts / tui-main-screen.ts / root-compositor.ts traceability
+# tui.ts frozen traceability
 
-Sources (pinned revision in `docs/porting/source-lock.json`):
+Reference: immutable `4f9e6f8a4`, `packages/tui/src/tui.ts` (2388 lines).
+Rust frozen-mapped implementation: `crates/pi-tui/src/tui.rs::TuiRenderer`, exported as concrete root `TUI`. Frozen has one TUI class, not the later TuiBase/TuiMainScreen hierarchy. Internal later renderers remain for Q2/Q13 consumers; they are not frozen root exports. [Q1 proof](../q1-tui-core-proof.md).
 
-- `packages/tui/src/tui.ts` (2534 lines) → `crates/pi-tui/src/tui.rs`
-- `packages/tui/src/tui-main-screen.ts` (586 lines) → `crates/pi-tui/src/tui_main_screen.rs`
-- `packages/tui/src/root-compositor.ts` (91 lines) → `crates/pi-tui/src/root_compositor.rs`
+| Frozen exports/function group | Rust representation | Current proof |
+|---|---|---|
+| Component, Focusable, isFocusable, Container, CURSOR_MARKER | Rc/RefCell component handles, focus trait, container, same marker | rendering/focus/overlay and root constructor tests |
+| FixedCell; create/place/clear/update/dispose; patch/apply/write | same handles/state; exact column/viewport/pending-render/overlay/width guards and reset bytes | fixed_cell + full-stream differential |
+| RenderRegionRect/RenderRegion; create/map/unmap/place/clear/dispose/request/try/write/prepare | same handles, generation, descendant lookup and full-width/viewport safety | render_region + render_region_safety |
+| FlowRenderRegionLayout/FlowRenderRegion; build/splice/shift/plan/apply/getWritable | same layout/state planning, fixed-cell/cursor placement shifts | render_region + empty-flow source differential |
+| Overlay options/anchors/margins/percent sizing; resolve/composite functions | same data and segment compositing; frozen min-then-max bound clamp | overlay_options, CJK/style/short-content regressions, oversized-margin source differential |
+| focus restoration/ancestor/mounted/retarget/topmost/visibility; overlay handle methods | explicit eligible/blocked/inactive state and focus-order stack | overlay_non_capturing + full-stream focus scenarios |
+| start/stop, input listeners, debug handler, focus reports, release/repeat filter | shared core drives regular renderer; exact terminal output | tui_focus, cell-size input, repeat start/stop source scenarios |
+| requestRender/schedule/renderPendingState | driver-owned scheduling; forced state reset deferred until execution, not request | full-stream `requestRender(true); stop()` RED/GREEN |
+| OSC11/color-scheme queries/notifications, consume methods | pollable handles instead of promises; expired OSC11 queries retain reply order | color parser proof + late-reply full-stream differential |
+| line resets, cursor extraction/positioning | same normalization/segment reset/visible viewport cursor search | tui_render, render_region and source byte streams |
+| Kitty header/ids/reserved rows/delete/expanded diff range | same integer parsing and placement/deletion behavior | tui_render and kitty-header regression |
+| doRender/commit frame; full/visible/differential render | frozen in-place visible repaint after upward shrink; image fallback remains full render; no full render when forbidden by flow update | full-stream shrink/resize/Termux/fixed-cell/overlay matrix + empty-flow RED/GREEN |
+| debug redraw/crash logs, PI_TUI_DEBUG dump | default HOME/.pi/agent; ISO headers; exact dump labels/JSON/output payload in /tmp/tui; append failures propagate | differential_tui_debug, differential_tui_debug_failures, tui_render logging cases |
 
-Tests: `tests/tui_render.rs`, `tests/tui_shrink.rs`, `tests/tui_focus.rs`,
-`tests/tui_cell_size_input.rs`, `tests/tui_overlay_style_leak.rs`,
-`tests/overlay_options.rs`, `tests/overlay_short_content.rs`,
-`tests/overlay_non_capturing.rs`, `tests/regression_overlay_cjk_boundary.rs`,
-`tests/fixed_cell.rs`, `tests/render_region.rs`,
-`tests/render_region_safety.rs`, `tests/differential_tui.rs`, and
-`tests/differential_tui_alt_screen.rs`.
+## Representation details
 
-## Exported symbols
+TuiBase/TuiExt/RendererApi composition is Rust scaffolding; it is not asserted to be a frozen exported class hierarchy. OverlayHandle::unfocus_to maps the target option. Numeric unsubscribe handles map to weak callback identities, retained for the TUI lifetime; removal upgrades the callback and compares Rc pointers against active listeners, not insertion generations. Thus any old or repeatedly invoked handle removes a re-registered identical callback without retaining inactive callback captures. Separate insertion IDs preserve live Set dispatch order. Components mutably borrowed during handle_input receive deferred focus updates before dispatch completes. Timers are driven through process_events/flush_pending; explicit setters support deterministic environment-dependent tests.
 
-| TS symbol | Rust item | Tests |
-| --- | --- | --- |
-| `Component` | `Component` trait | every test |
-| `TuiInputListenerResult` / `TuiInputListener` | `TuiInputListenerResult`, listener alias | `tui_focus` consumes-focus test |
-| `FixedCell` | `FixedCell` | `fixed_cell` |
-| `RenderRegionRect` | `RenderRegionRect` | `render_region`, `render_region_safety` |
-| `RenderRegion` | `RenderRegion` | `render_region` |
-| `FlowRenderRegionLayout` / `FlowRenderRegion` | same names | `render_region` |
-| `Focusable` / `isFocusable` | `Focusable`, `is_focusable` | focus/overlay tests |
-| `CURSOR_MARKER` | `CURSOR_MARKER` | render-region cursor test, differential |
-| `visibleWidth` re-export | `pub use utils::visible_width` | utils differential |
-| `OverlayAnchor` | `OverlayAnchor` | `overlay_options` |
-| `OverlayMargin` | `OverlayMargin` | `overlay_options` |
-| `SizeValue` | `SizeValue` (`Absolute`/`Percent`) | `overlay_options` |
-| `OverlayOptions` | `OverlayOptions` | overlay tests |
-| `OverlayUnfocusOptions` | `OverlayHandle::unfocus_to(Option<ComponentRef>)` | overlay tests |
-| `OverlayHandle` | `OverlayHandle` (`Clone`) | overlay tests |
-| `Container` | `Container` | overlay/render-region tests |
-| `compositeTuiLine` | `composite_tui_line` | CJK regression |
-| `TuiMode` | `TuiMode` | focus reporting / differential |
-| `TuiStopOptions` | `TuiStopOptions`; `RendererApi::terminal_stop_output`, `TuiBase::publish_terminal_restore` and shared `frame_stop_sequence` publish exact default stop bytes for cross-thread crash cleanup | stop paths; coding-agent `interactive_crash::worker_restore_matches_normal_ui_stop_bytes` |
-| `TUI` interface | `TuiExt` trait (default methods) | all TUI tests |
-| `VIEWPORT_TUI`, `ViewportTUI`, `isViewportTUI` | `ViewportTui`, `TuiExt::as_viewport_tui`, `is_viewport_tui` | differential alt-screen scenarios |
-| `TuiBase` | `TuiBase` | all TUI tests |
-| `beforeTerminalStart` / `afterTerminalStop` hooks | `RendererApi::before_terminal_start` / `after_terminal_stop` | alt-screen start/stop tests, differential |
-| `TUIRenderer` / `TUI` alias | `TuiRenderer` | fixed cell/render region/differential |
-| `TuiMainScreen` | `TuiMainScreen` | main-screen tests |
-| `TuiMainScreenRenderState` / `captureRenderState` / `restoreRenderState` | `MainScreenRenderState`, methods | gap: no listed test; implemented |
-| `RootCompositor`, `RootLayoutEntry`, options | same names | `render_region` |
+Debug dump filenames contain current epoch milliseconds and a nondeterministic base-36 suffix; exact time/random bytes are not compared across processes. File directory, diagnostic fields, pretty/compact JSON payload and terminal bytes are compared. No live host HOME or terminal is used by proofs.
 
-## Branch coverage
+## Approved numeric-domain deviation (2026-10-21)
 
-| Source branch | Rust item | Tests |
-| --- | --- | --- |
-| overlay layout: default width, minWidth, maxHeight, percentage, anchors, offsets, margins, clamping | `TuiBase::resolve_overlay_layout`, `resolve_anchor_*`, `parse_size_value` | `overlay_options` |
-| overlay compositing: truncate, pad, segment resets, image-line passthrough | `composite_tui_line`, `TuiBase::composite_overlays` | CJK regression, style leak, overlay tests |
-| overlay visibility (`hidden`, `visible()` callback) | `is_overlay_visible` | overlay focus tests |
-| overlay stack: hide/setHidden/focus/unfocus/isFocused, preFocus retargeting | `OverlayHandle`, `remove_overlay`, `set_overlay_hidden`, `focus_overlay`, `unfocus_overlay` | `overlay_non_capturing` |
-| overlay focus restore: eligible/blocked/inactive, clear vs preserve, ancestors, cycles | `set_focus_internal`, `get_visible_overlay_focus_restore`, `resolve_blocked_overlay_focus_resume` | `overlay_non_capturing` |
-| focus-order visual stacking | `focus_order` counter, overlay sort | overlay rendering-order tests |
-| input: focus reports, OSC 11, color scheme, listeners, cell size, debug key, overlay redirection, release filter | `handle_terminal_input`, `consume_*` | `tui_focus`, `tui_cell_size_input` |
-| render scheduling: nextTick/throttle coalescing, force, focus deferral, restart | `request_render`, `flush_pending`, `render_now`, `schedule_render` | `tui_focus`, `tui_render` |
-| differential commit: first render, width/height change, Termux height, clear-on-shrink, upward viewport shrink (renderer), deleted viewport (main), first/last changed, appended lines, image reserved rows, extra line clearing, hardware cursor | `commit_rendered_frame`, `full_render`, `position_hardware_cursor` | `tui_render`, `differential_tui` |
-| kitty image ids: collect/delete/reserved rows/expand changed range; parameters parsed with `Number` + `Number.isInteger` | `parse_kitty_image_header`, `collect_kitty_image_ids`, `delete_*`, `get_kitty_image_reserved_rows`, `expand_changed_range_for_kitty_images` | `tui_render` kitty tests, `kitty_header_parameters_use_javascript_number_parsing` |
-| fixed cells: patch validation, visibility/size/pending/overlay guards, frame sync | `TuiRenderer::write_fixed_cell`, `patch_fixed_cell_line`, `apply_fixed_cells` | `fixed_cell` |
-| render regions: placement, generation, descendant mapping, full-width/viewport guards, line diff writes | `TuiRenderer::place_render_region`, `write_render_region`, `get_writable_render_region_rect`, `write_render_region_lines` | `render_region`, `render_region_safety` |
-| flow render regions: growth/shrink, scrollback splice, fixed-cell/cursor/region shifting | `build_flow_render_frame`, `plan_flow_*`, `shift_flow_row` | `render_region` |
-| line resets and cursor marker extraction | `apply_line_resets`, `extract_cursor_position` | `tui_render`, `render_region` |
-| debug redraw log / crash log | `log_redraw`, `write_crash_log`, `log_timestamp` + `set_debug_redraw`; path is `logDirectory` (`PI_CODING_AGENT_DIR ?? ~/.pi/agent`, the TS constructor default) and headers use `new Date().toISOString()` via `pi_js_compat::date::to_iso_string` | `tui_render::writes_redraw_logs_to_the_provided_directory` (ISO header), `tui_render::crash_logs_use_iso_timestamps` |
-| main-screen capture/restore render state | `capture_render_state`, `restore_render_state` | gap: no listed test |
-| RootCompositor flow/bottom layout and callbacks | `RootCompositor::render` | `render_region` |
+Frozen lines 1154-1170 parse positive CSI cell-size numbers without a u32 bound. `ESC[6;4294967296;20t` is consumed in frozen (`inputs: []`); Rust currently forwards it because Q2's CellDimensions is u32. User approved retaining this numeric-domain gap on 2026-10-21; no public image API widening. Exact frozen/Rust observations: `/tmp/pi-rust-repin-tui-core/wide-cell-{frozen,rust}.log`. Coverage is done within this approved restriction and the F1–F5 closures below.
 
-## Differential
+## Verifier closures (2026-10-21)
 
-`tests/differential_tui.rs` runs `oracle/tui-core-oracle.ts` with a capturing
-terminal for both renderer variants and compares the **complete write stream**,
-`fullRedraws`, per-component render/input/focus state, and focused index for 13
-scenarios: initial render, middle/append/shrink changes, forced redraw, resize,
-cursor marker + hardware cursor, overlay stack + hide, focus-out/in deferral,
-fixed-cell updates, clear-on-shrink, renderer shrink, Termux resizes, overlay
-percentage/margin/maxHeight, focus steal/restore during input, and repeated
-start/stop.
+F1: frame commit owns its RefCell guard and drops it before stop; `verifier_regressions::overwidth_stops_terminal_before_descriptive_panic` asserts descriptive width panic, end-of-content move, cursor-show, terminal-stop bytes, and stopped rendering. Shared main-screen/flow callers no longer retain an outer frame borrow.
 
-## Deviations
+F2: `RenderRegion::try_render` attempts the region write without scheduling; `render_region::try_render_*` proves success, disposed/cleared failure and no root-render side effect versus request_render. Deferred legacy handles return false without scheduling.
 
-- Components are `Rc<RefCell<dyn Component>>` handles (`ComponentRef`) instead of
-  JS object references. `Container` and `TUI` are not subclass relationships;
-  `TuiBase` is shared by composition, and `TuiExt` supplies the common surface.
-- `OverlayHandle::unfocus` takes no target; `unfocus_to(Some/None)` maps
-  `{ target }`. `add_input_listener` returns an id instead of an unsubscribe
-  closure.
-- `query_terminal_background_color` / `query_terminal_color_scheme` return poll
-  handles (`result()`/`is_settled()`) settled by `process_events` instead of
-  Promises.
-- `TERMUX_VERSION` and `PI_DEBUG_REDRAW` are read once at construction and can be
-  overridden explicitly with `set_termux_session` / `set_debug_redraw` so tests do
-  not mutate process environment (Rust 2024 makes `set_var` unsafe).
-- Focus changes made from inside `Component::handle_input` are applied after the
-  handler returns when the component is still mutably borrowed (deferred focus
-  queue). Observable focus state after input dispatch matches the source.
-- Width/height line-diff rendering, crash logging and throwing, and the renderer
-  image pre-clear fallbacks are ported; `PI_TUI_DEBUG` per-render dumps to
-  `/tmp/tui` are not ported (debug artifact only).
-
-## Gaps
-
-- `viewport-overwrite-repro.ts` is a manual, assertion-free repro script driven by
-  `ProcessTerminal` and sleeps; it is not ported as a test. Its streaming/append
-  behavior is covered by `tui_render` append/shrink tests and the differential
-  scenarios.
-- `captureRenderState` / `restoreRenderState` are implemented but not exercised by
-  the listed tests.
-- `ViewportTui`/`is_viewport_tui` are implemented and exercised by the
-  `tui-alt-screen.ts` slice; the marker trait is a Rust trait object rather than
-  a `Symbol.for` property.
-- `TuiBase` background/color-scheme query handles have no listed test; parsing is
-  covered by the `terminal-colors` slice.
-- Debug `/tmp/tui` render dumps and `PI_DEBUG_REDRAW` timestamp text format differ
-  (unix seconds instead of ISO timestamps; the reason string is asserted).
-
-## Extension fullscreen fixed cells
-
-`FixedCellWriter::Alternate` reaches the live alternate-screen TuiBase for deferred render requests and disposal, matching inherited TS TuiBase.createFixedCell. See [alternate screen](tui-alt-screen.md).
+F3: Container/TuiBase remove only the first Rc-identical child. F4: listener registration deduplicates Rc pointer identity, duplicate subscriptions share an unsubscribe ID, old/repeated unsubscribe handles remove the Rc-identical callback after re-registration, and dispatch follows the live insertion-ordered registry including additions/removals. F5: absent an explicit test override, TERMUX_VERSION is checked dynamically and empty means false. Behavioral proof: `verifier_regressions` duplicate-child, callback-identity/live-dispatch and Termux fixtures derived from verifier probes. F4b: `stale_input_unsubscribe_removes_reregistered_callback` and `stale_color_unsubscribe_removes_reregistered_callback` execute duplicate registration → second unsubscribe → re-register L → first unsubscribe → dispatch, comparing count 0 against immutable tui.ts via `stale-input`/`stale-color` oracle scenarios. Each also reuses the already-invoked first handle after another re-registration. The earlier duplicate tests did not cover this lifetime ordering.
