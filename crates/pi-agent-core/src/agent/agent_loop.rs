@@ -378,6 +378,9 @@ async fn inject_pending_messages(
     pending_messages: &mut Vec<AgentMessage>,
     emit: &AgentEventSink,
 ) -> Result<(), AgentError> {
+    if !pending_messages.is_empty() {
+        state.continuation_instruction_pending = false;
+    }
     for message in pending_messages.drain(..) {
         emit_event(
             emit,
@@ -1222,7 +1225,7 @@ async fn run_prepared_tool(
         on_update,
         Some(execution),
     );
-    match await_with_abort(execution_future, signal).await {
+    match await_tool_execution(execution_future, signal).await {
         Ok(Ok(result)) => ExecutedToolCallOutcome {
             is_error: result.is_error.unwrap_or(false),
             result,
@@ -1238,26 +1241,54 @@ async fn run_prepared_tool(
     }
 }
 
+/// Like an uncancelled JS promise, a tool ignoring its signal outlives the loop's
+/// abort race. It runs until completion or Tokio runtime shutdown; late results
+/// are discarded and the update callback is closed by the caller. A detached
+/// observer consumes task panics rather than leaving a failed JoinHandle unread.
+async fn await_tool_execution<T: Send + 'static>(
+    execution: impl Future<Output = T> + Send + 'static,
+    signal: &Option<CancellationToken>,
+) -> Result<T, AgentError> {
+    let mut task = tokio::spawn(execution);
+    match await_with_abort(&mut task, signal).await {
+        Ok(joined) => joined.map_err(|error| AgentError::new(error.to_string())),
+        Err(error) => {
+            tokio::spawn(async move {
+                if let Err(error) = task.await {
+                    eprintln!("Detached tool execution failed: {error}");
+                }
+            });
+            Err(error)
+        }
+    }
+}
+
 async fn await_update_tasks(update_tasks: &UpdateTasks) -> Result<(), AgentError> {
-    let tasks: Vec<tokio::task::JoinHandle<Result<(), AgentError>>> = update_tasks
+    let mut tasks: Vec<_> = update_tasks
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .drain(..)
         .collect();
-    let mut first_error = None;
-    for task in tasks {
-        let outcome = match task.await {
-            Ok(result) => result,
-            Err(error) => Err(AgentError::new(error.to_string())),
-        };
-        if let Err(error) = outcome {
-            first_error.get_or_insert(error);
+    // Poll all sinks, as Promise.all rejects without waiting for pending siblings.
+    // Dropping their JoinHandles detaches (does not cancel) the remaining sinks.
+    std::future::poll_fn(move |cx| {
+        let mut index = 0;
+        while index < tasks.len() {
+            match std::pin::Pin::new(&mut tasks[index]).poll(cx) {
+                std::task::Poll::Ready(joined) => {
+                    drop(tasks.swap_remove(index));
+                    joined.map_err(|error| AgentError::new(error.to_string()))??;
+                }
+                std::task::Poll::Pending => index += 1,
+            }
         }
-    }
-    match first_error {
-        Some(error) => Err(error),
-        None => Ok(()),
-    }
+        if tasks.is_empty() {
+            std::task::Poll::Ready(Ok(()))
+        } else {
+            std::task::Poll::Pending
+        }
+    })
+    .await
 }
 
 async fn finalize_executed_tool_call(

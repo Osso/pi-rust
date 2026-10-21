@@ -5,9 +5,11 @@ Reference: immutable `4f9e6f8a4`, `packages/agent-core/src/{agent-loop,agent,typ
 - Restored tool batches exclude completed calls and never replay an assistant stopped with `error` or `aborted`; expose `restoredPendingToolMessage` as `restored_pending_tool_message`.
 - A run failure preserves the current assistant partial, including content/usage/identity; emit `message_start` only when no assistant partial exists.
 - Reset clears transcript, queues and runtime state even during an active run; it does not abort or release that run.
-- Rejected low-level parallel sinks do not cancel already-started sibling tool promises.
+- Rejected low-level parallel sinks do not cancel already-started sibling tool promises. Any rejected update sink rejects the batch immediately, even while another sink stays pending.
+- Steering messages clear the pending end-turn reminder before the next model request.
+- Aborting a run does not cancel a tool future that ignores the signal. It continues on Tokio until completion or runtime shutdown; late results and updates are ignored. Task panics are consumed and logged by an observer after abort.
 - Proxy request options use the frozen whitelist; omit old-only sampling parameters.
-- Proxy cancellation interrupts a pending body read; empty error text keeps the status-based error message.
+- Proxy cancellation interrupts a pending body read; empty error text or a failing non-2xx body read keeps the status-based error message.
 - Empty assistant error text does not populate state.errorMessage. Null after-hook details retain executed details under the source's nullish-coalescing rule; the Option<Value> representation is unchanged.
 - After-tool overrides rebuild the result payload without retaining the original `isError` hint; the finalized error flag remains separate.
 - Stop hooks receive turn context only, not an additional abort signal.

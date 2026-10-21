@@ -183,7 +183,15 @@ async fn proxy_events(
     if !(200..300).contains(&response.status) {
         let mut body = Vec::new();
         while let Some(chunk) = read_proxy_chunk(response.body.as_mut(), &options.signal).await {
-            body.extend(chunk.map_err(|error| error.message)?);
+            match chunk {
+                Ok(chunk) => body.extend(chunk),
+                Err(_) => {
+                    // Frozen response.json() failures preserve the HTTP status,
+                    // even if an earlier chunk contained a parseable error body.
+                    body.clear();
+                    break;
+                }
+            }
         }
         return Err(proxy_error_message(response.status, &response.status_text, &body));
     }

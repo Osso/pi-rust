@@ -13,7 +13,7 @@ Proof/exclusions: [slice-1 ledger](agent-core-api-repin.md). Status todo; no who
 | processProxyEvent start/text/thinking | process_proxy_event and typed per-block helpers | implementation compared; text invalid-content error tested; full thinking/text event matrix not independently differential-tested |
 | processProxyEvent toolcall start/delta/end | process_toolcall_* with side-map partial JSON | parsed arguments in both terminal event and result; retain start identity, ignore extra end object |
 | processProxyEvent done/error | process_done/process_error | toolUse/error/aborted fixtures; usage carried |
-| non-2xx error body/status handling | proxy_error_message | error text and empty-error status default tests |
+| non-2xx error body/status handling | proxy_error_message | error text and empty-error status default tests; `agent_verifier_regressions::proxy_body` covers failing body reads |
 | SSE chunk/line processing | drain_lines | existing reconstruction fixtures; malformed/unterminated/chunk-boundary exhaustive matrix remains unproven |
 
 Owned partial snapshots differ from TS shared object identity; sparse indices are rejected rather than materialized as holes. Unknown event warnings are not reproduced. Shared ToolCall requires object arguments; arbitrary JSON tool argument runtime shapes are excluded. These remain explicit gaps pending classification, not new approved deviations.
