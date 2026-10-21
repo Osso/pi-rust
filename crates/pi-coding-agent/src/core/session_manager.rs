@@ -31,6 +31,9 @@ use crate::core::session_control_db::{
     write_session_thinking_level,
 };
 use crate::core::session_tool_output::serialize_session_entry_for_persistence;
+use crate::core::session_transcript::{
+    create_session_transcript_read_stream, read_session_transcript_bytes, read_session_transcript_path,
+};
 use crate::utils::iso_time;
 use crate::utils::paths::{PathInputOptions, normalize_path, process_cwd, resolve_path};
 
@@ -66,6 +69,13 @@ impl std::error::Error for SessionManagerError {}
 
 fn control_db_error(cause: impl std::fmt::Display) -> SessionManagerError {
     error(cause.to_string())
+}
+
+fn assert_unarchived_session_file(path: &str) -> Result<(), SessionManagerError> {
+    if path.ends_with(".jsonl.zst") {
+        return Err(error(format!("Session is archived; restore before opening: {path}")));
+    }
+    Ok(())
 }
 
 fn error(message: impl Into<String>) -> SessionManagerError {
@@ -1224,7 +1234,7 @@ pub fn load_entries_from_file(file_path: &str) -> Vec<FileEntry> {
     let Ok(resolved_path) = normalize(file_path) else {
         return Vec::new();
     };
-    let Ok(bytes) = fs::read(&resolved_path) else {
+    let Ok(bytes) = read_session_transcript_bytes(&resolved_path) else {
         return Vec::new();
     };
 
@@ -1241,10 +1251,9 @@ pub fn load_entries_from_file(file_path: &str) -> Vec<FileEntry> {
 }
 
 fn read_first_line(file_path: &str) -> Option<String> {
-    let mut file = File::open(file_path).ok()?;
+    let mut file = create_session_transcript_read_stream(file_path).ok()?;
     let mut chunks: Vec<u8> = Vec::new();
     let mut buffer = [0_u8; HEADER_READ_BUFFER_SIZE];
-    let mut position = 0_u64;
     loop {
         let bytes_read = file.read(&mut buffer).ok()?;
         if bytes_read == 0 {
@@ -1258,8 +1267,6 @@ fn read_first_line(file_path: &str) -> Option<String> {
             }
             None => {
                 chunks.extend_from_slice(bytes);
-                position += bytes_read as u64;
-                let _ = file.seek(SeekFrom::Start(position));
             }
         }
     }
@@ -2180,7 +2187,8 @@ impl SessionManager {
         session_dir: Option<&str>,
         cwd_override: Option<&str>,
     ) -> Result<Self, SessionManagerError> {
-        let resolved_path = resolve(path)?;
+        let resolved_path = read_session_transcript_path(&resolve(path)?);
+        assert_unarchived_session_file(&resolved_path)?;
         let header = read_session_header(&resolved_path);
         let cwd = match cwd_override {
             Some(cwd) => cwd.to_owned(),
@@ -2269,7 +2277,11 @@ impl SessionManager {
 
     /// Switch to a different session file (resume and branching).
     pub fn set_session_file(&mut self, session_file: &str) -> Result<(), SessionManagerError> {
-        self.session_file = Some(resolve(session_file)?);
+        let source = read_session_transcript_path(&resolve(session_file)?);
+        if self.persist {
+            assert_unarchived_session_file(&source)?;
+        }
+        self.session_file = Some(source);
         self.reset_session_name_state();
         let Some(current) = self.session_file.clone() else {
             return Ok(());
