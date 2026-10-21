@@ -1,4 +1,5 @@
 //! Actual-source filesystem/metadata interoperability, not a runtime impersonation.
+#![cfg(unix)]
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -58,6 +59,15 @@ fn fixture(root: &str, role: &str, case: &str) -> Value {
         ]);
     }
     match case {
+        "canonical-only" => f["entries"] = json!([{"path": canonical}]),
+        "no-matching" => {
+            f["entries"].as_array_mut().unwrap().drain(0..3);
+        }
+        "underscore-prefix" => f["entries"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"path": format!("{dir}/_{role}.jsonl")})),
+        "absolute-dots" => f["agentDir"] = json!(format!("{root}/absent/../agent/./")),
         "unicode" => {
             f["entries"].as_array_mut().unwrap().extend([
                 json!({"path": format!("{dir}/\u{10000}_{role}.jsonl")}),
@@ -69,13 +79,28 @@ fn fixture(root: &str, role: &str, case: &str) -> Value {
             let relative = pi_coding_agent::utils::paths::relative_path(&cwd.display().to_string(), root);
             f["agentDir"] = json!(format!("{relative}/absent/../agent/./"));
         }
-        "self-existing" | "self-missing" | "self-unmatched" | "self-directory" | "self-relative" | "self-outside"
-        | "self-extension" | "self-symlink-dir" | "self-agent" | "no-path" | "dead" | "nonpi" => {
+        "self-existing"
+        | "self-missing"
+        | "self-unmatched"
+        | "self-directory"
+        | "self-relative"
+        | "self-outside"
+        | "self-extension"
+        | "self-symlink-dir"
+        | "self-agent"
+        | "no-path"
+        | "self-empty-path"
+        | "self-trailing-slash"
+        | "self-live-symlink"
+        | "dead"
+        | "nonpi" => {
             let path = match case {
                 "self-existing" | "self-agent" | "dead" | "nonpi" => older,
                 "self-missing" => format!("{dir}/missing_{role}.jsonl"),
                 "self-unmatched" => format!("{dir}/unmatched.jsonl"),
                 "self-directory" => format!("{dir}/z_{role}.jsonl"),
+                "self-trailing-slash" => format!("{older}/"),
+                "self-live-symlink" => format!("{dir}/zz_{role}.jsonl"),
                 "self-relative" => {
                     let cwd = std::env::current_dir().unwrap();
                     pi_coding_agent::utils::paths::relative_path(
@@ -229,8 +254,18 @@ fn restore_permissions(f: &Value) {
 #[test]
 fn source_created_trees_native_prepare_and_source_reader_reciprocal() {
     let mut oracle = oracle();
+    let mut mismatches = Vec::new();
     for role in ["architect", "supervisor"] {
-        for case in ["empty", "ordinary", "unicode", "relative"] {
+        for case in [
+            "empty",
+            "ordinary",
+            "unicode",
+            "relative",
+            "canonical-only",
+            "no-matching",
+            "underscore-prefix",
+            "absolute-dots",
+        ] {
             let mut outputs = Vec::new();
             for native in [false, true] {
                 let root = tempfile::tempdir().unwrap();
@@ -254,21 +289,33 @@ fn source_created_trees_native_prepare_and_source_reader_reciprocal() {
                 );
                 outputs.push(normalized(json!({"prepared": prepared, "observed": observed}), &root));
             }
-            assert_eq!(outputs[0], outputs[1], "{role}/{case}");
+            if outputs[0] != outputs[1] {
+                mismatches.push(format!(
+                    "{role}/{case}: source={} native={}",
+                    outputs[0]["observed"]["metadata"], outputs[1]["observed"]["metadata"]
+                ));
+            }
             let path = outputs[0]["prepared"]["value"]["sessionPath"].as_str().unwrap();
             let expected = match case {
-                "empty" => format!("{role}.jsonl"),
+                "empty" | "canonical-only" | "no-matching" => format!("{role}.jsonl"),
+                "underscore-prefix" => format!("_{role}.jsonl"),
                 "unicode" => format!("\u{e000}_{role}.jsonl"),
                 _ => format!("900_{role}.jsonl"),
             };
             assert!(path.ends_with(&expected), "{case}: {path}");
         }
     }
+    assert!(
+        mismatches.is_empty(),
+        "all reciprocal cases executed; mismatches:\n{}",
+        mismatches.join("\n")
+    );
 }
 
 #[test]
 fn paired_actual_self_pids_cover_live_validation_without_impersonating_pi() {
     let mut oracle = oracle();
+    let mut mismatches = Vec::new();
     for role in ["architect", "supervisor"] {
         for case in [
             "self-existing",
@@ -281,6 +328,9 @@ fn paired_actual_self_pids_cover_live_validation_without_impersonating_pi() {
             "self-symlink-dir",
             "self-agent",
             "no-path",
+            "self-empty-path",
+            "self-trailing-slash",
+            "self-live-symlink",
         ] {
             let mut outputs = Vec::new();
             for native in [false, true] {
@@ -301,17 +351,25 @@ fn paired_actual_self_pids_cover_live_validation_without_impersonating_pi() {
                 let observed = success(&mut oracle, "inspect", &f);
                 outputs.push(normalized(json!({"prepared": prepared, "observed": observed}), &root));
             }
-            assert_eq!(
-                outputs[0], outputs[1],
-                "{role}/{case}: paired self-PID branches, different real processes"
-            );
+            if outputs[0] != outputs[1] {
+                mismatches.push(format!(
+                    "{role}/{case}: source={} native={}",
+                    outputs[0]["observed"]["metadata"], outputs[1]["observed"]["metadata"]
+                ));
+            }
         }
     }
+    assert!(
+        mismatches.is_empty(),
+        "all paired own-PID cases executed; mismatches:\n{}",
+        mismatches.join("\n")
+    );
 }
 
 #[test]
 fn source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes() {
     let mut oracle = oracle();
+    let mut mismatches = Vec::new();
     for case in ["dead", "nonpi"] {
         let mut outputs = Vec::new();
         for native in [false, true] {
@@ -330,7 +388,12 @@ fn source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes() {
                 &root,
             ));
         }
-        assert_eq!(outputs[0], outputs[1], "{case}");
+        if outputs[0] != outputs[1] {
+            mismatches.push(format!(
+                "{case}: source={} native={}",
+                outputs[0]["observed"]["metadata"], outputs[1]["observed"]["metadata"]
+            ));
+        }
         assert!(
             outputs[0]["prepared"]["value"]["sessionPath"]
                 .as_str()
@@ -338,6 +401,11 @@ fn source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes() {
                 .ends_with("900_supervisor.jsonl")
         );
     }
+    assert!(
+        mismatches.is_empty(),
+        "all owned child cases executed; mismatches:\n{}",
+        mismatches.join("\n")
+    );
 }
 
 #[test]
@@ -423,6 +491,10 @@ fn independent_selection_unicode_relative_types_and_paired_liveness() {
             "ordinary",
             "unicode",
             "relative",
+            "canonical-only",
+            "no-matching",
+            "underscore-prefix",
+            "absolute-dots",
             "self-existing",
             "self-missing",
             "self-unmatched",
@@ -433,6 +505,9 @@ fn independent_selection_unicode_relative_types_and_paired_liveness() {
             "self-symlink-dir",
             "self-agent",
             "no-path",
+            "self-empty-path",
+            "self-trailing-slash",
+            "self-live-symlink",
             "dead",
             "nonpi",
         ] {
@@ -474,9 +549,11 @@ fn independent_selection_unicode_relative_types_and_paired_liveness() {
             }
             assert_eq!(outputs[0], outputs[1], "{role}/{case}: concrete paths/files/types");
             let expected = match case {
-                "empty" => format!("{role}.jsonl"),
+                "empty" | "canonical-only" | "no-matching" => format!("{role}.jsonl"),
+                "underscore-prefix" => format!("_{role}.jsonl"),
                 "unicode" => format!("\u{e000}_{role}.jsonl"),
-                "self-existing" | "self-relative" => format!("100_{role}.jsonl"),
+                "self-existing" | "self-relative" | "self-trailing-slash" => format!("100_{role}.jsonl"),
+                "self-live-symlink" => format!("zz_{role}.jsonl"),
                 "self-missing" => format!("missing_{role}.jsonl"),
                 "self-unmatched" => "unmatched.jsonl".to_owned(),
                 "self-directory" => format!("z_{role}.jsonl"),

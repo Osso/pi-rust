@@ -1,6 +1,6 @@
 # Resident session file preparation
 
-Reference: unmodified `core/resident-session.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
+Reference: unmodified `core/resident-session.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, plus user-approved private role-regex fix (2026-10-21): both slash and backslash separators. Separate actual TS-delta pin is pending; frozen bytes remain unchanged.
 
 - `ResidentRole` permits architect and supervisor. Existing `isResidentSession` ID/path-segment behavior remains unchanged.
 - Preparation recursively creates the role directory using Node lexical join semantics, scans only regular canonical/underscore-suffixed role files, and returns directory plus retained file path without creating that file.
@@ -10,6 +10,8 @@ Reference: unmodified `core/resident-session.ts` at `4f9e6f8a4c0065d81b10e7177b2
 - Filesystem and database errors retain source ordering. Symlinks are not regular candidates; metadata existence checks follow symlinks. Join/resolve are lexical, not canonical filesystem resolution.
 
 - NUL-containing joined filesystem paths must fail before mkdir with source-equivalent TypeError / ERR_INVALID_ARG_VALUE, without syscall/errno fields. Error excerpts preserve Node quoting, control escaping, multiline inspection and the 128-UTF-16-unit limit (including split surrogates).
+
+Platform: new preparation API/helpers are Unix-only (approved 2026-10-21); Windows preparation is an explicit gap. Existing public predicate remains cross-platform and unchanged. Runtime/filesystem proof is Linux, not a macOS execution claim.
 
 Scope: fresh-file preparation API only, plus the minimal shared Node path-argument error formatter and source-proven VT-inspection root fix authorized after actual-source mismatches. No external consumer wiring, service orchestration, shared DB/process/path implementation changes, or full-runtime ownership proof.
 

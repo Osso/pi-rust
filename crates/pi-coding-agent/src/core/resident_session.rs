@@ -1,15 +1,22 @@
 //! Frozen `core/resident-session.ts`: resident discovery and fresh-file preparation.
 
 use std::fmt;
+#[cfg(unix)]
 use std::fs;
+#[cfg(unix)]
 use std::path::Path;
 
-use pi_js_compat::node_fs::{NodeFsError, NodePathArgumentError, node_fs_error_record, node_path_argument_error};
+use pi_js_compat::node_fs::{NodeFsError, NodePathArgumentError};
+#[cfg(unix)]
+use pi_js_compat::node_fs::{node_fs_error_record, node_path_argument_error};
 use serde::Serialize;
 
+#[cfg(unix)]
 use super::runtime_process::is_pi_runtime_process_alive;
+use super::session_control_db::ControlDbError;
+#[cfg(unix)]
 use super::session_control_db::{
-    ControlDbError, RuntimeMailboxAddress, SessionMetadata, list_session_metadata, read_runtime_mailbox_listener,
+    RuntimeMailboxAddress, SessionMetadata, list_session_metadata, read_runtime_mailbox_listener,
     remove_session_metadata,
 };
 use super::session_manager::SessionInfo;
@@ -20,6 +27,7 @@ pub enum ResidentRole {
     Supervisor,
 }
 
+#[cfg(unix)]
 impl ResidentRole {
     fn as_str(self) -> &'static str {
         match self {
@@ -70,6 +78,8 @@ pub fn is_resident_session(session: &SessionInfo) -> bool {
 }
 
 /// Select a resident file without creating its contents, preserving any live listener.
+/// Unix-only preparation is an approved gap; the existing predicate remains cross-platform.
+#[cfg(unix)]
 pub fn prepare_resident_session_file(
     agent_dir: &str,
     role: ResidentRole,
@@ -122,6 +132,7 @@ pub fn prepare_resident_session_file(
     })
 }
 
+#[cfg(unix)]
 fn matching_session_files(
     session_dir: &str,
     canonical_file: &str,
@@ -146,6 +157,7 @@ fn matching_session_files(
     Ok(matching)
 }
 
+#[cfg(unix)]
 fn find_live_resident_session_path(
     control_db_path: &str,
     role: ResidentRole,
@@ -177,6 +189,7 @@ fn find_live_resident_session_path(
     )
 }
 
+#[cfg(unix)]
 fn is_resident_session_for_role(session: &SessionMetadata, role: ResidentRole) -> bool {
     session.id == role.as_str()
         || session
@@ -185,12 +198,14 @@ fn is_resident_session_for_role(session: &SessionMetadata, role: ResidentRole) -
             .any(|segment| segment == format!("{}-sessions", role.as_str()))
 }
 
+#[cfg(unix)]
 fn filesystem_error(error: std::io::Error, syscall: &str, path: &str) -> ResidentSessionError {
     ResidentSessionError::Filesystem(node_fs_error_record(&error, syscall, path))
 }
 
 // POSIX Node path.join/resolve are lexical: no realpath, tilde expansion, or dropped leading '..'.
 // utils::paths::node_join drops relative parent components and node_resolve does not anchor to cwd.
+#[cfg(unix)]
 fn join_path(base: &str, tail: &str) -> String {
     if base.is_empty() {
         normalize_path(tail)
@@ -199,6 +214,7 @@ fn join_path(base: &str, tail: &str) -> String {
     }
 }
 
+#[cfg(unix)]
 fn resolve_path(path: &str) -> Result<String, ResidentSessionError> {
     if path.starts_with('/') {
         return Ok(normalize_path(path));
@@ -207,6 +223,7 @@ fn resolve_path(path: &str) -> Result<String, ResidentSessionError> {
     Ok(join_path(&cwd.to_string_lossy(), path))
 }
 
+#[cfg(unix)]
 fn normalize_path(path: &str) -> String {
     let absolute = path.starts_with('/');
     let mut segments = Vec::new();
