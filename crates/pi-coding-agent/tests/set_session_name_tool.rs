@@ -210,7 +210,10 @@ async fn utf16_whitespace_and_word_boundaries_match_the_executed_ts_tool() {
     ];
     for name in names {
         let case = json!({"steps":[{"op":"call","name":name}]});
-        let expected = ts.request(&case);
+        // Preserve literal JS line separators across the oracle's JSONL reader.
+        let encoded = json!({"steps":[{"op":"call", "nameUnits":case["steps"][0]["name"].as_str().unwrap().encode_utf16().collect::<Vec<_>>()}]});
+        let expected = ts.request(&encoded);
+        assert!(expected.get("error").is_none(), "oracle failed for {case}: {expected}");
         let output: Value = serde_json::from_str(expected["outputJson"].as_str().unwrap()).unwrap();
         assert_eq!(run_case(&case).await["output"], output, "{case}");
     }
@@ -225,6 +228,7 @@ async fn split_surrogate_is_proven_exactly_and_not_silently_converted() {
     let expected = ts.request(&json!({"op":"toolPersist", "cwd":root, "sessionDir":root,
         "db":directory.path().join("control.sqlite"), "toolName":raw}));
     assert!(expected.get("error").is_none(), "{expected}");
+    println!("exact frozen surrogate fixture: {expected}");
     let helper_json = format!("\"{}\\ud83d\"", "x".repeat(79));
     assert_eq!(expected["managerNameJson"], helper_json);
     assert!(
@@ -305,7 +309,10 @@ async fn public_ts_manager_and_rust_tool_share_metadata_in_both_directions() {
 
 #[tokio::test]
 async fn real_extension_api_persists_publishes_events_and_never_requests_a_title() {
-    use pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions, faux_provider};
+    use pi_ai::providers::faux::{
+        FauxAssistantMessageOptions, FauxModelDefinition, RegisterFauxProviderOptions, faux_assistant_message,
+        faux_provider,
+    };
     use pi_coding_agent::core::agent_session::ExtensionBindings;
     use pi_coding_agent::core::auth_storage::AuthStorage;
     use pi_coding_agent::core::extensions::types::{AgentEndEvent, ExtensionMode};
@@ -336,8 +343,13 @@ async fn real_extension_api_persists_publishes_events_and_never_requests_a_title
         }]),
         ..Default::default()
     });
+    faux.set_responses(vec![
+        faux_assistant_message("Unrequested title", FauxAssistantMessageOptions::default()).into(),
+    ]);
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(Default::default()))),
+        credentials: Some(Arc::new(AuthStorage::in_memory(
+            serde_json::from_value(json!({"faux":{"type":"api_key", "key":"fixture-only"}})).unwrap(),
+        ))),
         models_path: Some(None),
         refresh_on_create: Some(false),
         ..Default::default()
@@ -391,6 +403,35 @@ async fn real_extension_api_persists_publishes_events_and_never_requests_a_title
             ..Default::default()
         })
         .await;
+    let user: pi_agent_core::AgentMessage =
+        serde_json::from_value(json!({"role":"user", "content":"Fix login flow", "timestamp":1})).unwrap();
+    {
+        let shared = session.session_manager_handle();
+        let mut manager = lock_session_manager(&shared);
+        manager.append_message(user.clone()).unwrap();
+        manager
+            .append_message(pi_agent_core::AgentMessage::Assistant(Box::new(
+                faux_assistant_message("I will fix it", FauxAssistantMessageOptions::default()),
+            )))
+            .unwrap();
+    }
+    session
+        .extension_runner()
+        .emit(&mut ExtensionEvent::AgentEnd(AgentEndEvent {
+            messages: vec![user],
+            session_continuation: None,
+        }))
+        .await;
+    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    assert_eq!(
+        faux.state().lock().unwrap().call_count,
+        0,
+        "a completed first exchange must not kick off a title request"
+    );
+    assert_eq!(
+        lock_session_manager(&session.session_manager_handle()).get_session_name(),
+        None
+    );
     let tool = session
         .extension_runner()
         .get_tool_definition("set_session_name")

@@ -5,7 +5,12 @@ at frozen `4f9e6f8a4` ([source lock](../source-lock.json)). Rust:
 `crates/pi-coding-agent/src/bundled_extensions/session_autoname.rs`.
 
 The former c248 first-exchange provider implementation is replaced, not retained
-as a fallback. No generation prompt, auth lookup, retry, timeout, kickoff or event
+as a fallback. Its dedicated `tests/session_autoname.rs` and
+`oracle/session-autoname-oracle.ts` are removed: their old title-helper/request
+assertions do not describe the frozen module. A repository reference scan found
+no shared matrix calls to those helpers or oracle; only bundled factory wiring
+uses the retained `session_autoname_extension` entry point. New-tool differential,
+real API/events and cross-reader tests replace that baseline surface. No generation prompt, auth lookup, retry, timeout, kickoff or event
 hook remains. Factory registration identity is unchanged.
 
 | Source symbol / branch | Rust | Dedicated behavioral proof |
@@ -38,7 +43,10 @@ surrogate pair. Normalization retains UTF16 units using `JsString`, without
 lossy conversion. Existing extension setter accepts `&str`; tool content/details
 use UTF8/`serde_json::Value`. An unpaired surrogate cannot cross either field.
 Current code explicitly returns a boundary error rather than silently substituting
-U+FFFD. Exact frozen result/storage fixture is pending. This branch is **not
+U+FFFD. `split_surrogate_is_proven_exactly_and_not_silently_converted` executes the
+frozen registered tool with a real TS manager: tool text/details and manager name
+end with `\\ud83d`, while its SQLite read ends with U+FFFD. The exact JSON fixture
+is printed in the targeted test log. This branch is **not
 whole-module parity** until that boundary is resolved or explicitly approved.
 The old intermediate-string waiver remains pending revalidation; it is not
 renewed here.

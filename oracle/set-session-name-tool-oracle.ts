@@ -44,6 +44,8 @@ async function scenario(request: any): Promise<unknown> {
 	};
 	const output = [];
 	for (const step of request.steps) {
+		// Encode UTF16 units in transport: readline also recognizes Unicode line separators.
+		if (step.nameUnits) step.name = String.fromCharCode(...step.nameUnits);
 		let result;
 		let error;
 		if (step.op === "external") { name = step.name ?? undefined; stored = true; }
