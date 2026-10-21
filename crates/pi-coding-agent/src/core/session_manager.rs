@@ -241,8 +241,44 @@ pub struct NewSessionOptions {
     pub subagent_name: Option<String>,
 }
 
-fn deserialize_receipt_value<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, D::Error> {
-    Value::deserialize(deserializer).map(Some)
+/// JSON stored at an untyped persistence boundary, retaining UTF-16 strings/keys.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedJsonValue(pi_js_compat::js_json::JsValue);
+impl Serialize for PersistedJsonValue {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serialize_lossless(&self.0, serializer)
+    }
+}
+impl<'de> Deserialize<'de> for PersistedJsonValue {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        Ok(Self(pi_js_compat::js_json::JsValue::from(&value)))
+    }
+}
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PersistedJsonObject(pi_js_compat::js_json::JsObject);
+impl<'de> Deserialize<'de> for PersistedJsonObject {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let map = Map::<String, Value>::deserialize(deserializer)?;
+        Ok(Self(
+            map.into_iter()
+                .map(|(k, v)| (k.as_str().into(), pi_js_compat::js_json::JsValue::from(&v)))
+                .collect(),
+        ))
+    }
+}
+fn serialize_lossless<S: serde::Serializer>(
+    value: &pi_js_compat::js_json::JsValue,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let raw = serde_json::value::RawValue::from_string(pi_js_compat::js_json::stringify_lossless(value))
+        .map_err(serde::ser::Error::custom)?;
+    raw.serialize(serializer)
+}
+fn deserialize_receipt_value<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<PersistedJsonValue>, D::Error> {
+    PersistedJsonValue::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -258,7 +294,7 @@ pub struct SessionMessageEntry {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "deserialize_receipt_value"
     )]
-    pub mailbox_store_refs: Option<Value>,
+    pub mailbox_store_refs: Option<PersistedJsonValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -280,7 +316,7 @@ pub struct ModelChangeEntry {
     pub model_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompactionEntry {
     pub id: String,
@@ -291,7 +327,7 @@ pub struct CompactionEntry {
     #[serde(serialize_with = "js_number::serialize")]
     pub tokens_before: f64,
     #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: PersistedJsonObject,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "js_number::serialize_option"
@@ -312,7 +348,7 @@ pub struct CompactionEntry {
     pub first_kept_entry_index: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchSummaryEntry {
     pub id: String,
@@ -323,7 +359,7 @@ pub struct BranchSummaryEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
     #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: PersistedJsonObject,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_hook: Option<bool>,
 }
@@ -373,8 +409,77 @@ pub struct SessionInfoEntry {
     pub name: Option<String>,
 }
 
+fn insert_serialized<T: Serialize + ?Sized>(
+    object: &mut pi_js_compat::js_json::JsObject,
+    key: &str,
+    value: &T,
+) -> Result<(), String> {
+    let json = serde_json::to_string(value).map_err(|e| e.to_string())?;
+    let parsed = pi_js_compat::js_json::parse_lossless(&json).map_err(|e| e.to_string())?;
+    object.insert(key.into(), parsed);
+    Ok(())
+}
+impl CompactionEntry {
+    fn lossless_object(&self) -> Result<pi_js_compat::js_json::JsObject, String> {
+        let mut object = pi_js_compat::js_json::JsObject::new();
+        insert_serialized(&mut object, "id", &self.id)?;
+        insert_serialized(&mut object, "parentId", &self.parent_id)?;
+        insert_serialized(&mut object, "timestamp", &self.timestamp)?;
+        insert_serialized(&mut object, "summary", &self.summary)?;
+        insert_serialized(&mut object, "firstKeptEntryId", &self.first_kept_entry_id)?;
+        insert_serialized(&mut object, "tokensBefore", &self.tokens_before)?;
+        object.extend(self.extra.0.clone());
+        if let Some(value) = &self.duration_ms {
+            insert_serialized(&mut object, "durationMs", value)?;
+        }
+        if let Some(value) = &self.details {
+            insert_serialized(&mut object, "details", value)?;
+        }
+        if let Some(value) = &self.provider_native {
+            insert_serialized(&mut object, "providerNative", value)?;
+        }
+        if let Some(value) = &self.from_hook {
+            insert_serialized(&mut object, "fromHook", value)?;
+        }
+        if let Some(value) = &self.first_kept_entry_index {
+            insert_serialized(&mut object, "firstKeptEntryIndex", value)?;
+        }
+        Ok(object)
+    }
+}
+impl Serialize for CompactionEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let object = self.lossless_object().map_err(serde::ser::Error::custom)?;
+        serialize_lossless(&pi_js_compat::js_json::JsValue::Object(object), serializer)
+    }
+}
+impl BranchSummaryEntry {
+    fn lossless_object(&self) -> Result<pi_js_compat::js_json::JsObject, String> {
+        let mut object = pi_js_compat::js_json::JsObject::new();
+        insert_serialized(&mut object, "id", &self.id)?;
+        insert_serialized(&mut object, "parentId", &self.parent_id)?;
+        insert_serialized(&mut object, "timestamp", &self.timestamp)?;
+        insert_serialized(&mut object, "fromId", &self.from_id)?;
+        insert_serialized(&mut object, "summary", &self.summary)?;
+        if let Some(value) = &self.details {
+            insert_serialized(&mut object, "details", value)?;
+        }
+        object.extend(self.extra.0.clone());
+        if let Some(value) = &self.from_hook {
+            insert_serialized(&mut object, "fromHook", value)?;
+        }
+        Ok(object)
+    }
+}
+impl Serialize for BranchSummaryEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let object = self.lossless_object().map_err(serde::ser::Error::custom)?;
+        serialize_lossless(&pi_js_compat::js_json::JsValue::Object(object), serializer)
+    }
+}
+
 /// Closed set of known session entry shapes.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum KnownSessionEntry {
     Message(SessionMessageEntry),
@@ -386,6 +491,31 @@ pub enum KnownSessionEntry {
     CustomMessage(CustomMessageEntry),
     Label(LabelEntry),
     SessionInfo(SessionInfoEntry),
+}
+
+impl Serialize for KnownSessionEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let (tag, json) = match self {
+            Self::Message(entry) => ("message", serde_json::to_string(entry)),
+            Self::ThinkingLevelChange(entry) => ("thinking_level_change", serde_json::to_string(entry)),
+            Self::ModelChange(entry) => ("model_change", serde_json::to_string(entry)),
+            Self::Compaction(entry) => ("compaction", serde_json::to_string(entry)),
+            Self::BranchSummary(entry) => ("branch_summary", serde_json::to_string(entry)),
+            Self::Custom(entry) => ("custom", serde_json::to_string(entry)),
+            Self::CustomMessage(entry) => ("custom_message", serde_json::to_string(entry)),
+            Self::Label(entry) => ("label", serde_json::to_string(entry)),
+            Self::SessionInfo(entry) => ("session_info", serde_json::to_string(entry)),
+        };
+        let json = json.map_err(serde::ser::Error::custom)?;
+        let fields = pi_js_compat::js_json::parse_lossless(&json).map_err(serde::ser::Error::custom)?;
+        let pi_js_compat::js_json::JsValue::Object(fields) = fields else {
+            return Err(serde::ser::Error::custom("session entry must be an object"));
+        };
+        let mut object = pi_js_compat::js_json::JsObject::new();
+        object.insert("type".into(), pi_js_compat::js_json::JsValue::String(tag.into()));
+        object.extend(fields);
+        serialize_lossless(&pi_js_compat::js_json::JsValue::Object(object), serializer)
+    }
 }
 
 /// One session entry. Unknown `type` values are preserved as raw JSON objects.
@@ -1232,7 +1362,77 @@ fn parse_session_entry_line(line: &str) -> Option<FileEntry> {
     if line.trim().is_empty() {
         return None;
     }
-    serde_json::from_str::<Value>(line).ok().map(parse_file_entry_value)
+    parse_session_file_entry(line).ok()
+}
+
+/// Extract only untyped persistence fields losslessly; other typed strings still
+/// cross the existing checked serde boundary, never a lossy projection.
+pub(crate) fn parse_session_file_entry(line: &str) -> Result<FileEntry, SessionManagerError> {
+    use pi_js_compat::js_json::{JsObject, JsString, JsValue, parse_lossless, stringify_lossless};
+    let mut value = parse_lossless(line).map_err(control_db_error)?;
+    let mut receipt = None;
+    let mut extra = JsObject::new();
+    if let JsValue::Object(object) = &mut value {
+        let tag = object.get(&JsString::from("type")).and_then(|v| match v {
+            JsValue::String(s) => s.to_utf8().ok(),
+            _ => None,
+        });
+        if tag.as_deref() == Some("message") {
+            receipt = object
+                .shift_remove(&JsString::from("mailboxStoreRefs"))
+                .map(PersistedJsonValue);
+        }
+        let fields: Option<&[&str]> = match tag.as_deref() {
+            Some("compaction") => Some(&[
+                "type",
+                "id",
+                "parentId",
+                "timestamp",
+                "summary",
+                "firstKeptEntryId",
+                "tokensBefore",
+                "durationMs",
+                "details",
+                "providerNative",
+                "fromHook",
+                "firstKeptEntryIndex",
+            ]),
+            Some("branch_summary") => Some(&[
+                "type",
+                "id",
+                "parentId",
+                "timestamp",
+                "fromId",
+                "summary",
+                "details",
+                "fromHook",
+            ]),
+            _ => None,
+        };
+        if let Some(fields) = fields {
+            let keys = object
+                .keys()
+                .filter(|k| k.to_utf8().ok().is_none_or(|k| !fields.contains(&k.as_str())))
+                .cloned()
+                .collect::<Vec<_>>();
+            for key in keys {
+                if let Some(value) = object.shift_remove(&key) {
+                    extra.insert(key, value);
+                }
+            }
+        }
+    }
+    let typed: Value = serde_json::from_str(&stringify_lossless(&value)).map_err(control_db_error)?;
+    let mut entry = parse_file_entry_value(typed);
+    if let FileEntry::Entry(SessionEntry::Known(known)) = &mut entry {
+        match known {
+            KnownSessionEntry::Message(entry) => entry.mailbox_store_refs = receipt,
+            KnownSessionEntry::Compaction(entry) => entry.extra = PersistedJsonObject(extra),
+            KnownSessionEntry::BranchSummary(entry) => entry.extra = PersistedJsonObject(extra),
+            _ => {}
+        }
+    }
+    Ok(entry)
 }
 
 fn decode_utf8_lossy(bytes: &[u8]) -> String {
@@ -1438,13 +1638,13 @@ fn parse_reverse_session_entry(
     if line.trim().is_empty() {
         return Ok(None);
     }
-    match serde_json::from_str::<Value>(line) {
-        Ok(value) => {
+    match parse_session_file_entry(line) {
+        Ok(parsed) => {
             scan.allow_incomplete_trailing_entry = false;
-            if value.get("type").and_then(Value::as_str) == Some("session") {
-                return Ok(None);
+            match parsed {
+                FileEntry::Header(_) => Ok(None),
+                FileEntry::Entry(entry) => Ok(Some(entry)),
             }
-            Ok(Some(SessionEntry::from_value(value)))
         }
         Err(_) if scan.allow_incomplete_trailing_entry => {
             scan.allow_incomplete_trailing_entry = false;
@@ -2962,9 +3162,13 @@ impl SessionManager {
         mailbox_store_refs: Option<&[super::session_control_db::RuntimeMailboxStoreRef]>,
     ) -> Result<String, SessionManagerError> {
         let mailbox_store_refs = mailbox_store_refs
-            .map(serde_json::to_value)
-            .transpose()
-            .map_err(control_db_error)?;
+            .map(|refs| {
+                let json = serde_json::to_string(refs).map_err(control_db_error)?;
+                pi_js_compat::js_json::parse_lossless(&json)
+                    .map(PersistedJsonValue)
+                    .map_err(control_db_error)
+            })
+            .transpose()?;
         let entry = SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
             mailbox_store_refs,
             id: generate_id(&self.by_id),
@@ -3011,7 +3215,7 @@ impl SessionManager {
             summary: summary.to_owned(),
             first_kept_entry_id: first_kept_entry_id.to_owned(),
             tokens_before,
-            extra: Map::new(),
+            extra: PersistedJsonObject::default(),
             duration_ms: options.duration_ms,
             details: options.details.map(Box::new),
             provider_native: options.provider_native.map(Box::new),
@@ -3214,7 +3418,7 @@ impl SessionManager {
             from_id: branch_from_id.unwrap_or("root").to_owned(),
             summary: summary.to_owned(),
             details,
-            extra: Map::new(),
+            extra: PersistedJsonObject::default(),
             from_hook,
         }));
         self.append_entry(entry)

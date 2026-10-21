@@ -28,7 +28,7 @@ indexmap = { version = "=2.14.2", features = ["serde"] }
 # Supplies the TUI keybinding registry that coding-agent extends.
 pi-tui = { version = "=0.0.0", path = "../pi-tui" }
 serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
+serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip", "raw_value"] }
 regex = "=1.13.1"
 gethostname = "=1.1.0"
 # Local-time label timestamps in the session tree selector.

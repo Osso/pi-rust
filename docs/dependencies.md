@@ -191,3 +191,5 @@ The SQLite slice also relies on the pinned TypeScript toolchain (`tsx`) through 
 Session-name v15 slice adds no dependencies. `pi-js-compat` supplies JS whitespace/trim and UTF-16 slicing with Node SQLite UTF-8 replacement semantics for generated session titles.
 
 `pi-coding-agent`: direct `zstd = "=0.14.3"` (existing lock version), frozen `.jsonl.zst` transcript decoding and archive storage.
+
+`pi-coding-agent` enables existing exact `serde_json` dependency `raw_value` feature only to emit validated lossless JsValue receipt/summary-extra JSON tokens (including escaped UTF16 strings/keys) without projecting through serde Value.

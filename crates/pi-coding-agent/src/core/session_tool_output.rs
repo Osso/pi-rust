@@ -131,8 +131,8 @@ fn cap_tool_result_content(content: &[TextOrImageContent]) -> Vec<TextOrImageCon
 }
 
 fn serialized_entry_bytes(entry: &SessionMessageEntry) -> usize {
-    serde_json::to_value(KnownSessionEntry::Message(entry.clone()))
-        .map(|value| pi_js_compat::js_json::stringify(&value).len())
+    serde_json::to_string(&KnownSessionEntry::Message(entry.clone()))
+        .map(|json| json.len())
         .unwrap_or(0)
 }
 
@@ -246,12 +246,15 @@ fn serialize_entry(entry: &SessionEntry) -> String {
     match entry {
         SessionEntry::Known(KnownSessionEntry::Message(message)) => {
             let (truncated, _) = truncate_session_message_entry(message);
-            serde_json::to_value(KnownSessionEntry::Message(truncated))
+            serde_json::to_string(&KnownSessionEntry::Message(truncated))
         }
-        _ => serde_json::to_value(entry),
+        _ => serde_json::to_string(entry),
     }
-    .map(|value| pi_js_compat::js_json::stringify(&value))
-    .unwrap_or_default()
+    .map(|json| {
+        let value = pi_js_compat::js_json::parse_lossless(&json).expect("typed entry serialization is valid JSON");
+        pi_js_compat::js_json::stringify_lossless(&value)
+    })
+    .expect("session entry must serialize")
 }
 
 /// Serialize one session entry while applying persistence-only tool-result truncation.

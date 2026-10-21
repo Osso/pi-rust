@@ -77,11 +77,10 @@ impl ReverseEntries {
     }
 }
 fn parse_entry(line: &[u8]) -> Option<SessionEntry> {
-    let value: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(line)).ok()?;
-    if value.get("type").and_then(serde_json::Value::as_str) == Some("session") || value.is_null() {
-        return None;
+    match super::session_manager::parse_session_file_entry(&String::from_utf8_lossy(line)).ok()? {
+        super::session_manager::FileEntry::Header(_) => None,
+        super::session_manager::FileEntry::Entry(entry) => Some(entry),
     }
-    Some(SessionEntry::from_value(value))
 }
 
 pub struct SessionHistoryReverse {

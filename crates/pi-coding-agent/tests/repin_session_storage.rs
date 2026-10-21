@@ -531,6 +531,19 @@ fn source_escaped_surrogate_receipt_remains_a_persisted_message() {
         2,
         "source-valid escaped receipt must not drop the message"
     );
+    let mut manager = SessionManager::open(path, None, None).unwrap();
+    let first = manager.get_entries()[0].id().unwrap().to_owned();
+    let id = manager
+        .append_compaction("summary", &first, 1.0, Default::default())
+        .unwrap();
+    manager.update_compaction_summary(&id, "rewritten").unwrap();
+    let expected = call(&mut ts, json!({"op":"receiptTokens","path":path}));
+    let fork = SessionManager::fork_from(path, &dir, Some(&dir), None, None).unwrap();
+    assert_eq!(
+        call(&mut ts, json!({"op":"receiptTokens","path":fork.get_session_file()})),
+        expected
+    );
+    assert_eq!(expected, json!(r#"[{"sessionPath":"\ud800","messageId":"surrogate"}]"#));
 }
 
 #[test]
