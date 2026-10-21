@@ -212,7 +212,7 @@ fn handles_transition_to_empty_and_back() {
 }
 
 #[test]
-fn full_rerenders_when_deleted_lines_move_viewport_upward() {
+fn repaints_only_the_viewport_when_deleted_lines_move_it_upward() {
     let (terminal, handle) = concrete(20, 5);
     let tui = TUI::new(handle);
     let initial: Vec<String> = (0..12).map(|index| format!("Line {index}")).collect();
@@ -227,7 +227,7 @@ fn full_rerenders_when_deleted_lines_move_viewport_upward() {
     tui.request_render(false);
     wait(&tui, &terminal);
 
-    assert!(tui.full_redraws() > initial_redraws);
+    assert_eq!(tui.full_redraws(), initial_redraws);
     assert_eq!(
         terminal.borrow().viewport(),
         vec!["Line 2", "Line 3", "Line 4", "Line 5", "Line 6"]
@@ -646,7 +646,7 @@ fn appends_after_a_shrink_without_another_full_redraw() {
     set_lines(&state, &["Line 0", "Line 1"]);
     tui.request_render(false);
     wait(&tui, &terminal);
-    assert!(tui.full_redraws() > initial_redraws);
+    assert_eq!(tui.full_redraws(), initial_redraws);
     let redraws_after_shrink = tui.full_redraws();
 
     set_lines(&state, &["Line 0", "Line 1", "Line 2"]);
@@ -690,7 +690,7 @@ fn clears_stale_content_when_max_lines_rendered_was_inflated() {
     tui.request_render(false);
     wait(&tui, &terminal);
 
-    assert!(tui.full_redraws() > redraws_before_switch);
+    assert_eq!(tui.full_redraws(), redraws_before_switch);
     assert_eq!(
         terminal.borrow().viewport(),
         vec![

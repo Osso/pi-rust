@@ -2467,7 +2467,6 @@ pub(crate) struct RenderFrameState {
 impl RenderFrameState {
     fn reset_for_renderer(&mut self) {
         self.previous_lines.clear();
-        self.previous_kitty_image_ids.clear();
         self.previous_width = -1;
         self.previous_height = -1;
         self.cursor_row = 0;
