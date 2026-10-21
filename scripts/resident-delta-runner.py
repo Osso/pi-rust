@@ -2,7 +2,8 @@
 """Opt-in resident differential runner; the mandatory sandbox remains in force.
 
 Cargo builds outside this wrapper. Configure the target runner as
-`python3 scripts/resident-delta-runner.py`, then select `delta_ -- --ignored`.
+`python3 /absolute/checkout/scripts/resident-delta-runner.py`, then select
+`delta_ -- --ignored`. Cargo changes cwd to the crate before invoking runners.
 No global runner or frozen source selection changes.
 """
 

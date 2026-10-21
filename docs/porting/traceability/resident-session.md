@@ -52,7 +52,7 @@ assertions or counted as delta proof.
 Reproduction (Cargo outside guard; use the host target triple if different):
 
 ```text
-CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=$PWD/target CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="python3 scripts/resident-delta-runner.py" cargo test -p pi-coding-agent --test repin_resident_session delta_ -- --ignored --test-threads=1
+CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=$PWD/target CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="python3 $PWD/scripts/resident-delta-runner.py" cargo test -p pi-coding-agent --test repin_resident_session delta_ -- --ignored --test-threads=1
 CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=$PWD/target cargo test -p pi-coding-agent --test repin_resident_session resident_delta_selector -- --test-threads=1
 ```
 
