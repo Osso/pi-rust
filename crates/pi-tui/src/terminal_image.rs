@@ -197,6 +197,9 @@ fn probe_tmux_hyperlinks() -> bool {
     let Ok(output) = child.wait_with_output() else {
         return false;
     };
+    if !output.status.success() {
+        return false;
+    }
     let Ok(stdout) = String::from_utf8(output.stdout) else {
         return false;
     };

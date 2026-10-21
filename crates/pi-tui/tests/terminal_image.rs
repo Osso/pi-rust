@@ -647,3 +647,33 @@ fn iterm2_number_options_use_javascript_number_strings() {
         "\x1b]1337;File=inline=1;width=1e+21;height=0:AAAA\x07"
     );
 }
+
+#[test]
+fn tmux_probe_requires_a_successful_exit() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let tmux = directory.path().join("tmux");
+    for (exit, expected) in [(1, "false"), (0, "true")] {
+        std::fs::write(
+            &tmux,
+            format!("#!/usr/bin/python3\nprint('hyperlinks')\nraise SystemExit({exit})\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&tmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "tmux_probe_child", "--ignored"])
+            .env("PATH", directory.path())
+            .env("TMUX", "fixture")
+            .env("PI_EXPECT_HYPERLINKS", expected)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "tmux exit {exit}: {output:?}");
+    }
+}
+
+#[test]
+#[ignore = "child probe entry point"]
+fn tmux_probe_child() {
+    let expected = std::env::var("PI_EXPECT_HYPERLINKS").unwrap() == "true";
+    assert_eq!(pi_tui::detect_capabilities().hyperlinks, expected);
+}
