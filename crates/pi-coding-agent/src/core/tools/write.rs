@@ -3,6 +3,7 @@
 //! Queued whole-file writes with parent-directory creation. Renderers are
 //! pending `theme.ts`.
 
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use std::cell::RefCell;
 use std::io;
 use std::path::Path;
@@ -12,7 +13,6 @@ use std::sync::Arc;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use pi_js_compat::string::utf16_len;
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::{Value, json};
@@ -130,7 +130,7 @@ impl AgentTool for WriteTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -144,20 +144,21 @@ impl AgentTool for WriteTool {
 async fn execute_write(
     cwd: &str,
     operations: Arc<dyn WriteOperations>,
-    params: Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let path = params
         .get("path")
-        .and_then(Value::as_str)
+        .and_then(JsValue::as_string)
         .ok_or_else(|| ToolError::new("write tool requires a string path"))?
         .to_owned();
     let content = params
         .get("content")
-        .and_then(Value::as_str)
+        .and_then(JsValue::as_string)
         .ok_or_else(|| ToolError::new("write tool requires a string content"))?
         .to_owned();
-    let absolute_path = resolve_to_cwd(&path, cwd).map_err(|error| ToolError::new(error.to_string()))?;
+    let absolute_path =
+        resolve_to_cwd(&encode_node_utf8(&path), cwd).map_err(|error| ToolError::new(error.to_string()))?;
     let directory = Path::new(&absolute_path)
         .parent()
         .map(|parent| parent.to_string_lossy().into_owned())
@@ -171,15 +172,14 @@ async fn execute_write(
             .map_err(|error| ToolError::new(error.to_string()))?;
         check_aborted(signal.as_ref())?;
         operations
-            .write_file(&absolute_path, &content)
+            .write_file(&absolute_path, &encode_node_utf8(&content))
             .await
             .map_err(|error| ToolError::new(error.to_string()))?;
         check_aborted(signal.as_ref())?;
         Ok(AgentToolResult {
-            content: vec![TextOrImageContent::Text(TextContent::new(format!(
-                "Successfully wrote {} bytes to {path}",
-                utf16_len(&content)
-            )))],
+            content: vec![TextOrImageContent::Text(TextContent::new(
+                JsString::from(format!("Successfully wrote {} bytes to ", content.len())) + path.clone(),
+            ))],
             details: None,
             is_error: None,
             terminate: None,
@@ -200,12 +200,12 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn render_args_path(args: &Value) -> Option<String> {
+fn render_args_path(args: &JsValue) -> Option<String> {
     let value = args.get("file_path").filter(|value| !value.is_null());
     str_value(value.or_else(|| args.get("path")))
 }
 
-fn render_content(args: &Value) -> Option<String> {
+fn render_content(args: &JsValue) -> Option<String> {
     str_value(args.get("content"))
 }
 
@@ -216,7 +216,7 @@ fn trim_trailing_empty_lines(mut lines: Vec<String>) -> Vec<String> {
     lines
 }
 
-fn format_write_call(args: &Value, options: &ToolRenderResultOptions, theme: &Theme, cwd: &str) -> String {
+fn format_write_call(args: &JsValue, options: &ToolRenderResultOptions, theme: &Theme, cwd: &str) -> String {
     let raw_path = render_args_path(args);
     let file_content = render_content(args);
     let path_display = render_tool_path(raw_path.as_deref(), theme, cwd, None);
@@ -280,7 +280,7 @@ fn format_write_result(result: &AgentToolResult, theme: &Theme, is_error: bool) 
         .content
         .iter()
         .filter_map(|entry| match entry {
-            TextOrImageContent::Text(text) => Some(text.text.as_str()),
+            TextOrImageContent::Text(text) => Some(encode_node_utf8(&text.text)),
             TextOrImageContent::Image(_) => None,
         })
         .collect::<Vec<_>>()
@@ -292,7 +292,7 @@ fn format_write_result(result: &AgentToolResult, theme: &Theme, is_error: bool) 
 }
 
 /// `renderCall` for the write tool.
-pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     let options = ToolRenderResultOptions {
         expanded: context.expanded,
         is_partial: context.is_partial,

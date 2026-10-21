@@ -435,10 +435,7 @@ impl AgentSessionRuntime {
             return Ok(());
         };
         self.activate_relocation(prepared).await?;
-        self.session
-            .continue_run()
-            .await
-            .map_err(|error| error.to_string())
+        self.session.continue_run().await.map_err(|error| error.to_string())
     }
 
     /// Relocates the session to a new working directory.

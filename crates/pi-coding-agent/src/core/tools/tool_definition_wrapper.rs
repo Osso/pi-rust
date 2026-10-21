@@ -5,13 +5,14 @@
 //! spills oversized text to a temp file. Built-in tools already implement [`AgentTool`], so
 //! [`wrap_agent_tool`] applies the same capping without a definition adapter.
 
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::AgentToolExecutionContext;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::node_fs::node_fs_error;
 use super::truncate::{TruncationOptions, format_size, truncate_tail};
@@ -25,7 +26,7 @@ use crate::core::extensions::types::{ExtensionContext, HandlerError, ToolDefinit
 #[derive(Debug, Default)]
 pub struct ToolOutputSpill {
     pub full_output_path: Option<String>,
-    pub error: Option<String>,
+    pub error: Option<JsString>,
 }
 
 /// `capToolResultOutput`: spill truncated text and replace the result with its tail.
@@ -37,15 +38,13 @@ pub fn cap_tool_result_output(
         return Ok(result);
     }
 
-    let full_text = result
-        .content
-        .iter()
-        .filter_map(|entry| match entry {
-            TextOrImageContent::Text(text) => Some(text.text.as_str()),
+    let full_text = JsString::join(
+        result.content.iter().filter_map(|entry| match entry {
+            TextOrImageContent::Text(text) => Some(&text.text),
             TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+        }),
+        "\n",
+    );
     let truncation = truncate_tail(&full_text, TruncationOptions::default());
     if !truncation.truncated {
         return Ok(result);
@@ -55,7 +54,7 @@ pub fn cap_tool_result_output(
         .full_output_path
         .get_or_insert_with(create_full_output_path)
         .clone();
-    std::fs::write(&full_output_path, &full_text)
+    std::fs::write(&full_output_path, encode_node_utf8(&full_text))
         .map_err(|error| ToolError::new(node_fs_error(&error, "open", &full_output_path)))?;
     let footer = format!(
         "[Showing last {} of {}. Full output: {}]",
@@ -63,10 +62,9 @@ pub fn cap_tool_result_output(
         format_size(truncation.total_bytes),
         full_output_path
     );
-    result.content = vec![TextOrImageContent::Text(TextContent::new(format!(
-        "{}\n\n{footer}",
-        truncation.content
-    )))];
+    result.content = vec![TextOrImageContent::Text(TextContent::new(
+        truncation.content.clone() + "\n\n" + footer,
+    ))];
     result.details = Some(merge_output_details(result.details, &truncation, &full_output_path));
     Ok(result)
 }
@@ -87,7 +85,7 @@ pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolD
         parameters: tool.parameters().clone(),
         constrained_sampling: tool.constrained_sampling(),
         render_shell: None,
-        prepare_arguments: Some(Arc::new(move |args: &Value| {
+        prepare_arguments: Some(Arc::new(move |args: &JsValue| {
             prepare_arguments_tool
                 .prepare_arguments(args.clone())
                 .map_err(|error| HandlerError::new(error.message))
@@ -169,7 +167,7 @@ impl AgentTool for DefinitionTool {
         self.definition.execution_mode
     }
 
-    fn prepare_arguments(&self, args: Value) -> Result<Value, ToolError> {
+    fn prepare_arguments(&self, args: JsValue) -> Result<JsValue, ToolError> {
         match &self.definition.prepare_arguments {
             Some(prepare) => prepare(&args).map_err(|error| ToolError::new(error.message)),
             None => Ok(args),
@@ -195,7 +193,7 @@ impl AgentTool for DefinitionTool {
     fn execute(
         &self,
         tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<tokio_util::sync::CancellationToken>,
         on_update: pi_agent_core::agent::AgentToolUpdateCallback,
         execution: Option<AgentToolExecutionContext>,
@@ -280,14 +278,14 @@ impl AgentTool for CappedTool {
         self.inner.execution_mode()
     }
 
-    fn prepare_arguments(&self, args: Value) -> Result<Value, pi_agent_core::agent::ToolError> {
+    fn prepare_arguments(&self, args: JsValue) -> Result<JsValue, pi_agent_core::agent::ToolError> {
         self.inner.prepare_arguments(args)
     }
 
     fn execute(
         &self,
         tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<tokio_util::sync::CancellationToken>,
         on_update: pi_agent_core::agent::AgentToolUpdateCallback,
         execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -320,28 +318,28 @@ pub fn wrap_agent_tool(inner: Arc<dyn AgentTool>) -> Arc<dyn AgentTool> {
     Arc::new(CappedTool::new(inner))
 }
 
-fn has_existing_output_details(details: Option<&Value>) -> bool {
+fn has_existing_output_details(details: Option<&JsValue>) -> bool {
     match details {
-        Some(Value::Object(details)) => details.contains_key("fullOutputPath") || details.contains_key("truncation"),
+        Some(JsValue::Object(details)) => details.contains_key("fullOutputPath") || details.contains_key("truncation"),
         _ => false,
     }
 }
 
 fn merge_output_details(
-    details: Option<Value>,
+    details: Option<JsValue>,
     truncation: &super::truncate::TruncationResult,
     full_output_path: &str,
-) -> Value {
+) -> JsValue {
     let mut merged = match details {
-        Some(Value::Object(details)) => details,
-        _ => Map::new(),
+        Some(JsValue::Object(details)) => details,
+        _ => JsObject::new(),
     };
     merged.insert(
-        "truncation".to_owned(),
-        serde_json::to_value(truncation).expect("truncation metadata must serialize"),
+        "truncation".into(),
+        pi_js_compat::js_json::to_value(truncation).expect("truncation metadata must serialize"),
     );
-    merged.insert("fullOutputPath".to_owned(), Value::String(full_output_path.to_owned()));
-    Value::Object(merged)
+    merged.insert("fullOutputPath".into(), JsValue::String(full_output_path.into()));
+    JsValue::Object(merged)
 }
 
 fn create_full_output_path() -> String {

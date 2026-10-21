@@ -4243,7 +4243,9 @@ impl AgentSession {
                 return Ok(());
             }
             if !self.is_known_slash_command(text) {
-                return Err(error(format!("Unknown slash command: {}", slash_command_name(text))));
+                return Err(error(
+                    JsString::from("Unknown slash command: ") + slash_command_name(text),
+                ));
             }
         }
         let guard = self.inner.turn_start_lock.lock().await;
@@ -4467,7 +4469,13 @@ impl AgentSession {
     }
 
     fn is_known_slash_command(&self, text: &JsString) -> bool {
-        let (name, _) = split_prompt_command(text);
+        let name = slash_command_name(text).strip_prefix("/").expect("slash prefix");
+        if builtin_slash_commands()
+            .iter()
+            .any(|command| name == command.name.as_str())
+        {
+            return true;
+        }
         if let Some(skill_name) = name.strip_prefix("skill:") {
             return self
                 .inner
@@ -5352,9 +5360,17 @@ fn split_prompt_command(text: &JsString) -> (JsString, JsString) {
     (name.strip_prefix("/").unwrap_or(name), args)
 }
 
-fn slash_command_name(text: &JsString) -> String {
-    let (name, _) = split_prompt_command(text);
-    pi_js_compat::js_json::stringify_lossless(&JsValue::String(JsString::from("/") + name))
+fn slash_command_name(text: &JsString) -> JsString {
+    let units = text.units();
+    if units.first() != Some(&0x2f) {
+        return JsString::from("/");
+    }
+    let end = units
+        .iter()
+        .skip(1)
+        .position(|unit| pi_js_compat::string::is_js_whitespace_unit(*unit))
+        .map_or(units.len(), |index| index + 1);
+    JsString::from_utf16(units[..end].to_vec())
 }
 
 fn duplicate_fingerprint(message: &AssistantMessage) -> String {
@@ -6111,7 +6127,7 @@ impl AgentSession {
                     aborted: false,
                     will_retry: false,
                     error_message: Some(
-                        "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.".to_owned(),
+                        "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.".into(),
                     ),
                 })));
                 return Ok(false);
@@ -7381,7 +7397,7 @@ impl AgentSession {
     ) -> indexmap::IndexMap<String, crate::core::extensions::types::InternalCommandHandler> {
         let handler: crate::core::extensions::types::InternalCommandHandler =
             Arc::new(move |args: JsString, ctx: ExtensionCommandContext| {
-                let model_reference = encode_node_utf8(&args.trim());
+                let model_reference = args.trim();
                 Box::pin(async move {
                     if model_reference.is_empty() {
                         return Ok(());
@@ -7392,10 +7408,14 @@ impl AgentSession {
                     } else {
                         scoped.into_iter().map(|scoped| scoped.model).collect()
                     };
-                    let Some(model) = find_exact_model_reference_match(&model_reference, &models) else {
-                        return Err(crate::core::extensions::types::HandlerError::new(format!(
-                            "Model not found or not authenticated: {model_reference}"
-                        )));
+                    let Some(model) = model_reference
+                        .to_utf8()
+                        .ok()
+                        .and_then(|reference| find_exact_model_reference_match(&reference, &models))
+                    else {
+                        return Err(crate::core::extensions::types::HandlerError::new(
+                            JsString::from("Model not found or not authenticated: ") + model_reference,
+                        ));
                     };
                     let provider = model.provider.clone();
                     let model_id = model.id.clone();
@@ -7594,7 +7614,7 @@ impl AgentSession {
             runner.emit_error(crate::core::extensions::types::ExtensionError {
                 extension_path: format!("command:{command_name}"),
                 event: "command".to_owned(),
-                error: error.to_string().into(),
+                error: error.message,
                 stack: None,
             });
         }

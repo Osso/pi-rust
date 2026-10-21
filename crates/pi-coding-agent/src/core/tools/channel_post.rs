@@ -1,5 +1,6 @@
 //! `channel_post` tool (`core/tools/channel-post.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
@@ -87,7 +88,7 @@ impl AgentHarnessTool<ExtensionContext> for ChannelPostTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
@@ -108,7 +109,7 @@ impl AgentHarnessTool<ExtensionContext> for ChannelPostTool {
                 .map_err(|error| ToolError::new(error.message))?
                 .ok_or_else(|| ToolError::new("channel_post requires a control database path"))?;
             let params: ChannelPostParams =
-                serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
+                pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
             let message = js_trim(&params.message);
             if message.is_empty() {
                 return Err(ToolError::new("channel_post requires a non-empty message"));
@@ -142,7 +143,7 @@ fn format_call(theme: &Theme) -> String {
 }
 
 /// `renderCall` for the channel_post tool.
-pub fn render_call(_args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(_args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     super::render_text_component(context, format_call(theme))
 }
 

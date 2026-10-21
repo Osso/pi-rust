@@ -3,6 +3,7 @@
 //! Text offsets/limits, oversized head-range reads, and image attachment
 //! normalization. Renderers are pending `theme.ts`.
 
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use std::cell::RefCell;
 use std::io;
 use std::path::Path;
@@ -11,9 +12,11 @@ use std::rc::Rc;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{ImageContent, TextContent, TextOrImageContent};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
-use serde_json::{Value, json};
+use serde_json::Value as SchemaValue;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::sync::CancellationToken;
 
@@ -153,7 +156,7 @@ pub struct ReadToolOptions {
 /// Reads text files and images.
 pub struct ReadTool {
     cwd: String,
-    parameters: Value,
+    parameters: SchemaValue,
     operations: std::sync::Arc<dyn ReadOperations>,
     auto_resize_images: bool,
 }
@@ -175,8 +178,8 @@ impl ReadTool {
     }
 }
 
-fn read_schema() -> Value {
-    json!({
+fn read_schema() -> SchemaValue {
+    serde_json::json!({
         "type": "object",
         "required": ["path"],
         "properties": {
@@ -196,7 +199,7 @@ impl AgentTool for ReadTool {
         DESCRIPTION
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
@@ -211,7 +214,7 @@ impl AgentTool for ReadTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -224,7 +227,7 @@ impl AgentTool for ReadTool {
 }
 
 struct ReadInput {
-    path: String,
+    path: JsString,
     offset: Option<usize>,
     limit: Option<usize>,
 }
@@ -233,12 +236,12 @@ async fn execute_read(
     cwd: &str,
     operations: std::sync::Arc<dyn ReadOperations>,
     auto_resize_images: bool,
-    params: Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let input = parse_read_input(&params)?;
     check_aborted(signal.as_ref())?;
-    let absolute_path = resolve_read_path_async(&input.path, cwd)
+    let absolute_path = resolve_read_path_async(&encode_node_utf8(&input.path), cwd)
         .await
         .map_err(|error| ToolError::new(error.to_string()))?;
     operations
@@ -272,10 +275,10 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
     Ok(())
 }
 
-fn parse_read_input(params: &Value) -> Result<ReadInput, ToolError> {
+fn parse_read_input(params: &JsValue) -> Result<ReadInput, ToolError> {
     let path = params
         .get("path")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .ok_or_else(|| ToolError::new("read tool requires a string path"))?
         .to_owned();
     Ok(ReadInput {
@@ -286,7 +289,7 @@ fn parse_read_input(params: &Value) -> Result<ReadInput, ToolError> {
 }
 
 /// JavaScript `Number` to array-index conversion: truncate toward zero, non-finite as 0.
-fn number_argument(params: &Value, name: &str) -> Option<usize> {
+fn number_argument(params: &JsValue, name: &str) -> Option<usize> {
     let value = params.get(name)?.as_f64()?;
     if !value.is_finite() || value <= 0.0 {
         return Some(0);
@@ -421,7 +424,7 @@ fn select_lines(all_lines: &[&str], start_line: usize, limit: Option<usize>) -> 
 }
 
 struct ReadRenderInput<'a> {
-    path: &'a str,
+    path: &'a JsString,
     start_line_display: usize,
     total_file_lines: usize,
     all_lines: &'a [&'a str],
@@ -431,7 +434,7 @@ struct ReadRenderInput<'a> {
     file_stat: Option<u64>,
 }
 
-fn render_read_output(input: &ReadRenderInput<'_>) -> (String, Option<Value>) {
+fn render_read_output(input: &ReadRenderInput<'_>) -> (JsString, Option<Value>) {
     let ReadRenderInput {
         path,
         start_line_display,
@@ -445,27 +448,26 @@ fn render_read_output(input: &ReadRenderInput<'_>) -> (String, Option<Value>) {
     if range_limited && !truncation.truncated {
         let end_line_display = start_line_display + truncation.output_lines - 1;
         let next_offset = end_line_display + 1;
-        let output_text = format!(
-            "{}\n\n[Showing lines {}-{} of file ({} limit). Use offset={} to continue.]",
-            truncation.content,
-            start_line_display,
-            end_line_display,
-            format_size(DEFAULT_MAX_BYTES),
-            next_offset
-        );
+        let output_text = truncation.content.clone()
+            + format!(
+                "\n\n[Showing lines {}-{} of file ({} limit). Use offset={} to continue.]",
+                start_line_display,
+                end_line_display,
+                format_size(DEFAULT_MAX_BYTES),
+                next_offset
+            );
         return (output_text, Some(truncation_details(truncation, true, file_stat)));
     }
     if truncation.first_line_exceeds_limit {
         let first_line_size = format_size(all_lines[start_line_display - 1].len());
-        let output_text = format!(
-            "[Line {} is {}, exceeds {} limit. Use bash: sed -n '{}p' {} | head -c {}]",
+        let output_text = JsString::from(format!(
+            "[Line {} is {}, exceeds {} limit. Use bash: sed -n '{}p' ",
             start_line_display,
             first_line_size,
             format_size(DEFAULT_MAX_BYTES),
             start_line_display,
-            path,
-            DEFAULT_MAX_BYTES
-        );
+        )) + path
+            + format!(" | head -c {}]", DEFAULT_MAX_BYTES);
         return (output_text, Some(truncation_details(truncation, false, None)));
     }
     if truncation.truncated {
@@ -495,10 +497,11 @@ fn render_read_output(input: &ReadRenderInput<'_>) -> (String, Option<Value>) {
             let remaining = all_lines.len() - consumed;
             let next_offset = consumed + 1;
             return (
-                format!(
-                    "{}\n\n[{} more lines in file. Use offset={} to continue.]",
-                    truncation.content, remaining, next_offset
-                ),
+                truncation.content.clone()
+                    + format!(
+                        "\n\n[{} more lines in file. Use offset={} to continue.]",
+                        remaining, next_offset
+                    ),
                 None,
             );
         }
@@ -507,14 +510,14 @@ fn render_read_output(input: &ReadRenderInput<'_>) -> (String, Option<Value>) {
 }
 
 fn truncation_details(truncation: &TruncationResult, force_bytes: bool, total_bytes: Option<u64>) -> Value {
-    let mut value = serde_json::to_value(truncation).expect("truncation metadata must serialize");
+    let mut value = pi_js_compat::js_json::to_value(truncation).expect("truncation metadata must serialize");
     if let Value::Object(details) = &mut value
         && force_bytes
     {
-        details.insert("truncated".to_owned(), Value::Bool(true));
-        details.insert("truncatedBy".to_owned(), json!("bytes"));
+        details.insert("truncated".into(), Value::Bool(true));
+        details.insert("truncatedBy".into(), json!("bytes"));
         if let Some(total_bytes) = total_bytes {
-            details.insert("totalBytes".to_owned(), json!(total_bytes));
+            details.insert("totalBytes".into(), json!(total_bytes));
         }
     }
     json!({"truncation": value})
@@ -524,13 +527,13 @@ fn truncation_details(truncation: &TruncationResult, force_bytes: bool, total_by
 // Renderers
 // ============================================================================
 
-fn render_args_path(args: &Value) -> Option<String> {
+fn render_args_path(args: &JsValue) -> Option<String> {
     let value = args.get("file_path").filter(|value| !value.is_null());
     let value = value.or_else(|| args.get("path"));
     str_value(value)
 }
 
-fn format_read_line_range(args: &Value, theme: &Theme) -> String {
+fn format_read_line_range(args: &JsValue, theme: &Theme) -> String {
     let offset = args.get("offset").and_then(Value::as_f64);
     let limit = args.get("limit").and_then(Value::as_f64);
     if offset.is_none() && limit.is_none() {
@@ -548,7 +551,7 @@ fn format_read_line_range(args: &Value, theme: &Theme) -> String {
     }
 }
 
-fn format_read_call(args: &Value, theme: &Theme, cwd: &str) -> String {
+fn format_read_call(args: &JsValue, theme: &Theme, cwd: &str) -> String {
     let path_display = render_tool_path(render_args_path(args).as_deref(), theme, cwd, None);
     format!(
         "{} {path_display}{}",
@@ -602,7 +605,7 @@ fn get_pi_docs_classification(absolute_path: &str) -> Option<CompactReadClassifi
     None
 }
 
-fn get_compact_read_classification(args: &Value, cwd: &str) -> Option<CompactReadClassification> {
+fn get_compact_read_classification(args: &JsValue, cwd: &str) -> Option<CompactReadClassification> {
     let raw_path = render_args_path(args)?;
     if raw_path.is_empty() {
         return None;
@@ -636,7 +639,7 @@ fn get_compact_read_classification(args: &Value, cwd: &str) -> Option<CompactRea
     None
 }
 
-fn format_compact_read_call(classification: &CompactReadClassification, args: &Value, theme: &Theme) -> String {
+fn format_compact_read_call(classification: &CompactReadClassification, args: &JsValue, theme: &Theme) -> String {
     let expand_hint = theme.fg(
         ThemeColor::Dim,
         &format!(" ({} to expand)", key_text("app.tools.expand")),
@@ -674,7 +677,7 @@ fn trim_trailing_empty_lines(mut lines: Vec<String>) -> Vec<String> {
 }
 
 fn format_read_result(
-    args: &Value,
+    args: &JsValue,
     result: &AgentToolResult,
     options: &ToolRenderResultOptions,
     theme: &Theme,
@@ -722,7 +725,7 @@ fn format_read_result(
         .details
         .as_ref()
         .and_then(|details| details.get("truncation"))
-        .and_then(|value| serde_json::from_value::<TruncationResult>(value.clone()).ok())
+        .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok())
         && truncation.truncated
     {
         if truncation.first_line_exceeds_limit {
@@ -762,7 +765,7 @@ fn format_read_result(
 }
 
 /// `renderCall` for the read tool.
-pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     let classification = if context.expanded {
         None
     } else {

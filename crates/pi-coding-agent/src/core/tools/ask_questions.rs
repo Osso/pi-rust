@@ -427,16 +427,22 @@ fn call_text(args: &JsValue, details: &Value, theme: &Theme) -> String {
         theme.fg(ThemeColor::Accent, &label)
     )];
     for question in questions {
-        let question = question["question"].as_str().unwrap_or("");
-        let mut line = format!("  {}", theme.fg(ThemeColor::ToolOutput, question));
+        let question = question["question"].as_string().cloned().unwrap_or_default();
+        let mut line = format!("  {}", theme.fg(ThemeColor::ToolOutput, &encode_node_utf8(&question)));
         if !details.is_null() {
-            let suffix = if details["queued"] == true {
+            let suffix = if details["queued"].as_bool() == Some(true) {
                 theme.fg(ThemeColor::Warning, "→ (queued)")
-            } else if let Some(answer) = details["answers"][question].as_str() {
-                theme.fg(
-                    ThemeColor::Accent,
-                    &format!("→ {}", if answer.is_empty() { "(no selection)" } else { answer }),
-                )
+            } else if let Some(answer) = details["answers"]
+                .as_object()
+                .and_then(|answers| answers.get(&question))
+                .and_then(Value::as_string)
+            {
+                let answer = if answer.is_empty() {
+                    "(no selection)".to_owned()
+                } else {
+                    encode_node_utf8(answer)
+                };
+                theme.fg(ThemeColor::Accent, &format!("→ {answer}"))
             } else {
                 theme.fg(ThemeColor::Warning, "→ (cancelled)")
             };

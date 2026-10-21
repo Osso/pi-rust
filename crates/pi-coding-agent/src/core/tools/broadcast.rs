@@ -1,14 +1,17 @@
 //! `broadcast` tool (`core/tools/broadcast.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::tui::ComponentRef;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value as SchemaValue;
 use tokio_util::sync::CancellationToken;
 
 use super::result::text_result;
@@ -35,7 +38,7 @@ pub const PROMPT_GUIDELINES: [&str; 3] = [
 
 #[derive(Debug, Deserialize)]
 struct BroadcastParams {
-    message: String,
+    message: JsString,
     session_ids: Option<Vec<String>>,
     cwd: Option<String>,
     name: Option<String>,
@@ -52,10 +55,10 @@ impl BroadcastTool {
     }
 }
 
-pub fn parameters() -> &'static Value {
-    static PARAMETERS: OnceLock<Value> = OnceLock::new();
+pub fn parameters() -> &'static SchemaValue {
+    static PARAMETERS: OnceLock<SchemaValue> = OnceLock::new();
     PARAMETERS.get_or_init(|| {
-        json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "message": {
@@ -132,7 +135,7 @@ impl AgentHarnessTool<ExtensionContext> for BroadcastTool {
         DESCRIPTION
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         parameters()
     }
 
@@ -147,7 +150,7 @@ impl AgentHarnessTool<ExtensionContext> for BroadcastTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
@@ -170,7 +173,7 @@ impl AgentHarnessTool<ExtensionContext> for BroadcastTool {
                 (manager.get_session_id().to_owned(), session_path)
             };
             let params: BroadcastParams =
-                serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
+                pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
             let results = broadcast_to_sessions(
                 &control_db_path,
                 &BroadcastSessionsInput {
@@ -230,7 +233,7 @@ impl AgentHarnessTool<ExtensionContext> for BroadcastTool {
     }
 }
 
-fn format_call(args: &Value, theme: &Theme) -> String {
+fn format_call(args: &JsValue, theme: &Theme) -> String {
     let mut filters = Vec::new();
     if let Some(ids) = args
         .get("session_ids")
@@ -239,11 +242,15 @@ fn format_call(args: &Value, theme: &Theme) -> String {
     {
         filters.push(format!("ids={}", ids.len()));
     }
-    if let Some(cwd) = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty()) {
-        filters.push(format!("cwd={cwd}"));
+    if let Some(cwd) = args.get("cwd").and_then(Value::as_string).filter(|cwd| !cwd.is_empty()) {
+        filters.push(format!("cwd={}", encode_node_utf8(cwd)));
     }
-    if let Some(name) = args.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
-        filters.push(format!("name={name}"));
+    if let Some(name) = args
+        .get("name")
+        .and_then(Value::as_string)
+        .filter(|name| !name.is_empty())
+    {
+        filters.push(format!("name={}", encode_node_utf8(name)));
     }
     if let Some(status) = args
         .get("status")
@@ -252,7 +259,11 @@ fn format_call(args: &Value, theme: &Theme) -> String {
     {
         let status = status
             .iter()
-            .map(|value| value.as_str().map_or_else(|| value.to_string(), str::to_owned))
+            .map(|value| {
+                value
+                    .as_string()
+                    .map_or_else(|| pi_js_compat::js_json::stringify_lossless(value), encode_node_utf8)
+            })
             .collect::<Vec<_>>()
             .join(",");
         filters.push(format!("status={status}"));
@@ -269,7 +280,7 @@ fn format_call(args: &Value, theme: &Theme) -> String {
 }
 
 /// `renderCall` for the broadcast tool.
-pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     super::render_text_component(context, format_call(args, theme))
 }
 

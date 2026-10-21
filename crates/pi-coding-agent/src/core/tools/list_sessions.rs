@@ -1,5 +1,6 @@
 //! `list_sessions` tool (`core/tools/list-sessions.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
@@ -117,7 +118,7 @@ impl AgentHarnessTool<ExtensionContext> for ListSessionsTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
@@ -129,7 +130,7 @@ impl AgentHarnessTool<ExtensionContext> for ListSessionsTool {
                 .map_err(|error| ToolError::new(error.message))?
                 .ok_or_else(|| ToolError::new("list_sessions requires a control database path"))?;
             let params: ListSessionsParams =
-                serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
+                pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
             let sessions = list_sessions(
                 &control_db_path,
                 &SessionDirectoryOptions {
@@ -158,7 +159,7 @@ fn format_call(theme: &Theme) -> String {
 }
 
 /// `renderCall` for the list_sessions tool.
-pub fn render_call(_args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(_args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     super::render_text_component(context, format_call(theme))
 }
 

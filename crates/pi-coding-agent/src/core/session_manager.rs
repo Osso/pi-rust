@@ -344,7 +344,11 @@ struct CompactionEntryFields {
         serialize_with = "js_number::serialize_option"
     )]
     pub duration_ms: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "pi_js_compat::js_json::deserialize_present")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
     pub details: Option<Box<JsValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_native: Option<Box<ProviderNativeContext>>,
@@ -421,7 +425,11 @@ struct BranchSummaryEntryFields {
     pub timestamp: String,
     pub from_id: String,
     pub summary: JsString,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "pi_js_compat::js_json::deserialize_present")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
     pub details: Option<JsValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_hook: Option<bool>,
@@ -465,7 +473,11 @@ impl<'de> Deserialize<'de> for BranchSummaryEntry {
 #[serde(rename_all = "camelCase")]
 pub struct CustomEntry {
     pub custom_type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "pi_js_compat::js_json::deserialize_present")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
     pub data: Option<JsValue>,
     pub id: String,
     pub parent_id: Option<String>,
@@ -478,7 +490,11 @@ pub struct CustomMessageEntry {
     pub custom_type: String,
     pub content: CustomMessageContent,
     pub display: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "pi_js_compat::js_json::deserialize_present")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
     pub details: Option<JsValue>,
     pub id: String,
     pub parent_id: Option<String>,

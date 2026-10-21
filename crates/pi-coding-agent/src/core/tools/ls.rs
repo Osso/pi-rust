@@ -3,6 +3,7 @@
 //! Directory listing with the optional `rtk ls` fast path and byte
 //! truncation. Renderers are pending `theme.ts`.
 
+use pi_js_compat::js_json::JsValue;
 use std::io;
 use std::sync::Arc;
 
@@ -10,9 +11,11 @@ use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::collator::locale_compare;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
-use serde_json::{Map, Value, json};
+use serde_json::Value as SchemaValue;
 use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
 
@@ -90,7 +93,7 @@ pub struct LsToolOptions {
 /// Lists directory entries.
 pub struct LsTool {
     cwd: String,
-    parameters: Value,
+    parameters: SchemaValue,
     operations: Arc<dyn LsOperations>,
     can_use_rtk: bool,
 }
@@ -111,8 +114,8 @@ impl LsTool {
     }
 }
 
-fn ls_schema() -> Value {
-    json!({
+fn ls_schema() -> SchemaValue {
+    serde_json::json!({
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "Directory to list (default: current directory)"},
@@ -137,7 +140,7 @@ impl AgentTool for LsTool {
         DESCRIPTION.as_str()
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
@@ -148,7 +151,7 @@ impl AgentTool for LsTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -174,11 +177,11 @@ async fn execute_ls(
     cwd: &str,
     operations: Arc<dyn LsOperations>,
     can_use_rtk: bool,
-    params: Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     check_aborted(signal.as_ref())?;
-    let path = params.get("path").and_then(Value::as_str).map(str::to_owned);
+    let path = params.get("path").and_then(Value::as_string).map(encode_node_utf8);
     let limit = params.get("limit").and_then(Value::as_u64).map(|value| value as usize);
     if can_use_rtk && let Some(result) = execute_rtk_ls(cwd, path.as_deref(), limit, signal.as_ref()).await? {
         return Ok(result);
@@ -256,13 +259,13 @@ async fn list_with_operations(
             "{effective_limit} entries limit reached. Use limit={} for more",
             effective_limit * 2
         ));
-        details.insert("entryLimitReached".to_owned(), json!(effective_limit));
+        details.insert("entryLimitReached".into(), json!(effective_limit));
     }
     if truncation.truncated {
         notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
         details.insert(
-            "truncation".to_owned(),
-            serde_json::to_value(&truncation).expect("truncation metadata must serialize"),
+            "truncation".into(),
+            pi_js_compat::js_json::to_value(&truncation).expect("truncation metadata must serialize"),
         );
     }
     if !notices.is_empty() {
@@ -274,7 +277,7 @@ async fn list_with_operations(
     ))
 }
 
-fn text_result(text: String, details: Option<Value>) -> AgentToolResult {
+fn text_result(text: impl Into<JsString>, details: Option<Value>) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details,
@@ -433,13 +436,13 @@ fn format_rtk_ls_output(stdout: &str, limit: Option<usize>) -> AgentToolResult {
             "{effective_limit} entries limit reached. Use limit={} for more",
             effective_limit * 2
         ));
-        details.insert("entryLimitReached".to_owned(), json!(effective_limit));
+        details.insert("entryLimitReached".into(), json!(effective_limit));
     }
     if truncation.truncated {
         notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
         details.insert(
-            "truncation".to_owned(),
-            serde_json::to_value(&truncation).expect("truncation metadata must serialize"),
+            "truncation".into(),
+            pi_js_compat::js_json::to_value(&truncation).expect("truncation metadata must serialize"),
         );
     }
     let notice_text = if notices.is_empty() {
@@ -448,7 +451,7 @@ fn format_rtk_ls_output(stdout: &str, limit: Option<usize>) -> AgentToolResult {
         format!("\n\n[{}]", notices.join(". "))
     };
     text_result(
-        format!("{}{notice_text}", truncation.content),
+        truncation.content.clone() + notice_text,
         (!details.is_empty()).then_some(Value::Object(details)),
     )
 }
@@ -464,7 +467,7 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_ls_call(args: &Value, theme: &Theme, cwd: &str) -> String {
+fn format_ls_call(args: &JsValue, theme: &Theme, cwd: &str) -> String {
     let path_display = render_tool_path(str_value(args.get("path")).as_deref(), theme, cwd, Some("."));
     let mut text = format!("{} {path_display}", theme.fg(ThemeColor::ToolTitle, &theme.bold("ls")));
     if let Some(limit) = args.get("limit").and_then(Value::as_f64) {
@@ -515,7 +518,7 @@ fn format_ls_result(
         .details
         .as_ref()
         .and_then(|details| details.get("truncation"))
-        .and_then(|value| serde_json::from_value::<TruncationResult>(value.clone()).ok());
+        .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok());
     if entry_limit.is_some() || truncation.as_ref().is_some_and(|truncation| truncation.truncated) {
         let mut warnings = Vec::new();
         if let Some(entry_limit) = entry_limit {
@@ -533,7 +536,7 @@ fn format_ls_result(
 }
 
 /// `renderCall` for the ls tool.
-pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     Rc::new(RefCell::new(Text::new(format_ls_call(args, theme, &context.cwd), 0, 0)))
 }
 

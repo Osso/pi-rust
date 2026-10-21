@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use pi_agent_core::agent::types::AgentTool;
-use serde_json::Value;
 
 use super::runner::ExtensionRunner;
 use super::types::{ExtensionContext, HandlerError, RegisteredTool, ToolDefinition};

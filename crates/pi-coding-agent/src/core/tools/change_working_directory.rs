@@ -1,5 +1,6 @@
 //! `change_working_directory` tool (`core/tools/change-working-directory.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
@@ -7,9 +8,10 @@ use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_json::{JsObject as Map, JsValue as Value, encode_node_utf8};
 use pi_js_compat::string::js_trim;
 use pi_tui::tui::ComponentRef;
-use serde_json::{Map, Value, json};
+use serde_json::Value as SchemaValue;
 use tokio_util::sync::CancellationToken;
 
 use super::result::terminating_text_result;
@@ -55,10 +57,10 @@ impl ChangeWorkingDirectoryTool {
     }
 }
 
-pub fn parameters() -> &'static Value {
-    static PARAMETERS: OnceLock<Value> = OnceLock::new();
+pub fn parameters() -> &'static SchemaValue {
+    static PARAMETERS: OnceLock<SchemaValue> = OnceLock::new();
     PARAMETERS.get_or_init(|| {
-        json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "path": {
@@ -74,27 +76,27 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-fn read_non_empty_target(record: &Map<String, Value>, key: &str) -> Result<Option<String>, ToolError> {
+fn read_non_empty_target(record: &Map, key: &str) -> Result<Option<String>, ToolError> {
     let Some(value) = record.get(key) else {
         return Ok(None);
     };
     if value.is_null() {
         return Ok(None);
     }
-    let Some(text) = value.as_str() else {
+    let Some(text) = value.as_string() else {
         return Err(ToolError::new(format!(
             "change_working_directory {key} must be a non-empty string"
         )));
     };
-    if js_trim(text).is_empty() {
+    if text.trim().is_empty() {
         return Err(ToolError::new(format!(
             "change_working_directory {key} must be a non-empty string"
         )));
     }
-    Ok(Some(text.to_owned()))
+    Ok(Some(encode_node_utf8(&text)))
 }
 
-fn normalize_target(params: &Value) -> Result<ChangeWorkingDirectoryTarget, ToolError> {
+fn normalize_target(params: &JsValue) -> Result<ChangeWorkingDirectoryTarget, ToolError> {
     let Some(record) = params.as_object() else {
         return Err(ToolError::new(
             "change_working_directory requires exactly one of path or id",
@@ -173,7 +175,7 @@ impl AgentHarnessTool<ExtensionContext> for ChangeWorkingDirectoryTool {
         DESCRIPTION
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         parameters()
     }
 
@@ -188,7 +190,7 @@ impl AgentHarnessTool<ExtensionContext> for ChangeWorkingDirectoryTool {
     fn execute(
         &self,
         tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
@@ -214,11 +216,11 @@ impl AgentHarnessTool<ExtensionContext> for ChangeWorkingDirectoryTool {
                 .relocate_after_tool_result(&tool_call_id, &resolved.cwd)
                 .map_err(|error| ToolError::new(error.message))?;
             let mut details = Map::new();
-            details.insert("previousCwd".to_owned(), Value::String(previous_cwd));
-            details.insert("cwd".to_owned(), Value::String(resolved.cwd.clone()));
-            details.insert("source".to_owned(), Value::String(resolved.source.to_owned()));
+            details.insert("previousCwd".into(), Value::String(previous_cwd.into()));
+            details.insert("cwd".into(), Value::String(resolved.cwd.clone().into()));
+            details.insert("source".into(), Value::String(resolved.source.to_owned().into()));
             if let Some(session_id) = resolved.session_id {
-                details.insert("sessionId".to_owned(), Value::String(session_id));
+                details.insert("sessionId".into(), Value::String(session_id.into()));
             }
             Ok(terminating_text_result(
                 format!("Changed working directory to {}", resolved.cwd),
@@ -228,17 +230,17 @@ impl AgentHarnessTool<ExtensionContext> for ChangeWorkingDirectoryTool {
     }
 }
 
-fn format_call(args: &Value, theme: &Theme) -> String {
+fn format_call(args: &JsValue, theme: &Theme) -> String {
     let target = args
         .get("path")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .filter(|path| !path.is_empty())
-        .map(|path| format!("path {path}"))
+        .map(|path| format!("path {}", encode_node_utf8(path)))
         .or_else(|| {
             args.get("id")
-                .and_then(Value::as_str)
+                .and_then(Value::as_string)
                 .filter(|id| !id.is_empty())
-                .map(|id| format!("session {id}"))
+                .map(|id| format!("session {}", encode_node_utf8(id)))
         })
         .unwrap_or_else(|| "target".to_owned());
     format!(
@@ -249,7 +251,7 @@ fn format_call(args: &Value, theme: &Theme) -> String {
 }
 
 /// `renderCall` for the change_working_directory tool.
-pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     super::render_text_component(context, format_call(args, theme))
 }
 

@@ -4,6 +4,7 @@
 //! from the filesystem, and applies the source limits. Renderers are pending
 //! `theme.ts`.
 
+use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -12,9 +13,11 @@ use std::sync::Arc;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
-use serde_json::{Map, Value, json};
+use serde_json::Value as SchemaValue;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio_util::sync::CancellationToken;
 
@@ -80,7 +83,7 @@ pub struct GrepToolOptions {
 /// Searches file contents with ripgrep.
 pub struct GrepTool {
     cwd: String,
-    parameters: Value,
+    parameters: SchemaValue,
     operations: Arc<dyn GrepOperations>,
 }
 
@@ -98,8 +101,8 @@ impl GrepTool {
     }
 }
 
-fn grep_schema() -> Value {
-    json!({
+fn grep_schema() -> SchemaValue {
+    serde_json::json!({
         "type": "object",
         "required": ["pattern"],
         "properties": {
@@ -130,7 +133,7 @@ impl AgentTool for GrepTool {
         DESCRIPTION.as_str()
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
@@ -141,7 +144,7 @@ impl AgentTool for GrepTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -153,7 +156,7 @@ impl AgentTool for GrepTool {
 }
 
 struct GrepInput {
-    pattern: String,
+    pattern: JsString,
     search_dir: Option<String>,
     glob: Option<String>,
     ignore_case: bool,
@@ -162,16 +165,16 @@ struct GrepInput {
     limit: Option<usize>,
 }
 
-fn parse_grep_input(params: &Value) -> Result<GrepInput, ToolError> {
+fn parse_grep_input(params: &JsValue) -> Result<GrepInput, ToolError> {
     let pattern = params
         .get("pattern")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .ok_or_else(|| ToolError::new("grep tool requires a string pattern"))?
-        .to_owned();
+        .clone();
     Ok(GrepInput {
         pattern,
-        search_dir: params.get("path").and_then(Value::as_str).map(str::to_owned),
-        glob: params.get("glob").and_then(Value::as_str).map(str::to_owned),
+        search_dir: params.get("path").and_then(Value::as_string).map(encode_node_utf8),
+        glob: params.get("glob").and_then(Value::as_string).map(encode_node_utf8),
         ignore_case: params.get("ignoreCase").and_then(Value::as_bool).unwrap_or(false),
         literal: params.get("literal").and_then(Value::as_bool).unwrap_or(false),
         context: params
@@ -190,7 +193,7 @@ fn parse_grep_input(params: &Value) -> Result<GrepInput, ToolError> {
 async fn execute_grep(
     cwd: &str,
     operations: Arc<dyn GrepOperations>,
-    params: Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let input = parse_grep_input(&params)?;
@@ -221,18 +224,20 @@ async fn execute_grep(
     for entry in &matches.entries {
         if input.context == 0 && entry.line_text.is_some() {
             let relative = format_path(&search_path, is_directory, &entry.file_path);
-            let mut sanitized = entry
-                .line_text
-                .as_deref()
-                .unwrap_or_default()
-                .replace("\r\n", "\n")
-                .replace('\r', "");
-            if let Some(stripped) = sanitized.strip_suffix('\n') {
-                sanitized = stripped.to_owned();
+            let raw_line = entry.line_text.as_ref().cloned().unwrap_or_default();
+            let mut units = raw_line
+                .units()
+                .iter()
+                .copied()
+                .filter(|unit| *unit != 0x0d)
+                .collect::<Vec<_>>();
+            if units.last() == Some(&0x0a) {
+                units.pop();
             }
+            let sanitized = JsString::from_utf16(units);
             let truncated = truncate_line(&sanitized, None);
             lines_truncated |= truncated.was_truncated;
-            output_lines.push(format!("{relative}:{}: {}", entry.line_number, truncated.text));
+            output_lines.push(JsString::from(format!("{relative}:{}: ", entry.line_number)) + truncated.text);
         } else {
             let block = format_block(operations.as_ref(), &search_path, is_directory, entry, input.context).await;
             lines_truncated |= block.lines_truncated;
@@ -240,7 +245,7 @@ async fn execute_grep(
         }
     }
 
-    let raw_output = output_lines.join("\n");
+    let raw_output = JsString::join(output_lines, "\n");
     let truncation = truncate_head(
         &raw_output,
         TruncationOptions {
@@ -256,20 +261,20 @@ async fn execute_grep(
             "{effective_limit} matches limit reached. Use limit={} for more, or refine pattern",
             effective_limit * 2
         ));
-        details.insert("matchLimitReached".to_owned(), json!(effective_limit));
+        details.insert("matchLimitReached".into(), json!(effective_limit));
     }
     if truncation.truncated {
         notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
         details.insert(
-            "truncation".to_owned(),
-            serde_json::to_value(&truncation).expect("truncation metadata must serialize"),
+            "truncation".into(),
+            pi_js_compat::js_json::to_value(&truncation).expect("truncation metadata must serialize"),
         );
     }
     if lines_truncated {
         notices.push(format!(
             "Some lines truncated to {GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines"
         ));
-        details.insert("linesTruncated".to_owned(), Value::Bool(true));
+        details.insert("linesTruncated".into(), Value::Bool(true));
     }
     if !notices.is_empty() {
         output.push_str(&format!("\n\n[{}]", notices.join(". ")));
@@ -283,7 +288,7 @@ async fn execute_grep(
 struct MatchEntry {
     file_path: String,
     line_number: usize,
-    line_text: Option<String>,
+    line_text: Option<JsString>,
 }
 
 struct MatchCollection {
@@ -317,7 +322,7 @@ async fn collect_matches(
         args.push(glob.clone());
     }
     args.push("--".to_owned());
-    args.push(input.pattern.clone());
+    args.push(encode_node_utf8(&input.pattern));
     args.push(search_path.to_owned());
 
     let mut command = tokio::process::Command::new(rg_path);
@@ -355,16 +360,16 @@ async fn collect_matches(
                     continue;
                 }
                 let Ok(event) = serde_json::from_str::<Value>(&line) else { continue };
-                if event.get("type").and_then(Value::as_str) != Some("match") {
+                if event.get("type").and_then(Value::as_string) != Some(&JsString::from("match")) {
                     continue;
                 }
                 match_count += 1;
-                let file_path = event["data"]["path"]["text"].as_str();
+                let file_path = event["data"]["path"]["text"].as_string();
                 let line_number = event["data"]["line_number"].as_u64();
-                let line_text = event["data"]["lines"]["text"].as_str().map(str::to_owned);
+                let line_text = event["data"]["lines"]["text"].as_string().cloned();
                 if let (Some(file_path), Some(line_number)) = (file_path, line_number) {
                     entries.push(MatchEntry {
-                        file_path: file_path.to_owned(),
+                        file_path: encode_node_utf8(file_path),
                         line_number: line_number as usize,
                         line_text,
                     });
@@ -418,7 +423,7 @@ async fn cancellation(signal: Option<&CancellationToken>) {
 }
 
 struct FormattedBlock {
-    lines: Vec<String>,
+    lines: Vec<JsString>,
     lines_truncated: bool,
 }
 
@@ -441,7 +446,7 @@ async fn format_block(
     };
     if file_lines.is_empty() {
         return FormattedBlock {
-            lines: vec![format!("{relative}:{}: (unable to read file)", entry.line_number)],
+            lines: vec![format!("{relative}:{}: (unable to read file)", entry.line_number).into()],
             lines_truncated: false,
         };
     }
@@ -463,9 +468,9 @@ async fn format_block(
         let truncated = truncate_line(&sanitized, None);
         lines_truncated |= truncated.was_truncated;
         if current == entry.line_number {
-            lines.push(format!("{relative}:{current}: {}", truncated.text));
+            lines.push(JsString::from(format!("{relative}:{current}: ")) + truncated.text);
         } else {
-            lines.push(format!("{relative}-{current}- {}", truncated.text));
+            lines.push(JsString::from(format!("{relative}-{current}- ")) + truncated.text);
         }
     }
     FormattedBlock { lines, lines_truncated }
@@ -484,7 +489,7 @@ fn format_path(search_path: &str, is_directory: bool, file_path: &str) -> String
         .unwrap_or_else(|| file_path.to_owned())
 }
 
-fn text_result(text: String, details: Option<Value>) -> AgentToolResult {
+fn text_result(text: impl Into<JsString>, details: Option<Value>) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details,
@@ -504,7 +509,7 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_grep_call(args: &Value, theme: &Theme) -> String {
+fn format_grep_call(args: &JsValue, theme: &Theme) -> String {
     let pattern = str_value(args.get("pattern"));
     let raw_path = str_value(args.get("path"));
     let path = raw_path.map(|path| {
@@ -574,7 +579,7 @@ fn format_grep_result(
         .and_then(Value::as_u64);
     let truncation = details
         .and_then(|details| details.get("truncation"))
-        .and_then(|value| serde_json::from_value::<TruncationResult>(value.clone()).ok());
+        .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok());
     let lines_truncated = details
         .and_then(|details| details.get("linesTruncated"))
         .and_then(Value::as_bool)
@@ -599,7 +604,7 @@ fn format_grep_result(
 }
 
 /// `renderCall` for the grep tool.
-pub fn render_call(args: &Value, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
     Rc::new(RefCell::new(Text::new(format_grep_call(args, theme), 0, 0)))
 }
 

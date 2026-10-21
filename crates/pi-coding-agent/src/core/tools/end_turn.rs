@@ -1,5 +1,6 @@
 //! `end_turn` tool (`core/tools/end-turn.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::sync::OnceLock;
 
 use pi_agent_core::{
@@ -79,7 +80,7 @@ impl AgentHarnessTool<ExtensionContext> for EndTurnTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
         _context: ExtensionContext,
@@ -87,7 +88,7 @@ impl AgentHarnessTool<ExtensionContext> for EndTurnTool {
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
             let params: EndTurnParams =
-                serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
+                pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
             if js_trim(&params.reason).is_empty() {
                 return Err(ToolError::new("end_turn reason must be a non-empty string"));
             }

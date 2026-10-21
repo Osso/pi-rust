@@ -3,6 +3,7 @@
 //! Thin wrappers over the external `code-index` CLI. Renderers are pending
 //! `theme.ts`.
 
+use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -11,9 +12,11 @@ use std::sync::Arc;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsObject as Map, JsValue as Value, encode_node_utf8};
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
-use serde_json::{Map, Value, json};
+use serde_json::Value as SchemaValue;
 use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
 
@@ -194,8 +197,8 @@ fn execute_code_index(
         if truncation.truncated {
             text.push_str(&format!("\n\n[{} limit reached]", format_size(DEFAULT_MAX_BYTES)));
             details.insert(
-                "truncation".to_owned(),
-                serde_json::to_value(&truncation).expect("truncation metadata must serialize"),
+                "truncation".into(),
+                pi_js_compat::js_json::to_value(&truncation).expect("truncation metadata must serialize"),
             );
         }
         Ok(AgentToolResult {
@@ -210,7 +213,7 @@ fn execute_code_index(
 /// `outline` tool.
 pub struct OutlineTool {
     cwd: String,
-    parameters: Value,
+    parameters: SchemaValue,
     operations: Arc<dyn CodeIndexOperations>,
 }
 
@@ -228,8 +231,8 @@ impl OutlineTool {
     }
 }
 
-fn outline_schema() -> Value {
-    json!({
+fn outline_schema() -> SchemaValue {
+    serde_json::json!({
         "type": "object",
         "required": ["path"],
         "properties": {
@@ -250,7 +253,7 @@ impl AgentTool for OutlineTool {
         "Show a structural outline for a file or directory using the external code-index CLI. Output is truncated to 10KB."
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
@@ -261,7 +264,7 @@ impl AgentTool for OutlineTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -286,7 +289,7 @@ impl AgentTool for OutlineTool {
 /// `symbol` tool.
 pub struct SymbolTool {
     cwd: String,
-    parameters: Value,
+    parameters: SchemaValue,
     operations: Arc<dyn CodeIndexOperations>,
 }
 
@@ -313,8 +316,8 @@ fn literal_union(kinds: &[&str]) -> Value {
     })
 }
 
-fn symbol_schema() -> Value {
-    json!({
+fn symbol_schema() -> SchemaValue {
+    serde_json::json!({
         "type": "object",
         "required": ["name"],
         "properties": {
@@ -334,7 +337,7 @@ impl AgentTool for SymbolTool {
         "Find symbol definitions by name using the external code-index CLI. Output is truncated to 10KB."
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
@@ -345,7 +348,7 @@ impl AgentTool for SymbolTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -367,7 +370,7 @@ impl AgentTool for SymbolTool {
 /// `references` tool.
 pub struct ReferencesTool {
     cwd: String,
-    parameters: Value,
+    parameters: SchemaValue,
     operations: Arc<dyn CodeIndexOperations>,
 }
 
@@ -385,8 +388,8 @@ impl ReferencesTool {
     }
 }
 
-fn references_schema() -> Value {
-    json!({
+fn references_schema() -> SchemaValue {
+    serde_json::json!({
         "type": "object",
         "required": ["name"],
         "properties": {
@@ -405,7 +408,7 @@ impl AgentTool for ReferencesTool {
         "Find structural references to a symbol using the external code-index CLI. Output is truncated to 10KB."
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
@@ -416,7 +419,7 @@ impl AgentTool for ReferencesTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -431,11 +434,11 @@ impl AgentTool for ReferencesTool {
     }
 }
 
-fn string_argument(params: &Value, name: &str) -> Option<String> {
-    params.get(name).and_then(Value::as_str).map(str::to_owned)
+fn string_argument(params: &JsValue, name: &str) -> Option<String> {
+    params.get(name).and_then(Value::as_string).map(encode_node_utf8)
 }
 
-fn bool_argument(params: &Value, name: &str) -> bool {
+fn bool_argument(params: &JsValue, name: &str) -> bool {
     params.get(name).and_then(Value::as_bool).unwrap_or(false)
 }
 
@@ -493,7 +496,7 @@ fn format_code_index_result(
         .details
         .as_ref()
         .and_then(|details| details.get("truncation"))
-        .and_then(|value| serde_json::from_value::<TruncationResult>(value.clone()).ok())
+        .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok())
         .filter(|truncation| truncation.truncated)
     {
         text.push_str(&format!(
@@ -508,7 +511,7 @@ fn format_code_index_result(
 }
 
 /// `renderCall` for the outline tool.
-pub fn outline_render_call(args: &Value, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn outline_render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
     let suffix = {
         let mut parts = Vec::new();
         if args.get("digest").and_then(Value::as_bool).unwrap_or(false) {
@@ -530,7 +533,7 @@ pub fn outline_render_call(args: &Value, theme: &Theme, _context: &ToolRenderCon
 }
 
 /// `renderCall` for the symbol tool.
-pub fn symbol_render_call(args: &Value, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn symbol_render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
     let suffix = {
         let mut parts = Vec::new();
         if let Some(kind) = str_value(args.get("kind")).filter(|kind| !kind.is_empty()) {
@@ -549,7 +552,7 @@ pub fn symbol_render_call(args: &Value, theme: &Theme, _context: &ToolRenderCont
 }
 
 /// `renderCall` for the references tool.
-pub fn references_render_call(args: &Value, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn references_render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
     let suffix = str_value(args.get("kind"))
         .filter(|kind| !kind.is_empty())
         .map(|kind| format!("({kind})"));

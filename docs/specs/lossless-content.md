@@ -18,6 +18,7 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 - [x] Core execution/hook parameters use those same authorities; coding-agent tool wrappers remain pending.
 - [ ] Agent result text/details survive agent loop, JSONL append/reload and TS reread in both directions.
 - [ ] Question relay, ask-questions, mailbox and session-name tools preserve arbitrary UTF-16.
+- [ ] Coding tool caps preserve retained UTF-16 lines/prefixes; only the frozen Buffer suffix boundary decodes encoded bytes.
 
 ## How it works
 
@@ -36,6 +37,8 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 
 - `crates/pi-js-compat/tests/js_json_serde.rs`.
 - `crates/pi-ai/tests/lossless_content.rs`.
+- `crates/pi-agent-core/tests/lossless_agent.rs`.
+- `crates/pi-coding-agent/tests/lossless_session.rs` and `lossless_tools.rs` (blocked pending coding-agent compilation).
 - `oracle/lossless-content-oracle.ts` — frozen sanitizer plus Node JSON/string-unit inspection.
 
 ## Known gaps (current cycle)

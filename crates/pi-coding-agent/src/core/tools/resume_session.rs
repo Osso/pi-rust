@@ -1,5 +1,6 @@
 //! `resume_session` tool (`core/tools/resume-session.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -8,9 +9,10 @@ use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::tui::ComponentRef;
-use serde_json::{Map, Value, json};
+use serde_json::Value as SchemaValue;
 use tokio_util::sync::CancellationToken;
 
 use std::sync::Arc;
@@ -42,7 +44,7 @@ struct ResumeSessionParams {
     id: Option<String>,
     name: Option<String>,
     path: Option<String>,
-    starter_prompt: Option<String>,
+    starter_prompt: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,10 +64,10 @@ impl ResumeSessionTool {
     }
 }
 
-pub fn parameters() -> &'static Value {
-    static PARAMETERS: OnceLock<Value> = OnceLock::new();
+pub fn parameters() -> &'static SchemaValue {
+    static PARAMETERS: OnceLock<SchemaValue> = OnceLock::new();
     PARAMETERS.get_or_init(|| {
-        json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "path": {
@@ -89,33 +91,33 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-fn read_non_empty_string(record: &Map<String, Value>, key: &str) -> Result<Option<String>, ToolError> {
+fn read_non_empty_string(record: &Map, key: &str) -> Result<Option<JsString>, ToolError> {
     let Some(value) = record.get(key) else {
         return Ok(None);
     };
     if value.is_null() {
         return Ok(None);
     }
-    let Some(text) = value.as_str() else {
+    let Some(text) = value.as_string() else {
         return Err(ToolError::new(format!(
             "resume_session {key} must be a non-empty string"
         )));
     };
-    if js_trim(text).is_empty() {
+    if text.trim().is_empty() {
         return Err(ToolError::new(format!(
             "resume_session {key} must be a non-empty string"
         )));
     }
-    Ok(Some(js_trim(text).to_owned()))
+    Ok(Some(text.trim().to_owned()))
 }
 
-fn normalize_resume_session_params(params: &Value) -> Result<ResumeSessionParams, ToolError> {
+fn normalize_resume_session_params(params: &JsValue) -> Result<ResumeSessionParams, ToolError> {
     let Some(record) = params.as_object() else {
         return Err(ToolError::new("resume_session requires { path }, { id }, or { name }"));
     };
-    let id = read_non_empty_string(record, "id")?;
-    let name = read_non_empty_string(record, "name")?;
-    let path = read_non_empty_string(record, "path")?;
+    let id = read_non_empty_string(record, "id")?.as_ref().map(encode_node_utf8);
+    let name = read_non_empty_string(record, "name")?.as_ref().map(encode_node_utf8);
+    let path = read_non_empty_string(record, "path")?.as_ref().map(encode_node_utf8);
     let target_count = [id.is_some(), name.is_some(), path.is_some()]
         .into_iter()
         .filter(|present| *present)
@@ -363,7 +365,7 @@ impl AgentHarnessTool<ExtensionContext> for ResumeSessionTool {
         DESCRIPTION
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         parameters()
     }
 
@@ -378,7 +380,7 @@ impl AgentHarnessTool<ExtensionContext> for ResumeSessionTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
@@ -415,7 +417,9 @@ impl AgentHarnessTool<ExtensionContext> for ResumeSessionTool {
             let options = starter_prompt.clone().map(|prompt| SwitchSessionOptions {
                 with_session: Some(Arc::new(move |replaced| {
                     let prompt = prompt.clone();
-                    Box::pin(async move { (replaced.send_user_message)(UserMessageContent::Text(prompt), None).await })
+                    Box::pin(async move {
+                        (replaced.send_user_message)(UserMessageContent::Text(prompt.into()), None).await
+                    })
                 })),
             });
             let result = context
@@ -445,24 +449,32 @@ impl AgentHarnessTool<ExtensionContext> for ResumeSessionTool {
     }
 }
 
-fn format_resume_target(args: &Value) -> String {
-    if let Some(path) = args.get("path").and_then(Value::as_str).filter(|path| !path.is_empty()) {
-        return format!("path {path}");
+fn format_resume_target(args: &JsValue) -> String {
+    if let Some(path) = args
+        .get("path")
+        .and_then(Value::as_string)
+        .filter(|path| !path.is_empty())
+    {
+        return format!("path {}", encode_node_utf8(path));
     }
-    if let Some(id) = args.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
-        return format!("id {id}");
+    if let Some(id) = args.get("id").and_then(Value::as_string).filter(|id| !id.is_empty()) {
+        return format!("id {}", encode_node_utf8(id));
     }
-    if let Some(name) = args.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
-        return format!("name {name}");
+    if let Some(name) = args
+        .get("name")
+        .and_then(Value::as_string)
+        .filter(|name| !name.is_empty())
+    {
+        return format!("name {}", encode_node_utf8(name));
     }
     "target".to_owned()
 }
 
-fn format_resume_session_call(args: &Value, theme: &Theme) -> String {
+fn format_resume_session_call(args: &JsValue, theme: &Theme) -> String {
     let target = format_resume_target(args);
     let starter = args
         .get("starter_prompt")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .filter(|prompt| !prompt.is_empty())
         .map_or_else(String::new, |_| theme.fg(ThemeColor::Warning, " + instructions"));
     format!(
@@ -473,7 +485,7 @@ fn format_resume_session_call(args: &Value, theme: &Theme) -> String {
 }
 
 /// `renderCall` for the resume_session tool.
-pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     super::render_text_component(context, format_resume_session_call(args, theme))
 }
 

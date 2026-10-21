@@ -3,6 +3,7 @@
 //! Runs the real `fd` binary with the source argv, relativizes results, and
 //! applies the source limits. Renderers are pending `theme.ts`.
 
+use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -11,9 +12,11 @@ use std::sync::Arc;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
-use serde_json::{Map, Value, json};
+use serde_json::Value as SchemaValue;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio_util::sync::CancellationToken;
 
@@ -83,7 +86,7 @@ pub struct FindToolOptions {
 /// Finds files by glob pattern.
 pub struct FindTool {
     cwd: String,
-    parameters: Value,
+    parameters: SchemaValue,
     operations: Option<Arc<dyn FindOperations>>,
 }
 
@@ -101,8 +104,8 @@ impl FindTool {
     }
 }
 
-fn find_schema() -> Value {
-    json!({
+fn find_schema() -> SchemaValue {
+    serde_json::json!({
         "type": "object",
         "required": ["pattern"],
         "properties": {
@@ -129,7 +132,7 @@ impl AgentTool for FindTool {
         DESCRIPTION.as_str()
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
@@ -140,7 +143,7 @@ impl AgentTool for FindTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -160,20 +163,20 @@ impl AgentTool for FindTool {
 }
 
 struct FindInput {
-    pattern: String,
+    pattern: JsString,
     search_dir: Option<String>,
     limit: Option<usize>,
 }
 
-fn parse_find_input(params: &Value) -> Result<FindInput, ToolError> {
+fn parse_find_input(params: &JsValue) -> Result<FindInput, ToolError> {
     let pattern = params
         .get("pattern")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .ok_or_else(|| ToolError::new("find tool requires a string pattern"))?
-        .to_owned();
+        .clone();
     Ok(FindInput {
         pattern,
-        search_dir: params.get("path").and_then(Value::as_str).map(str::to_owned),
+        search_dir: params.get("path").and_then(Value::as_string).map(encode_node_utf8),
         limit: params
             .get("limit")
             .and_then(Value::as_f64)
@@ -184,7 +187,7 @@ fn parse_find_input(params: &Value) -> Result<FindInput, ToolError> {
 async fn execute_find(
     cwd: &str,
     operations: Option<Arc<dyn FindOperations>>,
-    params: Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let input = parse_find_input(&params)?;
@@ -204,7 +207,7 @@ async fn execute_find(
         check_aborted(signal.as_ref())?;
         let results = custom
             .glob(
-                &input.pattern,
+                &encode_node_utf8(&input.pattern),
                 &search_path,
                 &["**/node_modules/**".to_owned(), "**/.git/**".to_owned()],
                 effective_limit,
@@ -243,14 +246,14 @@ async fn execute_find(
     if input.pattern.contains('/') {
         args.push("--full-path".to_owned());
         if !input.pattern.starts_with('/') && !input.pattern.starts_with("**/") && input.pattern != "**" {
-            effective_pattern = format!("**/{}", input.pattern);
+            effective_pattern = JsString::from("**/") + &input.pattern;
         }
         if cfg!(windows) {
-            effective_pattern = effective_pattern.replace('/', "[/\\\\]");
+            effective_pattern = JsString::join(effective_pattern.split('/'), "[/\\\\]");
         }
     }
     args.push("--".to_owned());
-    args.push(effective_pattern);
+    args.push(encode_node_utf8(&effective_pattern));
     args.push(search_path.clone());
 
     let output = run_fd(&fd_path, &args, signal.as_ref()).await?;
@@ -298,7 +301,7 @@ fn relativize_output(
     effective_limit: usize,
     result_limit_reached: bool,
     include_refine_hint: bool,
-) -> (String, Option<Value>) {
+) -> (JsString, Option<Value>) {
     let raw_output = relativized.join("\n");
     let truncation = truncate_head(
         &raw_output,
@@ -319,13 +322,13 @@ fn relativize_output(
         } else {
             format!("{effective_limit} results limit reached")
         });
-        details.insert("resultLimitReached".to_owned(), json!(effective_limit));
+        details.insert("resultLimitReached".into(), json!(effective_limit));
     }
     if truncation.truncated {
         notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
         details.insert(
-            "truncation".to_owned(),
-            serde_json::to_value(&truncation).expect("truncation metadata must serialize"),
+            "truncation".into(),
+            pi_js_compat::js_json::to_value(&truncation).expect("truncation metadata must serialize"),
         );
     }
     if !notices.is_empty() {
@@ -423,7 +426,7 @@ async fn cancellation(signal: Option<&CancellationToken>) {
     }
 }
 
-fn text_result(text: String, details: Option<Value>) -> AgentToolResult {
+fn text_result(text: impl Into<JsString>, details: Option<Value>) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details,
@@ -443,7 +446,7 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_find_call(args: &Value, theme: &Theme) -> String {
+fn format_find_call(args: &JsValue, theme: &Theme) -> String {
     let pattern = str_value(args.get("pattern"));
     let raw_path = str_value(args.get("path"));
     let path = raw_path.map(|path| {
@@ -509,7 +512,7 @@ fn format_find_result(
         .and_then(Value::as_u64);
     let truncation = details
         .and_then(|details| details.get("truncation"))
-        .and_then(|value| serde_json::from_value::<TruncationResult>(value.clone()).ok());
+        .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok());
     if result_limit.is_some() || truncation.as_ref().is_some_and(|value| value.truncated) {
         let mut warnings = Vec::new();
         if let Some(result_limit) = result_limit {
@@ -527,7 +530,7 @@ fn format_find_result(
 }
 
 /// `renderCall` for the find tool.
-pub fn render_call(args: &Value, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
     Rc::new(RefCell::new(Text::new(format_find_call(args, theme), 0, 0)))
 }
 

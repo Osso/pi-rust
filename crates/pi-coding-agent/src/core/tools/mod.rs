@@ -157,15 +157,14 @@ pub(crate) fn render_text_component(
 
 /// Join text content blocks with newlines, ignoring images.
 pub(crate) fn tool_result_text(result: &pi_agent_core::AgentToolResult) -> String {
-    result
-        .content
-        .iter()
-        .filter_map(|content| match content {
-            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.as_str()),
+    let text = pi_js_compat::js_json::JsString::join(
+        result.content.iter().filter_map(|content| match content {
+            pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
             pi_ai::types::TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }),
+        "\n",
+    );
+    pi_js_compat::js_json::encode_node_utf8(&text)
 }
 
 /// `\n${theme.fg(isError ? "error" : "toolOutput", output)}` or empty.

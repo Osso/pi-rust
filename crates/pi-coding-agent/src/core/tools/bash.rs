@@ -4,6 +4,7 @@
 //! abort mapping, tail truncation with a full-output spill file, and the
 //! runner-owned detach path backed by the detached job lifecycle controller.
 
+use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -16,12 +17,14 @@ use std::time::{Duration, Instant};
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_js_compat::number::js_number_to_string;
 use pi_js_compat::string::{js_trim, js_trim_end};
 use pi_tui::Text;
 use pi_tui::tui::{Component, ComponentRef, Container};
 use pi_tui::utils::truncate_to_width_with;
-use serde_json::{Map, Value, json};
+use serde_json::Value as SchemaValue;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
@@ -487,7 +490,7 @@ pub struct BashToolOptions {
 /// Executes shell commands.
 pub struct BashTool {
     cwd: String,
-    parameters: Value,
+    parameters: SchemaValue,
     operations: Arc<dyn BashOperations>,
     custom_operations: bool,
     command_prefix: Option<String>,
@@ -528,8 +531,8 @@ impl BashTool {
     }
 }
 
-fn bash_schema() -> Value {
-    json!({
+fn bash_schema() -> SchemaValue {
+    serde_json::json!({
         "type": "object",
         "required": ["command"],
         "properties": {
@@ -555,7 +558,7 @@ impl AgentTool for BashTool {
         DESCRIPTION.as_str()
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
@@ -570,7 +573,7 @@ impl AgentTool for BashTool {
     fn execute(
         &self,
         tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -642,16 +645,16 @@ fn resolve_spawn_context(
         env.remove(name);
     }
     if expose_session_environment && let Some(session) = session_environment.and_then(|provider| provider()) {
-        env.insert("PI_SESSION_ID".to_owned(), session.session_id);
+        env.insert("PI_SESSION_ID".into(), session.session_id);
         if let Some(session_file) = session.session_file {
-            env.insert("PI_SESSION_FILE".to_owned(), session_file);
+            env.insert("PI_SESSION_FILE".into(), session_file);
         }
         if let (Some(provider), Some(model)) = (session.provider, session.model) {
-            env.insert("PI_PROVIDER".to_owned(), provider);
-            env.insert("PI_MODEL".to_owned(), model);
+            env.insert("PI_PROVIDER".into(), provider);
+            env.insert("PI_MODEL".into(), model);
         }
         if let Some(reasoning_level) = session.reasoning_level {
-            env.insert("PI_REASONING_LEVEL".to_owned(), reasoning_level);
+            env.insert("PI_REASONING_LEVEL".into(), reasoning_level);
         }
     }
     let base = BashSpawnContext {
@@ -669,22 +672,22 @@ async fn execute_bash(
     cwd: &str,
     options: BashExecutionOptions,
     tool_call_id: String,
-    params: Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
     on_update: AgentToolUpdateCallback,
 ) -> Result<AgentToolResult, ToolError> {
     let command = params
         .get("command")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .ok_or_else(|| ToolError::new("bash tool requires a string command"))?
         .to_owned();
     let timeout = params.get("timeout").and_then(Value::as_f64);
     let resolved_command = match &options.command_prefix {
-        Some(prefix) => format!("{prefix}\n{command}"),
+        Some(prefix) => JsString::from(prefix) + "\n" + command,
         None => command,
     };
     let spawn_context = resolve_spawn_context(
-        resolved_command,
+        encode_node_utf8(&resolved_command),
         cwd,
         options.spawn_hook.as_ref(),
         options.expose_session_environment,
@@ -809,7 +812,7 @@ async fn execute_bash(
             if let Some(timeout_secs) = error.message.strip_prefix("timeout:") {
                 return Err(ToolError::new(append_status(
                     &text,
-                    &format!("Command timed out after {timeout_secs} seconds"),
+                    JsString::from("Command timed out after ") + timeout_secs + " seconds",
                 )));
             }
             Err(error)
@@ -1033,8 +1036,8 @@ fn read_foreground_bash_completion(path: &str) -> Result<Option<DetachedBashFore
         return Ok(None);
     }
     let data = std::fs::read_to_string(path).map_err(|error| ToolError::new(error.to_string()))?;
-    let value = pi_js_compat::js_json::parse(&data).map_err(|error| ToolError::new(error.to_string()))?;
-    serde_json::from_value(value)
+    let value = pi_js_compat::js_json::parse_lossless(&data).map_err(|error| ToolError::new(error.to_string()))?;
+    pi_js_compat::js_json::from_value(&value)
         .map(Some)
         .map_err(|error| ToolError::new(error.to_string()))
 }
@@ -1116,11 +1119,11 @@ fn format_output(
     let mut details = Map::new();
     if truncation.truncated {
         details.insert(
-            "truncation".to_owned(),
-            serde_json::to_value(truncation).expect("truncation metadata must serialize"),
+            "truncation".into(),
+            pi_js_compat::js_json::to_value(truncation).expect("truncation metadata must serialize"),
         );
         if let Some(path) = &snapshot.full_output_path {
-            details.insert("fullOutputPath".to_owned(), Value::String(path.clone()));
+            details.insert("fullOutputPath".into(), Value::String(path.clone().into()));
         }
         let start_line = truncation.total_lines - truncation.output_lines + 1;
         let end_line = truncation.total_lines;
@@ -1148,11 +1151,13 @@ fn format_output(
     (text, (!details.is_empty()).then_some(Value::Object(details)))
 }
 
-fn append_status(text: &str, status: &str) -> String {
+fn append_status(text: impl Into<JsString>, status: impl Into<JsString>) -> JsString {
+    let text = text.into();
+    let status = status.into();
     if text.is_empty() {
-        status.to_owned()
+        status
     } else {
-        format!("{text}\n\n{status}")
+        text + "\n\n" + status
     }
 }
 
@@ -1164,9 +1169,9 @@ fn format_detached_output(
     let (text, _) = format_output(output, &snapshot, "");
     let text = js_trim_end(&text).to_owned();
     let mut details = Map::new();
-    details.insert("backgroundJobId".to_owned(), Value::String(detached.job_id.clone()));
+    details.insert("backgroundJobId".into(), Value::String(detached.job_id.clone().into()));
     if let Some(log_path) = &detached.log_path {
-        details.insert("fullOutputPath".to_owned(), Value::String(log_path.clone()));
+        details.insert("fullOutputPath".into(), Value::String(log_path.clone().into()));
     }
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(append_status(
@@ -1261,12 +1266,12 @@ impl UpdateThrottle {
         let mut details = Map::new();
         if snapshot.truncation.truncated {
             details.insert(
-                "truncation".to_owned(),
-                serde_json::to_value(&snapshot.truncation).expect("truncation metadata must serialize"),
+                "truncation".into(),
+                pi_js_compat::js_json::to_value(&snapshot.truncation).expect("truncation metadata must serialize"),
             );
         }
         if let Some(path) = &snapshot.full_output_path {
-            details.insert("fullOutputPath".to_owned(), Value::String(path.clone()));
+            details.insert("fullOutputPath".into(), Value::String(path.clone().into()));
         }
         (self.on_update)(AgentToolResult {
             content: vec![TextOrImageContent::Text(TextContent::new(snapshot.content.clone()))],
@@ -1281,7 +1286,7 @@ impl UpdateThrottle {
 // Renderers
 // ============================================================================
 
-fn format_bash_call(args: &Value) -> String {
+fn format_bash_call(args: &JsValue) -> String {
     let theme = current_theme();
     let command = str_value(args.get("command"));
     let timeout = args.get("timeout").and_then(Value::as_f64);
@@ -1304,14 +1309,14 @@ fn format_bash_call(args: &Value) -> String {
 }
 
 /// `renderCall` for the bash tool.
-pub fn render_call(args: &Value, _theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, _theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     if context.execution_started {
         context.state.update(|state| {
             if let Value::Object(state) = state
                 && !state.contains_key("startedAt")
             {
-                state.insert("startedAt".to_owned(), json!(now_millis()));
-                state.remove("endedAt");
+                state.insert("startedAt".into(), json!(now_millis()));
+                state.shift_remove("endedAt");
             }
         });
     }
@@ -1369,7 +1374,7 @@ fn truncation_details(result: &AgentToolResult) -> Option<TruncationResult> {
         .details
         .as_ref()
         .and_then(|details| details.get("truncation"))
-        .and_then(|value| serde_json::from_value::<TruncationResult>(value.clone()).ok())
+        .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok())
 }
 
 fn full_output_path(result: &AgentToolResult) -> Option<String> {
@@ -1377,8 +1382,8 @@ fn full_output_path(result: &AgentToolResult) -> Option<String> {
         .details
         .as_ref()
         .and_then(|details| details.get("fullOutputPath"))
-        .and_then(Value::as_str)
-        .map(str::to_owned)
+        .and_then(Value::as_string)
+        .map(encode_node_utf8)
 }
 
 fn strip_truncation_footer(
@@ -1473,7 +1478,7 @@ pub fn render_result(
             if let Value::Object(state) = state
                 && !state.contains_key("endedAt")
             {
-                state.insert("endedAt".to_owned(), json!(now_millis()));
+                state.insert("endedAt".into(), json!(now_millis()));
             }
         });
     }

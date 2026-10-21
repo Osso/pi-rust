@@ -1,5 +1,6 @@
 //! `ask_supervisor` tool (`core/tools/ask-supervisor.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
@@ -96,7 +97,7 @@ impl AgentHarnessTool<ExtensionContext> for AskSupervisorTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
@@ -113,7 +114,7 @@ impl AgentHarnessTool<ExtensionContext> for AskSupervisorTool {
                 return Err(ToolError::new("ask_supervisor requires a persisted session id"));
             }
             let params: AskSupervisorParams =
-                serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
+                pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
             let cwd = context.cwd().map_err(|error| ToolError::new(error.message))?;
             let project_id =
                 resolve_supervisor_project_for_cwd(&cwd, DEFAULT_SUPERVISOR_KB_DIR).map_err(ToolError::new)?;
@@ -175,7 +176,7 @@ fn format_call(theme: &Theme) -> String {
 }
 
 /// `renderCall` for the ask_supervisor tool.
-pub fn render_call(_args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(_args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     super::render_text_component(context, format_call(theme))
 }
 

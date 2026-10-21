@@ -1,5 +1,6 @@
 //! `search_current_session_history` tool (`core/tools/search-current-session-history.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
@@ -8,10 +9,10 @@ use pi_agent_core::{
     ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 use pi_tui::tui::ComponentRef;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value as SchemaValue;
 use tokio_util::sync::CancellationToken;
 
 use super::result::text_result;
@@ -35,7 +36,7 @@ pub const PROMPT_GUIDELINES: [&str; 2] = [
 
 #[derive(Debug, Deserialize)]
 struct SearchCurrentSessionHistoryParams {
-    query: String,
+    query: JsString,
     context_entries: Option<i64>,
     limit: Option<i64>,
     cursor: Option<String>,
@@ -44,9 +45,9 @@ struct SearchCurrentSessionHistoryParams {
 #[derive(Debug, Clone)]
 struct SearchableSessionEntry {
     entry: SessionEntry,
-    role: String,
+    role: JsString,
     content: Value,
-    search_texts: Vec<String>,
+    search_texts: Vec<JsString>,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,7 +56,7 @@ struct SessionHistorySearchEntry {
     id: String,
     timestamp: String,
     entry_type: String,
-    role: String,
+    role: JsString,
     content: Value,
     matched: bool,
     compacted: bool,
@@ -64,7 +65,7 @@ struct SessionHistorySearchEntry {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchCurrentSessionHistoryDetails {
-    query: String,
+    query: JsString,
     total_matches: usize,
     returned_matches: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,10 +83,10 @@ impl SearchCurrentSessionHistoryTool {
     }
 }
 
-pub fn parameters() -> &'static Value {
-    static PARAMETERS: OnceLock<Value> = OnceLock::new();
+pub fn parameters() -> &'static SchemaValue {
+    static PARAMETERS: OnceLock<SchemaValue> = OnceLock::new();
     PARAMETERS.get_or_init(|| {
-        json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "query": {
@@ -114,55 +115,60 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-fn collect_argument_texts(value: &Value, texts: &mut Vec<String>) {
+fn collect_argument_texts(value: &Value, texts: &mut Vec<JsString>) {
     match value {
         Value::String(text) => texts.push(text.clone()),
         Value::Array(items) => items.iter().for_each(|item| collect_argument_texts(item, texts)),
         Value::Object(object) => {
-            for (key, item) in pi_js_compat::js_json::object_entries(object) {
-                texts.push(key.to_owned());
+            for (key, item) in pi_js_compat::js_json::object_entries_lossless(object) {
+                texts.push(key.clone());
                 collect_argument_texts(item, texts);
             }
         }
-        Value::Number(number) => texts.push(pi_js_compat::number::js_number_to_string(
-            number.as_f64().expect("JSON number fits binary64"),
-        )),
-        _ => texts.push(value.to_string()),
+        Value::Number(number) => texts.push(pi_js_compat::number::js_number_to_string(*number).into()),
+        _ => texts.push(pi_js_compat::js_json::stringify_lossless(value).into()),
     }
 }
 
-fn collect_search_texts(content: &Value) -> Vec<String> {
-    if let Some(text) = content.as_str() {
-        return vec![text.to_owned()];
+fn collect_search_texts(content: &Value) -> Vec<JsString> {
+    if let Some(text) = content.as_string() {
+        return vec![text.clone()];
     }
     let mut texts = Vec::new();
     for block in content.as_array().into_iter().flatten() {
-        match block["type"].as_str() {
-            Some("text") => texts.push(block["text"].as_str().unwrap_or_default().to_owned()),
-            Some("toolCall") if block["name"] != "search_current_session_history" => {
-                texts.push(block["name"].as_str().unwrap_or_default().to_owned());
-                collect_argument_texts(&block["arguments"], &mut texts);
-            }
-            _ => {}
+        let kind = block["type"].as_string();
+        if kind == Some(&JsString::from("text")) {
+            texts.push(block["text"].as_string().cloned().unwrap_or_default());
+        } else if kind == Some(&JsString::from("toolCall"))
+            && block["name"].as_string() != Some(&JsString::from("search_current_session_history"))
+        {
+            texts.push(block["name"].as_string().cloned().unwrap_or_default());
+            collect_argument_texts(&block["arguments"], &mut texts);
         }
     }
     texts
 }
 
-fn collect_message_search_texts(message: &AgentMessage, content: &Value) -> Vec<String> {
-    let value = serde_json::to_value(message).expect("agent message must serialize");
-    match message.role() {
-        "toolResult" if value["toolName"] == "search_current_session_history" => Vec::new(),
-        "bashExecution" => ["command", "output"]
-            .map(|key| value[key].as_str().unwrap_or_default().to_owned())
-            .to_vec(),
-        "branchSummary" | "compactionSummary" => vec![value["summary"].as_str().unwrap_or_default().to_owned()],
-        _ => collect_search_texts(content),
+fn collect_message_search_texts(message: &AgentMessage, content: &Value) -> Vec<JsString> {
+    let value = pi_js_compat::js_json::to_value(message).expect("agent message must serialize");
+    if message.has_role("toolResult")
+        && value["toolName"].as_string() == Some(&JsString::from("search_current_session_history"))
+    {
+        return Vec::new();
     }
+    if message.has_role("bashExecution") {
+        return ["command", "output"]
+            .map(|key| value[key].as_string().cloned().unwrap_or_default())
+            .to_vec();
+    }
+    if message.has_role("branchSummary") || message.has_role("compactionSummary") {
+        return vec![value["summary"].as_string().cloned().unwrap_or_default()];
+    }
+    collect_search_texts(content)
 }
 
 fn message_content(message: &AgentMessage) -> Value {
-    let value = serde_json::to_value(message).expect("agent message must serialize");
+    let value = pi_js_compat::js_json::to_value(message).expect("agent message must serialize");
     match &value {
         Value::Object(object) => object.get("content").cloned().unwrap_or_else(|| value.clone()),
         _ => value,
@@ -184,7 +190,7 @@ fn searchable_entry(entry: &SessionEntry) -> Option<SearchableSessionEntry> {
                 })
             }
             crate::core::session_manager::KnownSessionEntry::CustomMessage(custom_message) => {
-                let value = serde_json::to_value(custom_message).expect("custom message must serialize");
+                let value = pi_js_compat::js_json::to_value(custom_message).expect("custom message must serialize");
                 let content = value
                     .as_object()
                     .and_then(|object| object.get("content"))
@@ -192,20 +198,20 @@ fn searchable_entry(entry: &SessionEntry) -> Option<SearchableSessionEntry> {
                     .unwrap_or(Value::Null);
                 Some(SearchableSessionEntry {
                     entry: entry.clone(),
-                    role: "custom".to_owned(),
+                    role: "custom".into(),
                     search_texts: collect_search_texts(&content),
                     content,
                 })
             }
             crate::core::session_manager::KnownSessionEntry::Compaction(compaction) => Some(SearchableSessionEntry {
                 entry: entry.clone(),
-                role: "compaction".to_owned(),
+                role: "compaction".into(),
                 content: Value::String(compaction.summary.clone()),
                 search_texts: vec![compaction.summary.clone()],
             }),
             crate::core::session_manager::KnownSessionEntry::BranchSummary(summary) => Some(SearchableSessionEntry {
                 entry: entry.clone(),
-                role: "branchSummary".to_owned(),
+                role: "branchSummary".into(),
                 content: Value::String(summary.summary.clone()),
                 search_texts: vec![summary.summary.clone()],
             }),
@@ -261,7 +267,7 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
         DESCRIPTION
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         parameters()
     }
 
@@ -276,7 +282,7 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
@@ -289,8 +295,8 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
                 .map_err(|error| ToolError::new(error.message))?;
             let manager = lock_session_manager(&session);
             let params: SearchCurrentSessionHistoryParams =
-                serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
-            let query = js_trim(&params.query);
+                pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
+            let query = params.query.trim();
             if query.is_empty() {
                 return Err(ToolError::new("search_current_session_history query must not be empty"));
             }
@@ -353,23 +359,23 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
                 next_cursor,
                 entries,
             };
-            let details_value = serde_json::to_value(&details).expect("search details must serialize");
+            let details_value = pi_js_compat::js_json::to_value(&details).expect("search details must serialize");
             let text = if all_match_indexes.is_empty() {
                 "No matches found in current session history.".to_owned()
             } else {
-                pi_js_compat::js_json::stringify_pretty(&details_value)
+                pi_js_compat::js_json::stringify_lossless_pretty(&details_value)
             };
             Ok(text_result(text, details_value))
         })
     }
 }
 
-fn format_call(args: &Value, theme: &Theme) -> String {
+fn format_call(args: &JsValue, theme: &Theme) -> String {
     let query = match args.get("query") {
-        None | Some(Value::Null) => Value::String(String::new()),
+        None | Some(Value::Null) => Value::String(String::new().into()),
         Some(query) => query.clone(),
     };
-    let query = pi_js_compat::js_json::stringify(&query);
+    let query = pi_js_compat::js_json::stringify_lossless(&query);
     format!(
         "{} {}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("search_current_session_history")),
@@ -378,7 +384,7 @@ fn format_call(args: &Value, theme: &Theme) -> String {
 }
 
 /// `renderCall` for the search_current_session_history tool.
-pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     super::render_text_component(context, format_call(args, theme))
 }
 

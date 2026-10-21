@@ -1,5 +1,6 @@
 //! `ask_architect` tool (`core/tools/ask-architect.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
@@ -115,7 +116,7 @@ impl AgentHarnessTool<ExtensionContext> for AskArchitectTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
@@ -143,7 +144,7 @@ impl AgentHarnessTool<ExtensionContext> for AskArchitectTool {
                 return Err(ToolError::new("ask_architect requires a persisted session id"));
             }
             let params: AskArchitectToolInput =
-                serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
+                pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
             let cwd = context.cwd().map_err(|error| ToolError::new(error.message))?;
             let project_cwd = resolve_project_path(params.project_path.as_deref(), &cwd)?;
             let request_id = post_architect_request(
@@ -168,7 +169,7 @@ impl AgentHarnessTool<ExtensionContext> for AskArchitectTool {
 }
 
 /// `renderCall` for the ask_architect tool.
-pub fn render_call(_args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(_args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     super::render_text_component(context, theme.fg(ThemeColor::ToolTitle, &theme.bold(NAME)))
 }
 
