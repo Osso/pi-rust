@@ -29,6 +29,11 @@ const CREATE_SCHEMA_SQL: &str = "
 			error TEXT
 		);
 
+		CREATE TABLE IF NOT EXISTS codex_restriction_recovery_claims (
+            user_request_id TEXT PRIMARY KEY NOT NULL,
+            claimed_at TEXT NOT NULL
+        );
+
 		CREATE TABLE IF NOT EXISTS last_message (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			role TEXT NOT NULL,
@@ -73,7 +78,6 @@ const CREATE_SCHEMA_SQL: &str = "
 			modified_at TEXT NOT NULL,
 			message_count INTEGER NOT NULL,
 			first_message TEXT NOT NULL,
-			all_messages_text TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);
 
@@ -235,9 +239,24 @@ pub fn initialize_schema(db: &Connection, self_restart_process_id: Option<u32>) 
     }
     migrate_legacy_multi_agent_payloads(db, self_restart_process_id)?;
     add_missing_session_metadata_columns(db)?;
+    db.execute_batch(
+        "CREATE INDEX IF NOT EXISTS session_metadata_parent_session_path_idx ON session_metadata(parent_session_path);
+        CREATE INDEX IF NOT EXISTS session_metadata_empty_main_idx ON session_metadata(id,session_path)
+        WHERE archived_at IS NULL AND is_subagent = 0 AND message_count = 0;",
+    )?;
     migrate_legacy_session_names(db, self_restart_process_id)?;
     add_missing_runtime_mailbox_listener_columns(db)?;
     add_missing_architect_request_columns(db)?;
+    add_missing_shared_channel_origin_columns(db)?;
+    db.execute_batch("CREATE INDEX IF NOT EXISTS shared_channel_messages_created_at_idx ON shared_channel_messages(created_at);
+        CREATE TRIGGER IF NOT EXISTS multi_agent_mailbox_default_birth
+        AFTER INSERT ON multi_agent_mailbox_messages
+        WHEN CASE WHEN json_valid(NEW.data) THEN COALESCE(json_type(NEW.data, '$.createdAt'), 'null') = 'null' ELSE 0 END
+        BEGIN
+            UPDATE multi_agent_mailbox_messages
+            SET data = json_set(NEW.data, '$.createdAt', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            WHERE rowid = NEW.rowid;
+        END;")?;
     Ok(())
 }
 
@@ -1085,6 +1104,12 @@ fn add_missing_session_metadata_columns(db: &Connection) -> Result<(), ControlDb
     if !columns.contains("name") {
         db.execute_batch("ALTER TABLE session_metadata ADD COLUMN name TEXT")?;
     }
+    if !columns.contains("parent_session_path") {
+        db.execute_batch("ALTER TABLE session_metadata ADD COLUMN parent_session_path TEXT")?;
+    }
+    if columns.contains("all_messages_text") {
+        db.execute_batch("ALTER TABLE session_metadata DROP COLUMN all_messages_text")?;
+    }
     if !columns.contains("archived_at") {
         db.execute_batch("ALTER TABLE session_metadata ADD COLUMN archived_at TEXT")?;
     }
@@ -1106,5 +1131,17 @@ fn add_missing_session_metadata_columns(db: &Connection) -> Result<(), ControlDb
     if !columns.contains("thinking_level") {
         db.execute_batch("ALTER TABLE session_metadata ADD COLUMN thinking_level TEXT")?;
     }
+    Ok(())
+}
+
+fn add_missing_shared_channel_origin_columns(db: &Connection) -> Result<(), ControlDbError> {
+    let columns = table_columns(db, "shared_channel_messages")?;
+    if !columns.contains("origin_host") {
+        db.execute_batch("ALTER TABLE shared_channel_messages ADD COLUMN origin_host TEXT")?;
+    }
+    if !columns.contains("origin_id") {
+        db.execute_batch("ALTER TABLE shared_channel_messages ADD COLUMN origin_id INTEGER")?;
+    }
+    db.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS shared_channel_origin_idx ON shared_channel_messages(origin_host,origin_id) WHERE origin_host IS NOT NULL")?;
     Ok(())
 }

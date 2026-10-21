@@ -95,9 +95,10 @@ pub use sessions::{
     LastControlMessage, SessionMetadata, SessionNameState, WritableSessionMetadata, archive_session,
     archive_sessions_older_than, clear_session_sandbox_profile, find_active_session_metadata_by_id,
     find_active_session_metadata_by_name, list_active_session_metadata, list_archived_session_metadata,
-    list_session_metadata, normalize_session_name, read_last_message, read_or_migrate_prompt_history,
-    read_prompt_history, read_session_goal, read_session_metadata, read_session_name_state,
-    read_session_sandbox_profile, record_prompt_history_entry, relocate_session_control_data, remove_session_metadata,
+    list_descendant_session_paths, list_session_metadata, list_subagent_session_paths, normalize_session_name,
+    read_last_message, read_or_migrate_prompt_history, read_prompt_history, read_session_goal, read_session_metadata,
+    read_session_name_state, read_session_sandbox_profile, record_prompt_history_entry, relocate_and_archive_session,
+    relocate_and_unarchive_session, relocate_session_control_data, remove_session_metadata, remove_sessions_metadata,
     unarchive_session, write_last_message, write_session_goal, write_session_metadata, write_session_model,
     write_session_name, write_session_sandbox_profile, write_session_thinking_level,
 };

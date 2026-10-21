@@ -100,8 +100,6 @@ fn writable_metadata(session: &SessionInfo) -> WritableSessionMetadata {
         modified_at: format_iso_millis(session.modified),
         message_count: i64::try_from(session.message_count).unwrap_or(i64::MAX),
         first_message: session.first_message.clone(),
-        all_messages_text: session.all_messages_text.clone(),
-        index_message_text: None,
     }
 }
 

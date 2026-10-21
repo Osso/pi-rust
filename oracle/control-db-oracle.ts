@@ -30,6 +30,13 @@ async function main(): Promise<void> {
 			if (typeof implementation !== "function") throw new Error(`unknown control-db function ${fn}`);
 			return implementation(...(args ?? []));
 		}
+		// Fixture mutations run inside a schema initialized by the actual public API.
+		if (step.op === "fixtureSql") {
+			const [path, sql, parameters = []] = step.args as [string, string, unknown[]];
+			return api.withControlDb(path, (db: { prepare(sql: string): { all(...args: unknown[]): unknown[] } }) =>
+				db.prepare(sql).all(...parameters),
+			);
+		}
 		if (step.op === "schema") {
 			const db = sqlite.createSqliteDatabase(step.path as string) as {
 				exec(sql: string): void;

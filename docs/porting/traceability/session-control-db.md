@@ -1,5 +1,12 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Frozen 4f9e6f8a4 repin — bounded foundation proof
+
+`repin_control_sessions.rs` proves real TS-created v15 → Rust read/write → same TS read/reopen, and fresh Rust → TS initialization → Rust write → TS read. Removed `all_messages_text` from schema, public metadata and producer snapshots. NULL name/explicit clear survives peer writes. Candidate archive selection does not mutate rows. Descendant/subagent exports match plain/archived parent aliases; combined relocation/archive and relocation/unarchive commit together. Bulk metadata removal matches source.
+
+`repin_control_schema.rs` proves Rust-first default INSERT birth, origin uniqueness and restriction-request uniqueness before TS initialization. Four focused tests pass; no whole-module claim. Retention cleanup/expression index, legacy payload migrations, mailbox/channel/lifecycle/store deltas and failure-injected atomicity proof remain pending. Existing proofs below are historical, not renewed against the frozen pin. Central coverage remains unchanged.
+
+
 Source: `packages/coding-agent/src/core/session-control-db.ts` (7047 lines) at the pinned revision.
 Rust: `crates/pi-coding-agent/src/core/session_control_db/` (`mod.rs`, `schema.rs`, `sessions.rs`,
 `incoming.rs`, `mailbox.rs`, `requests.rs`, `channel.rs`, `health.rs`, `agents.rs`, `lifecycle.rs`).
