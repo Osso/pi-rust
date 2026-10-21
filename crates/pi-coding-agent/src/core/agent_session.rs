@@ -2015,12 +2015,12 @@ impl AgentSession {
                             let Some(inner) = tool_inner.upgrade() else {
                                 return Err(JsString::from("Session is disposed"));
                             };
-                            let tool = lock(&inner.tool_registry)
-                                .get(tool_name)
-                                .cloned()
-                                .ok_or_else(|| JsString::from(format!("Permission prompt tool not found: {tool_name}")))?;
+                            let tool = lock(&inner.tool_registry).get(tool_name).cloned().ok_or_else(|| {
+                                JsString::from(format!("Permission prompt tool not found: {tool_name}"))
+                            })?;
                             let tool_use_id = input.tool_use_id.clone();
-                            let params = pi_js_compat::js_json::to_value(&input).map_err(|error| JsString::from(error.to_string()))?;
+                            let params = pi_js_compat::js_json::to_value(&input)
+                                .map_err(|error| JsString::from(error.to_string()))?;
                             let result = tool
                                 .execute(
                                     format!("permission-prompt:{tool_use_id}"),
@@ -5118,7 +5118,8 @@ impl AgentSession {
             error_message: message
                 .error_message
                 .clone()
-                .unwrap_or_else(|| "Unknown error".to_owned()).into(),
+                .unwrap_or_else(|| "Unknown error".to_owned())
+                .into(),
         }));
         let mut messages = self.inner.agent.messages();
         if matches!(messages.last(), Some(AgentMessage::Assistant(_))) {

@@ -774,7 +774,7 @@ pub struct ContextUsage {
 pub struct CompactOptions {
     pub custom_instructions: Option<String>,
     pub on_complete: Option<CompactCompleteCallback>,
-    pub on_error: Option<JsStringCallback>;
+    pub on_error: Option<JsStringCallback>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2128,7 +2128,11 @@ pub struct ToolResultEvent {
     pub is_error: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "pi_js_compat::js_json::deserialize_present")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
     pub details: Option<JsValue>,
 }
 
@@ -2312,7 +2316,11 @@ pub struct UserBashEventResult {
 pub struct ToolResultEventResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<Vec<TextOrImageContent>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "pi_js_compat::js_json::deserialize_present")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
     pub details: Option<JsValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
@@ -2333,7 +2341,11 @@ pub struct CustomMessagePayload {
     pub custom_type: String,
     pub content: CustomMessageContent,
     pub display: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "pi_js_compat::js_json::deserialize_present")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
     pub details: Option<JsValue>,
 }
 
@@ -2428,7 +2440,11 @@ pub struct SessionCompactionSourceResult {
 #[serde(rename_all = "camelCase")]
 pub struct SessionTreeSummary {
     pub summary: JsString,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "pi_js_compat::js_json::deserialize_present")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
     pub details: Option<JsValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
@@ -2550,7 +2566,11 @@ pub struct CustomMessageValue {
     pub custom_type: String,
     pub content: CustomMessageContent,
     pub display: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "pi_js_compat::js_json::deserialize_present")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
     pub details: Option<JsValue>,
     pub timestamp: f64,
 }
