@@ -299,7 +299,7 @@ fn seed_child(store: &Arc<MultiAgentStore>, test: &TestDir, id: &str, transcript
         } => *agent,
         other => panic!("unexpected child creation: {other:?}"),
     };
-    store.publish_lifecycle_coordinator_snapshot(&agent);
+    store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
     agent
 }
 
@@ -982,7 +982,7 @@ async fn jobs_command_lists_background_agents() {
     }))
     .expect("agent");
     agent.extra = Default::default();
-    store.publish_lifecycle_coordinator_snapshot(&agent);
+    store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
     pi_coding_agent::bundled_extensions::agents_core::runtime::jobs_command(&store, &command_ctx).expect("jobs");
     let notifications = ui.notifications.lock().expect("notifications").clone();
     assert_eq!(notifications[1].0, "job Background Job is running.");

@@ -53,7 +53,9 @@ fn parse(value: Value) -> AgentSnapshot {
 
 fn seed(store: &MultiAgentStore, values: &[Value]) {
     for value in values {
-        store.publish_lifecycle_coordinator_snapshot(&parse(value.clone()));
+        store
+            .publish_lifecycle_coordinator_snapshot(&parse(value.clone()))
+            .unwrap();
     }
 }
 
