@@ -23,6 +23,7 @@ use serde_json::{Map, Value};
 
 use crate::config::{get_agent_dir, get_sessions_dir};
 use crate::core::permissions::presets::SandboxProfileName;
+use crate::core::resident_session::is_resident_session;
 use crate::core::session_control_db::{
     ResumeSessionMetadataOptions, SessionMetadata, WritableSessionMetadata, clear_session_sandbox_profile,
     list_resume_session_metadata, list_session_metadata, normalize_session_name, read_session_goal,
@@ -3654,13 +3655,23 @@ fn list_metadata_sessions(
     };
     Ok(list_resume_session_metadata(control_db_path, &options)
         .map_err(control_db_error)?
-        .map(|metadata| metadata.iter().map(session_info_from_metadata).collect()))
+        .map(|metadata| {
+            metadata
+                .iter()
+                .map(session_info_from_metadata)
+                .filter(|session| !is_resident_session(session))
+                .collect()
+        }))
 }
 
 fn exclude_known_subagent_sessions(
     control_db_path: Option<&str>,
     sessions: Vec<SessionInfo>,
 ) -> Result<Vec<SessionInfo>, SessionManagerError> {
+    let sessions: Vec<_> = sessions
+        .into_iter()
+        .filter(|session| !is_resident_session(session))
+        .collect();
     let Some(control_db_path) = control_db_path else {
         return Ok(sessions);
     };

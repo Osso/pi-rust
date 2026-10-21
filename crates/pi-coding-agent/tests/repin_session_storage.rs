@@ -918,14 +918,34 @@ fn metadata_filtered_empty_does_not_fall_back_or_cache_unindexed_files() {
 fn resident_sessions_are_excluded_from_ordinary_filesystem_listing() {
     configure_worker();
     let tmp = tempfile::tempdir().unwrap();
-    let dir = tmp.path().display().to_string();
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
-    call(
-        &mut ts,
-        json!({"op":"create","dir":dir,"cwd":dir,"options":{"id":"supervisor"}}),
-    );
-    assert_eq!(call(&mut ts, json!({"op":"list","dir":dir,"cwd":dir})), json!([]));
-    assert!(SessionManager::list(&dir, Some(&dir), None, None).unwrap().is_empty());
+    for (index, (id, segment, resident)) in [
+        ("supervisor", "plain", true),
+        ("architect", "plain", true),
+        ("ordinary", "supervisor-sessions", true),
+        ("ordinary", "architect-sessions", true),
+        ("ordinary", "root\\architect-sessions\\nested", true),
+        ("ordinary", "root\\supervisor-sessions\\nested", true),
+        ("ordinary", "not-supervisor-sessions", false),
+        ("ordinary", "architect-sessions-suffix", false),
+        ("Supervisor", "plain", false),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let dir = tmp.path().join(index.to_string()).join(segment).display().to_string();
+        let db = tmp.path().join(format!("{index}.sqlite")).display().to_string();
+        call(&mut ts, json!({"op":"create","dir":dir,"cwd":dir,"options":{"id":id}}));
+        let expected = call(&mut ts, json!({"op":"list","dir":dir,"cwd":dir}));
+        assert_eq!(expected.as_array().unwrap().is_empty(), resident, "{segment} {id}");
+        for control in [None, Some(db.as_str())] {
+            let actual = SessionManager::list(&dir, Some(&dir), None, control).unwrap();
+            assert_eq!(actual.is_empty(), resident, "{segment} {id} {control:?}");
+            // Second read exercises populated metadata, not filesystem fallback.
+            let again = SessionManager::list(&dir, Some(&dir), None, control).unwrap();
+            assert_eq!(again.is_empty(), resident, "cached {segment} {id}");
+        }
+    }
 }
 
 #[test]

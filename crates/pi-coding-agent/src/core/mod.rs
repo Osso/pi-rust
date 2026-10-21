@@ -46,6 +46,7 @@ pub mod provider_display_names;
 pub mod radius;
 pub mod remote_catalog_provider;
 pub mod resident_console_transport;
+pub mod resident_session;
 pub mod resource_loader;
 pub mod retry_delay;
 pub mod rule_store;
