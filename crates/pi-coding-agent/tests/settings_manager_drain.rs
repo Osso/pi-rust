@@ -16,6 +16,7 @@ struct ObservedStorage {
     files: FileSettingsStorage,
     writes: mpsc::Sender<(SettingsScope, Result<String, String>)>,
     finished: mpsc::Sender<()>,
+    panic_on_write: bool,
 }
 
 impl SettingsStorage for ObservedStorage {
@@ -27,6 +28,9 @@ impl SettingsStorage for ObservedStorage {
         let mut output = None;
         let result = self.files.with_lock(scope, &mut |current| {
             let next = apply(current);
+            if next.is_some() && std::mem::take(&mut self.panic_on_write) {
+                panic!("injected settings write panic");
+            }
             output = next.clone();
             next
         });
@@ -58,6 +62,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> (Self, SharedSettingsManager) {
+        Self::with_panicking_write(false)
+    }
+
+    fn with_panicking_write(panic_on_write: bool) -> (Self, SharedSettingsManager) {
         let temp = TempDir::new().unwrap();
         let project = temp.path().join("project");
         let agent = temp.path().join("agent");
@@ -71,6 +79,7 @@ impl Fixture {
                 files,
                 writes: writes_tx,
                 finished: finished_tx,
+                panic_on_write,
             }),
             SettingsManagerCreateOptions::default(),
         );
@@ -177,6 +186,35 @@ fn automatic_write_failure_is_recorded_and_later_scope_still_drains() {
     assert!(!errors[0].message.is_empty());
     assert!(lock_settings_manager(&manager).drain_errors().is_empty());
     fixture.finish(manager);
+}
+
+#[test]
+fn panicking_write_is_recorded_without_dropping_later_snapshots_or_latching_drain() {
+    let (fixture, manager) = Fixture::with_panicking_write(true);
+    {
+        let mut guard = lock_settings_manager(&manager);
+        guard.set_default_model("panics");
+        guard
+            .set_project_packages(vec![PackageSource::Name("npm:survives-panic".into())])
+            .unwrap();
+        guard.set_default_model("second");
+    }
+    let project = fixture.write();
+    assert_eq!(project.0, SettingsScope::Project);
+    assert_eq!(project.1["packages"][0], "npm:survives-panic");
+    assert_eq!(fixture.write().1["defaultModel"], "second");
+    let errors = lock_settings_manager(&manager).drain_errors();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].scope, SettingsScope::Global);
+    assert!(errors[0].message.contains("injected settings write panic"));
+    assert!(lock_settings_manager(&manager).drain_errors().is_empty());
+    lock_settings_manager(&manager).set_default_model("third");
+    assert_eq!(fixture.write().1["defaultModel"], "third");
+    fixture.finish(manager);
+    assert!(fixture.writes.try_recv().is_err());
+    let restored = fixture.reconstructed();
+    assert_eq!(restored.get_default_model(), Some("third"));
+    assert_eq!(restored.get_project_settings()["packages"][0], "npm:survives-panic");
 }
 
 #[test]

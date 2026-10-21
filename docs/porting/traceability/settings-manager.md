@@ -184,3 +184,9 @@ All 70 frozen getters/is methods are observed in `snapshot`; all 53 setters have
 ## Proof ledger
 
 `/tmp/pi-rust-repin-settings/ledger.md`; RED artifacts `red-settings.txt`, `red-differential.txt`, `red-validation.txt`. Focused development tests only; no check/clippy/readability/final acceptance gate executed by this slice.
+
+## Drain failure correction (2026-10-21)
+
+- Frozen `enqueueWrite` lines 709–720 catch each task failure and continue; Rust `flush` now catches unwinds at that same per-snapshot boundary, records the original scoped panic, and continues without rollback/retry. `panicking_write_is_recorded_without_dropping_later_snapshots_or_latching_drain` injects a one-shot panic inside real file storage's lock, observes later project/global snapshots, drains one error, then persists/reconstructs another burst. RED at `dc0aea52` times out on the later project snapshot.
+- `SettingsDrainGuard::drop` clears scheduling under the worker-held mutex, both normally and during unwind. `spawn_settings_drain` uses `Builder::spawn`; OS failure clears the reservation and records an explicit error against the first queued scope without taking snapshots. Thread creation failure is source-proven only: no spawner seam or host resource exhaustion. Queue remains available to a later shared guard release or explicit flush.
+- Raw mutation audit: package-manager CLI trust setters and resource-loader trust changes only update/reload trust state, never queue saves. SDK session sandbox override is session-only. Resource-loader/AgentSession reload synchronously flushes earlier snapshots. SDK settings example's persistent setter immediately calls explicit flush under its raw guard. No audited caller needs rerouting. Shared persistent callers without an explicit barrier must still use the helper.
