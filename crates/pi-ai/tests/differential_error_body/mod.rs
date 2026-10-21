@@ -2,7 +2,8 @@
 mod oracle;
 
 use pi_ai::utils::error_body::{
-    ErrorBody, ProviderError, ProviderErrorInput, format_provider_error, normalize_provider_error, truncate_error_text,
+    ErrorBody, NormalizedProviderError, ProviderError, ProviderErrorInput, format_provider_error,
+    normalize_provider_error, truncate_error_text,
 };
 use serde_json::{Value, json};
 
@@ -394,6 +395,55 @@ pub(crate) fn run_selection() {
     compare_error_cases(&mut oracle, cases);
 }
 
+pub(crate) fn run_format() {
+    let mut oracle = oracle::TsOracle::spawn("error-body-oracle.ts", "packages/ai/src");
+    let mut cases = Vec::new();
+    let mut expected = Vec::new();
+    for status in [
+        None,
+        Some(-0.0),
+        Some(429.5),
+        Some(f64::NAN),
+        Some(f64::INFINITY),
+        Some(f64::NEG_INFINITY),
+    ] {
+        for body in [None, Some(""), Some("body")] {
+            for carries in [false, true] {
+                for prefix in [None, Some(""), Some("Provider")] {
+                    let normalized = NormalizedProviderError {
+                        status,
+                        body: body.map(str::to_owned),
+                        message: "message".to_owned(),
+                        message_carries_body: carries,
+                    };
+                    let encoded_status = match status {
+                        Some(number) if number.is_nan() => json!("NaN"),
+                        Some(f64::INFINITY) => json!("Infinity"),
+                        Some(f64::NEG_INFINITY) => json!("-Infinity"),
+                        _ => json!(status),
+                    };
+                    let mut request = json!({ "message": "message", "messageCarriesBody": carries });
+                    // Absence is undefined in TS, not JSON null; preserve it on the wire.
+                    if status.is_some() {
+                        request["status"] = encoded_status;
+                    }
+                    if let Some(body) = body {
+                        request["body"] = json!(body);
+                    }
+                    if let Some(prefix) = prefix {
+                        request["prefix"] = json!(prefix);
+                    }
+                    cases.push(request);
+                    expected.push(format_provider_error(&normalized, prefix));
+                }
+            }
+        }
+    }
+    let response = oracle.request(&json!({ "id": 5, "operation": "format", "cases": cases }));
+    assert_eq!(response["ok"], true);
+    assert_eq!(response["output"]["results"], json!(expected));
+}
+
 pub(crate) fn run_utf16_boundary() {
     let mut oracle = oracle::TsOracle::spawn("error-body-oracle.ts", "packages/ai/src");
     let response = oracle.request(&json!({"id": 4, "operation": "truncate", "cases": [
@@ -420,6 +470,24 @@ pub(crate) fn run_utf16_boundary() {
             "OPEN shared String boundary; this is not parity proof"
         );
     }
+    let text = format!("{}🙈b", "a".repeat(3999));
+    let response = oracle.request(&json!({"id": 6, "operation": "normalize_utf16", "cases": [
+        {"name": "body cap", "message": "failed", "body": text}
+    ]}));
+    assert_eq!(response["ok"], true);
+    let source_units: Vec<u16> = serde_json::from_value(response["output"]["results"][0]["bodyUnits"].clone()).unwrap();
+    let mut expected: Vec<u16> = text.encode_utf16().take(4000).collect();
+    expected.extend("... [truncated 2 chars]".encode_utf16());
+    assert_eq!(source_units, expected);
+    let native = normalize_provider_error(&ProviderErrorInput::Error(Box::new(ProviderError {
+        body: Some(ErrorBody::Text(text)),
+        ..base("failed")
+    })));
+    assert_ne!(
+        source_units,
+        native.body.unwrap().encode_utf16().collect::<Vec<_>>(),
+        "OPEN normalization String boundary"
+    );
 }
 
 fn truncation_cases() -> Vec<(String, usize)> {

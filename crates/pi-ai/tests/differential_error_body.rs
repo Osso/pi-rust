@@ -22,6 +22,11 @@ fn body_and_status_selection_match_source() {
 }
 
 #[test]
+fn independent_normalized_fields_format_like_source() {
+    error_body_oracle::run_format();
+}
+
+#[test]
 fn source_surrogate_split_is_an_open_public_string_boundary() {
     error_body_oracle::run_utf16_boundary();
 }

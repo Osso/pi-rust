@@ -16,7 +16,18 @@ type ErrorCase = {
 };
 
 type Request =
-	| { id: RequestId; operation: "normalize"; cases: ErrorCase[] }
+	| { id: RequestId; operation: "normalize" | "normalize_utf16"; cases: ErrorCase[] }
+	| {
+			id: RequestId;
+			operation: "format";
+			cases: Array<{
+				status?: number | "NaN" | "Infinity" | "-Infinity";
+				body?: string;
+				message: string;
+				messageCarriesBody: boolean;
+				prefix?: string;
+			}>;
+	  }
 	| { id: RequestId; operation: "normalize_value"; cases: Array<{ name: string; value: unknown; prefix?: string }> }
 	| { id: RequestId; operation: "truncate"; cases: Array<{ name: string; text: string; maxChars: number }> };
 
@@ -77,6 +88,31 @@ function execute(request: Request, api: Record<string, unknown>): Response {
 					name: item.name,
 					...serializeNormalized(normalizeProviderError(buildError(item)), formatProviderError, item.prefix),
 				})),
+			},
+		};
+	}
+	if (request.operation === "normalize_utf16") {
+		return {
+			id: request.id,
+			ok: true,
+			output: {
+				results: request.cases.map((item) => {
+					const norm = normalizeProviderError(buildError(item)) as { body?: string };
+					return { bodyUnits: norm.body === undefined ? null : utf16Units(norm.body) };
+				}),
+			},
+		};
+	}
+	if (request.operation === "format") {
+		return {
+			id: request.id,
+			ok: true,
+			output: {
+				results: request.cases.map((item) => {
+					const status = typeof item.status === "string" ? Number(item.status) : item.status;
+					const norm = { ...item, status };
+					return formatProviderError(norm as never, item.prefix);
+				}),
 			},
 		};
 	}
