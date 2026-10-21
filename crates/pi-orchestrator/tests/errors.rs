@@ -118,7 +118,7 @@ async fn unix_socket_errors_match_frozen_node_messages() {
     std::fs::write(regular.join("orchestrator.sock"), "not socket").unwrap();
     let blocked = root.path().join("blocked");
     std::fs::create_dir(&blocked).unwrap();
-    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0)).unwrap();
+    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o0)).unwrap();
     let readonly = root.path().join("readonly");
     std::fs::create_dir(&readonly).unwrap();
     std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o555)).unwrap();
