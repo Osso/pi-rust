@@ -71,3 +71,27 @@ fn frozen_protocol_storage_bidirectional_file_bytes() {
     store.delete_machine().unwrap();
     assert!(store.load_machine().unwrap().is_none());
 }
+
+#[test]
+fn frozen_config_path_precedence_and_normalization_matrix() {
+    use pi_orchestrator::config::{Config, IS_BUN_BINARY, VERSION, orchestrator_dir};
+    let dir = tempfile::tempdir().unwrap();
+    for env in [
+        json!({}),
+        json!({"PI_CONFIG_DIR":"/config//a/../b"}),
+        json!({"PI_CONFIG_DIR":"../../relative/."}),
+        json!({"PI_ORCHESTRATOR_DIR":"explicit//../state/"}),
+        json!({"PI_ORCHESTRATOR_DIR":"","PI_CONFIG_DIR":""}),
+        json!({"PI_ORCHESTRATOR_DIR":"/explicit","PI_CONFIG_DIR":"/ignored"}),
+    ] {
+        let map: std::collections::BTreeMap<String, String> = serde_json::from_value(env.clone()).unwrap();
+        let config = Config {
+            dir: orchestrator_dir(&map, "/home/test"),
+        };
+        let expected = oracle(json!({"op":"config","env":env,"home":"/home/test"}), dir.path());
+        assert_eq!(
+            json!({"dir":config.dir,"auth":config.auth_path(),"machine":config.machine_path(),"instances":config.instances_path(),"socket":config.socket_path(),"version":VERSION,"bun":IS_BUN_BINARY}),
+            expected
+        );
+    }
+}

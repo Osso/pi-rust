@@ -13,7 +13,25 @@ pub fn orchestrator_dir(env: &BTreeMap<String, String>, home: &str) -> PathBuf {
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(home).join(".pi"));
-    pi_dir.join("orchestrator")
+    join_path(&pi_dir, "orchestrator")
+}
+
+fn join_path(base: &std::path::Path, name: &str) -> PathBuf {
+    let combined = format!("{}/{name}", base.display());
+    let absolute = combined.starts_with('/');
+    let mut segments = Vec::new();
+    for segment in combined.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." if segments.last().is_some_and(|s| *s != "..") => {
+                segments.pop();
+            }
+            ".." if absolute => {}
+            segment => segments.push(segment),
+        }
+    }
+    let relative = segments.join("/");
+    PathBuf::from(if absolute { format!("/{relative}") } else { relative })
 }
 
 #[derive(Debug, Clone)]
@@ -30,15 +48,15 @@ impl Config {
         }
     }
     pub fn auth_path(&self) -> PathBuf {
-        self.dir.join("auth.json")
+        join_path(&self.dir, "auth.json")
     }
     pub fn machine_path(&self) -> PathBuf {
-        self.dir.join("machine.json")
+        join_path(&self.dir, "machine.json")
     }
     pub fn instances_path(&self) -> PathBuf {
-        self.dir.join("instances.json")
+        join_path(&self.dir, "instances.json")
     }
     pub fn socket_path(&self) -> PathBuf {
-        self.dir.join("orchestrator.sock")
+        join_path(&self.dir, "orchestrator.sock")
     }
 }

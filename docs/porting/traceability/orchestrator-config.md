@@ -9,3 +9,5 @@ Frozen: `packages/orchestrator/src/config.ts` at [common pin](../source-lock.jso
 Bun virtual filesystem detection is false in the native port; package metadata uses frozen package version.
 
 Status: initial focused proof; complete branch matrix pending. Coverage remains todo until final evidence.
+
+`frozen_config_path_precedence_and_normalization_matrix` covers default/empty/relative/dot-segment/explicit-override and all path accessors against frozen TS; Rust draft normalization failed first and is corrected.

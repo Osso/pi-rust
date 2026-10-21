@@ -61,3 +61,16 @@ fn storage_upsert_keeps_order_and_remove_preserves_other_records() {
     s.remove_instance("a").unwrap();
     assert_eq!(s.load_instances().unwrap(), vec![json!({"id":"b","status":"starting"})]);
 }
+
+#[test]
+fn config_paths_normalize_joined_segments_but_not_explicit_directory() {
+    let env = [("PI_CONFIG_DIR".into(), "/private/pi/../config//".into())].into();
+    assert_eq!(
+        orchestrator_dir(&env, "/home/test"),
+        std::path::Path::new("/private/config/orchestrator")
+    );
+    let config = pi_orchestrator::config::Config {
+        dir: "relative/../state//".into(),
+    };
+    assert_eq!(config.socket_path(), std::path::Path::new("state/orchestrator.sock"));
+}

@@ -5,6 +5,13 @@ const input = JSON.parse(readFileSync(0, "utf8"));
 const load = (name) => import(pathToFileURL(`${root}/packages/orchestrator/src/${name}.ts`).href);
 let output;
 switch (input.op) {
+    case "config": {
+        for (const key of ["PI_ORCHESTRATOR_DIR", "PI_CONFIG_DIR"]) delete process.env[key];
+        Object.assign(process.env, input.env, { HOME: input.home });
+        const config = await load("config");
+        output = { dir: config.getOrchestratorDir(), auth: config.getAuthPath(), machine: config.getMachinePath(), instances: config.getInstancesPath(), socket: config.getSocketPath(), version: config.VERSION, bun: config.isBunBinary };
+        break;
+    }
     case "foundation": {
         const config = await load("config");
         const protocol = await load("ipc/protocol");
