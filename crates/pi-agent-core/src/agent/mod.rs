@@ -17,8 +17,9 @@ pub use runtime::{
 };
 pub use types::{
     AfterToolCallContext, AfterToolCallHook, AfterToolCallResult, AgentContext, AgentError, AgentEvent,
-    AgentLoopConfig, AgentLoopTurnUpdate, AgentMessage, AgentState, AgentTool, AgentToolCall, AgentToolResult,
-    AgentToolUpdateCallback, BeforeToolCallContext, BeforeToolCallHook, ConvertToLlm, GetApiKey, MessageQueueHook,
-    PrepareNextTurnContext, PrepareNextTurnHook, ShouldStopAfterTurnContext, ShouldStopAfterTurnHook, StreamFn,
-    ToolError, TransformContext, reasoning_for,
+    AgentLoopConfig, AgentLoopTurnUpdate, AgentMessage, AgentState, AgentTool, AgentToolCall,
+    AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, BeforeToolCallContext, BeforeToolCallHook,
+    BeforeToolCallResult, ConvertToLlm, GetApiKey, MessageQueueHook, PrepareNextTurnContext, PrepareNextTurnHook,
+    QueueMode, ShouldStopAfterTurnContext, ShouldStopAfterTurnHook, StreamFn, ThinkingLevel, ToolError,
+    ToolExecutionMode, TransformContext, reasoning_for,
 };

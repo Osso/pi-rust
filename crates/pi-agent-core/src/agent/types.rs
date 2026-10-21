@@ -18,7 +18,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::harness::types::{AgentToolExecutionContext, BeforeToolCallResult, ThinkingLevel, ToolExecutionMode};
+pub use crate::harness::types::{
+    AgentToolExecutionContext, BeforeToolCallResult, QueueMode, ThinkingLevel, ToolExecutionMode,
+};
 
 /// `StreamFn`: produces an assistant message event stream for one request.
 ///
