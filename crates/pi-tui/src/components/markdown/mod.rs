@@ -464,11 +464,17 @@ impl Markdown {
 
     fn render_inline_tokens(&self, tokens: &[Token], style_context: Option<&InlineStyleContext>) -> String {
         let default_apply = |text: &str| self.apply_default_style(text);
-        let default_context = InlineStyleContext {
-            apply_text: &default_apply,
-            style_prefix: self.default_style_prefix(),
+        let default_context;
+        let context = match style_context {
+            Some(context) => context,
+            None => {
+                default_context = InlineStyleContext {
+                    apply_text: &default_apply,
+                    style_prefix: self.default_style_prefix(),
+                };
+                &default_context
+            }
         };
-        let context = style_context.unwrap_or(&default_context);
         let apply_text = context.apply_text;
         let apply_text_with_newlines = |text: &str| text.split('\n').map(apply_text).collect::<Vec<_>>().join("\n");
 

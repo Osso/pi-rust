@@ -12,7 +12,6 @@ use crate::utils::{apply_background_to_line, visible_width, wrap_text_with_ansi}
 /// Terminal styling callback (`(text) => text`).
 pub type StyleFn = Rc<dyn Fn(&str) -> String>;
 
-#[derive(Default)]
 pub struct Text {
     text: String,
     padding_x: usize,
@@ -21,6 +20,12 @@ pub struct Text {
     cached_text: Option<String>,
     cached_width: Option<usize>,
     cached_lines: Option<Vec<String>>,
+}
+
+impl Default for Text {
+    fn default() -> Self {
+        Self::new("", 1, 1)
+    }
 }
 
 impl Text {

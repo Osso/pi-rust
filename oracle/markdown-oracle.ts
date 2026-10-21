@@ -79,6 +79,33 @@ async function loadApi(sourceDirectory: string, moduleName: string): Promise<unk
 
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
 	switch (request.operation) {
+
+        case "markdown_lifecycle": {
+            const { Markdown } = (await loadApi(sourceDirectory, "components/markdown.ts")) as any;
+            const { Text } = (await loadApi(sourceDirectory, "components/text.ts")) as any;
+            const { Box } = (await loadApi(sourceDirectory, "components/box.ts")) as any;
+            const identity = (text: string) => text;
+            const makeTheme = (initial: number) => {
+                let highlights = initial;
+                return Object.fromEntries([
+                    ...["heading", "link", "linkUrl", "code", "codeBlock", "codeBlockBorder", "quote", "quoteBorder", "hr", "listBullet", "bold", "italic", "strikethrough", "underline"].map(name => [name, identity]),
+                    ["highlightCode", (code: string) => [`highlight ${++highlights}: ${code}`]],
+                ]);
+            };
+            const theme = makeTheme(0);
+            const md = new Markdown("```rs\nx\n```\n\nend", 0, 0, theme);
+            const snapshots = [md.render(40)];
+            md.setText("```rs\nx\n```\n\nend grows"); snapshots.push(md.render(40));
+            md.setPadding(0, 0); md.setTheme(theme); snapshots.push(md.render(40));
+            md.setPadding(1, 0); snapshots.push(md.render(40));
+            md.setTheme(makeTheme(9)); snapshots.push(md.render(40));
+            md.invalidate(); snapshots.push(md.render(40));
+            let colorCalls = 0;
+            const heading = new Markdown("# heading", 0, 0, theme, { color: (text: string) => { colorCalls++; return text; } }).render(10);
+            const text = new Text(); text.setText("hi");
+            const box = new Box(); box.addChild(new Text("hi", 0, 0));
+            return { snapshots, heading, colorCalls, defaultText: text.render(4), defaultBox: box.render(4) };
+        }
 		case "markdown_lex": {
 			const instance = await getParser(sourceDirectory);
 			const cases = requireArray<{ name: string; markdown: string }>(request, "cases");
