@@ -48,6 +48,7 @@ async function scenario(request: any): Promise<unknown> {
 		let error;
 		if (step.op === "external") { name = step.name ?? undefined; stored = true; }
 		if (step.op === "reset") { handlers.clear(); register(api); }
+		if (step.op === "newSession") { name = undefined; stored = false; }
 		if (step.op === "setterError") setterError = step.error;
 		if (step.op === "session_start") await handlers.get("session_start")?.({ type: "session_start" }, ctx);
 		if (step.op === "call") {
@@ -64,7 +65,7 @@ async function persistence(request: any): Promise<unknown> {
 	const { SessionManager } = await import(pathToFileURL(resolve(core, "session-manager.ts")).href);
 	const db = await import(pathToFileURL(resolve(core, "session-control-db.ts")).href);
 	let manager;
-	if (request.op === "create") {
+	if (request.op === "create" || request.op === "toolPersist") {
 		manager = SessionManager.create(request.cwd, request.sessionDir);
 		manager.setMetadataControlDbPath(request.db);
 		manager.persistForRecovery();
@@ -72,6 +73,20 @@ async function persistence(request: any): Promise<unknown> {
 	} else {
 		manager = SessionManager.open(request.path, request.sessionDir);
 		manager.setMetadataControlDbPath(request.db);
+	}
+	if (request.op === "toolPersist") {
+		let tool: any;
+		register({
+			registerTool: (definition: any) => { tool = definition; },
+			setSessionName: (name: string) => manager.setSessionName(name),
+		});
+		const result = await tool.execute("persist-call", { name: request.toolName }, undefined, undefined, { sessionManager: manager });
+		const state = db.readSessionNameState(request.db, manager.getSessionFile());
+		return {
+			path: manager.getSessionFile(), resultJson: JSON.stringify(result),
+			managerNameJson: JSON.stringify(manager.getSessionName()),
+			storedNameJson: JSON.stringify(state.name),
+		};
 	}
 	return {
 		path: manager.getSessionFile(), name: manager.getSessionName() ?? null,

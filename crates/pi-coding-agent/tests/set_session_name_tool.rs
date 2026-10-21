@@ -12,7 +12,7 @@ use pi_coding_agent::core::extensions::types::{
 };
 use pi_coding_agent::core::extensions::{ExtensionRunner, create_extension_runtime};
 use pi_coding_agent::core::session_manager::{
-    NewSessionOptions, SessionManager, SharedSessionManager, lock_session_manager,
+    NewSessionOptions, SessionManager, SetMetadataControlDbPathOptions, SharedSessionManager, lock_session_manager,
 };
 use serde_json::{Value, json};
 
@@ -133,6 +133,9 @@ async fn run_case(case: &Value) -> Value {
                 Ok(value) => result = Some(value),
                 Err(value) => error = Some(value),
             },
+            "newSession" => {
+                lock_session_manager(&manager).new_session(None).unwrap();
+            }
             "external" => lock_session_manager(&manager)
                 .set_session_name(step["name"].as_str())
                 .unwrap(),
@@ -176,6 +179,8 @@ async fn frozen_registered_tool_matches_results_refusals_and_closure_lifetime() 
         json!({"steps":[{"op":"call","name":"First"},{"op":"session_start"},{"op":"call","name":"Still owns"},{"op":"reset"},{"op":"call","name":"Reload loses ownership"}]}),
         json!({"steps":[{"op":"setterError","error":"fixture write failed"},{"op":"call","name":"Failed"},{"op":"setterError"},{"op":"external","name":"Failed"},{"op":"call","name":"Not owned"}]}),
         json!({"steps":[{"op":"call","name":"## Title: Keep **formatting**\nsecond line\u{0085} retained"}]}),
+        json!({"steps":[{"op":"call","name":"Owned"},{"op":"newSession"},{"op":"session_start"},{"op":"external","name":"Owned"},{"op":"call","name":"Equality allows across switch"}]}),
+        json!({"steps":[{"op":"call","name":"Owned"},{"op":"newSession"},{"op":"session_start"},{"op":"external","name":"Different"},{"op":"call","name":"Cannot seize new session"}]}),
     ];
     for case in cases {
         let expected = ts.request(&case);
@@ -186,4 +191,237 @@ async fn frozen_registered_tool_matches_results_refusals_and_closure_lifetime() 
         assert_eq!(actual["output"], output, "scenario: {case}");
         assert_eq!(expected["titleRequests"], 0);
     }
+}
+
+#[tokio::test]
+async fn utf16_whitespace_and_word_boundaries_match_the_executed_ts_tool() {
+    let mut ts = oracle::TsOracle::spawn("set-session-name-tool-oracle.ts", SOURCE);
+    let names = vec![
+        "x".repeat(80),
+        "x".repeat(81),
+        format!("{} rest", "x".repeat(79)),
+        format!("{} rest", "x".repeat(80)),
+        format!("{}y rest", "🙂".repeat(39)),
+        format!("{} rest", "🙂".repeat(40)),
+        format!("ab {} tail", "🙂".repeat(40)),
+        "a\u{0009}b\u{000b}c\u{000c}d\u{00a0}e\u{1680}f\u{200a}g\u{2028}h\u{2029}i\u{202f}j\u{205f}k\u{3000}l\u{feff}m"
+            .to_owned(),
+        "a\u{0085}b\u{180e}c\u{200b}d".to_owned(),
+    ];
+    for name in names {
+        let case = json!({"steps":[{"op":"call","name":name}]});
+        let expected = ts.request(&case);
+        let output: Value = serde_json::from_str(expected["outputJson"].as_str().unwrap()).unwrap();
+        assert_eq!(run_case(&case).await["output"], output, "{case}");
+    }
+}
+
+#[tokio::test]
+async fn split_surrogate_is_proven_exactly_and_not_silently_converted() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap();
+    let mut ts = oracle::TsOracle::spawn("set-session-name-tool-oracle.ts", SOURCE);
+    let raw = format!("{}🙂", "x".repeat(79));
+    let expected = ts.request(&json!({"op":"toolPersist", "cwd":root, "sessionDir":root,
+        "db":directory.path().join("control.sqlite"), "toolName":raw}));
+    assert!(expected.get("error").is_none(), "{expected}");
+    let helper_json = format!("\"{}\\ud83d\"", "x".repeat(79));
+    assert_eq!(expected["managerNameJson"], helper_json);
+    assert!(
+        expected["resultJson"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("\"name\":{helper_json}"))
+    );
+    assert_eq!(
+        expected["storedNameJson"],
+        serde_json::to_string(&format!("{}�", "x".repeat(79))).unwrap()
+    );
+    let fixture = Fixture::new(manager(&directory, &json!({})), None).await;
+    let error = fixture.execute(&raw).await.unwrap_err();
+    assert_eq!(
+        error,
+        "set_session_name UTF-16 result is not representable by the current extension API; parity pending approval"
+    );
+    assert!(!lock_session_manager(&fixture.manager).has_session_name_state());
+    assert!(fixture.events.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn public_ts_manager_and_rust_tool_share_metadata_in_both_directions() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap();
+    let db = directory.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("set-session-name-tool-oracle.ts", SOURCE);
+    let created = ts.request(&json!({"op":"create", "cwd":root, "sessionDir":root, "db":db}));
+    assert!(created.get("error").is_none(), "{created}");
+    let session_path = created["path"].as_str().unwrap();
+    let mut opened = SessionManager::open(session_path, Some(root), None).unwrap();
+    opened
+        .set_metadata_control_db_path(Some(&db), SetMetadataControlDbPathOptions::default())
+        .unwrap();
+    let fixture = Fixture::new(Arc::new(Mutex::new(opened)), None).await;
+    fixture.execute("TS session Rust tool").await.unwrap();
+    let read = ts.request(&json!({"op":"read", "path":session_path, "sessionDir":root, "db":db}));
+    assert_eq!(read["name"], "TS session Rust tool", "{read}");
+    assert_eq!(
+        read["state"],
+        json!({"name":"TS session Rust tool","hasStoredValue":true})
+    );
+
+    let created =
+        ts.request(&json!({"op":"create", "cwd":root, "sessionDir":root, "db":db, "name":"TS independent name"}));
+    let path = created["path"].as_str().unwrap();
+    let mut opened = SessionManager::open(path, Some(root), None).unwrap();
+    opened
+        .set_metadata_control_db_path(Some(&db), SetMetadataControlDbPathOptions::default())
+        .unwrap();
+    let fixture = Fixture::new(Arc::new(Mutex::new(opened)), None).await;
+    let refusal = fixture.execute("Cannot seize TS name").await.unwrap();
+    assert_eq!(refusal["isError"], true);
+    assert_eq!(
+        lock_session_manager(&fixture.manager).get_session_name().as_deref(),
+        Some("TS independent name")
+    );
+
+    let rust_directory = directory.path().join("rust");
+    let rust_root = rust_directory.to_str().unwrap();
+    let mut rust_manager = SessionManager::create(root, Some(rust_root), None).unwrap();
+    rust_manager
+        .set_metadata_control_db_path(Some(&db), SetMetadataControlDbPathOptions::default())
+        .unwrap();
+    rust_manager.persist_for_recovery().unwrap();
+    let rust_path = rust_manager.get_session_file().unwrap().to_owned();
+    let fixture = Fixture::new(Arc::new(Mutex::new(rust_manager)), None).await;
+    fixture.execute("Rust created Rust tool").await.unwrap();
+    let read = ts.request(&json!({"op":"read", "path":rust_path, "sessionDir":rust_root, "db":db}));
+    assert_eq!(read["name"], "Rust created Rust tool", "{read}");
+    assert_eq!(read["stored"], true);
+    assert_eq!(
+        read["state"],
+        json!({"name":"Rust created Rust tool","hasStoredValue":true})
+    );
+}
+
+#[tokio::test]
+async fn real_extension_api_persists_publishes_events_and_never_requests_a_title() {
+    use pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions, faux_provider};
+    use pi_coding_agent::core::agent_session::ExtensionBindings;
+    use pi_coding_agent::core::auth_storage::AuthStorage;
+    use pi_coding_agent::core::extensions::types::{AgentEndEvent, ExtensionMode};
+    use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+    use pi_coding_agent::core::resource_loader::InlineExtension;
+    use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, NoTools, create_agent_session};
+    use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
+
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap();
+    let db = directory.path().join("control.sqlite").display().to_string();
+    let mut manager = SessionManager::create(root, Some(root), None).unwrap();
+    manager
+        .set_metadata_control_db_path(Some(&db), SetMetadataControlDbPathOptions::default())
+        .unwrap();
+    manager.persist_for_recovery().unwrap();
+    let path = manager.get_session_file().unwrap().to_owned();
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("faux".to_owned()),
+        models: Some(vec![FauxModelDefinition {
+            id: "naming-fixture".to_owned(),
+            name: None,
+            reasoning: None,
+            input: None,
+            cost: None,
+            context_window: Some(100_000.0),
+            max_tokens: Some(4096.0),
+        }]),
+        ..Default::default()
+    });
+    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        credentials: Some(Arc::new(AuthStorage::in_memory(Default::default()))),
+        models_path: Some(None),
+        refresh_on_create: Some(false),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&events);
+    let factory = Arc::new(move |api: &pi_coding_agent::core::extensions::ExtensionApi| {
+        let recorded = Arc::clone(&recorded);
+        let result = session_autoname_extension(api).and_then(|()| {
+            api.on_session_info_changed(move |event, _ctx| {
+                let recorded = Arc::clone(&recorded);
+                Box::pin(async move {
+                    recorded.lock().unwrap().push(event.name);
+                    Ok(None)
+                }) as pi_ai::request::BoxFuture<'static, _>
+            })
+            .map_err(HandlerError::new)
+        });
+        Box::pin(async move { result }) as pi_ai::request::BoxFuture<'static, _>
+    });
+    let created = create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(root.to_owned()),
+        agent_dir: Some(directory.path().join("agent").display().to_string()),
+        model_runtime: Some(runtime),
+        model: Some(faux.get_model(None).unwrap()),
+        no_tools: Some(NoTools::All),
+        session_manager: Some(manager),
+        settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
+            Default::default(),
+            SettingsManagerCreateOptions::default(),
+        )))),
+        extension_factories: vec![InlineExtension::Factory {
+            extension_path: Some("<inline:session-autoname>".to_owned()),
+            factory,
+        }],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert!(created.extensions_result.errors.is_empty());
+    let session = created.session;
+    session
+        .bind_extensions(ExtensionBindings {
+            mode: Some(ExtensionMode::Tui),
+            control_db_path: Some(db.clone()),
+            ..Default::default()
+        })
+        .await;
+    let tool = session
+        .get_tool_definition("set_session_name")
+        .expect("tool exposed through session registry");
+    for name in ["First title", "Renamed title"] {
+        let result = (tool.execute)(
+            "fixture".to_owned(),
+            json!({"name":name}),
+            None,
+            None,
+            session.extension_runner().create_context(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.details, Some(json!({"name":name})));
+    }
+    session
+        .extension_runner()
+        .emit(&mut ExtensionEvent::AgentEnd(AgentEndEvent {
+            messages: vec![],
+            session_continuation: None,
+        }))
+        .await;
+    tokio::task::yield_now().await;
+    assert_eq!(
+        faux.state().lock().unwrap().call_count,
+        0,
+        "naming must not issue a separate provider request"
+    );
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec![Some("First title".to_owned()), Some("Renamed title".to_owned())]
+    );
+    let mut ts = oracle::TsOracle::spawn("set-session-name-tool-oracle.ts", SOURCE);
+    let read = ts.request(&json!({"op":"read", "path":path, "sessionDir":root, "db":db}));
+    assert_eq!(read["name"], "Renamed title", "{read}");
 }

@@ -24,7 +24,11 @@ hook remains. Factory registration identity is unchanged.
 Initial RED (base `facbfaea`): dedicated differential reaches frozen TS oracle,
 then Rust fails because `set_session_name` is absent. Logs and exact revisions:
 `/tmp/pi-rust-repin-session-name-tool/ledger.md`.
-GREEN, persistence, mutation evidence are not yet claimed. Central coverage row
+Ordinary differential GREEN at `8f12adea`: one test, 13 scenarios, no warnings.
+Extended lifecycle, UTF16 boundaries, public cross-reader persistence, real
+ExtensionApi events/zero faux-provider requests and exact surrogate fixtures are
+now encoded in dedicated tests; their execution and mutation evidence remain
+pending. Central coverage row
 must not advance until whole-module proof and pending approval criteria are met.
 
 ## Pending representation boundary (not an approved deviation)
