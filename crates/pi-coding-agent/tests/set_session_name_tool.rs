@@ -231,6 +231,19 @@ async fn split_surrogate_is_proven_exactly_and_not_silently_converted() {
     println!("exact frozen surrogate fixture: {expected}");
     let helper_json = format!("\"{}\\ud83d\"", "x".repeat(79));
     assert_eq!(expected["managerNameJson"], helper_json);
+    let transcript = expected["transcriptLine"]
+        .as_str()
+        .expect("public manager writes a tool-result entry");
+    let text_json = format!("\"Session name set to \\\"{}\\ud83d\\\".\"", "x".repeat(79));
+    assert!(transcript.contains(&format!("\"text\":{text_json}")), "{transcript}");
+    assert!(
+        transcript.contains(&format!("\"details\":{{\"name\":{helper_json}}}")),
+        "{transcript}"
+    );
+    assert!(
+        !transcript.contains('�'),
+        "JSONL must retain escaped surrogate, not SQLite's UTF8 replacement"
+    );
     assert!(
         expected["resultJson"]
             .as_str()

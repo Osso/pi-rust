@@ -29,11 +29,11 @@ Session display names follow the authorized [common source pin](../porting/sourc
 
 ## Tests asserting this spec
 
-`crates/pi-coding-agent/tests/{session_control_db,session_manager,agent_session,agent_session_runtime,session_autoname,startup_session_name,rpc_mode_session_name,cross_implementation_control_db,differential_control_db}.rs`; `crates/pi-js-compat/tests/string_utf16.rs`.
+`crates/pi-coding-agent/tests/{session_control_db,session_manager,agent_session,agent_session_runtime,set_session_name_tool,startup_session_name,rpc_mode_session_name,cross_implementation_control_db,differential_control_db}.rs`; `crates/pi-js-compat/tests/string_utf16.rs`.
 
 ## Known gaps (current cycle)
 
-Frozen naming-tool ordinary differential, persistence and mutation proofs are in progress. Split-surrogate tool results cannot be represented by the current UTF8 extension setter/result fields; whole-module parity remains pending. Exact fixtures and proof status belong in [autoname traceability](../porting/traceability/session-autoname.md).
+Frozen naming-tool ordinary differential/persistence tests pass; ten behavioral mutants are killed. Split-surrogate tool results and persisted tool-result JSONL cannot be represented by the current UTF8 extension setter/result fields; whole-module parity remains pending. Exact fixtures and proof status belong in [autoname traceability](../porting/traceability/session-autoname.md).
 
 ## Out of scope
 

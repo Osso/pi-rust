@@ -1,5 +1,6 @@
 // Execute the frozen extension's registered tool, never a copied normalization helper.
 import { createInterface } from "node:readline";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -84,8 +85,13 @@ async function persistence(request: any): Promise<unknown> {
 		});
 		const result = await tool.execute("persist-call", { name: request.toolName }, undefined, undefined, { sessionManager: manager });
 		const state = db.readSessionNameState(request.db, manager.getSessionFile());
+		manager.appendMessage({
+			role: "toolResult", toolCallId: "persist-call", toolName: tool.name,
+			content: result.content, details: result.details, isError: result.isError ?? false, timestamp: 0,
+		});
+		const transcriptLine = readFileSync(manager.getSessionFile(), "utf8").trimEnd().split("\n").at(-1);
 		return {
-			path: manager.getSessionFile(), resultJson: JSON.stringify(result),
+			path: manager.getSessionFile(), resultJson: JSON.stringify(result), transcriptLine,
 			managerNameJson: JSON.stringify(manager.getSessionName()),
 			storedNameJson: JSON.stringify(state.name),
 		};
