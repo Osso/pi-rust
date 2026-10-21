@@ -85,7 +85,7 @@ fn deletion_matches_frozen_for_trash_unlink_missing_and_partial_failure() {
 
 fn write_metadata(db: &str, path: &std::path::Path, parent: Option<&std::path::Path>) {
     use pi_coding_agent::core::session_control_db::{WritableSessionMetadata, write_session_metadata};
-    let row:WritableSessionMetadata = serde_json::from_value(json!({"sessionPath":path,"parentSessionPath":parent,"id":path.file_name().unwrap().to_str().unwrap(),"cwd":path.parent().unwrap(),"createdAt":"2026-10-21T00:00:00.000Z","modifiedAt":"2026-10-21T00:00:00.000Z","messageCount":1,"firstMessage":"fixture"})).unwrap();
+    let row:WritableSessionMetadata = serde_json::from_value(json!({"sessionPath":path,"parentSessionPath":parent,"isSubagent":parent.is_some(),"id":path.file_name().unwrap().to_str().unwrap(),"cwd":path.parent().unwrap(),"createdAt":"2026-10-21T00:00:00.000Z","modifiedAt":"2026-10-21T00:00:00.000Z","messageCount":1,"firstMessage":"fixture"})).unwrap();
     write_session_metadata(db, &row).unwrap();
 }
 
@@ -105,7 +105,7 @@ fn frozen_tree_deletion_batches_long_paths_and_cleans_partial_metadata() {
         "packages/coding-agent/src/core",
         &[("PATH", oracle_path.into())],
     );
-    for scenario in ["tree", "partial", "long"] {
+    for scenario in ["tree", "partial", "long", "cleanup-error"] {
         let dir = temp.path().join(scenario);
         std::fs::create_dir(&dir).unwrap();
         let db = dir.join("control.sqlite").display().to_string();
@@ -158,6 +158,9 @@ fn frozen_tree_deletion_batches_long_paths_and_cleans_partial_metadata() {
             }
         };
         populate();
+        if scenario == "cleanup-error" {
+            rusqlite::Connection::open(&db).unwrap().execute_batch("CREATE TRIGGER prevent_metadata_cleanup BEFORE DELETE ON session_metadata BEGIN SELECT RAISE(ABORT, 'fixture cleanup denied'); END;").unwrap();
+        }
         let expected = oracle.request(&json!({"id":scenario,"op":"delete","path":root,"db":db}));
         assert_eq!(expected["ok"], true, "{expected}");
         let expected_rows: Vec<_> = list_session_metadata(&db)
@@ -185,7 +188,11 @@ fn frozen_tree_deletion_batches_long_paths_and_cleans_partial_metadata() {
         assert_eq!(actual_rows, expected_rows, "{scenario}");
         assert!(unrelated.exists());
         assert!(!removed.exists());
-        if scenario == "partial" {
+        if scenario == "cleanup-error" {
+            assert_eq!(actual_rows.len(), fixtures.len());
+            assert_eq!(actual["ok"], false);
+            assert!(!root.exists());
+        } else if scenario == "partial" {
             assert!(root.exists());
             assert!(child.exists());
             assert_eq!(actual_rows.len(), 3);
