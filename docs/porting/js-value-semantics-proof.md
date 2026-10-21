@@ -56,14 +56,14 @@ Exact before/after grep: `pattern-inventory.txt`, `remaining-inventory.txt` in t
 - `session_tool_output::serialized_content_bytes`: typed text/image records; no arbitrary numeric/key-bearing leaves. Unchanged.
 - Remote `count_reducible_text_chars`: sums all child lengths; object visitation order cannot change the sum. Unchanged.
 - Agent-session tool registries are JS Map equivalents. URLSearchParams keys in the untouched HTML template are not JSON object keys. Unchanged.
-- Detached activation identities have fixed string/integer fields. Final inspection found Bash launch manifests also contain an environment-name map: keys 1/2/10 expose lexicographic-versus-JS order. RED 39; the shared atomic writer now uses JS stringify (GREEN pending). No raw arbitrary-Value stringification remains at the audited boundaries. This is not a whole-repository serde migration or proof for arbitrary native unsafe integers.
+- Detached activation identities have fixed string/integer fields. Final inspection found Bash launch manifests also contain an environment-name map: keys 1/2/10 expose lexicographic-versus-JS order. RED 39; the shared atomic writer now uses JS stringify (GREEN 40). No raw arbitrary-Value stringification remains at the audited boundaries. This is not a whole-repository serde migration or proof for arbitrary native unsafe integers.
 - SDK skills diagnostics/model-name arrays are typed string-bearing records/arrays; the report established no numeric-key or numeric-leaf counterexample. Unchanged.
 
 Typed-schema property insertion order remains a separate existing caveat: adding `details` after `timestamp` in a caller-built file differs from Rust's schema order. The HTML fixture changes existing details fields, isolating this task's numeric-key/number defect rather than claiming that caveat fixed. Remote differential compares complete JS-visible bytes, not serde's internal integer/float variants; no fields are dropped.
 
 ## Preservation and limits
 
-57 executed targets, 550 passing test functions across the retained scoped logs. Six ignored entrypoints are child-process probes exercised through their parent tests. `proof-targets.json` maps exact targets/counts/logs; it combines the ten passing session-tool cases from 31 with the resume case in 32. The latter required only the documented local v15 reference setup, not a product change.
+57 executed targets, 551 passing test functions across the retained scoped logs. Six ignored entrypoints are child-process probes exercised through their parent tests. `proof-targets.json` maps exact targets/counts/logs; it combines the ten passing session-tool cases from 31 with the resume case in 32. The latter required only the documented local v15 reference setup, not a product change.
 
 | Proof scope | Logs |
 |---|---|
