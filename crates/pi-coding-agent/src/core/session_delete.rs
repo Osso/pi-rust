@@ -77,16 +77,8 @@ fn chunk_session_paths(paths: &[String]) -> Vec<&[String]> {
 
 async fn delete_session_batch(paths: &[String], deleted: &mut Vec<String>) -> SessionDeleteResult {
     let trash_error = trash_session_files(paths).await;
-    let remaining: Vec<&String> = paths
-        .iter()
-        .filter(|path| {
-            if Path::new(path).exists() {
-                return true;
-            }
-            deleted.push((*path).clone());
-            false
-        })
-        .collect();
+    let (remaining, removed): (Vec<&String>, Vec<&String>) = paths.iter().partition(|path| Path::new(path).exists());
+    deleted.extend(removed.into_iter().cloned());
     let method = if remaining.is_empty() { "trash" } else { "unlink" };
     for path in remaining {
         if let Err(error) = tokio::fs::remove_file(path).await {
@@ -119,40 +111,44 @@ async fn trash_session_files(paths: &[String]) -> Option<String> {
             });
         }
     };
-    let mut stderr = child.stderr.take().expect("trash stderr is piped");
-    let read = async move {
-        let mut prefix = Vec::new();
-        let mut buffer = [0; 4096];
-        loop {
-            let count = stderr.read(&mut buffer).await?;
-            if count == 0 {
-                break;
-            }
-            let remaining = 800_usize.saturating_sub(prefix.len());
-            prefix.extend_from_slice(&buffer[..count.min(remaining)]);
-        }
-        Ok::<_, std::io::Error>(prefix)
-    };
-    let (status, stderr) = tokio::join!(child.wait(), read);
+    let stderr = child.stderr.take().expect("trash stderr is piped");
+    let (status, stderr) = tokio::join!(child.wait(), read_stderr_prefix(stderr));
     match (status, stderr) {
         (Ok(status), _) if status.success() => None,
-        (Ok(status), Ok(stderr)) => {
-            let prefix = String::from_utf8_lossy(&stderr)
-                .encode_utf16()
-                .take(200)
-                .collect::<Vec<_>>();
-            let text = String::from_utf16_lossy(&prefix);
-            let first_line = pi_js_compat::string::js_trim(&text)
-                .split('\n')
-                .next()
-                .unwrap_or_default();
-            Some(if first_line.is_empty() {
-                format!("trash exited with {}", exit_status_text(status))
-            } else {
-                first_line.to_owned()
-            })
-        }
+        (Ok(status), Ok(stderr)) => Some(format_trash_error(status, &stderr)),
         (Err(error), _) | (_, Err(error)) => Some(error.to_string()),
+    }
+}
+
+async fn read_stderr_prefix(mut stderr: tokio::process::ChildStderr) -> std::io::Result<Vec<u8>> {
+    // Four UTF-8 bytes per retained UTF-16 unit is sufficient for the source's 200-unit prefix.
+    const PREFIX_BYTES: usize = 200 * 4;
+    let mut prefix = Vec::new();
+    let mut buffer = [0; 4096];
+    loop {
+        let count = stderr.read(&mut buffer).await?;
+        if count == 0 {
+            return Ok(prefix);
+        }
+        let remaining = PREFIX_BYTES.saturating_sub(prefix.len());
+        prefix.extend_from_slice(&buffer[..count.min(remaining)]);
+    }
+}
+
+fn format_trash_error(status: std::process::ExitStatus, stderr: &[u8]) -> String {
+    let prefix = String::from_utf8_lossy(stderr)
+        .encode_utf16()
+        .take(200)
+        .collect::<Vec<_>>();
+    let text = String::from_utf16_lossy(&prefix);
+    let first_line = pi_js_compat::string::js_trim(&text)
+        .split('\n')
+        .next()
+        .unwrap_or_default();
+    if first_line.is_empty() {
+        format!("trash exited with {}", exit_status_text(status))
+    } else {
+        first_line.to_owned()
     }
 }
 

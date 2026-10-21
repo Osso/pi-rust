@@ -2,7 +2,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::core::extensions::types::{
-    ExtensionApi, ExtensionCommandContext, HandlerError, NotifyType, SessionShutdownReason,
+    ExtensionApi, ExtensionCommandContext, HandlerError, NotifyType, SessionShutdownEvent, SessionShutdownReason,
 };
 use crate::core::session_archive_storage::archive_persisted_session;
 use crate::core::session_control_db::{read_session_metadata, unarchive_session};
@@ -19,7 +19,7 @@ enum QuitAction {
     Delete(CurrentSession),
 }
 
-fn validate_current_session(
+fn read_current_session_and_notify(
     command: &str,
     args: &str,
     ctx: &ExtensionCommandContext,
@@ -61,8 +61,8 @@ fn unarchive_current_session(session: CurrentSession, ctx: &ExtensionCommandCont
     Ok(())
 }
 
-async fn confirm_delete(ctx: &ExtensionCommandContext) -> Result<bool, HandlerError> {
-    let count = ctx.multi_agent_store()?.map_or(0, |store| {
+fn count_writing_children(ctx: &ExtensionCommandContext) -> Result<usize, HandlerError> {
+    Ok(ctx.multi_agent_store()?.map_or(0, |store| {
         store
             .list_active_agents()
             .iter()
@@ -74,7 +74,11 @@ async fn confirm_delete(ctx: &ExtensionCommandContext) -> Result<bool, HandlerEr
                     .is_some_and(|path| !path.is_empty())
             })
             .count()
-    });
+    }))
+}
+
+async fn confirm_delete(ctx: &ExtensionCommandContext) -> Result<bool, HandlerError> {
+    let count = count_writing_children(ctx)?;
     if count > 0 {
         let (agents, subject, transcripts) = if count == 1 {
             ("agent", "it", "its transcript")
@@ -113,25 +117,54 @@ async fn run_quit_action(action: QuitAction) -> Result<(), String> {
     }
 }
 
+type PendingQuitAction = Arc<Mutex<Option<QuitAction>>>;
+
+fn register_quit_handler(pi: &ExtensionApi, pending: PendingQuitAction) -> Result<(), HandlerError> {
+    pi.on_session_shutdown(move |event: SessionShutdownEvent, _ctx| {
+        let action = pending.lock().expect("quit action lock").take();
+        Box::pin(async move {
+            if event.reason != SessionShutdownReason::Quit {
+                return Ok(None);
+            }
+            let Some(action) = action else {
+                return Ok(None);
+            };
+            if let Err(error) = run_quit_action(action).await {
+                eprintln!("{error}");
+            }
+            Ok(None)
+        }) as crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>>
+    })
+    .map_err(HandlerError::new)
+}
+
+async fn execute_session_command(
+    command: &str,
+    args: &str,
+    ctx: ExtensionCommandContext,
+    pending: PendingQuitAction,
+) -> Result<(), HandlerError> {
+    let Some(session) = read_current_session_and_notify(command, args, &ctx)? else {
+        return Ok(());
+    };
+    if command == "unarchive" {
+        return unarchive_current_session(session, &ctx);
+    }
+    if command == "delete" && !confirm_delete(&ctx).await? {
+        return Ok(());
+    }
+    let action = if command == "archive" {
+        QuitAction::Archive(session)
+    } else {
+        QuitAction::Delete(session)
+    };
+    *pending.lock().expect("quit action lock") = Some(action);
+    ctx.shutdown()
+}
+
 pub fn session_archive_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     let pending = Arc::new(Mutex::new(None));
-    let shutdown_pending = Arc::clone(&pending);
-    pi.on_session_shutdown(
-        move |event: crate::core::extensions::types::SessionShutdownEvent, _ctx| {
-            let action = shutdown_pending.lock().expect("quit action lock").take();
-            Box::pin(async move {
-                if event.reason == SessionShutdownReason::Quit {
-                    if let Some(action) = action {
-                        if let Err(error) = run_quit_action(action).await {
-                            eprintln!("{error}");
-                        }
-                    }
-                }
-                Ok(None)
-            }) as crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>>
-        },
-    )
-    .map_err(HandlerError::new)?;
+    register_quit_handler(pi, Arc::clone(&pending))?;
     for (command, description) in [
         ("unarchive", "Unarchive the current session"),
         ("archive", "Archive the current session and quit"),
@@ -147,24 +180,7 @@ pub fn session_archive_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
             None,
             Arc::new(move |args, ctx| {
                 let pending = Arc::clone(&pending);
-                Box::pin(async move {
-                    let Some(session) = validate_current_session(command, &args, &ctx)? else {
-                        return Ok(());
-                    };
-                    if command == "unarchive" {
-                        return unarchive_current_session(session, &ctx);
-                    }
-                    if command == "delete" && !confirm_delete(&ctx).await? {
-                        return Ok(());
-                    }
-                    let action = if command == "archive" {
-                        QuitAction::Archive(session)
-                    } else {
-                        QuitAction::Delete(session)
-                    };
-                    *pending.lock().expect("quit action lock") = Some(action);
-                    ctx.shutdown()
-                })
+                Box::pin(async move { execute_session_command(command, &args, ctx, pending).await })
             }),
         )
         .map_err(HandlerError::new)?;
