@@ -33,6 +33,8 @@ function load(repoRoot) {
 		readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"),
 	);
 	const reference = lock.typecheckReference;
+	if (reference?.status === "blocked")
+		throw new Error(`typecheck reference blocked: ${reference.todo}; see docs/porting/oracle-gate.md`);
 	if (!reference)
 		throw new Error(
 			"missing typecheckReference metadata; restore source-lock.json",

@@ -58,7 +58,7 @@ Rust: `crates/pi-coding-agent/src/core/agent_session_runtime.rs`.
 
 ## v15 import/fork names (approved 2026-10-20)
 
-Name paths follow `c248b0067` ([reference lock](../session-name-source-lock.json)).
+Name paths follow `c248b0067` ([reference lock](../source-lock.json)).
 Copied imports remove stale destination metadata after copying; lexically identical imports
 return before copy/removal. Forks reset name state rather than inheriting a parent name.
 Proof: `agent_session_runtime::import_does_not_inherit_stale_metadata_or_historical_jsonl_names`,

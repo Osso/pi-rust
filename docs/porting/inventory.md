@@ -33,7 +33,7 @@ At reconciliation commit `bf639a5`, all 144 added rows were `todo`: unresolved m
 
 ## Authorized v15 addition
 
-The v15 slice adds `coding-agent/extensions/session-autoname/src/index.ts`, absent from the original pin: 295 lines at the revision in [session-name-source-lock.json](session-name-source-lock.json). Its `additionalSourceFiles` list extends the inventory without changing the original pin or the counts of existing pinned modules. Matrix totals: **820 unique files / 191,994 lines**. Current statuses live only in [coverage.md](coverage.md).
+The v15 slice adds `coding-agent/extensions/session-autoname/src/index.ts`, absent from the original pin: 295 lines at the revision in [source-lock.json](source-lock.json). Its `additionalSourceFiles` list extends the inventory without changing the original pin or the counts of existing pinned modules. Matrix totals: **820 unique files / 191,994 lines**. Current statuses live only in [coverage.md](coverage.md).
 
 ## Repeatable validation
 
@@ -77,7 +77,7 @@ for name in files:
         assert path.suffix in other, f"Unclassified source kind: {name}"
         excluded[path.suffix or "extensionless"] += 1
 
-name_lock = json.loads((root / "docs/porting/session-name-source-lock.json").read_text())
+name_lock = json.loads((root / "docs/porting/source-lock.json").read_text())
 for name in name_lock["additionalSourceFiles"]:
     assert name not in expected, f"Additional source already in original pin: {name}"
     data = subprocess.run(

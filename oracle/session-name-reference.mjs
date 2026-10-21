@@ -9,7 +9,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export function validateSessionNameReference(repoRoot = root) {
 	const lock = JSON.parse(
 		readFileSync(
-			join(repoRoot, "docs/porting/session-name-source-lock.json"),
+			join(repoRoot, "docs/porting/source-lock.json"),
 			"utf8",
 		),
 	);
@@ -34,7 +34,7 @@ export function validateSessionNameReference(repoRoot = root) {
 	for (const path of [
 		"node_modules/.bin/tsx",
 		"tsconfig.json",
-		"packages/ai/src/providers/data",
+		"packages/ai/src/models.generated.ts",
 	]) {
 		if (!existsSync(join(reference, path)))
 			throw new Error(`missing v15 reference environment: ${path}`);

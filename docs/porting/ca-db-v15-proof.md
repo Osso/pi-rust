@@ -1,7 +1,7 @@
 # Control DB v15 slice proof
 
 Branch: `port/ca-db-v15`, based on `6ffdddf`. Source behavior:
-[authorized c248b0067 reference](session-name-source-lock.json), except unchanged
+[authorized c248b0067 reference](source-lock.json), except unchanged
 broad AgentSession/RPC differentials, which retain the general pin and exercise
 name commands after JSONL snapshots. No output field/event is removed to force parity.
 

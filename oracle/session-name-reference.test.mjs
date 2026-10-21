@@ -59,15 +59,16 @@ function fixture(t, state) {
 		}
 		if (state !== "missing-environment") {
 			mkdirSync(join(reference, "node_modules/.bin"), { recursive: true });
-			mkdirSync(join(reference, "packages/ai/src/providers/data"), {
+			mkdirSync(join(reference, "packages/ai/src"), {
 				recursive: true,
 			});
 			writeFileSync(join(reference, "node_modules/.bin/tsx"), "fixture");
 			writeFileSync(join(reference, "tsconfig.json"), "{}");
+			writeFileSync(join(reference, "packages/ai/src/models.generated.ts"), "export {};");
 		}
 	}
 	writeFileSync(
-		join(directory, "docs/porting/session-name-source-lock.json"),
+		join(directory, "docs/porting/source-lock.json"),
 		JSON.stringify({ worktree: "target/session-name-oracle", commit }),
 	);
 	const bin = join(directory, "bin");
@@ -111,7 +112,7 @@ for (const state of ["valid", "missing-environment"]) {
 	test(`explicit v15 preflight: ${state}`, (t) => {
 		const f = fixture(t, state);
 		const lockBefore = readFileSync(
-			join(f.directory, "docs/porting/session-name-source-lock.json"),
+			join(f.directory, "docs/porting/source-lock.json"),
 			"utf8",
 		);
 		const result = spawnSync(
@@ -132,7 +133,7 @@ for (const state of ["valid", "missing-environment"]) {
 		else assert.ok(result.stderr.includes(setupDoc), result.stderr);
 		assert.equal(
 			readFileSync(
-				join(f.directory, "docs/porting/session-name-source-lock.json"),
+				join(f.directory, "docs/porting/source-lock.json"),
 				"utf8",
 			),
 			lockBefore,

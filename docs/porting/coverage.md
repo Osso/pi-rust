@@ -1,6 +1,6 @@
 # Port coverage matrix
 
-Source: `packages/` at the commit in [source-lock.json](source-lock.json): **820 unique files, 191,994 lines**. Includes the approved v15 session-autoname module from [session-name-source-lock.json](session-name-source-lock.json), plus non-test modules, declarations, native/build/tooling/example sources, templates, SQL, and JSON under `src/`; exact selection and repeatable validation: [inventory](inventory.md).
+Source: `packages/` at the commit in [source-lock.json](source-lock.json): **820 unique files, 191,994 lines**. Includes the approved v15 session-autoname module from [source-lock.json](source-lock.json), plus non-test modules, declarations, native/build/tooling/example sources, templates, SQL, and JSON under `src/`; exact selection and repeatable validation: [inventory](inventory.md).
 
 Status: `todo` unresolved coverage (not an approved exclusion); `partial` some exports ported (see traceability); `done` whole module ported with tests; `gap` approved exclusion (reason in Notes). Existing proof labels are retained, not independently revalidated by this inventory audit. Structural debt in giant Rust modules remains unresolved; this slice does not refactor them.
 

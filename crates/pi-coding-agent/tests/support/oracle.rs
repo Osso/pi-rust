@@ -119,17 +119,7 @@ fn read_source_lock() -> SourceLock {
 }
 
 fn read_session_name_source_lock() -> SourceLock {
-    let value: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../docs/porting/session-name-source-lock.json"
-    )))
-    .expect("session-name source lock must be valid JSON");
-    SourceLock {
-        worktree: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(value["worktree"].as_str().expect("source worktree")),
-        commit: value["commit"].as_str().expect("source commit").to_owned(),
-    }
+    read_source_lock()
 }
 
 fn spawn_oracle_process(

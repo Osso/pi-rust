@@ -1,6 +1,6 @@
 # Session-name v15 oracle
 
-Approved reference: [session-name-source-lock.json](session-name-source-lock.json).
+Approved reference: [source-lock.json](source-lock.json).
 The general [source lock](source-lock.json) remains unchanged.
 
 Prepare once from this checkout, without modifying either reference repository:
