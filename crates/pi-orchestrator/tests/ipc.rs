@@ -207,3 +207,61 @@ async fn session_events_are_written_while_rpc_command_is_pending() {
     drop(reader);
     server.close().await;
 }
+
+#[tokio::test]
+async fn ipc_handler_errors_unknown_stream_and_client_eof() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    struct Failure;
+    impl IpcRequestHandler for Failure {
+        fn handle(&self, request: Value) -> BoxFuture<'_, Result<Value, String>> {
+            Box::pin(async move {
+                if request["type"] == "rpc_stream" {
+                    Ok(json!({"type":"rpc_ready","ok":true,"instance":{"id":"gone"}}))
+                } else {
+                    Err("handler failed".into())
+                }
+            })
+        }
+        fn open_rpc_stream(&self, _id: &str, _callback: OnMessage) -> Option<Arc<dyn RpcStream>> {
+            None
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("socket");
+    let server = start_ipc_server(&path, Arc::new(Failure)).await.unwrap();
+    assert_eq!(
+        send_ipc_request(&path, &json!({"type":"list"})).await.unwrap(),
+        json!({"type":"error","ok":false,"error":"handler failed"})
+    );
+    assert_eq!(
+        send_ipc_request(&path, &json!({"type":"rpc_stream","instanceId":"gone"}))
+            .await
+            .unwrap(),
+        json!({"type":"error","ok":false,"error":"Unknown instance: gone"})
+    );
+    let mut socket = tokio::net::UnixStream::connect(&path).await.unwrap();
+    socket.write_all(b"{\n").await.unwrap();
+    let mut text = String::new();
+    socket.read_to_string(&mut text).await.unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&text).unwrap()["error"],
+        pi_orchestrator::ipc::protocol::parse_request_line("{").unwrap_err()
+    );
+    server.close().await;
+    let eof = dir.path().join("eof");
+    let listener = tokio::net::UnixListener::bind(&eof).unwrap();
+    let task = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buffer = [0; 256];
+        stream.read(&mut buffer).await.unwrap();
+        stream.shutdown().await.unwrap();
+    });
+    assert_eq!(
+        send_ipc_request(&eof, &json!({"type":"list"})).await.unwrap_err(),
+        format!(
+            "Orchestrator socket closed before a response was received: {}",
+            eof.display()
+        )
+    );
+    task.await.unwrap();
+}

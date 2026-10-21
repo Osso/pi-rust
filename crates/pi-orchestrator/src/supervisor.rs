@@ -47,6 +47,7 @@ pub struct OrchestratorSupervisor {
     options: SupervisorOptions,
     live: Mutex<IndexMap<String, Live>>,
     ids: AtomicUsize,
+    fatal: tokio::sync::watch::Sender<Option<String>>,
 }
 
 impl OrchestratorSupervisor {
@@ -57,10 +58,32 @@ impl OrchestratorSupervisor {
             options,
             live: Mutex::new(IndexMap::new()),
             ids: AtomicUsize::new(0),
+            fatal: tokio::sync::watch::channel(None).0,
         });
         let coordinator: Arc<dyn RadiusPresenceCoordinator> = supervisor.clone();
         radius.set_coordinator(Arc::downgrade(&coordinator));
         supervisor
+    }
+    pub fn subscribe_fatal_errors(&self) -> tokio::sync::watch::Receiver<Option<String>> {
+        self.fatal.subscribe()
+    }
+    fn observe_fatal_errors(self: &Arc<Self>, process: &RpcProcessInstance) {
+        let mut errors = process.subscribe_fatal_errors();
+        let supervisor = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                let error = errors.borrow_and_update().clone();
+                if let Some(error) = error {
+                    if let Some(supervisor) = supervisor.upgrade() {
+                        supervisor.fatal.send_replace(Some(error));
+                    }
+                    return;
+                }
+                if errors.changed().await.is_err() {
+                    return;
+                }
+            }
+        });
     }
     fn find_live(&self, id: &str) -> Option<Live> {
         self.live.lock().unwrap().get(id).cloned()
@@ -113,6 +136,7 @@ impl OrchestratorSupervisor {
     fn bind_process(self: &Arc<Self>, live: &Live, process: RpcProcessInstance) {
         Self::clear_bindings(live);
         live.lock().unwrap().process = Some(process.clone());
+        self.observe_fatal_errors(&process);
         let events = Arc::downgrade(live);
         let event_id = process.on_event(Arc::new(move |event| {
             let subscribers = events

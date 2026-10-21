@@ -304,3 +304,129 @@ async fn serve_startup_logs_and_signal_cleanup_match_frozen() {
     runtime.shutdown().await.unwrap();
     assert!(!config.socket_path().exists());
 }
+
+#[tokio::test]
+async fn failed_spawn_stays_stopped_but_unexpected_child_exit_stays_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let supervisor = create(Storage(dir.path().join("state")));
+    assert!(
+        supervisor
+            .spawn_instance(dir.path().join("does-not-exist").to_string_lossy().into(), None)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        supervisor.get_instance("instance").unwrap().unwrap()["status"],
+        "stopped"
+    );
+    assert!(supervisor.get_live_instance("instance").is_none());
+    supervisor
+        .spawn_instance(dir.path().to_str().unwrap().into(), None)
+        .await
+        .unwrap();
+    assert!(
+        supervisor
+            .handle_rpc("instance", json!({"type":"exit","id":"exit"}))
+            .await
+            .is_err()
+    );
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(supervisor.get_instance("instance").unwrap().unwrap()["status"], "error");
+    assert!(supervisor.get_live_instance("instance").is_none());
+    assert!(supervisor.stop_instance("instance").await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn malformed_child_json_ends_serve_with_error_and_normal_cleanup() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = pi_orchestrator::config::Config {
+        dir: dir.path().join("runtime"),
+    };
+    let storage = Storage(config.dir.clone());
+    let supervisor = create(storage.clone());
+    let radius = RadiusPresence::new(
+        storage.clone(),
+        pi_ai::http::default_fetch(),
+        RadiusOptions {
+            env: Arc::new(Default::default),
+            credential: Arc::new(|| None),
+            now: Arc::new(|| "time".into()),
+            random: Arc::new(|| 0.5),
+            hostname: "test".into(),
+            platform: "linux".into(),
+            arch: "x64".into(),
+            pid: 1,
+        },
+    );
+    let runtime = pi_orchestrator::serve::RunningOrchestrator::start(config.clone(), supervisor.clone(), radius)
+        .await
+        .unwrap();
+    supervisor
+        .spawn_instance(dir.path().to_str().unwrap().into(), None)
+        .await
+        .unwrap();
+    let command = supervisor.clone();
+    let pending = tokio::spawn(async move {
+        command
+            .handle_rpc("instance", json!({"type":"malformed","id":"bad"}))
+            .await
+    });
+    let result = tokio::time::timeout(std::time::Duration::from_millis(500), runtime.run_until_signal()).await;
+    runtime.shutdown().await.unwrap();
+    assert!(pending.await.unwrap().unwrap_err().contains("disposed"));
+    assert!(!config.socket_path().exists());
+    assert!(storage.load_instances().unwrap().is_empty());
+    assert!(result.expect("malformed child JSON must terminate serve").is_err());
+}
+
+#[tokio::test]
+async fn frozen_serve_malformed_child_json_exits_one_and_cleans_up() {
+    use pi_orchestrator::ipc::client::send_ipc_request;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
+    let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+    let dir = tempfile::tempdir().unwrap();
+    let config = pi_orchestrator::config::Config {
+        dir: dir.path().join("state"),
+    };
+    let mut child = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
+        .arg("--tsconfig")
+        .arg(source.join("tsconfig.json"))
+        .arg(root.join("oracle/orchestrator-fatal-oracle.mjs"))
+        .arg(source)
+        .arg(root.join("oracle/orchestrator-rpc-fake.mjs"))
+        .env("PI_ORCHESTRATOR_DIR", &config.dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+    for _ in 0..2 {
+        let mut line = String::new();
+        tokio::time::timeout(std::time::Duration::from_secs(30), reader.read_line(&mut line))
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    let spawn = send_ipc_request(&config.socket_path(), &json!({"type":"spawn","cwd":dir.path()}))
+        .await
+        .unwrap();
+    let id = spawn["instance"]["id"].as_str().unwrap();
+    let _outcome = send_ipc_request(
+        &config.socket_path(),
+        &json!({"type":"rpc","instanceId":id,"command":{"type":"malformed","id":"bad"}}),
+    )
+    .await;
+    let status = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(status.code(), Some(1));
+    assert!(!config.socket_path().exists());
+    assert!(Storage(config.dir).load_instances().unwrap().is_empty());
+}

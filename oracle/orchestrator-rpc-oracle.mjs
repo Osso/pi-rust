@@ -4,6 +4,16 @@ const { RpcProcessInstance } = await import(pathToFileURL(`${root}/packages/orch
 // Inject only the child executable; frozen routing/lifetime implementation remains unchanged.
 RpcProcessInstance.prototype.getSpawnCommand = () => ({command: process.execPath, args: [fake]});
 const rpc = new RpcProcessInstance({cwd: process.cwd()});
+if (process.argv[4] === "duplicate") {
+    const original = rpc.send({type:"hang",id:"duplicate"});
+    const response = await rpc.send({type:"get_state",id:"duplicate"});
+    const staysPending = () => Promise.race([original.then(() => false, () => false),new Promise(resolve => setTimeout(() => resolve(true),30))]);
+    const before = await staysPending();
+    await rpc.dispose();
+    const after = await staysPending();
+    process.stdout.write(`${JSON.stringify({before,after,command:response.command})}\n`);
+    process.exit(0);
+}
 const events = [], ui = [];
 rpc.onEvent((v) => events.push(v));
 rpc.setUiRequestHandler((v) => ui.push(v));

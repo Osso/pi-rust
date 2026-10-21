@@ -69,3 +69,56 @@ async fn routing_matches_frozen_process_and_disposal_rejects_pending() {
     rpc.dispose().await.unwrap();
     assert!(task.await.unwrap().unwrap_err().contains("disposed"));
 }
+
+#[tokio::test]
+async fn duplicate_pending_id_orphans_original_even_after_disposal() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut command = tokio::process::Command::new("node");
+    command.arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../oracle/orchestrator-rpc-fake.mjs"));
+    let rpc = RpcProcessInstance::spawn_command(&mut command, dir.path()).unwrap();
+    let first = rpc.clone();
+    let mut pending = tokio::spawn(async move { first.send(json!({"type":"hang","id":"duplicate"})).await });
+    tokio::task::yield_now().await;
+    assert_eq!(
+        rpc.send(json!({"type":"get_state","id":"duplicate"})).await.unwrap()["command"],
+        "get_state"
+    );
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(30), &mut pending)
+            .await
+            .is_err(),
+        "overwritten original resolver must remain pending"
+    );
+    rpc.dispose().await.unwrap();
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(30), &mut pending)
+            .await
+            .is_err()
+    );
+    pending.abort();
+    let _ = pending.await;
+}
+
+#[tokio::test]
+async fn duplicate_id_frozen_discrepancy_is_explicitly_preserved() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
+    let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+    let result = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
+        .arg("--tsconfig")
+        .arg(source.join("tsconfig.json"))
+        .arg(root.join("oracle/orchestrator-rpc-oracle.mjs"))
+        .arg(source)
+        .arg(root.join("oracle/orchestrator-rpc-fake.mjs"))
+        .arg("duplicate")
+        .output()
+        .await
+        .unwrap();
+    assert!(result.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&result.stdout).unwrap(),
+        json!({"before":true,"after":true,"command":"get_state"})
+    );
+    // Same observable before/after predicate is asserted against Rust in the real-child test.
+}

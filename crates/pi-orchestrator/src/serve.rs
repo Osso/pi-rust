@@ -74,10 +74,30 @@ impl RunningOrchestrator {
         use tokio::signal::unix::{SignalKind, signal};
         let mut interrupt = signal(SignalKind::interrupt()).map_err(|e| e.to_string())?;
         let mut terminate = signal(SignalKind::terminate()).map_err(|e| e.to_string())?;
-        tokio::select! {_ = interrupt.recv()=>{},_ = terminate.recv()=>{}}
-        self.shutdown().await
+        let fatal = wait_for_fatal(self.supervisor.subscribe_fatal_errors());
+        let error = tokio::select! {
+            _ = interrupt.recv() => None,
+            _ = terminate.recv() => None,
+            error = fatal => Some(error),
+        };
+        self.shutdown().await?;
+        match error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
+async fn wait_for_fatal(mut errors: tokio::sync::watch::Receiver<Option<String>>) -> String {
+    loop {
+        if let Some(error) = errors.borrow_and_update().clone() {
+            return error;
+        }
+        if errors.changed().await.is_err() {
+            return "orchestrator fatal-error channel closed".into();
+        }
+    }
+}
+
 async fn initialize_presence(
     config: &Config,
     supervisor: &OrchestratorSupervisor,

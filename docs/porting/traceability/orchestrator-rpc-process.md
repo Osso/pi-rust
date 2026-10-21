@@ -11,3 +11,5 @@ Frozen `packages/orchestrator/src/rpc-process.ts` at [common pin](../source-lock
 | generated IDs, blank lines, partial frames, stderr, malformed JSON | implemented; fixtures pending |
 
 Packaging: parent approved native sibling `pi --mode rpc`, injectable command only for sandbox fakes. Shared coding-agent RPC envelopes re-exported by protocol. No source checkout changes. Frozen process spawn command is replaced on its prototype only inside oracle fixture; routing/lifetime code is unmodified.
+
+Approved frozen discrepancies (parent 2026-10-21): duplicate in-flight ID retains the original pending resolver even after disposal; Rust orphan sender list releases only with instance lifetime. Malformed child JSON propagates through native fatal channel to serve Err/CLI exit 1, with ordinary server/supervisor/Radius/socket cleanup, not a new immediate send rejection. Real-child RED/GREEN and frozen subprocess differential fixtures cover both.

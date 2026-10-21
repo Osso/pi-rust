@@ -10,3 +10,5 @@ Frozen `packages/orchestrator/src/supervisor.ts` at [common pin](../source-lock.
 | unexpected exit/failSpawn/shutdown/metadata refresh command set/multiple subscribers | implemented; additional failure fixtures pending |
 
 Native runtime creates one shared supervisor and Radius coordinator, with weak coordinator binding to avoid an ownership cycle. Source maps use insertion-ordered IndexMap. Initial-ID/time injection is boundary-only; frozen differential normalizes generated instance UUID and fixes clock without modifying source bytes.
+
+Approved frozen discrepancies (parent 2026-10-21): duplicate in-flight ID retains the original pending resolver even after disposal; Rust orphan sender list releases only with instance lifetime. Malformed child JSON propagates through native fatal channel to serve Err/CLI exit 1, with ordinary server/supervisor/Radius/socket cleanup, not a new immediate send rejection. Real-child RED/GREEN and frozen subprocess differential fixtures cover both.

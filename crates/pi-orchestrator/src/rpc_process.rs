@@ -26,6 +26,8 @@ struct State {
     stderr: String,
     next_id: u64,
     pending: HashMap<String, Pending>,
+    // Frozen Map replacement loses the old resolver: retain it, unsettled, until instance drop.
+    orphaned: Vec<Pending>,
     events: IndexMap<usize, Listener>,
     exits: IndexMap<usize, ExitListener>,
     ui: Option<Listener>,
@@ -36,6 +38,7 @@ struct Inner {
     stdin: tokio::sync::Mutex<ChildStdin>,
     ids: AtomicUsize,
     exited: watch::Sender<bool>,
+    fatal: watch::Sender<Option<String>>,
 }
 #[derive(Clone)]
 pub struct RpcProcessInstance(Arc<Inner>);
@@ -78,15 +81,20 @@ impl RpcProcessInstance {
         let stdout = child.stdout.take().ok_or("Failed to create RPC process stdio")?;
         let stderr = child.stderr.take().ok_or("Failed to create RPC process stderr")?;
         let (exited, _) = watch::channel(false);
+        let (fatal, _) = watch::channel(None);
         let inner = Arc::new(Inner {
             pid: child.id().ok_or("RPC process has no pid")?,
             state: Mutex::new(State::default()),
             stdin: tokio::sync::Mutex::new(stdin),
             ids: AtomicUsize::new(0),
             exited,
+            fatal,
         });
         attach_readers(inner.clone(), stdout, stderr, child);
         Ok(Self(inner))
+    }
+    pub fn subscribe_fatal_errors(&self) -> watch::Receiver<Option<String>> {
+        self.0.fatal.subscribe()
     }
     pub async fn send(&self, mut command: Value) -> Result<Value, String> {
         let (sender, receiver) = oneshot::channel();
@@ -101,7 +109,9 @@ impl RpcProcessInstance {
                 state.next_id += 1;
                 format!("orchestrator_{}_{}", state.next_id, random_uuid()?)
             };
-            state.pending.insert(id.clone(), sender);
+            if let Some(orphaned) = state.pending.insert(id.clone(), sender) {
+                state.orphaned.push(orphaned);
+            }
             id
         };
         command["id"] = Value::String(id.clone());
@@ -176,13 +186,11 @@ fn attach_readers(
 ) {
     let output = inner.clone();
     let stdout_task = tokio::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-            if !line.trim().is_empty() {
-                dispatch_line(&output, &line)?;
-            }
+        let result = read_stdout(&output, stdout).await;
+        if let Err(error) = &result {
+            output.fatal.send_replace(Some(error.clone()));
         }
-        Ok::<(), String>(())
+        result
     });
     let errors = inner.clone();
     let stderr_task = tokio::spawn(async move {
@@ -214,6 +222,16 @@ fn attach_readers(
         }
         finish_exit(&inner, status);
     });
+}
+
+async fn read_stdout(inner: &Inner, stdout: tokio::process::ChildStdout) -> Result<(), String> {
+    let mut lines = BufReader::new(stdout).lines();
+    while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+        if !line.trim().is_empty() {
+            dispatch_line(inner, &line)?;
+        }
+    }
+    Ok(())
 }
 
 fn dispatch_line(inner: &Inner, line: &str) -> Result<(), String> {

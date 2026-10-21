@@ -74,3 +74,42 @@ fn config_paths_normalize_joined_segments_but_not_explicit_directory() {
     };
     assert_eq!(config.socket_path(), std::path::Path::new("state/orchestrator.sock"));
 }
+
+#[test]
+fn storage_absent_delete_corrupt_json_unknown_fields_and_enum_wire_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let storage = Storage(dir.path().into());
+    assert!(storage.load_machine().unwrap().is_none());
+    storage.delete_machine().unwrap();
+    assert!(storage.get_instance("missing").unwrap().is_none());
+    storage.remove_instance("missing").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("instances.json")).unwrap(),
+        "[]"
+    );
+    std::fs::write(dir.path().join("machine.json"), "{").unwrap();
+    assert!(storage.load_machine().is_err());
+    std::fs::write(dir.path().join("instances.json"), "{").unwrap();
+    assert!(storage.load_instances().is_err());
+    use pi_orchestrator::types::{InstanceRecord, InstanceStatus, MachineRecord, RadiusRegistration};
+    for (status, text) in [
+        (InstanceStatus::Starting, "starting"),
+        (InstanceStatus::Online, "online"),
+        (InstanceStatus::Stopping, "stopping"),
+        (InstanceStatus::Stopped, "stopped"),
+        (InstanceStatus::Error, "error"),
+    ] {
+        assert_eq!(serde_json::to_value(status).unwrap(), text);
+        assert_eq!(serde_json::from_value::<InstanceStatus>(json!(text)).unwrap(), status);
+    }
+    let machine: MachineRecord = serde_json::from_value(json!({"id":"m","createdAt":"t"})).unwrap();
+    assert_eq!(
+        serde_json::to_value(machine).unwrap(),
+        json!({"id":"m","createdAt":"t"})
+    );
+    let instance:InstanceRecord=serde_json::from_value(json!({"id":"i","status":"online","cwd":"/tmp","createdAt":"t","label":"test","sessionId":"s","sessionFile":"f","radiusPiId":"r","lastSeenAt":"seen"})).unwrap();
+    assert_eq!(serde_json::to_value(instance).unwrap()["radiusPiId"], "r");
+    let registration: RadiusRegistration =
+        serde_json::from_value(json!({"heartbeatIntervalMs":1000,"expiresInMs":2000})).unwrap();
+    assert_eq!(registration.heartbeat_interval_ms, 1000);
+}
