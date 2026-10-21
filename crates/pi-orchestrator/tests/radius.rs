@@ -347,10 +347,8 @@ async fn frozen_radius_machine_and_pi_retry_recovery_matrices() {
         presence.set_coordinator(Arc::downgrade(&dyn_coordinator));
         presence.start(Some("desk".into())).await.unwrap();
         if scenario == "pi" {
-            let instance = presence
-                .register_pi(coordinator.0.lock().unwrap().clone())
-                .await
-                .unwrap();
+            let record = coordinator.0.lock().unwrap().clone();
+            let instance = presence.register_pi(record).await.unwrap();
             *coordinator.0.lock().unwrap() = instance;
         }
         let delays = if scenario == "machine" {

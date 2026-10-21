@@ -8,7 +8,7 @@ use pi_orchestrator::{
 };
 use serde_json::{Value, json};
 use std::{path::Path, sync::Arc, time::Duration};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 struct Echo;
 impl IpcRequestHandler for Echo {
@@ -97,10 +97,12 @@ async fn framing_whitespace_matches_node_trim_in_client_server_stream_and_child(
         let listener = tokio::net::UnixListener::bind(&path).unwrap();
         let response = frame.clone();
         let writer = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut bytes = [0; 1024];
-            socket.read(&mut bytes).await.unwrap();
-            socket.write_all(response.as_bytes()).await.unwrap();
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = BufReader::new(socket);
+            let mut request = String::new();
+            socket.read_line(&mut request).await.unwrap();
+            assert_eq!(serde_json::from_str::<Value>(&request).unwrap(), json!({"type":"list"}));
+            socket.get_mut().write_all(response.as_bytes()).await.unwrap();
         });
         let actual = send_ipc_request(&path, &json!({"type":"list"})).await;
         writer.await.unwrap();
