@@ -10,6 +10,8 @@ Frozen: `packages/coding-agent/src/core/host-relay.ts`, common pin `4f9e6f8a4`. 
 | Matching ACKs only, inbound import then ACK, replay suppression | store reciprocal tests; protocol duplicate mailbox/channel differential; paired lost-ACK/reconnect proof |
 | CR/LF/CRLF, partial/EOF frame decoding | differential matrix includes bare CR between frames; standalone process EOF |
 | Queued writes, continued reads under backpressure, scan suppression | `incoming_mailbox_progresses_while_writer_is_blocked_and_queued_ack_drains`: frozen Writable and native blocked AsyncWrite both import before unblocking and emit identical hello/ACK |
+| EOF without output drain; queued writes continue after return | `eof_completes_without_drain_and_retains_queued_output`: verifier blocked-output probe regression, RED before fix; frozen independent driver resolves immediately |
+| Lossless peer and higher-sequence address retries | `surrogate_peer_canonical_sender_host_matches_frozen`, `surrogate_routing_higher_sequence_retry_matches_frozen`: actual frozen protocol, exact canonical SQL bytes, both ACKs and durable cursor 2; four address fields |
 | Input/output failure, cleanup | CLI/fake-SSH TERM and protocol failures; dedicated injected I/O-error tests pending |
 | runRelayServe / CLI dispatch | real `pi relay serve` process with no provider credentials, hello then EOF succeeds; RED before implementation returned No models available |
 

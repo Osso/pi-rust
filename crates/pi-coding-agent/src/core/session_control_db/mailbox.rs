@@ -132,7 +132,7 @@ pub(crate) struct PreparedStoredRuntimeMailboxMessage {
     pub(crate) defaulted_birth: bool,
     pub(crate) context: String,
     pub(crate) routed: Map<String, Value>,
-    pub(crate) routing_kind: JsValue,
+    pub(crate) routing_fields: js_json::JsObject,
     pub(crate) serialized: String,
     pub(crate) updated_at: String,
 }
@@ -172,9 +172,10 @@ pub(crate) fn prepare_stored_runtime_mailbox_message(
     Ok(PreparedStoredRuntimeMailboxMessage {
         defaulted_birth,
         context,
-        routing_kind: JsValue::from(
-            serde_json::to_value(input.kind).map_err(|error| ControlDbError::new(error.to_string()))?,
-        ),
+        routing_fields: routed
+            .iter()
+            .map(|(key, value)| (JsString::from(key.as_str()), JsValue::from(value)))
+            .collect(),
         serialized: js_json::stringify(&Value::Object(routed.clone())),
         routed,
         updated_at: input
@@ -231,7 +232,6 @@ pub(crate) fn enqueue_lossless_stored_runtime_mailbox_message_in_transaction(
     prepared
         .routed
         .insert("kind".into(), literal_kind.clone().into_serde_lossy());
-    prepared.routing_kind = literal_kind;
     let mut object = message
         .as_object()
         .cloned()
@@ -243,12 +243,13 @@ pub(crate) fn enqueue_lossless_stored_runtime_mailbox_message_in_transaction(
         "senderSessionId",
         "senderAgentId",
     ] {
-        if !object.contains_key(&JsString::from(key)) {
-            if let Some(value) = prepared.routed.get(key) {
-                object.insert(key.into(), JsValue::from(value));
-            }
+        if !object.contains_key(&JsString::from(key))
+            && let Some(value) = prepared.routed.get(key)
+        {
+            object.insert(key.into(), JsValue::from(value));
         }
     }
+    prepared.routing_fields = object.clone();
     prepared.serialized = js_json::stringify_lossless(&JsValue::Object(object));
     Ok(persist_stored_runtime_mailbox_message(db, input, &prepared)?.id)
 }
@@ -316,7 +317,7 @@ fn validate_existing_stored_runtime_mailbox_message(
             input.store_ref.session_path, input.store_ref.message_id
         )));
     }
-    super::schema::assert_runtime_mailbox_routing_with_kind(
+    super::schema::assert_runtime_mailbox_routing_with_fields(
         &super::parse_canonical_mailbox_payload_lossless(existing)?,
         &EnqueueRuntimeMailboxMessageInput {
             recipient_host: input.recipient_host.clone(),
@@ -325,7 +326,7 @@ fn validate_existing_stored_runtime_mailbox_message(
             kind: input.kind,
             store_ref: input.store_ref.clone(),
         },
-        &prepared.routing_kind,
+        &prepared.routing_fields,
     )?;
     if strip_runtime_mailbox_delivery_state(&existing.data, prepared.defaulted_birth)?
         != strip_runtime_mailbox_delivery_state(&prepared.serialized, prepared.defaulted_birth)?

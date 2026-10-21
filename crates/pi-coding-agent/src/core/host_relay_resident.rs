@@ -83,11 +83,11 @@ async fn acquire_relay_lock(path: &str, startup: bool) -> Result<Option<LockGuar
         })
         .collect::<Result<Vec<_>, String>>()?;
     delays.sort_unstable();
-    for attempt in 0..=retries as usize {
+    for delay in delays.into_iter().map(Some).chain(std::iter::once(None)) {
         match lockfile::acquire(Path::new(path), &options).await {
             Ok(guard) => return Ok(Some(guard)),
-            Err(e) if e.code == LockErrorCode::Locked && attempt < retries as usize => {
-                tokio::time::sleep(Duration::from_millis(delays[attempt])).await
+            Err(e) if e.code == LockErrorCode::Locked && delay.is_some() => {
+                tokio::time::sleep(Duration::from_millis(delay.unwrap())).await
             }
             Err(e) if !startup && e.code == LockErrorCode::Locked => return Ok(None),
             Err(e) => return Err(e.to_string()),

@@ -177,7 +177,12 @@ pub fn ack_relay_mailbox(path: &str, peer: &str, message: &RelayMailbox) -> Resu
         Ok(())
     })
 }
-pub fn import_relay_mailbox(path: &str, peer: &str, message: &RelayMailbox) -> Result<(), ControlDbError> {
+pub fn import_relay_mailbox(
+    path: &str,
+    peer: impl Into<JsString>,
+    message: &RelayMailbox,
+) -> Result<(), ControlDbError> {
+    let peer = peer.into();
     let mut data = message
         .data
         .as_object()
@@ -185,7 +190,7 @@ pub fn import_relay_mailbox(path: &str, peer: &str, message: &RelayMailbox) -> R
         .ok_or_else(|| ControlDbError::new("Invalid relay mailbox data"))?;
     data.shift_remove(&JsString::from("recipientHost"));
     data.shift_remove(&JsString::from("relaySeq"));
-    data.insert("senderHost".into(), JsValue::String(peer.into()));
+    data.insert("senderHost".into(), JsValue::String(peer.clone()));
     let data = JsValue::Object(data);
     let recipient = RuntimeMailboxAddress {
         session_id: require_text(data.get("recipientSessionId"), "recipientSessionId")?.to_utf8_lossy(),
@@ -197,7 +202,8 @@ pub fn import_relay_mailbox(path: &str, peer: &str, message: &RelayMailbox) -> R
     };
     let applied = control::with_control_db(path, |db| {
         control::with_immediate_transaction(db, |db| {
-            let key = format!("relay-in:{peer}");
+            // Node/SQLite TEXT keys replace lone surrogates; canonical JSON above must not.
+            let key = format!("relay-in:{}", peer.to_utf8_lossy());
             if message.seq <= read_counter(db, &key)? {
                 return Ok(false);
             }

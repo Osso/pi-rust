@@ -140,7 +140,7 @@ impl RelayState<'_> {
                 {
                     return Err(ControlDbError::new("Relay mailbox route/sequence mismatch"));
                 }
-                import_relay_mailbox(self.path, &peer.to_utf8_lossy(), &message)?;
+                import_relay_mailbox(self.path, peer.clone(), &message)?;
                 return Ok(vec![RelayFrame::Ack {
                     kind: "mailbox".into(),
                     id: message.seq,
@@ -293,9 +293,7 @@ pub async fn run_host_relay(
     };
     drop(output);
     tokio::task::yield_now().await;
-    if result.is_ok() && !options.signal.is_cancelled() {
-        tokio::select! { _ = options.signal.cancelled() => {}, result = finished => result.map_err(|error| error.to_string())?? }
-    }
+    // Frozen close resolves without waiting for Writable drain; queued writes retain their task.
     result
 }
 async fn relay_stream(

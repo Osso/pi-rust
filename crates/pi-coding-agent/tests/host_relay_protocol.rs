@@ -262,3 +262,114 @@ async fn incoming_mailbox_progresses_while_writer_is_blocked_and_queued_ack_drai
     let actual: Vec<Value> = text.lines().map(|s| serde_json::from_str(s).unwrap()).collect();
     assert_eq!(json!(actual), expected["frames"]);
 }
+
+// Verifier probes: compare canonical bytes and durable retry cursor, not lossy public projection.
+async fn assert_surrogate_retry_matches_frozen(field: &str) {
+    let temp = tempfile::tempdir().unwrap();
+    let rust = temp.path().join("rust.sqlite");
+    let frozen = temp.path().join("ts.sqlite");
+    let now = pi_coding_agent::utils::iso_time::now_iso_string();
+    let peer = if field == "peer" { r"p\ud800" } else { "peer" };
+    let hello = format!(r#"{{"type":"hello","host":"{peer}"}}"#);
+    let mut message = json!({"type":"mailbox","seq":1,"sessionPath":"/s","messageId":"m","data":{"id":"m","kind":"custom","status":"pending","fromAgentId":"main","toAgentId":"main","body":"test","createdAt":now,"recipientHost":"fixture-local","relaySeq":1,"recipientSessionId":"r","recipientAgentId":null,"senderSessionId":"s","senderAgentId":null}});
+    if field != "peer" {
+        message["data"][field] = json!("SURROGATE");
+    }
+    let first = message.to_string().replace("SURROGATE", r"s\ud800");
+    message["seq"] = json!(2);
+    message["data"]["relaySeq"] = json!(2);
+    let second = message.to_string().replace("SURROGATE", r"s\ud800");
+    let frames = vec![hello, first, second];
+    let mut ts = oracle::TsOracle::spawn("host-relay-oracle.ts", "packages/coding-agent/src");
+    let expected = ts.request(&json!({"op":"protocol","path":frozen,"frames":frames}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let expected: Value = serde_json::from_str(expected["wire"].as_str().unwrap()).unwrap();
+    assert_eq!(expected["error"], Value::Null);
+    assert_eq!(expected["frames"].as_array().unwrap().len(), 3);
+    let output = RecordedOutput::default();
+    let input = frames.join("\n") + "\n";
+    let result = run_host_relay(
+        input.as_bytes(),
+        output.clone(),
+        HostRelayOptions {
+            control_db_path: rust.to_str().unwrap(),
+            host: Some("fixture-local"),
+            poll_ms: Some(20),
+            signal: CancellationToken::new(),
+        },
+    )
+    .await;
+    assert_eq!(result, Ok(()), "retry for {field}");
+    tokio::task::yield_now().await;
+    let wire = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
+    let actual: Vec<Value> = wire.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    assert_eq!(json!(actual), expected["frames"]);
+    for query in [
+        "SELECT data FROM multi_agent_mailbox_messages",
+        "SELECT last_seen_id FROM shared_channel_cursors WHERE session_id LIKE 'relay-in:%'",
+    ] {
+        let expected = ts.request(&json!({"op":"raw","path":frozen,"args":query}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        let expected: Value = serde_json::from_str(expected["wire"].as_str().unwrap()).unwrap();
+        let db = rusqlite::Connection::open(&rust).unwrap();
+        if query.starts_with("SELECT data") {
+            let rows = db
+                .prepare(query)
+                .unwrap()
+                .query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0], expected[0]["data"].as_str().unwrap(), "canonical {field}");
+        } else {
+            assert_eq!(db.query_row(query, [], |row| row.get::<_, i64>(0)).unwrap(), 2);
+            assert_eq!(expected[0]["last_seen_id"], 2);
+        }
+    }
+}
+
+#[tokio::test]
+async fn surrogate_peer_canonical_sender_host_matches_frozen() {
+    assert_surrogate_retry_matches_frozen("peer").await;
+}
+
+#[tokio::test]
+async fn surrogate_routing_higher_sequence_retry_matches_frozen() {
+    for field in [
+        "senderSessionId",
+        "senderAgentId",
+        "recipientSessionId",
+        "recipientAgentId",
+    ] {
+        assert_surrogate_retry_matches_frozen(field).await;
+    }
+}
+
+#[tokio::test]
+async fn eof_completes_without_drain_and_retains_queued_output() {
+    let output = GateOutput::default();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_millis(200),
+        run_host_relay(
+            &b""[..],
+            output.clone(),
+            HostRelayOptions {
+                control_db_path: "/unused",
+                host: Some("fixture-local"),
+                poll_ms: Some(20),
+                signal: CancellationToken::new(),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(result, Ok(Ok(())), "EOF must not await a blocked writer");
+    assert!(output.recorded.0.lock().unwrap().is_empty());
+    output.open.store(true, std::sync::atomic::Ordering::SeqCst);
+    output.waker.wake();
+    tokio::task::yield_now().await;
+    assert_eq!(
+        &*output.recorded.0.lock().unwrap(),
+        b"{\"type\":\"hello\",\"host\":\"fixture-local\"}\n"
+    );
+}
