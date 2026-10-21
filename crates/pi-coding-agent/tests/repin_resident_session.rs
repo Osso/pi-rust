@@ -1,4 +1,7 @@
 //! Actual-source filesystem/metadata interoperability, not a runtime impersonation.
+//! Frozen-baseline-with-approved-delta: unignored frozen metadata matrices stay RED
+//! on 42 documented discrepancies. Explicit ignored `delta_` entrypoints use only
+//! the pinned resident fix; no frozen test is ignored or silently retargeted.
 #![cfg(unix)]
 #[path = "support/oracle.rs"]
 mod oracle;
@@ -14,7 +17,11 @@ use pi_coding_agent::core::session_control_db::{
 use serde_json::{Value, json};
 
 fn oracle() -> oracle::TsOracle {
-    oracle::TsOracle::spawn("resident-session-oracle.ts", "packages/coding-agent/src")
+    oracle::TsOracle::spawn_with_environment(
+        "resident-session-oracle.ts",
+        "packages/coding-agent/src",
+        &[("PI_RESIDENT_SESSION_DELTA_MODULE", "".into())],
+    )
 }
 
 fn request(oracle: &mut oracle::TsOracle, op: &str, fixture: &Value) -> Value {
@@ -253,7 +260,10 @@ fn restore_permissions(f: &Value) {
 
 #[test]
 fn source_created_trees_native_prepare_and_source_reader_reciprocal() {
-    let mut oracle = oracle();
+    run_source_created_trees_native_prepare_and_source_reader_reciprocal(oracle());
+}
+
+fn run_source_created_trees_native_prepare_and_source_reader_reciprocal(mut oracle: oracle::TsOracle) {
     let mut mismatches = Vec::new();
     for role in ["architect", "supervisor"] {
         for case in [
@@ -314,7 +324,10 @@ fn source_created_trees_native_prepare_and_source_reader_reciprocal() {
 
 #[test]
 fn paired_actual_self_pids_cover_live_validation_without_impersonating_pi() {
-    let mut oracle = oracle();
+    run_paired_actual_self_pids_cover_live_validation_without_impersonating_pi(oracle());
+}
+
+fn run_paired_actual_self_pids_cover_live_validation_without_impersonating_pi(mut oracle: oracle::TsOracle) {
     let mut mismatches = Vec::new();
     for role in ["architect", "supervisor"] {
         for case in [
@@ -368,7 +381,10 @@ fn paired_actual_self_pids_cover_live_validation_without_impersonating_pi() {
 
 #[test]
 fn source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes() {
-    let mut oracle = oracle();
+    run_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes(oracle());
+}
+
+fn run_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes(mut oracle: oracle::TsOracle) {
     let mut mismatches = Vec::new();
     for case in ["dead", "nonpi"] {
         let mut outputs = Vec::new();
@@ -484,7 +500,10 @@ fn invalid_control_database_propagates_after_mkdir_before_file_deletion() {
 // fixtures above. All metadata rows, including backslash cases, remain in these trees.
 #[test]
 fn independent_selection_unicode_relative_types_and_paired_liveness() {
-    let mut oracle = oracle();
+    run_independent_selection_unicode_relative_types_and_paired_liveness(oracle());
+}
+
+fn run_independent_selection_unicode_relative_types_and_paired_liveness(mut oracle: oracle::TsOracle) {
     for role in ["architect", "supervisor"] {
         for case in [
             "empty",
@@ -622,4 +641,117 @@ fn nul_path_shared_argument_validation_boundary_is_explicit() {
         );
     }
     assert!(pi_js_compat::node_fs::node_path_argument_error("/tmp/valid-path").is_none());
+}
+
+// Explicit opt-in: frozen tests above remain unignored and RED on the approved
+// private-regex discrepancy. These tests alone select the separately pinned delta.
+fn approved_delta_oracle() -> oracle::TsOracle {
+    let pin: Value = serde_json::from_str(RESIDENT_DELTA).expect("resident delta pin must be valid JSON");
+    let checkout = std::path::Path::new(pin["sandboxAlias"].as_str().unwrap());
+    let module = verify_resident_delta(checkout, &pin)
+        .unwrap_or_else(|error| panic!("approved resident delta unavailable (no frozen fallback): {error}"));
+    oracle::TsOracle::spawn_with_environment(
+        "resident-session-oracle.ts",
+        "packages/coding-agent/src",
+        &[("PI_RESIDENT_SESSION_DELTA_MODULE", module.into_os_string())],
+    )
+}
+
+#[test]
+#[ignore = "opt-in approved resident delta; use scripts/resident-delta-runner.py and --ignored delta_"]
+fn delta_source_created_trees_native_prepare_and_source_reader_reciprocal() {
+    run_source_created_trees_native_prepare_and_source_reader_reciprocal(approved_delta_oracle());
+}
+
+#[test]
+#[ignore = "opt-in approved resident delta; use scripts/resident-delta-runner.py and --ignored delta_"]
+fn delta_paired_actual_self_pids_cover_live_validation_without_impersonating_pi() {
+    run_paired_actual_self_pids_cover_live_validation_without_impersonating_pi(approved_delta_oracle());
+}
+
+#[test]
+#[ignore = "opt-in approved resident delta; use scripts/resident-delta-runner.py and --ignored delta_"]
+fn delta_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes() {
+    run_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes(approved_delta_oracle());
+}
+
+#[test]
+#[ignore = "opt-in approved resident delta; use scripts/resident-delta-runner.py and --ignored delta_"]
+fn delta_independent_selection_unicode_relative_types_and_paired_liveness() {
+    run_independent_selection_unicode_relative_types_and_paired_liveness(approved_delta_oracle());
+}
+
+const RESIDENT_DELTA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../docs/porting/deltas/resident-session-private-regex.json"
+));
+
+fn verify_resident_delta(checkout: &std::path::Path, pin: &Value) -> Result<std::path::PathBuf, String> {
+    use sha2::{Digest, Sha256};
+
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(checkout)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .map_err(|error| format!("cannot verify resident delta HEAD at {}: {error}", checkout.display()))?;
+    if !output.status.success() {
+        return Err(format!(
+            "cannot verify resident delta HEAD at {}: {}",
+            checkout.display(),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let actual = String::from_utf8_lossy(&output.stdout);
+    let expected = pin["commit"].as_str().unwrap();
+    if actual.trim() != expected {
+        return Err(format!(
+            "resident delta HEAD mismatch: expected {expected}, got {}",
+            actual.trim()
+        ));
+    }
+    let module = checkout.join(pin["module"].as_str().unwrap());
+    let bytes =
+        fs::read(&module).map_err(|error| format!("cannot read resident delta {}: {error}", module.display()))?;
+    let hash = format!("{:x}", Sha256::digest(bytes));
+    let expected_hash = pin["moduleSha256"].as_str().unwrap();
+    if hash != expected_hash {
+        return Err(format!(
+            "resident delta SHA256 mismatch: expected {expected_hash}, got {hash}"
+        ));
+    }
+    Ok(module)
+}
+
+#[test]
+fn resident_delta_selector_rejects_missing_checkout() {
+    let root = tempfile::tempdir().unwrap();
+    let pin: Value = serde_json::from_str(RESIDENT_DELTA).unwrap();
+    let error = verify_resident_delta(&root.path().join("absent"), &pin).unwrap_err();
+    assert!(error.contains("HEAD"), "{error}");
+}
+
+#[test]
+fn resident_delta_selector_rejects_wrong_commit() {
+    let pin: Value = serde_json::from_str(RESIDENT_DELTA).unwrap();
+    let lock: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/porting/source-lock.json"
+    )))
+    .unwrap();
+    let error = verify_resident_delta(std::path::Path::new(lock["worktree"].as_str().unwrap()), &pin).unwrap_err();
+    assert!(error.contains("HEAD mismatch"), "{error}");
+}
+
+#[test]
+fn resident_delta_selector_rejects_wrong_module_hash() {
+    let mut pin: Value = serde_json::from_str(RESIDENT_DELTA).unwrap();
+    let lock: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/porting/source-lock.json"
+    )))
+    .unwrap();
+    pin["commit"] = lock["commit"].clone();
+    let error = verify_resident_delta(std::path::Path::new(lock["worktree"].as_str().unwrap()), &pin).unwrap_err();
+    assert!(error.contains("SHA256 mismatch"), "{error}");
 }

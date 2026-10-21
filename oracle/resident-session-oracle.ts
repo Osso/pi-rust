@@ -1,4 +1,4 @@
-// Whole-module oracle. Imports only the unmodified lock-selected source.
+// Whole-module oracle. Frozen by default; resident-only approved delta is explicit.
 import { spawn, type ChildProcess } from "node:child_process";
 import {
 	chmodSync,
@@ -14,8 +14,15 @@ import { pathToFileURL } from "node:url";
 
 async function main(): Promise<void> {
 	const source = process.argv[2];
+	// Only the dedicated Rust delta selector supplies this verified module path.
+	// Database readers and tsx remain selected by the unmodified common lock.
+	const selectedResident = process.env.PI_RESIDENT_SESSION_DELTA_MODULE;
 	const resident = await import(
-		pathToFileURL(`${source}/core/resident-session.ts`).href
+		pathToFileURL(
+			selectedResident
+				? selectedResident
+				: `${source}/core/resident-session.ts`,
+		).href
 	);
 	const db = await import(
 		pathToFileURL(`${source}/core/session-control-db.ts`).href
