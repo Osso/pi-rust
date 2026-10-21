@@ -6,7 +6,7 @@ Verified: 2026-10-21. Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`,
 
 All four modules are implemented, with `main.rs`, `cli/args.rs`, core registration and a narrow lossless transaction adapter. Existing recipientHost producers/local-claim exclusion remain unchanged. The adapter preserves raw payload/kind and reuses canonical validation/collision/insertion; the global mailbox-kind enum is unchanged.
 
-Every Cargo invocation used `CARGO_BUILD_JOBS=4` and `CARGO_TARGET_DIR=/home/osso/.worktrees/pi-rust-repin-host-relay/target`. Test binaries entered `.cargo/config.toml`'s mandatory sandbox runner. SSH fixtures are private executables; no real SSH/network/live state, push, merge, delegation, clippy or broad test suite was run.
+Every Cargo invocation used `CARGO_BUILD_JOBS=4` and `CARGO_TARGET_DIR=/home/osso/.worktrees/pi-rust-repin-host-relay/target`. Test binaries entered `.cargo/config.toml`'s mandatory sandbox runner. SSH fixtures are private executables; no real SSH/network/live state, push or delegation. The initial port did not merge or run clippy/broad suites; the verifier follow-up below supersedes that gate state.
 
 ## RED and GREEN ledger
 
@@ -42,6 +42,31 @@ Each mutant changed real production logic, ran one exact sandboxed behavioral te
 | Lossless expected kind reset to message | Higher-sequence custom-kind retry incorrectly conflicts |
 
 First five target unchanged module branches at `f86b567e`; sixth covers the new raw-kind helper at `3a95c8e8`. Six of six killed. Sources restored byte-for-byte; no mutant is committed or installed.
+
+## Verifier follow-up (2026-10-21)
+
+Fix `02a4f2bc` addresses findings 1–4 from `/tmp/pi-rust-repin-host-relay-verify/REPORT.md`. Merge `45832c8f` incorporates canonical master `65c7acce0f62e91f1e94af88c2f722a40f3b9006`; only conflict was coverage status counts, recomputed from all 686 merged source rows. Test-only lint cleanup `1fdb3c10` removes redundant JsString conversions and an unpolled unused future exposed after library lint failures were removed. No production changes after `02a4f2bc`.
+
+| Finding / boundary | Evidence |
+|---|---|
+| Original UTF-16 peer through canonical senderHost; replacement only at SQLite TEXT keys | `surrogate_peer_canonical_sender_host_matches_frozen`: exact canonical SQL bytes and both ACKs match frozen, cursor 2 and one row |
+| Lossless expected routing at higher-sequence retry | `surrogate_routing_higher_sequence_retry_matches_frozen`: sender/recipient session and nullable agent IDs each retain lone surrogate through existing-row validation; exact frozen bytes/ACKs/cursor, no global enum change |
+| Immediate EOF completion with blocked output; retained queued writes | `eof_completes_without_drain_and_retains_queued_output`: resolves within 200 ms before release, queued hello writes after return. Independent frozen blocked-output driver resolves immediately. Existing inbound-progress/queued-ACK differential still passes |
+| Lint errors | Resident retry iterates sorted delays plus final attempt; canonical defaults use let-chain. Library and four relay test targets pass clippy with `-D warnings` |
+
+All three new regressions were RED at `47628267`: corrupt canonical peer, routing retry conflict, EOF timeout (`fix-red.log`). All six protocol tests passed after fix (`fix-green.log`). Three production mutants independently restored peer lossiness, expected-address lossiness, and EOF drain waiting; all failed behavioral assertions, then sources restored byte-for-byte (`fix-mutants.json`, `fix-mutant-{peer,routing,eof}.log`). Merge left these production files unchanged.
+
+Final commands use the same worktree, sandbox runner, four jobs and target directory as above. Full ledger: `fix-final-ledger.json` under `/tmp/pi-rust-repin-host-relay/`.
+
+| Revision / command | Result / artifact |
+|---|---|
+| `45832c8f`: `cargo test -p pi-coding-agent --test host_relay --test host_relay_protocol --test host_relay_store --test host_relay_resident --test session_control_db --test agents_core_runtime --test approved_mailbox_deltas --no-fail-fast -- --nocapture` | 93 passed, no failures/ignores/warnings; seven private sandbox executions; `fix-final-tests.log` |
+| `1fdb3c10`: rerun only changed `host_relay_protocol` and `host_relay_store` targets | 14 passed, no failures/ignores/warnings; other five targets unchanged since preceding proof; `fix-final-tests-followup.log` |
+| `1fdb3c10`: `cargo check --workspace --all-targets` | Exit 0, zero warnings; `fix-final-check-followup.log` |
+| `1fdb3c10`: `cargo clippy -p pi-coding-agent -j4 --lib --test host_relay --test host_relay_protocol --test host_relay_store --test host_relay_resident -- -D warnings` | Exit 0, zero warnings; `fix-final-clippy-followup.log` |
+| `1fdb3c10`: `cargo fmt --all --check` | Exit 0; `fix-final-fmt-followup.log` |
+
+Later proof-only edits do not invalidate this ledger. Frozen tracked source remains clean at the immutable common pin. Manual changed-Rust readability audit retains existing long orchestration/adapter functions noted by the verifier; analyzer unavailable, no unrelated redesign or suppression added. No independent delegation, push, canonical merge, real SSH/network or deployment.
 
 ## Remaining boundaries
 
