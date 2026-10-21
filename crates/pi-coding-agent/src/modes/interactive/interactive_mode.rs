@@ -10867,7 +10867,12 @@ impl InteractiveMode {
 
     fn show_extension_custom(
         &self,
-        factory: ExtensionUiCustomFactory,
+        factory: Arc<
+            dyn Fn(
+                crate::core::extensions::ExtensionUiFactoryContext,
+                ExtensionUiDone,
+            ) -> Result<Box<dyn ExtensionUiComponent>, String>,
+        >,
         options: Option<ExtensionUiCustomOptions>,
         respond: tokio::sync::oneshot::Sender<Result<Option<Value>, String>>,
     ) {
@@ -14549,6 +14554,7 @@ mod ui_tests {
                 assert_eq!(
                     tokio::time::timeout(std::time::Duration::from_secs(2), receive)
                         .await
+                        .unwrap()
                         .unwrap()
                         .unwrap(),
                     None
