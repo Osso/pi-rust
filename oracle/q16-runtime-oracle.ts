@@ -1,6 +1,24 @@
 import { runOracle, requireCases } from "./coding-agent-utils-oracle-support.ts";
 
 void runOracle(async (api, request) => {
+	if (request.operation === "vetoScenario") {
+		const { pathToFileURL } = await import("node:url");
+		const { dirname, join } = await import("node:path");
+		const db = await import(pathToFileURL(join(dirname(process.argv[2]), "..", "core", "session-control-db.ts")).href);
+		const results = [];
+		for (const raw of requireCases(request)) {
+			const input = raw as {db:string;decision:string;instructions:string;kind:string};
+			const id = db.postSupervisorRequest(input.db,{kind:input.kind,payload:{},projectId:"pi",senderSessionId:"main",deadlineAt:"2099-01-01T00:00:00.000Z"});
+			const request = db.claimNextSupervisorRequest(input.db,"owner");
+			const entries: unknown[] = [];
+			const feedback: unknown[] = [];
+			const reviewed: string[] = [];
+			const session = {abort:async()=>{},prompt:async()=>{entries.push({type:"message",id:"response",message:{role:"assistant",content:[{type:"toolCall",id:"call",name:"supervisor_response",arguments:{kind:"continue",instructions:input.instructions,reason:"proof"}}],stopReason:"toolUse"}});},sessionManager:{getBranch:()=>entries,getLeafId:()=>null},sendCustomMessage:async(message:unknown)=>{feedback.push(message);}};
+			await (api.processSupervisorRequest as (...args:unknown[])=>Promise<void>)(input.db,request,session,async(instructions:string)=>{reviewed.push(instructions);if(input.decision === "throw")throw new Error("fake failure");return input.decision === "invalid" ? undefined : input.decision;});
+			results.push({response:db.readSupervisorRequest(input.db,id).response,feedback,reviewed});
+		}
+		return results;
+	}
 	if (request.operation === "startupScenario") {
 		const { pathToFileURL } = await import("node:url");
 		const { dirname, join } = await import("node:path");
