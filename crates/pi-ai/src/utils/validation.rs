@@ -1,17 +1,14 @@
 //! Port of `packages/ai/src/utils/validation.ts`.
 //!
-//! The TypeScript module normalizes optional `null`s, runs TypeBox's
-//! `Value.Convert`, applies the AJV-compatible coercion used for plain JSON
-//! schemas, and finally validates with TypeBox's compiled validator. This
-//! module reproduces those four steps and TypeBox's English validation
-//! messages byte-for-byte.
+//! Frozen source `4f9e6f8a4` clones arguments, runs `Value.Convert`, applies
+//! plain-schema coercion, then validates. Explicit optional nulls participate
+//! in conversion and validation rather than being deleted.
 //!
-//! TypeBox version: 1.3.7 (pinned). That release marks schema nodes with a
-//! hidden `~kind` string property and no longer defines
-//! `Symbol.for("TypeBox.Kind")`, so `validation.ts`'s `TYPEBOX_KIND` check is
-//! always false and the plain-schema coercion pass always runs. The Rust port
-//! preserves that behavior; `Tool::typebox_kind` only gates `Value.Convert`,
-//! which is the real role of the hidden marker.
+//! The frozen worktree's TypeBox 1.1.38 builders use hidden `~kind` strings,
+//! not `Symbol.for("TypeBox.Kind")`, so plain-schema coercion also runs after
+//! their conversion. `Tool::typebox_kind` gates the conversion pass; it cannot
+//! represent distinct nested node kinds. Remaining parity boundaries are
+//! recorded in `docs/porting/traceability/validation.md`.
 
 use std::fmt;
 

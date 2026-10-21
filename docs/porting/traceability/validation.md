@@ -8,7 +8,7 @@ Spec: [shared validation](../../specs/validation.md).
 
 - Removed the old pre-conversion optional-null deletion pass; source has no such pass.
 - Removed plain union coercion's already-valid-arm precheck. Source coerces and checks
-  cloned candidates in declaration order (`coerceWithUnionSchema`, lines 194–204).
+  cloned candidates in declaration order (`coerceWithUnionSchema`, lines 193–204).
 - New differential test `optional_nulls_and_union_order_match_the_frozen_source`
   covers 50 cases: optional/required primitive, enum, nullable, array and object nulls;
   anyOf/oneOf ordering and rejected-candidate isolation; exact set_agent_model-shaped
@@ -23,7 +23,9 @@ Rust: `crates/pi-ai/src/utils/validation.rs`.
 Differential oracle: `oracle/validation-oracle.ts` (builds TypeBox schemas with the pinned
 `Type.*` builders or passes plain JSON, calls the real `validateToolArguments`/`validateToolCall`).
 Tests: `crates/pi-ai/tests/validation.rs` (26 behavioral cases), `crates/pi-ai/tests/differential_validation.rs`
-(68 schema/argument cases + 3 tool-lookup cases), both byte-for-byte on returned values and `Error.message`.
+(68 prior schema/argument cases, 50 new null/order cases, 3 lookup cases).
+Differentials compare complete values or exact error messages; the nullable-array case
+is still a known failing comparison.
 
 ## Current-pin source branch matrix
 
@@ -58,7 +60,7 @@ worktree. Raw observations: `/tmp/pi-rust-repin-validation/boundary-source.jsonl
   conversion-kind tree associated with `TypeBoxSchema` is the narrow proposed API
   change; ownership/authorization is required before implementation.
 - Pattern `^(a)\\1$`, input `{value:"aa"}`: TS accepts; Rust rejects the pattern.
-  Source validation delegates to `Compile` (`validation.ts:239–247`). Regex engine
+  Source validation delegates to `Compile` (`validation.ts:246–254`). Regex engine
   work is outside this bounded repair; no unsupported-pattern waiver is assumed.
 - Root string schema with argument `1`: TS returns `"1"`; Rust `ToolCall.arguments`
   is `JsonObject` (`types.rs:382`), so that input is not representable. A raw-value
@@ -67,6 +69,14 @@ worktree. Raw observations: `/tmp/pi-rust-repin-validation/boundary-source.jsonl
 - Root `parameters:false`: TS `TypeError: Invalid value used as weak map key`;
   Rust returns formatted `schema is false` error. Runtime error classification is
   unresolved; no new exclusion or source-bug choice.
+
+## Behavioral mutation proof
+
+On implementation `6ec5193f`, the new 50-case differential test detects both old
+behaviors independently: reinstating optional-null stripping fails 16 cases;
+reinstating the union valid-arm precheck fails 8. Each temporary mutant was
+restored. Logs and exact source hashes are in
+`/tmp/pi-rust-repin-validation/ledger.md`.
 
 ## Representation decisions
 
