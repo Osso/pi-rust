@@ -198,7 +198,7 @@ fn overlay_options(demo: Demo, index: usize) -> ExtensionUiOverlayOptions {
 }
 async fn show(ui: &Arc<dyn ExtensionUiContext>, demo: Demo, index: usize) -> Result<Option<Value>, HandlerError> {
     ui.custom(
-        Arc::new(move |ctx, done| Box::new(QaComponent(Model::new(demo, index, ctx, done)))),
+        Arc::new(move |ctx, done| Ok(Box::new(QaComponent(Model::new(demo, index, ctx, done))))),
         Some(ExtensionUiCustomOptions {
             overlay: Some(true),
             overlay_options: Some(Arc::new(move || overlay_options(demo, index))),
@@ -251,16 +251,18 @@ async fn stack(ui: Arc<dyn ExtensionUiContext>) -> Result<(), HandlerError> {
     ui.notify("Showing overlay 1 (back)...", Some(NotifyType::Info));
     let p1 = show(&ui, Demo::Stack, 0);
     tokio::pin!(p1);
-    let first = tokio::select! {r=&mut p1=>Some(r),()=tokio::time::sleep(Duration::from_millis(400))=>None};
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(400);
+    let first = tokio::select! {r=&mut p1=>Some(r),()=tokio::time::sleep_until(deadline)=>None};
     if first.is_some() {
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        tokio::time::sleep_until(deadline).await;
     }
     ui.notify("Showing overlay 2 (middle)...", Some(NotifyType::Info));
     let p2 = show(&ui, Demo::Stack, 1);
     tokio::pin!(p2);
-    let second = tokio::select! {r=&mut p2=>Some(r),()=tokio::time::sleep(Duration::from_millis(400))=>None};
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(400);
+    let second = tokio::select! {r=&mut p2=>Some(r),()=tokio::time::sleep_until(deadline)=>None};
     if second.is_some() {
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        tokio::time::sleep_until(deadline).await;
     }
     ui.notify("Showing overlay 3 (front)...", Some(NotifyType::Info));
     let p3 = show(&ui, Demo::Stack, 2);
@@ -288,6 +290,9 @@ async fn stack(ui: Arc<dyn ExtensionUiContext>) -> Result<(), HandlerError> {
     Ok(())
 }
 
+// The source has one global handle; all custom components run on the UI thread.
+thread_local! {static TOGGLE_HANDLE:RefCell<Option<Arc<dyn ExtensionUiOverlayHandle>>>=const {RefCell::new(None)};}
+
 struct Model {
     demo: Demo,
     index: usize,
@@ -298,7 +303,6 @@ struct Model {
     focused: Cell<bool>,
     tasks: RefCell<Vec<tokio::task::JoinHandle<()>>>,
     entries: RefCell<Vec<panels::Entry>>,
-    handle: RefCell<Option<Arc<dyn ExtensionUiOverlayHandle>>>,
     overflow: RefCell<Option<overflow::Process>>,
 }
 #[derive(Default)]
@@ -335,7 +339,6 @@ impl Model {
             focused: Cell::new(false),
             tasks: RefCell::new(Vec::new()),
             entries: RefCell::new(Vec::new()),
-            handle: RefCell::new(None),
             overflow: RefCell::new(None),
         });
         match demo {
@@ -477,22 +480,21 @@ impl Model {
         self.tui.request_render();
     }
     fn toggle(self: &Rc<Self>) {
-        if self.state.borrow().toggling || self.handle.borrow().is_none() {
+        let handle = TOGGLE_HANDLE.with(|slot| slot.borrow().clone());
+        let Some(handle) = handle.filter(|_| !self.state.borrow().toggling) else {
             return;
-        }
+        };
         {
-            let mut s = self.state.borrow_mut();
-            s.toggling = true;
-            s.toggle_count += 1;
+            let mut state = self.state.borrow_mut();
+            state.toggling = true;
+            state.toggle_count += 1;
         }
-        self.handle.borrow().as_ref().unwrap().set_hidden(true);
-        let weak = Rc::downgrade(self);
-        // Source's one-shot restore is deliberately not cancelled by dispose.
+        handle.set_hidden(true);
+        let model = self.clone();
+        // Like the source timeout, this retains the component until restoration.
         tokio::task::spawn_local(async move {
             tokio::time::sleep(Duration::from_secs(1)).await;
-            if let Some(model) = weak.upgrade()
-                && let Some(handle) = model.handle.borrow().as_ref()
-            {
+            if let Some(handle) = TOGGLE_HANDLE.with(|slot| slot.borrow().clone()) {
                 handle.set_hidden(false);
                 model.state.borrow_mut().toggling = false;
                 model.tui.request_render();
@@ -582,12 +584,12 @@ impl ExtensionUiComponent for QaComponent {
             self.0.cleanup();
         }
         if self.0.demo == Demo::Toggle {
-            self.0.handle.borrow_mut().take();
+            TOGGLE_HANDLE.with(|slot| slot.borrow_mut().take());
         }
     }
     fn on_overlay_handle(&self, handle: Arc<dyn ExtensionUiOverlayHandle>) {
         if self.0.demo == Demo::Toggle {
-            *self.0.handle.borrow_mut() = Some(handle);
+            TOGGLE_HANDLE.with(|slot| *slot.borrow_mut() = Some(handle));
         }
     }
 }

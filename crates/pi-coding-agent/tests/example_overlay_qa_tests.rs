@@ -242,7 +242,8 @@ impl ExtensionUiContext for Ui {
                         keybindings: KeybindingsManager::new(Vec::new(), None),
                     },
                     done,
-                );
+                )
+                .unwrap();
                 component.set_focused(true);
                 component.on_overlay_handle(Arc::new(MainHandle(calls.clone(), false)));
                 let cloned = script["clone"].as_bool().unwrap_or(false).then(|| {
@@ -253,7 +254,8 @@ impl ExtensionUiContext for Ui {
                             keybindings: KeybindingsManager::new(Vec::new(), None),
                         },
                         ExtensionUiDone::new(Arc::new(|_| {})),
-                    );
+                    )
+                    .unwrap();
                     cloned.on_overlay_handle(Arc::new(MainHandle(calls.clone(), true)));
                     cloned
                 });
