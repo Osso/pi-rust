@@ -107,10 +107,10 @@ fn in_memory_changes_override_file_changes_for_the_same_key() {
 #[test]
 fn retry_defaults_match_the_source() {
     let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
-    let retry = manager.get_retry_settings();
+    let retry = manager.get_retry_settings().unwrap();
     assert!(retry.enabled);
     assert_eq!(retry.max_retries, 30.0);
-    assert_eq!(retry.base_delay_ms, 10_000.0);
+    assert_eq!(retry.base_delay_ms, 30_000.0);
     assert_eq!(manager.get_provider_retry_settings().max_retry_delay_ms, 60_000.0);
 }
 
@@ -450,13 +450,13 @@ fn shell_command_prefix_loads_and_is_preserved_on_unrelated_saves() {
 }
 
 #[test]
-fn session_dir_and_shell_path_expand_tilde() {
+fn session_dir_expands_tilde_but_shell_path_is_literal() {
     let workspace = Workspace::new();
     workspace.write_global(r#"{"sessionDir":"~/sessions","shellPath":"~"}"#);
     let manager = workspace.manager();
     let home = std::env::var("HOME").unwrap();
     assert_eq!(manager.get_session_dir(), Some(format!("{home}/sessions")));
-    assert_eq!(manager.get_shell_path(), Some(home.clone()));
+    assert_eq!(manager.get_shell_path(), Some("~".to_owned()));
 
     workspace.write_global(r#"{"sessionDir":"/tmp/sessions","shellPath":"/bin/zsh"}"#);
     let manager = workspace.manager();
@@ -509,4 +509,88 @@ fn analytics_generates_a_tracking_id_on_first_opt_in() {
     manager.set_enable_analytics(true);
     manager.flush();
     assert_eq!(manager.get_tracking_id(), Some(tracking_id.as_str()));
+}
+
+#[test]
+fn nested_scope_overlay_replaces_grandchildren() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"agents":{"implement":{"model":"global","tools":["read"]}},"retry":{"provider":{"timeoutMs":10,"maxRetries":2}},"permissionRules":{"allow":{"read":["global"]}}}"#);
+    workspace.write_project(r#"{"agents":{"implement":{"thinkingLevel":"low"}},"retry":{"provider":{"maxRetries":3}},"permissionRules":{"allow":{"write":["project"]}}}"#);
+    let manager = workspace.manager();
+    let merged = manager.get_merged_settings();
+    assert_eq!(merged["agents"]["implement"], json!({"thinkingLevel":"low"}));
+    assert_eq!(merged["retry"]["provider"], json!({"maxRetries":3}));
+    assert_eq!(merged["permissionRules"]["allow"], json!({"write":["project"]}));
+}
+
+#[test]
+fn shell_path_is_literal() {
+    let manager = SettingsManager::in_memory(
+        settings(json!({"shellPath":"~/bin/../shell"})),
+        SettingsManagerCreateOptions::default(),
+    );
+    assert_eq!(manager.get_shell_path().as_deref(), Some("~/bin/../shell"));
+}
+
+#[test]
+fn compaction_threshold_helper_matches_json_value_contract() {
+    use pi_coding_agent::core::compaction_threshold::parse_compaction_threshold_percent;
+    assert_eq!(parse_compaction_threshold_percent(None).unwrap(), None);
+    for percent in [0.001, 50.0, 100.0] {
+        assert_eq!(
+            parse_compaction_threshold_percent(Some(&json!(percent))).unwrap(),
+            Some(percent)
+        );
+    }
+    for (value, text) in [
+        (json!(null), "null"),
+        (json!(0), "0"),
+        (json!(-1), "-1"),
+        (json!(100.001), "100.001"),
+        (json!("50"), "50"),
+        (json!(true), "true"),
+        (json!([]), ""),
+        (json!({}), "[object Object]"),
+    ] {
+        assert_eq!(
+            parse_compaction_threshold_percent(Some(&value)).unwrap_err().message(),
+            format!(
+                "Invalid compaction.thresholdPercent setting: {text}. Use a finite number greater than 0 and at most 100, or remove the setting."
+            )
+        );
+    }
+}
+
+#[test]
+fn retry_delay_validation_reports_exact_setting_and_range() {
+    for name in ["baseDelayMs", "maxBackoffMs"] {
+        for (value, text) in [
+            (json!(null), "null"),
+            (json!(-1), "-1"),
+            (json!(1.5), "1.5"),
+            (json!(2147483648_i64), "2147483648"),
+            (json!(9007199254740992_i64), "9007199254740992"),
+            (json!("30"), "30"),
+            (json!(true), "true"),
+        ] {
+            let mut retry = serde_json::Map::new();
+            retry.insert(name.to_owned(), value);
+            let manager = SettingsManager::in_memory(
+                settings(json!({"retry":retry})),
+                SettingsManagerCreateOptions::default(),
+            );
+            assert_eq!(
+                manager.get_retry_settings().unwrap_err().message(),
+                format!("Invalid retry.{name} setting: {text}; expected integer milliseconds between 0 and 2147483647")
+            );
+        }
+    }
+    let manager = SettingsManager::in_memory(
+        settings(json!({"retry":{"baseDelayMs":30,"maxBackoffMs":29}})),
+        SettingsManagerCreateOptions::default(),
+    );
+    assert_eq!(
+        manager.get_retry_settings().unwrap_err().message(),
+        "retry.maxBackoffMs must be at least retry.baseDelayMs"
+    );
 }
