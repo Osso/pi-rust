@@ -794,9 +794,11 @@ fn restore_pyrun_candidate(
 ) -> Result<RestoredRunner, HandlerError> {
     let manifest = candidate.manifest;
     let manifest_params =
-        serde_json::to_string(&manifest.data.params).map_err(|error| HandlerError::new(error.to_string()))?;
+        serde_json::to_value(&manifest.data.params).map_err(|error| HandlerError::new(error.to_string()))?;
     let expected_params =
-        serde_json::to_string(expected_params).map_err(|error| HandlerError::new(error.to_string()))?;
+        serde_json::to_value(expected_params).map_err(|error| HandlerError::new(error.to_string()))?;
+    let manifest_params = pi_js_compat::js_json::stringify(&manifest_params);
+    let expected_params = pi_js_compat::js_json::stringify(&expected_params);
     if manifest_params != expected_params {
         return Err(HandlerError::new(format!(
             "Pyrun tool-call artifact collision for {tool_call_id}"

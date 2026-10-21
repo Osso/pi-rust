@@ -42,7 +42,7 @@ Initial inventory: `/tmp/pi-rust-js-value-semantics/pattern-inventory.txt`.
 - Agent-session tool registries are JS Map equivalents, not plain-object enumeration. Unchanged.
 - SDK skills diagnostics and model-name arrays: typed string-bearing records; no demonstrated numeric/object divergence. Unchanged.
 - Additional confirmed sites: Pyrun request/reply wire bytes (`pyrun_extension::runner_requests_and_bridge_replies_use_javascript_json`), launch manifest bytes/checksum (`differential_pyrun_detached`), remote HTTP request bytes/error response (private loopback `http_body_uses_javascript_json`), and shared artifact hash/JSONL (`js_value_artifacts`). RED logs 14–17. Shared manifest checksum failed its own read-back with numeric leaves before the fix.
-- Pyrun restore comparison: persisted JS-equivalent params must not report a collision; filesystem regression added, pending the earlier manifest/checksum boundary fix.
+- Pyrun restore comparison: persisted JS-equivalent params must not report a collision; filesystem regression first failed on manifest checksum (14), then on the false collision after repairing the manifest (18). Restore now compares shared JS JSON bytes while retaining the existing collision error.
 - Detached activation identities and Bash atomic launch manifests contain fixed string/integer fields, not arbitrary JSON leaves; unchanged.
 
 ## Proof status
