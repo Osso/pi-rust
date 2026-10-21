@@ -32,3 +32,5 @@ Gaps / deviations:
 ## JS-value bytes (2026-10-20)
 
 `hash_json` and `append_artifact_record` use shared JS stringify, matching TS hash inputs and artifact lines. `js_value_artifacts` checks concrete bytes/digest; numeric Pyrun manifest differential checks shared checksum integration. [Boundary proof](../js-value-semantics-proof.md).
+
+Atomic manifest writes also use JS stringify: `launch_manifest_enumerates_numeric_environment_names_like_javascript` covers env keys 1/2/10. Activation identities share that writer; filesystem error propagation is unchanged.

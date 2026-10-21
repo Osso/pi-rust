@@ -583,7 +583,8 @@ fn write_atomic_json(path: &str, value: &Value) -> Result<(), DetachedBashRunner
         .truncate(true)
         .mode(0o600)
         .open(&temporary_path)?;
-    file.write_all(format!("{}\n", serde_json::to_string(value)?).as_bytes())?;
+    let line = format!("{}\n", pi_js_compat::js_json::stringify(value));
+    file.write_all(line.as_bytes())?;
     file.sync_all()?;
     drop(file);
     std::fs::rename(&temporary_path, path)?;
