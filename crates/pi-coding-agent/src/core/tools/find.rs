@@ -4,6 +4,7 @@
 //! applies the source limits. Renderers are pending `theme.ts`.
 
 use std::cell::RefCell;
+use std::io;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -42,7 +43,7 @@ pub const FIND_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribut
 
 /// Filesystem access used by [`FindTool`]. Override to delegate searches to a remote system.
 pub trait FindOperations: Send + Sync {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, bool>;
+    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>>;
 
     /// Whether [`FindOperations::glob`] is implemented.
     fn supports_glob(&self) -> bool {
@@ -56,9 +57,9 @@ pub trait FindOperations: Send + Sync {
         cwd: &'a str,
         ignore: &'a [String],
         limit: usize,
-    ) -> BoxFuture<'a, Vec<String>> {
+    ) -> BoxFuture<'a, io::Result<Vec<String>>> {
         let _ = (pattern, cwd, ignore, limit);
-        Box::pin(async { Vec::new() })
+        Box::pin(async { Ok(Vec::new()) })
     }
 }
 
@@ -67,8 +68,8 @@ pub trait FindOperations: Send + Sync {
 pub struct LocalFindOperations;
 
 impl FindOperations for LocalFindOperations {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async move { path_exists(absolute_path).await })
+    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async move { Ok(path_exists(absolute_path).await) })
     }
 }
 
@@ -146,7 +147,15 @@ impl AgentTool for FindTool {
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         let cwd = self.cwd.clone();
         let operations = self.operations.clone();
-        Box::pin(async move { execute_find(&cwd, operations, params, signal).await })
+        Box::pin(async move {
+            let result = crate::utils::abort::race_with_abort_signal(
+                execute_find(&cwd, operations, params, signal.clone()),
+                signal.as_ref(),
+            )
+            .await;
+            check_aborted(signal.as_ref())?;
+            result.map_err(|_| ToolError::new("Operation aborted"))?
+        })
     }
 }
 
@@ -185,7 +194,11 @@ async fn execute_find(
     let effective_limit = input.limit.unwrap_or(DEFAULT_LIMIT);
 
     if let Some(custom) = operations.as_deref().filter(|operations| operations.supports_glob()) {
-        if !custom.exists(&search_path).await {
+        if !custom
+            .exists(&search_path)
+            .await
+            .map_err(|error| ToolError::new(error.to_string()))?
+        {
             return Err(ToolError::new(format!("Path not found: {search_path}")));
         }
         check_aborted(signal.as_ref())?;
@@ -196,7 +209,8 @@ async fn execute_find(
                 &["**/node_modules/**".to_owned(), "**/.git/**".to_owned()],
                 effective_limit,
             )
-            .await;
+            .await
+            .map_err(|error| ToolError::new(error.to_string()))?;
         check_aborted(signal.as_ref())?;
         if results.is_empty() {
             return Ok(text_result("No files found matching pattern".to_owned(), None));

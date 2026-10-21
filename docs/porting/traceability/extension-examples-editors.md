@@ -40,3 +40,8 @@ Rust Editor computed a negative cursor offset for wrapped chunks that did not co
 Rainbow inspects text after parent app actions. The native host defers re-entrant app callbacks until its RefCell borrow is released; Rainbow appends its animation update after those callbacks using a weak editor reference. The differential installs the same real `app.clear` action in both editors, dispatches Ctrl+C, advances the clock, and reinserts the word. RED reproduced stale timer advancement before this ordering fix.
 
 Branch refresh uses `js_trim`, not Rust whitespace rules. A real git branch beginning with U+FEFF reproduces the difference; exact ANSI snapshots now match pinned TS trimming.
+
+## Review regressions (2026-10-20)
+
+- T2: timer steps assert host repaint requests while active and none after rainbow clear/abort or border agent-end/shutdown. Removing either timer repaint call fails independently of forced render snapshots.
+- B3/F6: user-approved post-pin TS `3abfead27` uses Object.hasOwn for modal keys. Native-only Esc → constructor → toString test asserts constructortoString and NORMAL labels; pinned oracle is deliberately not invoked (it throws). Inherited-name swallowing mutation fails. See [compatibility](../../specs/compatibility.md).

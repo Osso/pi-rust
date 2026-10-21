@@ -45,7 +45,7 @@ const RTK_MAX_BUFFER: usize = DEFAULT_MAX_BYTES * 2;
 
 /// Directory access used by [`LsTool`]. Override to delegate listing to a remote system.
 pub trait LsOperations: Send + Sync {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, bool>;
+    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>>;
     fn is_directory<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>>;
     fn readdir<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Vec<String>>>;
 }
@@ -55,8 +55,8 @@ pub trait LsOperations: Send + Sync {
 pub struct LocalLsOperations;
 
 impl LsOperations for LocalLsOperations {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async move { path_exists(absolute_path).await })
+    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async move { Ok(path_exists(absolute_path).await) })
     }
 
     fn is_directory<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>> {
@@ -64,6 +64,7 @@ impl LsOperations for LocalLsOperations {
             tokio::fs::metadata(absolute_path)
                 .await
                 .map(|metadata| metadata.is_dir())
+                .map_err(|error| io::Error::other(super::node_fs::node_fs_error(&error, "stat", absolute_path)))
         })
     }
 
@@ -155,7 +156,15 @@ impl AgentTool for LsTool {
         let cwd = self.cwd.clone();
         let operations = Arc::clone(&self.operations);
         let can_use_rtk = self.can_use_rtk;
-        Box::pin(async move { execute_ls(&cwd, operations, can_use_rtk, params, signal).await })
+        Box::pin(async move {
+            let result = crate::utils::abort::race_with_abort_signal(
+                execute_ls(&cwd, operations, can_use_rtk, params, signal.clone()),
+                signal.as_ref(),
+            )
+            .await;
+            check_aborted(signal.as_ref())?;
+            result.map_err(|_| ToolError::new("Operation aborted"))?
+        })
     }
 }
 
@@ -186,13 +195,17 @@ async fn list_with_operations(
 ) -> Result<AgentToolResult, ToolError> {
     let dir_path = resolve_to_cwd(path.unwrap_or("."), cwd).map_err(|error| ToolError::new(error.to_string()))?;
     let effective_limit = limit.unwrap_or(DEFAULT_LIMIT);
-    if !operations.exists(&dir_path).await {
+    if !operations
+        .exists(&dir_path)
+        .await
+        .map_err(|error| ToolError::new(error.to_string()))?
+    {
         return Err(ToolError::new(format!("Path not found: {dir_path}")));
     }
     let is_directory = operations
         .is_directory(&dir_path)
         .await
-        .map_err(|error| ToolError::new(super::node_fs::node_fs_error(&error, "stat", &dir_path)))?;
+        .map_err(|error| ToolError::new(error.to_string()))?;
     if !is_directory {
         return Err(ToolError::new(format!("Not a directory: {dir_path}")));
     }

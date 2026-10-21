@@ -147,3 +147,136 @@ async fn persisted_message_and_tool_renderers_match_complete_ansi_lines() {
     }
     harness::compare("tic-tac-toe", factory(), json!({"cases":cases})).await;
 }
+
+#[path = "support/extensions.rs"]
+mod scheduler;
+
+#[tokio::test(start_paused = true)]
+async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
+    use pi_agent_core::agent::{AgentContext, AgentEvent, AgentLoopConfig, AgentMessage, StreamFn, agent_loop};
+    use pi_ai::types::{AssistantContent, AssistantMessage, AssistantMessageEvent, DoneReason, StopReason, ToolCall};
+    use pi_ai::utils::event_stream::create_assistant_message_event_stream;
+    use pi_coding_agent::core::extensions::*;
+    let temp = tempfile::tempdir().unwrap();
+    let cwd = temp.path().to_str().unwrap();
+    let runtime = create_extension_runtime();
+    let extension = load_extension_from_factory(factory(), cwd, scheduler::event_bus(), runtime.clone(), "tic-tac-toe")
+        .await
+        .unwrap();
+    let model_runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
+        pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
+            models_path: Some(None),
+            allow_model_network: false,
+            credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
+                serde_json::Map::new(),
+            ))),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let mut runner = scheduler::runner_for(
+        vec![extension],
+        cwd,
+        runtime,
+        Arc::new(pi_coding_agent::core::model_registry::ModelRegistry::new(model_runtime)),
+    );
+    scheduler::bind(&mut runner);
+    let initial = details(["X  ", "   ", "   "], "playing", "O", 0, 0);
+    runner
+        .create_context()
+        .session_manager()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .append_message(serde_json::from_value(restored(initial)["message"].clone()).unwrap())
+        .unwrap();
+    runner
+        .emit(&mut ExtensionEvent::SessionStart(SessionStartEvent {
+            reason: SessionStartReason::Startup,
+            previous_session_file: None,
+        }))
+        .await;
+    let tool = pi_coding_agent::core::extensions::wrapper::wrap_definition_tool(
+        runner.get_tool_definition("tic_tac_toe").unwrap(),
+        &runner,
+    );
+    let mut turn = AssistantMessage::empty("openai-responses", "fixture", "fixture", 0);
+    turn.stop_reason = StopReason::ToolUse;
+    turn.content = ["move_down", "move_right", "play"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, action)| {
+            AssistantContent::ToolCall(ToolCall::new(
+                index.to_string(),
+                "tic_tac_toe",
+                json!({"action":action}).as_object().unwrap().clone(),
+            ))
+        })
+        .collect();
+    let turn = Arc::new(std::sync::Mutex::new(Some(turn)));
+    let stream_fn: StreamFn = Arc::new(move |_, _, _| {
+        let turn = turn.lock().unwrap().take();
+        Box::pin(async move {
+            let (sender, stream) = create_assistant_message_event_stream();
+            let (reason, message) = match turn {
+                Some(turn) => (DoneReason::ToolUse, turn),
+                None => (
+                    DoneReason::Stop,
+                    AssistantMessage::empty("openai-responses", "fixture", "fixture", 0),
+                ),
+            };
+            sender.push(AssistantMessageEvent::Done { reason, message });
+            stream
+        })
+    });
+    let model = serde_json::from_value(json!({"id":"fixture","name":"Fixture","api":"openai-responses","provider":"fixture","baseUrl":"https://invalid.test","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":8192,"maxTokens":1024})).unwrap();
+    let mut config = AgentLoopConfig::new(
+        model,
+        Arc::new(|messages| Box::pin(async move { Ok(pi_agent_core::harness::messages::convert_to_llm(&messages)) })),
+    );
+    config.tool_execution = pi_agent_core::harness::ToolExecutionMode::Parallel;
+    let started = tokio::time::Instant::now();
+    let mut stream = agent_loop(
+        vec![
+            serde_json::from_value(json!({"role":"user","content":"move down, right, then play","timestamp":0}))
+                .unwrap(),
+        ],
+        AgentContext {
+            system_prompt: String::new(),
+            messages: vec![],
+            tools: Some(vec![tool]),
+        },
+        config,
+        None,
+        Some(stream_fn),
+    );
+    let mut results = Vec::new();
+    while let Some(event) = stream.next().await {
+        if let AgentEvent::MessageEnd {
+            message: AgentMessage::ToolResult(result),
+        } = event.unwrap()
+        {
+            assert!(!result.is_error, "{}: {:?}", result.tool_call_id, result.content);
+            results.push(result);
+        }
+    }
+    assert_eq!(results.len(), 3);
+    assert_eq!(
+        results.iter().map(|r| r.tool_call_id.as_str()).collect::<Vec<_>>(),
+        ["0", "1", "2"]
+    );
+    assert!(started.elapsed() >= std::time::Duration::from_millis(600));
+    let final_state = results[2].details.as_ref().unwrap();
+    assert_eq!(
+        final_state["board"],
+        json!([["X", " ", " "], [" ", "O", " "], [" ", " ", " "]])
+    );
+    assert_eq!(results[0].details.as_ref().unwrap()["agentCursorRow"], 1);
+    assert_eq!(results[0].details.as_ref().unwrap()["agentCursorCol"], 0);
+    assert_eq!(results[1].details.as_ref().unwrap()["agentCursorRow"], 1);
+    assert_eq!(results[1].details.as_ref().unwrap()["agentCursorCol"], 1);
+    assert_eq!(final_state["agentCursorRow"], 0);
+    assert_eq!(final_state["agentCursorCol"], 0);
+    assert_eq!(final_state["currentTurn"], "X");
+}

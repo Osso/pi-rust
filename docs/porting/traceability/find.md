@@ -9,6 +9,7 @@ Rust: `pi_coding_agent::core::tools::find`.
 | `find.ts:16-27` | `relativizeFindResultPath`: keep trailing separators, relativize absolute results, use `/` separators | `relativize_find_result_path`; custom-glob and differential cases. |
 | `find.ts:29-55` | Schema, prompt contribution, default limit | `find_schema`; differential requests. |
 | `find.ts:57-75` | `FindOperations` and default placeholder glob | `FindOperations` + `LocalFindOperations`; custom glob tests. |
+| `find.ts:143-183,355-361` | Fallible exists/glob reject unchanged; exists precedes glob; abort wins over pending/rejecting operations | [Operation-error differential and mutation proof](core-ssh-errors.md#fallible-lsfind-operations). |
 | `find.ts:77-129` | Render helpers | `format_find_call`, `format_find_result`; renderer differential `find` cases. |
 | `find.ts:137-209` | Custom glob branch: existence check, ignore list, relativization, limit notice (without refine hint), byte truncation | `execute_find` custom branch; `custom_glob_operations_relativize_absolute_results`, `custom_glob_operations_report_missing_paths`. |
 | `find.ts:211-268` | `fd` resolution, `--no-require-git` outside git repos, `--max-results`, `--full-path` pattern rewrite | `execute_find`, `inside_git_repo`; differential gitignore/path-pattern cases. |

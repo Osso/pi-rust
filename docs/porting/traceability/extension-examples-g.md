@@ -80,3 +80,7 @@ behavior or exposing an approved native API.
 No new dependencies, live state, providers, default registration, shared core API
 changes, agents, model CLIs, merge, or push. Only targeted Cargo tests and fmt run.
 No clippy/check/workspace suites. Plan-mode remains blocked, not done.
+
+## Accepted review regression (2026-10-20)
+
+F1: `example_minimal_mode` uses float-backed offset 2.0, limit 3.0 and timeout 2.0 in full seven-tool call/result comparisons. Number arithmetic/formatting uses JS f64 semantics, including read range :2-4.

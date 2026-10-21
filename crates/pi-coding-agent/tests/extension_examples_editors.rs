@@ -41,9 +41,9 @@ async fn rainbow_editor_matches_pinned_animation_and_stopping() {
         "rainbow-editor",
         factory,
         json!({"widths":[8,20,70],"wireClear":true,"steps":[
-            {"input":"UlTrAtHiNk ultrathink"},{"tick":60},{"tick":60},{"tick":480},{"tick":600},
-            {"input":"\u{3}"},{"tick":600},{"input":"ultrathink"},{"tick":60},
-            {"input":"\u{15}"},{"tick":600},{"input":"ultrathink"},{"tick":60},{"focus":false},{"focus":true}
+            {"input":"UlTrAtHiNk ultrathink"},{"tick":60,"repaint":true},{"tick":60,"repaint":true},{"tick":480,"repaint":true},{"tick":600,"repaint":true},
+            {"input":"\u{3}"},{"tick":600,"repaint":false},{"input":"ultrathink"},{"tick":60,"repaint":true},
+            {"input":"\u{15}"},{"tick":600,"repaint":false},{"input":"ultrathink"},{"tick":60,"repaint":true},{"focus":false},{"focus":true}
         ]}),
     )
     .await;
@@ -59,9 +59,9 @@ async fn border_status_editor_matches_pinned_borders_and_spinner_lifecycle() {
         "border-status-editor",
         factory,
         json!({"widths":[1,8,20,70,100],"steps":[
-            {"input":"status"},{"event":"agent_start"},{"tick":80},{"tick":720},
-            {"event":"agent_end"},{"tick":160},{"event":"agent_start"},{"tick":80},
-            {"event":"session_shutdown"},{"tick":160}
+            {"input":"status"},{"event":"agent_start"},{"tick":80,"repaint":true},{"tick":720,"repaint":true},
+            {"event":"agent_end"},{"tick":160,"repaint":false},{"event":"agent_start"},{"tick":80,"repaint":true},
+            {"event":"session_shutdown"},{"tick":160,"repaint":false}
         ]}),
     )
     .await;
@@ -117,5 +117,34 @@ async fn overlay_test_matches_pinned_focus_inputs_options_and_result() {
             Box::pin(async move { result })
         });
         support::compare("overlay-test", factory, json!({"widths":[20,70,100],"steps":steps})).await;
+    }
+}
+
+#[tokio::test]
+async fn modal_editor_inherited_names_insert_text_without_leaving_normal_mode() {
+    let factory: ExtensionFactory = Arc::new(|api| {
+        let result = modal_editor::modal_editor_extension(api);
+        Box::pin(async move { result })
+    });
+    // Post-pin TS 3abfead27; pinned TS throws for inherited object property names.
+    let actual = support::native(
+        "modal-editor",
+        factory,
+        json!({"widths":[70],"steps":[
+            {"input":"\u{1b}"},{"input":"constructor"},{"input":"toString"}
+        ]}),
+    )
+    .await;
+    let frames = actual["renders"].as_array().unwrap();
+    assert_eq!(frames[2]["text"], "constructor");
+    assert_eq!(frames[3]["text"], "constructortoString");
+    for frame in &frames[1..] {
+        assert!(
+            frame["lines"][0]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line.as_str().unwrap().contains(" NORMAL "))
+        );
     }
 }

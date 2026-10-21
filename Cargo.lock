@@ -2169,6 +2169,7 @@ version = "0.0.0"
 dependencies = [
  "clipboard-rs",
  "fancy-regex",
+ "flate2",
  "futures-util",
  "gethostname",
  "getrandom 0.4.3",

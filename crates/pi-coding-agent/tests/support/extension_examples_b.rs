@@ -321,7 +321,13 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                     provider = factory(provider);
                 }
                 let text = case["text"].as_str().unwrap();
-                let lines = vec![text.to_owned()];
+                let lines: Vec<String> = case
+                    .get("lines")
+                    .map(|lines| serde_json::from_value(lines.clone()).unwrap())
+                    .unwrap_or_else(|| vec![text.to_owned()]);
+                let line = case["line"].as_u64().unwrap_or(0) as usize;
+                let col = case["col"].as_u64().map_or(text.len(), |col| col as usize);
+                let prefix = case["prefix"].as_str().unwrap_or(text);
                 let signal = tokio_util::sync::CancellationToken::new();
                 if case["aborted"] == true {
                     signal.cancel();
@@ -330,20 +336,23 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                     .clone()
                     .get_suggestions(
                         lines.clone(),
-                        0,
-                        text.len(),
-                        pi_tui::autocomplete::AutocompleteOptions { signal, force: false },
+                        line,
+                        col,
+                        pi_tui::autocomplete::AutocompleteOptions {
+                            signal,
+                            force: case["force"] == true,
+                        },
                     )
                     .await;
                 let suggestions = suggestions.map(|s| json!({"items":s.items.iter().map(|i| json!({"value":i.value,"label":i.label,"description":i.description})).collect::<Vec<_>>(),"prefix":s.prefix}));
                 let applied = provider.apply_completion(
                     &lines,
-                    0,
-                    text.len(),
+                    line,
+                    col,
                     &pi_tui::autocomplete::AutocompleteItem::new("#101", "#101"),
-                    text,
+                    prefix,
                 );
-                json!({"suggestions":suggestions,"applied":{"lines":applied.lines,"cursorLine":applied.cursor_line,"cursorCol":applied.cursor_col},"trigger":provider.should_trigger_file_completion(&lines,0,text.len()).unwrap_or(true)})
+                json!({"suggestions":suggestions,"applied":{"lines":applied.lines,"cursorLine":applied.cursor_line,"cursorCol":applied.cursor_col},"trigger":provider.should_trigger_file_completion(&lines,line,col).unwrap_or(true)})
             }
             "append_custom" => {
                 runner
@@ -540,19 +549,19 @@ struct FixtureProvider;
 impl pi_tui::autocomplete::AutocompleteProvider for FixtureProvider {
     fn get_suggestions(
         self: std::rc::Rc<Self>,
-        _: Vec<String>,
-        _: usize,
-        _: usize,
-        _: pi_tui::autocomplete::AutocompleteOptions,
+        lines: Vec<String>,
+        line: usize,
+        col: usize,
+        options: pi_tui::autocomplete::AutocompleteOptions,
     ) -> pi_tui::autocomplete::AutocompleteFuture {
-        Box::pin(async {
+        Box::pin(async move {
             Some(pi_tui::autocomplete::AutocompleteSuggestions {
                 items: vec![pi_tui::autocomplete::AutocompleteItem {
                     value: "base".into(),
                     label: "Base".into(),
                     description: Some("delegate".into()),
                 }],
-                prefix: "base-prefix".into(),
+                prefix: serde_json::to_string(&json!({"lines":lines,"line":line,"col":col,"force":options.force,"aborted":options.signal.is_cancelled()})).unwrap(),
             })
         })
     }
@@ -572,8 +581,8 @@ impl pi_tui::autocomplete::AutocompleteProvider for FixtureProvider {
             cursor_col: col - prefix.len() + item.value.len(),
         }
     }
-    fn should_trigger_file_completion(&self, _: &[String], _: usize, _: usize) -> Option<bool> {
-        Some(false)
+    fn should_trigger_file_completion(&self, lines: &[String], line: usize, col: usize) -> Option<bool> {
+        Some(line == 1 && col == 7 && lines == ["heading", "files: abc", "tail"])
     }
 }
 
@@ -596,6 +605,16 @@ impl ExtensionUiTuiBackend for FixtureTui {
         _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
     ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
         panic!("this fixture does not mount nested overlays")
+    }
+
+    fn request_render_force(&self) {
+        panic!("fixture does not force redraw")
+    }
+    fn stop(&self) {
+        panic!("fixture does not release terminal")
+    }
+    fn start(&self) -> Result<(), String> {
+        panic!("fixture does not acquire terminal")
     }
 
     fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {

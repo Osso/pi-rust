@@ -126,3 +126,35 @@ converts TS columns to bytes.
 ## Wrapped cursor offset
 
 `layout_lines` computes the relative cursor offset only when the chunk contains it, matching TS editor.ts:1285–1293. Narrow-width modal-example input/render differential exposed and now covers the previous Rust subtraction overflow. See [editor example proofs](extension-examples-editors.md).
+
+## Overwide graphemes (post-pin fix)
+
+User approved fixing both roots October 20, 2026. TS commit `01870b0b2`
+(`packages/tui/test/editor-wide-wrap.test.ts`) supplies the fixed expectations;
+pinned TS throws `RangeError`, so it cannot be an oracle for these cases.
+
+| Behavior | Native proof (`editor_wide_wrap`) |
+|---|---|
+| Indivisible overwide emoji, CJK, ZWJ; consecutive/mixed text; exact contiguous offsets | `overwide_graphemes_overflow_alone_and_preserve_chunk_offsets` |
+| Merged multi-grapheme visual segment still splits and terminates | `merged_visual_segments_still_split_into_graphemes_at_width_one` |
+| Render, cursor chunk membership, vertical navigation in both directions | `narrow_rendering_and_visual_navigation_agree_on_overwide_chunks` |
+
+Exact width-one chunk strings: `🚀` → [`🚀`], `a🚀b` → [`a`, `🚀`, `b`],
+`🚀🚀` → [`🚀`, `🚀`], `界a` → [`界`, `a`], `👩‍🚀x` → [`👩‍🚀`, `x`].
+At render width two, `a🚀b` yields content [`a `, `🚀`, `b `]. TS cursor
+columns 4 → 1 → 0 → 1 → 4 map to Rust bytes 6 → 1 → 0 → 1 → 6.
+
+Both direct wrap consumers were audited: `layoutText` / `layout_text` feeds
+render and cursor placement; `buildVisualLineMap` / `build_visual_line_map`
+feeds cursor lookup, visual navigation, paging, and history boundary checks.
+They use chunk ranges, not an assumption that chunk widths fit. No consumer
+change is needed. The editor files have no other width-splitting recursion or
+loop with this zero-progress pattern; grapheme navigation always consumes a
+segment. The separate utils long-word splitter consumes every grapheme too.
+
+All three regressions run in child processes so the pre-fix Rust stack abort
+is an assertion failure in the parent, not a harness abort. RED: 3 failed in
+each language; GREEN: 3 passed each. Removing each progress guard kills all
+three regressions (3 failed each). Logs and revision/diff proof ledger:
+`/tmp/pi-editor-wide-wrap/ledger.md`. Existing pinned editor differentials
+remain applicable only to non-defective inputs.

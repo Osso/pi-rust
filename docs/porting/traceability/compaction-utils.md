@@ -52,3 +52,7 @@ empty lists, and Unicode/NUL/newline content.
    is reachable.
 3. **Set insertion order.** TypeScript preserves insertion order in the `FileOperations`
    sets; `IndexSet` preserves it too. The oracle serializes the sets without sorting.
+
+## JS object/number review regression (2026-10-20)
+
+B2 regression: both packages test root/nested numeric key ordering, non-index keys (01/4294967295), and float-backed numbers. Core Object.entries ordering and both JSON.stringify serializers use pi-js-compat. Coding-agent truncation remains after JS serialization. Differential compaction and custom-compaction model-prompt fixtures cover nested/root numeric keys.

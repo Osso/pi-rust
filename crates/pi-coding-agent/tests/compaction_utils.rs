@@ -166,3 +166,16 @@ fn joins_text_blocks_and_tool_calls_in_source_order() {
         "[User]: firstsecond\n\n[Assistant]: line one\nline two\n\n[Assistant tool calls]: read(path=\"a.ts\"); edit(path=\"b.ts\")"
     );
 }
+
+#[test]
+fn serializes_numeric_keys_and_nested_values_in_js_order() {
+    let arguments: serde_json::Map<String, Value> =
+        serde_json::from_str(r#"{"nested":{"2":2.0,"1":1.0,"01":3},"2":2.0,"1":1.0,"4294967295":4,"01":5}"#).unwrap();
+    let messages = [assistant(vec![AssistantContent::ToolCall(ToolCall::new(
+        "id", "inspect", arguments,
+    ))])];
+    assert_eq!(
+        serialize_conversation(&messages),
+        r#"[Assistant tool calls]: inspect(1=1, 2=2, nested={"1":1,"2":2,"01":3}, 4294967295=4, 01=5)"#
+    );
+}

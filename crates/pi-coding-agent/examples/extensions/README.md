@@ -208,14 +208,22 @@ by default. Behavioral/differential proof: `tests/extension_examples_editors.rs`
 register its factory explicitly using the pattern above. It fetches/merges the
 current upstream after agent turns and delivers unresolved conflict locations
 as follow-ups. Enable deliberately; tests use only private repositories.
-`interactive-shell` is blocked on extension-facing TUI stop/start methods; see
-[`batch I traceability`](../../../../docs/porting/traceability/extension-examples-i.md).
+`interactive_shell.rs` exports `interactive_shell_extension`; register explicitly
+for inherited-terminal user commands. It stops the TUI, clears the screen, runs
+with inherited stdio, then restarts and forces redraw. Enable only deliberately;
+commands inherit the host's cwd/environment. Test: `example_interactive_shell`.
+[API and proof](../../../../docs/porting/traceability/core-ui-input.md).
 
 `summarize.rs` exports `summarize_extension`; explicitly register its factory to
 add `/summarize`. It completes with the host registry’s `openai/gpt-5.2`, then
-shows a Markdown summary in TUI mode. Nothing loads by default. SSH is blocked
-on preserving arbitrary remote errors through native filesystem operations;
-see batch I traceability.
+shows a Markdown summary in TUI mode. Nothing loads by default.
+
+`ssh.rs` exports `ssh_extension(&ExtensionApi)` for explicit factory registration.
+`--ssh user@host[:/path]` delegates read/write/edit/bash and user `!` commands;
+without the flag, tools stay local. Requires key-based SSH and remote bash.
+Enable only with trusted inputs: pinned JSON quoting is not shell escaping.
+Tests use fake SSH only. Error-boundary, lifecycle, TUI, and differential proof:
+[core SSH traceability](../../../../docs/porting/traceability/core-ssh-errors.md).
 
 `handoff.rs` exports `handoff_extension`; explicitly register its factory to add
 `/handoff <goal>`. It generates a focused draft through the host model registry,
@@ -238,6 +246,8 @@ registration. `/snake` owns its restored state, uses a 100ms Tokio timer and OS
 randomness, saves on ESC, clears on Q, and starts restored games paused. No
 default loading.
 
-Space Invaders remains unported: native custom components lack the required
-Kitty key-release opt-in. `example_space_invaders` characterizes that requirement
-through the real pinned TS TUI; it does not claim a native game implementation.
+`space_invaders.rs` exports `space_invaders_extension(&ExtensionApi)` for explicit
+registration. `/invaders` uses Kitty release opt-in for held movement/fire,
+a 50ms timer, owned saved state, and native custom UI. No default loading.
+`example_space_invaders` compares complete frames/state with the pinned game
+through real native/TS TUI input filters. [API and proof](../../../../docs/porting/traceability/core-ui-input.md).

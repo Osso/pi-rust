@@ -130,13 +130,22 @@ pub fn normalize_string(value: &str, temp_dir: &str) -> String {
 }
 
 pub fn normalize(value: &Value, temp_dir: &str) -> Value {
+    normalize_with_token(value, temp_dir, "<tmp>")
+}
+
+pub fn normalize_with_token(value: &Value, path: &str, token: &str) -> Value {
     match value {
-        Value::String(text) => Value::String(normalize_string(text, temp_dir)),
-        Value::Array(entries) => Value::Array(entries.iter().map(|entry| normalize(entry, temp_dir)).collect()),
+        Value::String(text) => Value::String(text.replace(path, token)),
+        Value::Array(entries) => Value::Array(
+            entries
+                .iter()
+                .map(|entry| normalize_with_token(entry, path, token))
+                .collect(),
+        ),
         Value::Object(entries) => Value::Object(
             entries
                 .iter()
-                .map(|(key, entry)| (key.clone(), normalize(entry, temp_dir)))
+                .map(|(key, entry)| (key.clone(), normalize_with_token(entry, path, token)))
                 .collect(),
         ),
         other => other.clone(),

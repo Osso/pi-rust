@@ -48,6 +48,10 @@ struct TestBackend {
 }
 
 impl pi_coding_agent::core::extensions::types::ExtensionUiTuiBackend for TestBackend {
+    fn request_render_force(&self) { panic!("fixture does not force redraw") }
+    fn stop(&self) { panic!("fixture does not release terminal") }
+    fn start(&self) -> Result<(), String> { panic!("fixture does not acquire terminal") }
+
     fn show_overlay(
         &self,
         _component: Box<dyn ExtensionUiComponent>,

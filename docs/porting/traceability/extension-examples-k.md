@@ -67,3 +67,7 @@ Mutation reverted; `git status` confirmed the implementation byte-identical to
 passes both tests on that committed source (11.72 seconds). No later production
 or test changes. `cargo fmt --all --check` passed before implementation commit;
 no clippy, cargo check, broad suites, merge, push, or delegated work performed.
+
+## T1 real scheduling proof (2026-10-20)
+
+`example_tic_tac_toe::sibling_moves_finish_before_play_through_real_agent_scheduler` restores an O turn with X at (0,0), wraps the actual registered definition, and sends one assistant response containing move_down, move_right, play into agent_loop under global Parallel mode. It asserts successful ordered results, at least 600ms virtual delay, O at (1,1), and X turn. Mutating only the example declaration Sequential→Parallel makes play run first and fail on occupied (0,0). Existing pinned script/render oracles remain; this scheduling regression is native behavioral proof.

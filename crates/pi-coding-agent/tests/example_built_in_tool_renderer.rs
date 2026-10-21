@@ -29,7 +29,7 @@ fn fixtures() -> Vec<Value> {
         json!({"content":[{"type":"image","data":"aGVsbG8=","mimeType":"image/png"}]}),
         json!({"content":[{"type":"text","text":""}]}),
         json!({"content":[{"type":"text","text":"first\n中文\n\u{1b}[31mred\u{1b}[0m\n"}]}),
-        json!({"content":[{"type":"text","text":(0..18).map(|i| format!("row {i}")).collect::<Vec<_>>().join("\n")}],"details":{"truncation":{"truncated":true,"totalLines":321}}}),
+        json!({"content":[{"type":"text","text":(0..18).map(|i| format!("row {i}")).collect::<Vec<_>>().join("\n")}],"details":{"truncation":{"truncated":true,"totalLines":321.0}}}),
         json!({"content":[{"type":"text","text":"Error: read denied\ncontext"}],"isError":true}),
     ];
     let bash_results = vec![

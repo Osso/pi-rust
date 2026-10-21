@@ -101,3 +101,7 @@ extension path `/fixture/rpc-demo` on both sides. No core fix or fallback added.
 - Final integration merges master only into this branch; no push, core API edits,
   live state, GitHub network calls, agents or model CLIs. Proof scope and exact
   revisions are recorded in the ledger.
+
+## T3 delegation proof (2026-10-20)
+
+`example_github_issue_autocomplete` fallback encodes forwarded lines, nonzero line/cursor, force, and abort state into its returned prefix. File completion has positive/negative argument-dependent cases. Native UI columns are UTF-8 byte offsets; oracle fallback prefix projects UTF-16 columns to bytes for existing Unicode cases. New forwarding fixtures are ASCII. Passing line 999 to fallback and passing empty file-completion lines each fail independently.

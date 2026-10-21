@@ -281,6 +281,11 @@ pub trait ExtensionUiComponent {
         true
     }
 
+    /// `Component.wantsKeyRelease` (`packages/tui/src/tui.ts:47,1156`).
+    fn wants_key_release(&self) -> bool {
+        false
+    }
+
     fn dispose(&self) {}
 
     /// UI-local `custom` onHandle bridge (`interactive-mode.ts:3518–3520`).
@@ -295,6 +300,9 @@ pub trait ExtensionUiTuiBackend: Send + Sync {
     /// Called on the owning UI thread, like the editor factory itself.
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell>;
     fn request_render(&self);
+    fn request_render_force(&self);
+    fn stop(&self);
+    fn start(&self) -> Result<(), String>;
     fn terminal_rows(&self) -> usize;
     fn terminal_columns(&self) -> usize;
     fn mode(&self) -> pi_tui::tui::TuiMode;
@@ -328,6 +336,22 @@ impl ExtensionUiTui {
         options: Option<ExtensionUiOverlayOptions>,
     ) -> Arc<dyn ExtensionUiOverlayHandle> {
         self.backend.show_overlay(component, options)
+    }
+
+    /// `TUI.requestRender(true)` (`packages/tui/src/tui.ts:998`).
+    pub fn request_render_force(&self) {
+        self.backend.request_render_force();
+    }
+
+    /// Synchronously release the terminal (`packages/tui/src/tui.ts:972`).
+    /// Like component factories, lifecycle calls require the owning UI thread.
+    pub fn stop(&self) {
+        self.backend.stop();
+    }
+
+    /// Reacquire the terminal (`packages/tui/src/tui.ts:912`).
+    pub fn start(&self) -> Result<(), String> {
+        self.backend.start()
     }
 
     pub fn terminal_rows(&self) -> usize {

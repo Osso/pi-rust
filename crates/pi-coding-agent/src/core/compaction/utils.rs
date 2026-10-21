@@ -29,6 +29,6 @@ pub fn serialize_conversation(messages: &[Message]) -> String {
 }
 
 fn serialize_tool_call_argument(value: &Value) -> String {
-    let serialized = serde_json::to_string(value).unwrap_or_else(|_| "[unserializable]".to_owned());
+    let serialized = pi_js_compat::js_json::stringify(value);
     pi_agent_core::harness::compaction::utils::truncate_for_summary(&serialized, TOOL_CALL_ARGUMENT_MAX_CHARS)
 }

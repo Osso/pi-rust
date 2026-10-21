@@ -16,6 +16,16 @@ use std::time::Duration;
 type Trace = Arc<Mutex<Vec<Value>>>;
 struct Backend(Trace);
 impl ExtensionUiTuiBackend for Backend {
+    fn request_render_force(&self) {
+        panic!("fixture does not force redraw")
+    }
+    fn stop(&self) {
+        panic!("fixture does not release terminal")
+    }
+    fn start(&self) -> Result<(), String> {
+        panic!("fixture does not acquire terminal")
+    }
+
     fn show_overlay(
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
@@ -38,6 +48,58 @@ impl ExtensionUiTuiBackend for Backend {
     }
     fn mode(&self) -> pi_tui::tui::TuiMode {
         pi_tui::tui::TuiMode::Regular
+    }
+}
+// Drive inputs through the real TUI release filter, not directly into the game.
+#[derive(Default)]
+struct GameTerminal {
+    events: Vec<pi_tui::terminal::TerminalEvent>,
+}
+impl pi_tui::terminal::Terminal for GameTerminal {
+    fn start(&mut self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+        Ok(())
+    }
+    fn stop(&mut self) {}
+    fn drain_input(&mut self, _: u64, _: u64) {}
+    fn write(&mut self, _: &str) {}
+    fn columns(&self) -> usize {
+        90
+    }
+    fn rows(&self) -> usize {
+        40
+    }
+    fn kitty_protocol_active(&self) -> bool {
+        false
+    }
+    fn move_by(&mut self, _: isize) {}
+    fn hide_cursor(&mut self) {}
+    fn show_cursor(&mut self) {}
+    fn clear_line(&mut self) {}
+    fn clear_from_cursor(&mut self) {}
+    fn clear_screen(&mut self) {}
+    fn set_title(&mut self, _: &str) {}
+    fn set_progress(&mut self, _: bool) {}
+    fn poll_events(&mut self) -> Vec<pi_tui::terminal::TerminalEvent> {
+        std::mem::take(&mut self.events)
+    }
+}
+struct GameHost {
+    terminal: std::rc::Rc<std::cell::RefCell<GameTerminal>>,
+    host: std::rc::Rc<pi_tui::tui::TuiRenderer>,
+}
+struct GameInput(std::rc::Rc<dyn ExtensionUiComponent>);
+impl pi_tui::tui::Component for GameInput {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0.render(width)
+    }
+    fn handle_input(&mut self, data: &str) {
+        self.0.handle_input(data);
+    }
+    fn invalidate(&mut self) {
+        self.0.invalidate();
+    }
+    fn wants_key_release(&self) -> bool {
+        self.0.wants_key_release()
     }
 }
 struct Ui {
@@ -82,6 +144,14 @@ impl ExtensionUiContext for Ui {
                         done_trace.lock().unwrap().push(json!(["done"]));
                     })),
                 );
+                let component: std::rc::Rc<dyn ExtensionUiComponent> = component.into();
+                use pi_tui::tui::TuiExt;
+                let terminal = std::rc::Rc::new(std::cell::RefCell::new(GameTerminal::default()));
+                let host = pi_tui::tui::TuiRenderer::new(terminal.clone());
+                let input = pi_tui::tui::component(GameInput(component.clone()));
+                host.add_child(input.clone());
+                host.set_focus(Some(input));
+                let game = GameHost { terminal, host };
                 tokio::task::yield_now().await;
                 let render = |width| {
                     let frame = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| component.render(width)))
@@ -98,7 +168,15 @@ impl ExtensionUiContext for Ui {
                 }
                 for step in item["steps"].as_array().unwrap() {
                     match step["op"].as_str().unwrap() {
-                        "key" => component.handle_input(step["key"].as_str().unwrap()),
+                        "key" => {
+                            game.terminal
+                                .borrow_mut()
+                                .events
+                                .push(pi_tui::terminal::TerminalEvent::Input(
+                                    step["key"].as_str().unwrap().into(),
+                                ));
+                            game.host.process_events();
+                        }
                         "ticks" => {
                             for _ in 0..step["count"].as_u64().unwrap() {
                                 tokio::time::advance(Duration::from_millis(step["ms"].as_u64().unwrap_or(100))).await;

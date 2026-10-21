@@ -127,7 +127,13 @@ fn render_result(result: &AgentToolResult, options: &ToolRenderResultOptions, th
     else {
         return theme.fg(C::Dim, "No matches found");
     };
-    let mut text = theme.fg(C::Success, &format!("{} matches", details["matchCount"]));
+    let mut text = theme.fg(
+        C::Success,
+        &format!(
+            "{} matches",
+            pi_js_compat::number::js_number_to_string(details["matchCount"].as_f64().expect("numeric match count"))
+        ),
+    );
     if details["truncation"]["truncated"] == true {
         text += &theme.fg(C::Warning, " (truncated)");
     }

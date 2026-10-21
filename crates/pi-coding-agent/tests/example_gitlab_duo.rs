@@ -1,0 +1,318 @@
+#[path = "../examples/extensions/custom_provider_gitlab_duo.rs"]
+mod gitlab;
+#[path = "support/oracle.rs"]
+mod oracle;
+#[path = "support/extensions.rs"]
+mod support;
+use pi_ai::request::BoxFuture;
+use pi_ai::{
+    auth::{
+        oauth::support::{OAuthRuntime, RandomSource},
+        types::*,
+    },
+    models::Provider,
+    request::*,
+    types::*,
+    utils::event_stream::*,
+};
+use pi_coding_agent::core::extensions::*;
+use serde_json::{Value, json};
+use std::sync::{Arc, Mutex};
+use tokio_util::sync::CancellationToken;
+struct Random;
+impl RandomSource for Random {
+    fn fill(&self, b: &mut [u8]) {
+        for (i, x) in b.iter_mut().enumerate() {
+            *x = i as u8;
+        }
+    }
+    fn uuid(&self) -> String {
+        "00000000-0000-4000-8000-000000000000".into()
+    }
+}
+struct Body(Option<Vec<u8>>);
+impl HttpBody for Body {
+    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+        Box::pin(async { self.0.take().map(Ok) })
+    }
+}
+struct FetchFixture {
+    calls: Arc<Mutex<Vec<Value>>>,
+    input: Value,
+}
+impl Fetch for FetchFixture {
+    fn fetch(
+        &self,
+        r: HttpRequest,
+        signal: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        Box::pin(async move {
+            self.calls.lock().unwrap().push(json!({"type":"fetch","url":r.url,"method":r.method,"headers":r.headers.into_iter().map(|(k,v)|(k,Value::String(v))).collect::<serde_json::Map<String,Value>>(),"body":String::from_utf8(r.body.unwrap()).unwrap(),"signal":signal.is_some()}));
+            if let Some(e) = self.input["fetchError"].as_str() {
+                return Err(CallbackError::new(e));
+            }
+            let body = if r.url.ends_with("/oauth/token") {
+                json!({"access_token":"FAKE-access","refresh_token":"FAKE-refresh","created_at":1700000000,"expires_in":3600}).to_string()
+            } else {
+                json!({"token":"FAKE-direct","headers":{"X-Gitlab":"fixture","Authorization":"replace"}}).to_string()
+            };
+            Ok(HttpResponse {
+                status: self.input["status"].as_u64().unwrap_or(200) as u16,
+                status_text: "".into(),
+                headers: vec![],
+                body: Box::new(Body(Some(
+                    self.input["body"].as_str().unwrap_or(&body).as_bytes().to_vec(),
+                ))),
+            })
+        })
+    }
+}
+struct Backend {
+    calls: Arc<Mutex<Vec<Value>>>,
+    name: &'static str,
+}
+fn backend_event() -> Value {
+    json!({"type":"error","reason":"aborted","error":{"role":"assistant","api":"fixture-api","provider":"fixture","model":"fixture","content":[],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"aborted","errorMessage":"backend event","timestamp":12}})
+}
+impl ProviderStreams for Backend {
+    fn stream(&self, _: Model, _: Context, _: StreamOptions) -> AssistantMessageEventStream {
+        panic!("simple only")
+    }
+    fn stream_simple(&self, m: Model, c: Context, o: SimpleStreamOptions) -> AssistantMessageEventStream {
+        self.calls.lock().unwrap().push(json!({"type":"backend","backend":self.name,"model":m,"context":c,"apiKey":o.stream.request.api_key,"headers":o.stream.request.headers}));
+        let (tx, rx) = create_assistant_message_event_stream();
+        tx.push(serde_json::from_value(backend_event()).unwrap());
+        tx.end(None);
+        rx
+    }
+}
+struct Interaction {
+    calls: Arc<Mutex<Vec<Value>>>,
+    code: String,
+}
+impl AuthInteraction for Interaction {
+    fn signal(&self) -> CancellationToken {
+        CancellationToken::new()
+    }
+    fn notify(&self, e: AuthEvent) {
+        if let AuthEvent::AuthUrl { url, .. } = e {
+            self.calls.lock().unwrap().push(json!({"type":"auth","url":url}));
+        }
+    }
+    fn prompt(&self, p: AuthPrompt) -> BoxFuture<'_, Result<String, CallbackError>> {
+        Box::pin(async move {
+            let AuthPromptKind::Text { message, .. } = p.kind else {
+                panic!()
+            };
+            self.calls
+                .lock()
+                .unwrap()
+                .push(json!({"type":"prompt","message":message}));
+            Ok(self.code.clone())
+        })
+    }
+}
+async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<f64>>) -> Arc<dyn Provider> {
+    let now = clock.clone();
+    let runtime = OAuthRuntime::new(
+        Arc::new(FetchFixture {
+            calls: calls.clone(),
+            input,
+        }),
+        Arc::new(move || *now.lock().unwrap()),
+        Arc::new(Random),
+    );
+    let backends = gitlab::Backends {
+        anthropic: Arc::new(Backend {
+            calls: calls.clone(),
+            name: "anthropic",
+        }),
+        openai: Arc::new(Backend { calls, name: "openai" }),
+    };
+    let mut registry = ExtensionRegistry::new();
+    registry.register(
+        "<example:gitlab>",
+        Arc::new(move |api| {
+            let result = gitlab::gitlab_duo_extension_with_backends(api, runtime.clone(), backends.clone());
+            Box::pin(async move { result.map_err(HandlerError::new) })
+        }),
+    );
+    let runtime = support::runtime();
+    let extension = load_extension_from_factory(
+        registry.get("<example:gitlab>").unwrap().clone(),
+        "/fixture",
+        support::event_bus(),
+        runtime.clone(),
+        "<example:gitlab>",
+    )
+    .await
+    .unwrap();
+    let models = support::model_registry().await;
+    let mut runner = support::runner_for(vec![extension], "/fixture", runtime, models.clone());
+    let target = models.clone();
+    runner.bind_core(
+        support::actions(),
+        support::context_actions(),
+        Some(ProviderActions {
+            register_native_provider: Some(Arc::new(move |p| target.register_native_provider(p))),
+            ..Default::default()
+        }),
+    );
+    models
+        .get_provider("gitlab-duo")
+        .expect("native provider bound through real ExtensionRunner")
+}
+#[tokio::test]
+async fn registration_login_refresh_and_errors_match_pinned_example() {
+    let runtime = support::runtime();
+    support::extension(&runtime, "/fixture", "<default:gitlab>", |api| {
+        gitlab::gitlab_duo_extension(api).unwrap()
+    })
+    .await;
+    assert_eq!(
+        runtime.pending_native_provider_registrations()[0]
+            .provider
+            .get_models()
+            .len(),
+        9
+    );
+    let mut ts = oracle::TsOracle::spawn(
+        "example-gitlab-duo-oracle.ts",
+        "packages/coding-agent/examples/extensions/custom-provider-gitlab-duo/index.ts",
+    );
+    for input in [
+        json!({"kind":"metadata"}),
+        json!({"kind":"login"}),
+        json!({"kind":"login","code":"http://localhost/callback?state=ignored"}),
+        json!({"kind":"login","status":400,"body":"denied"}),
+        json!({"kind":"refresh"}),
+        json!({"kind":"refresh","status":401,"body":"expired"}),
+    ] {
+        let calls = Arc::new(Mutex::new(vec![]));
+        let p = provider(input.clone(), calls.clone(), Arc::new(Mutex::new(1700000000000.0))).await;
+        let expected = ts.request(&input);
+        if input["kind"] == "metadata" {
+            let models = p
+                .get_models()
+                .iter()
+                .map(|m| {
+                    let mut v = serde_json::to_value(m).unwrap();
+                    for k in ["api", "provider", "baseUrl"] {
+                        v.as_object_mut().unwrap().remove(k);
+                    }
+                    v
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                json!({"id":p.id(),"baseUrl":p.base_url(),"apiKey":"$GITLAB_TOKEN","api":"gitlab-duo-api","models":models,"oauthName":p.auth().oauth.as_ref().unwrap().name()}),
+                expected["metadata"]
+            );
+            continue;
+        }
+        let oauth = p.auth().oauth.as_ref().unwrap();
+        let result = if input["kind"] == "login" {
+            oauth
+                .login(Arc::new(Interaction {
+                    calls: calls.clone(),
+                    code: input["code"]
+                        .as_str()
+                        .unwrap_or("http://localhost/callback?code=FAKE-code&state=ignored")
+                        .into(),
+                }))
+                .await
+        } else {
+            oauth
+                .refresh(
+                    OAuthCredential::new("old-refresh", "old-access", 0.0),
+                    CancellationToken::new(),
+                )
+                .await
+        };
+        let actual = match result {
+            Ok(c) => {
+                let access = oauth.to_auth(c.clone()).await.unwrap().api_key;
+                json!({"credential":{"access":c.access,"refresh":c.refresh,"expires":pi_js_compat::number::js_number_value(c.expires)},"auth":access,"calls":*calls.lock().unwrap()})
+            }
+            Err(e) => json!({"error":e.to_string(),"calls":*calls.lock().unwrap()}),
+        };
+        assert_eq!(actual, expected, "{input}");
+    }
+}
+#[tokio::test]
+async fn backend_dispatch_errors_cache_expiry_and_oauth_invalidation() {
+    let mut ts = oracle::TsOracle::spawn(
+        "example-gitlab-duo-oracle.ts",
+        "packages/coding-agent/examples/extensions/custom-provider-gitlab-duo/index.ts",
+    );
+    for input in [
+        json!({"kind":"streams","indices":[0,5,8]}),
+        json!({"kind":"streams","indices":[0],"missingKey":true}),
+        json!({"kind":"streams","indices":[0],"unknown":true}),
+        json!({"kind":"streams","indices":[0],"status":403,"body":"no duo"}),
+        json!({"kind":"streams","indices":[0],"status":500,"body":"failed"}),
+        json!({"kind":"streams","indices":[0],"fetchError":"offline"}),
+    ] {
+        let calls = Arc::new(Mutex::new(vec![]));
+        let p = provider(input.clone(), calls.clone(), Arc::new(Mutex::new(1700000000000.0))).await;
+        let mut events = vec![];
+        for index in input["indices"].as_array().unwrap() {
+            let mut model = p.get_models()[index.as_u64().unwrap() as usize].clone();
+            if input["unknown"] == true {
+                model.id = "unknown".into();
+            }
+            let mut o = SimpleStreamOptions::default();
+            if input["missingKey"] != true {
+                o.stream.request.api_key = Some("FAKE-gitlab".into());
+            }
+            o.stream.request.headers = Some(
+                [(String::from("ignored"), Some(String::from("caller")))]
+                    .into_iter()
+                    .collect(),
+            );
+            let mut stream = p.stream_simple(model, serde_json::from_value(json!({"messages":[]})).unwrap(), o);
+            let mut list = vec![];
+            while let Some(event) = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+                .await
+                .expect("native stream progress")
+            {
+                list.push(serde_json::to_value(event.unwrap()).unwrap());
+            }
+            events.push(list);
+        }
+        let actual = json!({"calls":*calls.lock().unwrap(),"events":events});
+        let expected = ts.request(&input);
+        assert_eq!(actual, expected, "{input}");
+    }
+    let calls = Arc::new(Mutex::new(vec![]));
+    let clock = Arc::new(Mutex::new(1700000000000.0));
+    let p = provider(json!({}), calls.clone(), clock.clone()).await;
+    for stage in 0..4 {
+        if stage == 2 {
+            *clock.lock().unwrap() += 25.0 * 60.0 * 1000.0;
+        }
+        if stage == 3 {
+            p.auth()
+                .oauth
+                .as_ref()
+                .unwrap()
+                .refresh(OAuthCredential::new("r", "a", 0.0), CancellationToken::new())
+                .await
+                .unwrap();
+        }
+        let mut o = SimpleStreamOptions::default();
+        o.stream.request.api_key = Some("fake".into());
+        let mut s = p.stream_simple(
+            p.get_models()[0].clone(),
+            serde_json::from_value(json!({"messages":[]})).unwrap(),
+            o,
+        );
+        while s.next().await.is_some() {}
+    }
+    let direct = calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c["url"].as_str().is_some_and(|s| s.ends_with("direct_access")))
+        .count();
+    assert_eq!(direct, 3, "cache hit, TTL boundary, refresh invalidation");
+}

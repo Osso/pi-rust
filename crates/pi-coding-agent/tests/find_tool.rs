@@ -60,8 +60,8 @@ struct GlobOperations {
 }
 
 impl FindOperations for GlobOperations {
-    fn exists<'a>(&'a self, _absolute_path: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async move { self.exists })
+    fn exists<'a>(&'a self, _absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<bool>> {
+        Box::pin(async move { Ok(self.exists) })
     }
 
     fn supports_glob(&self) -> bool {
@@ -74,9 +74,9 @@ impl FindOperations for GlobOperations {
         _cwd: &'a str,
         ignore: &'a [String],
         _limit: usize,
-    ) -> BoxFuture<'a, Vec<String>> {
+    ) -> BoxFuture<'a, std::io::Result<Vec<String>>> {
         assert_eq!(ignore, ["**/node_modules/**".to_owned(), "**/.git/**".to_owned()]);
-        Box::pin(async move { self.results.clone() })
+        Box::pin(async move { Ok(self.results.clone()) })
     }
 }
 

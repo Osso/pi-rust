@@ -39,6 +39,7 @@ async fn audits_reads_and_blocks_sensitive_paths_with_complete_results() {
     ] {
         cases.push(json!({"event":"execute","toolName":"read","params":{"path":path}}));
     }
+    cases.push(json!({"event":"execute","toolName":"read","params":{"path":format!("file://{}",temp.path().join("file.txt").display())}}));
     for (offset, limit) in [
         (1.0, 2.0),
         (2.0, 1.0),
@@ -66,7 +67,7 @@ async fn audits_reads_and_blocks_sensitive_paths_with_complete_results() {
             .unwrap()
             .lines()
             .count(),
-        20
+        21
     );
     let missing_agent = temp.path().join("missing-agent");
     pi_js_compat::process_env::set("PI_CODING_AGENT_DIR", missing_agent.to_str().unwrap());
