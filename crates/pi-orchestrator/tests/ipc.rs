@@ -214,7 +214,7 @@ async fn session_events_are_written_while_rpc_command_is_pending() {
 
 #[tokio::test]
 async fn ipc_handler_errors_unknown_stream_and_client_eof() {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
     struct Failure;
     impl IpcRequestHandler for Failure {
         fn handle(&self, request: Value) -> BoxFuture<'_, Result<Value, String>> {
@@ -255,10 +255,12 @@ async fn ipc_handler_errors_unknown_stream_and_client_eof() {
     let eof = dir.path().join("eof");
     let listener = tokio::net::UnixListener::bind(&eof).unwrap();
     let task = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.unwrap();
-        let mut buffer = [0; 256];
-        stream.read(&mut buffer).await.unwrap();
-        stream.shutdown().await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut stream = BufReader::new(stream);
+        let mut request = String::new();
+        stream.read_line(&mut request).await.unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&request).unwrap(), json!({"type":"list"}));
+        stream.get_mut().shutdown().await.unwrap();
     });
     assert_eq!(
         send_ipc_request(&eof, &json!({"type":"list"})).await.unwrap_err(),
