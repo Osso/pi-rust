@@ -646,7 +646,7 @@ fn session_archive_shutdown_errors_match_frozen_stderr() {
         let dir = TempDir::new().unwrap();
         let missing_bin = dir.path().join("missing-bin");
         let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "session_archive_error_worker"])
+            .args(["--exact", "session_archive_error_worker", "--nocapture"])
             .env("ARCHIVE_ERROR_MODE", mode)
             .env("ARCHIVE_ERROR_DIR", dir.path())
             .env("PATH", &missing_bin)
