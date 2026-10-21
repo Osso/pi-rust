@@ -224,10 +224,10 @@ async fn wait_for_component(ui: &Arc<FakeUi>) -> () {
 
 async fn wait_for_text(ui: &Arc<FakeUi>, needle: &str) {
     for _ in 0..200 {
-        if let Some(lines) = ui.render() {
-            if text(&lines).iter().any(|line| line.contains(needle)) {
-                return;
-            }
+        if let Some(lines) = ui.render()
+            && text(&lines).iter().any(|line| line.contains(needle))
+        {
+            return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }

@@ -52,13 +52,13 @@ impl EditorBehavior for Modal {
     fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<String> {
         let mut lines = editor.render(width);
         let label = if self.normal { " NORMAL " } else { " INSERT " };
-        if let Some(last) = lines.last_mut() {
-            if visible_width(last) >= label.len() {
-                *last = format!(
-                    "{}{label}",
-                    truncate_to_width_with(last, width.saturating_sub(label.len()), "", false)
-                );
-            }
+        if let Some(last) = lines.last_mut()
+            && visible_width(last) >= label.len()
+        {
+            *last = format!(
+                "{}{label}",
+                truncate_to_width_with(last, width.saturating_sub(label.len()), "", false)
+            );
         }
         lines
     }

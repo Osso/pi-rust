@@ -71,10 +71,9 @@ fn handoff_messages(branch: &[SessionEntry]) -> Result<Vec<AgentMessage>, Handle
         if let Some(first) = values
             .iter()
             .position(|entry| entry["id"] == values[index]["firstKeptEntryId"])
+            && first < index
         {
-            if first < index {
-                ordered.extend(&branch[first..index]);
-            }
+            ordered.extend(&branch[first..index]);
         }
         ordered.extend(&branch[index + 1..]);
     } else {

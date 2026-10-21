@@ -376,6 +376,12 @@ impl RpcExtensionUi {
         }
     }
 }
+
+impl Default for RpcExtensionUi {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Focusable for RpcExtensionUi {
     fn focused(&self) -> bool {
         self.focused

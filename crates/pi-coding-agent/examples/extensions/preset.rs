@@ -167,17 +167,15 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
                 if !flag.as_ref().is_some_and(|f| match f {
                     FlagValue::String(s) => !s.is_empty(),
                     FlagValue::Boolean(b) => *b,
-                }) {
-                    if let Some(name) = saved
-                        .as_ref()
-                        .and_then(|s| s["data"]["name"].as_str())
-                        .filter(|s| !s.is_empty())
-                    {
-                        let mut state = shared.lock().unwrap();
-                        if let Some(preset) = state.presets.get(name).cloned() {
-                            state.active = Some(name.into());
-                            state.preset = Some(preset);
-                        }
+                }) && let Some(name) = saved
+                    .as_ref()
+                    .and_then(|s| s["data"]["name"].as_str())
+                    .filter(|s| !s.is_empty())
+                {
+                    let mut state = shared.lock().unwrap();
+                    if let Some(preset) = state.presets.get(name).cloned() {
+                        state.active = Some(name.into());
+                        state.preset = Some(preset);
                     }
                 }
                 status(&shared, &ctx)?;
@@ -297,39 +295,40 @@ async fn apply(
         };
         shared.lock().unwrap().original = Some(original);
     }
-    if let (Some(provider), Some(id)) = (&preset.provider, &preset.model) {
-        if !provider.is_empty() && !id.is_empty() {
-            if let Some(model) = ctx.model_registry()?.find(provider, id) {
-                if !pi.set_model(model).await? {
-                    ctx.ui()?.notify(
-                        &format!("Preset \"{name}\": No API key for {provider}/{id}"),
-                        Some(NotifyType::Warning),
-                    );
-                }
-            } else {
+    if let (Some(provider), Some(id)) = (&preset.provider, &preset.model)
+        && !provider.is_empty()
+        && !id.is_empty()
+    {
+        if let Some(model) = ctx.model_registry()?.find(provider, id) {
+            if !pi.set_model(model).await? {
                 ctx.ui()?.notify(
-                    &format!("Preset \"{name}\": Model {provider}/{id} not found"),
+                    &format!("Preset \"{name}\": No API key for {provider}/{id}"),
                     Some(NotifyType::Warning),
                 );
             }
+        } else {
+            ctx.ui()?.notify(
+                &format!("Preset \"{name}\": Model {provider}/{id} not found"),
+                Some(NotifyType::Warning),
+            );
         }
     }
     if let Some(thinking) = preset.thinking_level {
         pi.set_thinking_level(thinking)?;
     }
-    if let Some(tools) = &preset.tools {
-        if !tools.is_empty() {
-            let all = pi.get_all_tools()?.into_iter().map(|t| t.name).collect::<Vec<_>>();
-            let (valid, invalid): (Vec<_>, Vec<_>) = tools.iter().cloned().partition(|name| all.contains(name));
-            if !invalid.is_empty() {
-                ctx.ui()?.notify(
-                    &format!("Preset \"{name}\": Unknown tools: {}", invalid.join(", ")),
-                    Some(NotifyType::Warning),
-                );
-            }
-            if !valid.is_empty() {
-                pi.set_active_tools(valid)?;
-            }
+    if let Some(tools) = &preset.tools
+        && !tools.is_empty()
+    {
+        let all = pi.get_all_tools()?.into_iter().map(|t| t.name).collect::<Vec<_>>();
+        let (valid, invalid): (Vec<_>, Vec<_>) = tools.iter().cloned().partition(|name| all.contains(name));
+        if !invalid.is_empty() {
+            ctx.ui()?.notify(
+                &format!("Preset \"{name}\": Unknown tools: {}", invalid.join(", ")),
+                Some(NotifyType::Warning),
+            );
+        }
+        if !valid.is_empty() {
+            pi.set_active_tools(valid)?;
         }
     }
     let mut state = shared.lock().unwrap();
@@ -401,10 +400,11 @@ async fn cycle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Re
 }
 fn description(preset: &Preset) -> String {
     let mut parts = Vec::new();
-    if let (Some(provider), Some(model)) = (&preset.provider, &preset.model) {
-        if !provider.is_empty() && !model.is_empty() {
-            parts.push(format!("{provider}/{model}"));
-        }
+    if let (Some(provider), Some(model)) = (&preset.provider, &preset.model)
+        && !provider.is_empty()
+        && !model.is_empty()
+    {
+        parts.push(format!("{provider}/{model}"));
     }
     if let Some(thinking) = preset.thinking_level {
         parts.push(format!(
@@ -418,15 +418,15 @@ fn description(preset: &Preset) -> String {
     if let Some(tools) = &preset.tools {
         parts.push(format!("tools:{}", tools.join(",")));
     }
-    if let Some(instructions) = &preset.instructions {
-        if !instructions.is_empty() {
-            let text = if utf16_len(instructions) > 30 {
-                format!("{}...", utf16_slice_to_utf8(instructions, 0, 27))
-            } else {
-                instructions.clone()
-            };
-            parts.push(format!("\"{text}\""));
-        }
+    if let Some(instructions) = &preset.instructions
+        && !instructions.is_empty()
+    {
+        let text = if utf16_len(instructions) > 30 {
+            format!("{}...", utf16_slice_to_utf8(instructions, 0, 27))
+        } else {
+            instructions.clone()
+        };
+        parts.push(format!("\"{text}\""));
     }
     parts.join(" | ")
 }

@@ -91,7 +91,7 @@ impl ExtensionUiContext for Ui {
                 let component = factory(
                     ExtensionUiFactoryContext {
                         tui: ExtensionUiTui::new(Arc::new(Backend)),
-                        theme: theme,
+                        theme,
                         keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
                     },
                     ExtensionUiDone::new(Rc::new(move |value| {

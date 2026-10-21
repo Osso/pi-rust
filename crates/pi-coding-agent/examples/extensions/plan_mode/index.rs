@@ -395,28 +395,27 @@ async fn finish_turn(
                 deliver_as: Some(MessageDelivery::FollowUp),
             }),
         )?;
-    } else if choice.as_deref() == Some("Refine the plan") {
-        if let Some(text) = ctx
+    } else if choice.as_deref() == Some("Refine the plan")
+        && let Some(text) = ctx
             .ui()?
             .editor("Refine the plan:", Some(""))
             .await?
             .filter(|s| !js_trim(s).is_empty())
-        {
-            pi.send_message(
-                plan_message,
-                Some(SendMessageOptions {
-                    deliver_as: Some(MessageDelivery::FollowUp),
-                    ..Default::default()
-                }),
-            )?;
-            pi.send_user_message(
-                UserMessageContent::Text(js_trim(&text).into()),
-                Some(SendUserMessageOptions {
-                    deliver_as: Some(UserMessageDelivery::FollowUp),
-                    ..Default::default()
-                }),
-            )?;
-        }
+    {
+        pi.send_message(
+            plan_message,
+            Some(SendMessageOptions {
+                deliver_as: Some(MessageDelivery::FollowUp),
+                ..Default::default()
+            }),
+        )?;
+        pi.send_user_message(
+            UserMessageContent::Text(js_trim(&text).into()),
+            Some(SendUserMessageOptions {
+                deliver_as: Some(UserMessageDelivery::FollowUp),
+                ..Default::default()
+            }),
+        )?;
     }
     Ok(())
 }

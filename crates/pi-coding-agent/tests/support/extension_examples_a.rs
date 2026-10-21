@@ -540,10 +540,10 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     .unwrap();
                 let bytes = tokio::time::timeout(std::time::Duration::from_secs(3), async {
                     loop {
-                        if let Ok(bytes) = std::fs::read(&path) {
-                            if !bytes.is_empty() {
-                                break bytes;
-                            }
+                        if let Ok(bytes) = std::fs::read(&path)
+                            && !bytes.is_empty()
+                        {
+                            break bytes;
                         }
                         rx.recv().await.unwrap().unwrap();
                     }

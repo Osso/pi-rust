@@ -119,13 +119,10 @@ async fn log_access(path: &PathBuf, absolute: &str, denied: bool, millis: i64) {
     let reason = if denied { " (matches blocked pattern)" } else { "" };
     let line = format!("[{}] {status}: {absolute}{reason}\n", date::to_iso_string(millis));
     // Source explicitly ignores both queue and append failures; read must continue.
-    match with_file_mutation_queue(&path.to_string_lossy(), || async {
+    if let Ok(Ok(())) = with_file_mutation_queue(&path.to_string_lossy(), || async {
         let mut file = std::fs::OpenOptions::new().append(true).create(true).open(path)?;
         file.write_all(line.as_bytes())
     })
     .await
-    {
-        Ok(Ok(())) => {}
-        Ok(Err(_)) | Err(_) => {}
-    }
+    {}
 }

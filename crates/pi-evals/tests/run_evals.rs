@@ -580,7 +580,7 @@ fn node_spawnsync_enoent_diagnostic_matches_with_forwarded_arguments() {
 #[test]
 fn mkdir_failure_reports_error_without_announcing_or_spawning() {
     let fixture = Fixture::new();
-    fs::write(&fixture.artifacts.parent().unwrap().to_path_buf(), "not a directory").unwrap();
+    fs::write(fixture.artifacts.parent().unwrap(), "not a directory").unwrap();
     let output = fixture.command().output().unwrap();
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8(output.stderr).unwrap();

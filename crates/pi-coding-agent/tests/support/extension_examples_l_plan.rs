@@ -340,7 +340,7 @@ pub async fn compare(
                     .read()
                     .shortcuts
                     .values()
-                    .find(|s| s.shortcut.to_string() == step["key"].as_str().unwrap())
+                    .find(|s| s.shortcut == step["key"].as_str().unwrap())
                     .unwrap()
                     .handler
                     .clone();

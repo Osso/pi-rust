@@ -110,7 +110,7 @@ impl DoomEngine {
         let Some(module) = self.module.as_ref().filter(|_| self.initialized) else {
             return Ok(buffer);
         };
-        for (i, pixel) in buffer.chunks_exact_mut(4).enumerate() {
+        for (i, pixel) in buffer.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let argb = module.get_i32(self.frame_buffer_ptr + (i as u32) * 4)?;
             pixel.copy_from_slice(&[
                 ((argb >> 16) & 0xff) as u8,

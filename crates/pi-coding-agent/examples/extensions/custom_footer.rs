@@ -29,12 +29,12 @@ impl ExtensionUiComponent for CustomFooter {
         let branch = manager.lock().expect("session manager lock").get_branch(None);
         let (mut input, mut output, mut cost) = (0.0, 0.0, 0.0);
         for entry in branch {
-            if let SessionEntry::Known(KnownSessionEntry::Message(entry)) = entry {
-                if let AgentMessage::Assistant(message) = *entry.message {
-                    input += message.usage.input;
-                    output += message.usage.output;
-                    cost += message.usage.cost.total;
-                }
+            if let SessionEntry::Known(KnownSessionEntry::Message(entry)) = entry
+                && let AgentMessage::Assistant(message) = *entry.message
+            {
+                input += message.usage.input;
+                output += message.usage.output;
+                cost += message.usage.cost.total;
             }
         }
         let left = self.theme.fg(
