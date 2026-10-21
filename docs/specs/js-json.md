@@ -15,6 +15,18 @@
 - [x] Provide JSON-value Boolean and fallible String coercions without losing UTF-16 units; objects shadowing `toString` throw rather than silently stringify.
 - [x] Keep legacy serde parse behavior, including replacement before duplicate-key collision handling. Explicit later lossy conversion need not produce the same collisions as legacy parsing.
 
+## JS-visible serde boundaries
+
+Use the shared `stringify`/`stringify_pretty` writer whenever serde-backed arbitrary JSON is embedded in text, persisted, measured for a storage/context cap, or used as a deduplication key. Typed records first convert through `serde_json::to_value`, retaining their declared field order and serialization errors. Plain-object enumeration uses `object_entries`; JS Map registries retain insertion order.
+
+### Decision: egress, not ingress (2026-10-20)
+
+Ingress canonicalization is insufficient: `serde_json::Number` cannot represent the complete JS decimal spelling contract (`2.0`, `-0`, exponent thresholds, and binary64 rounding above 2^53). Even a recursively reordered ingress value would diverge after Rust construction/insertion or when serde writes a float. Replacing all ingress values with `JsValue` would instead change typed API/storage contracts and lone-surrogate collision behavior. Reuse the existing writer at the observable boundary, without altering stored values or parsing errors.
+
+Evidence: the serialization audit's `{"2":2.0,"1":1.0,"x":3.0}` changes tool-details caps, approval/tree text, Pyrun text, remote-compaction byte/character counts and argument strings, embedded HTML and persisted session entries. `{"2":"second","1":"first"}` changes plain-object traversal. Existing `js_json_lossless` and `differential_js_json_lossless` prove UTF-16 identity and binary64 behavior; session codec numeric validation remains independently covered by `differential_session_codec_numbers`. Neither parser nor codec representation is changed by this migration.
+
+The audit has six uncertain groups (despite the brief's count of five): scanning's nested custom data, search-history context assistant arguments, detached bridge params/results, remote dedup numeric leaves, SDK arbitrary settings, and numeric provider IDs. All are reachable and confirmed. Exact cases, RED/GREEN evidence and remaining pattern classifications: [boundary proof](../porting/js-value-semantics-proof.md).
+
 ## How it works
 
 - [Shared parser/writer and test mapping](../porting/traceability/js-json.md)
@@ -36,6 +48,6 @@
 
 ## Out of scope
 
-- Migrating existing serde callers; legacy replacement behavior remains intentional compatibility at that API boundary, not a waiver for raw-file validator inputs.
+- Migrating every serde caller globally. This slice covers the audited visible boundaries; legacy replacement behavior remains intentional compatibility at that API boundary, not a waiver for raw-file validator inputs.
 - Arbitrary-precision numbers: `JsValue::Number(f64)` deliberately uses JavaScript binary64, not arbitrary-precision JSON arithmetic.
 - Error excerpts containing split surrogate units retain existing UTF-8 replacement behavior; the legacy mutation oracle normalizes only such diagnostic strings. The new bounded lossless oracle does not normalize outputs.

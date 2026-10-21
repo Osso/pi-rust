@@ -73,6 +73,24 @@ fn stream_fn(runtime: ModelRuntime) -> pi_agent_core::agent::types::StreamFn {
     })
 }
 
+#[tokio::test]
+async fn jsonl_export_preserves_javascript_value_bytes() {
+    let fixture = fixture().await;
+    let value = serde_json::from_str(r#"{"2":2.0,"1":1.0,"x":9007199254740993}"#).unwrap();
+    fixture
+        .session
+        .session_manager()
+        .append_custom_entry("numeric", Some(value))
+        .unwrap();
+    let path = fixture._temp_dir.path().join("export.jsonl");
+    fixture.session.export_to_jsonl(Some(path.to_str().unwrap())).unwrap();
+    let bytes = std::fs::read_to_string(path).unwrap();
+    assert!(
+        bytes.contains(r#""data":{"1":1,"2":2,"x":9007199254740992}"#),
+        "{bytes}"
+    );
+}
+
 async fn fixture() -> Fixture {
     fixture_with(Default::default(), Vec::new(), None, Some(Vec::new())).await
 }
@@ -2063,7 +2081,11 @@ async fn human_allow_always_spawns_the_permission_config_agent() {
         .await;
     fixture.faux.set_responses(vec![
         faux_assistant_message(
-            permission_tool_call("hello"),
+            vec![pi_ai::types::AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
+                "call-1",
+                "echo",
+                serde_json::from_str(r#"{"text":"hello","2":2.0,"1":1.0}"#).unwrap(),
+            ))],
             FauxAssistantMessageOptions {
                 stop_reason: Some(pi_ai::types::StopReason::ToolUse),
                 ..Default::default()
@@ -2107,9 +2129,11 @@ async fn human_allow_always_spawns_the_permission_config_agent() {
     assert!(prompt.contains("Original cwd: "), "prompt: {prompt}");
     assert!(prompt.contains("Tool name: echo"), "prompt: {prompt}");
     assert!(prompt.contains("\"text\": \"hello\""), "prompt: {prompt}");
+    let expected_input = "{\n  \"1\": 1,\n  \"2\": 2,\n  \"text\": \"hello\"\n}";
+    assert!(prompt.contains(expected_input), "prompt: {prompt}");
     let titles = ui.titles.lock().unwrap().clone();
     assert_eq!(titles.len(), 1);
-    assert!(titles[0].starts_with("Approve echo?\n"), "title: {}", titles[0]);
+    assert_eq!(titles[0], format!("Approve echo?\n{expected_input}"));
     let options = ui.options.lock().unwrap().clone();
     assert_eq!(
         options[0],

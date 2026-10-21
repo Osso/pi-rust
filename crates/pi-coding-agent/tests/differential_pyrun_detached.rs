@@ -56,7 +56,9 @@ fn manifest(directory: &str, code: &str, tool_call_id: Option<&str>) -> Detached
         params: pi_coding_agent::bundled_extensions::pyrun::runner::CanonicalPyrunEvalParams {
             code: code.to_owned(),
             session_id: Some("session-1".to_owned()),
-            pi: Some(json!({"footer": {"availableProviderCount": 2}})),
+            pi: Some(
+                serde_json::from_str(r#"{"footer":{"availableProviderCount":2},"custom":{"2":2.0,"1":1.0}}"#).unwrap(),
+            ),
             pi_bridge: Some(true),
             stream_console: Some(true),
         },

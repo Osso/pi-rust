@@ -24,7 +24,7 @@ pub async fn run(
     writeln!(
         output,
         "Current settings: {}",
-        serde_json::to_string_pretty(&from_disk.get_global_settings()).map_err(|e| e.to_string())?
+        pi_js_compat::js_json::stringify_pretty(&Value::Object(from_disk.get_global_settings()))
     )
     .map_err(|e| e.to_string())?;
     let mut manager = SettingsManager::create(&paths.cwd, Some(Path::new(&paths.agent_dir)), Default::default())

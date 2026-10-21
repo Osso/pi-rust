@@ -1882,6 +1882,18 @@ async fn caps_tool_result_details_with_a_capped_preview() {
 }
 
 #[tokio::test]
+async fn js_details_at_storage_boundary_are_not_truncated() {
+    let details = serde_json::from_str::<serde_json::Value>(r#"{"2":2.0,"1":1.0,"x":3.0}"#).unwrap();
+    let mut details = details.as_object().unwrap().clone();
+    // JS length is exactly 10240; serde's three .0 suffixes cross the cap.
+    details.insert("pad".into(), json!("x".repeat(10240 - 28)));
+    let details = serde_json::Value::Object(details);
+    assert_eq!(pi_js_compat::js_json::stringify(&details).len(), 10240);
+    let result = tool_result_for("small".into(), Some(details.clone())).await;
+    assert_eq!(result.details, Some(details));
+}
+
+#[tokio::test]
 async fn leaves_small_tool_results_unchanged() {
     let result = tool_result_for("small".to_owned(), Some(json!({"ok": true}))).await;
     assert_eq!(tool_result_text(&result), "small");

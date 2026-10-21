@@ -100,10 +100,7 @@ pub fn write_detached_pyrun_launch_manifest(path: &str, data: &DetachedPyrunLaun
     let checksum = hash_json(&Value::Object(object.clone()));
     object.insert("checksum".to_owned(), Value::String(checksum));
     let temporary_path = format!("{path}.tmp");
-    let serialized = format!(
-        "{}\n",
-        serde_json::to_string(&unsigned).map_err(|error| error.to_string())?
-    );
+    let serialized = format!("{}\n", pi_js_compat::js_json::stringify(&unsigned));
     write_private(&temporary_path, &serialized)?;
     fsync_file(&temporary_path)?;
     std::fs::rename(&temporary_path, path).map_err(|error| error.to_string())?;

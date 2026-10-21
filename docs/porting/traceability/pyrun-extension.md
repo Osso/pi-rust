@@ -78,3 +78,7 @@ Registered as `<first-party:pyrun>`; bwrap profiles use the ported
   message, matching the TypeScript template literal.
 - The bwrap sandbox path uses the approved pi-internal fs worker; see
   `bwrap-extension.md`.
+
+## JS-value boundary regression (2026-10-20)
+
+Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).

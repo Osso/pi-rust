@@ -133,6 +133,22 @@ fn manifest(
     }
 }
 
+#[test]
+fn launch_manifest_enumerates_numeric_environment_names_like_javascript() {
+    let fixture = fixture("2026-07-11T22:00:00.000Z");
+    let mut data = manifest(&fixture, "job", "activation", "done", Vec::new());
+    data.env = [
+        ("2".into(), "two".into()),
+        ("1".into(), "one".into()),
+        ("10".into(), "ten".into()),
+    ]
+    .into();
+    let path = fixture.directory.path().join("launch.json");
+    write_detached_bash_launch_manifest(path.to_str().unwrap(), &data).unwrap();
+    let bytes = fs::read_to_string(path).unwrap();
+    assert!(bytes.contains(r#""env":{"1":"one","2":"two","10":"ten"}"#), "{bytes}");
+}
+
 #[tokio::test]
 async fn owns_payload_exit_and_commits_one_exact_terminal_input() {
     let fixture = fixture("2026-07-11T22:00:00.000Z");

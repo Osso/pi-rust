@@ -139,6 +139,23 @@ fn caps_single_line_tool_result_on_disk_without_changing_the_runtime_entry() {
 }
 
 #[test]
+fn persisted_details_use_javascript_key_order_and_numbers() {
+    let mut message = tool_result("ok");
+    let AgentMessage::ToolResult(result) = &mut message else {
+        unreachable!()
+    };
+    result.details = Some(serde_json::from_str(r#"{"2":2.0,"1":1.0,"x":3.0}"#).unwrap());
+    let entry = SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        id: "tool-1".into(),
+        parent_id: None,
+        timestamp: "2025-01-01T00:00:00.000Z".into(),
+        message: Box::new(message),
+    }));
+    let line = pi_coding_agent::core::session_tool_output::serialize_session_entry(&entry);
+    assert!(line.contains(r#""details":{"1":1,"2":2,"x":3}"#), "{line}");
+}
+
+#[test]
 fn truncates_multibyte_utf8_at_a_valid_boundary() {
     let entry = tool_result_entry(&"😀漢字".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES));
     let (persisted, changed) = truncate_tool_result_for_persistence(&entry);

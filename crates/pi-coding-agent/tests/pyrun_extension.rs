@@ -139,6 +139,36 @@ print(json.dumps({"type": "completed", "executed": params["code"], "console": ["
 }
 
 #[tokio::test]
+async fn runner_requests_and_bridge_replies_use_javascript_json() {
+    let dir = temp_dir("js-wire");
+    write_runner(
+        &dir,
+        "fake-pyrun",
+        r#"
+import json, sys
+request = sys.stdin.readline().strip()
+print(json.dumps({"type":"pi_request", "method":"echo", "params":{}}), flush=True)
+reply = sys.stdin.readline().strip()
+print(json.dumps({"type":"completed", "value":[request,reply]}), flush=True)
+"#,
+    );
+    let runner = runner_for(&dir);
+    let mut input = params("x");
+    input.pi = Some(serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap());
+    let handler = Arc::new(|_: PiRequest| {
+        Box::pin(async { Ok(Some(serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap())) })
+            as pi_coding_agent::core::extensions::types::BoxFuture<
+                'static,
+                Result<Option<Value>, pi_coding_agent::core::extensions::types::HandlerError>,
+            >
+    });
+    let result = runner.evaluate(input, None, None, Some(handler)).await.unwrap();
+    let wire = result.value.unwrap();
+    assert!(wire[0].as_str().unwrap().contains(r#""pi":{"1":1,"2":2}"#), "{wire}");
+    assert_eq!(wire[1], r#"{"result":{"1":1,"2":2}}"#);
+}
+
+#[tokio::test]
 async fn responds_to_pi_requests_over_the_same_stdin() {
     let dir = temp_dir("pi-request");
     write_runner(
@@ -260,6 +290,8 @@ fn formats_result_values_like_the_tool_output() {
     assert_eq!(format_result_value(&result), None);
     result.value = Some(json!({"stdout": "", "stderr": "", "exit_code": 2}));
     assert_eq!(format_result_value(&result), Some("exit code 2".to_owned()));
+    result.value = Some(serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap());
+    assert_eq!(format_result_value(&result).as_deref(), Some(r#"{"1":1,"2":2}"#));
     result.value = Some(json!({"a": 1}));
     assert_eq!(format_result_value(&result), Some("{\"a\":1}".to_owned()));
 
@@ -298,6 +330,8 @@ fn formats_progress_updates_in_priority_order() {
         format_progress_text(&update(json!({"type": "console", "value": {"a": 1}}))),
         "{\"a\":1}"
     );
+    let numeric = serde_json::from_str(r#"{"type":"console","value":{"2":2.0,"1":1.0}}"#).unwrap();
+    assert_eq!(format_progress_text(&update(numeric)), r#"{"1":1,"2":2}"#);
     assert_eq!(format_progress_text(&update(json!({"type": "other"}))), "other");
 }
 

@@ -118,6 +118,12 @@ fn openai_remote_compact_helpers_match_typescript() {
     let previous = vec![native.clone()];
 
     let cases = vec![
+        json!({"kind": "extract", "name": "numeric-history-dedup", "model": text_model,
+        "endpoint": "test", "response": {"output": [
+            {"type":"compaction", "encrypted_content":"abc", "nested":{"2":2.0,"1":1.0}},
+            {"type":"message", "id":"m1", "role":"assistant", "content":[{"type":"output_text","text":"x","score":2.0}]},
+            {"type":"message", "id":"m2", "role":"assistant", "content":[{"type":"output_text","text":"x","score":2}]}
+        ]}}),
         json!({"kind": "instructions", "name": "base", "base": "  Keep the goal.  "}),
         json!({"kind": "instructions", "name": "custom", "base": "base", "custom": "  focus here  "}),
         json!({"kind": "instructions", "name": "blank-custom", "base": "base", "custom": "   "}),
@@ -159,7 +165,7 @@ fn openai_remote_compact_helpers_match_typescript() {
                 {"role": "user", "content": "hello", "timestamp": 1},
                 {"role": "assistant", "content": [
                     {"type": "text", "text": "working"},
-                    {"type": "toolCall", "id": "call-1|item-1", "name": "read", "arguments": {"path": "a"}}
+                    {"type": "toolCall", "id": "call-1|item-1", "name": "read", "arguments": {"2": 2.0, "1": 1.0, "path": "a"}}
                 ], "api": "openai-responses", "provider": "openai", "model": "gpt-5.6",
                  "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
                            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}},
@@ -243,7 +249,12 @@ fn openai_remote_compact_helpers_match_typescript() {
                 )
                 .expect("details");
                 let actual = serde_json::to_value(details).expect("details json");
-                assert_eq!(actual, *expected, "{name}");
+                // Compare the JS-visible bytes, not serde's internal integer/float variants.
+                assert_eq!(
+                    pi_js_compat::js_json::stringify(&actual),
+                    serde_json::to_string(expected).unwrap(),
+                    "{name}"
+                );
             }
             "payload" => {
                 let messages: Vec<AgentMessage> = case["messages"]

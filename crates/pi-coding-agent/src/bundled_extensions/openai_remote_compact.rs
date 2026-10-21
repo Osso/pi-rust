@@ -344,8 +344,7 @@ pub fn extract_openai_compact_details(
         ));
     }
     let replacement_history = deduplicate_openai_message_items(response_items);
-    let serialized =
-        serde_json::to_string(&replacement_history).map_err(|error| HandlerError::new(error.to_string()))?;
+    let serialized = pi_js_compat::js_json::stringify(&Value::Array(replacement_history.clone()));
     let replacement_history_bytes = serialized.len() as f64;
     Ok(OpenAiRemoteCompactionDetails {
         details_type: DETAILS_TYPE.to_owned(),
@@ -369,7 +368,8 @@ async fn post_openai_compact(
     signal: Option<tokio_util::sync::CancellationToken>,
 ) -> Result<Value, HandlerError> {
     let request_headers = build_openai_request_headers(model, api_key, headers)?;
-    let body = serde_json::to_vec(payload).map_err(|error| HandlerError::new(error.to_string()))?;
+    let value = serde_json::to_value(payload).map_err(|error| HandlerError::new(error.to_string()))?;
+    let body = pi_js_compat::js_json::stringify(&value).into_bytes();
     let fetch = pi_ai::http::default_fetch();
     let response = fetch
         .fetch(
@@ -407,13 +407,105 @@ fn parse_openai_compact_response(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|_| json!({"output": [{"type": "error", "text": text}]}))
 }
 
+#[cfg(test)]
+mod js_value_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn http_body_uses_javascript_json() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/compact", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 4096];
+            let body = loop {
+                let count = socket.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+                let text = String::from_utf8_lossy(&request);
+                if let Some((headers, body)) = text.split_once("\r\n\r\n") {
+                    let length = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.to_lowercase()
+                                .strip_prefix("content-length: ")
+                                .and_then(|s| s.parse::<usize>().ok())
+                        })
+                        .unwrap();
+                    if body.len() == length {
+                        break body.to_owned();
+                    }
+                }
+            };
+            let response = r#"{"2":2.0,"1":1.0}"#;
+            write!(
+                socket,
+                "HTTP/1.1 400 Bad Request\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response.len(),
+                response
+            )
+            .unwrap();
+            body
+        });
+        let model: Model = serde_json::from_value(json!({
+            "id":"gpt", "name":"gpt", "provider":"openai", "api":"openai-responses", "baseUrl":"http://localhost",
+            "reasoning":false, "input":["text"], "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":1000,"maxTokens":100
+        })).unwrap();
+        let payload = OpenAiCompactPayload {
+            model: "gpt".into(),
+            input: vec![serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap()],
+            instructions: String::new(),
+            tools: Vec::new(),
+            parallel_tool_calls: false,
+        };
+        let error = post_openai_compact(&endpoint, &payload, &model, None, None, None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.message, r#"OpenAI remote compaction failed (400): {"1":1,"2":2}"#);
+        let body = server.join().unwrap();
+        assert!(body.contains(r#""input":[{"1":1,"2":2}]"#), "{body}");
+    }
+
+    #[test]
+    fn tool_arguments_use_javascript_json() {
+        let call =
+            pi_ai::types::ToolCall::new("call", "unknown", serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap());
+        let items = convert_assistant_message(&[AssistantContent::ToolCall(call)]);
+        assert_eq!(items[0]["arguments"], r#"{"1":1,"2":2}"#);
+    }
+
+    #[test]
+    fn message_dedup_ignores_integer_float_storage() {
+        let first = serde_json::from_str(r#"{"type":"message","id":"first","content":{"score":2.0}}"#).unwrap();
+        let last = json!({"type":"message","id":"last","content":{"score":2}});
+        assert_eq!(deduplicate_openai_message_items(vec![first, last.clone()]), vec![last]);
+    }
+
+    #[test]
+    fn error_fallback_uses_javascript_json() {
+        let body = serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap();
+        assert_eq!(format_openai_error(&body), r#"{"1":1,"2":2}"#);
+    }
+
+    #[test]
+    fn serialized_budget_uses_javascript_numbers() {
+        let items = vec![serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap()];
+        assert_eq!(serialized_openai_input_chars(&items), 15);
+    }
+}
+
 fn format_openai_error(body: &Value) -> String {
     if let Some(error) = body.get("error")
         && let Some(message) = error.get("message").and_then(Value::as_str)
     {
         return message.to_owned();
     }
-    serde_json::to_string(body).unwrap_or_default()
+    pi_js_compat::js_json::stringify(body)
 }
 
 /// `buildCompactEndpoint`.
@@ -589,7 +681,7 @@ fn openai_message_deduplication_key(item: &Value) -> Option<String> {
     let mut message = item.as_object()?.clone();
     message.shift_remove("id");
     let canonical = canonicalize_json_value(&Value::Object(message));
-    serde_json::to_string(&canonical).ok()
+    Some(pi_js_compat::js_json::stringify(&canonical))
 }
 
 fn canonicalize_json_value(value: &Value) -> Value {
@@ -688,9 +780,9 @@ fn convert_assistant_message(content: &[AssistantContent]) -> Vec<Value> {
                 item.insert("name".to_owned(), Value::String(tool_call.name.clone()));
                 item.insert(
                     "arguments".to_owned(),
-                    Value::String(
-                        serde_json::to_string(&Value::Object(tool_call.arguments.clone())).unwrap_or_default(),
-                    ),
+                    Value::String(pi_js_compat::js_json::stringify(&Value::Object(
+                        tool_call.arguments.clone(),
+                    ))),
                 );
                 output.push(Value::Object(item));
             }
@@ -819,7 +911,8 @@ fn reconcile_openai_tool_pairs(items: &[Value]) -> Vec<usize> {
 }
 
 fn serialized_openai_input_chars(items: &[Value]) -> usize {
-    serde_json::to_string(items).map_or(0, |serialized| utf16_len(&serialized))
+    let serialized = pi_js_compat::js_json::stringify(&Value::Array(items.to_vec()));
+    utf16_len(&serialized)
 }
 
 /// `limitOpenAICompactInput`.

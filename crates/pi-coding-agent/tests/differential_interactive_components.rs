@@ -1246,6 +1246,19 @@ fn tree_selector_cases() -> Vec<(Value, Value)> {
         tree_entries_user("user-4b", Some("asst-3b"), "branch B deep"),
     ];
 
+    let mut numeric_entry = tree_entries_assistant("numeric", Some("numeric-user"), "tool args");
+    if let pi_coding_agent::core::session_manager::SessionEntry::Known(
+        pi_coding_agent::core::session_manager::KnownSessionEntry::Message(entry),
+    ) = &mut numeric_entry
+    {
+        if let pi_agent_core::agent::AgentMessage::Assistant(message) = entry.message.as_mut() {
+            message.content.push(AssistantContent::ToolCall(ToolCall::new(
+                "call",
+                "unknown",
+                serde_json::from_str(r#"{"2":2.0,"1":1.0,"pad":"abcdefghijklmnopqrstuvwxyz"}"#).unwrap(),
+            )));
+        }
+    }
     type TreeCase<'a> = (
         u64,
         Vec<pi_coding_agent::core::session_manager::SessionEntry>,
@@ -1256,6 +1269,9 @@ fn tree_selector_cases() -> Vec<(Value, Value)> {
         Value,
     );
     let variants: Vec<TreeCase> = vec![
+        (169, vec![tree_entries_user("numeric-user", None, "hello"), numeric_entry,
+            serde_json::from_value(json!({"type":"message","id":"numeric-result","parentId":"numeric","timestamp":"2026-01-01T00:00:00.000Z",
+                "message":{"role":"toolResult","toolCallId":"call","toolName":"unknown","content":[{"type":"text","text":"ok"}],"isError":false,"timestamp":1}})).unwrap()], "numeric-result", Some(FilterMode::All), vec![], 160, json!({})),
         (160, metadata_entries.clone(), "model-1", None, vec![], 120, json!({})),
         (
             161,

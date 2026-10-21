@@ -11,7 +11,7 @@ async fn prints_disk_settings_flushes_low_and_keeps_overrides_ephemeral() {
     let a = support::fixture().await;
     let b = support::fixture().await;
     let path = a.home.path().join("agent/settings.json");
-    std::fs::write(&path, "{\"defaultThinkingLevel\":\"high\"}").unwrap();
+    std::fs::write(&path, r#"{"defaultThinkingLevel":"high","custom":{"2":2.0,"1":1.0}}"#).unwrap();
     let output = support::Output::default();
     let _main = example::main;
     let settings = example::run([a.options, b.options], output.clone(), std::io::sink())
@@ -21,7 +21,7 @@ async fn prints_disk_settings_flushes_low_and_keeps_overrides_ephemeral() {
         "sdk-examples-oracle.ts",
         "packages/coding-agent/examples/sdk/10-settings.ts",
     );
-    let expected = source.request(&json!({"settings":{"defaultThinkingLevel":"high"}}));
+    let expected = source.request(&json!({"settings":{"defaultThinkingLevel":"high","custom":{"2":2.0,"1":1.0}}}));
     assert_eq!(output.text(), expected["stdout"]);
     assert_eq!(settings["compaction"]["enabled"], false);
     assert_eq!(settings["retry"]["maxRetries"], 5);

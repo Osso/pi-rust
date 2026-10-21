@@ -70,3 +70,7 @@ TypeScript object is likewise single-threaded. `ToolRenderContext.args` is
   (session-manager limitation, not this module).
 - `SessionHeader` now preserves explicit `null` values for keys present in the
   source file, so `parentSession: null` survives the export payload.
+
+## JS-value boundary regression (2026-10-20)
+
+Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).

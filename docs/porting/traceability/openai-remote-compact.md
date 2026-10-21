@@ -34,3 +34,7 @@ Focused tests: `crates/pi-coding-agent/tests/openai_remote_compact.rs` (2),
 - `String.prototype.slice` truncates UTF-16 code units and can split a surrogate pair; Rust strings cannot
   hold lone surrogates, so `utf16_prefix` replaces a split pair with U+FFFD. Only reachable when a text
   truncation boundary lands mid-surrogate.
+
+## JS-value boundary regression (2026-10-20)
+
+Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).

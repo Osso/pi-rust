@@ -28,3 +28,9 @@ Gaps / deviations:
 - `getDetachedBashRunnerInvocation` has no `--experimental-strip-types` branch: the Rust runner is compiled and always uses the internal mode; `entry_path` selects a wrapper executable.
 - `hashJson` uses `serde_json` serialization. Manifest `env` is a `BTreeMap`, so the key order (and therefore the checksum) differs from a JS object built from `process.env`. Rust-written manifests are only consumed by the Rust runner; cross-implementation manifest exchange is not supported (recorded deviation).
 - Signal names cover the Linux signal range 1–31; signals outside that range serialize as `null`.
+
+## JS-value bytes (2026-10-20)
+
+`hash_json` and `append_artifact_record` use shared JS stringify, matching TS hash inputs and artifact lines. `js_value_artifacts` checks concrete bytes/digest; numeric Pyrun manifest differential checks shared checksum integration. [Boundary proof](../js-value-semantics-proof.md).
+
+Atomic manifest writes also use JS stringify: `launch_manifest_enumerates_numeric_environment_names_like_javascript` covers env keys 1/2/10. Activation identities share that writer; filesystem error propagation is unchanged.

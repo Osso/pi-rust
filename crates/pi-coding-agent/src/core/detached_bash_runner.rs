@@ -561,7 +561,7 @@ fn read_detached_bash_launch_manifest(path: &str) -> Result<DetachedBashLaunchMa
 
 /// `hashJson`.
 pub fn hash_json(value: &Value) -> String {
-    let serialized = serde_json::to_string(value).expect("JSON values always serialize");
+    let serialized = pi_js_compat::js_json::stringify(value);
     crate::core::detached_job_runner::sha256_hex(serialized.as_bytes())
 }
 
@@ -583,7 +583,8 @@ fn write_atomic_json(path: &str, value: &Value) -> Result<(), DetachedBashRunner
         .truncate(true)
         .mode(0o600)
         .open(&temporary_path)?;
-    file.write_all(format!("{}\n", serde_json::to_string(value)?).as_bytes())?;
+    let line = format!("{}\n", pi_js_compat::js_json::stringify(value));
+    file.write_all(line.as_bytes())?;
     file.sync_all()?;
     drop(file);
     std::fs::rename(&temporary_path, path)?;
@@ -600,7 +601,8 @@ fn write_atomic_json(path: &str, value: &Value) -> Result<(), DetachedBashRunner
 /// Appends one JSON line (`appendArtifactRecord`).
 pub fn append_artifact_record(path: &str, record: &Value) -> Result<(), std::io::Error> {
     let mut file = OpenOptions::new().create(true).append(true).mode(0o600).open(path)?;
-    file.write_all(format!("{}\n", serde_json::to_string(record).map_err(std::io::Error::other)?).as_bytes())
+    let line = format!("{}\n", pi_js_compat::js_json::stringify(record));
+    file.write_all(line.as_bytes())
 }
 
 /// One `readJsonLines` chunk.

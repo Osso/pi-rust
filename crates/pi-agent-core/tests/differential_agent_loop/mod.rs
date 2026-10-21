@@ -233,7 +233,7 @@ fn big_details(mode: &str) -> Value {
     } else {
         big_text(mode)
     };
-    json!({"value": value})
+    json!({"2": 2.0, "1": 1.0, "value": value})
 }
 
 fn tool_message(id: &str, name: &str, value: &str) -> AssistantMessage {
