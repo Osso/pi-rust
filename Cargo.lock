@@ -2207,6 +2207,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-orchestrator"
+version = "0.0.0"
+dependencies = [
+ "gethostname",
+ "getrandom 0.4.3",
+ "indexmap",
+ "pi-ai",
+ "pi-coding-agent",
+ "pi-js-compat",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
 name = "pi-telemetry"
 version = "0.0.0"
 dependencies = [

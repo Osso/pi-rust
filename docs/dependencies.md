@@ -141,3 +141,9 @@ Session-name v15 slice adds no dependencies. `pi-js-compat` supplies JS whitespa
 `pi-coding-agent`: direct `zstd = "=0.14.3"` (existing lock version), frozen `.jsonl.zst` transcript decoding and archive storage.
 
 `pi-coding-agent` enables existing exact `serde_json` dependency `raw_value` feature only to emit validated lossless JsValue receipt/summary-extra JSON tokens (including escaped UTF16 strings/keys) without projecting through serde Value.
+
+## pi-orchestrator (Q3)
+
+All direct versions exactly match workspace pins. `pi-coding-agent` reuses RPC commands/responses/UI envelopes; `pi-ai` supplies injectable Fetch; `pi-js-compat` supplies JS JSON and date semantics. `serde`/`serde_json` serialize records, `tokio` runs Unix sockets, children and timers, `url` resolves Radius URLs, `gethostname` provides registration metadata, `getrandom` produces IDs/jitter, `indexmap` preserves live-instance order, `rustix` sends child signals. Test-only `tempfile` isolates storage and sockets. Frozen package declares no binary: library-only packaging; native children use sibling `pi --mode rpc` (parent-approved).
+
+`pi-orchestrator` test-only `tokio-util = =0.7.20` names the shared Fetch cancellation-token argument for fake transports.

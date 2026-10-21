@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 309, `gap` 14, `partial` 50, `todo` 313.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 314, `gap` 14, `partial` 58, `todo` 300.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -666,19 +666,19 @@ Level is the old import-graph depth where available, not recomputed for changed 
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `orchestrator/src/cli.ts` | 161 | — | todo | — | new on master |
-| `orchestrator/src/config.ts` | 69 | — | todo | — | new on master |
-| `orchestrator/src/handler.ts` | 161 | — | todo | — | new on master |
-| `orchestrator/src/index.ts` | 10 | — | todo | — | new on master |
-| `orchestrator/src/ipc/client.ts` | 63 | — | todo | — | new on master |
-| `orchestrator/src/ipc/protocol.ts` | 142 | — | todo | — | new on master |
-| `orchestrator/src/ipc/server.ts` | 209 | — | todo | — | new on master |
-| `orchestrator/src/radius.ts` | 445 | — | todo | — | new on master |
-| `orchestrator/src/rpc-process.ts` | 201 | — | todo | — | new on master |
-| `orchestrator/src/serve.ts` | 77 | — | todo | — | new on master |
-| `orchestrator/src/storage.ts` | 70 | — | todo | — | new on master |
-| `orchestrator/src/supervisor.ts` | 354 | — | todo | — | new on master |
-| `orchestrator/src/types.ts` | 25 | — | todo | — | new on master |
+| `orchestrator/src/cli.ts` | 161 | — | partial | `crates/pi-orchestrator/src/cli.rs` | Frozen CLI text, request/stdout and rpc-stream EOF byte differentials pass; native CLI-serve embedding proof remains open. [Traceability](traceability/orchestrator-cli.md). |
+| `orchestrator/src/config.ts` | 69 | — | done | `crates/pi-orchestrator/src/config.rs` | Frozen path precedence/normalization/all accessors; OS home lookup with HOME absent. [Traceability](traceability/orchestrator-config.md). |
+| `orchestrator/src/handler.ts` | 161 | — | partial | `crates/pi-orchestrator/src/handler.rs` | Frozen list/status/stop/rpc/unknown/stream forwarding proof; direct successful spawn/rpc-ready handler dispatch proof remains open. [Traceability](traceability/orchestrator-handler.md). |
+| `orchestrator/src/index.ts` | 10 | — | done | `crates/pi-orchestrator/src/index.rs` | Root reexports exercised by real process/socket fixtures; no independent runtime logic. [Traceability](traceability/orchestrator-index.md). |
+| `orchestrator/src/ipc/client.ts` | 63 | — | partial | `crates/pi-orchestrator/src/ipc/client.rs` | Bidirectional TS/Rust Unix JSONL; fragment/EOF/connect/reset Node text; 31-code-point Node trim/parse frame matrix passes. Arbitrary fragmented Unicode framing remains unproved. [Traceability](traceability/orchestrator-ipc-client.md). |
+| `orchestrator/src/ipc/protocol.ts` | 142 | — | done | `crates/pi-orchestrator/src/ipc/protocol.rs` | JS JSON/key/number/LF and parser differentials; native enum/JSON envelopes reuse shared RPC types. [Traceability](traceability/orchestrator-ipc-protocol.md). |
+| `orchestrator/src/ipc/server.ts` | 209 | — | partial | `crates/pi-orchestrator/src/ipc/server.rs` | Frozen stall and locked f11463802 delta bytes; disconnected in-flight work finishes (frozen differential); 31-code-point ordinary/stream frame matrix. Multiple queued commands across disconnect remain unproved. [Traceability](traceability/orchestrator-ipc-server.md). |
+| `orchestrator/src/radius.ts` | 445 | — | partial | `crates/pi-orchestrator/src/radius.rs` | Fake-Fetch frozen registration and machine/Pi retry/recovery deadlines; unreadable successful disconnect body ignored (frozen differential); recovery-failure/disappearance/disconnect-404 matrices remain open. [Traceability](traceability/orchestrator-radius.md). |
+| `orchestrator/src/rpc-process.ts` | 201 | — | partial | `crates/pi-orchestrator/src/rpc_process.rs` | Real fake-child correlation/events/UI/Set/duplicate-ID/UTF8/EOF; inherited-pipe exit notification 20ms vs frozen 19ms; 31-code-point frame matrix. Inherited-pipe pending/dispose and callback reentrancy remain unproved. [Traceability](traceability/orchestrator-rpc-process.md). |
+| `orchestrator/src/serve.ts` | 77 | — | partial | `crates/pi-orchestrator/src/serve.rs` | Frozen startup/source SIGTERM and fatal exit-1 cleanup; native direct normal-signal/enabled-Radius matrices remain open. [Traceability](traceability/orchestrator-serve.md). |
+| `orchestrator/src/storage.ts` | 70 | — | done | `crates/pi-orchestrator/src/storage.rs` | TS↔Rust file bytes, upsert/remove ordering, absent/corrupt data, nine real Node FS diagnostic cases. [Traceability](traceability/orchestrator-storage.md). |
+| `orchestrator/src/supervisor.ts` | 354 | — | partial | `crates/pi-orchestrator/src/supervisor.rs` | Frozen lifecycle/recovery/failure/stream callback identity proof; metadata-command and Radius-cleanup-failure matrices remain open. [Traceability](traceability/orchestrator-supervisor.md). |
+| `orchestrator/src/types.ts` | 25 | — | done | `crates/pi-orchestrator/src/types.rs` | All statuses and concrete optional-record serde wire shapes; TS storage fixture proof for erased declarations. [Traceability](traceability/orchestrator-types.md). |
 
 ## tui (33 files, 13552 lines)
 
