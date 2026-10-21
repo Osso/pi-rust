@@ -4,7 +4,7 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 
 ## What it must do
 
-- [ ] Preserve canonical persisted JSON UTF16 strings/keys through reads and mutations. Current source-created lone-surrogate mailbox body is replaced on projection and rewritten by claim; [blocking proof](../porting/traceability/session-control-db.md).
+- [ ] Preserve canonical persisted JSON UTF16 strings/keys through reads and mutations. Source-created lone-surrogate mailbox body is still replaced on public projection. Claim/release/fail/recovery/steering/routing persistence and mailbox migration writers have bounded lossless proofs; raw public/store authority remains open; [blocking proof](../porting/traceability/session-control-db.md).
 
 - [x] Read and update TS-created metadata, and survive TS initialization of Rust-created metadata, without obsolete transcript search columns.
 - [x] Preserve authoritative NULL versus explicit cleared names during metadata updates.

@@ -2,7 +2,9 @@
 
 ## Blocking canonical JSON counterexample — current group is not accepted
 
-`repin_control_raw_json::canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim` is RED. A real frozen TS enqueue writes body `before\ud800after`; native runtime projection replaces U+D800 with U+FFFD, and native claim rewrites the canonical stored body to U+FFFD. The same TS process reads that changed row. `canonical-raw-json-red.log` records both code-unit changes.
+`repin_control_raw_json::canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim` remains OPEN/RED for public projection. Original RED at489d4381: real frozen TS enqueue writes body `before\ud800after`; native runtime projection replaced U+D800 with U+FFFD, and native claim rewrote canonical data. `canonical-raw-json-red.log` records that original counterexample. Subsequent bounded fixes below preserve raw canonical writes, including claim, but public projection remains String/serde and cannot preserve the body.
+
+Independent supervisor branch proof GREEN2: actual peer producers exercise approval→goal→advisory priority, exclusive in-flight claim, wrong-token requeue rejection, invalid response-kind rejection without mutation, rightful peer/native requeue/completion, relative deadline expiry and unexpired claim recovery, old-owner late-completion rejection, and completed-response stability across repeat recovery. Native-first initialization is covered in the recovery fixture. `supervisor-priority-recovery-proof.log`; no new production fix or raw-payload parity claim.
 
 Legacy routing migration RED→GREEN2: historical claimed-routing merge now edits the original lossless canonical object, retaining raw body/distinct keys/creation/error strings while applying explicit legacy SQL routing/state fields. Both canonical CAS and migration writers now require original/raw serialized or JsObject authority; no serde-map writer remains. Delivered legacy rows still delete (`canonical-legacy-routing-green.log`). Public/store and legacy agent lifecycle migration boundaries remain open.
 
