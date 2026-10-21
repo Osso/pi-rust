@@ -5,6 +5,7 @@ Native factories cross the extension/UI request boundary; their returned compone
 ## What it must do
 
 - [x] Custom factories return a UI-local future through one completion/mount path. Capture editor text before invoking the factory; mount only after fulfillment. Pending factories leave editor focus/content visible. Async rejection restores saved editor text/focus only for non-overlays, then rejects with its message.
+- [x] Rejection settles `custom()` but does not mark the component closed: a retained first Done still closes/restores the editor or hides the top overlay; later Done calls do nothing.
 - [x] Done before future settlement wins over late fulfillment/rejection: never mount, deliver a handle, dispose an unmounted component, or restore editor text twice. The factory future still runs to settlement.
 - [x] Overlay unfocus distinguishes omitted target (restore prior eligible focus), explicit native `ComponentRef` target, and explicit null (clear focus); unfocused handles do not alter focus.
 - [x] A synchronous custom-factory error rejects `custom()` unchanged, without mounting, focus/editor restoration, or disposal. If the factory calls `done` before failing, that first result wins.

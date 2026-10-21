@@ -115,7 +115,9 @@ fulfill/reject/Done-before-fulfill/Done-before-reject, each with/without overlay
 Pending factories keep the editor visible/focused; non-overlay rejection and
 Done restore saved text, overlay paths retain edits; late settlement cannot
 mount, invoke onHandle or restore twice. A fulfilled component closes through
-real terminal Enter input. Existing synchronous-throw tests retain their ordering.
+real terminal Enter input; captures prove pending editor visibility and that only mounted components receive dispose. Existing synchronous-throw tests retain their ordering.
+
+Pinned `.catch` rejects without setting `closed`. `extension_ui_retained_done_after_rejection_still_closes_once` retains Done across both synchronous/asynchronous rejection, then checks non-overlay saved-text restoration or overlay hide, and guards the second close. Separate `Cell<bool>` tracks Done closure state; consuming the response sender is not treated as closing the component.
 No loadable whole-interactive-mode TS oracle exists; these are native host
 proofs against exact pinned `interactive-mode.ts:3471–3534` statements.
 
