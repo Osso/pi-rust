@@ -6,7 +6,7 @@ use pi_ai::images_models::ImagesModels;
 use pi_ai::models::{CreateModelsOptions, Models, MutableModels, Provider, create_models};
 use pi_ai::providers::all::{
     builtin_images_models, builtin_images_providers, builtin_models, builtin_providers, get_builtin_model,
-    get_builtin_model_data_generated_at, get_builtin_models, get_builtin_providers,
+    get_builtin_model_data_generated_at, get_builtin_providers,
 };
 use pi_ai::request::{SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{Context, Model};
