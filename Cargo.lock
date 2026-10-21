@@ -2135,6 +2135,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hmac",
  "httpdate",
+ "icu_normalizer",
  "indexmap",
  "pi-js-compat",
  "regex",

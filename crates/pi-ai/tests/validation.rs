@@ -50,9 +50,9 @@ fn validation_message(tool: &Tool, tool_call: &ToolCall) -> String {
 }
 
 #[test]
-fn patterns_match_javascript_utf16_units() {
-    let tool = plain_value_schema(json!({"type":"string", "pattern":"^..$"}));
-    assert_eq!(validate(&tool, &value_args(json!("😀"))), json!({"value":"😀"}));
+fn patterns_support_javascript_backreferences() {
+    let tool = plain_value_schema(json!({"type":"string", "pattern":r"^(a)\1$"}));
+    assert_eq!(validate(&tool, &value_args(json!("aa"))), json!({"value":"aa"}));
 }
 
 #[test]

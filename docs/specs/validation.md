@@ -36,16 +36,28 @@ Trace: [validation](../porting/traceability/validation.md).
 - `schema_error_lines(&JsValue, &JsValue)` returns `Vec<JsString>`.
   `ValidationError::message()` returns exact `&JsString`; `Display` shows scalar
   messages directly and JSON-escapes messages containing unmatched surrogates.
-- RegExp uses ECMAScript non-Unicode UTF-16-unit semantics. Length checks retain
+- RegExp preserves frozen flags: `pattern`/`patternProperties` use Unicode mode;
+  conversion/additional-properties patterns use non-Unicode UTF-16-unit mode. Length checks retain
   the frozen TypeBox grapheme algorithm, not Rust scalar or byte length.
 
 ## Current proof boundary
 
 This re-pin repairs optional-null normalization and declared union-arm coercion
 order. It does not establish whole-module parity. The current-pin nullable-array
-compiler throw, nested TypeBox metadata representation, JavaScript regular
-expressions, and other engine limitations remain unresolved in the traceability
+compiler throw, nested TypeBox metadata representation, and other engine limitations remain unresolved in the traceability
 document. Direct core calls with non-object arguments or primitive schemas are
 outside the standing typed-core input policy: frozen `ToolCall.arguments` is
 `Record<string, any>` and `Tool.parameters` extends `TSchema` (`types.ts:378,478–481`).
 This does not exclude raw persisted JSON or valid nested JSON values.
+
+## Frozen format and hashing behavior
+
+The default TypeBox format registry is enforced, including unknown-format success,
+Unicode/IDN hostnames, dates/times, IPs, pointers, URI/IRI, and ECMAScript regex formats.
+Unmatched surrogates stay intact through NFC normalization. WHATWG URL checks convert
+their temporary parse input to USVString exactly as the frozen constructor does.
+
+`uniqueItems` uses frozen FNV-1a hashing, not structural equality. Its TextEncoder
+step replaces unmatched surrogates: distinct lone-surrogate strings can therefore
+hash identically and count as duplicates. This source quirk is deliberately preserved
+without modifying stored arguments; object keys are sorted by UTF-16 for hashing.

@@ -43,6 +43,15 @@ impl TsOracle {
     }
 
     pub(crate) fn request(&mut self, request: &Value) -> Value {
+        self.request_lossless(&request.into())
+            .to_serde()
+            .expect("scalar oracle response")
+    }
+
+    pub(crate) fn request_lossless(
+        &mut self,
+        request: &pi_js_compat::js_json::JsValue,
+    ) -> pi_js_compat::js_json::JsValue {
         serde_json::to_writer(&mut self.stdin, request).expect("oracle request must serialize");
         self.stdin
             .write_all(b"\n")
@@ -55,7 +64,7 @@ impl TsOracle {
             .read_line(&mut line)
             .expect("oracle response must be readable");
         assert_ne!(bytes_read, 0, "oracle must return one response per request");
-        serde_json::from_str(&line).expect("oracle response must be valid JSON")
+        pi_js_compat::js_json::parse_lossless(&line).expect("oracle response must be valid JSON")
     }
 }
 

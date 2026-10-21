@@ -1208,7 +1208,7 @@ fn collect_pattern_properties(
         return;
     }
     for (pattern, property_schema) in patterns {
-        let regex = Regex::new(pattern).ok();
+        let regex = Regex::unicode(pattern).ok();
         for (key, property) in map {
             if regex.as_ref().is_some_and(|regex| regex.is_match(key)) {
                 collect_schema(
@@ -1638,10 +1638,10 @@ fn collect_unique_items(schema: &JsObject, instance_path: &JsString, values: &[V
     if schema.get("uniqueItems").and_then(Value::as_bool) != Some(true) {
         return;
     }
+    let mut hashes = std::collections::HashSet::new();
     let has_duplicates = values
         .iter()
-        .enumerate()
-        .any(|(index, item)| values.iter().skip(index + 1).any(|other| deep_equal(item, other)));
+        .any(|item| !hashes.insert(super::validation_hash::hash(item)));
     if has_duplicates {
         issues.message(instance_path, "must not have duplicate items".to_owned());
     }
@@ -1665,10 +1665,23 @@ fn collect_string_keywords(schema: &JsObject, instance_path: &JsString, text: &J
             format!("must not have fewer than {} characters", js_number_to_string(minimum)),
         );
     }
-    // `format` is not enforced: Pi tool schemas never use it. See the
-    // traceability doc for the recorded gap.
+    if let Some(format) = object_string(schema, "format")
+        && !super::validation_formats::check(format, text)
+    {
+        issues.message(
+            instance_path,
+            JsString::join(
+                [
+                    JsString::from("must match format \""),
+                    format.clone(),
+                    JsString::from("\""),
+                ],
+                "",
+            ),
+        );
+    }
     if let Some(pattern) = object_string(schema, "pattern") {
-        let matched = Regex::new(pattern).is_ok_and(|regex| regex.is_match(text));
+        let matched = Regex::unicode(pattern).is_ok_and(|regex| regex.is_match(text));
         if !matched {
             issues.message(
                 instance_path,

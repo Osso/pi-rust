@@ -63,7 +63,8 @@ All direct dependencies are exact-pinned.
 
 - `pi-js-compat` (path, `=0.0.0`) — `Number`/`parseInt`/`parseFloat`/`Date.parse` and Base64 (`atob`/`btoa`) helpers shared with the rest of the workspace.
 - `indexmap = 2.14.2` (`serde`) — `ProviderEnv`/`ProviderHeaders`, model headers, provider header merges, grammar-tool input properties, and chat-template maps keep TypeScript object insertion order because that order reaches serialized payloads and HTTP request headers.
-- `regress = 0.12.0` (exact; `utf16`) — ECMAScript validation patterns compiled from raw UTF-16 units and matched with the UCS-2 backend, including lone surrogates, backreferences and lookbehind.
+- `icu_normalizer = 2.3.0` (exact) — NFC normalization of valid Unicode runs in the frozen `idn-hostname` format; unmatched UTF-16 surrogates remain untouched.
+- `regress = 0.12.0` (exact; `utf16`) — ECMAScript validation patterns compiled from raw UTF-16 units and matched with Unicode UTF-16 or non-Unicode UCS-2 backends according to frozen flags, including lone surrogates, backreferences and lookbehind.
 - `regex = 1.13.1` — case-insensitive (`(?i)`) provider error classification for `utils/overflow.ts` and `utils/retry.ts`, replacing JavaScript `RegExp(..., "i")`.
 - `serde = 1.0.229` — derives the diagnostics wire records and diagnostic-code enum.
 - `serde_json = 1.0.151` — carries JSON-shaped thrown values, optional diagnostic details, and streaming-parse results; the `preserve_order` feature keeps TypeScript object insertion order (`indexmap` is its transitive implementation) and `float_roundtrip` parses decimal JSON floats with the same correctly-rounded result as JavaScript `JSON.parse`.
