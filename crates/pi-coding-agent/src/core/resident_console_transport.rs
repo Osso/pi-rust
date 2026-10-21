@@ -602,6 +602,28 @@ impl<Event> ClientState<Event> {
     }
 }
 
+pub async fn probe_resident_console<Entry>(
+    socket_path: &str,
+    service: ResidentConsoleService,
+) -> Result<ResidentConsoleSnapshot<Entry>, String>
+where
+    Entry: DeserializeOwned,
+{
+    assert_unix_socket_support()?;
+    let mut stream = connect_resident_console(socket_path).await?;
+    let message = json!({"type":"probe", "version":RESIDENT_CONSOLE_PROTOCOL_VERSION, "service":service});
+    stream
+        .write_all(format!("{message}\n").as_bytes())
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    if reader.read_line(&mut line).await.map_err(|error| error.to_string())? == 0 {
+        return Err("Resident console disconnected before attach".to_owned());
+    }
+    parse_attach_response(&line, service)
+}
+
 fn parse_attach_response<Entry>(
     line: &str,
     service: ResidentConsoleService,
