@@ -143,7 +143,8 @@ impl ExtensionUiContext for Ui {
                         *done.lock().unwrap() = true;
                         done_trace.lock().unwrap().push(json!(["done"]));
                     })),
-                );
+                )
+                .expect("custom component fixture factory");
                 let component: std::rc::Rc<dyn ExtensionUiComponent> = component.into();
                 use pi_tui::tui::TuiExt;
                 let terminal = std::rc::Rc::new(std::cell::RefCell::new(GameTerminal::default()));

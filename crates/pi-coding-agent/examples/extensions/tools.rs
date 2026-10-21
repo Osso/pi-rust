@@ -57,7 +57,7 @@ pub fn tools_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 ctx.ui()?
                     .custom(
                         Arc::new(move |context, done| {
-                            Box::new(ToolSelector {
+                            Ok(Box::new(ToolSelector {
                                 names: names.clone(),
                                 enabled: enabled.clone(),
                                 api: api.clone(),
@@ -66,7 +66,7 @@ pub fn tools_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                                 tui: context.tui,
                                 done,
                                 error: failure.clone(),
-                            })
+                            }))
                         }),
                         None,
                     )

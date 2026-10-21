@@ -456,12 +456,12 @@ async fn select(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> R
         .ui()?
         .custom(
             Arc::new(move |context, done| {
-                Box::new(Selector {
+                Ok(Box::new(Selector {
                     items: items.clone(),
                     selected: Mutex::new(0),
                     context,
                     done,
-                })
+                }))
             }),
             None,
         )

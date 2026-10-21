@@ -118,7 +118,7 @@ pub(crate) fn interactive_shell_extension_with_environment(
                     Ok(status)=>done.call(Some(json!(status))),
                     Err(error)=>{*captured.lock().unwrap()=Some(error);done.call(None);}
                 }
-                Box::new(Empty)
+                Ok(Box::new(Empty))
             }),None).await?;
             if let Some(error)=error.lock().unwrap().take() {return Err(HandlerError::new(error));}
             let code=result.as_ref().and_then(|v|v.as_i64());

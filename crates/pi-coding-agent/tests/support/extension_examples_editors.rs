@@ -118,7 +118,8 @@ impl ExtensionUiContext for Ui {
                 ExtensionUiDone::new(Arc::new(move |value| {
                     *captured.lock().unwrap() = value;
                 })),
-            );
+            )
+            .expect("custom component fixture factory");
             component.set_focused(true);
             let widths = self.request["widths"].as_array().unwrap();
             let record = || json!({"text":null,"focused":component.focused(),"lines":widths.iter().map(|w|component.render(w.as_u64().unwrap() as usize)).collect::<Vec<_>>()});

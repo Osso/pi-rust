@@ -1066,7 +1066,7 @@ pub async fn show_llama_ui_with_context(
                 }
             }
         });
-        Box::new(LlamaViewComponent { view })
+        Ok(Box::new(LlamaViewComponent { view }))
     });
     ui_context.custom(factory, None).await.map(|_| ())
 }
