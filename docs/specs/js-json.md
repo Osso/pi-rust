@@ -57,3 +57,5 @@ The audit has six uncertain groups (despite the brief's count of five): scanning
 `JsString` and `JsValue` implement lossless JSON serde using raw JSON fragments and the shared parser/writer. JSON text/byte deserializers preserve lone-surrogate escapes and object keys; non-JSON formats and serde buffered untagged enums are unsupported for arbitrary UTF-16. Existing scalar-only `serde_json::Value` inputs convert exactly, without replacement; lossless unions select from the raw AST before decoding their typed records. Optional arbitrary properties use `deserialize_present` with `default`, retaining missing versus explicit null. No conversion through `Value` occurs.
 
 `pi_js_compat::js_json!` constructs the lossless AST directly; expression leaves serialize through shared lossless serde, never `serde_json::Value`. Object/array/literal syntax follows the serde_json macro.
+
+`parse_lossless` accepts native `JsString` input as well as Rust strings. Raw unmatched units inside JSON string literals retain their identity, not just escaped surrogate sequences. Parser positions and grammar operate on UTF-16 units.

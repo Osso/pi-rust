@@ -513,18 +513,17 @@ impl std::error::Error for JsonParseError {}
 
 /// `JSON.parse(text)`.
 pub fn parse(text: &str) -> Result<Value, JsonParseError> {
-    parse_with_string_boundary(text, false).map(JsValue::into_serde_lossy)
+    parse_with_string_boundary(JsString::from(text), false).map(JsValue::into_serde_lossy)
 }
 
 /// `JSON.parse(text)` retaining every UTF-16 string and key code unit.
-pub fn parse_lossless(text: &str) -> Result<JsValue, JsonParseError> {
-    parse_with_string_boundary(text, true)
+pub fn parse_lossless(text: impl Into<JsString>) -> Result<JsValue, JsonParseError> {
+    parse_with_string_boundary(text.into(), true)
 }
 
-fn parse_with_string_boundary(text: &str, lossless: bool) -> Result<JsValue, JsonParseError> {
+fn parse_with_string_boundary(text: JsString, lossless: bool) -> Result<JsValue, JsonParseError> {
     let mut parser = Parser {
         source: text,
-        chars: text.chars().collect(),
         index: 0,
         lossless,
     };
@@ -613,39 +612,38 @@ fn array_index_units(mut units: impl Iterator<Item = u16>) -> Option<u32> {
     (index != u32::MAX).then_some(index)
 }
 
-struct Parser<'a> {
-    source: &'a str,
-    chars: Vec<char>,
+struct Parser {
+    source: JsString,
     index: usize,
     lossless: bool,
 }
 
-impl Parser<'_> {
-    fn peek(&self) -> Option<char> {
-        self.chars.get(self.index).copied()
+impl Parser {
+    fn peek(&self) -> Option<u16> {
+        self.source.units().get(self.index).copied()
     }
 
     fn skip_whitespace(&mut self) {
-        while matches!(self.peek(), Some(' ' | '\t' | '\n' | '\r')) {
+        while matches!(self.peek(), Some(0x20 | 0x09 | 0x0a | 0x0d)) {
             self.index += 1;
         }
     }
 
     fn parse_value(&mut self) -> Result<JsValue, JsonParseError> {
         match self.peek() {
-            Some('"') => self.parse_string().map(JsValue::String),
-            Some('-' | '0'..='9') => self.parse_number(),
-            Some('{') => self.parse_object(),
-            Some('[') => self.parse_array(),
-            Some('t') => self.parse_literal("true", JsValue::Bool(true)),
-            Some('f') => self.parse_literal("false", JsValue::Bool(false)),
-            Some('n') => self.parse_literal("null", JsValue::Null),
+            Some(0x22) => self.parse_string().map(JsValue::String),
+            Some(0x2d | 0x30..=0x39) => self.parse_number(),
+            Some(0x7b) => self.parse_object(),
+            Some(0x5b) => self.parse_array(),
+            Some(0x74) => self.parse_literal("true", JsValue::Bool(true)),
+            Some(0x66) => self.parse_literal("false", JsValue::Bool(false)),
+            Some(0x6e) => self.parse_literal("null", JsValue::Null),
             _ => Err(self.unexpected_token()),
         }
     }
 
     fn parse_literal(&mut self, literal: &str, value: JsValue) -> Result<JsValue, JsonParseError> {
-        for expected in literal.chars() {
+        for expected in literal.encode_utf16() {
             if self.peek() != Some(expected) {
                 return Err(self.unexpected_token());
             }
@@ -659,30 +657,30 @@ impl Parser<'_> {
         self.skip_whitespace();
         let mut object = JsObject::new();
         match self.peek() {
-            Some('}') => {
+            Some(0x7d) => {
                 self.index += 1;
                 return Ok(JsValue::Object(object));
             }
-            Some('"') => {}
+            Some(0x22) => {}
             _ => return Err(self.error_at("Expected property name or '}' in JSON")),
         }
         loop {
             let key = self.parse_string()?;
             self.skip_whitespace();
-            self.expect(':', "Expected ':' after property name in JSON")?;
+            self.expect(0x3a, "Expected ':' after property name in JSON")?;
             self.skip_whitespace();
             let value = self.parse_value()?;
             object.insert(key, value);
             self.skip_whitespace();
             match self.peek() {
-                Some(',') => {
+                Some(0x2c) => {
                     self.index += 1;
                     self.skip_whitespace();
-                    if self.peek() != Some('"') {
+                    if self.peek() != Some(0x22) {
                         return Err(self.error_at("Expected double-quoted property name in JSON"));
                     }
                 }
-                Some('}') => {
+                Some(0x7d) => {
                     self.index += 1;
                     return Ok(JsValue::Object(object));
                 }
@@ -695,7 +693,7 @@ impl Parser<'_> {
         self.index += 1;
         self.skip_whitespace();
         let mut items = Vec::new();
-        if self.peek() == Some(']') {
+        if self.peek() == Some(0x5d) {
             self.index += 1;
             return Ok(JsValue::Array(items));
         }
@@ -703,11 +701,11 @@ impl Parser<'_> {
             items.push(self.parse_value()?);
             self.skip_whitespace();
             match self.peek() {
-                Some(',') => {
+                Some(0x2c) => {
                     self.index += 1;
                     self.skip_whitespace();
                 }
-                Some(']') => {
+                Some(0x5d) => {
                     self.index += 1;
                     return Ok(JsValue::Array(items));
                 }
@@ -716,7 +714,7 @@ impl Parser<'_> {
         }
     }
 
-    fn expect(&mut self, expected: char, message: &str) -> Result<(), JsonParseError> {
+    fn expect(&mut self, expected: u16, message: &str) -> Result<(), JsonParseError> {
         if self.peek() != Some(expected) {
             return Err(self.error_at(message));
         }
@@ -726,38 +724,38 @@ impl Parser<'_> {
 
     fn parse_number(&mut self) -> Result<JsValue, JsonParseError> {
         let start = self.index;
-        if self.peek() == Some('-') {
+        if self.peek() == Some(0x2d) {
             self.index += 1;
-            if !self.peek().is_some_and(|character| character.is_ascii_digit()) {
+            if !self.peek().is_some_and(|character| (0x30..=0x39).contains(&character)) {
                 return Err(self.error_at("No number after minus sign in JSON"));
             }
         }
-        if self.peek() == Some('0') {
+        if self.peek() == Some(0x30) {
             self.index += 1;
-            if self.peek().is_some_and(|character| character.is_ascii_digit()) {
+            if self.peek().is_some_and(|character| (0x30..=0x39).contains(&character)) {
                 return Err(self.unexpected_token());
             }
         } else {
             self.skip_digits();
         }
-        if self.peek() == Some('.') {
+        if self.peek() == Some(0x2e) {
             self.index += 1;
             self.require_digits("Unterminated fractional number in JSON")?;
         }
-        if matches!(self.peek(), Some('e' | 'E')) {
+        if matches!(self.peek(), Some(0x65 | 0x45)) {
             self.index += 1;
-            if matches!(self.peek(), Some('+' | '-')) {
+            if matches!(self.peek(), Some(0x2b | 0x2d)) {
                 self.index += 1;
             }
             self.require_digits("Exponent part is missing a number in JSON")?;
         }
-        let text: String = self.chars[start..self.index].iter().collect();
+        let text = String::from_utf16(&self.source.units()[start..self.index]).expect("JSON numbers are ASCII");
         let value: f64 = text.parse().expect("validated JSON number text must parse");
         Ok(JsValue::Number(value))
     }
 
     fn require_digits(&mut self, message: &str) -> Result<(), JsonParseError> {
-        if !self.peek().is_some_and(|character| character.is_ascii_digit()) {
+        if !self.peek().is_some_and(|character| (0x30..=0x39).contains(&character)) {
             return Err(self.error_at(message));
         }
         self.skip_digits();
@@ -765,7 +763,7 @@ impl Parser<'_> {
     }
 
     fn skip_digits(&mut self) {
-        while self.peek().is_some_and(|character| character.is_ascii_digit()) {
+        while self.peek().is_some_and(|character| (0x30..=0x39).contains(&character)) {
             self.index += 1;
         }
     }
@@ -778,7 +776,7 @@ impl Parser<'_> {
                 return Err(self.error_at("Unterminated string in JSON"));
             };
             match character {
-                '"' => {
+                0x22 => {
                     self.index += 1;
                     return Ok(if self.lossless {
                         JsString::from_utf16(units)
@@ -786,14 +784,13 @@ impl Parser<'_> {
                         JsString::from(String::from_utf16_lossy(&units).as_str())
                     });
                 }
-                '\\' => {
+                0x5c => {
                     self.index += 1;
                     self.parse_escape(&mut units)?;
                 }
-                '\u{0}'..='\u{1f}' => return Err(self.error_at("Bad control character in string literal in JSON")),
+                0x00..=0x1f => return Err(self.error_at("Bad control character in string literal in JSON")),
                 _ => {
-                    let mut buffer = [0; 2];
-                    units.extend_from_slice(character.encode_utf16(&mut buffer));
+                    units.push(character);
                     self.index += 1;
                 }
             }
@@ -803,15 +800,15 @@ impl Parser<'_> {
     fn parse_escape(&mut self, units: &mut Vec<u16>) -> Result<(), JsonParseError> {
         let unit = match self.peek() {
             None => return Err(self.unexpected_token()),
-            Some('"') => '"' as u16,
-            Some('\\') => '\\' as u16,
-            Some('/') => '/' as u16,
-            Some('b') => 0x08,
-            Some('f') => 0x0c,
-            Some('n') => '\n' as u16,
-            Some('r') => '\r' as u16,
-            Some('t') => '\t' as u16,
-            Some('u') => return self.parse_unicode_escape(units),
+            Some(0x22) => '"' as u16,
+            Some(0x5c) => '\\' as u16,
+            Some(0x2f) => '/' as u16,
+            Some(0x62) => 0x08,
+            Some(0x66) => 0x0c,
+            Some(0x6e) => '\n' as u16,
+            Some(0x72) => '\r' as u16,
+            Some(0x74) => '\t' as u16,
+            Some(0x75) => return self.parse_unicode_escape(units),
             Some(_) => return Err(self.error_at("Bad escaped character in JSON")),
         };
         units.push(unit);
@@ -823,7 +820,11 @@ impl Parser<'_> {
         self.index += 1;
         let mut unit: u16 = 0;
         for _ in 0..4 {
-            let Some(digit) = self.peek().and_then(|character| character.to_digit(16)) else {
+            let Some(digit) = self
+                .peek()
+                .and_then(|unit| char::from_u32(u32::from(unit)))
+                .and_then(|character| character.to_digit(16))
+            else {
                 return Err(self.error_at("Bad Unicode escape in JSON"));
             };
             unit = unit * 16 + digit as u16;
@@ -838,22 +839,27 @@ impl Parser<'_> {
     fn unexpected_token(&self) -> JsonParseError {
         let message = match self.peek() {
             None => "Unexpected end of JSON input".to_owned(),
-            Some('"') => return self.error_at("Unexpected string in JSON"),
-            Some('-' | '0'..='9') => return self.error_at("Unexpected number in JSON"),
-            Some(_) if SPECIAL_SOURCES.contains(&self.source) => format!("\"{}\" is not valid JSON", self.source),
+            Some(0x22) => return self.error_at("Unexpected string in JSON"),
+            Some(0x2d | 0x30..=0x39) => return self.error_at("Unexpected number in JSON"),
+            Some(_) if SPECIAL_SOURCES.iter().any(|known| self.source == *known) => {
+                format!("\"{}\" is not valid JSON", encode_node_utf8(&self.source))
+            }
             Some(token) => self.unexpected_token_with_context(token),
         };
         JsonParseError { message }
     }
 
-    fn unexpected_token_with_context(&self, token: char) -> String {
+    fn unexpected_token_with_context(&self, token: u16) -> String {
         let units: Vec<u16> = self.source.encode_utf16().collect();
         // V8 reports one UTF-16 unit; a non-BMP character therefore shows as U+FFFD in UTF-8.
-        let token = if token.len_utf16() == 2 { '\u{fffd}' } else { token };
+        let token = char::from_u32(u32::from(token)).unwrap_or('\u{fffd}');
         let length = units.len();
         let position = self.utf16_position();
         if length <= CONTEXT_CHARACTERS * 2 {
-            return format!("Unexpected token '{token}', \"{}\" is not valid JSON", self.source);
+            return format!(
+                "Unexpected token '{token}', \"{}\" is not valid JSON",
+                encode_node_utf8(&self.source)
+            );
         }
         let excerpt = |start: usize, end: usize| String::from_utf16_lossy(&units[start..end.min(length)]);
         if position < CONTEXT_CHARACTERS {
@@ -880,21 +886,12 @@ impl Parser<'_> {
     }
 
     fn utf16_position(&self) -> usize {
-        self.chars[..self.index]
-            .iter()
-            .map(|character| character.len_utf16())
-            .sum()
+        self.index
     }
 
     /// V8 `CalculateFileLocation`: `\r\n`, `\r`, and `\n` each end a line.
     fn line_and_column(&self) -> (usize, usize) {
-        let units: Vec<u16> = self.chars[..self.index]
-            .iter()
-            .flat_map(|character| {
-                let mut buffer = [0; 2];
-                character.encode_utf16(&mut buffer).to_vec()
-            })
-            .collect();
+        let units = &self.source.units()[..self.index];
         let (carriage_return, line_feed) = ('\r' as u16, '\n' as u16);
         let mut line = 1;
         let mut line_start = 0;

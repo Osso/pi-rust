@@ -53,6 +53,18 @@ fn lossless_json_macro_builds_nested_values_without_serde_value_projection() {
 }
 
 #[test]
+fn json_parse_accepts_native_utf16_source_without_replacement() {
+    let high = JsString::from_utf16(vec![0xd800]);
+    let source = JsString::join(
+        [JsString::from("{\"name\":\""), high.clone(), JsString::from("\"}")],
+        "",
+    );
+    let value = parse_lossless(&source).unwrap();
+    assert_eq!(value.get("name"), Some(&JsValue::String(high)));
+    assert_eq!(stringify_lossless(&value), r#"{"name":"\ud800"}"#);
+}
+
+#[test]
 fn serde_preserves_utf16_strings_keys_and_nested_values() {
     let source = r#"{"\ud800":["\udfff",{"text":"a\ud800b","null":null}],"pair":"\ud83d\ude00"}"#;
     let expected = parse_lossless(source).unwrap();
