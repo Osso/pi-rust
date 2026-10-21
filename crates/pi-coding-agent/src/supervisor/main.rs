@@ -41,7 +41,7 @@ use crate::supervisor::request_wake::{SupervisorRequestWakeServer, notify_superv
 use crate::supervisor::response_tool::{SUPERVISOR_RESPONSE_TOOL_NAME, create_supervisor_response_tool};
 use crate::supervisor::service::{
     RunSupervisorRequestInput, SupervisorEvaluator, SupervisorInstructionReviewDecision, parse_supervisor_response,
-    run_supervisor_request,
+    run_supervisor_request, supervisor_instruction_rejection_feedback,
 };
 use crate::utils::paths::{process_cwd, resolve_path};
 
