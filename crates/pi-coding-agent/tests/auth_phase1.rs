@@ -42,7 +42,7 @@ async fn auth_heartbeat_permission_error_uses_auth_thirty_second_threshold() {
                 Box::pin(async move {
                     let lock_path = parent.join("auth.json.lock");
                     let before = fs::metadata(&lock_path).unwrap().modified().unwrap();
-                    fs::set_permissions(&parent, fs::Permissions::from_mode(0)).unwrap();
+                    fs::set_permissions(&parent, fs::Permissions::from_mode(0o0)).unwrap();
                     // Owned inaccessible parent makes the first heartbeat stat fail, but it is not yet stale.
                     tokio::time::sleep(Duration::from_millis(16_100)).await;
                     fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
