@@ -317,7 +317,7 @@ fn rejects_finalization_from_a_different_current_process() {
     let (agent, ownership) = expect_created(create_running_child(&owner, child_input(None)));
     let foreign = LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: db.clone(),
-        create_agent_id: Arc::new(|| "unused".to_owned()),
+        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
         now: Arc::new(|| NOW.to_owned()),
         process_identity: test_process_identity("foreign-runtime"),
         session_path: SESSION_PATH.to_owned(),

@@ -76,7 +76,7 @@ fn fixture(now: &'static str) -> Fixture {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.clone(),
-        create_agent_id: Arc::new(|| "unused".to_owned()),
+        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
         now: Arc::new(move || now.to_owned()),
         process_identity: test_process_identity("runner-1"),
         session_path: session_path.clone(),
@@ -188,7 +188,7 @@ response = json.loads(sys.stdin.readline())
 print(json.dumps({"executed": request["code"], "type": "completed", "value": response["result"]}), flush=True)
 "#,
     );
-    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Pyrun);
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Pyrun).unwrap();
     let data = manifest(
         &fixture,
         &job_id,
@@ -303,7 +303,7 @@ time.sleep(0.5)
 print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}), flush=True)
 "#,
     );
-    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Pyrun);
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Pyrun).unwrap();
     let data = manifest(
         &fixture,
         &job_id,
@@ -457,6 +457,7 @@ while True:
         &fixture.control_db_path,
         &EnqueueRuntimeMailboxMessageInput {
             recipient: data.runner_address.clone(),
+            recipient_host: None,
             sender: RuntimeMailboxAddress {
                 agent_id: None,
                 session_id: "main".to_owned(),

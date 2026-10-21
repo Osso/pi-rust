@@ -78,7 +78,7 @@ fn terminal_job(fixture: &Fixture, job_id: &str) {
     let root = fixture.directory.path().to_string_lossy().into_owned();
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: fixture.control_db_path.clone(),
-        create_agent_id: Arc::new(|| "unused".to_owned()),
+        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
         now: Arc::new(|| NOW.to_owned()),
         process_identity: test_process_identity("runtime-1"),
         session_path: fixture.session_path.clone(),

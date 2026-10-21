@@ -246,9 +246,7 @@ fn steering_messages_move_through_pending_accepted_and_delivered() {
     let mut updated = store.get_agent(&spawned.id).expect("agent");
     updated.lifecycle = AgentLifecycle::SteeringPending;
     updated.revision += 1;
-    store
-        .publish_lifecycle_coordinator_steering(&updated, &message)
-        .unwrap();
+    store.publish_lifecycle_coordinator_steering(&updated, &message);
     assert_eq!(
         store.get_agent(&spawned.id).expect("agent").lifecycle,
         AgentLifecycle::SteeringPending
@@ -258,9 +256,7 @@ fn steering_messages_move_through_pending_accepted_and_delivered() {
         status: MailboxMessageStatusValue::Accepted,
         ..message.clone()
     };
-    store
-        .publish_lifecycle_coordinator_steering(&updated, &accepted)
-        .unwrap();
+    store.publish_lifecycle_coordinator_steering(&updated, &accepted);
     assert_eq!(
         store.list_mailbox_messages().unwrap()[0].status,
         MailboxMessageStatusValue::Accepted
