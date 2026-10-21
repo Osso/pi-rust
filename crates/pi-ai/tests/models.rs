@@ -278,7 +278,7 @@ impl OAuthAuth for TestOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access),
+                api_key: Some(credential.access_utf8()?),
                 headers: None,
                 base_url: None,
             })
@@ -728,13 +728,13 @@ async fn refreshes_expired_oauth_before_refreshing_models() {
 
     assert!(models.refresh(ModelsRefreshOptions::default()).await.errors.is_empty());
     let credential = observed.lock().unwrap().clone().unwrap().unwrap();
-    assert_eq!(credential.as_oauth().unwrap().access, "fresh");
-    assert_eq!(credential.as_oauth().unwrap().refresh, "rotated");
+    assert_eq!(credential.as_oauth().unwrap().access.to_utf8().unwrap(), "fresh");
+    assert_eq!(credential.as_oauth().unwrap().refresh.to_utf8().unwrap(), "rotated");
     let stored = credentials
         .read("oauth-dynamic", AuthOperationOptions::default())
         .await
         .unwrap();
-    assert_eq!(stored.unwrap().as_oauth().unwrap().access, "fresh");
+    assert_eq!(stored.unwrap().as_oauth().unwrap().access.to_utf8().unwrap(), "fresh");
 }
 
 #[tokio::test]
@@ -1224,7 +1224,9 @@ async fn oauth_refresh_failure_returns_oauth_code_and_preserves_credential() {
             .unwrap()
             .as_oauth()
             .unwrap()
-            .access,
+            .access
+            .to_utf8()
+            .unwrap(),
         "old"
     );
 }

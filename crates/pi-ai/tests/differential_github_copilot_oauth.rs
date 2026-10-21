@@ -32,7 +32,7 @@ fn credential(value: &Value) -> OAuthCredential {
             if matches!(key.as_str(), "refresh" | "access" | "expires" | "type") {
                 continue;
             }
-            credential.extra.insert(key.clone(), value.clone());
+            credential.extra.insert(key.into(), value.into());
         }
     }
     credential

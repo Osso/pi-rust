@@ -94,7 +94,7 @@ impl OAuthAuth for TestOAuth {
     ) -> BoxFuture<'static, Result<pi_ai::auth::types::ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(pi_ai::auth::types::ModelAuth {
-                api_key: Some(credential.access),
+                api_key: Some(credential.access_utf8()?),
                 ..Default::default()
             })
         })
@@ -263,8 +263,8 @@ fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials() {
         );
         let stored = storage.read(provider_id, Default::default()).await.unwrap().unwrap();
         let oauth = stored.as_oauth().expect("stored credential is OAuth");
-        assert_eq!(oauth.access, "typed-token:manual-code:second");
-        assert_eq!(oauth.refresh, "refresh-token");
+        assert_eq!(oauth.access.to_utf8().unwrap(), "typed-token:manual-code:second");
+        assert_eq!(oauth.refresh.to_utf8().unwrap(), "refresh-token");
     });
 }
 

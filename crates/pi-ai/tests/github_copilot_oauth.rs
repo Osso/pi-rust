@@ -158,11 +158,17 @@ fn refresh_models(fetch: Arc<CopilotFetch>) -> OAuthCredential {
 fn available_ids(credential: &OAuthCredential) -> Vec<String> {
     credential
         .extra
-        .get("availableModelIds")
-        .and_then(Value::as_array)
+        .get(&pi_js_compat::js_json::JsString::from("availableModelIds"))
+        .and_then(pi_js_compat::js_json::JsValue::as_array)
         .expect("availableModelIds")
         .iter()
-        .map(|value| value.as_str().expect("string id").to_owned())
+        .map(|value| {
+            value
+                .as_string()
+                .expect("string id")
+                .to_utf8()
+                .expect("scalar fixture id")
+        })
         .collect()
 }
 
@@ -182,7 +188,7 @@ fn refresh_filters_models_to_the_account_picker_catalog() {
     let credential = refresh_models(Arc::clone(&fetch));
     assert_eq!(available_ids(&credential), vec!["gpt-5.4".to_owned()]);
     assert_eq!(
-        credential.access,
+        credential.access.to_utf8().unwrap(),
         "tid=test;exp=9999999999i64;proxy-ep=proxy.individual.githubcopilot.com;"
     );
     assert_eq!(credential.expires, 9_999_999_999_000.0 - 300_000.0);
@@ -344,8 +350,13 @@ fn device_code_login_reports_details_and_normalizes_the_verification_uri() {
         );
         tokio::time::advance(Duration::from_millis(1000)).await;
         let credential = login.await.expect("join").expect("login");
-        assert_eq!(credential.refresh, "ghu_refresh_token");
-        assert_eq!(credential.extra.get("enterpriseUrl"), None);
+        assert_eq!(credential.refresh.to_utf8().unwrap(), "ghu_refresh_token");
+        assert_eq!(
+            credential
+                .extra
+                .get(&pi_js_compat::js_json::JsString::from("enterpriseUrl")),
+            None
+        );
         assert_eq!(
             interaction.events()[1],
             AuthEvent::Progress {
@@ -529,9 +540,10 @@ async fn to_auth_derives_the_proxy_endpoint_from_the_access_token() {
         "tid=test;exp=9999999999i64;proxy-ep=proxy.business.githubcopilot.com;",
         0.0,
     );
-    credential
-        .extra
-        .insert("enterpriseUrl".to_owned(), Value::String("company.ghe.com".to_owned()));
+    credential.extra.insert(
+        "enterpriseUrl".into(),
+        Value::String("company.ghe.com".to_owned()).into(),
+    );
     let auth = oauth(fetch).to_auth(credential).await.expect("to auth");
     assert_eq!(
         auth.api_key.as_deref(),

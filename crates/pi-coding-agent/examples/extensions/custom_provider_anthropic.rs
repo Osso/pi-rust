@@ -101,7 +101,7 @@ impl OAuthAuth for CustomOAuth {
             exchange_token(
                 &runtime,
                 json!({"grant_type":"refresh_token", "client_id":CLIENT_ID,
-                "refresh_token":credential.refresh}),
+                "refresh_token":credential.refresh_utf8()?}),
                 Some(signal),
                 "Token refresh failed",
             )
@@ -112,7 +112,7 @@ impl OAuthAuth for CustomOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access),
+                api_key: Some(credential.access_utf8()?),
                 ..Default::default()
             })
         })
