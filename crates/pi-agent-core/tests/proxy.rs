@@ -162,6 +162,10 @@ async fn reconstructs_tool_call_from_deltas_without_trusting_end_payload() {
         unreachable!()
     };
     assert_eq!(tool_call.namespace, None);
+    assert_eq!(
+        tool_call.arguments,
+        json!({"value": "hello"}).as_object().unwrap().clone()
+    );
     assert_eq!(result.content.len(), 1);
     let pi_ai::types::AssistantContent::ToolCall(tool_call) = &result.content[0] else {
         panic!("expected tool call content");
