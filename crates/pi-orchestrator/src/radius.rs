@@ -226,9 +226,8 @@ impl RadiusPresence {
         if !self.enabled() {
             return Ok(instance);
         }
-        let machine = self.state.lock().unwrap().machine.clone();
-        let machine = machine
-            .or(self.storage.load_machine()?)
+        let machine = self
+            .load_machine_identity()?
             .ok_or("No registered machine available for Pi registration")?;
         let mut body = json!({"machineId":machine["id"],"cwd":instance["cwd"],"hostname":self.options.hostname,"pid":self.options.pid,"transport":"local-rpc","capabilities":{"rpc":true,"relay":false,"iroh":false}});
         copy_optional(&instance, &mut body, &["label", "sessionId"]);
@@ -265,9 +264,15 @@ impl RadiusPresence {
         }
         self.disconnect(&format!("pis/{id}/disconnect")).await
     }
+    fn load_machine_identity(&self) -> Result<Option<Value>, String> {
+        let cached = self.state.lock().unwrap().machine.clone();
+        match cached {
+            Some(machine) => Ok(Some(machine)),
+            None => self.storage.load_machine(),
+        }
+    }
     async fn register_machine(&self, label: Option<String>) -> Result<Value, RadiusError> {
-        let existing = self.state.lock().unwrap().machine.clone();
-        let existing = existing.or(self.storage.load_machine()?);
+        let existing = self.load_machine_identity()?;
         let mut body = json!({"hostname":self.options.hostname,"platform":self.options.platform,"arch":self.options.arch,"version":VERSION,"capabilities":{"spawn":true,"relay":false,"iroh":false}});
         if let Some(machine) = &existing {
             body["machineId"] = machine["id"].clone();

@@ -402,3 +402,29 @@ async fn frozen_radius_machine_and_pi_retry_recovery_matrices() {
         );
     }
 }
+
+#[tokio::test]
+async fn cached_machine_identity_does_not_read_replaced_disk_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let storage = pi_orchestrator::storage::Storage(dir.path().into());
+    let fake = Arc::new(Fake::default());
+    let presence = RadiusPresence::new(
+        storage,
+        fake,
+        RadiusOptions {
+            env: Arc::new(|| [("PI_RADIUS_API_KEY".into(), "key".into())].into()),
+            credential: Arc::new(|| None),
+            now: Arc::new(|| "time".into()),
+            random: Arc::new(|| 0.5),
+            hostname: "test".into(),
+            platform: "linux".into(),
+            arch: "x64".into(),
+            pid: 1,
+        },
+    );
+    presence.start(None).await.unwrap();
+    std::fs::write(dir.path().join("machine.json"), "{").unwrap();
+    let result = presence.register_pi(json!({"id":"i","cwd":"/tmp"})).await;
+    presence.stop().await.unwrap();
+    assert_eq!(result.unwrap()["radiusPiId"], "pi-id");
+}
