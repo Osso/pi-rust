@@ -132,6 +132,7 @@ pub(crate) struct PreparedStoredRuntimeMailboxMessage {
     pub(crate) defaulted_birth: bool,
     pub(crate) context: String,
     pub(crate) routed: Map<String, Value>,
+    pub(crate) routing_kind: JsValue,
     pub(crate) serialized: String,
     pub(crate) updated_at: String,
 }
@@ -171,6 +172,9 @@ pub(crate) fn prepare_stored_runtime_mailbox_message(
     Ok(PreparedStoredRuntimeMailboxMessage {
         defaulted_birth,
         context,
+        routing_kind: JsValue::from(
+            serde_json::to_value(input.kind).map_err(|error| ControlDbError::new(error.to_string()))?,
+        ),
         serialized: js_json::stringify(&Value::Object(routed.clone())),
         routed,
         updated_at: input
@@ -215,7 +219,19 @@ pub(crate) fn enqueue_lossless_stored_runtime_mailbox_message_in_transaction(
     input: &EnqueueStoredRuntimeMailboxMessageInput,
     message: &JsValue,
 ) -> Result<i64, ControlDbError> {
-    let mut prepared = prepare_stored_runtime_mailbox_message(input)?;
+    // The relay wire casts any nonblank kind string; the typed enum is only a validation adapter.
+    let literal_kind = message
+        .get("kind")
+        .cloned()
+        .ok_or_else(|| ControlDbError::new("Invalid relay kind"))?;
+    let mut validation_input = input.clone();
+    validation_input.message["kind"] =
+        serde_json::to_value(input.kind).map_err(|error| ControlDbError::new(error.to_string()))?;
+    let mut prepared = prepare_stored_runtime_mailbox_message(&validation_input)?;
+    prepared
+        .routed
+        .insert("kind".into(), literal_kind.clone().into_serde_lossy());
+    prepared.routing_kind = literal_kind;
     let mut object = message
         .as_object()
         .cloned()
@@ -300,7 +316,7 @@ fn validate_existing_stored_runtime_mailbox_message(
             input.store_ref.session_path, input.store_ref.message_id
         )));
     }
-    assert_runtime_mailbox_routing(
+    super::schema::assert_runtime_mailbox_routing_with_kind(
         &super::parse_canonical_mailbox_payload_lossless(existing)?,
         &EnqueueRuntimeMailboxMessageInput {
             recipient_host: input.recipient_host.clone(),
@@ -309,6 +325,7 @@ fn validate_existing_stored_runtime_mailbox_message(
             kind: input.kind,
             store_ref: input.store_ref.clone(),
         },
+        &prepared.routing_kind,
     )?;
     if strip_runtime_mailbox_delivery_state(&existing.data, prepared.defaulted_birth)?
         != strip_runtime_mailbox_delivery_state(&prepared.serialized, prepared.defaulted_birth)?

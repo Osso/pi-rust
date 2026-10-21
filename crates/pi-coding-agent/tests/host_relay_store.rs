@@ -114,6 +114,52 @@ fn ts_store_rust_sequence_ts_ack_and_lossless_inbound_replay() {
     assert_eq!(counter(&a, "relay-out:peer"), 3);
 }
 #[test]
+fn custom_kind_survives_frozen_queue_native_import_and_frozen_read() {
+    let (_a, a) = temp();
+    let (_b, b) = temp();
+    let mut ts = oracle::TsOracle::spawn("host-relay-oracle.ts", "packages/coding-agent/src");
+    let mut queued = input("custom-kind");
+    queued["kind"] = json!("custom");
+    queued["message"]["kind"] = json!("custom");
+    call(&mut ts, "db", "enqueueStoredRuntimeMailboxMessage", json!([a, queued]));
+    let frozen = call(&mut ts, "store", "nextRelayMailbox", json!([a, "peer"]));
+    let RelayFrame::Mailbox(mut message) = parse_frame(&frozen).unwrap() else {
+        panic!("mailbox expected")
+    };
+    import_relay_mailbox(&b, "origin", &message).unwrap();
+    let read = call(&mut ts, "db", "listRuntimeMailboxMessages", json!([b]));
+    let read: Value = serde_json::from_str(&read).unwrap();
+    assert_eq!(read[0]["kind"], "custom");
+    let before = with_control_db(&b, |db| {
+        Ok(
+            db.query_row("SELECT data FROM multi_agent_mailbox_messages", [], |row| {
+                row.get::<_, String>(0)
+            })?,
+        )
+    })
+    .unwrap();
+    message.seq = 2;
+    import_relay_mailbox(&b, "origin", &message).unwrap();
+    assert_eq!(counter(&b, "relay-in:origin"), 2);
+    let after = with_control_db(&b, |db| {
+        Ok(
+            db.query_row("SELECT data FROM multi_agent_mailbox_messages", [], |row| {
+                row.get::<_, String>(0)
+            })?,
+        )
+    })
+    .unwrap();
+    assert_eq!(before, after);
+    wire_call(
+        &mut ts,
+        "store",
+        "ackRelayMailbox",
+        &format!("[{},{},{}]", json!(a), json!("peer"), frozen),
+    );
+    assert_eq!(call(&mut ts, "db", "listRuntimeMailboxMessages", json!([a])), "[]");
+}
+
+#[test]
 fn inbound_collision_rolls_back_cursor_and_sequence_exhaustion_rolls_back_row() {
     let (_a, a) = temp();
     let (_b, b) = temp();

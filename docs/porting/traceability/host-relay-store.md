@@ -12,6 +12,7 @@ Frozen: `packages/coding-agent/src/core/host-relay-store.ts`, common pin `4f9e6f
 | ackRelayChannel; monotonic cursor | same test: TS ACK, Rust lower ACK cannot regress |
 | importRelayChannel; origin dedup, expiry-before-insert, main listeners | same test: duplicate imports across runtimes remain one row; imported rows never echo; expiry retry ignored. Main-only listener notification follows shared public control DB notification path; dedicated wake-signal observation pending. |
 | requireText, nullableText | `text_validation_preserves_utf16_like_frozen` compares exact return bytes/errors for surrogate strings, plain/blank/Unicode whitespace, null, number, array and object; strings remain UTF-16 until explicit SQLite/typed-address boundaries |
+| Unchecked wire kind strings | `custom_kind_survives_frozen_queue_native_import_and_frozen_read`: TS queues `kind:"custom"`, Rust imports/persists it literally, TS reads it unchanged and ACKs the original queue; a higher inbound sequence validates the existing canonical row without rewriting its bytes. Global Rust enum unchanged. |
 | Unknown nested JSON data | `parser_preserves_lossless_nested_payload_wire` plus TS→Rust→TS bytes in first test; no serde projection for authoritative payload |
 
 Focused GREEN recorded in `/tmp/pi-rust-repin-host-relay/green-fourth.log`; final mutation/check evidence recorded in the lane report. Source selection uses the unchanged common source lock. No live state/network.

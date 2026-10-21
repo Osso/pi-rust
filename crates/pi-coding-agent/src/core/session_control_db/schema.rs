@@ -1064,6 +1064,15 @@ pub(crate) fn assert_runtime_mailbox_routing(
     message: &js_json::JsObject,
     input: &super::EnqueueRuntimeMailboxMessageInput,
 ) -> Result<(), ControlDbError> {
+    let kind = js_json::JsValue::String(kind_name(input.kind).into());
+    assert_runtime_mailbox_routing_with_kind(message, input, &kind)
+}
+
+pub(crate) fn assert_runtime_mailbox_routing_with_kind(
+    message: &js_json::JsObject,
+    input: &super::EnqueueRuntimeMailboxMessageInput,
+    kind: &js_json::JsValue,
+) -> Result<(), ControlDbError> {
     use js_json::{JsString, JsValue};
     let field = |key: &str| message.get(&JsString::from(key));
     let text = |text: &str| JsValue::String(JsString::from(text));
@@ -1075,7 +1084,7 @@ pub(crate) fn assert_runtime_mailbox_routing(
         && field("recipientAgentId") == Some(&nullable_text(input.recipient.agent_id.as_deref()));
     let same_sender = field("senderSessionId") == Some(&text(&input.sender.session_id))
         && field("senderAgentId") == Some(&nullable_text(input.sender.agent_id.as_deref()));
-    let same_kind = field("kind") == Some(&text(kind_name(input.kind)));
+    let same_kind = field("kind") == Some(kind);
     let host = gethostname::gethostname().to_string_lossy().into_owned();
     let default_host = text(&host);
     let previous_host = match field("recipientHost") {

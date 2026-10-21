@@ -80,6 +80,9 @@ async fn validation_handshake_routes_and_acks_match_frozen() {
         frame["data"][field] = json!("wrong");
         cases.push(vec![hello.clone(), frame.to_string()]);
     }
+    let mut custom = mailbox.clone();
+    custom["data"]["kind"] = json!("custom");
+    cases.push(vec![hello.clone(), custom.to_string()]);
     let mut wrong = channel.clone();
     wrong["originHost"] = json!("wrong");
     cases.push(vec![hello.clone(), wrong.to_string()]);
