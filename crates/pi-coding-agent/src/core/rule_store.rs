@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::{Map, Value};
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value};
 
 use crate::config::package_config;
 use pi_js_compat::js_json;
@@ -31,11 +31,11 @@ pub enum PermissionRuleBehavior {
 pub struct PermissionRuleUpdate {
     pub destination: PermissionRuleDestination,
     pub behavior: PermissionRuleBehavior,
-    pub rules: Vec<String>,
+    pub rules: Vec<JsString>,
 }
 
 impl PermissionRuleUpdate {
-    pub fn new(destination: PermissionRuleDestination, rules: Vec<String>) -> Self {
+    pub fn new(destination: PermissionRuleDestination, rules: Vec<JsString>) -> Self {
         Self {
             destination,
             behavior: PermissionRuleBehavior::Allow,
@@ -52,7 +52,7 @@ pub struct WritePermissionRulesOptions {
     pub destination: PermissionRuleDestination,
     pub behavior: PermissionRuleBehavior,
     pub tool_name: String,
-    pub rules: Vec<String>,
+    pub rules: Vec<JsString>,
 }
 
 /// Failure writing permission rules.
@@ -71,7 +71,7 @@ impl std::error::Error for RuleStoreError {}
 
 pub type PermissionRuleWriter = Box<dyn Fn(&WritePermissionRulesOptions) + Send + Sync>;
 
-type AllowRules = Vec<(String, Vec<String>)>;
+type AllowRules = Vec<(JsString, Vec<JsString>)>;
 
 /// In-memory allow rules plus the optional persistence hook.
 pub struct PermissionRuleStore {
@@ -103,7 +103,7 @@ impl PermissionRuleStore {
         }
     }
 
-    pub fn from_settings(settings: Option<&Value>) -> Self {
+    pub fn from_settings(settings: Option<&serde_json::Value>) -> Self {
         let mut store = Self::new();
         store.add_settings_rules(settings);
         store
@@ -114,19 +114,21 @@ impl PermissionRuleStore {
         self.agent_dir = agent_dir;
     }
 
-    pub fn has_allow_rule(&self, tool_name: &str, rule_content: &str) -> bool {
+    pub fn has_allow_rule(&self, tool_name: &str, rule_content: &JsString) -> bool {
         self.allow_rules
             .iter()
             .find(|(tool, _)| tool == tool_name)
             .is_some_and(|(_, rules)| rules.iter().any(|rule| rule == rule_content))
     }
 
-    pub fn add_allow_rules(&mut self, tool_name: &str, rules: &[String]) {
+    pub fn add_allow_rules(&mut self, tool_name: &str, rules: &[JsString]) {
         self.add_rules(tool_name, rules);
     }
 
-    pub fn add_settings_rules(&mut self, settings: Option<&Value>) {
-        let permission_rules = read_permission_rules(settings.and_then(|settings| settings.get("permissionRules")));
+    pub fn add_settings_rules(&mut self, settings: Option<&serde_json::Value>) {
+        let settings = settings.map(Value::from);
+        let permission_rules =
+            read_permission_rules(settings.as_ref().and_then(|settings| settings.get("permissionRules")));
         for (tool_name, rules) in permission_rules {
             self.add_rules(&tool_name, &rules);
         }
@@ -152,20 +154,21 @@ impl PermissionRuleStore {
         }
     }
 
-    fn add_rules(&mut self, tool_name: &str, rules: &[String]) {
-        match self.allow_rules.iter_mut().find(|(tool, _)| tool == tool_name) {
+    fn add_rules(&mut self, tool_name: impl Into<JsString>, rules: &[JsString]) {
+        let tool_name = tool_name.into();
+        match self.allow_rules.iter_mut().find(|(tool, _)| tool == &tool_name) {
             Some((_, existing)) => push_unique(existing, rules),
-            None => self.allow_rules.push((tool_name.to_owned(), rules.to_vec())),
+            None => self.allow_rules.push((tool_name, rules.to_vec())),
         }
     }
 
     /// Snapshot of the in-memory rules, for tests and diagnostics.
-    pub fn allow_rules(&self) -> std::collections::BTreeMap<String, Vec<String>> {
+    pub fn allow_rules(&self) -> std::collections::BTreeMap<JsString, Vec<JsString>> {
         self.allow_rules.iter().cloned().collect()
     }
 }
 
-fn push_unique(existing: &mut Vec<String>, rules: &[String]) {
+fn push_unique(existing: &mut Vec<JsString>, rules: &[JsString]) {
     for rule in rules {
         if !existing.contains(rule) {
             existing.push(rule.clone());
@@ -174,13 +177,13 @@ fn push_unique(existing: &mut Vec<String>, rules: &[String]) {
 }
 
 /// `buildPermissionRuleContent`: bash uses the raw command, every other tool its compact JSON input.
-pub fn build_permission_rule_content(tool_name: &str, input: &Map<String, Value>) -> String {
+pub fn build_permission_rule_content(tool_name: &str, input: &Map) -> JsString {
     if tool_name == "bash"
         && let Some(Value::String(command)) = input.get("command")
     {
         return command.clone();
     }
-    js_json::stringify(&Value::Object(input.clone()))
+    js_json::stringify_lossless(&Value::Object(input.clone())).into()
 }
 
 /// Persists an allow rule, preserving the rest of the settings file.
@@ -197,13 +200,13 @@ pub fn write_permission_rules(options: &WritePermissionRulesOptions) -> Result<(
     let mut next_rules = existing_rules;
     push_unique(&mut next_rules, &options.rules);
 
-    let mut behavior_rules: Vec<(String, Vec<String>)> = permission_rules;
+    let mut behavior_rules: Vec<(JsString, Vec<JsString>)> = permission_rules;
     match behavior_rules.iter_mut().find(|(tool, _)| tool == &options.tool_name) {
         Some((_, rules)) => *rules = next_rules,
-        None => behavior_rules.push((options.tool_name.clone(), next_rules)),
+        None => behavior_rules.push((options.tool_name.clone().into(), next_rules)),
     }
     let permission_rules_value = permission_rules_to_value(&behavior_rules);
-    current_settings.insert("permissionRules".to_owned(), permission_rules_value.clone());
+    current_settings.insert("permissionRules".into(), permission_rules_value.clone());
 
     if let Some(parent) = Path::new(&settings_path).parent() {
         std::fs::create_dir_all(parent).map_err(|error| RuleStoreError {
@@ -234,14 +237,14 @@ fn join(base: &str, segment: &str) -> String {
     PathBuf::from(base).join(segment).display().to_string()
 }
 
-fn read_settings(path: &str) -> Result<Map<String, Value>, RuleStoreError> {
+fn read_settings(path: &str) -> Result<Map, RuleStoreError> {
     if !Path::new(path).exists() {
         return Ok(Map::new());
     }
     let content = std::fs::read_to_string(path).map_err(|error| RuleStoreError {
         message: error.to_string(),
     })?;
-    let parsed = js_json::parse(&content).map_err(|error| RuleStoreError {
+    let parsed = js_json::parse_lossless(&content).map_err(|error| RuleStoreError {
         message: error.to_string(),
     })?;
     Ok(match parsed {
@@ -263,10 +266,7 @@ fn read_permission_rules(value: Option<&Value>) -> AllowRules {
             let Value::Array(rules) = rules else {
                 return None;
             };
-            let rules: Vec<String> = rules
-                .iter()
-                .filter_map(|rule| rule.as_str().map(str::to_owned))
-                .collect();
+            let rules: Vec<JsString> = rules.iter().filter_map(|rule| rule.as_string().cloned()).collect();
             Some((tool_name.clone(), rules))
         })
         .collect()
@@ -281,7 +281,7 @@ fn permission_rules_to_value(rules: &AllowRules) -> Value {
         );
     }
     let mut permission_rules = Map::new();
-    permission_rules.insert("allow".to_owned(), Value::Object(allow));
+    permission_rules.insert("allow".into(), Value::Object(allow));
     Value::Object(permission_rules)
 }
 
@@ -289,11 +289,11 @@ fn update_permission_rules_content(
     current_content: Option<&str>,
     permission_rules: &Value,
 ) -> Result<String, RuleStoreError> {
-    let formatted_rules = js_json::stringify_pretty(permission_rules);
+    let formatted_rules = js_json::stringify_lossless_pretty(permission_rules);
     let Some(current_content) = current_content else {
         return Ok(format!(
             "{}\n",
-            js_json::stringify_pretty(&wrap_permission_rules(permission_rules))
+            js_json::stringify_lossless_pretty(&wrap_permission_rules(permission_rules))
         ));
     };
 
@@ -309,7 +309,7 @@ fn update_permission_rules_content(
     let Some(closing_brace_index) = current_content.rfind('}') else {
         return Ok(format!(
             "{}\n",
-            js_json::stringify_pretty(&wrap_permission_rules(permission_rules))
+            js_json::stringify_lossless_pretty(&wrap_permission_rules(permission_rules))
         ));
     };
 
@@ -323,7 +323,7 @@ fn update_permission_rules_content(
     let compact_rules = if has_newline {
         formatted_rules.replace('\n', "\n  ")
     } else {
-        js_json::stringify(permission_rules)
+        js_json::stringify_lossless(permission_rules)
     };
     Ok(format!(
         "{}{separator}{line_prefix}\"permissionRules\":{}{compact_rules}{line_suffix}{after_brace}",
@@ -334,7 +334,7 @@ fn update_permission_rules_content(
 
 fn wrap_permission_rules(permission_rules: &Value) -> Value {
     let mut object = Map::new();
-    object.insert("permissionRules".to_owned(), permission_rules.clone());
+    object.insert("permissionRules".into(), permission_rules.clone());
     Value::Object(object)
 }
 

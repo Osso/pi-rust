@@ -3,9 +3,9 @@
 use std::sync::{Arc, Mutex};
 
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 
 use crate::core::desktop_notification::{
     DesktopNotification, DesktopNotificationHandle, DesktopNotifier, PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
@@ -19,7 +19,11 @@ use crate::core::rule_store::{
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PermissionPromptInput {
     pub tool_name: String,
-    pub input: Map<String, Value>,
+    #[serde(
+        serialize_with = "pi_js_compat::js_json::serialize_object",
+        deserialize_with = "pi_js_compat::js_json::deserialize_object"
+    )]
+    pub input: Map,
     pub tool_use_id: String,
     pub cwd: String,
 }
@@ -32,11 +36,11 @@ pub type PermissionPromptCaller =
 #[derive(Debug, Clone, PartialEq)]
 pub enum PermissionPromptDecision {
     Allow {
-        updated_input: Option<Map<String, Value>>,
+        updated_input: Option<Map>,
         updated_permissions: Option<Vec<PermissionRuleUpdate>>,
     },
     Deny {
-        message: String,
+        message: JsString,
     },
 }
 
@@ -63,24 +67,24 @@ fn is_record(value: &Value) -> bool {
     value.is_object()
 }
 
-fn parse_json_object(json: &str) -> Option<Map<String, Value>> {
-    serde_json::from_str::<Value>(json)
+fn parse_json_object(json: &JsString) -> Option<Map> {
+    pi_js_compat::js_json::parse_lossless(json)
         .ok()
         .and_then(|value| value.as_object().cloned())
 }
 
-fn extract_text_content(response: &Map<String, Value>) -> Option<String> {
+fn extract_text_content(response: &Map) -> Option<JsString> {
     let content = response.get("content")?.as_array()?;
     content.iter().find_map(|item| {
         let item = item.as_object()?;
-        if item.get("type").and_then(Value::as_str) != Some("text") {
+        if item.get("type").and_then(Value::as_string) != Some(&JsString::from("text")) {
             return None;
         }
-        item.get("text").and_then(Value::as_str).map(str::to_owned)
+        item.get("text").and_then(Value::as_string).cloned()
     })
 }
 
-fn parse_response_object(raw_response: &Value) -> Option<Map<String, Value>> {
+fn parse_response_object(raw_response: &Value) -> Option<Map> {
     if let Value::String(text) = raw_response {
         return parse_json_object(text);
     }
@@ -100,8 +104,8 @@ fn parse_updated_permissions(value: Option<&Value>) -> Option<Vec<PermissionRule
     let mut parsed = Vec::new();
     for update in updates {
         let update = update.as_object()?;
-        if update.get("type").and_then(Value::as_str) != Some("addRules")
-            || update.get("behavior").and_then(Value::as_str) != Some("allow")
+        if update.get("type").and_then(Value::as_string) != Some(&JsString::from("addRules"))
+            || update.get("behavior").and_then(Value::as_string) != Some(&JsString::from("allow"))
         {
             return None;
         }
@@ -109,7 +113,7 @@ fn parse_updated_permissions(value: Option<&Value>) -> Option<Vec<PermissionRule
         let rules = update.get("rules")?.as_array()?;
         let mut parsed_rules = Vec::new();
         for rule in rules {
-            parsed_rules.push(rule.as_str()?.to_owned());
+            parsed_rules.push(rule.as_string()?.clone());
         }
         parsed.push(PermissionRuleUpdate::new(destination, parsed_rules));
     }
@@ -117,46 +121,47 @@ fn parse_updated_permissions(value: Option<&Value>) -> Option<Vec<PermissionRule
 }
 
 fn parse_rule_destination(value: &Value) -> Option<PermissionRuleDestination> {
-    match value.as_str()? {
-        "session" => Some(PermissionRuleDestination::Session),
-        "userSettings" => Some(PermissionRuleDestination::UserSettings),
-        "projectSettings" => Some(PermissionRuleDestination::ProjectSettings),
-        "localSettings" => Some(PermissionRuleDestination::LocalSettings),
-        _ => None,
-    }
+    let text = value.as_string()?;
+    [
+        ("session", PermissionRuleDestination::Session),
+        ("userSettings", PermissionRuleDestination::UserSettings),
+        ("projectSettings", PermissionRuleDestination::ProjectSettings),
+        ("localSettings", PermissionRuleDestination::LocalSettings),
+    ]
+    .into_iter()
+    .find_map(|(name, destination)| (text == name).then_some(destination))
 }
 
 /// Parse a permission-prompt response into a decision.
 pub fn parse_permission_prompt_decision(raw_response: &Value) -> Option<PermissionPromptDecision> {
     let response = parse_response_object(raw_response)?;
-    match response.get("behavior").and_then(Value::as_str) {
-        Some("allow") => {
-            let updated_permissions_present = response.contains_key("updatedPermissions");
-            let updated_permissions = parse_updated_permissions(response.get("updatedPermissions"));
-            if updated_permissions_present && updated_permissions.is_none() {
-                return None;
-            }
-            let updated_input = match response.get("updatedInput") {
-                None => None,
-                Some(Value::Object(input)) => Some(input.clone()),
-                Some(_) => return None,
-            };
-            Some(PermissionPromptDecision::Allow {
-                updated_input,
-                updated_permissions,
-            })
+    let behavior = response.get("behavior").and_then(Value::as_string)?;
+    if behavior == "allow" {
+        let updated_permissions_present = response.contains_key("updatedPermissions");
+        let updated_permissions = parse_updated_permissions(response.get("updatedPermissions"));
+        if updated_permissions_present && updated_permissions.is_none() {
+            return None;
         }
-        Some("deny") => {
-            let message = response.get("message")?.as_str()?;
-            if message.is_empty() {
-                return None;
-            }
-            Some(PermissionPromptDecision::Deny {
-                message: message.to_owned(),
-            })
-        }
-        _ => None,
+        let updated_input = match response.get("updatedInput") {
+            None => None,
+            Some(Value::Object(input)) => Some(input.clone()),
+            Some(_) => return None,
+        };
+        return Some(PermissionPromptDecision::Allow {
+            updated_input,
+            updated_permissions,
+        });
     }
+    if behavior == "deny" {
+        let message = response.get("message")?.as_string()?;
+        if message.is_empty() {
+            return None;
+        }
+        return Some(PermissionPromptDecision::Deny {
+            message: message.clone(),
+        });
+    }
+    None
 }
 
 fn notify_permission_prompt(
@@ -173,7 +178,7 @@ fn notify_permission_prompt(
     })
 }
 
-fn replace_input_in_place(target: &mut Map<String, Value>, source: &Map<String, Value>) {
+fn replace_input_in_place(target: &mut Map, source: &Map) {
     target.clear();
     target.extend(source.clone());
 }

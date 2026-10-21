@@ -1964,7 +1964,7 @@ impl AgentSession {
                 Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                     block: Some(true),
                     input: None,
-                    reason: Some(reason),
+                    reason: Some(reason.into()),
                     terminate: None,
                 }))
             }
@@ -2031,7 +2031,7 @@ impl AgentSession {
                                 )
                                 .await
                                 .map_err(|error| error.message)?;
-                            serde_json::to_value(result).map_err(|error| error.to_string())
+                            pi_js_compat::js_json::to_value(&result).map_err(|error| error.to_string())
                         })
                     });
                 let cwd = session.inner.cwd.clone();
@@ -2086,7 +2086,7 @@ impl AgentSession {
                 Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                     block: Some(true),
                     input: None,
-                    reason: Some(reason),
+                    reason: Some(reason.into()),
                     terminate: None,
                 }))
             }
@@ -2097,7 +2097,7 @@ impl AgentSession {
                     None => Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                         block: Some(true),
                         input: None,
-                        reason: Some(reason.unwrap_or_else(|| "Approval required".to_owned())),
+                        reason: Some(reason.unwrap_or_else(|| "Approval required".to_owned()).into()),
                         terminate: None,
                     })),
                 }
@@ -2152,7 +2152,7 @@ impl AgentSession {
                     _ => Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                         block: Some(true),
                         input: None,
-                        reason: Some("Tool call rejected by user".to_owned()),
+                        reason: Some("Tool call rejected by user".into()),
                         terminate: None,
                     })),
                 }
@@ -2626,7 +2626,7 @@ impl AgentSession {
         // checkpoint must be able to drain again while this prompt is running.
         drop(drain_guard);
         let result = Box::pin(self.prompt_turn(
-            prompt,
+            &JsString::from(prompt),
             PromptOptions {
                 expand_prompt_templates: Some(false),
                 source: Some(InputSource::Extension),

@@ -145,6 +145,16 @@ async fn agent_loop_keeps_tool_text_details_and_arguments_through_message_wire_r
 }
 
 #[test]
+fn tool_errors_keep_raw_units_before_becoming_result_text() {
+    use pi_js_compat::js_json::JsString;
+    let message = JsString::from_utf16(vec![0xd800]);
+    let error = ToolError::new(message.clone());
+    assert_eq!(error.message, message);
+    let agent_error = pi_agent_core::agent::AgentError::from(error);
+    assert_eq!(agent_error.message(), &message);
+}
+
+#[test]
 fn result_details_distinguish_missing_from_explicit_null() {
     for source in [r#"{"content":[]}"#, r#"{"content":[],"details":null}"#] {
         let result: AgentToolResult = serde_json::from_str(source).unwrap();

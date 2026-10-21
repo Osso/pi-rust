@@ -4,6 +4,27 @@ use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
+fn permission_decisions_retain_updated_input_and_raw_bash_rule_text() {
+    use pi_coding_agent::core::permissions::mcp_permission_prompt::{
+        PermissionPromptDecision, parse_permission_prompt_decision,
+    };
+    use pi_coding_agent::core::rule_store::build_permission_rule_content;
+    use pi_js_compat::js_json::JsString;
+    let response = parse_lossless(r#"{"behavior":"allow","updatedInput":{"command":"\ud800"}}"#).unwrap();
+    let Some(PermissionPromptDecision::Allow {
+        updated_input: Some(input),
+        ..
+    }) = parse_permission_prompt_decision(&response)
+    else {
+        panic!("valid allow response");
+    };
+    assert_eq!(
+        build_permission_rule_content("bash", &input),
+        JsString::from_utf16(vec![0xd800])
+    );
+}
+
+#[test]
 fn prompt_template_arguments_retain_surrogates_and_quote_boundaries() {
     use pi_coding_agent::core::prompt_templates::{parse_command_args, substitute_args};
     use pi_js_compat::js_json::JsString;

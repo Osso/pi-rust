@@ -40,17 +40,17 @@ pub type StreamFn = Arc<
 /// Failure surfaced by agent and loop APIs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentError {
-    message: String,
+    message: JsString,
 }
 
 impl AgentError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
     }
 
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         &self.message
     }
 
@@ -87,7 +87,7 @@ impl AgentError {
 
 impl fmt::Display for AgentError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -96,11 +96,11 @@ impl std::error::Error for AgentError {}
 /// Failure returned by [`AgentTool::execute`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolError {
-    pub message: String,
+    pub message: JsString,
 }
 
 impl ToolError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
@@ -109,7 +109,7 @@ impl ToolError {
 
 impl fmt::Display for ToolError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 

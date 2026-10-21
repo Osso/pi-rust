@@ -54,20 +54,20 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// A handler failure. The source records `Error.message` and `Error.stack`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HandlerError {
-    pub message: String,
+    pub message: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
 }
 
 impl HandlerError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
             stack: None,
         }
     }
 
-    pub fn with_stack(message: impl Into<String>, stack: impl Into<String>) -> Self {
+    pub fn with_stack(message: impl Into<JsString>, stack: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             stack: Some(stack.into()),
@@ -77,7 +77,7 @@ impl HandlerError {
 
 impl std::fmt::Display for HandlerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -2293,7 +2293,7 @@ pub struct ToolCallEventResult {
     #[serde(skip)]
     pub input: Option<JsObject>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
+    pub reason: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminate: Option<bool>,
 }
