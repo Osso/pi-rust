@@ -11,6 +11,7 @@ const history = await import(pathToFileURL(join(root, "session-history.ts")).hre
 async function handle(r: any) {
  if (r.op === "create") {
   const m = manager.SessionManager.create(r.cwd, r.dir);
+  if(r.db)m.setMetadataControlDbPath(r.db);
   const first=m.appendMessage({role:"user",content:r.text ?? "hello 😀漢字",timestamp:1}, r.refs);
   if(r.compacted){
    const kept=m.appendMessage({role:"user",content:"kept",timestamp:2},r.refs);
@@ -34,6 +35,10 @@ async function handle(r: any) {
   const m = manager.SessionManager.openReadOnly(r.path);
   const entries = []; for await (const e of history.readSessionHistoryReverse(m)) entries.push(e);
   return {id:m.getSessionId(), entries:m.getEntries(), history:entries, header:m.getHeader(), text:transcript.readSessionTranscriptText(r.path)};
+ }
+ if(r.op === "metadata"){
+  const db=await import(pathToFileURL(join(root,"session-control-db.ts")).href);
+  return db.readSessionMetadata(r.db,r.path)??null;
  }
  if(r.op === "context")return manager.loadSessionContextEntries(r.path);
  if(r.op === "load")return manager.loadEntriesFromFile(r.path);

@@ -421,3 +421,61 @@ fn fallible_full_loader_and_context_match_frozen_archive_preconditions() {
     assert_eq!(ts.request(&json!({"id":1,"op":"load","path":path}))["ok"], false);
     assert!(load_entries_from_file(path).is_err());
 }
+
+#[test]
+fn archive_restore_modes_metadata_rollback_and_surviving_plain_precedence() {
+    use pi_coding_agent::core::session_archive_storage::{
+        archive_persisted_session, archive_session_file, restore_archived_session, restore_archived_session_file,
+    };
+    use pi_coding_agent::core::session_control_db::read_session_metadata;
+    use pi_coding_agent::core::session_transcript::read_session_transcript_bytes;
+    use std::os::unix::fs::PermissionsExt;
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let bad_db = tmp.path().join("db-is-directory");
+    std::fs::create_dir(&bad_db).unwrap();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(&mut ts, json!({"op":"create","dir":dir,"cwd":dir,"db":db}));
+    let path = created["path"].as_str().unwrap();
+    let bytes = std::fs::read(path).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    assert!(archive_persisted_session(bad_db.to_str().unwrap(), path).is_err());
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
+    assert!(!std::path::Path::new(&format!("{path}.zst")).exists());
+    let archive = archive_persisted_session(&db, path).unwrap();
+    assert_eq!(std::fs::metadata(&archive).unwrap().permissions().mode() & 0o777, 0o640);
+    assert_eq!(read_session_transcript_bytes(path).unwrap(), bytes);
+    assert!(read_session_metadata(&db, path).unwrap().is_none());
+    let metadata = call(&mut ts, json!({"op":"metadata","db":db,"path":archive}));
+    assert_eq!(metadata["id"], created["id"]);
+    assert!(metadata["archivedAt"].is_string());
+    assert!(restore_archived_session(bad_db.to_str().unwrap(), &archive).is_err());
+    assert!(!std::path::Path::new(path).exists());
+    assert_eq!(read_session_transcript_bytes(&archive).unwrap(), bytes);
+    let archived_bytes = std::fs::read(&archive).unwrap();
+    restore_archived_session(&db, &archive).unwrap();
+    assert_eq!(std::fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o640);
+    assert!(call(&mut ts, json!({"op":"metadata","db":db,"path":path}))["archivedAt"].is_null());
+    let mut manager = SessionManager::open(path, None, None).unwrap();
+    manager
+        .append_message(
+            serde_json::from_value(json!({"role":"user","content":"newer than archive","timestamp":7})).unwrap(),
+        )
+        .unwrap();
+    let newer = std::fs::read(path).unwrap();
+    std::fs::write(&archive, &archived_bytes).unwrap();
+    assert_eq!(read_session_transcript_bytes(path).unwrap(), newer);
+    assert!(archive_session_file(path).is_err());
+    assert!(restore_archived_session_file(&archive).is_err());
+    assert_eq!(restore_archived_session(&db, &archive).unwrap(), path);
+    assert_eq!(std::fs::read(path).unwrap(), newer);
+    assert!(!std::path::Path::new(&archive).exists());
+    assert!(
+        std::fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|e| !e.file_name().to_string_lossy().contains(".archive-temp-"))
+    );
+}
