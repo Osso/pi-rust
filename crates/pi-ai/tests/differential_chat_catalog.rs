@@ -7,11 +7,42 @@ use serde_json::{Value, json};
 #[path = "support/oracle.rs"]
 mod oracle;
 
-fn source() -> Value {
+fn source_export() -> Value {
     let mut ts = oracle::TsOracle::spawn("chat-catalog-oracle.ts", "packages/ai/src/models.generated.ts");
     let response = ts.request(&json!({"id": 1}));
     assert_eq!(response["ok"], true);
-    response["output"]["models"].clone()
+    response["output"].clone()
+}
+
+fn source() -> Value {
+    source_export()["models"].clone()
+}
+
+#[test]
+fn artifact_provenance_matches_actual_import_graph_and_payload_bytes() {
+    use sha2::{Digest, Sha256};
+
+    let exported = source_export();
+    let manifest: Value = serde_json::from_str(include_str!("../data/providers/.manifest.json")).unwrap();
+    assert_eq!(manifest["sourceFiles"], exported["provenance"]);
+    assert_eq!(manifest["sourceCommit"], "4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d");
+    assert_eq!(manifest["sourceExport"], "packages/ai/src/models.generated.ts::MODELS");
+    assert!(manifest.get("generatedAt").is_none());
+    let payloads = manifest["files"].as_object().unwrap();
+    let models = exported["models"].as_object().unwrap();
+    assert_eq!(
+        payloads.keys().cloned().collect::<Vec<_>>(),
+        models.keys().map(|key| format!("{key}.json")).collect::<Vec<_>>()
+    );
+    for (file, hash) in payloads {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("data/providers")
+                .join(file),
+        )
+        .unwrap();
+        assert_eq!(format!("{:x}", Sha256::digest(bytes)), hash.as_str().unwrap(), "{file}");
+    }
 }
 
 #[test]
@@ -99,10 +130,9 @@ fn codex_factory_aliases_use_default_while_literal_aliases_remain_distinct_and_f
                 model
             })
             .collect::<Vec<_>>();
-        assert_ne!(
-            expected_literal, expected_factory,
-            "source distinguishes literal and operational {alias}"
-        );
+        // At this pin the literal alias equals default+rewrite; separate keys
+        // and independent lookup are still required, not factory delegation.
+        assert_ne!(catalogs[alias], catalogs["openai-codex"]);
         let factory = openai_codex_provider_with_id(alias, alias);
         assert_eq!(
             serde_json::to_value(factory.get_models()).unwrap(),

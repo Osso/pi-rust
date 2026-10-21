@@ -1,5 +1,7 @@
 # providers/all traceability
 
+Current literal catalog proof: [37-module boundary](providers-models.md). Only the three direct catalog lookups are covered at the common pin; factory/whole-barrel rows below retain historical proof and are not promoted.
+
 Pinned source: `packages/ai/src/providers/all.ts` at
 `532f7d12cd19235081bd4d6e425bde185652d86f`.
 Rust: `crates/pi-ai/src/providers/all.rs`.
@@ -26,11 +28,9 @@ Tests: `crates/pi-ai/tests/providers.rs`,
 - `builtinModels` registers every provider on a fresh `Models` collection;
   Radius registers with an empty catalog (dynamic only).
 
-## Gaps
+## Staged APIs
 
-- `getBuiltinModelDataUrl` returns the `file://` URL of the embedded
-  `data/providers/<provider>.json`; Rust has no generated per-provider module.
-  The helper is dev-only and untested in TypeScript.
+Source-absent data-URL helper deleted. Timestamp helper retained only for the coding-agent model_runtime consumer; returns None without invented source metadata.
 
 ## Discrepancies
 
