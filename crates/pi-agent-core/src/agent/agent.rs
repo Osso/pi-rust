@@ -966,6 +966,7 @@ impl Agent {
                 AgentEvent::TurnEnd { message, .. } => {
                     if let Some(assistant) = message.as_assistant()
                         && let Some(error_message) = &assistant.error_message
+                        && !error_message.is_empty()
                     {
                         state.error_message = Some(error_message.clone());
                     }

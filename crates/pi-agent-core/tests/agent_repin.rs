@@ -129,6 +129,45 @@ async fn after_override_rebuilds_result_without_old_is_error_hint() {
 }
 
 #[tokio::test]
+async fn null_after_hook_details_keep_the_executed_details() {
+    let mut cfg = AgentLoopConfig::new(model(), identity_convert());
+    cfg.after_tool_call = Some(Arc::new(|_, _| {
+        Box::pin(async {
+            Ok(Some(AfterToolCallResult {
+                details: Some(serde_json::Value::Null),
+                ..Default::default()
+            }))
+        })
+    }));
+    let tool = TestTool::no_args("lookup", || {
+        let mut result = text_result("found");
+        result.details = Some(json!({"kept": true}));
+        result
+    });
+    let response = tool_use(vec![AssistantContent::ToolCall(tool_call("call", "lookup", json!({})))]);
+    let (_, messages) = collect_events(agent_loop(
+        vec![user("hello").into()],
+        context(Vec::new(), vec![Arc::new(tool)]),
+        cfg,
+        None,
+        Some(scripted_stream_fn(vec![
+            Script::message(response),
+            Script::message(text_assistant("done")),
+        ])),
+    ))
+    .await;
+    assert_eq!(
+        messages
+            .unwrap()
+            .iter()
+            .find_map(AgentMessage::as_tool_result)
+            .unwrap()
+            .details,
+        Some(json!({"kept": true}))
+    );
+}
+
+#[tokio::test]
 async fn empty_block_reason_uses_default_text() {
     let mut cfg = AgentLoopConfig::new(model(), identity_convert());
     cfg.before_tool_call = Some(Arc::new(|_, _| {

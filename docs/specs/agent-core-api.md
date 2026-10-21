@@ -8,6 +8,7 @@ Reference: immutable `4f9e6f8a4`, `packages/agent-core/src/{agent-loop,agent,typ
 - Rejected low-level parallel sinks do not cancel already-started sibling tool promises.
 - Proxy request options use the frozen whitelist; omit old-only sampling parameters.
 - Proxy cancellation interrupts a pending body read; empty error text keeps the status-based error message.
+- Empty assistant error text does not populate state.errorMessage. Null after-hook details retain executed details under the source's nullish-coalescing rule; the Option<Value> representation is unchanged.
 - After-tool overrides rebuild the result payload without retaining the original `isError` hint; the finalized error flag remains separate.
 - Stop hooks receive turn context only, not an additional abort signal.
 - Proxy `toolcall_end` carries only `contentIndex`; finalize the tool call reconstructed from start/delta events, ignoring extra end-event fields.

@@ -1323,7 +1323,7 @@ fn apply_after_tool_call_result(
     if let Some(content) = after_result.content {
         result.content = content;
     }
-    if let Some(details) = after_result.details {
+    if let Some(details) = after_result.details.filter(|details| !details.is_null()) {
         result.details = Some(details);
     }
     if let Some(terminate) = after_result.terminate {

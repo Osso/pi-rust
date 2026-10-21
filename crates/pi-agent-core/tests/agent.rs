@@ -280,6 +280,19 @@ async fn forwards_frozen_agent_callbacks_and_mutable_provider_configuration() {
 }
 
 #[tokio::test]
+async fn empty_assistant_error_text_does_not_set_state_error() {
+    let mut message = text_assistant("ok");
+    message.error_message = Some(String::new());
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(scripted_stream_fn(vec![Script::message(message)])),
+        ..Default::default()
+    })
+    .unwrap();
+    agent.prompt("hello").await.unwrap();
+    assert_eq!(agent.error_message(), None);
+}
+
+#[tokio::test]
 async fn creates_agent_with_default_state() {
     let agent = Agent::new(AgentOptions {
         stream_fn: Some(scripted_stream_fn(Vec::new())),
