@@ -7,6 +7,7 @@ Reference: immutable `4f9e6f8a4`, `packages/agent-core/src/{agent-loop,agent,typ
 - Reset clears transcript, queues and runtime state even during an active run; it does not abort or release that run.
 - Proxy `toolcall_end` carries only `contentIndex`; finalize the tool call reconstructed from start/delta events, ignoring extra end-event fields.
 
+- Agent listeners use live set iteration and deduplicate identical listeners. Await each listener; log rejection and continue without failing the run. Low-level event sinks still propagate rejection.
 - The default stream uses `pi-ai/compat.streamSimple`; no process-global stream registration API exists.
 - Stop hooks observe context replaced by `prepareNextTurn`, including restored tool batches.
 - Argument preparation affects validated execution arguments, not the raw tool call passed to hooks.

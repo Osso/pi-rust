@@ -338,6 +338,25 @@ pub enum AgentEvent {
     },
 }
 
+impl AgentEvent {
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Self::AgentStart => "agent_start",
+            Self::AgentEnd { .. } => "agent_end",
+            Self::TurnStart => "turn_start",
+            Self::TurnEnd { .. } => "turn_end",
+            Self::ModelRequestStart => "model_request_start",
+            Self::ModelRequestEnd => "model_request_end",
+            Self::MessageStart { .. } => "message_start",
+            Self::MessageUpdate { .. } => "message_update",
+            Self::MessageEnd { .. } => "message_end",
+            Self::ToolExecutionStart { .. } => "tool_execution_start",
+            Self::ToolExecutionUpdate { .. } => "tool_execution_update",
+            Self::ToolExecutionEnd { .. } => "tool_execution_end",
+        }
+    }
+}
+
 /// Context passed to `beforeToolCall`.
 #[derive(Clone)]
 pub struct BeforeToolCallContext {

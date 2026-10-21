@@ -122,6 +122,65 @@ async fn defaults_to_compat_stream_without_registration() {
 }
 
 #[tokio::test]
+async fn subscriptions_use_live_set_iteration_and_deduplicate_listeners() {
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(scripted_stream_fn(vec![Script::message(text_assistant("ok"))])),
+        ..Default::default()
+    })
+    .unwrap();
+    let removed = Arc::new(Mutex::new(None));
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let control = agent.clone();
+    let removed_hook = removed.clone();
+    let observed_hook = observed.clone();
+    let first: AgentListener = Arc::new(move |event, _| {
+        if matches!(event, AgentEvent::AgentStart) {
+            control.unsubscribe(removed_hook.lock().unwrap().unwrap());
+            let observed = observed_hook.clone();
+            control.subscribe(Arc::new(move |event, _| {
+                if matches!(event, AgentEvent::AgentStart) {
+                    observed.lock().unwrap().push("added");
+                }
+                Box::pin(async { Ok(()) })
+            }));
+        }
+        Box::pin(async { Ok(()) })
+    });
+    let id = agent.subscribe(first.clone());
+    assert_eq!(agent.subscribe(first), id);
+    let observed_hook = observed.clone();
+    *removed.lock().unwrap() = Some(agent.subscribe(Arc::new(move |event, _| {
+        if matches!(event, AgentEvent::AgentStart) {
+            observed_hook.lock().unwrap().push("removed");
+        }
+        Box::pin(async { Ok(()) })
+    })));
+    agent.prompt("hello").await.unwrap();
+    assert_eq!(*observed.lock().unwrap(), vec!["added"]);
+}
+
+#[tokio::test]
+async fn listener_errors_do_not_interrupt_other_listeners_or_the_run() {
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(scripted_stream_fn(vec![Script::message(text_assistant("ok"))])),
+        ..Default::default()
+    })
+    .unwrap();
+    agent.subscribe(Arc::new(|_, _| {
+        Box::pin(async { Err(pi_agent_core::AgentError::new("listener rejected")) })
+    }));
+    let events = Arc::new(Mutex::new(Vec::new()));
+    agent.subscribe(message_listener(events.clone()));
+    agent.prompt("hello").await.unwrap();
+    assert!(matches!(
+        events.lock().unwrap().last(),
+        Some(AgentEvent::AgentEnd { .. })
+    ));
+    assert_eq!(agent.messages().len(), 2);
+    assert!(agent.error_message().is_none());
+}
+
+#[tokio::test]
 async fn creates_agent_with_default_state() {
     let agent = Agent::new(AgentOptions {
         stream_fn: Some(scripted_stream_fn(Vec::new())),

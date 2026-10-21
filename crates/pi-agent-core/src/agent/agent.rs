@@ -271,12 +271,16 @@ impl Agent {
 
     /// Subscribes to lifecycle events; returns the subscription id.
     pub fn subscribe(&self, listener: AgentListener) -> u64 {
-        let id = self.inner.next_listener_id.fetch_add(1, Ordering::SeqCst);
-        self.inner
+        let mut listeners = self
+            .inner
             .listeners
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push((id, listener));
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((id, _)) = listeners.iter().find(|(_, existing)| Arc::ptr_eq(existing, &listener)) {
+            return *id;
+        }
+        let id = self.inner.next_listener_id.fetch_add(1, Ordering::SeqCst);
+        listeners.push((id, listener));
         id
     }
 
@@ -879,16 +883,23 @@ impl Agent {
         }
 
         let signal = self.signal().ok_or_else(AgentError::listener_outside_run)?;
-        let listeners: Vec<AgentListener> = self
-            .inner
-            .listeners
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .iter()
-            .map(|(_, listener)| Arc::clone(listener))
-            .collect();
-        for listener in listeners {
-            listener(event.clone(), signal.clone()).await?;
+        let mut last_id = 0;
+        loop {
+            let next = self
+                .inner
+                .listeners
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .iter()
+                .find(|(id, _)| *id > last_id)
+                .cloned();
+            let Some((id, listener)) = next else {
+                break;
+            };
+            last_id = id;
+            if let Err(error) = listener(event.clone(), signal.clone()).await {
+                eprintln!("Agent event listener error ({}): {error}", event.kind());
+            }
         }
         Ok(())
     }
