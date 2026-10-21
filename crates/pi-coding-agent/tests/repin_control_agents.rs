@@ -1,0 +1,117 @@
+#[path = "support/oracle.rs"]
+mod oracle;
+use pi_coding_agent::core::runtime_process::read_process_identity;
+use pi_coding_agent::core::session_control_db::*;
+use serde_json::{Value, json};
+fn call(ts: &mut oracle::TsOracle, name: &str, args: Value) -> Value {
+    let r = ts.request(&json!({"id":1,"steps":[{"op":"call","args":[name,args]}]}));
+    assert_eq!(r["output"][0]["ok"], true, "{r}");
+    r["output"][0]["value"].clone()
+}
+fn agent(now: &str) -> Value {
+    json!({"id":"child","parentId":"main","displayName":"child","agentType":"worker","lifecycle":"running","revision":1,"createdAt":now,"updatedAt":now,"cwd":"/fixture","permission":{"policy":"on-request","narrowed":true}})
+}
+#[test]
+fn upsert_keeps_original_birth_and_peer_claim_after_newer_snapshot() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let now = pi_js_compat::date::js_now_millis() as i64;
+    let birth = pi_coding_agent::utils::iso_time::format_iso_millis(now - 1000);
+    let message = json!({"id":"m","fromAgentId":"main","toAgentId":"child","kind":"message","status":"pending","createdAt":birth,"body":"hello"});
+    call(
+        &mut ts,
+        "upsertMultiAgentMailboxMessage",
+        json!([db, "/fixture/s", "m", message]),
+    );
+    let mut newer = message;
+    newer["createdAt"] = json!(pi_coding_agent::utils::iso_time::format_iso_millis(now));
+    upsert_multi_agent_mailbox_message(&db, "/fixture/s", "m", &newer).unwrap();
+    let state = call(&mut ts, "readMultiAgentState", json!([db, "/fixture/s"]));
+    assert_eq!(state["mailboxMessages"][0]["createdAt"], birth);
+    assert!(mark_multi_agent_mailbox_message_delivered(&db, "/fixture/s", "m").unwrap());
+    assert!(
+        call(
+            &mut ts,
+            "getMultiAgentMailboxMessageStatus",
+            json!([db, "/fixture/s", "m"])
+        )
+        .is_null()
+    );
+}
+#[test]
+fn rust_terminal_commit_peer_delete_and_identical_replay_do_not_require_outbox() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let now = pi_coding_agent::utils::iso_time::now_iso_string();
+    let identity = read_process_identity(std::process::id()).unwrap();
+    let owner = MultiAgentRuntimeOwnerIdentity {
+        session_id: "owner".into(),
+        agent_id: None,
+    };
+    let created = call(
+        &mut ts,
+        "createMultiAgentChildWithRuntimeOwnership",
+        json!([db,{"sessionPath":"/fixture/s","agentId":"child","processIdentity":identity,"owner":owner,"nowIso":now,"agent":agent(&now)}]),
+    );
+    assert_eq!(created["ok"], true);
+    let input = CommitMultiAgentTerminalMutationInput {
+        session_path: "/fixture/s".into(),
+        agent_id: "child".into(),
+        process_identity: identity,
+        owner,
+        terminal_lifecycle: "completed".into(),
+        event_kind: "completed".into(),
+        agent_details: AgentDetails::default(),
+        updated_at: now.clone(),
+    };
+    let result = commit_multi_agent_terminal_mutation(&db, &input).unwrap();
+    assert!(matches!(result, CommitMultiAgentTerminalMutationResult::Ok { .. }));
+    let record = call(&mut ts, "claimMultiAgentTerminalOutbox", json!([db, "claim", now]));
+    assert!(record.is_object(), "{record}");
+    assert_eq!(
+        call(&mut ts, "deliverMultiAgentTerminalOutbox", json!([db, record, now])),
+        true
+    );
+    assert_eq!(commit_multi_agent_terminal_mutation(&db, &input).unwrap(), result);
+}
+#[test]
+fn rust_outbox_delivery_deletes_row_instead_of_leaving_delivered_projection() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let now = pi_coding_agent::utils::iso_time::now_iso_string();
+    let identity = read_process_identity(std::process::id()).unwrap();
+    let owner = MultiAgentRuntimeOwnerIdentity {
+        session_id: "owner".into(),
+        agent_id: None,
+    };
+    let created = call(
+        &mut ts,
+        "createMultiAgentChildWithRuntimeOwnership",
+        json!([db,{"sessionPath":"/fixture/s","agentId":"child","processIdentity":identity,"owner":owner,"nowIso":now,"agent":agent(&now)}]),
+    );
+    assert_eq!(created["ok"], true);
+    commit_multi_agent_terminal_mutation(
+        &db,
+        &CommitMultiAgentTerminalMutationInput {
+            session_path: "/fixture/s".into(),
+            agent_id: "child".into(),
+            process_identity: identity,
+            owner,
+            terminal_lifecycle: "completed".into(),
+            event_kind: "completed".into(),
+            agent_details: AgentDetails::default(),
+            updated_at: now.clone(),
+        },
+    )
+    .unwrap();
+    let record = claim_multi_agent_terminal_outbox(&db, "rust", &now, &ClaimMultiAgentTerminalOutboxOptions::default())
+        .unwrap()
+        .unwrap();
+    assert!(deliver_multi_agent_terminal_outbox(&db, &record).unwrap());
+    assert!(!deliver_multi_agent_terminal_outbox(&db, &record).unwrap());
+    let response=ts.request(&json!({"id":1,"steps":[{"op":"fixtureSql","args":[db,"SELECT count(*) AS total FROM multi_agent_terminal_outbox",[]]}]}));
+    assert_eq!(response["output"][0]["value"][0]["total"], 0);
+}

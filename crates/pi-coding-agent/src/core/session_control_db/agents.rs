@@ -331,7 +331,6 @@ pub struct CommitMultiAgentTerminalMutationInput {
 #[serde(rename_all = "snake_case")]
 pub enum TerminalOutboxStatus {
     Claimed,
-    Delivered,
     Pending,
     Poisoned,
 }
@@ -340,7 +339,6 @@ impl TerminalOutboxStatus {
     fn as_str(self) -> &'static str {
         match self {
             Self::Claimed => "claimed",
-            Self::Delivered => "delivered",
             Self::Pending => "pending",
             Self::Poisoned => "poisoned",
         }
@@ -581,9 +579,10 @@ pub fn fail_multi_agent_terminal_outbox(
 pub fn deliver_multi_agent_terminal_outbox(
     control_db_path: &str,
     record: &MultiAgentTerminalOutboxRecord,
-    now_iso: &str,
 ) -> Result<bool, ControlDbError> {
-    update_claimed_terminal_outbox(control_db_path, record, TerminalOutboxStatus::Delivered, now_iso, None)
+    with_control_db(control_db_path, |db| {
+        Ok(db.execute("DELETE FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'claimed' AND claim_id = ?",params![record.session_path,record.agent_id,record.terminal_revision,record.event_kind,record.claim_id])?==1)
+    })
 }
 
 fn update_claimed_terminal_outbox(
@@ -594,12 +593,10 @@ fn update_claimed_terminal_outbox(
     error: Option<&str>,
 ) -> Result<bool, ControlDbError> {
     with_control_db(control_db_path, |db| {
-        let delivered_at = (status == TerminalOutboxStatus::Delivered).then_some(now_iso);
         Ok(db.execute(
-            "UPDATE multi_agent_terminal_outbox SET status = ?, claim_id = NULL, claimed_at = NULL, delivered_at = ?, last_error = ?, updated_at = ? WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'claimed' AND claim_id = ?",
+            "UPDATE multi_agent_terminal_outbox SET status = ?, claim_id = NULL, claimed_at = NULL, last_error = ?, updated_at = ? WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'claimed' AND claim_id = ?",
             params![
                 status.as_str(),
-                delivered_at,
                 error,
                 now_iso,
                 record.session_path,
@@ -617,7 +614,7 @@ pub fn cleanup_multi_agent_terminal_outbox(control_db_path: &str, older_than: &s
     with_control_db(control_db_path, |db| {
         Ok(db.execute(
             "DELETE FROM multi_agent_terminal_outbox
-					 WHERE status IN ('delivered', 'poisoned') AND updated_at < ?",
+					 WHERE status = 'poisoned' AND updated_at < ?",
             params![older_than],
         )? as i64)
     })
@@ -1488,7 +1485,7 @@ fn read_terminal_mutation_plan(
     let current_lifecycle = agent.get("lifecycle").and_then(Value::as_str).unwrap_or("");
     if current_lifecycle == input.terminal_lifecycle {
         return Ok(TerminalMutationRead::Replay(terminal_mutation_replay_result(
-            db, input, &agent,
+            input, &agent,
         )));
     }
     let terminal_revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
@@ -1669,7 +1666,6 @@ fn is_nonterminal_lifecycle(lifecycle: Option<&Value>) -> bool {
 }
 
 fn terminal_mutation_replay_result(
-    db: &Connection,
     input: &CommitMultiAgentTerminalMutationInput,
     agent: &Map<String, Value>,
 ) -> CommitMultiAgentTerminalMutationResult {
@@ -1681,20 +1677,7 @@ fn terminal_mutation_replay_result(
             };
         }
     }
-    let outbox = db
-        .query_row(
-            "SELECT 1 FROM multi_agent_terminal_outbox
-			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?",
-            params![input.session_path, input.agent_id, terminal_revision, input.event_kind],
-            |_| Ok(()),
-        )
-        .optional();
-    match outbox {
-        Ok(Some(())) => CommitMultiAgentTerminalMutationResult::Ok { terminal_revision },
-        _ => CommitMultiAgentTerminalMutationResult::Err {
-            error: LifecycleCommandError::MutationMismatch,
-        },
-    }
+    CommitMultiAgentTerminalMutationResult::Ok { terminal_revision }
 }
 
 fn can_persist_terminal_transition(current: &str, requested: &str) -> bool {
@@ -2750,13 +2733,27 @@ pub fn upsert_multi_agent_mailbox_message(
     data: &Value,
 ) -> Result<(), ControlDbError> {
     validate_mailbox_payload(data, &format!("multi_agent_mailbox_messages:{session_path}#{id}"))?;
+    let created_at = data.get("createdAt").filter(|value| !value.is_null());
+    if created_at.is_some_and(|value| {
+        super::is_mailbox_message_expired(value.as_str(), pi_js_compat::date::js_now_millis() as i64)
+    }) {
+        return Ok(());
+    }
     with_control_db(control_db_path, |db| {
         for _ in 0..MULTI_AGENT_MAILBOX_UPSERT_MAX_ATTEMPTS {
             let plan = prepare_multi_agent_mailbox_upsert(db, session_path, id, data)?;
+            if super::is_mailbox_message_expired(
+                super::parse_stored_json_object(&plan.serialized, &format!("{session_path}#{id}"))?
+                    .get("createdAt")
+                    .and_then(Value::as_str),
+                pi_js_compat::date::js_now_millis() as i64,
+            ) {
+                return Ok(());
+            }
             if plan.existing.as_ref().map(|existing| existing.data.as_str()) == Some(plan.serialized.as_str()) {
                 return Ok(());
             }
-            if commit_multi_agent_mailbox_upsert(db, session_path, id, &plan)? {
+            if with_immediate_transaction(db, |db| commit_multi_agent_mailbox_upsert(db, session_path, id, &plan))? {
                 return Ok(());
             }
         }
@@ -2805,6 +2802,13 @@ fn prepare_multi_agent_mailbox_upsert(
             )));
         }
         serialized = js_json::stringify(&Value::Object(merge_canonical_mailbox_update(&previous, &next)));
+    } else if data.get("createdAt").is_none_or(Value::is_null) {
+        let mut incoming = super::parse_stored_json_object(&serialized, &format!("{session_path}#{id}"))?;
+        incoming.insert(
+            "createdAt".into(),
+            Value::String(crate::utils::iso_time::now_iso_string()),
+        );
+        serialized = js_json::stringify(&Value::Object(incoming));
     }
     Ok(MultiAgentMailboxUpsertPlan {
         existing,
@@ -2819,6 +2823,14 @@ fn commit_multi_agent_mailbox_upsert(
     id: &str,
     plan: &MultiAgentMailboxUpsertPlan,
 ) -> Result<bool, ControlDbError> {
+    if super::is_mailbox_message_expired(
+        super::parse_stored_json_object(&plan.serialized, &format!("{session_path}#{id}"))?
+            .get("createdAt")
+            .and_then(Value::as_str),
+        pi_js_compat::date::js_now_millis() as i64,
+    ) {
+        return Ok(true);
+    }
     let has_parent_target = i64::from(plan.parent_target.is_some());
     let has_existing = i64::from(plan.existing.is_some());
     Ok(db.execute(
@@ -2887,6 +2899,7 @@ fn read_multi_agent_mailbox_row_snapshot(
 fn merge_canonical_mailbox_update(previous: &Map<String, Value>, next: &Map<String, Value>) -> Map<String, Value> {
     let mut merged = next.clone();
     for key in [
+        "createdAt",
         "recipientAgentId",
         "recipientSessionId",
         "senderAgentId",
@@ -2894,6 +2907,8 @@ fn merge_canonical_mailbox_update(previous: &Map<String, Value>, next: &Map<Stri
     ] {
         if let Some(value) = previous.get(key) {
             merged.insert(key.to_owned(), value.clone());
+        } else {
+            merged.remove(key);
         }
     }
     if next.get("status").and_then(Value::as_str) == Some("pending")
@@ -2950,8 +2965,8 @@ pub fn get_multi_agent_mailbox_message_status(
     with_control_db(control_db_path, |db| {
         let data: Option<String> = db
             .query_row(
-                "SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-                params![session_path, message_id],
+                &format!("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND {} > ?",super::retention::MAILBOX_CREATED_AT_MS_SQL),
+                params![session_path, message_id,super::retention::mailbox_cutoff_ms()],
                 |row| row.get(0),
             )
             .optional()?;
@@ -2968,7 +2983,13 @@ pub fn mark_multi_agent_mailbox_message_delivered(
     session_path: &str,
     message_id: &str,
 ) -> Result<bool, ControlDbError> {
-    update_multi_agent_mailbox_message_status(control_db_path, session_path, message_id, "delivered", None)
+    Ok(super::consume_runtime_mailbox_message_by_store_ref(
+        control_db_path,
+        &super::RuntimeMailboxStoreRef {
+            session_path: session_path.to_owned(),
+            message_id: message_id.to_owned(),
+        },
+    )? == 1)
 }
 
 /// `markMultiAgentMailboxMessageFailed`.
@@ -2989,17 +3010,17 @@ fn update_multi_agent_mailbox_message_status(
     error: Option<&str>,
 ) -> Result<bool, ControlDbError> {
     with_control_db(control_db_path, |db| {
-        let data: Option<String> = db
-            .query_row(
-                "SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-                params![session_path, message_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let Some(data) = data else {
+        let Some(row) = super::read_canonical_mailbox_row_by_store_ref(
+            db,
+            &super::RuntimeMailboxStoreRef {
+                session_path: session_path.to_owned(),
+                message_id: message_id.to_owned(),
+            },
+        )?
+        else {
             return Ok(false);
         };
-        let Some(mut parsed) = super::parse_json_object(&data) else {
+        let Some(mut parsed) = super::parse_json_object(&row.data) else {
             return Ok(false);
         };
         if parsed.get("status").and_then(Value::as_str) != Some("pending") {
@@ -3011,18 +3032,9 @@ fn update_multi_agent_mailbox_message_status(
         if let Some(error) = error {
             parsed.insert("error".to_owned(), Value::String(error.to_owned()));
         }
-        db.execute(
-            "UPDATE multi_agent_mailbox_messages
-			 SET data = ?, updated_at = ?
-			 WHERE session_path = ? AND message_id = ?",
-            params![
-                js_json::stringify(&Value::Object(parsed)),
-                now,
-                session_path,
-                message_id
-            ],
-        )?;
-        Ok(true)
+        with_immediate_transaction(db, |db| {
+            super::compare_and_write_canonical_mailbox_payload(db, &row, &parsed, &now)
+        })
     })
 }
 
@@ -3196,11 +3208,20 @@ pub fn read_multi_agent_state(
 ) -> Result<Option<MultiAgentPersistedState>, ControlDbError> {
     with_control_db(control_db_path, |db| {
         let read_rows = |table: &str| -> Result<Vec<Value>, ControlDbError> {
+            let retention = if table == "multi_agent_mailbox_messages" {
+                format!(" AND {} > ?", super::retention::MAILBOX_CREATED_AT_MS_SQL)
+            } else {
+                String::new()
+            };
             let mut statement = db.prepare(&format!(
-                "SELECT data FROM {table} WHERE session_path = ? ORDER BY rowid"
+                "SELECT data FROM {table} WHERE session_path = ?{retention} ORDER BY rowid"
             ))?;
+            let mut args = vec![rusqlite::types::Value::Text(session_path.to_owned())];
+            if table == "multi_agent_mailbox_messages" {
+                args.push(rusqlite::types::Value::Integer(super::retention::mailbox_cutoff_ms()));
+            }
             let rows = statement
-                .query_map(params![session_path], |row| row.get::<_, String>(0))?
+                .query_map(rusqlite::params_from_iter(args), |row| row.get::<_, String>(0))?
                 .collect::<Result<Vec<_>, _>>()?;
             let mut values = Vec::with_capacity(rows.len());
             for (index, data) in rows.iter().enumerate() {

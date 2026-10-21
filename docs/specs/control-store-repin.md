@@ -16,7 +16,8 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 - [x] Claim before delivery; reject stale payload deletion; CAS-delete after explicit delivery and never consume foreign-host rows locally.
 - [x] Hide expired mailbox rows by creation age; delete dead claims with complete transcript acceptance rather than replaying.
 - [x] Scan raw receipt refs across all complete transcript records; propagate malformed complete-record errors and ignore partial final records.
-- [ ] Prove exact retention boundary, retained-connection cleanup, steering delivery, agent terminal replay/suppression/model updates and whole in-memory store contracts.
+- [x] Preserve original mailbox birth through updates, delete terminal outbox acknowledgement rows, and accept identical terminal replay after peer acknowledgement removed the row.
+- [ ] Prove exact retention boundary, retained-connection cleanup, steering delivery, detached finalization replay/suppression/model updates and whole in-memory store contracts.
 
 ## How it works
 

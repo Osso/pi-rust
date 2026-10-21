@@ -112,7 +112,7 @@ fn project_terminal_outbox(
         return Err(mismatch_error(record));
     }
     options.store.publish_terminal_outbox_snapshot(&agent);
-    if !deliver_multi_agent_terminal_outbox(&options.control_db_path, record, &(options.now)())? {
+    if !deliver_multi_agent_terminal_outbox(&options.control_db_path, record)? {
         return Err(ControlDbError::new(format!(
             "Could not acknowledge terminal outbox projection for {}",
             record.agent_id
