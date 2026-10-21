@@ -10,9 +10,9 @@ Contract: [lossless content](../../specs/lossless-content.md). Source: coding-ag
 | Error/diff/patch text | JsString through result/details; explicit Node encoding only at file/display boundaries | Four frozen edit cases compare complete raw output; raw-path error test |
 | Line/word diff | One lossless jsdiff implementation, preserving regex-`u` character grouping and raw units | Three frozen word-diff cases compare flags and values |
 | Core edit execution | Removed checked bridge; raw new text reaches diff before Node-encoded write | Actual file changes `😀` to encoded `�x` while diff retains the unmatched high unit |
-| Coding preview/duplicate context | Consumer adaptation pending | No current-pin whole-module acceptance yet |
+| Coding preview/duplicate context | JsString state/errors, unit offsets, source unit-sliced context; no byte-offset conversion | Frozen duplicate-context and actual coding file cases added; blocked on coding-agent compilation |
 
-`edit-differential-red.jsonl` records compiler RED. `edit-substrate-green-3.log`: five sandbox tests PASS, zero warnings before the tokenizer readability extraction; post-checkpoint focused proof remains required. Historical scalar corpora below have not yet been rerun on this API.
+`edit-differential-red.jsonl` records compiler RED. Postcommit `edit-checkpoint-green.log`: five core edit tests plus two shared text-operation tests PASS, zero warnings. Historical scalar corpora below have not yet been rerun on this API.
 
 ## Historical agent-core `edit_diff` (old pin)
 
@@ -81,7 +81,7 @@ Rust: `pi_coding_agent::core::tools::edit_diff`. Functions whose TypeScript body
 
 ## Deviations and gaps
 
-- Historical `TextReplacement` used byte offsets. Q18 now uses UTF-16 offsets; coding-agent conversion/preview adaptation is still pending.
+- Historical `TextReplacement` used byte offsets. Q18 now uses UTF-16 offsets, including coding-agent matching, preview and duplicate-context paths.
 - `truncate_context_line` keeps whole scalars where the source can split a surrogate pair; the same approved class of deviation as `truncate_line`.
 - Error codes are mapped from `io::ErrorKind`; only `ENOENT`, `EACCES`, `EISDIR`, `ENOTDIR`, `EEXIST`, and `EINVAL` are named, other read failures fall back to the Rust error text.
 - `compute_edits_diff` is async (Tokio file I/O) and returns `Result<EditDiffOutcome, PathError>`; the path-resolution failure is the only `Err`, mirroring the source's uncaught throw from `resolveToCwd`.

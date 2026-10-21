@@ -3,6 +3,7 @@
 //! Queued exact-text replacements with fuzzy/CRLF handling delegated to the
 //! shared `edit_diff` module.
 
+use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -11,9 +12,11 @@ use std::sync::Arc;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::tui::{ComponentRef, Container};
 use pi_tui::{Box as BoxComponent, Spacer, Text};
-use serde_json::{Map, Value, json};
+use serde_json::Value as SchemaValue;
 use tokio_util::sync::CancellationToken;
 
 use super::edit_diff::{
@@ -97,7 +100,7 @@ pub struct EditToolOptions {
 /// Edits a single file with exact-text replacements.
 pub struct EditTool {
     cwd: String,
-    parameters: Value,
+    parameters: SchemaValue,
     operations: Arc<dyn EditOperations>,
 }
 
@@ -115,8 +118,8 @@ impl EditTool {
     }
 }
 
-fn edit_schema() -> Value {
-    json!({
+fn edit_schema() -> SchemaValue {
+    serde_json::json!({
         "type": "object",
         "required": ["path", "edits"],
         "properties": {
@@ -146,7 +149,7 @@ impl AgentTool for EditTool {
         DESCRIPTION
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
@@ -165,7 +168,7 @@ impl AgentTool for EditTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -184,14 +187,14 @@ pub fn prepare_edit_arguments(input: Value) -> Value {
     };
 
     if let Some(Value::String(encoded)) = args.get("edits")
-        && let Ok(Value::Array(parsed)) = serde_json::from_str::<Value>(encoded)
+        && let Ok(Value::Array(parsed)) = pi_js_compat::js_json::parse_lossless(encoded)
     {
-        args.insert("edits".to_owned(), Value::Array(parsed));
+        args.insert("edits".into(), Value::Array(parsed));
     }
 
     let legacy = match (
-        args.get("oldText").and_then(Value::as_str),
-        args.get("newText").and_then(Value::as_str),
+        args.get("oldText").and_then(Value::as_string),
+        args.get("newText").and_then(Value::as_string),
     ) {
         (Some(old_text), Some(new_text)) => Some((old_text.to_owned(), new_text.to_owned())),
         _ => None,
@@ -200,18 +203,18 @@ pub fn prepare_edit_arguments(input: Value) -> Value {
         return Value::Object(args);
     };
 
-    let mut edits = match args.remove("edits") {
+    let mut edits = match args.shift_remove("edits") {
         Some(Value::Array(edits)) => edits,
         _ => Vec::new(),
     };
     edits.push(json!({"oldText": old_text, "newText": new_text}));
-    args.remove("oldText");
-    args.remove("newText");
-    args.insert("edits".to_owned(), Value::Array(edits));
+    args.shift_remove("oldText");
+    args.shift_remove("newText");
+    args.insert("edits".into(), Value::Array(edits));
     Value::Object(args)
 }
 
-fn parse_edit_input(input: &Value) -> Result<(String, Vec<Edit>), ToolError> {
+fn parse_edit_input(input: &Value) -> Result<(JsString, Vec<Edit>), ToolError> {
     let edits = match input.get("edits") {
         Some(Value::Array(edits)) if !edits.is_empty() => edits,
         _ => {
@@ -222,7 +225,7 @@ fn parse_edit_input(input: &Value) -> Result<(String, Vec<Edit>), ToolError> {
     };
     let path = input
         .get("path")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .ok_or_else(|| ToolError::new("edit tool requires a string path"))?
         .to_owned();
     let edits = edits
@@ -230,14 +233,14 @@ fn parse_edit_input(input: &Value) -> Result<(String, Vec<Edit>), ToolError> {
         .map(|edit| Edit {
             old_text: edit
                 .get("oldText")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
+                .and_then(Value::as_string)
+                .cloned()
+                .unwrap_or_default(),
             new_text: edit
                 .get("newText")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
+                .and_then(Value::as_string)
+                .cloned()
+                .unwrap_or_default(),
         })
         .collect();
     Ok((path, edits))
@@ -246,19 +249,19 @@ fn parse_edit_input(input: &Value) -> Result<(String, Vec<Edit>), ToolError> {
 async fn execute_edit(
     cwd: &str,
     operations: Arc<dyn EditOperations>,
-    params: Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let (path, edits) = parse_edit_input(&params)?;
-    let absolute_path = resolve_to_cwd(&path, cwd).map_err(|error| ToolError::new(error.to_string()))?;
+    let absolute_path =
+        resolve_to_cwd(&encode_node_utf8(&path), cwd).map_err(|error| ToolError::new(error.to_string()))?;
     with_file_mutation_queue(&absolute_path, || async {
         check_aborted(signal.as_ref())?;
         if let Err(error) = operations.access(&absolute_path).await {
             check_aborted(signal.as_ref())?;
-            return Err(ToolError::new(format!(
-                "Could not edit file: {path}. {}.",
-                edit_access_error_message(&error)
-            )));
+            return Err(ToolError::new(
+                JsString::from("Could not edit file: ") + &path + format!(". {}.", edit_access_error_message(&error)),
+            ));
         }
         check_aborted(signal.as_ref())?;
 
@@ -269,20 +272,17 @@ async fn execute_edit(
         check_aborted(signal.as_ref())?;
 
         let raw_content = String::from_utf8_lossy(&buffer);
-        let bom = strip_bom(&raw_content);
+        let bom = strip_bom(raw_content.as_ref());
         let original_ending = detect_line_ending(&bom.text);
         let normalized_content = normalize_to_lf(&bom.text);
         let applied = apply_edits_to_normalized_content(&normalized_content, &edits, &path)
-            .map_err(|error| ToolError::new(error.to_string()))?;
+            .map_err(|error| ToolError::new(error.message))?;
         check_aborted(signal.as_ref())?;
 
-        let final_content = format!(
-            "{}{}",
-            bom.bom,
-            restore_line_endings(&applied.new_content, original_ending)
-        );
+        let final_content = bom.bom + restore_line_endings(&applied.new_content, original_ending);
+        let encoded_content = encode_node_utf8(&final_content);
         operations
-            .write_file(&absolute_path, &final_content)
+            .write_file(&absolute_path, &encoded_content)
             .await
             .map_err(|error| ToolError::new(error.to_string()))?;
         check_aborted(signal.as_ref())?;
@@ -290,16 +290,15 @@ async fn execute_edit(
         let diff_result = generate_diff_string(&applied.base_content, &applied.new_content, DIFF_CONTEXT_LINES);
         let patch = generate_unified_patch(&path, &applied.base_content, &applied.new_content, DIFF_CONTEXT_LINES);
         let mut details = Map::new();
-        details.insert("diff".to_owned(), Value::String(diff_result.diff));
-        details.insert("patch".to_owned(), Value::String(patch));
+        details.insert("diff".into(), Value::String(diff_result.diff.into()));
+        details.insert("patch".into(), Value::String(patch.into()));
         if let Some(first_changed_line) = diff_result.first_changed_line {
-            details.insert("firstChangedLine".to_owned(), json!(first_changed_line));
+            details.insert("firstChangedLine".into(), json!(first_changed_line));
         }
         Ok(AgentToolResult {
-            content: vec![TextOrImageContent::Text(TextContent::new(format!(
-                "Successfully replaced {} block(s) in {path}.",
-                edits.len()
-            )))],
+            content: vec![TextOrImageContent::Text(TextContent::new(
+                JsString::from(format!("Successfully replaced {} block(s) in ", edits.len())) + &path + ".",
+            ))],
             details: Some(Value::Object(details)),
             is_error: None,
             terminate: None,
@@ -339,18 +338,18 @@ const SETTLED_ERROR_KEY: &str = "settledError";
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum EditPreview {
     Diff {
-        diff: String,
+        diff: JsString,
         first_changed_line: Option<usize>,
     },
-    Error(String),
+    Error(JsString),
 }
 
 fn preview_from_state(state: &Value) -> Option<EditPreview> {
     let preview = state.get(PREVIEW_KEY)?;
-    match preview.get("error").and_then(Value::as_str) {
+    match preview.get("error").and_then(Value::as_string) {
         Some(error) => Some(EditPreview::Error(error.to_owned())),
         None => Some(EditPreview::Diff {
-            diff: preview.get("diff")?.as_str()?.to_owned(),
+            diff: preview.get("diff")?.as_string()?.clone(),
             first_changed_line: preview
                 .get("firstChangedLine")
                 .and_then(Value::as_u64)
@@ -370,18 +369,21 @@ fn preview_to_state(preview: &EditPreview) -> Value {
 }
 
 fn preview_args_key_from_state(state: &Value) -> Option<String> {
-    state.get(PREVIEW_ARGS_KEY).and_then(Value::as_str).map(str::to_owned)
+    state
+        .get(PREVIEW_ARGS_KEY)
+        .and_then(Value::as_string)
+        .and_then(|text| text.to_utf8().ok())
 }
 
-fn render_args_path(args: &Value) -> Option<String> {
+fn render_args_path(args: &JsValue) -> Option<String> {
     match args.get("file_path") {
-        Some(Value::Null) | None => args.get("path").and_then(Value::as_str).map(str::to_owned),
-        Some(Value::String(path)) => Some(path.clone()),
+        Some(Value::Null) | None => args.get("path").and_then(Value::as_string).map(encode_node_utf8),
+        Some(Value::String(path)) => Some(encode_node_utf8(path)),
         Some(_) => None,
     }
 }
 
-fn format_edit_call(args: &Value, theme: &Theme, cwd: &str) -> String {
+fn format_edit_call(args: &JsValue, theme: &Theme, cwd: &str) -> String {
     let path_display = render_tool_path(render_args_path(args).as_deref(), theme, cwd, None);
     format!(
         "{} {path_display}",
@@ -390,11 +392,11 @@ fn format_edit_call(args: &Value, theme: &Theme, cwd: &str) -> String {
 }
 
 /// `getRenderablePreviewInput`: the path plus the edits that can be previewed.
-fn get_renderable_preview_input(args: &Value) -> Option<(String, Vec<Edit>, Value)> {
+fn get_renderable_preview_input(args: &JsValue) -> Option<(JsString, Vec<Edit>, Value)> {
     let path = args
         .get("path")
-        .and_then(Value::as_str)
-        .or_else(|| args.get("file_path").and_then(Value::as_str))?
+        .and_then(Value::as_string)
+        .or_else(|| args.get("file_path").and_then(Value::as_string))?
         .to_owned();
 
     if let Some(Value::Array(edits)) = args.get("edits")
@@ -406,15 +408,15 @@ fn get_renderable_preview_input(args: &Value) -> Option<(String, Vec<Edit>, Valu
         let parsed = edits
             .iter()
             .map(|edit| Edit {
-                old_text: edit["oldText"].as_str().unwrap_or_default().to_owned(),
-                new_text: edit["newText"].as_str().unwrap_or_default().to_owned(),
+                old_text: edit["oldText"].as_string().cloned().unwrap_or_default(),
+                new_text: edit["newText"].as_string().cloned().unwrap_or_default(),
             })
             .collect();
         return Some((path, parsed, Value::Array(edits.clone())));
     }
 
-    let old_text = args.get("oldText").and_then(Value::as_str)?;
-    let new_text = args.get("newText").and_then(Value::as_str)?;
+    let old_text = args.get("oldText").and_then(Value::as_string)?;
+    let new_text = args.get("newText").and_then(Value::as_string)?;
     let edits = vec![Edit {
         old_text: old_text.to_owned(),
         new_text: new_text.to_owned(),
@@ -422,7 +424,7 @@ fn get_renderable_preview_input(args: &Value) -> Option<(String, Vec<Edit>, Valu
     Some((path, edits, json!([{"oldText": old_text, "newText": new_text}])))
 }
 
-fn preview_args_key(path: &str, raw_edits: &Value) -> String {
+fn preview_args_key(path: &JsString, raw_edits: &Value) -> String {
     serde_json::to_string(&json!({"path": path, "edits": raw_edits})).expect("preview key must serialize")
 }
 
@@ -451,7 +453,7 @@ fn get_edit_call_component(context: &ToolRenderContext) -> ComponentRef {
 
 fn fill_edit_call_component(
     component: &ComponentRef,
-    args: &Value,
+    args: &JsValue,
     preview: Option<&EditPreview>,
     settled_error: bool,
     theme: &Theme,
@@ -478,7 +480,7 @@ fn fill_edit_call_component(
         return;
     };
     let body = match preview {
-        EditPreview::Error(error) => theme.fg(ThemeColor::Error, error),
+        EditPreview::Error(error) => theme.fg(ThemeColor::Error, &encode_node_utf8(error)),
         EditPreview::Diff { diff, .. } => render_diff(diff),
     };
     box_component.add_child(Rc::new(RefCell::new(Spacer::new(1))));
@@ -511,19 +513,19 @@ fn set_edit_preview(
         let Value::Object(state) = state else {
             return;
         };
-        state.insert(PREVIEW_KEY.to_owned(), preview_to_state(&preview));
+        state.insert(PREVIEW_KEY.to_owned().into(), preview_to_state(&preview));
         match &args_key {
-            Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned(), Value::String(key.clone())),
-            None => state.remove(PREVIEW_ARGS_KEY),
+            Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned().into(), Value::String(key.clone().into())),
+            None => state.shift_remove(PREVIEW_ARGS_KEY),
         };
-        state.insert(PREVIEW_PENDING_KEY.to_owned(), Value::Bool(false));
+        state.insert(PREVIEW_PENDING_KEY.to_owned().into(), Value::Bool(false));
     });
     changed
 }
 
 fn request_edit_preview(
     state: &crate::core::extensions::types::ToolRenderState,
-    path: String,
+    path: JsString,
     edits: Vec<Edit>,
     cwd: String,
     args_key: Option<String>,
@@ -531,7 +533,7 @@ fn request_edit_preview(
 ) {
     state.update(|state| {
         if let Value::Object(state) = state {
-            state.insert(PREVIEW_PENDING_KEY.to_owned(), Value::Bool(true));
+            state.insert(PREVIEW_PENDING_KEY.to_owned().into(), Value::Bool(true));
         }
     });
     let state = state.clone();
@@ -558,7 +560,7 @@ fn request_edit_preview(
 }
 
 /// `renderCall` for the edit tool.
-pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     let component = get_edit_call_component(context);
     let preview_input = get_renderable_preview_input(args);
     let args_key = preview_input
@@ -569,13 +571,13 @@ pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> 
     if preview_args_key_from_state(&state_snapshot) != args_key {
         context.state.update(|state| {
             if let Value::Object(state) = state {
-                state.remove(PREVIEW_KEY);
+                state.shift_remove(PREVIEW_KEY);
                 match &args_key {
-                    Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned(), Value::String(key.clone())),
-                    None => state.remove(PREVIEW_ARGS_KEY),
+                    Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned().into(), Value::String(key.clone().into())),
+                    None => state.shift_remove(PREVIEW_ARGS_KEY),
                 };
-                state.insert(PREVIEW_PENDING_KEY.to_owned(), Value::Bool(false));
-                state.insert(SETTLED_ERROR_KEY.to_owned(), Value::Bool(false));
+                state.insert(PREVIEW_PENDING_KEY.to_owned().into(), Value::Bool(false));
+                state.insert(SETTLED_ERROR_KEY.to_owned().into(), Value::Bool(false));
             }
         });
     }
@@ -612,41 +614,39 @@ pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> 
 }
 
 fn format_edit_result(
-    _args: &Value,
+    _args: &JsValue,
     preview: Option<&EditPreview>,
     result: &AgentToolResult,
     theme: &Theme,
     is_error: bool,
 ) -> Option<String> {
     let preview_diff = match preview {
-        Some(EditPreview::Diff { diff, .. }) => Some(diff.as_str()),
+        Some(EditPreview::Diff { diff, .. }) => Some(diff),
         _ => None,
     };
     let preview_error = match preview {
-        Some(EditPreview::Error(error)) => Some(error.as_str()),
+        Some(EditPreview::Error(error)) => Some(error),
         _ => None,
     };
     if is_error {
-        let error_text = result
-            .content
-            .iter()
-            .filter_map(|entry| match entry {
-                TextOrImageContent::Text(text) => Some(text.text.as_str()),
+        let error_text = JsString::join(
+            result.content.iter().filter_map(|entry| match entry {
+                TextOrImageContent::Text(text) => Some(&text.text),
                 TextOrImageContent::Image(_) => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        if error_text.is_empty() || Some(error_text.as_str()) == preview_error {
+            }),
+            "\n",
+        );
+        if error_text.is_empty() || Some(&error_text) == preview_error {
             return None;
         }
-        return Some(theme.fg(ThemeColor::Error, &error_text));
+        return Some(theme.fg(ThemeColor::Error, &encode_node_utf8(&error_text)));
     }
 
     let result_diff = result
         .details
         .as_ref()
         .and_then(|details| details.get("diff"))
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .filter(|diff| !diff.is_empty())?;
     if Some(result_diff) == preview_diff {
         return None;
@@ -672,7 +672,7 @@ pub fn render_result(
                 .details
                 .as_ref()
                 .and_then(|details| details.get("diff"))
-                .and_then(Value::as_str)
+                .and_then(Value::as_string)
         })
         .flatten();
     let mut changed = false;
@@ -702,7 +702,7 @@ pub fn render_result(
         if settled_error != context.is_error {
             context.state.update(|state| {
                 if let Value::Object(state) = state {
-                    state.insert(SETTLED_ERROR_KEY.to_owned(), Value::Bool(context.is_error));
+                    state.insert(SETTLED_ERROR_KEY.to_owned().into(), Value::Bool(context.is_error));
                 }
             });
             changed = true;
