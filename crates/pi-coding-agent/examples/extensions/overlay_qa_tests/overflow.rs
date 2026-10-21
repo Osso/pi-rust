@@ -16,6 +16,8 @@ pub(super) struct Process {
 impl Process {
     pub(super) fn start(model: &Rc<Model>) -> Self {
         let mut child = tokio::process::Command::new("bash")
+            .env_clear()
+            .envs(pi_js_compat::process_env::vars())
             .args(["-c", include_str!("overflow.sh.txt")])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
