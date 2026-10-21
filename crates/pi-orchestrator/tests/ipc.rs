@@ -89,6 +89,7 @@ fn peer(dir: &std::path::Path, mode: &str) -> tokio::process::Command {
         .arg(source)
         .arg(mode)
         .env("PI_ORCHESTRATOR_DIR", dir)
+        .env_remove("PI_APPROVED_DELTA")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .kill_on_drop(true);
@@ -142,7 +143,10 @@ async fn rust_client_to_frozen_ts_server_pins_approved_coalesced_discrepancy() {
             .await
             .unwrap();
         reader.read_line(&mut line).await.unwrap();
-        assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["type"], "rpc_ready");
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap(),
+            json!({"type":"rpc_ready","ok":true,"instance":{"id":"i"}})
+        );
         line.clear();
         assert!(
             tokio::time::timeout(std::time::Duration::from_millis(40), reader.read_line(&mut line))
@@ -151,7 +155,10 @@ async fn rust_client_to_frozen_ts_server_pins_approved_coalesced_discrepancy() {
         );
         write.write_all(b"\n").await.unwrap();
         reader.read_line(&mut line).await.unwrap();
-        assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["id"], "one");
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap(),
+            json!({"type":"response","command":"get_state","success":true,"id":"one"})
+        );
     }
 }
 
@@ -315,4 +322,75 @@ async fn approved_delta_skips_blank_initial_lines_without_stalling_plain_request
     .unwrap();
     assert_eq!(serde_json::from_str::<Value>(&output).unwrap()["type"], "list_result");
     server.close().await;
+}
+
+#[tokio::test]
+async fn approved_locked_ts_delta_matches_native_coalesced_and_partial_frames_byte_for_byte() {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("orchestrator.sock");
+    let mut child = peer(dir.path(), "server")
+        .env("PI_APPROVED_DELTA", "1")
+        .spawn()
+        .unwrap();
+    let mut ready = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut ready)
+        .await
+        .unwrap();
+    assert_eq!(ready, "ready\n");
+    let expected = observe(&path).await;
+    child.kill().await.unwrap();
+    child.wait().await.unwrap();
+    let server = start_ipc_server(&path, Arc::new(Handler)).await.unwrap();
+    let actual = observe(&path).await;
+    assert_eq!(actual, expected);
+    server.close().await;
+    async fn observe(path: &std::path::Path) -> Vec<String> {
+        let mut socket = tokio::net::UnixStream::connect(path).await.unwrap();
+        socket
+            .write_all(b"\n \n{\"type\":\"list\"}\n{\"type\":\"list\"}\n")
+            .await
+            .unwrap();
+        let mut ordinary = String::new();
+        tokio::time::timeout(std::time::Duration::from_secs(1), socket.read_to_string(&mut ordinary))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(ordinary, "{\"type\":\"list_result\",\"ok\":true,\"instances\":[]}\n");
+        let socket = tokio::net::UnixStream::connect(path).await.unwrap();
+        let (read, mut write) = socket.into_split();
+        let mut reader = BufReader::new(read);
+        let mut frames = vec![ordinary];
+        write.write_all(b"\n  \n{\"type\":\"rpc_stream\",\"instanceId\":\"i\"}\n{\"type\":\"get_state\",\"id\":\"one\"}\n\n{\"type\":\"abort\",\"id\":\"two\"}\n{\"type\":\"get_").await.unwrap();
+        for _ in 0..3 {
+            let mut line = String::new();
+            tokio::time::timeout(std::time::Duration::from_secs(1), reader.read_line(&mut line))
+                .await
+                .expect("locked delta must drain complete prebuffer")
+                .unwrap();
+            frames.push(line);
+        }
+        let mut pending = String::new();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(40), reader.read_line(&mut pending))
+                .await
+                .is_err(),
+            "partial frame must remain buffered"
+        );
+        write
+            .write_all(b"state\",\"id\":\"three\"}\n{\"type\":\"abort\",\"id\":\"four\"}\n")
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            let mut line = String::new();
+            tokio::time::timeout(std::time::Duration::from_secs(1), reader.read_line(&mut line))
+                .await
+                .unwrap()
+                .unwrap();
+            frames.push(line);
+        }
+        assert_eq!(frames.len(), 6);
+        frames
+    }
 }
