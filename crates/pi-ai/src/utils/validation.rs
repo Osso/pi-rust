@@ -915,10 +915,15 @@ fn collect_ref(
     value: &Value,
     issues: &mut Issues,
 ) {
-    let Some(reference) = schema.get("$ref").and_then(schema_text) else {
+    let Some(reference) = schema.get("$ref").and_then(Value::as_string) else {
         return;
     };
-    match resolve_ref(root, base, &reference) {
+    // Frozen URL-based resolution does not resolve unmatched-surrogate fragments.
+    let target = reference
+        .to_utf8()
+        .ok()
+        .and_then(|reference| resolve_ref(root, base, &reference));
+    match target {
         Some(target) => collect_schema(root, base, target, instance_path, value, issues),
         None => issues.message(instance_path, "schema is false".to_owned()),
     }

@@ -1165,6 +1165,21 @@ fn lossless_utf16_validation_matches_frozen_typescript() {
     }
     for (name, schema, arguments) in [
         (
+            "numeric-property-order",
+            r#"{"type":"object","properties":{"10":{"type":"number"},"2":{"type":"number"},"\ud800":{"type":"number"}}}"#,
+            r#"{"10":"x","2":"y","\ud800":"z"}"#,
+        ),
+        (
+            "surrogate-reference",
+            r##"{"type":"object","properties":{"value":{"$ref":"#/$defs/\ud800"}},"$defs":{"\ud800":{"type":"number"}}}"##,
+            r#"{"value":"x"}"#,
+        ),
+        (
+            "surrogate-anchor",
+            r##"{"type":"object","properties":{"value":{"$ref":"#\ud800"}},"$defs":{"a":{"$anchor":"\ud800","type":"number"}}}"##,
+            r#"{"value":"x"}"#,
+        ),
+        (
             "surrogate-pattern",
             r#"{"type":"object","properties":{"value":{"type":"string","pattern":"^\ud800$"}}}"#,
             r#"{"value":"\ud800"}"#,
@@ -1274,7 +1289,11 @@ fn lossless_utf16_validation_matches_frozen_typescript() {
     assert_eq!(results.len(), fixtures.len());
     let mut mismatches = Vec::new();
     for (fixture, expected) in fixtures.iter().zip(results) {
-        let schema = &expected["schemas"][0];
+        let schema = if fixture["kind"] == js_json!("plain") {
+            &fixture["schema"]
+        } else {
+            &expected["schemas"][0]
+        };
         let arguments = &fixture["arguments"];
         let before = arguments.clone();
         let result = validate_arguments(schema, arguments, fixture["kind"] == js_json!("typebox"), "echo");
