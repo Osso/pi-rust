@@ -12,6 +12,10 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { buildSourceTsconfig } from "./source-tsconfig.mjs";
+import {
+	prepareRuntimeFixture,
+	selectTypecheckReference,
+} from "./typecheck-reference.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const helper = join(root, "oracle/typecheck-reference.mjs");
@@ -28,6 +32,28 @@ test("unmodified new pin is a valid type reference with no clone or patch", () =
 	const result = command(process.execPath, [helper, "check"]);
 	assert.equal(result.status, 0, result.output);
 	assert.equal(result.stdout.trim(), lock.worktree);
+});
+
+test("runtime fixture retains exact bytes and cannot select a different source", () => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-runtime-identity-"));
+	try {
+		const fixture = join(directory, "fixture.ts");
+		const source = Buffer.from("export const value = '🍀';\n");
+		writeFileSync(fixture, source);
+		const selected = selectTypecheckReference();
+		assert.equal(prepareRuntimeFixture(fixture, selected), fixture);
+		assert.deepEqual(readFileSync(fixture), source);
+		assert.throws(
+			() =>
+				prepareRuntimeFixture(fixture, {
+					...selected,
+					runtimeWorktree: directory,
+				}),
+			/unmodified/,
+		);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 });
 
 test("unmodified reference rejects wrong HEAD, dirty catalog and missing compiler", () => {

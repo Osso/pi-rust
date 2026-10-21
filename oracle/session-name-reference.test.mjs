@@ -64,7 +64,11 @@ function fixture(t, state) {
 			});
 			writeFileSync(join(reference, "node_modules/.bin/tsx"), "fixture");
 			writeFileSync(join(reference, "tsconfig.json"), "{}");
-			writeFileSync(join(reference, "packages/ai/src/models.generated.ts"), "export {};");
+			if (state !== "missing-catalog")
+				writeFileSync(
+					join(reference, "packages/ai/src/models.generated.ts"),
+					"export {};",
+				);
 		}
 	}
 	writeFileSync(
@@ -108,7 +112,7 @@ for (const mode of ["all", "differential"]) {
 	}
 }
 
-for (const state of ["valid", "missing-environment"]) {
+for (const state of ["valid", "missing-environment", "missing-catalog"]) {
 	test(`explicit v15 preflight: ${state}`, (t) => {
 		const f = fixture(t, state);
 		const lockBefore = readFileSync(
@@ -130,12 +134,13 @@ for (const state of ["valid", "missing-environment"]) {
 				result.stdout.trim(),
 				join(f.directory, "target/session-name-oracle"),
 			);
-		else assert.ok(result.stderr.includes(setupDoc), result.stderr);
+		else {
+			assert.ok(result.stderr.includes(setupDoc), result.stderr);
+			if (state === "missing-catalog")
+				assert.match(result.stderr, /models\.generated\.ts/);
+		}
 		assert.equal(
-			readFileSync(
-				join(f.directory, "docs/porting/source-lock.json"),
-				"utf8",
-			),
+			readFileSync(join(f.directory, "docs/porting/source-lock.json"), "utf8"),
 			lockBefore,
 		);
 	});
