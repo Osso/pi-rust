@@ -156,6 +156,8 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         });
 
     match op {
+        "set_last_changelog_version" => manager.set_last_changelog_version(value.as_str().unwrap()),
+        "set_enable_analytics" => manager.set_enable_analytics(value.as_bool().unwrap()),
         "set_theme" => manager.set_theme(value.as_str().unwrap()),
         "set_default_provider" => manager.set_default_provider(value.as_str().unwrap()),
         "set_default_model" => manager.set_default_model(value.as_str().unwrap()),
@@ -330,6 +332,8 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "projectSettings": Value::Object(manager.get_project_settings()),
         "mergedSettings": Value::Object(manager.get_merged_settings()),
         "projectTrusted": manager.is_project_trusted(),
+        "lastChangelogVersion": option_str(manager.get_last_changelog_version()),
+        "externalEditorCommand": manager.get_external_editor_command(),
         "theme": option_str(manager.get_theme()),
         "themeSetting": option_str(manager.get_theme_setting()),
         "defaultProvider": option_str(manager.get_default_provider()),
@@ -349,6 +353,11 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "configuredSandboxProfile": manager.get_configured_sandbox_profile().as_str(),
         "explicitSandboxProfile": manager.get_explicit_sandbox_profile().map(|profile| profile.as_str()),
         "sessionSandboxProfile": manager.get_session_sandbox_profile().map(|profile| profile.as_str()),
+        "compactionEnabled": manager.get_compaction_enabled(),
+        "compactionReserveTokens": number(manager.get_compaction_reserve_tokens()),
+        "compactionKeepRecentTokens": number(manager.get_compaction_keep_recent_tokens()),
+        "branchSummarySkipPrompt": manager.get_branch_summary_skip_prompt(),
+        "retryEnabled": manager.get_retry_enabled(),
         "compaction": manager.get_compaction_settings().map_or(json!("ERROR"), |view| {
             let mut output = json!({"enabled":view.enabled,"reserveTokens":number(view.reserve_tokens),"keepRecentTokens":number(view.keep_recent_tokens)});
             if let Some(percent) = view.threshold_percent { output["thresholdPercent"] = number(percent); }
@@ -469,6 +478,43 @@ fn scenarios() -> Vec<Scenario> {
             steps: vec![
                 json!({"op":"flush"}),
                 json!({"op":"apply_overrides","value":{"agents":{"implement":null},"retry":null,"permissionRules":{"allow":[]}}}),
+            ],
+        },
+        Scenario {
+            name: "remaining-resource-and-identity-setters",
+            global: Some(r#"{"unknown":{"preserve":true},"externalEditor":"configured-editor"}"#),
+            project: Some("{}"),
+            steps: vec![
+                json!({"op":"set_last_changelog_version","value":"0.80.3"}),
+                json!({"op":"set_enable_analytics","value":false}),
+                json!({"op":"set_extension_paths","value":["global-extension"]}),
+                json!({"op":"set_project_extension_paths","value":["project-extension"]}),
+                json!({"op":"set_skill_paths","value":["global-skill"]}),
+                json!({"op":"set_project_skill_paths","value":["project-skill"]}),
+                json!({"op":"set_prompt_template_paths","value":["global-prompt"]}),
+                json!({"op":"set_project_prompt_template_paths","value":["project-prompt"]}),
+                json!({"op":"set_theme_paths","value":["global-theme"]}),
+                json!({"op":"set_project_theme_paths","value":["project-theme"]}),
+                json!({"op":"set_shell_path","value":null}),
+                json!({"op":"set_shell_command_prefix","value":null}),
+                json!({"op":"set_npm_command","value":null}),
+            ],
+        },
+        Scenario {
+            name: "reload-errors-and-recovery",
+            global: Some(r#"{"theme":"global"}"#),
+            project: Some(r#"{"theme":"project"}"#),
+            steps: vec![
+                json!({"op":"external_edit","scope":"global","content":"invalid"}),
+                json!({"op":"external_edit","scope":"project","content":"invalid"}),
+                json!({"op":"reload"}),
+                json!({"op":"set_theme","value":"blocked-global-write"}),
+                json!({"op":"set_project_extension_paths","value":["blocked-project-write"]}),
+                json!({"op":"external_edit","scope":"global","content":"{}"}),
+                json!({"op":"external_edit","scope":"project","content":"{}"}),
+                json!({"op":"reload"}),
+                json!({"op":"set_theme","value":"recovered"}),
+                json!({"op":"set_project_extension_paths","value":["recovered"]}),
             ],
         },
         Scenario {
@@ -594,4 +640,126 @@ fn scenarios() -> Vec<Scenario> {
             ],
         },
     ]
+}
+
+/// TS fixture producer writes fields without product setters (unknowns, agents and provider settings).
+/// Every known mutation below uses the actual manager API, in both runtimes.
+pub(crate) fn bidirectional() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-settings-manager-oracle.ts",
+        "packages/coding-agent/src/core/settings-manager.ts",
+    );
+    let temp = TempDir::new().unwrap();
+    let agent = temp.path().join("agent");
+    let project = temp.path().join("project");
+    fs::create_dir_all(&agent).unwrap();
+    fs::create_dir_all(project.join(".pi")).unwrap();
+    let global = json!({"unknownRoot":{"producer":"TS"},"agents":{"implement":{"model":"global","tools":["read"]}},"retry":{"provider":{"timeoutMs":100,"maxRetries":2},"sentinel":{"ts":true}},"compaction":{"thresholdPercent":70,"idle":false,"unknownChild":{"ts":1}},"terminal":{"unknownChild":{"ts":2}},"permissionRules":{"allow":{"read":["global"]}},"relay":{"peer":"isolated"}});
+    let local = json!({"agents":{"implement":{"thinkingLevel":"low"}},"retry":{"provider":{"maxRetries":3}},"permissionRules":{"allow":{"write":["project"]}},"unknownProject":{"producer":"TS"}});
+    let ask = |oracle: &mut oracle::TsOracle, steps: Vec<Value>| {
+        let response = oracle.request(&json!({"id":"bidirectional","managerKey":"shared-fixture","agentDir":agent,"projectDir":project,"steps":steps}));
+        assert_eq!(response["ok"], true, "{response}");
+        response["output"]["snapshots"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone()
+    };
+    let ts = ask(
+        &mut oracle,
+        vec![
+            json!({"op":"external_edit","scope":"global","content":global.to_string()}),
+            json!({"op":"external_edit","scope":"project","content":local.to_string()}),
+            json!({"op":"reload"}),
+            json!({"op":"set_theme","value":"TS-created"}),
+            json!({"op":"set_show_images","value":false}),
+            json!({"op":"set_project_skill_paths","value":["TS-skill"]}),
+        ],
+    );
+    let mut rust = SettingsManager::create(
+        &project.to_string_lossy(),
+        Some(&agent),
+        SettingsManagerCreateOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(snapshot(&rust), ts["snapshot"]);
+    assert_eq!(rust.get_provider_retry_settings().timeout_ms, None);
+    assert_eq!(rust.get_compaction_settings().unwrap().threshold_percent, Some(70.0));
+    assert!(!rust.get_idle_compaction_enabled());
+    assert_eq!(
+        rust.get_merged_settings()["permissionRules"]["allow"],
+        json!({"write":["project"]})
+    );
+
+    // Two stale product managers plus a fixture-only independent writer. None may lose siblings.
+    let mut disk: Value = serde_json::from_str(&fs::read_to_string(agent.join("settings.json")).unwrap()).unwrap();
+    disk["outOfBand"] = json!({"producer":"fixture-only"});
+    disk["compaction"]["outOfBand"] = json!(17);
+    disk["terminal"]["outOfBand"] = json!({"keep":true});
+    fs::write(agent.join("settings.json"), disk.to_string()).unwrap();
+    rust.set_compaction_enabled(false);
+    rust.set_hide_tool_output(true);
+    rust.set_hide_coordination_messages(true);
+    rust.set_shell_path(Some("~/literal/../shell"));
+    rust.set_project_extension_paths(&["Rust-extension".to_owned()])
+        .unwrap();
+    rust.flush();
+    let ts = ask(
+        &mut oracle,
+        vec![
+            json!({"op":"set_show_terminal_progress","value":true}),
+            json!({"op":"set_project_prompt_template_paths","value":["TS-prompt"]}),
+            json!({"op":"reload"}),
+        ],
+    );
+    let saved: Value = serde_json::from_str(ts["globalFile"].as_str().unwrap()).unwrap();
+    assert_eq!(saved["unknownRoot"], global["unknownRoot"]);
+    assert_eq!(saved["relay"], global["relay"]);
+    assert_eq!(saved["outOfBand"], json!({"producer":"fixture-only"}));
+    assert_eq!(
+        saved["compaction"],
+        json!({"thresholdPercent":70,"idle":false,"unknownChild":{"ts":1},"outOfBand":17,"enabled":false})
+    );
+    assert_eq!(
+        saved["terminal"],
+        json!({"unknownChild":{"ts":2},"outOfBand":{"keep":true},"showImages":false,"showTerminalProgress":true})
+    );
+    assert_eq!(saved["hideToolOutput"], true);
+    assert_eq!(saved["hideCoordinationMessages"], true);
+    assert_eq!(saved["shellPath"], "~/literal/../shell");
+    assert_eq!(saved["retry"], global["retry"]);
+    let saved_project: Value = serde_json::from_str(ts["projectFile"].as_str().unwrap()).unwrap();
+    assert_eq!(saved_project["unknownProject"], local["unknownProject"]);
+    assert_eq!(saved_project["extensions"], json!(["Rust-extension"]));
+    assert_eq!(saved_project["skills"], json!(["TS-skill"]));
+    assert_eq!(saved_project["prompts"], json!(["TS-prompt"]));
+    rust.reload();
+    assert_eq!(snapshot(&rust), ts["snapshot"]);
+
+    // Reverse: a stale Rust manager writes after the TS product writer; nested siblings survive.
+    let ts = ask(
+        &mut oracle,
+        vec![
+            json!({"op":"set_hide_tool_output","value":false}),
+            json!({"op":"set_theme","value":"TS-reverse"}),
+            json!({"op":"set_block_images","value":true}),
+        ],
+    );
+    assert_eq!(ts["snapshot"]["hideToolOutput"], false);
+    rust.set_show_images(true);
+    rust.set_retry_enabled(false);
+    rust.flush();
+    let ts = ask(&mut oracle, vec![json!({"op":"reload"})]);
+    rust.reload();
+    assert_eq!(snapshot(&rust), ts["snapshot"]);
+    assert_eq!(rust.get_theme(), Some("TS-reverse"));
+    assert!(!rust.get_hide_tool_output());
+    assert!(rust.get_show_images());
+    assert!(rust.get_block_images());
+    assert!(!rust.get_retry_enabled());
+    let final_global: Value = serde_json::from_str(ts["globalFile"].as_str().unwrap()).unwrap();
+    assert_eq!(final_global["retry"]["sentinel"], global["retry"]["sentinel"]);
+    assert_eq!(final_global["compaction"], saved["compaction"]);
+    assert_eq!(final_global["terminal"]["outOfBand"], saved["terminal"]["outOfBand"]);
 }

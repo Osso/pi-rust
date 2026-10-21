@@ -28,7 +28,9 @@ function normalizeError(error: unknown): { name: string; message: string } {
 async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir: string, projectDir: string): Promise<{ threw: boolean }> {
 	try {
 		switch (step.op) {
-			case "set_theme": manager.setTheme(step.value); break;
+			case "set_last_changelog_version": manager.setLastChangelogVersion(step.value); break;
+            case "set_enable_analytics": manager.setEnableAnalytics(step.value); break;
+            case "set_theme": manager.setTheme(step.value); break;
 			case "set_default_provider": manager.setDefaultProvider(step.value); break;
 			case "set_default_model": manager.setDefaultModel(step.value); break;
 			case "set_default_model_and_provider": manager.setDefaultModelAndProvider(step.provider, step.model); break;
@@ -110,7 +112,9 @@ function snapshot(manager: SettingsManagerInstance): unknown {
 		projectSettings: manager.getProjectSettings(),
 		mergedSettings: manager.getMergedSettings(),
 		projectTrusted: manager.isProjectTrusted(),
-		theme: safe(() => manager.getTheme()),
+		lastChangelogVersion: safe(() => manager.getLastChangelogVersion()),
+        externalEditorCommand: safe(() => manager.getExternalEditorCommand()),
+        theme: safe(() => manager.getTheme()),
 		themeSetting: safe(() => manager.getThemeSetting()),
 		defaultProvider: safe(() => manager.getDefaultProvider()),
 		defaultModel: safe(() => manager.getDefaultModel()),
@@ -124,6 +128,11 @@ function snapshot(manager: SettingsManagerInstance): unknown {
 		configuredSandboxProfile: safe(() => manager.getConfiguredSandboxProfile()),
 		explicitSandboxProfile: safe(() => manager.getExplicitSandboxProfile()),
 		sessionSandboxProfile: safe(() => manager.getSessionSandboxProfile()),
+		compactionEnabled: safe(() => manager.getCompactionEnabled()),
+		compactionReserveTokens: safe(() => manager.getCompactionReserveTokens()),
+		compactionKeepRecentTokens: safe(() => manager.getCompactionKeepRecentTokens()),
+		branchSummarySkipPrompt: safe(() => manager.getBranchSummarySkipPrompt()),
+		retryEnabled: safe(() => manager.getRetryEnabled()),
 		compaction: safe(() => manager.getCompactionSettings()),
 		branchSummary: safe(() => manager.getBranchSummarySettings()),
 		retry: safe(() => manager.getRetrySettings()),
@@ -185,13 +194,19 @@ function readFile(path: string): string | null {
 	return existsSync(path) ? readFileSync(path, "utf-8") : null;
 }
 
+// Optional handles keep stale managers alive across competing Rust writes.
+const managers = new Map<string, SettingsManagerInstance>();
+
 async function execute(request: {
 	id: RequestId;
 	agentDir: string;
 	projectDir: string;
 	steps: Step[];
+	managerKey?: string;
 }, api: SettingsManagerApi): Promise<unknown> {
-	const manager = api.SettingsManager.create(request.projectDir, request.agentDir);
+	const manager = (request.managerKey ? managers.get(request.managerKey) : undefined)
+		?? api.SettingsManager.create(request.projectDir, request.agentDir);
+	if (request.managerKey) managers.set(request.managerKey, manager);
 	const snapshots: unknown[] = [];
 	for (const step of request.steps) {
 		const result = await applyStep(manager, step, request.agentDir, request.projectDir);

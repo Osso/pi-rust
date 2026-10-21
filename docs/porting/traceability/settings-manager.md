@@ -2,7 +2,7 @@
 
 ## Phase1 repin in progress (4f9e6f8a4)
 
-Governing contract: [settings-manager](../../specs/settings-manager.md). One-level overlay, literal shellPath, steering all, validated retry base/cap, percentage helper, idle and visibility APIs replace old behavior. RED evidence: `/tmp/pi-rust-repin-settings/red-settings.txt`, `red-differential.txt`, `red-validation.txt`. GREEN pending caller integration.
+Governing contract: [settings-manager](../../specs/settings-manager.md). One-level overlay, literal shellPath, steering all, validated retry base/cap, percentage helper, idle and visibility APIs replace old behavior. RED evidence: `/tmp/pi-rust-repin-settings/red-settings.txt`, `red-differential.txt`, `red-validation.txt`. GREEN pending caller integration. Bidirectional proof now retains a real TS manager across Rust writes and vice versa; fixture-only raw producer steps are labeled. Added remaining resource/identity setters and invalid reload/recovery scenarios; snapshots cover all 123 frozen get/set/is methods (composite views plus explicit leaf getters).
 
 Main explicitly stages old-only UI APIs (`tuiMode`, fullscreen exit/scrollbar, cache-miss notices, markdown mermaid) unchanged until coupled Phase3 consumer deletion. Do not count those as frozen parity. Retry runtime, percentage/idle compaction consumers, display hiding and relay runtime remain TODO. Historical proof below predates repin and is not new-pin proof.
 
