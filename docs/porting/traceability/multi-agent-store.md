@@ -2,13 +2,15 @@
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
+Partial canonical checkpoint only. [Integration status and open boundaries](../../specs/control-store-repin.md#integration-status--2026-10-21) distinguish integrated fixtures, later control-store branch evidence, canonical raw-JSON RED, receipt scanning and runtime durability.
+
 `repin_multi_agent_store.rs` RED5→GREEN5 proves original snapshot returned on consume/removal, controlled relative creation age at 24h−1ms / exactly24h, peer-deleted DB rows evicted without failed-message resurrection, nested tool `detail` preserved and persisted top-level `extra.suppressTerminalNotification` enforced on terminal snapshot publication. `repin_control_agents.rs` additionally proves exact-owner model/activity updates visible to the same TS reader, wrong-owner rejection and typed `detail` roundtrip. The updated actual-source `differential_multi_agent_store` operation script passes including optional effective model publication with current activity.
 
 Source-throwing mailbox listing/consume/projection/publication and counter allocation now return `Result`; persistence errors no longer cause local counter fallback or `.ok()` mutation suppression. Mechanical callers propagate through existing error/logging boundaries. No effective-model producer timing parity is claimed: producer callsites pass absent optional model until their later module-group port.
 
-Remaining: persistent store restore/listener/error branches, terminal suppression in DB finalization/dead recovery, steering take/consume atomicity, full cross-state reverse-init/mutation proof, exact schema migrations and retained cleanup. Historical proof below is not renewed whole-module proof. Coverage row unchanged.
+Checkpoint gaps include persistent store restore/listener/error branches and full cross-state reverse-init/mutation acceptance. Bounded DB finalization/dead-recovery suppression, steering take/consume atomicity and retained cleanup fixtures are recorded in [control DB traceability](session-control-db.md); these do not establish runtime durability or whole-store parity. Later branch results remain separate from integration. Historical proof below is not renewed whole-module proof. Coverage row unchanged.
 
-Runtime integration blocker: `agent_session::{mark_store_mailbox_message_delivered,mark_store_steering_delivered}` and `agents_core/wait_runtime::mark_wait_mailbox_store_message_delivered` still need durable claim → append refs/custom receipt → persist/fsync → fenced delete ordering. Source-style store deletion alone does not make these older callers safe. No deployment or live-state use is authorized from these fixture results.
+Runtime integration blocker: `agent_session::{mark_store_mailbox_message_delivered,mark_store_steering_delivered}` and `agents_core/wait_runtime::mark_wait_mailbox_store_message_delivered` currently accept eagerly before durable fsync and still need claim → append refs/custom receipt → persist/fsync → fenced delete ordering. Source-style store deletion alone does not make these older callers safe. No deployment or live-state use is authorized from these fixture results.
 
 Source: `packages/coding-agent/src/core/multi-agent-store.ts` (1387 lines) at the pinned revision.
 Rust: `crates/pi-coding-agent/src/core/multi_agent_store.rs`.

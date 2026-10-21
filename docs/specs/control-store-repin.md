@@ -2,6 +2,18 @@
 
 Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the common frozen pin](../porting/source-lock.json). Proof mapping: [control DB traceability](../porting/traceability/session-control-db.md).
 
+## Integration status — 2026-10-21
+
+Canonical checkpoint merge `35d6429097833d094ca448068dae07ce30c482af` integrates `c7248cac`, not completed control/store parity. Subsequent canonical merge `128df8af` integrates the bounded model-tool work through `58301d0a`. Checked items below describe bounded checkpoint fixtures, not whole-module or runtime acceptance. Frozen source remains `4f9e6f8a4`; full repin is ongoing. Coverage and pending waiver revalidation are unchanged.
+
+| Boundary | Checkpoint status / remaining limitation |
+|---|---|
+| Control/store follow-ups | Later commits through `repin/control-store` at `4b0b1730` are not integrated. Branch proof is recorded in `/tmp/pi-rust-repin-control-store/ledger.md`; it is not canonical acceptance. |
+| Canonical raw JSON | Intentionally RED reproducer `489d4381` on that branch: frozen TS enqueues escaped U+D800; Rust projects U+FFFD and claim rewrites the canonical body; TS reads the corrupted row. Open blocker, no waiver. |
+| Receipt scanner/equality | Lossless receipt scanning and raw JS equality `06620ae7` are not integrated. That branch fix does not resolve canonical mailbox JSON corruption. |
+| Runtime delivery | Acceptance is currently eager, before durable fsync. Claim → receipt append → persist/fsync → fenced delete integration remains pending in the delivery lane. SQLite fixtures do not prove this boundary. |
+| Model publication | Bounded model-tool work through `58301d0a` is integrated by `128df8af`; [model-tool proof and shared-validator RED](../porting/traceability/agent-model-tool.md) remain distinct from control/store acceptance. Owned DB model/activity fixtures do not establish whole agent-session or end-to-end model parity. |
+
 ## What it must do
 
 - [x] Read and update TS-created metadata, and survive TS initialization of Rust-created metadata, without obsolete transcript search columns.
@@ -22,7 +34,7 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 - [x] Sweep expired retained-connection messages on the source minute timer; default null birth once and project unknown runtime status to failed.
 - [x] Consume direct steering or atomically claim runtime steering with its lifecycle advance; roll back both writes on message CAS failure.
 - [x] Honor suppression in detached finalization/dead recovery and preserve finalization replay after outbox deletion; persist same-lifecycle cancellation suppression without duplicate commands.
-- [ ] Finish schema migration/reverse-init proof, remaining exports and whole-store reset/error branches.
+- [ ] Integrate and validate remaining schema migration/reverse-init, export and whole-store reset/error branches; later branch proof is not checkpoint acceptance.
 
 ## How it works
 
@@ -42,8 +54,8 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 
 ## Known gaps (current cycle)
 
-- [ ] Finish group-wide source exports/branches and bidirectional cross-state proof. Current foundation proof is not whole-module acceptance.
-- [ ] Add failure-injected atomic relocation proof and migration fixtures.
+- [ ] Finish group-wide source exports/branches and bidirectional cross-state acceptance. Current checkpoint proof is not whole-module acceptance.
+- [ ] Integrate and validate later failure-injected atomic relocation and migration fixtures; see integration status above.
 
 ## Out of scope
 
