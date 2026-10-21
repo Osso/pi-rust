@@ -1,6 +1,61 @@
 import { runOracle, requireCases } from "./coding-agent-utils-oracle-support.ts";
 
 void runOracle(async (api, request) => {
+	if (request.operation === "clientScenarios") {
+		const { pathToFileURL } = await import("node:url");
+		const { dirname, join } = await import("node:path");
+		const { existsSync } = await import("node:fs");
+		const db = await import(pathToFileURL(join(dirname(process.argv[2]), "..", "core", "session-control-db.ts")).href);
+		const results = [];
+		for (const raw of requireCases(request)) {
+			const input = raw as { scenario: string; db: string };
+			const controller = new AbortController();
+			let starts = 0;
+			if (input.scenario === "preabort") controller.abort();
+			const response = await (api.requestSupervisorDecision as (...args: unknown[]) => Promise<unknown>)(
+				{
+					controlDbPath: input.db,
+					kind: "approval_review",
+					payload: { toolName: "read" },
+					projectId: "pi",
+					senderSessionId: "main",
+					timeoutMs: input.scenario === "pollabort" || input.scenario === "complete" ? 10000 : 0,
+					maxAttempts:
+						input.scenario === "zero" ? 0 : input.scenario === "retryabort" || input.scenario === "timeout" ? 2 : 1,
+					pollIntervalMs: input.scenario === "pollabort" ? 5000 : 1,
+					retryDelayMs: input.scenario === "retryabort" ? 100000 : 0,
+					retryJitterRatio: 0,
+					signal: controller.signal,
+				},
+				{
+					ensureRunning: async () => {
+						starts++;
+						if (input.scenario === "startup-error") throw new Error("fake startup error");
+						if (input.scenario === "startup-abort") controller.abort();
+						if (input.scenario === "pollabort" || input.scenario === "retryabort")
+							setTimeout(() => controller.abort(), 5);
+						if (input.scenario === "complete")
+							setTimeout(() => {
+								const row = db.claimNextSupervisorRequest(input.db, "fake-owner");
+								db.completeSupervisorRequest(input.db, row.id, "fake-owner", {
+									kind: "approve",
+									reason: "fake approval",
+								});
+							}, 5);
+					},
+				},
+			);
+			const rows = [];
+			if (existsSync(input.db))
+				for (let id = 1; id < 10; id++) {
+					const row = db.readSupervisorRequest(input.db, id);
+					if (!row) break;
+					rows.push({ id: row.id, kind: row.kind, status: row.status, response: row.response ?? null });
+				}
+			results.push({ response, starts, rows });
+		}
+		return results;
+	}
 	if (request.operation === "approvalScenarios") {
 		const results = [];
 		for (const raw of requireCases(request)) {
