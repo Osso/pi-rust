@@ -16,4 +16,4 @@ Complete byte identity proves the raw JSON data contract. Existing `loads_color_
 
 ## Schema waived
 
-User-approved gap October 20, 2026 (“Waive as editor metadata”). The schema is editor-facing JSON Schema metadata; nothing at runtime reads it, and dark/light `$schema` values point to a remote upstream URL. The tracked Rust copy is byte-identical, but no packaging step ships it, and none is required. `validates_theme_json_and_names` tests Rust validation logic, not this schema; Rust does not run a JSON-schema engine.
+Distribution follows the [approved editor-metadata waiver](../../specs/compatibility.md#out-of-scope). Nothing at runtime reads the schema, and dark/light `$schema` values point to a remote upstream URL. The tracked Rust copy is byte-identical, but no packaging step ships it, and none is required. `validates_theme_json_and_names` tests Rust validation logic, not this schema; Rust does not run a JSON-schema engine.

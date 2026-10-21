@@ -81,9 +81,8 @@ drives the real TypeScript runner through 13 scripted scenarios (`dispatch`,
   is not observable in Rust.
 - `emitBeforeProviderRequest` adopts only returned payloads; TypeScript also
   observes in-place payload mutation.
-- Both are an approved typed-API deviation (user 2026-10-21, “Approve
-  return-only”; [compatibility](../../specs/compatibility.md#out-of-scope)):
-  native handlers express mutation by returning the replacement. The
+- Both follow the [approved return-only deviation](../../specs/compatibility.md#out-of-scope)
+  recorded in `d6b4179c`. The
   `provider_request` differential therefore differs on purpose: the oracle
   (`oracle/extensions-runner-oracle.ts:725`) mutates `payload.b` without
   returning, while the native fixture returns `Some(payload)`. Its final
