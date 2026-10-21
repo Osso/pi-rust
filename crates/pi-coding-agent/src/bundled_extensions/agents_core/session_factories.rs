@@ -207,6 +207,21 @@ impl SessionMutationTarget for AgentSessionMutationTarget {
 }
 
 impl ViewedSessionMutationTarget for AgentSessionMutationTarget {
+    fn set_model_with_thinking_level(
+        &self,
+        model: pi_ai::types::Model,
+        thinking_level: Option<ThinkingLevel>,
+    ) -> BoxFuture<'static, Result<bool, HandlerError>> {
+        let session = self.session.clone();
+        Box::pin(async move {
+            session
+                .set_model_with_thinking_level(model, thinking_level)
+                .await
+                .map(|()| true)
+                .map_err(|error| HandlerError::new(error.message()))
+        })
+    }
+
     fn model_registry(&self) -> Arc<crate::core::model_registry::ModelRegistry> {
         Arc::new(self.session.model_registry().clone())
     }

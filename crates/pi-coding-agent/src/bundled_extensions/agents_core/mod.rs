@@ -1,6 +1,7 @@
 //! Bundled `agents-core` extension
 //! (`packages/coding-agent/extensions/agents-core/src`).
 
+pub mod agent_model_tool;
 pub mod control_runtime;
 pub mod dispatch_runtime;
 pub mod lifecycle_runtime;

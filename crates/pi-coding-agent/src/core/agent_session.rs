@@ -4735,6 +4735,15 @@ impl AgentSession {
 
     /// Sets the active model after validating auth.
     pub async fn set_model(&self, model: Model) -> Result<(), AgentSessionError> {
+        self.set_model_with_thinking_level(model, None).await
+    }
+
+    /// Source model selection with an optional explicit effort, published before mutation.
+    pub async fn set_model_with_thinking_level(
+        &self,
+        model: Model,
+        thinking_level: Option<ThinkingLevel>,
+    ) -> Result<(), AgentSessionError> {
         if self
             .inner
             .model_runtime
@@ -4746,13 +4755,20 @@ impl AgentSession {
         {
             return Err(error(format!("No API key for {}/{}", model.provider, model.id)));
         }
+        let thinking_level = self.get_thinking_level_for_model_switch(thinking_level);
+        let effective = thinking_level_from_model(pi_ai::models::clamp_thinking_level(
+            &model,
+            model_thinking_level(thinking_level),
+        ));
+        self.publish_child_agent_model(&model, effective)?;
         let previous_model = self.inner.agent.model();
-        let thinking_level = self.get_thinking_level_for_model_switch(None);
         self.inner.agent.set_model(model.clone());
         lock(&self.inner.session_manager)
             .set_session_model(&model.provider, &model.id)
             .map_err(|error| AgentSessionError::new(error.to_string()))?;
-        lock(&self.inner.settings_manager).set_default_model_and_provider(&model.provider, &model.id);
+        if self.inner.multi_agent_agent_id.is_none() {
+            lock(&self.inner.settings_manager).set_default_model_and_provider(&model.provider, &model.id);
+        }
         self.set_thinking_level(thinking_level)?;
         self.emit_model_select(&model, Some(&previous_model), ModelSelectSource::Set)
             .await;
@@ -4862,6 +4878,27 @@ impl AgentSession {
     // Thinking level management
     // =========================================================================
 
+    fn publish_child_agent_model(&self, model: &Model, level: ThinkingLevel) -> Result<(), AgentSessionError> {
+        let Some(store) = self.inner.multi_agent_store.as_ref() else {
+            return Ok(());
+        };
+        let Some(agent_id) = self.inner.multi_agent_agent_id.as_deref() else {
+            return Ok(());
+        };
+        store
+            .publish_agent_model(
+                agent_id,
+                &crate::core::multi_agent_store::AgentModel {
+                    provider_id: model.provider.clone(),
+                    model_id: model.id.clone(),
+                    thinking_level: Some(level.as_str().to_owned()),
+                },
+                self.current_agent_activity_owner().as_ref(),
+            )
+            .map_err(|error| AgentSessionError::new(error.to_string()))?;
+        Ok(())
+    }
+
     /// Sets the thinking level, clamped to the model capabilities.
     pub fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), AgentSessionError> {
         let available = self.get_available_thinking_levels();
@@ -4872,12 +4909,15 @@ impl AgentSession {
         };
         let previous = self.inner.agent.thinking_level();
         let is_changing = effective != previous;
+        self.publish_child_agent_model(&self.inner.agent.model(), effective)?;
         self.inner.agent.set_thinking_level(effective);
         if is_changing {
             lock(&self.inner.session_manager)
                 .set_session_thinking_level(effective.as_str())
                 .map_err(|error| AgentSessionError::new(error.to_string()))?;
-            if self.supports_thinking() || effective != ThinkingLevel::Off {
+            if self.inner.multi_agent_agent_id.is_none()
+                && (self.supports_thinking() || effective != ThinkingLevel::Off)
+            {
                 lock(&self.inner.settings_manager).set_default_thinking_level(effective);
             }
             self.emit(AgentSessionEvent::ThinkingLevelChanged(ThinkingLevelChangedEvent {
