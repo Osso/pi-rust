@@ -10,11 +10,13 @@ signal, and `stale`/`retries` rules.
 
 ## Common-pin auth dependency revalidation
 
+Integrated only as the auth dependency in the [partial auth merge](auth-storage.md#integration-status); no global primitive or other-caller parity promotion. The targeted clippy correction recorded there is not a whole-target gate.
+
 Frozen `4f9e6f8a4` proper-lockfile `lib/lockfile.js:updateLock`: threshold uses the acquired options.stale, not a separate primitive default. Transient stat/utimes failures retry after 1s until stale; missing lock or changed mtime compromises immediately. Error code is ECOMPROMISED while retaining the underlying filesystem error.
 
 `auth_phase1::auth_heartbeat_permission_error_uses_auth_thirty_second_threshold`: make only the owned parent inaccessible, wait through first 15s heartbeat, restore access before 30s, observe renewal within 1s retry. Behavioral RED exposed the hardcoded 10s threshold. Global default and other callers' stale policy unchanged.
 
-`auth_phase1_process` proves actual healthy TS/Rust holders across first heartbeat, sync exclusion at 3s/16s, release and owned crash/stale recovery.
+`auth_phase1_process` proves actual healthy TS/Rust holders across first heartbeat, sync exclusion at 3s/16s, release and owned crash/stale recovery. The crash fixture ages the killed owner's lock to 31s; it does not assert rejection at 29s. The transient-stat fixture above does not cover the exhaustive stat/utimes error matrix.
 
 ## Historical pre-repin cross-implementation proof
 
@@ -44,7 +46,7 @@ Focused tests: `crates/pi-coding-agent/tests/lockfile.rs` (7 cases).
 | `check` reports whether a non-stale lock exists | `check`; `custom_lockfile_path_and_check_report_lock_state` |
 | `realpath: false` skips canonicalization; default resolves through `realpath` | `lockfile_path` |
 
-## Gaps
+## Historical gaps
 
 - `onExit` cleanup of held locks at process exit is not ported; `Drop` removes the directory, and a
   hard kill leaves a lock that goes stale after `stale` ms, exactly as a killed TypeScript process does.
@@ -52,11 +54,11 @@ Focused tests: `crates/pi-coding-agent/tests/lockfile.rs` (7 cases).
 - Compromise error text for a vanished directory reproduces Node's `ENOENT: no such file or directory,
   stat '<path>'` message because `auth-storage` rethrows that message to callers.
 
-## Discrepancies
+## Historical discrepancies
 
 - None observed: mtime, stale, retry, and error-code behavior match the pinned implementation.
 
-## Proof inventory
+## Historical proof inventory
 
 - Focused cases: 7.
 - Cross-implementation cases: 2 scenarios, 3 protocol directions.
