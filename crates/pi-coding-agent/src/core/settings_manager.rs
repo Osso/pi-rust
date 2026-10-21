@@ -73,7 +73,7 @@ pub struct SettingsFailure {
 }
 
 impl SettingsFailure {
-    fn new(message: impl Into<String>) -> Self {
+    pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
         }
@@ -238,6 +238,8 @@ pub struct SettingsManagerCreateOptions {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompactionSettings {
+    pub threshold_percent: Option<f64>,
+    pub idle: Option<bool>,
     pub enabled: Option<bool>,
     pub reserve_tokens: Option<f64>,
     pub keep_recent_tokens: Option<f64>,
@@ -264,6 +266,7 @@ pub struct RetrySettings {
     pub enabled: Option<bool>,
     pub max_retries: Option<f64>,
     pub base_delay_ms: Option<f64>,
+    pub max_backoff_ms: Option<f64>,
     pub provider: Option<ProviderRetrySettings>,
 }
 
@@ -435,6 +438,7 @@ pub enum TreeFilterMode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompactionSettingsView {
+    pub threshold_percent: Option<f64>,
     pub enabled: bool,
     pub reserve_tokens: f64,
     pub keep_recent_tokens: f64,
@@ -451,6 +455,7 @@ pub struct RetrySettingsView {
     pub enabled: bool,
     pub max_retries: f64,
     pub base_delay_ms: f64,
+    pub max_backoff_ms: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1026,7 +1031,7 @@ impl SettingsManager {
 
     pub fn get_steering_mode(&self) -> pi_agent_core::harness::QueueMode {
         parse_queue_mode(self.settings.get("steeringMode").and_then(Value::as_str))
-            .unwrap_or(pi_agent_core::harness::QueueMode::OneAtATime)
+            .unwrap_or(pi_agent_core::harness::QueueMode::All)
     }
 
     pub fn set_steering_mode(&mut self, mode: pi_agent_core::harness::QueueMode) {
@@ -1109,12 +1114,22 @@ impl SettingsManager {
         nested_number(&self.settings, "compaction", "keepRecentTokens").unwrap_or(20_000.0)
     }
 
-    pub fn get_compaction_settings(&self) -> CompactionSettingsView {
-        CompactionSettingsView {
+    pub fn get_idle_compaction_enabled(&self) -> bool {
+        nested_bool(&self.settings, "compaction", "idle").unwrap_or(true)
+    }
+
+    pub fn get_compaction_settings(&self) -> Result<CompactionSettingsView, SettingsFailure> {
+        let threshold_percent = crate::core::compaction_threshold::parse_compaction_threshold_percent(
+            self.settings
+                .get("compaction")
+                .and_then(|settings| settings.get("thresholdPercent")),
+        )?;
+        Ok(CompactionSettingsView {
+            threshold_percent,
             enabled: self.get_compaction_enabled(),
             reserve_tokens: self.get_compaction_reserve_tokens(),
             keep_recent_tokens: self.get_compaction_keep_recent_tokens(),
-        }
+        })
     }
 
     pub fn get_branch_summary_settings(&self) -> BranchSummarySettingsView {
@@ -1148,12 +1163,39 @@ impl SettingsManager {
         self.save();
     }
 
-    pub fn get_retry_settings(&self) -> RetrySettingsView {
-        RetrySettingsView {
+    pub fn get_retry_settings(&self) -> Result<RetrySettingsView, SettingsFailure> {
+        let base_delay_ms = self.parse_retry_delay("baseDelayMs", 30_000.0)?;
+        let max_backoff_ms = self.parse_retry_delay("maxBackoffMs", 300_000.0)?;
+        if max_backoff_ms < base_delay_ms {
+            return Err(SettingsFailure::new(
+                "retry.maxBackoffMs must be at least retry.baseDelayMs",
+            ));
+        }
+        Ok(RetrySettingsView {
             enabled: self.get_retry_enabled(),
             max_retries: nested_number(&self.settings, "retry", "maxRetries").unwrap_or(30.0),
-            base_delay_ms: nested_number(&self.settings, "retry", "baseDelayMs").unwrap_or(10_000.0),
+            base_delay_ms,
+            max_backoff_ms,
+        })
+    }
+
+    fn parse_retry_delay(&self, name: &str, default: f64) -> Result<f64, SettingsFailure> {
+        let Some(value) = self.settings.get("retry").and_then(|retry| retry.get(name)) else {
+            return Ok(default);
+        };
+        if let Some(delay) = value.as_f64()
+            && delay.is_finite()
+            && delay.fract() == 0.0
+            && (0.0..=2_147_483_647.0).contains(&delay)
+        {
+            return Ok(delay);
         }
+        Err(SettingsFailure::new(format!(
+            "Invalid retry.{name} setting: {}; expected integer milliseconds between 0 and 2147483647",
+            js_json::to_js_string(&js_json::JsValue::from(value))
+                .map_err(SettingsFailure::new)?
+                .to_utf8_lossy()
+        )))
     }
 
     pub fn get_http_idle_timeout_ms(&self) -> Result<u64, SettingsFailure> {
@@ -1233,6 +1275,32 @@ impl SettingsManager {
             .unwrap_or(false)
     }
 
+    pub fn get_hide_tool_output(&self) -> bool {
+        self.settings
+            .get("hideToolOutput")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
+
+    pub fn set_hide_tool_output(&mut self, hide: bool) {
+        set_bool(&mut self.global_settings, "hideToolOutput", hide);
+        self.mark_modified("hideToolOutput", None);
+        self.save();
+    }
+
+    pub fn get_hide_coordination_messages(&self) -> bool {
+        self.settings
+            .get("hideCoordinationMessages")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
+
+    pub fn set_hide_coordination_messages(&mut self, hide: bool) {
+        set_bool(&mut self.global_settings, "hideCoordinationMessages", hide);
+        self.mark_modified("hideCoordinationMessages", None);
+        self.save();
+    }
+
     pub fn get_show_cache_miss_notices(&self) -> bool {
         self.settings
             .get("showCacheMissNotices")
@@ -1272,11 +1340,10 @@ impl SettingsManager {
     }
 
     pub fn get_shell_path(&self) -> Option<String> {
-        let value = self.settings.get("shellPath").and_then(Value::as_str)?;
-        if value.is_empty() {
-            return Some(String::new());
-        }
-        Some(normalize_path(value, &PathInputOptions::default()).unwrap_or_else(|_| value.to_owned()))
+        self.settings
+            .get("shellPath")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
     }
 
     pub fn set_shell_path(&mut self, path: Option<&str>) {
@@ -1895,7 +1962,9 @@ fn deep_merge_objects(base: &Settings, overrides: &Settings) -> Settings {
             Some(base_value) if is_mergeable_object(base_value) && is_mergeable_object(override_value) => {
                 let base_object = base_value.as_object().expect("checked object");
                 let override_object = override_value.as_object().expect("checked object");
-                Value::Object(deep_merge_objects(base_object, override_object))
+                let mut overlay = base_object.clone();
+                overlay.extend(override_object.clone());
+                Value::Object(overlay)
             }
             _ => override_value.clone(),
         };
