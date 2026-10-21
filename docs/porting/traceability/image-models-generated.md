@@ -31,4 +31,4 @@ Existing exact b85 differential RED reused only after byte-for-byte scope valida
 
 ## Limits / open semantics
 
-Finite static generated-data proof only. [Helper module](image-models.md) whole parity remains OPEN: typed TS getters share mutable model objects while Rust exposes immutable references and provider-owned copies. User classification pending, neither silently fixed nor waived. Whole provider flow, auth metadata, generation, refresh, arbitrary generator inputs, and source mutation behavior are outside this acceptance. The [maintenance generator](image-catalog-generator.md) does not supply this re-pin.
+Finite static generated-data proof only. [Helper module](image-models.md) whole parity remains OPEN: typed TS getters share mutable model objects while Rust exposes immutable references and provider-owned copies. User classified this (2026-10-21) as a TS bug fixed by a separate copy-on-read post-pin delta; delta proof pending. Whole provider flow, auth metadata, generation, refresh, arbitrary generator inputs, and source mutation behavior are outside this acceptance. The [maintenance generator](image-catalog-generator.md) does not supply this re-pin.

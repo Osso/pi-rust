@@ -29,7 +29,7 @@ The bounded catalog contract is the complete `IMAGE_MODELS` literal exported by 
 
 ## Known gaps (current cycle)
 
-- [ ] Mutable getter-result sharing vs immutable Rust references/owned provider copies awaits user classification; no waiver or shared-mutable redesign implied.
+- [ ] Mutable getter-result sharing vs immutable Rust references/owned provider copies is classified (user, 2026-10-21) as a frozen TS bug: fix TS with an explicit copy-on-read post-pin delta; Rust immutable/owned results match that delta. Delta proof pending.
 - [ ] Whole `image-models.ts` and provider-flow parity remains OPEN; unchanged by finite generated-data acceptance.
 
 ## Out of scope

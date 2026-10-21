@@ -24,7 +24,7 @@ Tests: `crates/pi-ai/tests/image_models.rs` (5 behavioral), `crates/pi-ai/tests/
 [Generated-module traceability](image-models-generated.md) owns the frozen payload, exact hashes and bounded full-record/order proof; [static catalog spec](../../specs/image-catalog.md) defines acceptance.
 
 ## Gaps
-- Whole helper/API parity is OPEN pending user classification of mutable getter-result sharing. Frozen TS public getters return mutable model objects shared across direct lookups, list elements and static provider elements; list containers themselves are fresh. Rust static getters expose immutable references, while provider getters return owned copies. No shared-mutable fields, new API, approved deviation or source-bug classification was introduced.
+- Whole helper/API parity is OPEN: user classified mutable getter-result sharing (2026-10-21) as a frozen TS bug to fix with an explicit copy-on-read post-pin delta; delta proof pending. Frozen TS public getters return mutable model objects shared across direct lookups, list elements and static provider elements; list containers themselves are fresh. Rust static getters expose immutable references, while provider getters return owned copies. No shared-mutable fields, new API, approved deviation or source-bug classification was introduced.
 
 ## Discrepancies
 - The concrete mutable-return counterexample is recorded in `/tmp/pi-rust-repin-image-catalog-verify/REPORT.md`; finite generated-data acceptance does not resolve it. Whole provider flow remains OPEN and unchanged by this slice.
