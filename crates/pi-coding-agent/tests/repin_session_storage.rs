@@ -316,3 +316,82 @@ fn late_truncated_archive_header_does_not_hide_decode_failure() {
     assert!(SessionManager::open_read_only(path, None).is_err());
     assert!(!std::path::Path::new(path).exists());
 }
+
+fn transcript_temporaries() -> std::collections::BTreeSet<std::path::PathBuf> {
+    std::fs::read_dir(std::env::temp_dir())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().starts_with("pi-transcript-"))
+        .map(|e| e.path())
+        .collect()
+}
+#[test]
+fn spool_callback_and_corruption_failures_cleanup_private_files() {
+    use pi_coding_agent::core::session_manager::SessionManagerError;
+    use pi_coding_agent::core::session_transcript_spool::with_seekable_session_transcript;
+    use std::os::unix::fs::PermissionsExt;
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"text":"😀漢".repeat(50000)}),
+    );
+    let path = created["path"].as_str().unwrap();
+    let bytes = std::fs::read(path).unwrap();
+    let archived = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
+    let archived = archived.as_str().unwrap();
+    let mut transient = None;
+    let result: Result<(), _> = with_seekable_session_transcript(path, |plain| {
+        transient = Some(std::path::PathBuf::from(plain));
+        assert_eq!(std::fs::metadata(plain).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::read(plain).unwrap(), bytes);
+        Err(SessionManagerError::new("callback failed"))
+    });
+    assert_eq!(result.unwrap_err().to_string(), "callback failed");
+    assert!(!transient.unwrap().exists());
+    assert!(!std::path::Path::new(path).exists());
+    let compressed = std::fs::read(archived).unwrap();
+    for corrupt in [vec![0, 1, 2, 3], compressed[..compressed.len() / 2].to_vec()] {
+        std::fs::write(archived, &corrupt).unwrap();
+        let before = transcript_temporaries();
+        assert!(with_seekable_session_transcript(archived, |_| Ok(())).is_err());
+        assert!(transcript_temporaries().is_subset(&before));
+        assert!(!std::path::Path::new(path).exists());
+    }
+}
+
+#[test]
+fn storage_worker_hard90second_timeout_kills_and_reaps_before_cleanup() {
+    use pi_coding_agent::core::session_transcript_spool::with_seekable_session_transcript;
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let fifo = tmp.path().join("blocked.jsonl.zst");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let before = transcript_temporaries();
+    let start = std::time::Instant::now();
+    let result = with_seekable_session_transcript(fifo.to_str().unwrap(), |_| Ok(()));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .starts_with("Timed out decompressing session transcript:")
+    );
+    assert!(start.elapsed() >= std::time::Duration::from_secs(90));
+    assert!(start.elapsed() < std::time::Duration::from_secs(100));
+    assert!(transcript_temporaries().is_subset(&before));
+    let children = std::fs::read_to_string(format!("/proc/self/task/{}/children", std::process::id())).unwrap();
+    for pid in children.split_whitespace() {
+        if let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) {
+            assert!(!String::from_utf8_lossy(&cmdline).contains("--internal-session-transcript-spool"));
+        }
+    }
+}
