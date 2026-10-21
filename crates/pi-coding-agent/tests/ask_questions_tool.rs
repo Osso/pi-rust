@@ -1,92 +1,101 @@
-//! Port of `packages/coding-agent/test/ask-questions-tool.test.ts`.
-
+//! Frozen core question-tool and panel proofs, all state isolated by Cargo runner.
+#[path = "support/oracle.rs"]
+mod oracle;
 #[path = "support/tool_context.rs"]
 mod tool_context;
-
-use std::collections::VecDeque;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-
+use futures_util::FutureExt;
 use pi_agent_core::AgentHarnessTool;
 use pi_ai::request::BoxFuture;
-use pi_coding_agent::core::desktop_notification::{
-    DesktopNotification, DesktopNotificationHandle, DesktopNotifier, PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
-};
-use pi_coding_agent::core::extensions::{
-    ExtensionContext, ExtensionMode, ExtensionUiContext, ExtensionUiDialogOptions,
-};
-use pi_coding_agent::core::tools::ask_questions::{
-    AskQuestionsTool, close_ask_questions_notification, notify_ask_questions_waiting, parameters,
-};
+use pi_coding_agent::core::extensions::types::*;
+use pi_coding_agent::core::session_control_db::{get_control_db_path, list_runtime_mailbox_messages};
+use pi_coding_agent::core::tools::ask_questions::AskQuestionsTool;
 use serde_json::{Value, json};
-
-struct ScriptedUi {
-    selects: Mutex<VecDeque<Option<String>>>,
-    inputs: Mutex<VecDeque<Option<String>>>,
-    seen_titles: Mutex<Vec<String>>,
-    seen_options: Mutex<Vec<Vec<String>>>,
+use std::collections::VecDeque;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+struct Backend;
+impl ExtensionUiTuiBackend for Backend {
+    fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        panic!("no editor")
+    }
+    fn request_render(&self) {}
+    fn request_render_force(&self) {}
+    fn stop(&self) {}
+    fn start(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn terminal_rows(&self) -> usize {
+        24
+    }
+    fn terminal_columns(&self) -> usize {
+        80
+    }
+    fn mode(&self) -> pi_tui::tui::TuiMode {
+        pi_tui::tui::TuiMode::Regular
+    }
+    fn show_overlay(
+        &self,
+        _: Box<dyn ExtensionUiComponent>,
+        _: Option<ExtensionUiOverlayOptions>,
+    ) -> Rc<dyn ExtensionUiOverlayHandle> {
+        panic!("no overlays")
+    }
 }
-
-impl ScriptedUi {
-    fn new(selects: Vec<Option<&str>>, inputs: Vec<Option<&str>>) -> Arc<Self> {
+struct Ui {
+    scripts: Mutex<VecDeque<Result<Vec<String>, String>>>,
+    seen: Mutex<Vec<String>>,
+}
+impl Ui {
+    fn new(scripts: Vec<Result<Vec<String>, String>>) -> Arc<Self> {
         Arc::new(Self {
-            selects: Mutex::new(selects.into_iter().map(|value| value.map(str::to_owned)).collect()),
-            inputs: Mutex::new(inputs.into_iter().map(|value| value.map(str::to_owned)).collect()),
-            seen_titles: Mutex::new(Vec::new()),
-            seen_options: Mutex::new(Vec::new()),
+            scripts: Mutex::new(scripts.into()),
+            seen: Mutex::new(Vec::new()),
         })
     }
 }
-
-impl ExtensionUiContext for ScriptedUi {
-    fn select<'a>(
+impl ExtensionUiContext for Ui {
+    fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
+        Arc::new(
+            pi_coding_agent::modes::interactive::theme::load_theme_from_path(
+                &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+                Some(pi_coding_agent::modes::interactive::theme::ColorMode::Truecolor),
+            )
+            .unwrap(),
+        )
+    }
+    fn custom<'a>(
         &'a self,
-        title: &str,
-        options: &[String],
-        _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
-        self.seen_titles.lock().expect("titles lock").push(title.to_owned());
-        self.seen_options.lock().expect("options lock").push(options.to_vec());
-        let choice = self.selects.lock().expect("selects lock").pop_front().flatten();
-        Box::pin(async move { Ok(choice) })
-    }
-
-    fn input<'a>(
-        &'a self,
-        _title: &str,
-        _placeholder: Option<&str>,
-        _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
-        let answer = self.inputs.lock().expect("inputs lock").pop_front().flatten();
-        Box::pin(async move { Ok(answer) })
-    }
-}
-
-#[derive(Default)]
-struct MockNotifier {
-    notifications: Mutex<Vec<DesktopNotification>>,
-    closes: Arc<AtomicUsize>,
-}
-
-impl DesktopNotifier for MockNotifier {
-    fn notify(&self, notification: &DesktopNotification) -> Option<Box<dyn DesktopNotificationHandle>> {
-        self.notifications
-            .lock()
-            .expect("notifications lock")
-            .push(notification.clone());
-        Some(Box::new(CloseCounter(Arc::clone(&self.closes))))
+        factory: ExtensionUiCustomFactory,
+        _: Option<ExtensionUiCustomOptions>,
+    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+        Box::pin(async move {
+            let keys = self.scripts.lock().unwrap().pop_front().expect("UI request")?;
+            let result = Arc::new(Mutex::new(None));
+            let output = result.clone();
+            let component = factory(
+                ExtensionUiFactoryContext {
+                    tui: ExtensionUiTui::new(Arc::new(Backend)),
+                    theme: self.theme(),
+                    keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
+                },
+                ExtensionUiDone::new(Rc::new(move |value| *output.lock().unwrap() = value)),
+            )?
+            .now_or_never()
+            .expect("ready panel")?;
+            self.seen.lock().unwrap().push(component.render(80).join("\n"));
+            component.set_focused(true);
+            for key in keys {
+                component.handle_input(&key);
+            }
+            let result = result.lock().unwrap().clone();
+            Ok(result)
+        })
     }
 }
-
-struct CloseCounter(Arc<AtomicUsize>);
-
-impl DesktopNotificationHandle for CloseCounter {
-    fn close(&self) {
-        self.0.fetch_add(1, Ordering::SeqCst);
-    }
+fn keys(keys: &[&str]) -> Result<Vec<String>, String> {
+    Ok(keys.iter().map(|key| (*key).to_owned()).collect())
 }
-
-async fn context(ui: Arc<ScriptedUi>) -> ExtensionContext {
+async fn ctx(ui: Arc<Ui>) -> ExtensionContext {
     tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
         .mode(ExtensionMode::Tui)
         .ui(ui)
@@ -94,279 +103,124 @@ async fn context(ui: Arc<ScriptedUi>) -> ExtensionContext {
         .await
         .1
 }
-
-#[test]
-fn exposes_min_max_schema_constraints() {
-    let schema = parameters();
-    assert_eq!(schema["properties"]["questions"]["minItems"], 1);
-    assert_eq!(schema["properties"]["questions"]["maxItems"], 4);
-    assert_eq!(
-        schema["properties"]["questions"]["items"]["properties"]["options"]["minItems"],
-        2
-    );
-    assert_eq!(
-        schema["properties"]["questions"]["items"]["properties"]["options"]["maxItems"],
-        4
-    );
-}
-
 #[tokio::test]
-async fn asks_a_single_choice_question_and_returns_the_selected_label() {
-    let ui = ScriptedUi::new(vec![Some("1. Direct API — Keep code simple")], vec![]);
-    let result = AskQuestionsTool::new()
-        .execute(
-            "call-1".to_owned(),
-            json!({
-                "questions": [{
-                    "question": "Which approach should we use?",
-                    "header": "Approach",
-                    "options": [
-                        { "label": "Direct API", "description": "Keep code simple" },
-                        { "label": "Adapter", "description": "Add indirection" }
-                    ]
-                }]
-            }),
-            None,
-            None,
-            context(Arc::clone(&ui)).await,
-            None,
-        )
-        .await
-        .expect("ask questions");
-
-    assert_eq!(
-        result.details.as_ref().expect("details")["answers"],
-        json!({ "Which approach should we use?": "Direct API" })
-    );
-    assert_eq!(
-        *ui.seen_titles.lock().expect("titles"),
-        vec!["Which approach should we use?".to_owned()]
-    );
-    assert_eq!(
-        *ui.seen_options.lock().expect("options"),
-        vec![vec![
-            "1. Direct API — Keep code simple".to_owned(),
-            "2. Adapter — Add indirection".to_owned(),
-            "Other".to_owned(),
-            "Cancel".to_owned(),
-        ]]
-    );
-}
-
-#[tokio::test]
-async fn custom_answers_trim_the_typed_text() {
-    let ui = ScriptedUi::new(vec![Some("Other")], vec![Some("  Use a plugin  ")]);
-    let result = AskQuestionsTool::new()
-        .execute(
-            "call-2".to_owned(),
-            json!({ "questions": [{ "question": "What should we build?", "options": [{ "label": "Tool" }, { "label": "Extension" }] }] }),
-            None,
-            None,
-            context(ui).await,
-            None,
-        )
-        .await
-        .expect("ask questions");
-
-    assert_eq!(
-        result.details.as_ref().expect("details")["answers"],
-        json!({ "What should we build?": "Use a plugin" })
-    );
-}
-
-#[tokio::test]
-async fn multi_select_questions_collect_every_selected_label() {
-    let ui = ScriptedUi::new(vec![Some("[ ] 1. Tests"), Some("[ ] 2. Docs"), Some("Done")], vec![]);
-    let result = AskQuestionsTool::new()
-        .execute(
-            "call-3".to_owned(),
-            json!({ "questions": [{ "question": "Which follow-ups should be included?", "multiSelect": true, "options": [{ "label": "Tests" }, { "label": "Docs" }] }] }),
-            None,
-            None,
-            context(ui).await,
-            None,
-        )
-        .await
-        .expect("ask questions");
-
-    assert_eq!(
-        result.details.as_ref().expect("details")["answers"],
-        json!({ "Which follow-ups should be included?": "Tests, Docs" })
-    );
-}
-
-#[test]
-fn sends_a_persistent_desktop_notification_while_waiting() {
-    let notifier = MockNotifier::default();
-    let notification = notify_ask_questions_waiting(&notifier, 1).expect("notification");
-
-    let notifications = notifier.notifications.lock().expect("notifications");
-    assert_eq!(notifications.len(), 1);
-    assert_eq!(notifications[0].body, "Pi is waiting for your answer.");
-    assert_eq!(
-        notifications[0].expire_time_ms,
-        Some(PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS)
-    );
-    assert_eq!(notifications[0].title, "Pi question needs input");
-    assert_eq!(
-        notifications[0].urgency,
-        Some(pi_coding_agent::core::desktop_notification::DesktopNotificationUrgency::Normal)
-    );
-    drop(notifications);
-
-    close_ask_questions_notification(Some(notification));
-    assert_eq!(notifier.closes.load(Ordering::SeqCst), 1);
-}
-
-#[test]
-fn uses_the_plural_body_for_multiple_questions() {
-    let notifier = MockNotifier::default();
-    let notification = notify_ask_questions_waiting(&notifier, 2).expect("notification");
-
-    let notifications = notifier.notifications.lock().expect("notifications");
-    assert_eq!(notifications[0].body, "Pi is waiting for your answers.");
-    drop(notifications);
-
-    close_ask_questions_notification(Some(notification));
-    assert_eq!(notifier.closes.load(Ordering::SeqCst), 1);
-}
-
-#[test]
-fn notification_body_never_includes_question_or_option_text() {
-    let notifier = MockNotifier::default();
-    let notification = notify_ask_questions_waiting(&notifier, 1).expect("notification");
-
-    let notifications = notifier.notifications.lock().expect("notifications");
-    assert!(!notifications[0].body.contains("secret-question-token"));
-    assert!(!notifications[0].body.contains("secret option"));
-    drop(notifications);
-
-    close_ask_questions_notification(Some(notification));
-}
-
-#[tokio::test]
-async fn rejects_duplicate_option_labels() {
-    let ui = ScriptedUi::new(vec![], vec![]);
-    let error = AskQuestionsTool::new()
-        .execute(
-            "call-duplicate-options".to_owned(),
-            json!({
-                "questions": [{ "question": "Pick one?", "options": [{ "label": "A" }, { "label": "A" }] }]
-            }),
-            None,
-            None,
-            context(ui).await,
-            None,
-        )
-        .await
-        .expect_err("duplicate options must fail");
-
-    assert_eq!(
-        error.to_string(),
-        "Duplicate option label \"A\" in question \"Pick one?\""
-    );
-}
-
-#[tokio::test]
-async fn returns_partial_answers_when_cancelled_after_earlier_questions() {
-    let ui = ScriptedUi::new(vec![Some("1. First"), Some("Cancel")], vec![]);
-    let result = AskQuestionsTool::new()
-        .execute(
-            "call-cancel-partial".to_owned(),
-            json!({
-                "questions": [
-                    { "question": "First?", "options": [{ "label": "First" }, { "label": "Second" }] },
-                    { "question": "Second?", "options": [{ "label": "Third" }, { "label": "Fourth" }] }
-                ]
-            }),
-            None,
-            None,
-            context(ui).await,
-            None,
-        )
-        .await
-        .expect("ask questions");
-
-    let details = result.details.as_ref().expect("details");
-    assert_eq!(details["cancelled"], true);
-    assert_eq!(details["answers"], json!({ "First?": "First" }));
-}
-
-#[tokio::test]
-async fn rejects_duplicate_questions() {
-    let ui = ScriptedUi::new(vec![], vec![]);
-    let error = AskQuestionsTool::new()
-        .execute(
-            "call-4".to_owned(),
-            json!({
-                "questions": [
-                    { "question": "Duplicate?", "options": [{ "label": "A" }, { "label": "B" }] },
-                    { "question": "Duplicate?", "options": [{ "label": "C" }, { "label": "D" }] }
-                ]
-            }),
-            None,
-            None,
-            context(ui).await,
-            None,
-        )
-        .await
-        .expect_err("duplicate questions must fail");
-
-    assert_eq!(error.to_string(), "Duplicate question text: Duplicate?");
-}
-
-#[tokio::test]
-async fn returns_an_error_outside_interactive_tui_mode() {
+async fn explicit_boolean_is_required_before_ui_or_question_validation() {
     let context = tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
-        .mode(ExtensionMode::Print)
         .build()
         .await
         .1;
-    let result = AskQuestionsTool::new()
-        .execute(
-            "call-5".to_owned(),
-            json!({ "questions": [{ "question": "Proceed?", "options": [{ "label": "Yes" }, { "label": "No" }] }] }),
-            None,
-            None,
-            context,
-            None,
-        )
-        .await
-        .expect("unavailable result");
-
-    assert_eq!(result.is_error, Some(true));
-    assert_eq!(
-        result
-            .details
-            .as_ref()
-            .and_then(|details| details.get("cancelled"))
-            .and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
-    assert_eq!(
-        serde_json::to_value(&result.content).expect("content"),
-        json!([{ "type": "text", "text": "Error: ask_questions requires an interactive TUI session" }])
-    );
+    for blocking in [None, Some(Value::Null), Some(json!("true")), Some(json!(0))] {
+        let mut params = json!({"questions":[]});
+        if let Some(blocking) = blocking {
+            params["blocking"] = blocking;
+        }
+        let error = AskQuestionsTool::new()
+            .execute("id".into(), params, None, None, context.clone(), None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.message, "ask_questions requires explicit blocking: true or false");
+    }
 }
-
 #[tokio::test]
-async fn result_text_formats_answers() {
-    let ui = ScriptedUi::new(vec![Some("1. Yes")], vec![]);
-    let result = AskQuestionsTool::new()
-        .execute(
-            "call-text".to_owned(),
-            json!({ "questions": [{ "question": "Proceed?", "options": [{ "label": "Yes" }, { "label": "No" }] }] }),
-            None,
-            None,
-            context(ui).await,
-            None,
-        )
+async fn blocking_panels_match_frozen_answers_for_real_keystrokes() {
+    let mut oracle = oracle::TsOracle::spawn("coding-agent-question-panel-oracle.ts", "packages/coding-agent/src");
+    for (questions, script) in [
+        (
+            json!([{"question":"Choose?","options":[{"label":"A"},{"label":"B"}]}]),
+            vec!["\u{1b}[B", "\r"],
+        ),
+        (json!([{"question":"Free?"}]), vec!["  answer  ", "\r"]),
+        (
+            json!([{"question":"Other?","options":[{"label":"A"},{"label":"B"}]}]),
+            vec!["\u{1b}[B", "\u{1b}[B", "\r", "other", "\r"],
+        ),
+        (
+            json!([{"question":"Multi?","multiSelect":true,"options":[{"label":"A"},{"label":"B"}]}]),
+            vec!["\u{1b}[B", "\r", "\u{1b}[A", "\r", "\u{1b}[C", "\r"],
+        ),
+        (
+            json!([{"question":"First?"},{"question":"Second?"}]),
+            vec!["partial", "\t", "\u{1b}"],
+        ),
+        (
+            json!([{"question":"Multi?","multiSelect":true,"options":[{"label":"A"},{"label":"B"}]}]),
+            vec!["\u{1b}[C", "\r"],
+        ),
+    ] {
+        let expected = oracle.request(&json!({"questions":questions,"keys":script}));
+        let ui = Ui::new(vec![keys(&script)]);
+        let result = AskQuestionsTool::new()
+            .execute(
+                "id".into(),
+                json!({"blocking":true,"questions":questions}),
+                None,
+                None,
+                ctx(ui.clone()).await,
+                None,
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{questions}: {script:?}: frozen={expected}: {error:?}"));
+        assert_eq!(
+            result.details.as_ref().unwrap()["answers"],
+            expected["answers"],
+            "{questions}"
+        );
+        assert_eq!(result.details.as_ref().unwrap()["cancelled"], expected["cancelled"]);
+        assert_eq!(ui.seen.lock().unwrap().len(), 1);
+    }
+}
+#[tokio::test]
+async fn nonblocking_answers_and_cancellation_arrive_via_correlated_inbox() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_str().unwrap();
+    let db = get_control_db_path(dir.path());
+    let ui = Ui::new(vec![keys(&["answer", "\r"]), keys(&["\u{1b}"])]);
+    let context = tool_context::TestContextBuilder::new(root, tool_context::persisted_session(root, root, "session"))
+        .mode(ExtensionMode::Tui)
+        .ui(ui.clone())
+        .control_db_path(&db)
+        .build()
         .await
-        .expect("ask questions");
-
-    let content: Value = serde_json::to_value(&result.content).expect("content");
+        .1;
+    for id in ["one", "two"] {
+        let result = AskQuestionsTool::new()
+            .execute(
+                id.into(),
+                json!({"blocking":false,"questions":[{"question":"Free?"}]}),
+                None,
+                None,
+                context.clone(),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.details.as_ref().unwrap()["queued"], true);
+        assert_eq!(result.details.as_ref().unwrap()["requestId"], id);
+    }
+    for _ in 0..100 {
+        if list_runtime_mailbox_messages(&db).unwrap().len() == 2 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    let messages = list_runtime_mailbox_messages(&db).unwrap();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].store_ref.message_id, "ask_questions:one");
     assert_eq!(
-        content,
-        json!([{ "type": "text", "text": "User answered questions:\n- Proceed? → Yes" }])
+        messages[0].body,
+        "User answered questions (request one):\n- Free? → answer"
     );
+    assert_eq!(messages[1].body, "Questions cancelled (request two)\n");
+}
+#[tokio::test]
+async fn failed_panel_does_not_strand_later_requests() {
+    let ui = Ui::new(vec![Err("panel failed".into()), keys(&["next", "\r"])]);
+    let context = ctx(ui).await;
+    let params = json!({"blocking":true,"questions":[{"question":"Free?"}]});
+    let (first, second) = tokio::join!(
+        AskQuestionsTool::new().execute("one".into(), params.clone(), None, None, context.clone(), None),
+        AskQuestionsTool::new().execute("two".into(), params, None, None, context, None)
+    );
+    assert_eq!(first.unwrap_err().message, "panel failed");
+    assert_eq!(second.unwrap().details.unwrap()["answers"]["Free?"], "next");
 }

@@ -7,6 +7,7 @@ pub mod dispatch_runtime;
 pub mod lifecycle_runtime;
 pub mod mailbox_runtime;
 pub mod parent_agent_journal;
+pub mod question_relay_tools;
 pub mod registration;
 pub mod runtime;
 pub mod runtime_utils;

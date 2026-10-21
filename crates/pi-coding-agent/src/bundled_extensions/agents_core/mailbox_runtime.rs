@@ -21,7 +21,7 @@ use crate::core::session_manager::lock_session_manager;
 use tokio_util::sync::CancellationToken;
 
 use super::runtime_utils::create_failed_mailbox_message;
-use super::shared::{empty_agent, file_reference_schema};
+use super::shared::empty_agent;
 use super::tool_results::tool_result;
 
 const MAIN_THREAD_AGENT_ID: &str = "main";
@@ -49,32 +49,93 @@ pub struct ContactParentParams {
 pub fn contact_parent_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["message"],
+        "required": [
+            "body"
+        ],
         "properties": {
+            "body": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Required nonblank message body, sent verbatim. Independent of assistant text or reasoning."
+            },
             "fileRefs": {
                 "type": "array",
-                "items": file_reference_schema()
+                "items": {
+                    "type": "object",
+                    "required": [
+                        "path"
+                    ],
+                    "properties": {
+                        "path": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "description": "Optional file references to attach."
             },
-            "message": {"type": "string"},
-            "threadId": {"type": "string"}
-        }
+            "threadId": {
+                "type": "string",
+                "description": "Optional thread identifier for conversation correlation."
+            }
+        },
+        "additionalProperties": false
     })
 }
 
 pub fn send_agent_message_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["message", "toAgentId"],
+        "required": [
+            "body",
+            "toAgentId"
+        ],
         "properties": {
+            "body": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Required nonblank message body, sent verbatim. Independent of assistant text or reasoning."
+            },
             "fileRefs": {
                 "type": "array",
-                "items": file_reference_schema()
+                "items": {
+                    "type": "object",
+                    "required": [
+                        "path"
+                    ],
+                    "properties": {
+                        "path": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "description": "Optional file references to attach."
             },
-            "message": {"type": "string"},
-            "threadId": {"type": "string"},
-            "toAgentId": {"type": "string"},
-            "toSessionId": {"type": "string"}
-        }
+            "threadId": {
+                "type": "string",
+                "description": "Optional thread identifier for conversation correlation."
+            },
+            "toAgentId": {
+                "type": "string",
+                "description": "Target agent ID, or 'main' when sending to another session's main thread."
+            },
+            "toHost": {
+                "type": "string",
+                "description": "Target hostname for a session on another host; requires toSessionId. Omit for local delivery."
+            },
+            "toSessionId": {
+                "type": "string",
+                "description": "Optional target session ID for direct cross-session mailbox delivery."
+            }
+        },
+        "additionalProperties": false
     })
 }
 
@@ -795,9 +856,9 @@ pub fn register_mailbox_tools(
     pi.register_tool(ToolDefinition {
         name: "send_agent_message".to_owned(),
         label: "Send Agent Message".to_owned(),
-        description: "Send a sibling-safe direct mailbox message across a parent-child agent relationship.".to_owned(),
+        description: "Send the required body verbatim across a direct parent-child edge, or to another session via toSessionId (with toAgentId 'main'). For another host, also pass toHost; the message queues locally until relay delivery. Unknown local sessions are rejected. Supply the complete message in body; assistant narration and reasoning are never read.".to_owned(),
         prompt_snippet: None,
-        prompt_guidelines: None,
+        prompt_guidelines: Some(vec!["For send_agent_message and contact_parent, put the complete outgoing message in the required body argument. It is sent verbatim; assistant narration and reasoning are never read. No assistant text is required, and multiple calls in one turn can send distinct bodies.".to_owned(), "For a cross-host reply, use the sender's hostname as toHost plus its session ID as toSessionId. Never infer host ownership from a session ID.".to_owned()]), 
         approval_required: Some(false),
         approval_kind: None,
         parameters: send_agent_message_schema(),
@@ -828,9 +889,9 @@ pub fn register_mailbox_tools(
     pi.register_tool(ToolDefinition {
         name: "contact_parent".to_owned(),
         label: "Contact Parent".to_owned(),
-        description: "Send a child-agent mailbox request to its direct parent.".to_owned(),
+        description: "Send the required body verbatim as a child-agent mailbox request to its direct parent. Supply the complete message in body; assistant narration and reasoning are never read.".to_owned(),
         prompt_snippet: None,
-        prompt_guidelines: None,
+        prompt_guidelines: Some(vec!["For send_agent_message and contact_parent, put the complete outgoing message in the required body argument. It is sent verbatim; assistant narration and reasoning are never read. No assistant text is required, and multiple calls in one turn can send distinct bodies.".to_owned()]), 
         approval_required: Some(false),
         approval_kind: None,
         parameters: contact_parent_schema(),

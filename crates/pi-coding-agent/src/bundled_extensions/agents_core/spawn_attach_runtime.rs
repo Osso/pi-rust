@@ -76,7 +76,7 @@ pub fn spawn_agent_schema() -> Value {
                     {"type": "string", "const": "inherit"}
                 ]
             },
-            "displayName": {"type": "string"},
+            "displayName": {"type": "string", "description": "Short task slug shown in the agent status list, e.g. fix-footer-count (max ~24 chars)."},
             "parentId": {"type": "string"},
             "prompt": {"type": "string"}
         }

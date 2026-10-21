@@ -422,7 +422,7 @@ fn register_wait_agents_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistr
     let _ = pi.register_tool(tool_definition(
         "wait_agent",
         "Wait Agent",
-        "Wait until an active agent terminates, steering wakes the wait, or persisted coordination polling finds input. Terminal wakes consume pending terminal notifications.",
+        "Wait until an active agent terminates, steering wakes the wait, persisted coordination polling finds input, or 25 minutes elapse since the latest model request started. Timeout leaves agents running. Terminal wakes consume pending terminal notifications.",
         None,
         wait_agents_schema(),
         Arc::new(move |_tool_call_id, params, signal, _on_update, ctx| {
@@ -487,16 +487,16 @@ pub fn register_agents_core_tools(pi: &ExtensionApi, options: &MultiAgentExtensi
     register_background_command(pi, &registration);
     register_jobs_command(pi, &registration);
     register_spawn_agent_tool(pi, &registration);
-    register_list_agents_tool(pi, &registration);
-    register_attach_session_agent_tool(pi, &registration);
-    register_wait_agents_tool(pi, &registration);
-    register_cancel_agent_tool(pi, &registration);
-    register_steer_agent_tool(pi, &registration);
     super::agent_model_tool::register_set_agent_model_tool(
         pi,
         Arc::clone(&registration.store),
         registration.runtime_handles.clone(),
     )?;
+    register_list_agents_tool(pi, &registration);
+    register_attach_session_agent_tool(pi, &registration);
+    register_wait_agents_tool(pi, &registration);
+    register_cancel_agent_tool(pi, &registration);
+    register_steer_agent_tool(pi, &registration);
     Ok(())
 }
 

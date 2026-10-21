@@ -623,7 +623,7 @@ pub fn register_agent_viewer_tools(
     pi.register_tool(ToolDefinition {
         name: "agent_viewer".to_owned(),
         label: "Agent Viewer".to_owned(),
-        description: "Inspect one agent by ID, with status, transcript, child IDs, and command descriptors.".to_owned(),
+        description: "Inspect one agent by ID, with status, transcript, child IDs, command descriptors, and optional historical lifecycle and descendant trace.".to_owned(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: Some(false),
@@ -655,7 +655,8 @@ fn agent_viewer_schema() -> Value {
         "properties": {
             "agentId": {"type": "string"},
             "sessionId": {"type": "string"},
-            "storeSessionId": {"type": "string"}
+            "storeSessionId": {"type": "string"},
+            "trace": {"type": "boolean"}
         }
     })
 }
@@ -672,8 +673,9 @@ pub fn register_agents_mailbox_tools(
 pub fn multi_agent_extension(pi: &ExtensionApi, options: &MultiAgentExtensionOptions) -> Result<(), HandlerError> {
     let store = resolve_multi_agent_store(options);
     let mut shared_options = options.clone();
-    shared_options.store = Some(store);
+    shared_options.store = Some(store.clone());
     super::registration::register_agents_core_tools(pi, &shared_options)?;
     register_agent_viewer_tools(pi, &shared_options)?;
-    register_agents_mailbox_tools(pi, &shared_options)
+    register_agents_mailbox_tools(pi, &shared_options)?;
+    super::question_relay_tools::register_question_relay_tools(pi, store)
 }

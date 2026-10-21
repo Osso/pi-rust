@@ -3323,6 +3323,12 @@ impl AgentSession {
     }
 
     async fn handle_agent_event(&self, mut event: AgentEvent) -> Result<(), AgentError> {
+        let mailbox_delivery = if let AgentEvent::MessageEnd { message } = &event {
+            crate::core::runtime_mailbox_acceptance::read_runtime_mailbox_tool_delivery(message)
+                .map_err(|error| AgentError::new(error.to_string()))?
+        } else {
+            None
+        };
         let original_tool_call_id = match &event {
             AgentEvent::MessageEnd {
                 message: AgentMessage::ToolResult(result),
@@ -3383,7 +3389,7 @@ impl AgentSession {
         };
         self.emit(listener_event);
         if let AgentEvent::MessageEnd { message } = &event {
-            self.persist_completed_message(message, original_tool_call_id.as_deref());
+            self.persist_completed_message(message, original_tool_call_id.as_deref(), mailbox_delivery.as_ref());
             if let AgentMessage::Assistant(assistant) = message {
                 self.start_background_compaction_during_tool_turn(assistant)
                     .map_err(|failure| AgentError::new(failure.message()))?;
@@ -3953,13 +3959,36 @@ impl AgentSession {
         let _ = crate::core::session_control_db::write_last_message(control_db_path, "assistant", &content);
     }
 
-    fn persist_completed_message(&self, message: &AgentMessage, original_tool_call_id: Option<&str>) {
+    fn persist_completed_message(
+        &self,
+        message: &AgentMessage,
+        original_tool_call_id: Option<&str>,
+        mailbox_delivery: Option<&crate::core::runtime_mailbox_acceptance::RuntimeMailboxToolDelivery>,
+    ) {
         let is_internal = is_duplicate_turn_guard_message(message);
         let mut manager = lock(&self.inner.session_manager);
         let result = match message {
             AgentMessage::Custom(object) => append_custom_agent_message(&mut manager, object),
             AgentMessage::User(_) | AgentMessage::Assistant(_) | AgentMessage::ToolResult(_) => {
-                if is_internal || lock(&self.inner.runtime_mailbox_acceptance).consume_persisted_message(message) {
+                if is_internal {
+                    Ok(None)
+                } else if let Some(delivery) = mailbox_delivery {
+                    let accepted = lock(&self.inner.runtime_mailbox_acceptance).accept_messages(
+                        &mut manager,
+                        &delivery.control_db_path,
+                        &delivery.messages,
+                        Some(message),
+                    );
+                    let released = crate::core::runtime_mailbox_acceptance::release_unaccepted_runtime_mailbox_messages(
+                        &manager,
+                        &delivery.control_db_path,
+                        &delivery.messages,
+                    );
+                    released
+                        .and(accepted)
+                        .map(|()| None)
+                        .map_err(|error| crate::core::session_manager::SessionManagerError::new(error.to_string()))
+                } else if lock(&self.inner.runtime_mailbox_acceptance).consume_persisted_message(message) {
                     Ok(None)
                 } else {
                     manager.append_message(message.clone()).map(Some)
