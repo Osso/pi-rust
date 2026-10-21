@@ -111,7 +111,10 @@ fn project_terminal_outbox(
     if agent.revision != record.terminal_revision || !is_terminal_lifecycle(&agent) {
         return Err(mismatch_error(record));
     }
-    options.store.publish_terminal_outbox_snapshot(&agent);
+    options
+        .store
+        .publish_terminal_outbox_snapshot(&agent)
+        .map_err(|error| ControlDbError::new(error.message))?;
     if !deliver_multi_agent_terminal_outbox(&options.control_db_path, record)? {
         return Err(ControlDbError::new(format!(
             "Could not acknowledge terminal outbox projection for {}",

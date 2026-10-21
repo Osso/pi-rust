@@ -2466,12 +2466,37 @@ pub fn update_multi_agent_agent_current_activity(
     current_activity: Option<&Value>,
     updated_at: &str,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
+    model: Option<&Value>,
 ) -> Result<Option<Value>, ControlDbError> {
     let mut metadata = Map::new();
+    if let Some(model) = model {
+        metadata.insert("model".into(), model.clone());
+    }
     metadata.insert(
         "currentActivity".to_owned(),
         current_activity.cloned().unwrap_or(Value::Null),
     );
+    update_multi_agent_agent_metadata(
+        control_db_path,
+        session_path,
+        agent_id,
+        &metadata,
+        updated_at,
+        Some(ownership),
+    )
+}
+
+/// `updateMultiAgentAgentModel`.
+pub fn update_multi_agent_agent_model(
+    control_db_path: &str,
+    session_path: &str,
+    agent_id: &str,
+    model: &Value,
+    updated_at: &str,
+    ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
+) -> Result<Option<Value>, ControlDbError> {
+    let mut metadata = Map::new();
+    metadata.insert("model".into(), model.clone());
     update_multi_agent_agent_metadata(
         control_db_path,
         session_path,
@@ -2734,9 +2759,9 @@ pub fn upsert_multi_agent_mailbox_message(
 ) -> Result<(), ControlDbError> {
     validate_mailbox_payload(data, &format!("multi_agent_mailbox_messages:{session_path}#{id}"))?;
     let created_at = data.get("createdAt").filter(|value| !value.is_null());
-    if created_at.is_some_and(|value| {
-        super::is_mailbox_message_expired(value.as_str(), pi_js_compat::date::js_now_millis() as i64)
-    }) {
+    if created_at
+        .is_some_and(|value| super::is_mailbox_message_expired(value.as_str(), pi_js_compat::date::js_now_millis()))
+    {
         return Ok(());
     }
     with_control_db(control_db_path, |db| {
@@ -2746,7 +2771,7 @@ pub fn upsert_multi_agent_mailbox_message(
                 super::parse_stored_json_object(&plan.serialized, &format!("{session_path}#{id}"))?
                     .get("createdAt")
                     .and_then(Value::as_str),
-                pi_js_compat::date::js_now_millis() as i64,
+                pi_js_compat::date::js_now_millis(),
             ) {
                 return Ok(());
             }
@@ -2827,7 +2852,7 @@ fn commit_multi_agent_mailbox_upsert(
         super::parse_stored_json_object(&plan.serialized, &format!("{session_path}#{id}"))?
             .get("createdAt")
             .and_then(Value::as_str),
-        pi_js_compat::date::js_now_millis() as i64,
+        pi_js_compat::date::js_now_millis(),
     ) {
         return Ok(true);
     }

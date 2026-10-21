@@ -539,7 +539,10 @@ async fn background_command(
             return Ok(());
         }
     };
-    background.store.publish_lifecycle_coordinator_snapshot(&agent);
+    background
+        .store
+        .publish_lifecycle_coordinator_snapshot(&agent)
+        .map_err(|error| HandlerError::new(error.message))?;
     let runtime = Arc::new(super::control_runtime::OwnedAgentRuntime {
         abort_controller: prepared_runtime.abort_controller,
         coordinator: Arc::clone(&coordinator),
@@ -610,30 +613,32 @@ async fn prepare_background_runtime(
     let Some(create_child_session) = background.create_child_session.as_ref() else {
         return Ok(None);
     };
-    let mut prepared = coordinator.prepare_child(&crate::core::lifecycle_coordinator::PrepareChildCommandInput {
-        spawn: crate::core::multi_agent_store::SpawnAgent {
-            parent_id: None,
-            display_name: "Background Job".to_owned(),
-            agent_type: "background".to_owned(),
-            origin: None,
-            cwd: ctx.cwd()?,
-            permission: crate::core::multi_agent_store::AgentPermission {
-                policy: "on-request".to_owned(),
-                inherited_from: None,
-                narrowed: true,
+    let mut prepared = coordinator
+        .prepare_child(&crate::core::lifecycle_coordinator::PrepareChildCommandInput {
+            spawn: crate::core::multi_agent_store::SpawnAgent {
+                parent_id: None,
+                display_name: "Background Job".to_owned(),
+                agent_type: "background".to_owned(),
+                origin: None,
+                cwd: ctx.cwd()?,
+                permission: crate::core::multi_agent_store::AgentPermission {
+                    policy: "on-request".to_owned(),
+                    inherited_from: None,
+                    narrowed: true,
+                },
+                worktree: None,
+                model: None,
+                account: None,
+                slot: None,
+                transcript: None,
+                event_stream: None,
+                worker: None,
             },
-            worktree: None,
-            model: None,
-            account: None,
-            slot: None,
-            transcript: None,
-            event_stream: None,
-            worker: None,
-        },
-        agent_id: None,
-        detached: None,
-        result: None,
-    });
+            agent_id: None,
+            detached: None,
+            result: None,
+        })
+        .map_err(|error| HandlerError::new(error.message()))?;
     let abort_controller = CancellationToken::new();
     match create_child_session
         .call(super::shared::ChildAgentDispatchInput {

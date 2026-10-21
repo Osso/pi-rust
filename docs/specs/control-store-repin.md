@@ -17,7 +17,9 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 - [x] Hide expired mailbox rows by creation age; delete dead claims with complete transcript acceptance rather than replaying.
 - [x] Scan raw receipt refs across all complete transcript records; propagate malformed complete-record errors and ignore partial final records.
 - [x] Preserve original mailbox birth through updates, delete terminal outbox acknowledgement rows, and accept identical terminal replay after peer acknowledgement removed the row.
-- [ ] Prove exact retention boundary, retained-connection cleanup, steering delivery, detached finalization replay/suppression/model updates and whole in-memory store contracts.
+- [x] Expire in-memory mailbox at exactly24h, evict peer-deleted rows, and consume/remove while returning the original message snapshot.
+- [x] Enforce store terminal-notification suppression; preserve activity `detail` and publish model/current activity under exact DB ownership.
+- [ ] Prove retained-connection cleanup, steering delivery, detached finalization replay/suppression and remaining whole-store branches.
 
 ## How it works
 
@@ -42,4 +44,4 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 
 ## Out of scope
 
-Runtime message append/fsync acceptance belongs to later delivery integration. Relay storage/transport belongs to a separate group. SQLite fixtures do not prove crash-safe recipient acceptance. Historical waivers remain pending user revalidation.
+Runtime message append/fsync acceptance belongs to later delivery integration and remains a completion blocker, not an approved gap. Older runtime mark/consume callers still require durable acceptance before source-style deletion. Relay storage/transport belongs to a separate group. SQLite fixtures do not prove crash-safe recipient acceptance. Historical waivers remain pending user revalidation.

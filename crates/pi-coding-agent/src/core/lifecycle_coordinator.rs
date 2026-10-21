@@ -60,7 +60,7 @@ fn clear_dead_detached_reconciliation_retry(control_db_path: &str) {
 #[derive(Clone)]
 pub struct LifecycleCoordinatorOptions {
     pub control_db_path: String,
-    pub create_agent_id: Arc<dyn Fn() -> String + Send + Sync>,
+    pub create_agent_id: Arc<dyn Fn() -> Result<String, ControlDbError> + Send + Sync>,
     pub now: Arc<dyn Fn() -> String + Send + Sync>,
     pub process_identity: ProcessIdentity,
     pub session_path: String,
@@ -172,7 +172,7 @@ impl LifecycleCoordinator {
 
     pub fn create_attachment(&self, input: &SpawnAgent) -> Result<CreateMultiAgentAttachmentResult, ControlDbError> {
         let now_iso = self.now();
-        let mut agent = snapshot_from_spawn(input, now_iso.clone(), (self.options.create_agent_id)());
+        let mut agent = snapshot_from_spawn(input, now_iso.clone(), (self.options.create_agent_id)()?);
         agent.lifecycle = crate::core::multi_agent_store::AgentLifecycle::WaitingForInput;
         agent.origin = Some(crate::core::multi_agent_store::AgentOrigin::Attached);
         agent.revision = 1;
@@ -460,7 +460,7 @@ impl LifecycleCoordinator {
         }
     }
 
-    pub fn prepare_child(&self, input: &PrepareChildCommandInput) -> AgentSnapshot {
+    pub fn prepare_child(&self, input: &PrepareChildCommandInput) -> Result<AgentSnapshot, ControlDbError> {
         self.build_child_snapshot(input)
     }
 
@@ -504,21 +504,18 @@ impl LifecycleCoordinator {
         self.persist_child_with_ownership(agent, owner_session_id, process_identity, owner_agent_id)
     }
 
-    fn build_child_snapshot(&self, input: &PrepareChildCommandInput) -> AgentSnapshot {
+    fn build_child_snapshot(&self, input: &PrepareChildCommandInput) -> Result<AgentSnapshot, ControlDbError> {
         let now_iso = self.now();
-        let mut agent = snapshot_from_spawn(
-            &input.spawn,
-            now_iso,
-            input
-                .agent_id
-                .clone()
-                .unwrap_or_else(|| (self.options.create_agent_id)()),
-        );
+        let id = match &input.agent_id {
+            Some(id) => id.clone(),
+            None => (self.options.create_agent_id)()?,
+        };
+        let mut agent = snapshot_from_spawn(&input.spawn, now_iso, id);
         agent.lifecycle = crate::core::multi_agent_store::AgentLifecycle::Running;
         agent.revision = 1;
         agent.detached = input.detached;
         agent.result = input.result.clone();
-        agent
+        Ok(agent)
     }
 
     fn persist_child_with_ownership(

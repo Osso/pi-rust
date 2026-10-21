@@ -58,8 +58,8 @@ pub use agents::{
     mark_multi_agent_mailbox_message_failed, read_multi_agent_agent, read_multi_agent_agents,
     read_multi_agent_runtime_ownership, read_multi_agent_state, reconcile_dead_detached_agent_runtimes,
     recover_dead_multi_agent_runtime, update_multi_agent_agent_activity, update_multi_agent_agent_current_activity,
-    update_multi_agent_agent_slot, update_multi_agent_agent_transcript, upsert_multi_agent_mailbox_message,
-    write_multi_agent_counters,
+    update_multi_agent_agent_model, update_multi_agent_agent_slot, update_multi_agent_agent_transcript,
+    upsert_multi_agent_mailbox_message, write_multi_agent_counters,
 };
 pub use channel::{
     advance_shared_channel_cursor, has_pending_runtime_coordination_message, initialize_shared_channel_cursor_at_tail,

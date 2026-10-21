@@ -24,7 +24,11 @@ pub fn create_lifecycle_coordinator(store: &Arc<MultiAgentStore>) -> Option<Arc<
     let store = Arc::clone(store);
     Some(Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: persistence.control_db_path,
-        create_agent_id: Arc::new(move || store.allocate_agent_id_for_lifecycle_coordinator("agent")),
+        create_agent_id: Arc::new(move || {
+            store
+                .allocate_agent_id_for_lifecycle_coordinator("agent")
+                .map_err(|error| crate::core::sqlite::ControlDbError::new(error.message))
+        }),
         now: Arc::new(crate::utils::iso_time::now_iso_string),
         process_identity: runtime_process_identity().clone(),
         session_path: persistence.session_path,
@@ -32,7 +36,9 @@ pub fn create_lifecycle_coordinator(store: &Arc<MultiAgentStore>) -> Option<Arc<
 }
 
 pub fn publish_coordinator_snapshot(store: &Arc<MultiAgentStore>, agent: &AgentSnapshot) -> Result<(), ControlDbError> {
-    store.publish_lifecycle_coordinator_snapshot(agent);
+    store
+        .publish_lifecycle_coordinator_snapshot(agent)
+        .map_err(|error| ControlDbError::new(error.message))?;
     if is_active_lifecycle(agent.lifecycle) {
         return Ok(());
     }

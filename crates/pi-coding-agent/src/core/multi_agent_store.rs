@@ -71,7 +71,6 @@ pub enum MailboxMessageStatusValue {
     Claimed,
     Accepted,
     Rejected,
-    Delivered,
     Failed,
 }
 
@@ -93,6 +92,8 @@ pub enum AgentCurrentActivity {
         started_at: String,
         tool_call_id: String,
         tool_name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
     },
 }
 
@@ -915,7 +916,7 @@ impl MultiAgentStore {
         }
     }
 
-    pub fn allocate_agent_id_for_lifecycle_coordinator(&self, prefix: &str) -> String {
+    pub fn allocate_agent_id_for_lifecycle_coordinator(&self, prefix: &str) -> Result<String, MultiAgentStoreError> {
         self.create_agent_id(prefix)
     }
 
@@ -930,7 +931,7 @@ impl MultiAgentStore {
             created_at: timestamp.clone(),
             file_refs: validate_file_refs(input.file_refs.as_deref(), "steer_agent")?,
             from_agent_id: input.from_agent_id.clone(),
-            id: self.create_message_id(),
+            id: self.create_message_id()?,
             kind: MailboxMessageKindValue::Steer,
             status: MailboxMessageStatusValue::Pending,
             target_checkpoint: input.target_checkpoint,
@@ -949,8 +950,9 @@ impl MultiAgentStore {
         &self,
         agent: &AgentSnapshot,
         message: &AgentMailboxMessage,
-    ) {
-        self.publish_steering(agent, message);
+    ) -> Result<(), MultiAgentStoreError> {
+        self.remove_mailbox_message(&message.id);
+        self.publish_lifecycle_coordinator_snapshot(agent)
     }
 
     fn publish_steering(&self, agent: &AgentSnapshot, message: &AgentMailboxMessage) {
@@ -972,7 +974,7 @@ impl MultiAgentStore {
         }
     }
 
-    pub fn publish_lifecycle_coordinator_snapshot(&self, agent: &AgentSnapshot) {
+    pub fn publish_lifecycle_coordinator_snapshot(&self, agent: &AgentSnapshot) -> Result<(), MultiAgentStoreError> {
         let previous = {
             let mut state = self.lock();
             let previous = state.agents.get(&agent.id).cloned();
@@ -984,25 +986,26 @@ impl MultiAgentStore {
             let previous = previous;
             if previous.is_none() {
                 clear_selected_terminal_agent(&mut state, &current);
-                return;
+                return Ok(());
             }
             Some((previous.expect("previous agent"), current))
         };
         let Some((previous, current)) = previous else {
-            return;
+            return Ok(());
         };
         self.notify_agent_update_listeners(&previous, &current);
         if previous.lifecycle != current.lifecycle {
             if current.lifecycle == AgentLifecycle::WaitingForInput {
-                self.record_waiting_for_input_notification(&current);
+                self.record_waiting_for_input_notification(&current)?;
             }
             self.notify_transition_listeners(&previous, &current);
         }
         let mut state = self.lock();
         clear_selected_terminal_agent(&mut state, &current);
+        Ok(())
     }
 
-    pub fn publish_terminal_outbox_snapshot(&self, agent: &AgentSnapshot) {
+    pub fn publish_terminal_outbox_snapshot(&self, agent: &AgentSnapshot) -> Result<(), MultiAgentStoreError> {
         let mut state = self.lock();
         let previous = state.agents.get(&agent.id).cloned();
         let current = copy_agent(agent);
@@ -1011,21 +1014,29 @@ impl MultiAgentStore {
             state.agent_order.push(agent.id.clone());
         }
         drop(state);
-        if current.lifecycle == AgentLifecycle::Completed {
-            self.retry_or_record_terminal_notification(&current, LifecycleNotificationLifecycle::Completed);
-        }
-        if current.lifecycle == AgentLifecycle::Failed || current.lifecycle == AgentLifecycle::Aborted {
-            self.retry_or_record_terminal_notification(&current, LifecycleNotificationLifecycle::Failed);
+        if current
+            .extra
+            .get("suppressTerminalNotification")
+            .and_then(Value::as_bool)
+            != Some(true)
+        {
+            if current.lifecycle == AgentLifecycle::Completed {
+                self.retry_or_record_terminal_notification(&current, LifecycleNotificationLifecycle::Completed)?;
+            }
+            if current.lifecycle == AgentLifecycle::Failed || current.lifecycle == AgentLifecycle::Aborted {
+                self.retry_or_record_terminal_notification(&current, LifecycleNotificationLifecycle::Failed)?;
+            }
         }
         let Some(previous) = previous else {
             let mut state = self.lock();
             clear_selected_terminal_agent(&mut state, &current);
-            return;
+            return Ok(());
         };
         self.notify_agent_update_listeners(&previous, &current);
         self.notify_transition_listeners_if_lifecycle_changed(&previous, &current);
         let mut state = self.lock();
         clear_selected_terminal_agent(&mut state, &current);
+        Ok(())
     }
 
     pub fn select_agent_view(&self, agent_id: &str) -> Option<AgentSnapshot> {
@@ -1147,104 +1158,172 @@ impl MultiAgentStore {
         descendants.iter().map(copy_agent).collect()
     }
 
-    pub fn list_mailbox_messages(&self) -> Vec<AgentMailboxMessage> {
+    pub fn expire_mailbox_messages(&self, now: f64) -> Result<(), MultiAgentStoreError> {
+        let (messages, persistence) = {
+            let state = self.lock();
+            (
+                state
+                    .mailbox_order
+                    .iter()
+                    .filter_map(|id| state.mailbox_messages.get(id))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                state.persistence.clone(),
+            )
+        };
+        for message in messages {
+            let expired = crate::core::session_control_db::is_mailbox_message_expired(Some(&message.created_at), now);
+            let vanished = if expired {
+                false
+            } else if let Some(target) = &persistence {
+                crate::core::session_control_db::get_multi_agent_mailbox_message_status(
+                    &target.control_db_path,
+                    &target.session_path,
+                    &message.id,
+                )?
+                .is_none()
+            } else {
+                false
+            };
+            if expired || vanished {
+                self.remove_mailbox_message(&message.id);
+            }
+        }
+        Ok(())
+    }
+    fn remove_mailbox_message(&self, id: &str) {
+        let mut state = self.lock();
+        state.mailbox_messages.remove(id);
+        state.mailbox_order.retain(|existing| existing != id);
+    }
+    fn mailbox_message_is_expired(&self, message: &AgentMailboxMessage) -> bool {
+        crate::core::session_control_db::is_mailbox_message_expired(
+            Some(&message.created_at),
+            pi_js_compat::date::date_parse(&self.now()),
+        )
+    }
+    pub fn list_mailbox_messages(&self) -> Result<Vec<AgentMailboxMessage>, MultiAgentStoreError> {
+        self.expire_mailbox_messages(pi_js_compat::date::date_parse(&self.now()))?;
         let state = self.lock();
-        state
+        Ok(state
             .mailbox_order
             .iter()
             .filter_map(|id| state.mailbox_messages.get(id))
             .map(copy_message)
-            .collect()
+            .collect())
     }
-
-    pub fn list_pending_mailbox_messages_for_agent(&self, agent_id: &str) -> Vec<AgentMailboxMessage> {
-        self.list_mailbox_messages()
+    pub fn list_pending_mailbox_messages_for_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<AgentMailboxMessage>, MultiAgentStoreError> {
+        Ok(self
+            .list_mailbox_messages()?
             .into_iter()
             .filter(|message| message.to_agent_id == agent_id && message.status == MailboxMessageStatusValue::Pending)
-            .collect()
+            .collect())
     }
-
-    pub fn mark_mailbox_message_delivered(&self, message_id: &str) -> Option<AgentMailboxMessage> {
-        self.mark_mailbox_message_status(message_id, MailboxMessageStatusValue::Delivered, None)
-    }
-
-    pub fn mark_mailbox_message_failed(&self, message_id: &str, error: &str) -> Option<AgentMailboxMessage> {
-        self.mark_mailbox_message_status(message_id, MailboxMessageStatusValue::Failed, Some(error.to_owned()))
-    }
-
-    fn mark_mailbox_message_status(
+    pub fn mark_mailbox_message_delivered(
         &self,
         message_id: &str,
-        status: MailboxMessageStatusValue,
-        error: Option<String>,
-    ) -> Option<AgentMailboxMessage> {
-        let message = self.lock().mailbox_messages.get(message_id).cloned()?;
-        if message.status != MailboxMessageStatusValue::Pending {
-            return None;
+    ) -> Result<Option<AgentMailboxMessage>, MultiAgentStoreError> {
+        let Some(message) = self.lock().mailbox_messages.get(message_id).cloned() else {
+            return Ok(None);
+        };
+        if self.mailbox_message_is_expired(&message) {
+            return Ok(None);
+        }
+        if let Some(target) = self.get_persistence_target() {
+            crate::core::session_control_db::consume_runtime_mailbox_message_by_store_ref(
+                &target.control_db_path,
+                &crate::core::session_control_db::RuntimeMailboxStoreRef {
+                    session_path: target.session_path,
+                    message_id: message_id.to_owned(),
+                },
+            )?;
+        }
+        self.remove_mailbox_message(message_id);
+        Ok(Some(copy_message(&message)))
+    }
+    pub fn mark_mailbox_message_failed(
+        &self,
+        message_id: &str,
+        error: &str,
+    ) -> Result<Option<AgentMailboxMessage>, MultiAgentStoreError> {
+        let Some(message) = self.lock().mailbox_messages.get(message_id).cloned() else {
+            return Ok(None);
+        };
+        if message.status != MailboxMessageStatusValue::Pending || self.mailbox_message_is_expired(&message) {
+            return Ok(None);
+        }
+        if let Some(target) = self.get_persistence_target()
+            && !crate::core::session_control_db::mark_multi_agent_mailbox_message_failed(
+                &target.control_db_path,
+                &target.session_path,
+                message_id,
+                error,
+            )?
+        {
+            self.remove_mailbox_message(message_id);
+            return Ok(None);
         }
         let updated = AgentMailboxMessage {
-            error,
-            status,
+            error: Some(error.to_owned()),
+            status: MailboxMessageStatusValue::Failed,
             updated_at: self.now(),
             ..message
         };
-        self.put_mailbox_message(updated.clone()).ok()?;
-        Some(copy_message(&updated))
+        self.lock()
+            .mailbox_messages
+            .insert(message_id.to_owned(), updated.clone());
+        Ok(Some(copy_message(&updated)))
     }
-
-    pub fn consume_completion_notifications_for_agent(&self, agent_id: &str) -> Vec<AgentMailboxMessage> {
+    pub fn consume_completion_notifications_for_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<AgentMailboxMessage>, MultiAgentStoreError> {
         self.consume_lifecycle_notifications_for_agent(agent_id, LifecycleNotificationLifecycle::Completed)
     }
-
-    pub fn consume_failure_notifications_for_agent(&self, agent_id: &str) -> Vec<AgentMailboxMessage> {
+    pub fn consume_failure_notifications_for_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<AgentMailboxMessage>, MultiAgentStoreError> {
         self.consume_lifecycle_notifications_for_agent(agent_id, LifecycleNotificationLifecycle::Failed)
     }
-
     fn consume_lifecycle_notifications_for_agent(
         &self,
         agent_id: &str,
         lifecycle: LifecycleNotificationLifecycle,
-    ) -> Vec<AgentMailboxMessage> {
-        let pending: Vec<AgentMailboxMessage> = self
-            .list_mailbox_messages()
-            .into_iter()
-            .filter(|message| is_pending_lifecycle_notification(message, agent_id, lifecycle))
-            .collect();
+    ) -> Result<Vec<AgentMailboxMessage>, MultiAgentStoreError> {
         let mut consumed = Vec::new();
-        for message in pending {
-            let updated = AgentMailboxMessage {
-                status: MailboxMessageStatusValue::Delivered,
-                updated_at: self.now(),
-                ..message
-            };
-            if self.put_mailbox_message(updated.clone()).is_ok() {
-                consumed.push(copy_message(&updated));
+        for message in self.list_mailbox_messages()? {
+            if is_pending_lifecycle_notification(&message, agent_id, lifecycle)
+                && let Some(delivered) = self.mark_mailbox_message_delivered(&message.id)?
+            {
+                consumed.push(delivered)
             }
         }
-        consumed
+        Ok(consumed)
     }
-
     pub fn list_pending_lifecycle_notifications_for_agent(
         &self,
         agent_id: &str,
         lifecycle: LifecycleNotificationLifecycle,
-    ) -> Vec<AgentMailboxMessage> {
-        self.list_mailbox_messages()
+    ) -> Result<Vec<AgentMailboxMessage>, MultiAgentStoreError> {
+        Ok(self
+            .list_mailbox_messages()?
             .into_iter()
             .filter(|message| is_pending_lifecycle_notification(message, agent_id, lifecycle))
-            .collect()
+            .collect())
     }
-
-    pub fn get_projection_snapshot(&self) -> MultiAgentProjectionSnapshot {
-        let agents = self.list_agents();
-        MultiAgentProjectionSnapshot {
+    pub fn get_projection_snapshot(&self) -> Result<MultiAgentProjectionSnapshot, MultiAgentStoreError> {
+        Ok(MultiAgentProjectionSnapshot {
             active_count: self.get_active_agent_count(),
-            mailbox_messages: self.list_mailbox_messages(),
+            agents: self.list_agents(),
+            mailbox_messages: self.list_mailbox_messages()?,
             rows: self.list_row_projections(),
             selected_agent_id: self.get_selected_agent_id(),
             slots: self.list_slot_projections(),
-            agents,
-        }
+        })
     }
 
     pub fn list_active_agents(&self) -> Vec<AgentSnapshot> {
@@ -1277,14 +1356,14 @@ impl MultiAgentStore {
         if current.revision != expected_revision {
             return Ok(AgentMetadataCommandResult::StaleRevision {
                 current: Box::new(copy_agent(&current)),
-                projection: Box::new(self.get_projection_snapshot()),
+                projection: Box::new(self.get_projection_snapshot()?),
             });
         }
         if let Some(occupant) = self.find_slot_occupant(slot_index, &current.id) {
             return Ok(AgentMetadataCommandResult::SlotConflict {
                 current: Box::new(copy_agent(&current)),
                 occupant: Box::new(copy_agent(&occupant)),
-                projection: Box::new(self.get_projection_snapshot()),
+                projection: Box::new(self.get_projection_snapshot()?),
             });
         }
         let updated = self.update_agent_metadata(
@@ -1306,6 +1385,7 @@ impl MultiAgentStore {
         agent_id: &str,
         current_activity: Option<AgentCurrentActivity>,
         ownership: Option<&AgentCurrentActivityOwner>,
+        model: Option<&AgentModel>,
     ) -> Result<Option<AgentSnapshot>, MultiAgentStoreError> {
         let current = self.lock().agents.get(agent_id).cloned();
         let Some(current) = current else {
@@ -1326,11 +1406,31 @@ impl MultiAgentStore {
             &current,
             MetadataUpdate {
                 current_activity: Some(current_activity),
+                model: model.cloned(),
                 ..MetadataUpdate::default()
             },
             ownership,
         )?;
         Ok(Some(copy_agent(&updated)))
+    }
+
+    pub fn publish_agent_model(
+        &self,
+        agent_id: &str,
+        model: &AgentModel,
+        ownership: Option<&AgentCurrentActivityOwner>,
+    ) -> Result<Option<AgentSnapshot>, MultiAgentStoreError> {
+        let Some(current) = self.get_agent(agent_id) else {
+            return Ok(None);
+        };
+        Ok(Some(self.update_agent_metadata(
+            &current,
+            MetadataUpdate {
+                model: Some(model.clone()),
+                ..MetadataUpdate::default()
+            },
+            ownership,
+        )?))
     }
 
     pub fn update_agent_transcript(
@@ -1372,7 +1472,7 @@ impl MultiAgentStore {
         if current.revision != expected_revision {
             return Ok(AgentMetadataCommandResult::StaleRevision {
                 current: Box::new(copy_agent(&current)),
-                projection: Box::new(self.get_projection_snapshot()),
+                projection: Box::new(self.get_projection_snapshot()?),
             });
         }
         let updated = self.update_agent_metadata(
@@ -1405,7 +1505,7 @@ impl MultiAgentStore {
         };
         let timestamp = self.now();
         let message = AgentMailboxMessage {
-            id: self.create_message_id(),
+            id: self.create_message_id()?,
             thread_id: input.thread_id.clone(),
             from_agent_id: current.id.clone(),
             to_agent_id: parent_id,
@@ -1456,7 +1556,7 @@ impl MultiAgentStore {
         }
         let timestamp = self.now();
         let message = AgentMailboxMessage {
-            id: self.create_message_id(),
+            id: self.create_message_id()?,
             thread_id: input.thread_id.clone(),
             from_agent_id: MAIN_THREAD_AGENT_ID.to_owned(),
             to_agent_id: target.id.clone(),
@@ -1517,7 +1617,7 @@ impl MultiAgentStore {
         }
         let timestamp = self.now();
         let message = AgentMailboxMessage {
-            id: self.create_message_id(),
+            id: self.create_message_id()?,
             thread_id: input.thread_id.clone(),
             from_agent_id: current.id.clone(),
             to_agent_id: target.id.clone(),
@@ -1559,7 +1659,7 @@ impl MultiAgentStore {
             body: Some(input.body.clone()),
             created_at: timestamp.clone(),
             from_agent_id: input.from_agent_id.clone(),
-            id: self.create_message_id(),
+            id: self.create_message_id()?,
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             thread_id: input.thread_id.clone(),
@@ -1638,6 +1738,9 @@ impl MultiAgentStore {
         }
         for message in state.mailbox_messages {
             if let Ok(message) = serde_json::from_value::<AgentMailboxMessage>(message) {
+                if self.mailbox_message_is_expired(&message) {
+                    continue;
+                }
                 current.mailbox_order.push(message.id.clone());
                 current
                     .mailbox_messages
@@ -1647,6 +1750,9 @@ impl MultiAgentStore {
     }
 
     fn put_mailbox_message(&self, message: AgentMailboxMessage) -> Result<(), MultiAgentStoreError> {
+        if self.mailbox_message_is_expired(&message) {
+            return Ok(());
+        }
         let persistence = {
             let mut state = self.lock();
             if !state.mailbox_messages.contains_key(&message.id) {
@@ -1769,70 +1875,78 @@ impl MultiAgentStore {
         let Some(target) = self.get_persistence_target() else {
             return Ok(None);
         };
-        if let Some(current_activity) = &updates.current_activity {
+        let encode = |value| serde_json::to_value(value).map_err(|error| MultiAgentStoreError::new(error.to_string()));
+        let model = updates
+            .model
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
+        let persisted = if let Some(activity) = &updates.current_activity {
             let ownership = activity_ownership.ok_or_else(|| {
                 MultiAgentStoreError::new(format!(
                     "Persisted agent {} activity update requires exact runtime ownership",
                     current.id
                 ))
             })?;
-            let value = current_activity
-                .as_ref()
-                .map(serde_json::to_value)
-                .transpose()
-                .map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
-            return Ok(update_multi_agent_agent_current_activity(
+            let value = serde_json::to_value(activity).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
+            update_multi_agent_agent_current_activity(
                 &target.control_db_path,
                 &target.session_path,
                 &current.id,
-                value.as_ref(),
+                Some(&value),
+                updated_at,
+                ownership,
+                model.as_ref(),
+            )?
+        } else if let Some(model) = &model {
+            let ownership = activity_ownership.ok_or_else(|| {
+                MultiAgentStoreError::new(format!(
+                    "Persisted agent {} model metadata update requires exact runtime ownership",
+                    current.id
+                ))
+            })?;
+            crate::core::session_control_db::update_multi_agent_agent_model(
+                &target.control_db_path,
+                &target.session_path,
+                &current.id,
+                model,
                 updated_at,
                 ownership,
             )?
-            .and_then(|value| serde_json::from_value(value).ok()));
-        }
-        if let Some(transcript) = &updates.transcript {
-            let value = transcript
-                .as_ref()
-                .map(serde_json::to_value)
-                .transpose()
-                .map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
-            return Ok(update_multi_agent_agent_transcript(
+        } else if let Some(transcript) = &updates.transcript {
+            let value =
+                serde_json::to_value(transcript).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
+            update_multi_agent_agent_transcript(
                 &target.control_db_path,
                 &target.session_path,
                 &current.id,
-                value.as_ref(),
+                Some(&value),
                 updated_at,
             )?
-            .and_then(|value| serde_json::from_value(value).ok()));
-        }
-        if let Some(slot) = &updates.slot {
-            let value = slot
-                .as_ref()
-                .map(serde_json::to_value)
-                .transpose()
-                .map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
-            return Ok(update_multi_agent_agent_slot(
+        } else if let Some(slot) = &updates.slot {
+            let value = serde_json::to_value(slot).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
+            update_multi_agent_agent_slot(
                 &target.control_db_path,
                 &target.session_path,
                 &current.id,
-                value.as_ref(),
+                Some(&value),
                 updated_at,
             )?
-            .and_then(|value| serde_json::from_value(value).ok()));
-        }
-        let value = updates
-            .last_activity
-            .as_ref()
-            .and_then(|activity| serde_json::to_value(activity).ok());
-        Ok(update_multi_agent_agent_activity(
-            &target.control_db_path,
-            &target.session_path,
-            &current.id,
-            value.as_ref(),
-            updated_at,
-        )?
-        .and_then(|value| serde_json::from_value(value).ok()))
+        } else {
+            let value = encode(&updates.last_activity)?;
+            update_multi_agent_agent_activity(
+                &target.control_db_path,
+                &target.session_path,
+                &current.id,
+                Some(&value),
+                updated_at,
+            )?
+        };
+        persisted
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|error| MultiAgentStoreError::new(error.to_string()))
     }
 
     fn update_agent_metadata(
@@ -1862,71 +1976,77 @@ impl MultiAgentStore {
         Ok(updated)
     }
 
-    fn retry_or_record_terminal_notification(&self, agent: &AgentNode, lifecycle: LifecycleNotificationLifecycle) {
+    fn retry_or_record_terminal_notification(
+        &self,
+        agent: &AgentNode,
+        lifecycle: LifecycleNotificationLifecycle,
+    ) -> Result<(), MultiAgentStoreError> {
         let existing = self
-            .list_pending_lifecycle_notifications_for_agent(&agent.id, lifecycle)
+            .list_pending_lifecycle_notifications_for_agent(&agent.id, lifecycle)?
             .into_iter()
             .next();
         if let Some(existing) = existing {
             self.notify_lifecycle_notification_listeners(&existing);
-            return;
+            return Ok(());
         }
         match lifecycle {
             LifecycleNotificationLifecycle::Completed => self.record_completion_notification(agent),
             LifecycleNotificationLifecycle::Failed => self.record_failure_notification(agent),
-            LifecycleNotificationLifecycle::WaitingForInput => {}
+            LifecycleNotificationLifecycle::WaitingForInput => Ok(()),
         }
     }
-
-    fn record_completion_notification(&self, agent: &AgentNode) {
-        if self.has_pending_lifecycle_notification(&agent.id, LifecycleNotificationLifecycle::Completed) {
-            return;
+    fn record_completion_notification(&self, agent: &AgentNode) -> Result<(), MultiAgentStoreError> {
+        if self.has_pending_lifecycle_notification(&agent.id, LifecycleNotificationLifecycle::Completed)? {
+            return Ok(());
         }
         self.record_lifecycle_notification(
             agent,
             format_completion_notification_body(agent),
             copy_file_refs(agent.result.as_ref().and_then(|result| result.file_refs.as_deref())),
             completion_notification_thread_id(&agent.id),
-        );
+        )
     }
-
-    fn record_failure_notification(&self, agent: &AgentNode) {
-        if self.has_pending_lifecycle_notification(&agent.id, LifecycleNotificationLifecycle::Failed) {
-            return;
+    fn record_failure_notification(&self, agent: &AgentNode) -> Result<(), MultiAgentStoreError> {
+        if self.has_pending_lifecycle_notification(&agent.id, LifecycleNotificationLifecycle::Failed)? {
+            return Ok(());
         }
         self.record_lifecycle_notification(
             agent,
             format_failure_notification_body(agent),
             copy_file_refs(agent.result.as_ref().and_then(|result| result.file_refs.as_deref())),
             failed_notification_thread_id(&agent.id),
-        );
+        )
     }
-
-    fn record_waiting_for_input_notification(&self, agent: &AgentNode) {
-        if self.has_pending_lifecycle_notification(&agent.id, LifecycleNotificationLifecycle::WaitingForInput) {
-            return;
+    fn record_waiting_for_input_notification(&self, agent: &AgentNode) -> Result<(), MultiAgentStoreError> {
+        if self.has_pending_lifecycle_notification(&agent.id, LifecycleNotificationLifecycle::WaitingForInput)? {
+            return Ok(());
         }
         self.record_lifecycle_notification(
             agent,
             format_waiting_for_input_notification_body(agent),
             None,
             waiting_for_input_notification_thread_id(&agent.id),
-        );
+        )
     }
-
     fn record_lifecycle_notification(
         &self,
         agent: &AgentNode,
         body: String,
         file_refs: Option<Vec<AgentFileReference>>,
         thread_id: String,
-    ) {
+    ) -> Result<(), MultiAgentStoreError> {
         let timestamp = self.now();
+        if crate::core::session_control_db::is_mailbox_message_expired(
+            Some(&agent.updated_at),
+            pi_js_compat::date::date_parse(&timestamp),
+        ) {
+            return Ok(());
+        }
         let message = AgentMailboxMessage {
             body: Some(body),
             created_at: timestamp.clone(),
             from_agent_id: agent.id.clone(),
-            id: self.create_message_id(),
+            id: self.create_message_id()?,
             kind: MailboxMessageKindValue::System,
             status: MailboxMessageStatusValue::Pending,
             thread_id: Some(thread_id),
@@ -1939,8 +2059,9 @@ impl MultiAgentStore {
             target_checkpoint: None,
             error: None,
         };
-        let _ = self.put_mailbox_message(message.clone());
+        self.put_mailbox_message(message.clone())?;
         self.notify_lifecycle_notification_listeners(&message);
+        Ok(())
     }
 
     fn notify_lifecycle_notification_listeners(&self, message: &AgentMailboxMessage) {
@@ -1975,31 +2096,35 @@ impl MultiAgentStore {
         }
     }
 
-    fn has_pending_lifecycle_notification(&self, agent_id: &str, lifecycle: LifecycleNotificationLifecycle) -> bool {
-        self.list_mailbox_messages()
+    fn has_pending_lifecycle_notification(
+        &self,
+        agent_id: &str,
+        lifecycle: LifecycleNotificationLifecycle,
+    ) -> Result<bool, MultiAgentStoreError> {
+        Ok(self
+            .list_mailbox_messages()?
             .iter()
-            .any(|message| is_pending_lifecycle_notification(message, agent_id, lifecycle))
+            .any(|message| is_pending_lifecycle_notification(message, agent_id, lifecycle)))
     }
 
-    fn create_agent_id(&self, prefix: &str) -> String {
-        let allocated = self.allocate_counter(CounterName::Agent);
-        format!("{prefix}_{allocated}")
+    fn create_agent_id(&self, prefix: &str) -> Result<String, MultiAgentStoreError> {
+        let allocated = self.allocate_counter(CounterName::Agent)?;
+        Ok(format!("{prefix}_{allocated}"))
     }
 
-    fn create_message_id(&self) -> String {
-        let allocated = self.allocate_counter(CounterName::Message);
-        format!("message_{allocated}")
+    fn create_message_id(&self) -> Result<String, MultiAgentStoreError> {
+        let allocated = self.allocate_counter(CounterName::Message)?;
+        Ok(format!("message_{allocated}"))
     }
 
-    fn allocate_counter(&self, counter_name: CounterName) -> i64 {
+    fn allocate_counter(&self, counter_name: CounterName) -> Result<i64, MultiAgentStoreError> {
         let persistence = self.lock().persistence.clone();
-        if let Some(target) = persistence
-            && let Ok(allocated) =
-                allocate_multi_agent_counter(&target.control_db_path, &target.session_path, counter_name.into())
-        {
+        if let Some(target) = persistence {
+            let allocated =
+                allocate_multi_agent_counter(&target.control_db_path, &target.session_path, counter_name.into())?;
             let mut state = self.lock();
             state.update_counter(counter_name, allocated + 1);
-            return allocated;
+            return Ok(allocated);
         }
         let mut state = self.lock();
         let current = match counter_name {
@@ -2007,7 +2132,7 @@ impl MultiAgentStore {
             CounterName::Message => state.next_message_number,
         };
         state.update_counter(counter_name, current + 1);
-        current
+        Ok(current)
     }
 }
 
@@ -2073,6 +2198,7 @@ impl Drop for AbortRegistration {
 
 #[derive(Default)]
 struct MetadataUpdate {
+    model: Option<AgentModel>,
     current_activity: Option<Option<AgentCurrentActivity>>,
     last_activity: Option<Option<AgentActivity>>,
     slot: Option<Option<AgentSlot>>,
@@ -2083,6 +2209,9 @@ impl MetadataUpdate {
     fn apply(&self, current: &AgentNode, updated_at: &str) -> AgentNode {
         let mut updated = current.clone();
         updated.updated_at = updated_at.to_owned();
+        if let Some(model) = &self.model {
+            updated.model = Some(model.clone());
+        }
         if let Some(current_activity) = &self.current_activity {
             updated.current_activity = current_activity.clone();
         }

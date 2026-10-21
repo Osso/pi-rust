@@ -138,7 +138,10 @@ pub fn dispatch_attached_session_agent(
         .lock()
         .expect("ownerships")
         .insert(target.id.clone(), Arc::clone(&reserved_runtime));
-    input.store.publish_lifecycle_coordinator_snapshot(&target);
+    input
+        .store
+        .publish_lifecycle_coordinator_snapshot(&target)
+        .map_err(|error| HandlerError::new(error.message))?;
     let Some(create_attached_session) = input.create_attached_session.clone() else {
         return Ok(None);
     };
@@ -351,7 +354,10 @@ async fn dispatch_reserved_agent_session(input: DispatchReservedAgentSessionInpu
         .map_err(|error| error.message().to_owned())?;
     let running_agent = match running {
         LifecycleCommandResult::Ok { agent } => {
-            input.store.publish_lifecycle_coordinator_snapshot(&agent);
+            input
+                .store
+                .publish_lifecycle_coordinator_snapshot(&agent)
+                .map_err(|error| error.message)?;
             *agent
         }
         LifecycleCommandResult::Err { .. } => {

@@ -10,15 +10,15 @@ pub(crate) const MAILBOX_CREATED_AT_MS_SQL: &str = "COALESCE(CASE WHEN json_vali
 pub(crate) fn mailbox_cutoff_ms() -> i64 {
     pi_js_compat::date::js_now_millis() as i64 - MAILBOX_MESSAGE_RETENTION_MS
 }
-pub fn is_mailbox_message_expired(created_at: Option<&str>, now_ms: i64) -> bool {
+pub fn is_mailbox_message_expired(created_at: Option<&str>, now_ms: f64) -> bool {
     created_at
         .and_then(pi_js_compat::date::date_parse_millis)
-        .is_none_or(|birth| now_ms - birth >= MAILBOX_MESSAGE_RETENTION_MS)
+        .is_none_or(|birth| now_ms - birth as f64 >= MAILBOX_MESSAGE_RETENTION_MS as f64)
 }
 pub(crate) fn assert_mailbox_message_fresh(message: &Map<String, Value>, context: &str) -> Result<(), ControlDbError> {
     if is_mailbox_message_expired(
         message.get("createdAt").and_then(Value::as_str),
-        pi_js_compat::date::js_now_millis() as i64,
+        pi_js_compat::date::js_now_millis(),
     ) {
         return Err(ControlDbError::new(format!("Expired mailbox message at {context}")));
     }

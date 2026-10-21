@@ -115,3 +115,59 @@ fn rust_outbox_delivery_deletes_row_instead_of_leaving_delivered_projection() {
     let response=ts.request(&json!({"id":1,"steps":[{"op":"fixtureSql","args":[db,"SELECT count(*) AS total FROM multi_agent_terminal_outbox",[]]}]}));
     assert_eq!(response["output"][0]["value"][0]["total"], 0);
 }
+
+#[test]
+fn owned_model_and_tool_detail_updates_are_visible_to_same_ts_reader() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let now = pi_coding_agent::utils::iso_time::now_iso_string();
+    let identity = read_process_identity(std::process::id()).unwrap();
+    let owner = MultiAgentRuntimeOwnerIdentity {
+        session_id: "owner".into(),
+        agent_id: None,
+    };
+    assert_eq!(
+        call(
+            &mut ts,
+            "createMultiAgentChildWithRuntimeOwnership",
+            json!([db,{"sessionPath":"/fixture/s","agentId":"child","processIdentity":identity,"owner":owner,"nowIso":now,"agent":agent(&now)}])
+        )["ok"],
+        true
+    );
+    let mut activity_owner = pi_coding_agent::core::multi_agent_store::AgentCurrentActivityOwner {
+        owner_session_id: "wrong".into(),
+        process_identity: identity,
+    };
+    let model = json!({"providerId":"fixture","modelId":"model","thinkingLevel":"high"});
+    assert!(
+        update_multi_agent_agent_model(&db, "/fixture/s", "child", &model, &now, &activity_owner)
+            .unwrap()
+            .is_none()
+    );
+    activity_owner.owner_session_id = "owner".into();
+    assert!(
+        update_multi_agent_agent_model(&db, "/fixture/s", "child", &model, &now, &activity_owner)
+            .unwrap()
+            .is_some()
+    );
+    let tool = json!({"phase":"tool","startedAt":now,"toolCallId":"t","toolName":"read","detail":"/fixture/a.rs"});
+    update_multi_agent_agent_current_activity(
+        &db,
+        "/fixture/s",
+        "child",
+        Some(&tool),
+        &now,
+        &activity_owner,
+        Some(&model),
+    )
+    .unwrap()
+    .unwrap();
+    let peer = call(&mut ts, "readMultiAgentAgent", json!([db, "/fixture/s", "child"]));
+    assert_eq!(peer["currentActivity"], tool);
+    assert_eq!(peer["model"], model);
+    assert_eq!(
+        serde_json::to_value(read_multi_agent_agent(&db, "/fixture/s", "child").unwrap().unwrap()).unwrap()["currentActivity"],
+        tool
+    );
+}

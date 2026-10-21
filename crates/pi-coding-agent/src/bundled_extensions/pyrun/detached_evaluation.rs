@@ -87,7 +87,11 @@ fn create_lifecycle_controller(
         control_db_path: persistence.control_db_path.clone(),
         create_agent_id: {
             let store = Arc::clone(&input.store);
-            Arc::new(move || store.allocate_agent_id_for_lifecycle_coordinator("pyrun"))
+            Arc::new(move || {
+                store
+                    .allocate_agent_id_for_lifecycle_coordinator("pyrun")
+                    .map_err(|error| crate::core::sqlite::ControlDbError::new(error.message))
+            })
         },
         now: Arc::new(crate::utils::iso_time::now_iso_string),
         process_identity,

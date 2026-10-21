@@ -227,7 +227,7 @@ fn deliver_sent_agent_message(
         None => enqueue_runtime_mailbox_store_message(store, message, ctx)?,
     };
     if !delivered {
-        let failed_message = mark_failed_mailbox_transport_message(store, message);
+        let failed_message = mark_failed_mailbox_transport_message(store, message)?;
         let error = if params.to_session_id.is_some() {
             "Could not send runtime session message: runtime mailbox transport is unavailable."
         } else {
@@ -288,7 +288,7 @@ fn send_main_runtime_session_message(
         })
         .map_err(|error| HandlerError::new(error.message))?;
     if !enqueue_runtime_session_message(store, &message, &to_session_id, ctx, None)? {
-        let failed_message = mark_failed_mailbox_transport_message(store, &message);
+        let failed_message = mark_failed_mailbox_transport_message(store, &message)?;
         return Ok(tool_result(
             "Could not send runtime session message: runtime mailbox transport is unavailable.",
             json!({"agent": sender, "message": failed_message}),
@@ -369,7 +369,7 @@ fn deliver_parent_contact(
     ctx: Option<&ExtensionContext>,
 ) -> Result<AgentToolResult, HandlerError> {
     if !enqueue_runtime_mailbox_store_message(store, message, ctx)? {
-        let failed_message = mark_failed_mailbox_transport_message(store, message);
+        let failed_message = mark_failed_mailbox_transport_message(store, message)?;
         return Ok(tool_result(
             "Could not contact parent: runtime mailbox transport is unavailable.",
             json!({"agent": agent, "message": failed_message}),
@@ -458,7 +458,10 @@ pub fn mirror_pending_lifecycle_runtime_mailbox_messages(
             }
             _ => continue,
         };
-        for message in store.list_pending_lifecycle_notifications_for_agent(&agent.id, lifecycle) {
+        for message in store
+            .list_pending_lifecycle_notifications_for_agent(&agent.id, lifecycle)
+            .map_err(|error| HandlerError::new(error.message))?
+        {
             enqueue_lifecycle_runtime_mailbox_message(store, &message, ctx)?;
         }
     }
@@ -468,17 +471,22 @@ pub fn mirror_pending_lifecycle_runtime_mailbox_messages(
 fn mark_failed_mailbox_transport_message(
     store: &MultiAgentStore,
     message: &AgentMailboxMessage,
-) -> AgentMailboxMessage {
+) -> Result<AgentMailboxMessage, HandlerError> {
     let error = "Runtime mailbox transport is unavailable.";
-    match store.mark_mailbox_message_failed(&message.id, error) {
-        Some(failed) => failed,
-        None => {
-            let mut failed = message.clone();
-            failed.error = Some(error.to_owned());
-            failed.status = MailboxMessageStatusValue::Failed;
-            failed
-        }
-    }
+    Ok(
+        match store
+            .mark_mailbox_message_failed(&message.id, error)
+            .map_err(|error| HandlerError::new(error.message))?
+        {
+            Some(failed) => failed,
+            None => {
+                let mut failed = message.clone();
+                failed.error = Some(error.to_owned());
+                failed.status = MailboxMessageStatusValue::Failed;
+                failed
+            }
+        },
+    )
 }
 
 fn enqueue_runtime_session_message(
