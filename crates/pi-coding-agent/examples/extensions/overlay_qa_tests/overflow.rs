@@ -6,12 +6,13 @@ struct Output {
     lines: Vec<String>,
     scroll: usize,
     finished: bool,
+    exited: bool,
     disposed: bool,
 }
 pub(super) struct Process {
     output: Rc<RefCell<Output>>,
     pid: u32,
-    readers: Vec<tokio::task::JoinHandle<()>>,
+    readers: Vec<tokio::task::AbortHandle>,
 }
 impl Process {
     pub(super) fn start(model: &Rc<Model>) -> Self {
@@ -31,19 +32,32 @@ impl Process {
             read(stdout, false, output.clone(), model.theme.clone(), model.tui.clone()),
             read(stderr, true, output.clone(), model.theme.clone(), model.tui.clone()),
         ];
+        let abort_readers = readers.iter().map(tokio::task::JoinHandle::abort_handle).collect();
         let state = output.clone();
         let tui = model.tui.clone();
         tokio::task::spawn_local(async move {
             child.wait().await.expect("overlay overflow: reap subprocess");
+            state.borrow_mut().exited = true;
+            for reader in readers {
+                match reader.await {
+                    Ok(()) => {}
+                    Err(error) if error.is_cancelled() && state.borrow().disposed => {}
+                    Err(error) => panic!("overlay overflow: join output reader: {error}"),
+                }
+            }
             if !state.borrow().disposed {
                 state.borrow_mut().finished = true;
                 tui.request_render();
             }
         });
-        Self { output, pid, readers }
+        Self {
+            output,
+            pid,
+            readers: abort_readers,
+        }
     }
     fn kill(&self) {
-        if self.output.borrow().finished {
+        if self.output.borrow().exited {
             return;
         }
         if let Some(pid) = rustix::process::Pid::from_raw(self.pid as i32) {

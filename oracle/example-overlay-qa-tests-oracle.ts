@@ -24,6 +24,7 @@ async function run(request:any) {
  const schedule=(callback:()=>void,ms:number,period=0)=>{const id=++nextId;timers.set(id,{callback,at:now+Math.floor(ms),period});return id;};
  const advance=(ms:number)=>{const end=now+ms;while(true){const entry=[...timers].filter(([,t])=>t.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!entry)break;now=entry[1].at;if(entry[1].period)entry[1].at+=entry[1].period;else timers.delete(entry[0]);entry[1].callback();}now=end;};
  const procHooks:any={};
+ let pendingTail:string|undefined;
  const realDate=Date;
  const context=vm.createContext({exports:{},require:(name:string)=>{
   if(name==='@earendil-works/pi-tui')return tui;
@@ -46,8 +47,8 @@ async function run(request:any) {
   const panels:any[]=[];let focus=-1,requests=0;
   const handle=(index:number)=>({hide(){panels[index].hidden=true;if(focus===index){focus=-1;panels[index].component.focused=false;}},setHidden(value:boolean){panels[index].hidden=value;},isHidden:()=>panels[index].hidden,focus(){focus=index;panels.forEach((p,i)=>p.component.focused=i===index);},unfocus(){if(focus===index)focus=-1;panels[index].component.focused=false;},isFocused:()=>focus===index});
   const host={requestRender(){requests++;},showOverlay(component:any,options:any){const index=panels.length;panels.push({component,options,hidden:false});return handle(index);}};
-  let completed=false,value:any=null;
-  const component=factory(host,theme,{},(v:any)=>{completed=true;value=v??null;});
+  let completed=false,value:any=null,doneCount=0;
+  const component=factory(host,theme,{},(v:any)=>{doneCount++;completed=true;value=v??null;});
   component.focused=true;
   const mainHandle={hide(){},setHidden(value:boolean){calls.push(['hidden',value]);},isHidden:()=>false,focus(){},unfocus(){},isFocused:()=>true};
   options.onHandle?.(mainHandle);
@@ -57,10 +58,10 @@ async function run(request:any) {
   calls.push(['options',serial(options.overlayOptions)]);
   const snapshot=(width:number)=>calls.push(['frames',component.render(width),panels.map(p=>({options:serial(p.options),hidden:p.hidden,lines:p.component.render(p.options.width??34)}))]);
   snapshot(script.width??60);
-  for(const step of script.steps??[]){if(step.proc){if(step.proc.stdout!==undefined)procHooks.stdout(Buffer.from(step.proc.stdout));if(step.proc.stderr!==undefined)procHooks.stderr(Buffer.from(step.proc.stderr));if(step.proc.close)procHooks.close();}if(step.dispose)component.dispose?.();if(step.ms)advance(step.ms);if(step.key!==undefined||step.units){const target=step.panel===undefined?component:panels[step.panel].component;target.handleInput((step.key??String.fromCharCode(...step.units)).toWellFormed());}snapshot(step.width??script.width??60);}
+  for(const step of script.steps??[]){if(step.proc?.exitBeforeTail!==undefined)pendingTail=step.proc.exitBeforeTail;if(step.releaseTail){procHooks.stdout(Buffer.from(pendingTail!));procHooks.close();}if(step.running&&component.render(script.width??60).join('\n').includes('✓ Done'))throw new Error('exit must not finish before stdio closes');if(step.proc){if(step.proc.stdout!==undefined)procHooks.stdout(Buffer.from(step.proc.stdout));if(step.proc.stderr!==undefined)procHooks.stderr(Buffer.from(step.proc.stderr));if(step.proc.close)procHooks.close();}if(step.dispose)component.dispose?.();if(step.ms)advance(step.ms);if(step.key!==undefined||step.units){const target=step.panel===undefined?component:panels[step.panel].component;target.handleInput((step.key??String.fromCharCode(...step.units)).toWellFormed());}snapshot(step.width??script.width??60);}
   component.invalidate();component.dispose?.();cloned?.dispose?.();
   calls.push(['requests',requests]);
-  calls.push(['done',completed,value]);
+  calls.push(['done',completed,value,doneCount]);
   if(script.delay)await new Promise<void>(resolve=>schedule(resolve,script.delay));
   return value;
  }};

@@ -236,7 +236,10 @@ impl ExtensionUiContext for Ui {
                 REQUESTS.with(|count| count.set(0));
                 let result = Rc::new(RefCell::new(None));
                 let saved = result.clone();
+                let done_count = Rc::new(Cell::new(0));
+                let count = done_count.clone();
                 let done = ExtensionUiDone::new(Rc::new(move |v| {
+                    count.set(count.get() + 1);
                     *saved.borrow_mut() = Some(v);
                 }));
                 let component = factory(
@@ -282,6 +285,22 @@ impl ExtensionUiContext for Ui {
                         let mut control = std::fs::OpenOptions::new().append(true).open(path).unwrap();
                         writeln!(control, "{event}").unwrap();
                     }
+                    if step["exited"] == true {
+                        wait_for_process_exit().await;
+                        tokio::task::yield_now().await;
+                    }
+                    if step["running"] == true {
+                        let frame = component.render(width).join("\n");
+                        assert!(
+                            frame.contains("● Running"),
+                            "exit must not finish before stdio closes: {frame}"
+                        );
+                        assert!(!frame.contains("✓ Done"));
+                    }
+                    if step["releaseTail"] == true {
+                        let path = pi_js_compat::process_env::get("OVERLAY_QA_CONTROL").unwrap();
+                        std::fs::write(format!("{path}.release"), "release").unwrap();
+                    }
                     if let Some(text) = step["waitFor"].as_str() {
                         let mut ready = false;
                         for _ in 0..2000 {
@@ -296,7 +315,9 @@ impl ExtensionUiContext for Ui {
                     }
                     if step["dispose"] == true {
                         component.dispose();
-                        wait_for_process_exit().await;
+                        if step["reap"] == true {
+                            wait_for_process_exit().await;
+                        }
                     }
 
                     if let Some(ms) = step["ms"].as_u64() {
@@ -332,10 +353,12 @@ impl ExtensionUiContext for Ui {
                     .unwrap()
                     .push(json!(["requests", REQUESTS.with(Cell::get)]));
                 let result = result.borrow().clone();
-                calls
-                    .lock()
-                    .unwrap()
-                    .push(json!(["done", result.is_some(), result.clone().flatten()]));
+                calls.lock().unwrap().push(json!([
+                    "done",
+                    result.is_some(),
+                    result.clone().flatten(),
+                    done_count.get()
+                ]));
                 PANELS.with(|ps| ps.borrow_mut().clear());
                 Ok(result.flatten())
             })
@@ -353,6 +376,10 @@ async fn native(request: &Value) -> Value {
     {
         std::fs::write(&control, "").unwrap();
         let _ = std::fs::remove_file(format!("{control}.pid"));
+        let release = format!("{control}.release");
+        if std::path::Path::new(&release).exists() {
+            std::fs::remove_file(release).unwrap();
+        }
     }
     let runtime = create_extension_runtime();
     let mut registry = ExtensionRegistry::new();
@@ -428,7 +455,7 @@ async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
     );
     fixtures.extend([
         json!({"command":"overlay-overflow","scripts":[{"steps":[{"ready":true},{"proc":{"stdout":output},"waitFor":"Streaming Output (21 lines)"},{"proc":{"stdout":"tail\n"},"waitFor":"Streaming Output (22 lines)"},{"proc":{"stderr":"  stderr fixture \n"},"waitFor":"Streaming Output (23 lines)"},{"key":"\x1b[A"},{"key":"\x1b[B"},{"width":9},{"proc":{"close":true},"waitFor":"Done"},{"key":"\x1b"}]}]}),
-        json!({"command":"overlay-overflow","scripts":[{"steps":[{"ready":true},{"proc":{"stdout":"one\n"},"waitFor":"Streaming Output (1 lines)"},{"dispose":true},{"proc":{"stdout":"late-after-dispose\n"}},{"key":"\x1b"}]}]}),
+        json!({"command":"overlay-overflow","scripts":[{"steps":[{"ready":true},{"proc":{"stdout":"one\n"},"waitFor":"Streaming Output (1 lines)"},{"dispose":true,"reap":true},{"proc":{"stdout":"late-after-dispose\n"}},{"key":"\x1b"}]}]}),
         json!({"command":"overlay-toggle","scripts":[{"clone":true,"steps":[{"key":"t"},{"ms":1000},{"key":"\x1b"}]}]}),
         json!({"command":"overlay-animation","scripts":[{"steps":[{"ms":1100},{"width":1},{"width":7},{"key":"\x03"},{"ms":100}]}]}),
         json!({"command":"overlay-passive","scripts":[{"steps":[{"ms":61000},{"units":[55296]},{"key":"\x7f"},{"key":"\x03"},{"ms":1000}]}]}),
@@ -455,6 +482,155 @@ async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
             panic!("differential mismatch: {request}; /tmp/overlay-qa-{{actual,expected}}.json");
         }
     }
+}
+
+#[tokio::test]
+async fn focus_dispose_then_ctrl_c_does_not_complete() {
+    let request = json!({"command":"overlay-focus","scripts":[{"steps":[{"dispose":true},{"key":"\x03"}]}]});
+    let mut oracle = oracle::TsOracle::spawn(
+        "example-overlay-qa-tests-oracle.ts",
+        "packages/coding-agent/examples/extensions/overlay-qa-tests.ts",
+    );
+    let expected = oracle.request(&request);
+    assert!(
+        expected["calls"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(["done", false, null, 0]))
+    );
+    assert_eq!(native(&request).await, expected);
+}
+
+#[tokio::test]
+async fn controller_close_and_dispose_lifecycle_matches_all_thirteen_commands() {
+    let _process = process_fixture();
+    let mut oracle = oracle::TsOracle::spawn(
+        "example-overlay-qa-tests-oracle.ts",
+        "packages/coding-agent/examples/extensions/overlay-qa-tests.ts",
+    );
+    for command in [
+        "animation",
+        "anchors",
+        "margins",
+        "stack",
+        "overflow",
+        "edge",
+        "percent",
+        "maxheight",
+        "sidepanel",
+        "toggle",
+        "passive",
+        "focus",
+        "streaming",
+    ] {
+        for dispose in [false, true] {
+            let mut steps = Vec::new();
+            if command == "overflow" {
+                steps.push(json!({"ready":true}));
+            }
+            if dispose {
+                steps.push(json!({"dispose":true,"reap":command == "overflow"}));
+            }
+            steps.extend([json!({"key":"\x03"}), json!({"key":"\x03"})]);
+            let script = json!({"steps":steps});
+            let scripts = if command == "stack" {
+                vec![script; 3]
+            } else {
+                vec![script]
+            };
+            let request = json!({"command":format!("overlay-{command}"),"scripts":scripts});
+            let expected = oracle.request(&request);
+            let actual = native(&request).await;
+            assert_eq!(actual, expected, "lifecycle {command} dispose={dispose}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn overflow_done_waits_for_final_output_after_child_exit() {
+    let _process = process_fixture();
+    let request = json!({"command":"overlay-overflow","scripts":[{"steps":[
+        {"ready":true}, {"proc":{"exitBeforeTail":"final-output-before-close\n"}},
+        {"exited":true,"running":true}, {"releaseTail":true,"waitFor":"✓ Done"}, {"key":"\x1b"}
+    ]}]});
+    let mut oracle = oracle::TsOracle::spawn(
+        "example-overlay-qa-tests-oracle.ts",
+        "packages/coding-agent/examples/extensions/overlay-qa-tests.ts",
+    );
+    let immediate = json!({"command":"overlay-overflow","scripts":[{"steps":[
+        {"ready":true}, {"proc":{"stdout":"final-output-before-close\n","close":true},"waitFor":"✓ Done"}, {"key":"\x1b"}
+    ]}]});
+    for request in [request, immediate] {
+        let expected = oracle.request(&request);
+        let actual = native(&request).await;
+        for frame in actual["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|call| call[0] == "frames")
+        {
+            let text = frame[1]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|line| line.as_str().unwrap())
+                .collect::<Vec<_>>()
+                .join("\n");
+            if text.contains("✓ Done") {
+                assert!(
+                    text.contains("final-output-before-close"),
+                    "Done frame must contain final output"
+                );
+            }
+        }
+        assert_eq!(actual, expected);
+    }
+}
+
+#[tokio::test]
+async fn sidepanel_saturates_at_both_menu_ends_against_pinned_source() {
+    let mut steps = vec![json!({"key":"\x1b[A"})];
+    steps.extend((0..6).map(|_| json!({"key":"\x1b[B"})));
+    steps.extend((0..6).map(|_| json!({"key":"\x1b[A"})));
+    steps.push(json!({"key":"\x1b"}));
+    let request = json!({"command":"overlay-sidepanel","scripts":[{"steps":steps}]});
+    let mut oracle = oracle::TsOracle::spawn(
+        "example-overlay-qa-tests-oracle.ts",
+        "packages/coding-agent/examples/extensions/overlay-qa-tests.ts",
+    );
+    assert_eq!(native(&request).await, oracle.request(&request));
+}
+
+#[test]
+fn timestamp_normalization_preserves_exact_padding_and_hour_width() {
+    let border = "\x1b[38;2;59;32;32m│\x1b[39m";
+    for hour in 1..=12 {
+        let mut short = json!(format!("[{hour}:02:03 AM]   {border}"));
+        let mut padded = json!(format!(
+            "[{hour:02}:59:58 PM]{}{}",
+            " ".repeat(if hour < 10 { 2 } else { 3 }),
+            border
+        ));
+        normalize_timestamps(&mut short);
+        normalize_timestamps(&mut padded);
+        assert_eq!(short, padded, "hour {hour}");
+        assert_eq!(
+            short,
+            json!(format!(
+                "[<local-time>]{}{border}",
+                " ".repeat(if hour < 10 { 2 } else { 3 })
+            ))
+        );
+        let mut wrong = json!(format!("[{hour:02}:59:58 PM]         {border}"));
+        normalize_timestamps(&mut wrong);
+        assert_ne!(short, wrong, "extra padding must remain observable");
+    }
+}
+
+#[test]
+#[should_panic(expected = "one-digit timestamp needs one padding space")]
+fn timestamp_normalization_rejects_missing_padding() {
+    normalize_timestamps(&mut json!("[1:02:03 AM]\x1b[38;2;59;32;32m│\x1b[39m"));
 }
 
 struct ProcessFixture {
@@ -488,6 +664,13 @@ while True:
    event=json.loads(line)
    if 'stdout' in event:sys.stdout.write(event['stdout']);sys.stdout.flush()
    if 'stderr' in event:sys.stderr.write(event['stderr']);sys.stderr.flush()
+   if 'exitBeforeTail' in event:
+    if os.fork():sys.exit(0)
+    deadline=time.monotonic()+2
+    while not os.path.exists(control+'.release'):
+     if time.monotonic()>deadline:os._exit(1)
+     time.sleep(0.001)
+    sys.stdout.write(event['exitBeforeTail']);sys.stdout.flush();os._exit(0)
    if event.get('close'):sys.exit(0)
   position=stream.tell()
  time.sleep(0.001)
@@ -530,11 +713,14 @@ fn normalize_timestamps(value: &mut Value) {
         Value::String(s) => {
             let pattern = regex::Regex::new(r"\[\d{1,2}:\d{2}:\d{2} [AP]M\]").unwrap();
             if pattern.is_match(s) {
-                // Source virtual time and native wall time differ in hour digits, so padLine's
-                // padding before the closing border differs by that width too.
-                let padding = regex::Regex::new(" +(\x1b\\[[0-9;]*m│\x1b\\[39m)$").unwrap();
-                let stamped = pattern.replace_all(s, "[<local-time>]");
-                *s = padding.replace(&stamped, " <pad>$1").into_owned();
+                let short_hour = regex::Regex::new(r"\[(\d):(\d{2}:\d{2} [AP]M)\]").unwrap();
+                if short_hour.is_match(s) {
+                    let padding = regex::Regex::new(" (\x1b\\[[0-9;]*m│\x1b\\[39m)$").unwrap();
+                    assert!(padding.is_match(s), "one-digit timestamp needs one padding space: {s}");
+                    *s = short_hour.replace_all(s, "[0$1:$2]").into_owned();
+                    *s = padding.replace(s, "$1").into_owned();
+                }
+                *s = pattern.replace_all(s, "[<local-time>]").into_owned();
             }
         }
         Value::Array(items) => {

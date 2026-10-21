@@ -434,6 +434,10 @@ impl Model {
             );
         }
         if matches_key(data, "escape") || matches_key(data, "ctrl+c") {
+            if self.demo == Demo::Focus {
+                self.close();
+                return;
+            }
             let value = match self.demo {
                 Demo::Anchors => Some(json!("cancel")),
                 Demo::Margins | Demo::Percent => Some(json!("close")),
@@ -584,6 +588,9 @@ impl ExtensionUiComponent for QaComponent {
         if self.0.demo == Demo::Streaming {
             self.0.close();
         } else {
+            if self.0.demo == Demo::Focus {
+                self.0.state.borrow_mut().closed = true;
+            }
             self.0.cleanup();
         }
         if self.0.demo == Demo::Toggle {
