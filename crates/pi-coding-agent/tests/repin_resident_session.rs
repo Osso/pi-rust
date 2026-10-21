@@ -5,7 +5,7 @@ mod oracle;
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 
-use pi_coding_agent::core::resident_session::{ResidentRole, prepare_resident_session_file};
+use pi_coding_agent::core::resident_session::{ResidentRole, ResidentSessionError, prepare_resident_session_file};
 use pi_coding_agent::core::session_control_db::{
     RuntimeMailboxAddress, RuntimeMailboxRegistrationOptions, WritableSessionMetadata, list_session_metadata,
     register_runtime_mailbox_listener, write_session_metadata,
@@ -177,7 +177,11 @@ fn prepare_native(f: &Value) -> Value {
     };
     match prepare_resident_session_file(f["agentDir"].as_str().unwrap(), role, f["db"].as_str().unwrap()) {
         Ok(result) => json!({"ok": true, "value": result}),
-        Err(error) => json!({"ok": false, "error": error.to_string()}),
+        Err(ResidentSessionError::Filesystem(error)) => json!({"ok": false, "error": {
+            "name": error.name, "message": error.message, "code": error.code,
+            "errno": error.errno, "syscall": error.syscall, "path": error.path
+        }}),
+        Err(error) => json!({"ok": false, "error": {"name": "Error", "message": error.to_string()}}),
     }
 }
 
@@ -330,12 +334,7 @@ fn actual_source_filesystem_errors_and_metadata_before_unlink_order() {
             };
             restore_permissions(&f);
             assert_eq!(outcome["ok"], false, "{case}: {outcome}");
-            let message = if native {
-                outcome["error"].clone()
-            } else {
-                outcome["error"]["message"].clone()
-            };
-            messages.push(normalized(message, &root));
+            messages.push(normalized(outcome["error"].clone(), &root));
             if case == "unlink-error" {
                 let observed = success(&mut oracle, "inspect", &f);
                 let paths: Vec<_> = observed["metadata"]
@@ -428,7 +427,18 @@ fn independent_selection_unicode_relative_types_and_paired_liveness() {
                     request(&mut oracle, "prepare", &f)
                 };
                 assert_eq!(prepared["ok"], true, "{role}/{case}: {prepared}");
-                let entries = success(&mut oracle, "inspect", &f)["entries"].clone();
+                let observed = success(&mut oracle, "inspect", &f);
+                if case == "self-missing" {
+                    assert!(
+                        observed["metadata"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|row| row["sessionPath"] == f["listener"]["path"]),
+                        "missing live path metadata must survive: {observed}"
+                    );
+                }
+                let entries = observed["entries"].clone();
                 outputs.push(normalized(json!({"prepared": prepared, "entries": entries}), &root));
             }
             assert_eq!(outputs[0], outputs[1], "{role}/{case}: concrete paths/files/types");
@@ -458,4 +468,21 @@ fn independent_selection_unicode_relative_types_and_paired_liveness() {
             }
         }
     }
+}
+
+#[test]
+fn nul_path_shared_argument_validation_boundary_is_explicit() {
+    let mut oracle = oracle();
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().display().to_string();
+    let mut f = fixture(&root, "architect", "empty");
+    f["agentDir"] = json!(format!("{root}/agent\0tail"));
+    let source = request(&mut oracle, "prepare", &f);
+    let native = prepare_native(&f);
+    assert_eq!(source["error"]["name"], "TypeError");
+    assert_eq!(source["error"]["code"], "ERR_INVALID_ARG_VALUE");
+    assert_eq!(
+        source, native,
+        "unsupported shared Node argument-validation boundary; no fallback or waiver"
+    );
 }
