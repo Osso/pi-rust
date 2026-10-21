@@ -121,3 +121,4 @@ Open legacy/raw regression: `legacy_v1_raw_receipt_survives_in_memory_migration_
 
 Authorized frozen selector delta: SessionInfo has first_message only; removed source-absent all_messages_text and total-transcript accumulator. Counts/activity still scan all records; text extraction stops after first non-extension user prompt. Selector matches id/name/first_message/cwd exactly source line28. Actual-source differential not-later-message RED before production (e1f7ab6b); focused GREEN pending.
 
+Metadata listing now consumes canonical control API (c7248cac via0063fe60): absent table alone returns None; populated-but-filtered-empty returns Some(empty) without filesystem scan/cache. Scope resolves cwd and directory prefix exactly at consumer boundary; DB owns query/subagent/order semantics. Actual-source scoped-empty RED at0063fe60; focused GREEN pending. No duplicated SQL or compatibility query path.

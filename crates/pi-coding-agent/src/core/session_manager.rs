@@ -24,8 +24,8 @@ use serde_json::{Map, Value};
 use crate::config::{get_agent_dir, get_sessions_dir};
 use crate::core::permissions::presets::SandboxProfileName;
 use crate::core::session_control_db::{
-    SessionMetadata, WritableSessionMetadata, clear_session_sandbox_profile, list_active_session_metadata,
-    list_archived_session_metadata, list_session_metadata, normalize_session_name, read_session_goal,
+    ResumeSessionMetadataOptions, SessionMetadata, WritableSessionMetadata, clear_session_sandbox_profile,
+    list_resume_session_metadata, list_session_metadata, normalize_session_name, read_session_goal,
     read_session_metadata, read_session_name_state, read_session_sandbox_profile, write_session_goal,
     write_session_metadata, write_session_model, write_session_name, write_session_sandbox_profile,
     write_session_thinking_level,
@@ -3526,7 +3526,7 @@ impl SessionManager {
             MetadataScope {
                 cwd: Some(cwd),
                 dir: Some(&dir),
-                archived: Some(false),
+                archived: false,
             },
         )? {
             return Ok(sessions);
@@ -3560,7 +3560,7 @@ impl SessionManager {
             MetadataScope {
                 cwd: None,
                 dir: dir.as_deref(),
-                archived: Some(true),
+                archived: true,
             },
         )?
         .unwrap_or_default())
@@ -3579,7 +3579,7 @@ impl SessionManager {
                 MetadataScope {
                     cwd: None,
                     dir: Some(&dir),
-                    archived: Some(false),
+                    archived: false,
                 },
             )? {
                 return Ok(sessions);
@@ -3595,7 +3595,7 @@ impl SessionManager {
             MetadataScope {
                 cwd: None,
                 dir: None,
-                archived: Some(false),
+                archived: false,
             },
         )? {
             return Ok(sessions);
@@ -3610,7 +3610,7 @@ impl SessionManager {
 struct MetadataScope<'a> {
     cwd: Option<&'a str>,
     dir: Option<&'a str>,
-    archived: Option<bool>,
+    archived: bool,
 }
 
 fn session_info_from_metadata(metadata: &SessionMetadata) -> SessionInfo {
@@ -3628,40 +3628,6 @@ fn session_info_from_metadata(metadata: &SessionMetadata) -> SessionInfo {
     }
 }
 
-fn metadata_matches_session_dir(metadata: &SessionMetadata, dir: &str) -> Result<bool, SessionManagerError> {
-    Ok(normalize(&metadata.session_path)?.starts_with(&format!("{}/", normalize(dir)?)))
-}
-
-fn list_scoped_session_metadata(
-    control_db_path: &str,
-    scope: MetadataScope<'_>,
-) -> Result<Vec<SessionMetadata>, SessionManagerError> {
-    let sessions = match scope.archived {
-        Some(true) => list_archived_session_metadata(control_db_path).map_err(control_db_error)?,
-        Some(false) => list_active_session_metadata(control_db_path).map_err(control_db_error)?,
-        None => list_session_metadata(control_db_path).map_err(control_db_error)?,
-    };
-    let resolved_cwd = match scope.cwd {
-        Some(cwd) => Some(resolve(cwd)?),
-        None => None,
-    };
-    let mut scoped = Vec::new();
-    for metadata in sessions {
-        if let Some(dir) = scope.dir
-            && !metadata_matches_session_dir(&metadata, dir)?
-        {
-            continue;
-        }
-        if let Some(cwd) = resolved_cwd.as_deref()
-            && !session_cwd_matches(Some(&metadata.cwd), cwd)
-        {
-            continue;
-        }
-        scoped.push(metadata);
-    }
-    Ok(scoped)
-}
-
 fn list_metadata_sessions(
     control_db_path: Option<&str>,
     scope: MetadataScope<'_>,
@@ -3669,18 +3635,26 @@ fn list_metadata_sessions(
     let Some(control_db_path) = control_db_path else {
         return Ok(None);
     };
-    if list_session_metadata(control_db_path)
+    let cwd = scope.cwd.filter(|cwd| !cwd.is_empty()).map(resolve).transpose()?;
+    let session_path_prefix = scope
+        .dir
+        .filter(|dir| !dir.is_empty())
+        .map(|dir| {
+            let mut prefix = normalize(dir)?;
+            if !prefix.ends_with(std::path::MAIN_SEPARATOR) {
+                prefix.push(std::path::MAIN_SEPARATOR);
+            }
+            Ok::<_, SessionManagerError>(prefix)
+        })
+        .transpose()?;
+    let options = ResumeSessionMetadataOptions {
+        archived: scope.archived,
+        cwd,
+        session_path_prefix,
+    };
+    Ok(list_resume_session_metadata(control_db_path, &options)
         .map_err(control_db_error)?
-        .is_empty()
-    {
-        return Ok(None);
-    }
-    let resume_sessions: Vec<SessionInfo> = list_scoped_session_metadata(control_db_path, scope)?
-        .iter()
-        .filter(|metadata| metadata.is_subagent != Some(true))
-        .map(session_info_from_metadata)
-        .collect();
-    Ok((!resume_sessions.is_empty()).then_some(resume_sessions))
+        .map(|metadata| metadata.iter().map(session_info_from_metadata).collect()))
 }
 
 fn exclude_known_subagent_sessions(
