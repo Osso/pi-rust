@@ -161,7 +161,7 @@ impl OAuthAuth for IdentityOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access),
+                api_key: Some(credential.access_utf8()?),
                 headers: None,
                 base_url: None,
             })

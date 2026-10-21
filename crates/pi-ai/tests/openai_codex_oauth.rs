@@ -83,10 +83,15 @@ async fn device_code_login_notifies_polls_and_extracts_the_account_id() {
     let interaction = TestInteraction::new(vec![PromptAnswer::Text("device_code".to_owned())]);
 
     let credential = oauth.login(interaction.clone()).await.expect("credential");
-    assert_eq!(credential.access, token);
-    assert_eq!(credential.refresh, "refresh-token");
+    assert_eq!(credential.access.to_utf8().unwrap(), token);
+    assert_eq!(credential.refresh.to_utf8().unwrap(), "refresh-token");
     assert_eq!(credential.expires, NOW + 3_600_000.0);
-    assert_eq!(credential.extra.get("accountId"), Some(&json!("account-123")));
+    assert_eq!(
+        credential
+            .extra
+            .get(&pi_js_compat::js_json::JsString::from("accountId")),
+        Some(&pi_js_compat::js_json::JsValue::from(&json!("account-123")))
+    );
 
     let events = interaction.events();
     assert_eq!(
@@ -148,8 +153,13 @@ async fn browser_login_hits_the_local_callback_and_uses_the_browser_redirect_uri
     assert!(body.contains("OpenAI authentication completed. You can close this window."));
 
     let credential = login.await.expect("task").expect("credential");
-    assert_eq!(credential.access, token);
-    assert_eq!(credential.extra.get("accountId"), Some(&json!("account-browser")));
+    assert_eq!(credential.access.to_utf8().unwrap(), token);
+    assert_eq!(
+        credential
+            .extra
+            .get(&pi_js_compat::js_json::JsString::from("accountId")),
+        Some(&pi_js_compat::js_json::JsValue::from(&json!("account-browser")))
+    );
 
     let requests = recorded_requests(&fetch);
     assert_eq!(requests.len(), 1);
@@ -176,9 +186,12 @@ async fn refresh_posts_the_rotated_token_and_reads_the_account_id() {
         )
         .await
         .expect("refreshed");
-    assert_eq!(refreshed.refresh, "new-refresh");
+    assert_eq!(refreshed.refresh.to_utf8().unwrap(), "new-refresh");
     assert_eq!(refreshed.expires, NOW + 3_600_000.0);
-    assert_eq!(refreshed.extra.get("accountId"), Some(&json!("account-refresh")));
+    assert_eq!(
+        refreshed.extra.get(&pi_js_compat::js_json::JsString::from("accountId")),
+        Some(&pi_js_compat::js_json::JsValue::from(&json!("account-refresh")))
+    );
     assert_eq!(
         recorded_requests(&fetch)[0].body,
         "grant_type=refresh_token&refresh_token=old-refresh&client_id=app_EMoamEEZ73f0CkXaXp7hrann"

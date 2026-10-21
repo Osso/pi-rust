@@ -1112,8 +1112,14 @@ impl OAuthAuth for ComposedOAuthAuth {
             let auth = oauth.to_auth(credential.clone()).await?;
             let env = credential
                 .extra
-                .get("env")
-                .and_then(|value| serde_json::from_value::<HashMap<String, String>>(value.clone()).ok());
+                .get(&pi_js_compat::js_json::JsString::from("env"))
+                .map(|value| {
+                    value
+                        .to_serde()
+                        .and_then(serde_json::from_value::<HashMap<String, String>>)
+                })
+                .transpose()
+                .map_err(|error| AuthError::failed(error.to_string()))?;
             let headers = resolve_headers_or_throw(
                 raw_headers.as_ref(),
                 &format!("provider \"{provider_id}\""),

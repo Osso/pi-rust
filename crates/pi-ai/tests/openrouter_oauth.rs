@@ -70,8 +70,8 @@ async fn callback_login_exchanges_the_code_for_a_permanent_key() {
     assert!(body.contains("Signed in to OpenRouter. You may now close this page."));
 
     let credential = login.await.expect("task").expect("credential");
-    assert_eq!(credential.access, "sk-or-test");
-    assert_eq!(credential.refresh, "");
+    assert_eq!(credential.access.to_utf8().unwrap(), "sk-or-test");
+    assert_eq!(credential.refresh.to_utf8().unwrap(), "");
     assert_eq!(credential.expires, MAX_SAFE_INTEGER);
     assert!(interaction.prompts()[0].signal.as_ref().unwrap().is_cancelled());
 
@@ -136,7 +136,7 @@ async fn manual_codes_are_trimmed_and_exchanged_without_a_callback() {
     let interaction = TestInteraction::new(vec![PromptAnswer::Text("  manual-code  ".to_owned())]);
 
     let credential = oauth.login(interaction).await.expect("credential");
-    assert_eq!(credential.access, "sk-or-manual");
+    assert_eq!(credential.access.to_utf8().unwrap(), "sk-or-manual");
     assert_eq!(
         recorded_requests(&fetch)[0].body,
         json!({"code": "manual-code", "code_verifier": verifier(), "code_challenge_method": "S256"}).to_string()

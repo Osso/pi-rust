@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use serde_json::Value;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 
 use crate::api::anthropic_messages_lazy::anthropic_messages_api;
 use crate::api::openai_completions::open_ai_completions_api;
@@ -21,19 +21,22 @@ fn filter_models(models: Vec<Model>, credential: Option<&Credential>) -> Vec<Mod
     let Some(Credential::OAuth(credential)) = credential else {
         return models;
     };
-    let Some(Value::Array(available_model_ids)) = credential.extra.get("availableModelIds") else {
+    let Some(Value::Array(available_model_ids)) = credential
+        .extra
+        .get(&pi_js_compat::js_json::JsString::from("availableModelIds"))
+    else {
         return models;
     };
-    let mut available: BTreeSet<&str> = BTreeSet::new();
+    let mut available: BTreeSet<&JsString> = BTreeSet::new();
     for id in available_model_ids {
-        let Some(id) = id.as_str() else {
+        let Some(id) = id.as_string() else {
             return models;
         };
         available.insert(id);
     }
     models
         .into_iter()
-        .filter(|model| available.contains(model.id.as_str()))
+        .filter(|model| available.contains(&JsString::from(&model.id)))
         .collect()
 }
 

@@ -76,7 +76,13 @@ impl OAuthAuth for GitHubCopilotOAuth {
         let runtime = self.runtime.clone();
         Box::pin(async move {
             let enterprise_domain = copilot_enterprise_domain(&credential);
-            refresh_token(&runtime, &credential.refresh, enterprise_domain.as_deref(), signal).await
+            refresh_token(
+                &runtime,
+                &credential.refresh_header_value("Authorization")?,
+                enterprise_domain.as_deref(),
+                signal,
+            )
+            .await
         })
     }
 
@@ -84,10 +90,10 @@ impl OAuthAuth for GitHubCopilotOAuth {
         Box::pin(async move {
             let enterprise_domain = copilot_enterprise_domain(&credential);
             Ok(ModelAuth {
-                api_key: Some(credential.access.clone()),
+                api_key: Some(credential.access_utf8()?),
                 headers: None,
                 base_url: Some(get_github_copilot_base_url(
-                    Some(&credential.access),
+                    Some(&credential.access_utf8()?),
                     enterprise_domain.as_deref(),
                 )),
             })
@@ -384,10 +390,17 @@ async fn refresh_access_token(
     ];
     headers.extend(copilot_header_pairs());
     let request = json_request(&urls.copilot_token, "GET", headers, None);
-    let raw = fetch_json(runtime, request, signal).await?;
-
-    let token = raw.get("token").and_then(Value::as_str);
-    let expires_at = raw.get("expires_at").and_then(Value::as_f64);
+    let response = send(&runtime.fetch, request, Some(signal.clone())).await?;
+    if !response.ok() {
+        return Err(CallbackError::new(format!(
+            "{} {}: {}",
+            response.status, response.status_text, response.body
+        )));
+    }
+    let raw =
+        pi_js_compat::js_json::parse_lossless(&response.body).map_err(|error| CallbackError::new(error.to_string()))?;
+    let token = raw.get("token").and_then(pi_js_compat::js_json::JsValue::as_string);
+    let expires_at = raw.get("expires_at").and_then(pi_js_compat::js_json::JsValue::as_f64);
     let (Some(token), Some(expires_at)) = (token, expires_at) else {
         return Err(CallbackError::new("Invalid Copilot token response fields"));
     };
@@ -398,9 +411,10 @@ async fn refresh_access_token(
         expires_at * 1000.0 - 300_000.0,
     );
     if let Some(domain) = enterprise_domain {
-        credential
-            .extra
-            .insert("enterpriseUrl".to_owned(), Value::String(domain.to_owned()));
+        credential.extra.insert(
+            "enterpriseUrl".into(),
+            pi_js_compat::js_json::JsValue::String(domain.into()),
+        );
     }
     Ok(credential)
 }
@@ -414,12 +428,17 @@ async fn refresh_token(
     let mut credentials = refresh_access_token(runtime, refresh_token, enterprise_domain, &signal)
         .await
         .map_err(to_auth_error)?;
-    let available = fetch_available_model_ids(runtime, &credentials.access, enterprise_domain, &signal)
+    let available = fetch_available_model_ids(runtime, &credentials.access_utf8()?, enterprise_domain, &signal)
         .await
         .map_err(to_auth_error)?;
     credentials.extra.insert(
-        "availableModelIds".to_owned(),
-        Value::Array(available.into_iter().map(Value::String).collect()),
+        "availableModelIds".into(),
+        pi_js_compat::js_json::JsValue::Array(
+            available
+                .into_iter()
+                .map(|s| pi_js_compat::js_json::JsValue::String(s.into()))
+                .collect(),
+        ),
     );
     Ok(credentials)
 }
@@ -492,11 +511,16 @@ async fn enable_all_models(
 }
 
 fn copilot_enterprise_domain(credential: &OAuthCredential) -> Option<String> {
-    let enterprise_url = credential.extra.get("enterpriseUrl")?.as_str()?;
+    let enterprise_url = credential
+        .extra
+        .get(&pi_js_compat::js_json::JsString::from("enterpriseUrl"))?
+        .as_string()?
+        .to_utf8()
+        .ok()?;
     if enterprise_url.is_empty() {
         return None;
     }
-    normalize_domain(enterprise_url)
+    normalize_domain(&enterprise_url)
 }
 
 async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -> Result<OAuthCredential, AuthError> {
@@ -542,14 +566,30 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
     interaction.notify(AuthEvent::Progress {
         message: "Enabling models...".to_owned(),
     });
-    enable_all_models(runtime, &credentials.access, enterprise_domain.as_deref(), &signal).await;
+    enable_all_models(
+        runtime,
+        &credentials.access_utf8()?,
+        enterprise_domain.as_deref(),
+        &signal,
+    )
+    .await;
 
-    let available = fetch_available_model_ids(runtime, &credentials.access, enterprise_domain.as_deref(), &signal)
-        .await
-        .map_err(to_auth_error)?;
+    let available = fetch_available_model_ids(
+        runtime,
+        &credentials.access_utf8()?,
+        enterprise_domain.as_deref(),
+        &signal,
+    )
+    .await
+    .map_err(to_auth_error)?;
     credentials.extra.insert(
-        "availableModelIds".to_owned(),
-        Value::Array(available.into_iter().map(Value::String).collect()),
+        "availableModelIds".into(),
+        pi_js_compat::js_json::JsValue::Array(
+            available
+                .into_iter()
+                .map(|s| pi_js_compat::js_json::JsValue::String(s.into()))
+                .collect(),
+        ),
     );
     Ok(credentials)
 }

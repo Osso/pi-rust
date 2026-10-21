@@ -612,7 +612,7 @@ fn oauth_only_extension_has_no_api_key_method() {
             uses_callback_server: None,
             login: Arc::new(|_callbacks| Box::pin(async { Err(AuthError::failed("unused")) })),
             refresh_token: Arc::new(|credential, _signal| Box::pin(async move { Ok(credential) })),
-            get_api_key: Arc::new(|credential| credential.access.clone()),
+            get_api_key: Arc::new(|credential| credential.access.to_utf8().expect("scalar fixture key")),
             modify_models: None,
         }),
         models: Some(vec![model(

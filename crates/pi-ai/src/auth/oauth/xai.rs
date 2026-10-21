@@ -65,16 +65,20 @@ impl OAuthAuth for XaiOAuth {
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
-            refresh_xai_token(&runtime, &credential.refresh, signal)
-                .await
-                .map_err(|error| AuthError::failed(error.message))
+            refresh_xai_token(
+                &runtime,
+                &crate::auth::oauth::support::to_form_usv_string(&credential.refresh),
+                signal,
+            )
+            .await
+            .map_err(|error| AuthError::failed(error.message))
         })
     }
 
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access),
+                api_key: Some(credential.access_utf8()?),
                 ..ModelAuth::default()
             })
         })

@@ -4,21 +4,19 @@
 //! `proper-lockfile` protocol (`<auth.json>.lock`) are part of the contract.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use pi_ai::auth::types::{
     AuthError, AuthOperationOptions, Credential, CredentialInfo, CredentialModifier, CredentialStore,
 };
 use pi_ai::request::BoxFuture;
-use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::get_agent_dir;
 use crate::core::config_value::{is_command_config_value, resolve_config_value};
 use crate::utils::lockfile::{LockErrorCode, LockOptions, acquire, acquire_sync};
-use crate::utils::paths::{get_file_revision, normalize_path};
+use crate::utils::paths::normalize_path;
 use pi_js_compat::js_json;
 
 const AUTH_FILE_MODE: u32 = 0o600;
@@ -31,6 +29,7 @@ const AUTH_LOCK_STALE_MS: u64 = 30_000;
 pub struct StorageError {
     message: String,
     aborted: bool,
+    cause: Option<Arc<StorageError>>,
 }
 
 impl StorageError {
@@ -39,6 +38,7 @@ impl StorageError {
         Self {
             message: message.into(),
             aborted: false,
+            cause: None,
         }
     }
 
@@ -46,6 +46,7 @@ impl StorageError {
         Self {
             message: "The operation was aborted".to_owned(),
             aborted: true,
+            cause: None,
         }
     }
 
@@ -68,7 +69,11 @@ impl std::fmt::Display for StorageError {
     }
 }
 
-impl std::error::Error for StorageError {}
+impl std::error::Error for StorageError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.cause.as_deref().map(|error| error as &dyn std::error::Error)
+    }
+}
 
 /// The backend writes `next` (when `Some`) after the operation returns.
 pub type LockOperation<'a> = Box<dyn FnOnce(Option<&str>) -> Result<Option<String>, StorageError> + Send + 'a>;
@@ -317,11 +322,10 @@ fn write_auth_file(path: &str, content: &str) -> Result<(), StorageError> {
     Ok(())
 }
 
-/// `InMemoryAuthStorageBackend`: one JSON string guarded by an async chain.
+/// `InMemoryAuthStorageBackend`: callbacks independently snapshot one JSON string.
 #[derive(Default)]
 pub struct InMemoryAuthStorageBackend {
     value: Mutex<Option<String>>,
-    chain: tokio::sync::Mutex<()>,
 }
 
 impl InMemoryAuthStorageBackend {
@@ -354,7 +358,6 @@ impl AuthStorageBackend for InMemoryAuthStorageBackend {
         options: AuthOperationOptions,
     ) -> BoxFuture<'_, Result<(), StorageError>> {
         Box::pin(async move {
-            let _guard = self.chain.lock().await;
             check_aborted(options.signal.as_ref())?;
             let current = self
                 .value
@@ -371,223 +374,62 @@ impl AuthStorageBackend for InMemoryAuthStorageBackend {
     }
 }
 
-pub type AuthStorageData = Map<String, Value>;
+pub type AuthStorageData = js_json::JsObject;
+use js_json::{JsObject, JsString, JsValue};
 
 fn parse_auth_data(content: Option<&str>) -> Result<AuthStorageData, StorageError> {
-    let Some(content) = content.filter(|content| !content.is_empty()) else {
-        return Ok(Map::new());
+    let Some(content) = content.filter(|s| !s.is_empty()) else {
+        return Ok(JsObject::new());
     };
-    match js_json::parse(content).map_err(|error| StorageError::new(error.to_string()))? {
-        Value::Object(object) => Ok(object),
-        _ => Ok(Map::new()),
+    match js_json::parse_lossless(content).map_err(|e| StorageError::new(e.to_string()))? {
+        JsValue::Object(data) => Ok(data),
+        _ => Ok(JsObject::new()),
     }
 }
-
-/// Merge raw UTF-16 JSON before encoding; untouched providers/keys must not cross serde's lossy string boundary.
-fn serialize_provider_change(
-    current: Option<&str>,
-    provider: &str,
-    credential: Option<&Value>,
-) -> Result<String, StorageError> {
-    let parsed = match current.filter(|text| !text.is_empty()) {
-        Some(text) => js_json::parse_lossless(text).map_err(|error| StorageError::new(error.to_string()))?,
-        None => js_json::JsValue::Object(js_json::JsObject::new()),
-    };
-    let mut object = match parsed {
-        js_json::JsValue::Object(object) => object,
-        _ => js_json::JsObject::new(),
-    };
-    let key = js_json::JsString::from(provider);
-    if let Some(credential) = credential {
-        let encoded = serde_json::to_string(credential).map_err(|error| StorageError::new(error.to_string()))?;
-        object.insert(
-            key,
-            js_json::parse_lossless(&encoded).map_err(|error| StorageError::new(error.to_string()))?,
-        );
-    } else {
-        object.shift_remove(&key);
+fn credential_type(value: &JsValue) -> Option<String> {
+    value.get("type")?.as_string()?.to_utf8().ok()
+}
+fn to_credential(value: &JsValue) -> Result<Credential, StorageError> {
+    if credential_type(value).as_deref() == Some("oauth") {
+        return pi_ai::auth::OAuthCredential::from_js_value(value)
+            .map(Credential::OAuth)
+            .map_err(StorageError::new);
     }
-    Ok(js_json::stringify_lossless_pretty(&js_json::JsValue::Object(object)))
+    let value = value.to_serde().map_err(|e| StorageError::new(e.to_string()))?;
+    serde_json::from_value(value).map_err(|e| StorageError::new(e.to_string()))
 }
-
-fn oauth_value(credential: pi_ai::oauth::OAuthCredentials) -> Result<Value, StorageError> {
-    serde_json::to_value(Credential::OAuth(credential)).map_err(|error| StorageError::new(error.to_string()))
-}
-fn json_truthy(value: &Value) -> bool {
+fn credential_value(value: Credential) -> Result<JsValue, StorageError> {
     match value {
-        Value::Null => false,
-        Value::Bool(v) => *v,
-        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
-        Value::String(s) => !s.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
+        Credential::OAuth(value) => Ok(value.to_js_value()),
+        Credential::ApiKey(value) => serde_json::to_value(Credential::ApiKey(value))
+            .map(|v| JsValue::from(&v))
+            .map_err(|e| StorageError::new(e.to_string())),
     }
 }
-
-fn credential_type(value: &Value) -> Option<&str> {
-    value.get("type").and_then(Value::as_str)
+fn oauth_value(value: pi_ai::oauth::OAuthCredentials) -> Result<JsValue, StorageError> {
+    Ok(value.to_js_value())
 }
-
-/// Strict validation used by [`ReadOnlyAuthStorage`], mirroring the source messages.
-fn validate_credential(value: &Value, provider_id: &str) -> Result<(), String> {
-    let Some(object) = value.as_object() else {
-        return Err(format!("Invalid auth.json credential for provider \"{provider_id}\""));
-    };
-    match object.get("type").and_then(Value::as_str) {
-        Some("api_key") => {
-            let valid_key = object.get("key").is_none_or(Value::is_string);
-            let valid_env = object.get("env").is_none_or(|env| {
-                env.as_object()
-                    .is_some_and(|values| values.values().all(Value::is_string))
-            });
-            if valid_key && valid_env {
-                Ok(())
-            } else {
-                Err(format!("Invalid auth.json credential for provider \"{provider_id}\""))
-            }
-        }
-        Some("oauth") => {
-            let access = object.get("access").is_some_and(Value::is_string);
-            let refresh = object.get("refresh").is_some_and(Value::is_string);
-            let expires = object
-                .get("expires")
-                .and_then(Value::as_f64)
-                .is_some_and(f64::is_finite);
-            if access && refresh && expires {
-                Ok(())
-            } else {
-                Err(format!("Invalid auth.json credential for provider \"{provider_id}\""))
-            }
-        }
-        _ => Err(format!("Invalid auth.json credential for provider \"{provider_id}\"")),
-    }
+fn source_now_millis() -> f64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as f64
 }
-
-fn to_credential(value: &Value) -> Result<Credential, StorageError> {
-    serde_json::from_value(value.clone())
-        .map_err(|error| StorageError::new(format!("Invalid auth.json credential: {error}")))
+#[derive(Clone)]
+pub struct GetApiKeyOptions {
+    pub signal: Option<CancellationToken>,
+    pub include_fallback: bool,
+    pub throw_on_refresh_failure: bool,
 }
-
-/// Credential storage that cannot modify `auth.json`.
-pub struct ReadOnlyAuthStorage {
-    auth_path: String,
-    data: Mutex<Option<AuthStorageData>>,
-}
-
-impl ReadOnlyAuthStorage {
-    pub fn new(auth_path: Option<&str>) -> Self {
-        let auth_path = auth_path
-            .map(str::to_owned)
-            .unwrap_or_else(|| get_agent_dir().join("auth.json").display().to_string());
+impl Default for GetApiKeyOptions {
+    fn default() -> Self {
         Self {
-            auth_path: normalize_path(&auth_path, &Default::default()).unwrap_or(auth_path),
-            data: Mutex::new(None),
+            signal: None,
+            include_fallback: true,
+            throw_on_refresh_failure: false,
         }
     }
-
-    fn load(&self) -> Result<AuthStorageData, StorageError> {
-        let mut data = self.data.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(data) = data.as_ref() {
-            return Ok(data.clone());
-        }
-        let parsed = match std::fs::read_to_string(&self.auth_path) {
-            Ok(content) => js_json::parse(&content)
-                .map_err(|error| StorageError::new(format!("Failed to read auth.json: {error}")))?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Value::Object(Map::new()),
-            Err(error) => {
-                return Err(StorageError::new(format!("Failed to read auth.json: {error}")));
-            }
-        };
-        let Value::Object(object) = parsed else {
-            return Err(StorageError::new("Invalid auth.json: expected an object"));
-        };
-        for (provider_id, credential) in &object {
-            validate_credential(credential, provider_id).map_err(StorageError::new)?;
-        }
-        *data = Some(object.clone());
-        Ok(object)
-    }
 }
-
-impl CredentialStore for ReadOnlyAuthStorage {
-    fn read(
-        &self,
-        provider_id: &str,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        let provider_id = provider_id.to_owned();
-        Box::pin(async move {
-            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            let data = self.load().map_err(StorageError::into_auth_error)?;
-            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            data.get(&provider_id)
-                .map(to_credential)
-                .transpose()
-                .map(|credential| credential.map(|credential| resolved_read_only_credential(&credential)))
-                .map_err(StorageError::into_auth_error)
-        })
-    }
-
-    fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>> {
-        Box::pin(async move {
-            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            let data = self.load().map_err(StorageError::into_auth_error)?;
-            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            Ok(js_json::object_entries(&data)
-                .into_iter()
-                .filter_map(|(provider_id, credential)| {
-                    credential_type(credential).map(|credential_type| CredentialInfo {
-                        provider_id: provider_id.clone(),
-                        credential_type: if credential_type == "oauth" {
-                            pi_ai::auth::types::CredentialType::Oauth
-                        } else {
-                            pi_ai::auth::types::CredentialType::ApiKey
-                        },
-                    })
-                })
-                .collect())
-        })
-    }
-
-    fn modify(
-        &self,
-        _provider_id: &str,
-        _modifier: CredentialModifier,
-        _options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        Box::pin(async move {
-            Err(AuthError::failed(
-                "Read-only credential storage cannot modify auth.json",
-            ))
-        })
-    }
-
-    fn delete(&self, _provider_id: &str, _options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
-        Box::pin(async move {
-            Err(AuthError::failed(
-                "Read-only credential storage cannot modify auth.json",
-            ))
-        })
-    }
-}
-
-struct Reload {
-    signal: CancellationToken,
-    readers: AtomicUsize,
-    outcome: Arc<Mutex<Option<Result<AuthStorageData, StorageError>>>>,
-    notify: Arc<tokio::sync::Notify>,
-}
-
-struct ReadState {
-    data: AuthStorageData,
-    revision: Option<String>,
-    reload: Option<Arc<Reload>>,
-}
-
-type SharedReadState = Option<(String, Arc<Mutex<ReadState>>)>;
-
-static SHARED_READ_STATE: OnceLock<Mutex<SharedReadState>> = OnceLock::new();
-
-/// Credential storage backed by a JSON file (`AuthStorage`).
 #[derive(Default)]
 struct SourceAuthState {
     data: AuthStorageData,
@@ -595,110 +437,63 @@ struct SourceAuthState {
     load_error: Option<StorageError>,
     errors: Vec<StorageError>,
 }
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthStatus {
     pub configured: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
-
+#[derive(Clone)]
 pub struct AuthStorage {
-    source_state: Arc<Mutex<SourceAuthState>>,
     storage: Arc<dyn AuthStorageBackend>,
-    auth_path: Option<String>,
-    read_state: Arc<Mutex<ReadState>>,
+    source_state: Arc<Mutex<SourceAuthState>>,
 }
-
 impl AuthStorage {
     pub fn create(auth_path: Option<&str>) -> Self {
         let path = auth_path
             .map(str::to_owned)
-            .unwrap_or_else(|| get_agent_dir().join("auth.json").display().to_string());
-        let normalized = normalize_path(&path, &Default::default()).unwrap_or(path);
-        Self::from_storage_at(Arc::new(FileAuthStorageBackend::new(&normalized)), Some(normalized))
+            .unwrap_or_else(|| default_auth_path().display().to_string());
+        Self::from_storage(Arc::new(FileAuthStorageBackend::new(&path)))
     }
-
     pub fn from_storage(storage: Arc<dyn AuthStorageBackend>) -> Self {
-        Self::from_storage_at(storage, None)
-    }
-
-    /// Builds a store over `storage` whose shared read state is keyed by `auth_path`.
-    pub fn from_storage_at(storage: Arc<dyn AuthStorageBackend>, auth_path: Option<String>) -> Self {
-        let read_state = match &auth_path {
-            Some(path) => {
-                let shared = SHARED_READ_STATE.get_or_init(|| Mutex::new(None));
-                let mut guard = shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                match guard.as_ref() {
-                    Some((shared_path, state)) if shared_path == path => Arc::clone(state),
-                    _ => {
-                        let state = Arc::new(Mutex::new(ReadState {
-                            data: Map::new(),
-                            revision: None,
-                            reload: None,
-                        }));
-                        *guard = Some((path.clone(), Arc::clone(&state)));
-                        state
-                    }
-                }
-            }
-            None => Arc::new(Mutex::new(ReadState {
-                data: Map::new(),
-                revision: None,
-                reload: None,
-            })),
-        };
-        let source_data = lock(&read_state).data.clone();
         let store = Self {
-            source_state: Arc::new(Mutex::new(SourceAuthState {
-                data: source_data,
-                ..Default::default()
-            })),
             storage,
-            auth_path,
-            read_state,
+            source_state: Arc::new(Mutex::new(SourceAuthState::default())),
         };
-        if store.auth_path.is_some() {
-            let revision = store.current_revision();
-            let state = store.read_state.clone();
-            let already_current = revision_matches(&state, revision.as_deref());
-            if !already_current {
-                store.reload();
-            }
-        } else {
-            store.reload();
-        }
+        store.reload();
         store
     }
-
-    pub fn in_memory(data: AuthStorageData) -> Self {
+    /// Compatibility entry point for old resolver consumers; no shared read state.
+    pub fn from_storage_at(storage: Arc<dyn AuthStorageBackend>, _auth_path: Option<String>) -> Self {
+        Self::from_storage(storage)
+    }
+    pub fn in_memory<K: Into<JsString>, V: Into<JsValue>>(data: impl IntoIterator<Item = (K, V)>) -> Self {
+        let data = data
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.into()))
+            .collect();
         let backend = Arc::new(InMemoryAuthStorageBackend::new());
-        backend.set_value(Some(js_json::stringify_pretty(&Value::Object(data))));
+        backend.set_value(Some(js_json::stringify_lossless_pretty(&JsValue::Object(data))));
         Self::from_storage(backend)
     }
-
-    /// Frozen public API: raw stored credential, without config resolution or refresh.
-    pub fn get(&self, provider: &str) -> Option<Value> {
-        lock(&self.source_state).data.get(provider).cloned()
+    pub fn get(&self, provider: impl Into<JsString>) -> Option<JsValue> {
+        lock(&self.source_state).data.get(&provider.into()).cloned()
     }
     pub fn get_all(&self) -> AuthStorageData {
         lock(&self.source_state).data.clone()
     }
-    /// Named separately until obsolete CredentialStore::list(options) consumers are removed.
-    pub fn list_providers(&self) -> Vec<String> {
+    pub fn list_providers(&self) -> Vec<JsString> {
         ordered_provider_ids(&lock(&self.source_state).data)
     }
-    pub fn has(&self, provider: &str) -> bool {
-        lock(&self.source_state).data.contains_key(provider)
+    pub fn has(&self, provider: impl Into<JsString>) -> bool {
+        lock(&self.source_state).data.contains_key(&provider.into())
     }
-    pub fn get_provider_env(&self, provider: &str) -> Option<std::collections::HashMap<String, String>> {
+    pub fn get_provider_env(&self, provider: &str) -> Option<JsValue> {
         let credential = self.get(provider)?;
-        if credential_type(&credential) != Some("api_key") {
+        if credential_type(&credential).as_deref() != Some("api_key") {
             return None;
         }
-        serde_json::from_value(credential.get("env")?.clone()).ok()
+        credential.get("env").cloned()
     }
     pub fn set_runtime_api_key(&self, provider: &str, api_key: &str) {
         lock(&self.source_state)
@@ -709,32 +504,38 @@ impl AuthStorage {
         lock(&self.source_state).runtime_overrides.remove(provider);
     }
     pub fn has_auth(&self, provider: &str) -> bool {
-        let source = lock(&self.source_state);
-        source.runtime_overrides.contains_key(provider)
-            || source.data.get(provider).is_some_and(json_truthy)
+        let state = lock(&self.source_state);
+        state.runtime_overrides.contains_key(provider)
+            || state
+                .data
+                .get(&JsString::from(provider))
+                .is_some_and(js_json::is_truthy)
             || pi_ai::env_api_keys::get_env_api_key(provider, None).is_some()
     }
     pub fn get_auth_status(&self, provider: &str) -> AuthStatus {
         let source = lock(&self.source_state);
-        if source.data.get(provider).is_some_and(json_truthy) {
+        if source
+            .data
+            .get(&JsString::from(provider))
+            .is_some_and(js_json::is_truthy)
+        {
             return AuthStatus {
                 configured: true,
-                source: Some("stored".to_owned()),
+                source: Some("stored".into()),
                 label: None,
             };
         }
         if source.runtime_overrides.contains_key(provider) {
             return AuthStatus {
                 configured: false,
-                source: Some("runtime".to_owned()),
-                label: Some("--api-key".to_owned()),
+                source: Some("runtime".into()),
+                label: Some("--api-key".into()),
             };
         }
-        if let Some(label) = pi_ai::env_api_keys::find_env_keys(provider, None).and_then(|keys| keys.into_iter().next())
-        {
+        if let Some(label) = pi_ai::env_api_keys::find_env_keys(provider, None).and_then(|k| k.into_iter().next()) {
             return AuthStatus {
                 configured: false,
-                source: Some("environment".to_owned()),
+                source: Some("environment".into()),
                 label: Some(label),
             };
         }
@@ -750,11 +551,26 @@ impl AuthStorage {
     pub fn drain_errors(&self) -> Vec<StorageError> {
         std::mem::take(&mut lock(&self.source_state).errors)
     }
-    fn persist_provider_change(
-        &self,
-        provider: &str,
-        credential: Option<Value>,
-    ) -> Result<AuthStorageData, StorageError> {
+    pub fn reload(&self) {
+        let mut parsed = None;
+        let outcome = self.storage.with_lock(Box::new(|current| {
+            parsed = Some(parse_auth_data(current));
+            Ok(None)
+        }));
+        let result = outcome.and_then(|()| parsed.expect("backend must invoke callback"));
+        let mut state = lock(&self.source_state);
+        match result {
+            Ok(data) => {
+                state.data = data;
+                state.load_error = None;
+            }
+            Err(error) => {
+                state.load_error = Some(error.clone());
+                state.errors.push(error);
+            }
+        }
+    }
+    fn persist_provider_change(&self, provider: JsString, credential: Option<JsValue>) -> Result<(), StorageError> {
         if lock(&self.source_state).load_error.is_some() {
             self.reload();
         }
@@ -766,455 +582,401 @@ impl AuthStorage {
             self.record_error(error.clone());
             return Err(error);
         }
-        let mut persisted = None;
+        let mut merged = None;
         let result = self.storage.with_lock(Box::new(|current| {
-            let content = serialize_provider_change(current, provider, credential.as_ref())?;
-            let mut merged = parse_auth_data(current)?;
-            if let Some(credential) = credential {
-                merged.insert(provider.to_owned(), credential);
+            let mut data = parse_auth_data(current)?;
+            if let Some(value) = credential {
+                data.insert(provider, value);
             } else {
-                merged.shift_remove(provider);
+                data.shift_remove(&provider);
             }
-            persisted = Some(merged);
+            let content = js_json::stringify_lossless_pretty(&JsValue::Object(data.clone()));
+            merged = Some(data);
             Ok(Some(content))
         }));
         if let Err(error) = result {
             self.record_error(error.clone());
             return Err(error);
         }
-        lock(&self.source_state).load_error = None;
-        Ok(persisted.expect("successful backend must call operation"))
-    }
-    pub fn set(&self, provider: &str, credential: Value) -> Result<(), StorageError> {
-        let persisted = self.persist_provider_change(provider, Some(credential))?;
-        lock(&self.source_state).data = persisted;
+        let mut state = lock(&self.source_state);
+        state.data = merged.expect("backend must invoke callback");
+        state.load_error = None;
         Ok(())
     }
-    pub fn remove(&self, provider: &str) -> Result<(), StorageError> {
-        let persisted = self.persist_provider_change(provider, None)?;
-        lock(&self.source_state).data = persisted;
-        Ok(())
+    pub fn set(&self, provider: impl Into<JsString>, credential: impl Into<JsValue>) -> Result<(), StorageError> {
+        self.persist_provider_change(provider.into(), Some(credential.into()))
+    }
+    pub fn remove(&self, provider: impl Into<JsString>) -> Result<(), StorageError> {
+        self.persist_provider_change(provider.into(), None)
     }
     pub fn logout(&self, provider: &str) -> Result<(), StorageError> {
         self.remove(provider)
     }
     pub async fn login(
         &self,
-        provider_id: &str,
+        id: &str,
         callbacks: Arc<dyn pi_ai::oauth::OAuthLoginCallbacks>,
     ) -> Result<(), StorageError> {
-        let provider = pi_ai::oauth::get_oauth_provider(provider_id)
-            .ok_or_else(|| StorageError::new(format!("Unknown OAuth provider: {provider_id}")))?;
-        let credential = provider
+        let provider = pi_ai::oauth::get_oauth_provider(id)
+            .ok_or_else(|| StorageError::new(format!("Unknown OAuth provider: {id}")))?;
+        let value = provider
             .login(callbacks)
             .await
-            .map_err(|error| StorageError::new(error.to_string()))?;
-        self.set(provider_id, oauth_value(credential)?)
+            .map_err(|e| StorageError::new(e.to_string()))?;
+        self.set(id, value.to_js_value())
     }
     pub fn get_oauth_providers(&self) -> Vec<Arc<dyn pi_ai::oauth::OAuthProviderInterface>> {
         pi_ai::oauth::get_oauth_providers()
     }
-    fn current_revision(&self) -> Option<String> {
-        self.auth_path.as_deref().and_then(get_file_revision)
-    }
-
-    /// Reloads credentials from storage, preserving the last valid snapshot on failure.
-    pub fn reload(&self) {
-        let state = Arc::clone(&self.read_state);
-        let auth_path = self.auth_path.clone();
-        let storage = Arc::clone(&self.storage);
-        let outcome = Arc::new(Mutex::new(None));
-        let captured = Arc::clone(&outcome);
-        let result = storage.with_lock(Box::new(move |current| {
-            let revision = auth_path.as_deref().and_then(get_file_revision);
-            let parsed = parse_auth_data(current);
-            *captured.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((parsed, revision));
-            Ok(None)
-        }));
-        if let Err(error) = result {
-            let mut source = lock(&self.source_state);
-            source.load_error = Some(error.clone());
-            source.errors.push(error);
-            return;
-        }
-        let captured = outcome.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
-        if let Some((parsed, revision)) = captured {
-            match parsed {
-                Ok(data) => {
-                    let mut source = lock(&self.source_state);
-                    source.data = data.clone();
-                    source.load_error = None;
-                    let mut state = lock(&state);
-                    state.data = data;
-                    state.revision = revision;
-                }
-                Err(error) => {
-                    let mut source = lock(&self.source_state);
-                    source.load_error = Some(error.clone());
-                    source.errors.push(error);
-                }
+    async fn refresh_oauth_token_with_lock(
+        &self,
+        provider_id: &str,
+        options: &GetApiKeyOptions,
+    ) -> Result<Option<pi_ai::oauth::OAuthApiKey>, StorageError> {
+        let Some(provider) = pi_ai::oauth::get_oauth_provider(provider_id) else {
+            return Ok(None);
+        };
+        let rotated = Arc::new(Mutex::new(None));
+        let captured = rotated.clone();
+        let result = Arc::new(Mutex::new(None));
+        let captured_result = result.clone();
+        let source = self.source_state.clone();
+        let id = provider_id.to_owned();
+        let refresh = self
+            .storage
+            .with_lock_async(
+                Box::new(move |current| {
+                    Box::pin(async move {
+                        let mut data = parse_auth_data(current.as_deref())?;
+                        {
+                            let mut state = lock(&source);
+                            state.data = data.clone();
+                            state.load_error = None;
+                        }
+                        let Some(value) = data.get(&JsString::from(&id)) else {
+                            return Ok(None);
+                        };
+                        if credential_type(value).as_deref() != Some("oauth") {
+                            return Ok(None);
+                        }
+                        let credential = to_credential(value)?.into_oauth().expect("checked OAuth");
+                        if source_now_millis() < credential.expires {
+                            *lock(&captured_result) = Some(pi_ai::oauth::OAuthApiKey {
+                                api_key: provider.get_api_key(&credential),
+                                new_credentials: credential,
+                            });
+                            return Ok(None);
+                        }
+                        let credentials = std::collections::HashMap::from([(id.clone(), credential)]);
+                        let Some(refreshed) = pi_ai::oauth::get_oauth_api_key(&id, &credentials)
+                            .await
+                            .map_err(|e| StorageError::new(e.to_string()))?
+                        else {
+                            return Ok(None);
+                        };
+                        *lock(&captured) = Some(refreshed.clone());
+                        data.insert(id.into(), refreshed.new_credentials.to_js_value());
+                        let content = js_json::stringify_lossless_pretty(&JsValue::Object(data.clone()));
+                        {
+                            let mut state = lock(&source);
+                            state.data = data;
+                            state.load_error = None;
+                        }
+                        *lock(&captured_result) = Some(refreshed);
+                        Ok(Some(content))
+                    })
+                }),
+                AuthOperationOptions {
+                    signal: options.signal.clone(),
+                },
+            )
+            .await;
+        match refresh {
+            Ok(()) => Ok(lock(&result).take()),
+            Err(error) => {
+                let Some(rotated) = lock(&rotated).take() else {
+                    return Err(error);
+                };
+                self.record_error(error);
+                self.set(provider_id, oauth_value(rotated.new_credentials.clone())?)?;
+                Ok(Some(rotated))
             }
         }
     }
-
-    fn reload_from_storage_async(
+    /// Public key lookup preserves the provider's UTF-16 result unchanged.
+    pub async fn get_api_key(
         &self,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<AuthStorageData, StorageError>> {
-        let state = Arc::clone(&self.read_state);
-        let auth_path = self.auth_path.clone();
-        let storage = Arc::clone(&self.storage);
-        let outcome: Arc<Mutex<Option<Result<AuthStorageData, StorageError>>>> = Arc::new(Mutex::new(None));
-        let captured = Arc::clone(&outcome);
+        provider_id: &str,
+        options: GetApiKeyOptions,
+    ) -> Result<Option<JsString>, StorageError> {
+        let runtime = lock(&self.source_state).runtime_overrides.get(provider_id).cloned();
+        if runtime.as_deref().is_some_and(|k| !k.is_empty()) {
+            return Ok(runtime.map(JsString::from));
+        }
+        if let Some(value) = self.get(provider_id) {
+            match credential_type(&value).as_deref() {
+                Some("api_key") => {
+                    let key = value
+                        .get("key")
+                        .and_then(JsValue::as_string)
+                        .map(JsString::to_utf8)
+                        .transpose()
+                        .map_err(|e| StorageError::new(e.to_string()))?;
+                    let env = self
+                        .get_provider_env(provider_id)
+                        .map(|v| v.to_serde())
+                        .transpose()
+                        .map_err(|e| StorageError::new(e.to_string()))?
+                        .map(serde_json::from_value::<std::collections::HashMap<String, String>>)
+                        .transpose()
+                        .map_err(|e| StorageError::new(e.to_string()))?;
+                    return Ok(key
+                        .and_then(|key| resolve_config_value(&key, env.as_ref()))
+                        .map(JsString::from));
+                }
+                Some("oauth") => {
+                    let Some(provider) = pi_ai::oauth::get_oauth_provider(provider_id) else {
+                        return Ok(None);
+                    };
+                    let credential = to_credential(&value)?.into_oauth().expect("checked OAuth");
+                    if source_now_millis() < credential.expires {
+                        return Ok(Some(provider.get_api_key(&credential)));
+                    }
+                    match self.refresh_oauth_token_with_lock(provider_id, &options).await {
+                        Ok(Some(result)) => return Ok(Some(result.api_key)),
+                        Ok(None) => {}
+                        Err(error) => {
+                            self.record_error(error.clone());
+                            self.reload();
+                            let reloaded = lock(&self.source_state).load_error.is_none();
+                            if let Some(updated) = self.get(provider_id).filter(|_| reloaded)
+                                && credential_type(&updated).as_deref() == Some("oauth")
+                            {
+                                let updated = to_credential(&updated)?.into_oauth().expect("checked OAuth");
+                                if source_now_millis() < updated.expires {
+                                    return Ok(Some(provider.get_api_key(&updated)));
+                                }
+                            }
+                            if options.throw_on_refresh_failure {
+                                let mut wrapped = StorageError::new(format!(
+                                    "Authentication failed for \"{provider_id}\": {error}. Run '/login {provider_id}' to re-authenticate."
+                                ));
+                                wrapped.cause = Some(Arc::new(error));
+                                return Err(wrapped);
+                            }
+                            return Ok(None);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !options.include_fallback {
+            return Ok(None);
+        }
+        Ok(pi_ai::env_api_keys::get_env_api_key(provider_id, None).map(JsString::from))
+    }
+}
+
+// Legacy resolver adapters retained until its consumers move to the frozen public API.
+fn resolved_credential(credential: Credential, commands: bool) -> Credential {
+    let Credential::ApiKey(mut key) = credential else {
+        return credential;
+    };
+    if let Some(value) = &key.key
+        && (commands || !is_command_config_value(value))
+    {
+        let env = key
+            .env
+            .as_ref()
+            .map(|e| e.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+        key.key = resolve_config_value(value, env.as_ref());
+    }
+    Credential::ApiKey(key)
+}
+impl CredentialStore for AuthStorage {
+    fn read(&self, id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+        let id = id.to_owned();
         Box::pin(async move {
-            storage
+            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
+            self.reload();
+            self.get(&id)
+                .as_ref()
+                .map(to_credential)
+                .transpose()
+                .map(|v| v.map(|c| resolved_credential(c, true)))
+                .map_err(StorageError::into_auth_error)
+        })
+    }
+    fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>> {
+        Box::pin(async move {
+            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
+            self.reload();
+            credential_infos(&self.get_all()).map_err(StorageError::into_auth_error)
+        })
+    }
+    fn modify(
+        &self,
+        id: &str,
+        modifier: CredentialModifier,
+        options: AuthOperationOptions,
+    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+        let id = id.to_owned();
+        Box::pin(async move {
+            let outcome = Arc::new(Mutex::new(None));
+            let captured = outcome.clone();
+            let source = self.source_state.clone();
+            self.storage
                 .with_lock_async(
                     Box::new(move |current| {
-                        let revision = auth_path.as_deref().and_then(get_file_revision);
-                        let parsed = parse_auth_data(current.as_deref());
-                        *captured.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(parsed.clone());
                         Box::pin(async move {
-                            let mut state = lock(&state);
-                            if let Ok(data) = &parsed {
-                                state.data = data.clone();
-                                state.revision = revision;
-                            }
-                            Ok(None)
+                            let mut data = parse_auth_data(current.as_deref())?;
+                            let old = data.get(&JsString::from(&id)).map(to_credential).transpose()?;
+                            let next = modifier(old.clone())
+                                .await
+                                .map_err(|e| StorageError::new(e.to_string()))?;
+                            let Some(next) = next else {
+                                *lock(&captured) = old;
+                                return Ok(None);
+                            };
+                            data.insert(id.into(), credential_value(next.clone())?);
+                            let content = js_json::stringify_lossless_pretty(&JsValue::Object(data.clone()));
+                            lock(&source).data = data;
+                            *lock(&captured) = Some(next);
+                            Ok(Some(content))
                         })
                     }),
                     options,
                 )
-                .await?;
-            outcome
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .take()
-                .unwrap_or_else(|| Ok(Map::new()))
-        })
-    }
-
-    async fn read_latest_data(&self, options: AuthOperationOptions) -> Result<AuthStorageData, StorageError> {
-        check_aborted(options.signal.as_ref())?;
-        let Some(_) = &self.auth_path else {
-            let reload = self.reload_from_storage_async(options.clone());
-            return match &options.signal {
-                Some(_) => reload.await,
-                None => reload.await.or_else(|_| Ok(lock(&self.read_state).data.clone())),
-            };
-        };
-        let revision = self.current_revision();
-        {
-            let state = lock(&self.read_state);
-            if revision.is_some() && revision == state.revision {
-                return Ok(state.data.clone());
-            }
-        }
-
-        let reload = {
-            let mut state = lock(&self.read_state);
-            match &state.reload {
-                Some(reload) => Arc::clone(reload),
-                None => {
-                    let reload = Arc::new(Reload {
-                        signal: CancellationToken::new(),
-                        readers: AtomicUsize::new(0),
-                        outcome: Arc::new(Mutex::new(None)),
-                        notify: Arc::new(tokio::sync::Notify::new()),
-                    });
-                    state.reload = Some(Arc::clone(&reload));
-                    start_reload(self, &reload);
-                    reload
-                }
-            }
-        };
-
-        reload.readers.fetch_add(1, Ordering::SeqCst);
-        let outcome = wait_for_reload(&reload, options.signal.as_ref()).await;
-        let remaining = reload.readers.fetch_sub(1, Ordering::SeqCst) - 1;
-        if remaining == 0 {
-            let mut state = lock(&self.read_state);
-            if state
-                .reload
-                .as_ref()
-                .is_some_and(|current| Arc::ptr_eq(current, &reload))
-            {
-                state.reload = None;
-                reload.signal.cancel();
-            }
-        }
-        outcome
-    }
-}
-
-fn revision_matches(state: &Arc<Mutex<ReadState>>, revision: Option<&str>) -> bool {
-    match revision {
-        Some(revision) => lock(state).revision.as_deref() == Some(revision),
-        None => false,
-    }
-}
-
-fn start_reload(store: &AuthStorage, reload: &Arc<Reload>) {
-    let state = Arc::clone(&store.read_state);
-    let auth_path = store.auth_path.clone();
-    let storage = Arc::clone(&store.storage);
-    let reload = Arc::clone(reload);
-    let signal = reload.signal.clone();
-    let outcome_state = Arc::clone(&state);
-    tokio::spawn(async move {
-        let outcome = storage
-            .with_lock_async(
-                Box::new(move |current| {
-                    let revision = auth_path.as_deref().and_then(get_file_revision);
-                    let parsed = parse_auth_data(current.as_deref());
-                    let state = Arc::clone(&state);
-                    Box::pin(async move {
-                        if let Ok(data) = &parsed {
-                            let mut state = lock(&state);
-                            state.data = data.clone();
-                            state.revision = revision;
-                        }
-                        Ok(None)
-                    })
-                }),
-                AuthOperationOptions::new(Some(signal)),
-            )
-            .await;
-        let parsed = match outcome {
-            Ok(()) => Ok(lock(&outcome_state).data.clone()),
-            Err(error) => Err(error),
-        };
-        *reload.outcome.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(parsed);
-        reload.notify.notify_waiters();
-    });
-}
-
-async fn wait_for_reload(
-    reload: &Arc<Reload>,
-    signal: Option<&CancellationToken>,
-) -> Result<AuthStorageData, StorageError> {
-    loop {
-        if let Some(outcome) = reload
-            .outcome
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
-        {
-            return outcome;
-        }
-        let notified = reload.notify.notified();
-        if let Some(signal) = signal {
-            tokio::select! {
-                () = notified => {}
-                () = signal.cancelled() => return Err(StorageError::aborted()),
-            }
-        } else {
-            notified.await;
-        }
-    }
-}
-
-fn resolved_credential(credential: &Credential) -> Credential {
-    let Credential::ApiKey(api_key) = credential else {
-        return credential.clone();
-    };
-    let Some(key) = &api_key.key else {
-        return credential.clone();
-    };
-    let env: std::collections::HashMap<String, String> = api_key
-        .env
-        .as_ref()
-        .map(|env| env.iter().map(|(name, value)| (name.clone(), value.clone())).collect())
-        .unwrap_or_default();
-    Credential::ApiKey(pi_ai::auth::types::ApiKeyCredential {
-        key: resolve_config_value(key, Some(&env)),
-        env: api_key.env.clone(),
-    })
-}
-
-/// `ReadOnlyAuthStorage.read` resolves templates but never executes command references.
-fn resolved_read_only_credential(credential: &Credential) -> Credential {
-    let Credential::ApiKey(api_key) = credential else {
-        return credential.clone();
-    };
-    let Some(key) = &api_key.key else {
-        return credential.clone();
-    };
-    if is_command_config_value(key) {
-        return credential.clone();
-    }
-    resolved_credential(credential)
-}
-
-impl CredentialStore for AuthStorage {
-    fn read(
-        &self,
-        provider_id: &str,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        let provider_id = provider_id.to_owned();
-        Box::pin(async move {
-            let data = self
-                .read_latest_data(options.clone())
                 .await
                 .map_err(StorageError::into_auth_error)?;
+            Ok(lock(&outcome).take())
+        })
+    }
+    fn delete(&self, id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
+        let id = id.to_owned();
+        Box::pin(async move {
             check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            let Some(value) = data.get(&provider_id) else {
-                return Ok(None);
-            };
-            let credential = to_credential(value).map_err(StorageError::into_auth_error)?;
-            Ok(Some(resolved_credential(&credential)))
+            self.remove(id).map_err(StorageError::into_auth_error)
         })
     }
-
-    fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>> {
+}
+fn credential_infos(data: &AuthStorageData) -> Result<Vec<CredentialInfo>, StorageError> {
+    js_json::object_entries_lossless(data)
+        .into_iter()
+        .filter_map(|(id, value)| credential_type(value).map(|kind| (id, kind)))
+        .map(|(id, kind)| {
+            Ok(CredentialInfo {
+                provider_id: id.to_utf8().map_err(|e| StorageError::new(e.to_string()))?,
+                credential_type: if kind == "oauth" {
+                    pi_ai::auth::types::CredentialType::Oauth
+                } else {
+                    pi_ai::auth::types::CredentialType::ApiKey
+                },
+            })
+        })
+        .collect()
+}
+pub struct ReadOnlyAuthStorage {
+    auth_path: String,
+    data: Mutex<Option<AuthStorageData>>,
+}
+impl ReadOnlyAuthStorage {
+    pub fn new(path: Option<&str>) -> Self {
+        let path = path
+            .map(str::to_owned)
+            .unwrap_or_else(|| default_auth_path().display().to_string());
+        Self {
+            auth_path: normalize_path(&path, &Default::default()).unwrap_or(path),
+            data: Mutex::new(None),
+        }
+    }
+    fn load(&self) -> Result<AuthStorageData, StorageError> {
+        let mut cached = lock(&self.data);
+        if let Some(data) = cached.as_ref() {
+            return Ok(data.clone());
+        }
+        let parsed = match std::fs::read_to_string(&self.auth_path) {
+            Ok(content) => js_json::parse_lossless(&content)
+                .map_err(|error| StorageError::new(format!("Failed to read auth.json: {error}")))?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => JsValue::Object(JsObject::new()),
+            Err(error) => return Err(StorageError::new(format!("Failed to read auth.json: {error}"))),
+        };
+        let JsValue::Object(data) = parsed else {
+            return Err(StorageError::new("Invalid auth.json: expected an object"));
+        };
+        for (id, value) in &data {
+            to_credential(value).map_err(|_| {
+                StorageError::new(format!(
+                    "Invalid auth.json credential for provider {}",
+                    js_json::stringify_lossless(&JsValue::String(id.clone()))
+                ))
+            })?;
+        }
+        *cached = Some(data.clone());
+        Ok(data)
+    }
+}
+impl CredentialStore for ReadOnlyAuthStorage {
+    fn read(&self, id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+        let id = id.to_owned();
         Box::pin(async move {
-            let data = self
-                .read_latest_data(options.clone())
-                .await
-                .map_err(StorageError::into_auth_error)?;
             check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            Ok(js_json::object_entries(&data)
-                .into_iter()
-                .filter_map(|(provider_id, credential)| {
-                    credential_type(credential).map(|credential_type| CredentialInfo {
-                        provider_id: provider_id.clone(),
-                        credential_type: if credential_type == "oauth" {
-                            pi_ai::auth::types::CredentialType::Oauth
-                        } else {
-                            pi_ai::auth::types::CredentialType::ApiKey
-                        },
-                    })
-                })
-                .collect())
-        })
-    }
-
-    fn modify(
-        &self,
-        provider_id: &str,
-        modifier: CredentialModifier,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        let provider_id = provider_id.to_owned();
-        let storage = Arc::clone(&self.storage);
-        let state = Arc::clone(&self.read_state);
-        let auth_path = self.auth_path.clone();
-        Box::pin(async move {
-            type ModifyOutcome = Option<Result<Option<Credential>, StorageError>>;
-            let outcome: Arc<Mutex<ModifyOutcome>> = Arc::new(Mutex::new(None));
-            let latest: Arc<Mutex<Option<AuthStorageData>>> = Arc::new(Mutex::new(None));
-            let captured_outcome = Arc::clone(&outcome);
-            let captured_latest = Arc::clone(&latest);
-            let provider = provider_id.clone();
-            let revision: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-            let captured_revision = Arc::clone(&revision);
-            storage
-                .with_lock_async(
-                    Box::new(move |current| {
-                        let provider = provider.clone();
-                        let modifier = Arc::clone(&modifier);
-                        let captured_outcome = Arc::clone(&captured_outcome);
-                        let captured_latest = Arc::clone(&captured_latest);
-                        let captured_revision = Arc::clone(&captured_revision);
-                        let auth_path = auth_path.clone();
-                        Box::pin(async move {
-                            let mut current_data = parse_auth_data(current.as_deref())?;
-                            let current_credential = current_data.get(&provider).map(to_credential).transpose()?;
-                            let next = modifier(current_credential.clone())
-                                .await
-                                .map_err(|error| match error {
-                                    AuthError::Aborted => StorageError::aborted(),
-                                    AuthError::Failed(error) => StorageError::new(error.message),
-                                })?;
-                            let Some(next) = next else {
-                                *captured_latest.lock().unwrap() = Some(current_data);
-                                *captured_revision.lock().unwrap() = auth_path.as_deref().and_then(get_file_revision);
-                                *captured_outcome.lock().unwrap() = Some(Ok(current_credential));
-                                return Ok(None);
-                            };
-                            let next_value =
-                                serde_json::to_value(&next).map_err(|error| StorageError::new(error.to_string()))?;
-                            current_data.insert(provider, next_value);
-                            *captured_latest.lock().unwrap() = Some(current_data.clone());
-                            *captured_outcome.lock().unwrap() = Some(Ok(Some(next)));
-                            Ok(Some(js_json::stringify_pretty(&Value::Object(current_data))))
-                        })
-                    }),
-                    options.clone(),
-                )
-                .await
-                .map_err(StorageError::into_auth_error)?;
-            if let Some(latest) = latest.lock().unwrap().clone() {
-                let mut state = lock(&state);
-                state.data = latest;
-                state.revision = revision.lock().unwrap().clone();
-            }
-            outcome
-                .lock()
-                .unwrap()
-                .take()
-                .unwrap_or(Ok(None))
+            self.load()
+                .map_err(StorageError::into_auth_error)?
+                .get(&JsString::from(id))
+                .map(to_credential)
+                .transpose()
+                .map(|c| c.map(|c| resolved_credential(c, false)))
                 .map_err(StorageError::into_auth_error)
         })
     }
-
-    fn delete(&self, provider_id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
-        let provider_id = provider_id.to_owned();
-        let storage = Arc::clone(&self.storage);
-        let state = Arc::clone(&self.read_state);
+    fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>> {
         Box::pin(async move {
-            let latest: Arc<Mutex<Option<AuthStorageData>>> = Arc::new(Mutex::new(None));
-            let captured_latest = Arc::clone(&latest);
-            storage
-                .with_lock_async(
-                    Box::new(move |current| {
-                        let provider = provider_id.clone();
-                        let captured_latest = Arc::clone(&captured_latest);
-                        Box::pin(async move {
-                            let mut current_data = parse_auth_data(current.as_deref())?;
-                            current_data.shift_remove(&provider);
-                            *captured_latest.lock().unwrap() = Some(current_data.clone());
-                            Ok(Some(js_json::stringify_pretty(&Value::Object(current_data))))
-                        })
-                    }),
-                    options.clone(),
-                )
-                .await
-                .map_err(StorageError::into_auth_error)?;
-            if let Some(latest) = latest.lock().unwrap().clone() {
-                lock(&state).data = latest;
-            }
-            Ok(())
+            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
+            credential_infos(&self.load().map_err(StorageError::into_auth_error)?)
+                .map_err(StorageError::into_auth_error)
+        })
+    }
+    fn modify(
+        &self,
+        _: &str,
+        _: CredentialModifier,
+        _: AuthOperationOptions,
+    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+        Box::pin(async {
+            Err(AuthError::failed(
+                "Read-only credential storage cannot modify auth.json",
+            ))
+        })
+    }
+    fn delete(&self, _: &str, _: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
+        Box::pin(async {
+            Err(AuthError::failed(
+                "Read-only credential storage cannot modify auth.json",
+            ))
         })
     }
 }
-
-/// One-off synchronous read of a stored credential without resolving configured values.
-pub fn read_stored_credential(provider_id: &str, auth_path: Option<&str>) -> Option<Credential> {
-    let path = auth_path
+pub fn read_stored_credential(id: &str, path: Option<&str>) -> Option<Credential> {
+    let path = path
         .map(str::to_owned)
-        .unwrap_or_else(|| get_agent_dir().join("auth.json").display().to_string());
-    let normalized = normalize_path(&path, &Default::default()).unwrap_or(path);
-    let content = std::fs::read_to_string(normalized).ok()?;
-    let parsed = js_json::parse(&content).ok()?;
-    let object = parsed.as_object()?;
-    object.get(provider_id).and_then(|value| to_credential(value).ok())
+        .unwrap_or_else(|| default_auth_path().display().to_string());
+    let path = normalize_path(&path, &Default::default()).unwrap_or(path);
+    let content = std::fs::read_to_string(path).ok()?;
+    let data = parse_auth_data(Some(&content)).ok()?;
+    data.get(&JsString::from(id))
+        .and_then(|value| to_credential(value).ok())
 }
-
-/// Provider ids in JavaScript object order (`Object.entries`).
-pub fn ordered_provider_ids(data: &AuthStorageData) -> Vec<String> {
-    js_json::object_entries(data)
+pub fn ordered_provider_ids(data: &AuthStorageData) -> Vec<JsString> {
+    js_json::object_entries_lossless(data)
         .into_iter()
-        .map(|(provider_id, _)| provider_id.clone())
+        .map(|(key, _)| key.clone())
         .collect()
 }
-
-/// Credential map from `auth.json` content.
 pub fn parse_auth_storage_data(content: &str) -> Result<AuthStorageData, StorageError> {
     parse_auth_data(Some(content))
 }
-
-/// Path helper used by callers that need the default `auth.json` location.
 pub fn default_auth_path() -> PathBuf {
     get_agent_dir().join("auth.json")
 }
