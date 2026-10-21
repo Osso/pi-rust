@@ -46,3 +46,9 @@ No whole-value argument/event adapters remain. Validator integration at `1120b03
 `ToolCall.partial_json` and ToolCallDelta text use JsString; provider argument buffers and complete/repair/partial parsers operate on native UTF-16. `anthropic-ingress-red.log` reproduces the removed event adapter rejecting a valid text delta. `anthropic-ingress-green-attempt.log`: eight sandbox cases PASS, zero warnings, including actual ordered SSE message/text/thinking/tool-fragment/delta/stop handling. The tool fragment carries a native unmatched unit after outer JSON parsing; its final argument retains that exact unit. Frozen partial-parser differential additionally covers raw unmatched units in complete and unterminated strings.
 
 Workspace compilation, consumer fixtures and end-to-end agent/JSONL/question/mailbox/name proof remain pending.
+
+## Provider-native JSON checkpoint
+
+`ProviderNativeContext.value` uses JsValue. Responses shared conversion/tools and OpenAI/Azure/Codex request trees now retain native items without projection into serde_json::Value; Codex continuation response-item cache uses the same AST. The core custom-message extractor can decode the typed native context from its lossless authority rather than dropping valid unmatched units.
+
+`native-context-red.log` reproduces the old native value deserialize rejection. `native-context-green.log`: ten pi-ai sandbox tests PASS, zero warnings, including a captured actual Responses HTTP body with unmatched-unit native text and key, no scalar fallback, and exact Node JSON.stringify bytes. Other existing provider fixtures remain pending migration/regression execution.

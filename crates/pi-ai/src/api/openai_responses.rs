@@ -1,6 +1,6 @@
 //! Port of `packages/ai/src/api/openai-responses.ts` (+ `.lazy.ts`).
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsObject, JsValue};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -190,7 +190,7 @@ pub fn build_params(
     stream_options: &StreamOptions,
     compat: &ResolvedCompat,
     grammar_tool_input_properties: &IndexMap<String, String>,
-) -> Result<Value, String> {
+) -> Result<JsValue, String> {
     let deferred_tools_mode = if compat.supports_additional_tools {
         Some(ResponsesDeferredToolsMode::AdditionalTools)
     } else if compat.supports_tool_search {
@@ -221,44 +221,44 @@ pub fn build_params(
     let disable_implicit_prompt_cache =
         cache_retention == CacheRetention::None && compat.supports_explicit_prompt_cache_mode;
 
-    let mut params = Map::new();
-    params.insert("model".to_owned(), Value::String(model.id.clone()));
-    params.insert("input".to_owned(), Value::Array(messages));
-    params.insert("stream".to_owned(), Value::Bool(true));
+    let mut params = JsObject::new();
+    params.insert("model".into(), JsValue::String(model.id.clone().into()));
+    params.insert("input".into(), JsValue::Array(messages));
+    params.insert("stream".into(), JsValue::Bool(true));
     if cache_retention != CacheRetention::None
         && let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_deref())
     {
-        params.insert("prompt_cache_key".to_owned(), Value::String(key.to_owned()));
+        params.insert("prompt_cache_key".into(), JsValue::String(key.into()));
     }
     if let Some(retention) = get_prompt_cache_retention(compat, cache_retention) {
-        params.insert("prompt_cache_retention".to_owned(), Value::String(retention.to_owned()));
+        params.insert("prompt_cache_retention".into(), JsValue::String(retention.into()));
     }
     if disable_implicit_prompt_cache {
         params.insert(
-            "prompt_cache_options".to_owned(),
-            crate::api::openai_sdk::json_object(vec![("mode", Value::String("explicit".to_owned()))]),
+            "prompt_cache_options".into(),
+            JsValue::object(vec![("mode", JsValue::String("explicit".into()))]),
         );
     }
-    params.insert("store".to_owned(), Value::Bool(false));
+    params.insert("store".into(), JsValue::Bool(false));
 
     if let Some(max_tokens) = stream_options
         .max_tokens
         .filter(|max_tokens| *max_tokens != 0.0 && max_tokens.is_finite())
     {
         params.insert(
-            "max_output_tokens".to_owned(),
-            js_number_value(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),
+            "max_output_tokens".into(),
+            js_number_value(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)).into(),
         );
     }
     if let Some(temperature) = stream_options.temperature {
-        params.insert("temperature".to_owned(), js_number_value(temperature));
+        params.insert("temperature".into(), js_number_value(temperature).into());
     }
     if let Some(service_tier) = &options.service_tier {
-        params.insert("service_tier".to_owned(), Value::String(service_tier.clone()));
+        params.insert("service_tier".into(), JsValue::String(service_tier.clone().into()));
     }
     if !tool_placement.immediate.is_empty() {
         params.insert(
-            "tools".to_owned(),
+            "tools".into(),
             convert_responses_tools(
                 &tool_placement.immediate,
                 Some(&ConvertResponsesToolsOptions {
@@ -271,7 +271,7 @@ pub fn build_params(
         );
     }
     if let Some(tool_choice) = &options.tool_choice {
-        params.insert("tool_choice".to_owned(), tool_choice.clone());
+        params.insert("tool_choice".into(), tool_choice.clone().into());
     }
 
     if model.reasoning {
@@ -280,41 +280,41 @@ pub fn build_params(
                 .reasoning_effort
                 .as_deref()
                 .map(|effort| mapped_effort(model, effort))
-                .unwrap_or_else(|| "medium".to_owned());
-            let summary = options.reasoning_summary.clone().unwrap_or_else(|| "auto".to_owned());
+                .unwrap_or_else(|| "medium".into());
+            let summary = options.reasoning_summary.clone().unwrap_or_else(|| "auto".into());
             params.insert(
-                "reasoning".to_owned(),
-                crate::api::openai_sdk::json_object(vec![
-                    ("effort", Value::String(effort)),
-                    ("summary", Value::String(summary)),
+                "reasoning".into(),
+                JsValue::object(vec![
+                    ("effort", JsValue::String(effort.into())),
+                    ("summary", JsValue::String(summary.into())),
                 ]),
             );
             params.insert(
-                "include".to_owned(),
-                Value::Array(vec![Value::String("reasoning.encrypted_content".to_owned())]),
+                "include".into(),
+                JsValue::Array(vec![JsValue::String("reasoning.encrypted_content".into())]),
             );
         } else if model.provider != "github-copilot"
             && let Some(effort) = off_effort(model)
         {
             params.insert(
-                "reasoning".to_owned(),
-                crate::api::openai_sdk::json_object(vec![("effort", Value::String(effort))]),
+                "reasoning".into(),
+                JsValue::object(vec![("effort", JsValue::String(effort.into()))]),
             );
         }
         if model.provider == "xai" {
             params.insert(
-                "include".to_owned(),
-                Value::Array(vec![Value::String("reasoning.encrypted_content".to_owned())]),
+                "include".into(),
+                JsValue::Array(vec![JsValue::String("reasoning.encrypted_content".into())]),
             );
         }
     }
 
     if let Some(sampling_params) = &stream_options.sampling_params {
         for (key, value) in sampling_params {
-            params.insert(key.clone(), value.clone());
+            params.insert(key.clone().into(), value.clone().into());
         }
     }
-    Ok(Value::Object(params))
+    Ok(JsValue::Object(params))
 }
 
 fn get_service_tier_cost_multiplier(model_id: &str, service_tier: Option<&str>) -> f64 {

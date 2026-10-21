@@ -6,6 +6,7 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 
 - [x] `TextContent.text` preserves lone surrogates through shared JSON serialization/deserialization.
 - [x] `ToolResultMessage.details` preserves arbitrary nested UTF-16 strings/keys and distinguishes omission from explicit null.
+- [x] `ProviderNativeContext.value` is a lossless JSON authority, including native request items passed through Responses APIs.
 - [x] Pi-messages HTTP context and `OnPayload` replacements serialize unmatched units as escapes, matching Node `JSON.stringify`.
 - [x] Explicit provider `sanitizeSurrogates` sites remove unmatched units, retaining valid pairs; no mutation of shared text precedes that boundary.
 - [x] Shared Node UTF-8 boundary replaces unmatched units with U+FFFD only when encoding to streams, filesystem paths, process arguments or environment values.

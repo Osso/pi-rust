@@ -8,7 +8,7 @@ use std::sync::{Arc, OnceLock};
 
 use indexmap::IndexMap;
 use pi_js_compat::js_json::{JsObject, JsValue};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::api::constrained_sampling::{
@@ -113,12 +113,12 @@ impl ResponsesEventSource for VecResponsesEventSource {
 // Utilities
 // =============================================================================
 
-fn object(entries: Vec<(&str, Value)>) -> Value {
-    let mut map = Map::new();
+fn object(entries: Vec<(&str, JsValue)>) -> JsValue {
+    let mut map = JsObject::new();
     for (key, value) in entries {
-        map.insert(key.to_owned(), value);
+        map.insert(key.into(), value);
     }
-    Value::Object(map)
+    JsValue::Object(map)
 }
 
 fn js_string(value: Option<&Value>) -> String {
@@ -179,7 +179,7 @@ fn parse_text_signature(signature: Option<&str>) -> Option<ParsedTextSignature> 
     })
 }
 
-fn convert_tool_result_output(model: &Model, content: &[crate::types::TextOrImageContent]) -> Value {
+fn convert_tool_result_output(model: &Model, content: &[crate::types::TextOrImageContent]) -> JsValue {
     let text_result = content
         .iter()
         .filter_map(|block| match block {
@@ -201,31 +201,31 @@ fn convert_tool_result_output(model: &Model, content: &[crate::types::TextOrImag
         let text = if has_text {
             text_result
         } else if images.is_empty() {
-            "(no tool output)".to_owned()
+            "(no tool output)".into()
         } else {
-            "(see attached image)".to_owned()
+            "(see attached image)".into()
         };
-        return Value::String(sanitize_surrogates(&text).to_owned());
+        return JsValue::String(sanitize_surrogates(&text).into());
     }
 
     let mut output = Vec::new();
     if has_text {
         output.push(object(vec![
-            ("type", Value::String("input_text".to_owned())),
-            ("text", Value::String(sanitize_surrogates(&text_result).to_owned())),
+            ("type", JsValue::String("input_text".into())),
+            ("text", JsValue::String(sanitize_surrogates(&text_result).into())),
         ]));
     }
     for image in images {
         output.push(object(vec![
-            ("type", Value::String("input_image".to_owned())),
-            ("detail", Value::String("auto".to_owned())),
+            ("type", JsValue::String("input_image".into())),
+            ("detail", JsValue::String("auto".into())),
             (
                 "image_url",
-                Value::String(format!("data:{};base64,{}", image.mime_type, image.data)),
+                JsValue::String(format!("data:{};base64,{}", image.mime_type, image.data).into()),
             ),
         ]));
     }
-    Value::Array(output)
+    JsValue::Array(output)
 }
 
 // =============================================================================
@@ -447,7 +447,7 @@ pub fn convert_responses_messages(
     context: &Context,
     allowed_tool_call_providers: &BTreeSet<String>,
     options: Option<&ConvertResponsesMessagesOptions>,
-) -> Result<Vec<Value>, String> {
+) -> Result<Vec<JsValue>, String> {
     let empty_options = ConvertResponsesMessagesOptions::default();
     let options = options.unwrap_or(&empty_options);
     let mut messages = Vec::new();
@@ -495,13 +495,13 @@ pub fn convert_responses_messages(
             "system"
         };
         messages.push(object(vec![
-            ("role", Value::String(role.to_owned())),
-            ("content", Value::String(sanitize_surrogates(system_prompt).to_owned())),
+            ("role", JsValue::String(role.into())),
+            ("content", JsValue::String(sanitize_surrogates(system_prompt).into())),
         ]));
     }
 
     let mut msg_index = 0;
-    let mut emitted_tool_call_ids = BTreeSet::new();
+    let mut emitted_tool_call_ids: BTreeSet<String> = BTreeSet::new();
     for msg in &transformed_messages {
         match msg {
             Message::User(user) => {
@@ -509,7 +509,7 @@ pub fn convert_responses_messages(
                     && native.provider == model.provider
                     && native.api == model.api
                     && native.format == ProviderNativeFormat::OpenAIResponsesInput
-                    && let Value::Array(items) = &native.value
+                    && let JsValue::Array(items) = &native.value
                 {
                     messages.extend(items.iter().cloned());
                     continue;
@@ -518,12 +518,12 @@ pub fn convert_responses_messages(
                 match &user.content {
                     crate::types::UserContent::Text(text) => {
                         messages.push(object(vec![
-                            ("role", Value::String("user".to_owned())),
+                            ("role", JsValue::String("user".into())),
                             (
                                 "content",
-                                Value::Array(vec![object(vec![
-                                    ("type", Value::String("input_text".to_owned())),
-                                    ("text", Value::String(sanitize_surrogates(text).to_owned())),
+                                JsValue::Array(vec![object(vec![
+                                    ("type", JsValue::String("input_text".into())),
+                                    ("text", JsValue::String(sanitize_surrogates(text).into())),
                                 ])]),
                             ),
                         ]));
@@ -533,15 +533,17 @@ pub fn convert_responses_messages(
                             .iter()
                             .map(|block| match block {
                                 crate::types::TextOrImageContent::Text(text) => object(vec![
-                                    ("type", Value::String("input_text".to_owned())),
-                                    ("text", Value::String(sanitize_surrogates(&text.text).to_owned())),
+                                    ("type", JsValue::String("input_text".into())),
+                                    ("text", JsValue::String(sanitize_surrogates(&text.text).into())),
                                 ]),
                                 crate::types::TextOrImageContent::Image(image) => object(vec![
-                                    ("type", Value::String("input_image".to_owned())),
-                                    ("detail", Value::String("auto".to_owned())),
+                                    ("type", JsValue::String("input_image".into())),
+                                    ("detail", JsValue::String("auto".into())),
                                     (
                                         "image_url",
-                                        Value::String(format!("data:{};base64,{}", image.mime_type, image.data)),
+                                        JsValue::String(
+                                            format!("data:{};base64,{}", image.mime_type, image.data).into(),
+                                        ),
                                     ),
                                 ]),
                             })
@@ -550,8 +552,8 @@ pub fn convert_responses_messages(
                             continue;
                         }
                         messages.push(object(vec![
-                            ("role", Value::String("user".to_owned())),
-                            ("content", Value::Array(content)),
+                            ("role", JsValue::String("user".into())),
+                            ("content", JsValue::Array(content)),
                         ]));
                     }
                 }
@@ -567,7 +569,7 @@ pub fn convert_responses_messages(
                     match block {
                         AssistantContent::Thinking(thinking) => {
                             if let Some(signature) = thinking.thinking_signature.as_deref()
-                                && let Ok(item) = serde_json::from_str::<Value>(signature)
+                                && let Ok(item) = serde_json::from_str::<JsValue>(signature)
                             {
                                 output.push(item);
                             }
@@ -587,29 +589,29 @@ pub fn convert_responses_messages(
                                 Some(parsed) => parsed.id.clone(),
                             };
                             let mut message = object(vec![
-                                ("type", Value::String("message".to_owned())),
-                                ("role", Value::String("assistant".to_owned())),
+                                ("type", JsValue::String("message".into())),
+                                ("role", JsValue::String("assistant".into())),
                                 (
                                     "content",
-                                    Value::Array(vec![object(vec![
-                                        ("type", Value::String("output_text".to_owned())),
-                                        ("text", Value::String(sanitize_surrogates(&text.text).to_owned())),
-                                        ("annotations", Value::Array(Vec::new())),
+                                    JsValue::Array(vec![object(vec![
+                                        ("type", JsValue::String("output_text".into())),
+                                        ("text", JsValue::String(sanitize_surrogates(&text.text).into())),
+                                        ("annotations", JsValue::Array(Vec::new())),
                                     ])]),
                                 ),
-                                ("status", Value::String("completed".to_owned())),
-                                ("id", Value::String(msg_id)),
+                                ("status", JsValue::String("completed".into())),
+                                ("id", JsValue::String(msg_id.into())),
                             ]);
                             if let Some(phase) = parsed_signature.and_then(|parsed| parsed.phase)
-                                && let Value::Object(map) = &mut message
+                                && let JsValue::Object(map) = &mut message
                             {
-                                map.insert("phase".to_owned(), Value::String(phase));
+                                map.insert("phase".into(), JsValue::String(phase.into()));
                             }
                             output.push(message);
                         }
                         AssistantContent::ToolCall(tool_call) => {
                             let (call_id, item_id_raw) = split_tool_call_id(&tool_call.id);
-                            emitted_tool_call_ids.insert(call_id.to_owned());
+                            emitted_tool_call_ids.insert(call_id.into());
                             let custom_input_property = options
                                 .grammar_tool_input_properties
                                 .as_ref()
@@ -631,32 +633,41 @@ pub fn convert_responses_messages(
                                 let input = get_grammar_tool_input(&tool_call.name, &tool_call.arguments, property)
                                     .map_err(|error| error.message)?;
                                 vec![
-                                    ("type", Value::String("custom_tool_call".to_owned())),
-                                    ("id", item_id.map(Value::String).unwrap_or(Value::Null)),
-                                    ("call_id", Value::String(call_id.to_owned())),
-                                    ("name", Value::String(tool_call.name.clone())),
-                                    ("input", Value::String(sanitize_surrogates(&input).to_owned())),
+                                    ("type", JsValue::String("custom_tool_call".into())),
+                                    (
+                                        "id",
+                                        item_id.map(|id| JsValue::String(id.into())).unwrap_or(JsValue::Null),
+                                    ),
+                                    ("call_id", JsValue::String(call_id.into())),
+                                    ("name", JsValue::String(tool_call.name.clone().into())),
+                                    ("input", JsValue::String(sanitize_surrogates(&input).into())),
                                 ]
                             } else {
                                 vec![
-                                    ("type", Value::String("function_call".to_owned())),
-                                    ("id", item_id.map(Value::String).unwrap_or(Value::Null)),
-                                    ("call_id", Value::String(call_id.to_owned())),
-                                    ("name", Value::String(tool_call.name.clone())),
+                                    ("type", JsValue::String("function_call".into())),
+                                    (
+                                        "id",
+                                        item_id.map(|id| JsValue::String(id.into())).unwrap_or(JsValue::Null),
+                                    ),
+                                    ("call_id", JsValue::String(call_id.into())),
+                                    ("name", JsValue::String(tool_call.name.clone().into())),
                                     (
                                         "arguments",
-                                        Value::String(pi_js_compat::js_json::stringify_lossless(
-                                            &pi_js_compat::js_json::JsValue::Object(tool_call.arguments.clone()),
-                                        )),
+                                        JsValue::String(
+                                            pi_js_compat::js_json::stringify_lossless(
+                                                &pi_js_compat::js_json::JsValue::Object(tool_call.arguments.clone()),
+                                            )
+                                            .into(),
+                                        ),
                                     ),
                                 ]
                             };
                             if let (true, Some(namespace)) = (can_replay_namespace, tool_call.namespace.as_ref()) {
-                                entries.push(("namespace", Value::String(namespace.clone())));
+                                entries.push(("namespace", JsValue::String(namespace.clone().into())));
                             }
                             let mut item = object(entries);
-                            if let Value::Object(map) = &mut item
-                                && map.get("id") == Some(&Value::Null)
+                            if let JsValue::Object(map) = &mut item
+                                && map.get("id") == Some(&JsValue::Null)
                             {
                                 map.shift_remove("id");
                             }
@@ -683,13 +694,13 @@ pub fn convert_responses_messages(
                 messages.push(object(vec![
                     (
                         "type",
-                        Value::String(if is_custom {
-                            "custom_tool_call_output".to_owned()
+                        JsValue::String(if is_custom {
+                            "custom_tool_call_output".into()
                         } else {
-                            "function_call_output".to_owned()
+                            "function_call_output".into()
                         }),
                     ),
-                    ("call_id", Value::String(call_id.to_owned())),
+                    ("call_id", JsValue::String(call_id.into())),
                     ("output", output),
                 ]));
 
@@ -706,8 +717,8 @@ pub fn convert_responses_messages(
                 match options.deferred_tools_mode {
                     Some(ResponsesDeferredToolsMode::AdditionalTools) if !deferred_tools.is_empty() => {
                         messages.push(object(vec![
-                            ("type", Value::String("additional_tools".to_owned())),
-                            ("role", Value::String("developer".to_owned())),
+                            ("type", JsValue::String("additional_tools".into())),
+                            ("role", JsValue::String("developer".into())),
                             (
                                 "tools",
                                 convert_responses_tools(&deferred_tools, options.tool_options.as_ref())
@@ -722,25 +733,25 @@ pub fn convert_responses_messages(
                             short_hash(&format!("{}:{}", result.tool_call_id, names.join(",")))
                         );
                         messages.push(object(vec![
-                            ("type", Value::String("tool_search_call".to_owned())),
-                            ("call_id", Value::String(search_call_id.clone())),
-                            ("execution", Value::String("client".to_owned())),
-                            ("status", Value::String("completed".to_owned())),
+                            ("type", JsValue::String("tool_search_call".into())),
+                            ("call_id", JsValue::String(search_call_id.clone().into())),
+                            ("execution", JsValue::String("client".into())),
+                            ("status", JsValue::String("completed".into())),
                             (
                                 "arguments",
                                 object(vec![
-                                    ("query", Value::String(names.join(" "))),
-                                    ("limit", Value::from(names.len())),
+                                    ("query", JsValue::String(names.join(" ").into())),
+                                    ("limit", JsValue::Number(names.len() as f64)),
                                 ]),
                             ),
                         ]));
                         let mut tool_options = options.tool_options.clone().unwrap_or_default();
                         tool_options.defer_loading = Some(true);
                         messages.push(object(vec![
-                            ("type", Value::String("tool_search_output".to_owned())),
-                            ("call_id", Value::String(search_call_id)),
-                            ("execution", Value::String("client".to_owned())),
-                            ("status", Value::String("completed".to_owned())),
+                            ("type", JsValue::String("tool_search_output".into())),
+                            ("call_id", JsValue::String(search_call_id.into())),
+                            ("execution", JsValue::String("client".into())),
+                            ("status", JsValue::String("completed".into())),
                             (
                                 "tools",
                                 convert_responses_tools(&deferred_tools, Some(&tool_options))
@@ -765,7 +776,7 @@ pub fn convert_responses_messages(
 pub fn convert_responses_tools(
     tools: &[Tool],
     options: Option<&ConvertResponsesToolsOptions>,
-) -> Result<Value, crate::api::constrained_sampling::ConstrainedSamplingError> {
+) -> Result<JsValue, crate::api::constrained_sampling::ConstrainedSamplingError> {
     let empty_options = ConvertResponsesToolsOptions::default();
     let options = options.unwrap_or(&empty_options);
     let default_strict = match options.strict {
@@ -779,20 +790,20 @@ pub fn convert_responses_tools(
     for tool in tools {
         if let Some(grammar) = resolve_grammar_constrained_sampling(tool, supports_openai_grammar_tools)? {
             let mut entries = vec![
-                ("type", Value::String("custom".to_owned())),
-                ("name", Value::String(tool.name.clone())),
-                ("description", Value::String(tool.description.clone())),
+                ("type", JsValue::String("custom".into())),
+                ("name", JsValue::String(tool.name.clone().into())),
+                ("description", JsValue::String(tool.description.clone().into())),
                 (
                     "format",
                     object(vec![
-                        ("type", Value::String("grammar".to_owned())),
-                        ("syntax", serde_json::to_value(grammar.format).unwrap_or(Value::Null)),
-                        ("definition", Value::String(grammar.definition)),
+                        ("type", JsValue::String("grammar".into())),
+                        ("syntax", pi_js_compat::js_json!(grammar.format)),
+                        ("definition", JsValue::String(grammar.definition.into())),
                     ]),
                 ),
             ];
             if options.defer_loading == Some(true) {
-                entries.push(("defer_loading", Value::Bool(true)));
+                entries.push(("defer_loading", JsValue::Bool(true)));
             }
             converted.push(object(entries));
             continue;
@@ -801,20 +812,20 @@ pub fn convert_responses_tools(
         let constrained_strict = resolve_json_schema_strict_sampling(tool, supports_strict_mode)?;
         let strict = constrained_strict.or(default_strict);
         let mut entries = vec![
-            ("type", Value::String("function".to_owned())),
-            ("name", Value::String(tool.name.clone())),
-            ("description", Value::String(tool.description.clone())),
-            ("parameters", get_json_schema_tool_parameters(tool, strict)?),
+            ("type", JsValue::String("function".into())),
+            ("name", JsValue::String(tool.name.clone().into())),
+            ("description", JsValue::String(tool.description.clone().into())),
+            ("parameters", get_json_schema_tool_parameters(tool, strict)?.into()),
         ];
         if options.defer_loading == Some(true) {
-            entries.push(("defer_loading", Value::Bool(true)));
+            entries.push(("defer_loading", JsValue::Bool(true)));
         }
         if supports_strict_mode {
-            entries.push(("strict", strict.map(Value::Bool).unwrap_or(Value::Null)));
+            entries.push(("strict", strict.map(JsValue::Bool).unwrap_or(JsValue::Null)));
         }
         converted.push(object(entries));
     }
-    Ok(Value::Array(converted))
+    Ok(JsValue::Array(converted))
 }
 
 // =============================================================================

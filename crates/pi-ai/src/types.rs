@@ -204,7 +204,7 @@ pub struct ProviderNativeContext {
     pub provider: ProviderId,
     pub api: Api,
     pub format: ProviderNativeFormat,
-    pub value: Value,
+    pub value: JsValue,
 }
 
 /// Provider-internal retry or transport fallback.

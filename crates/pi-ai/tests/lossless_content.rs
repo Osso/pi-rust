@@ -37,6 +37,16 @@ fn tool_message_round_trip_keeps_text_details_and_null_presence() {
 }
 
 #[test]
+fn provider_native_context_round_trip_keeps_utf16() {
+    let source = r#"{"provider":"openai","api":"openai-responses","format":"openai.responses.input","value":[{"text":"\ud800","\udfff":null}]}"#;
+    let native: pi_ai::types::ProviderNativeContext = serde_json::from_str(source).unwrap();
+    assert_eq!(
+        parse_lossless(&serde_json::to_string(&native).unwrap()).unwrap(),
+        parse_lossless(source).unwrap()
+    );
+}
+
+#[test]
 fn tool_arguments_round_trip_arbitrary_utf16_keys_and_values() {
     let source =
         r#"{"type":"toolCall","id":"call","name":"probe","arguments":{"\ud800":["\udfff",{"name":"\ud800"}]}}"#;
@@ -386,4 +396,58 @@ impl pi_ai::request::Fetch for OwnedSse {
             })
         })
     }
+}
+
+#[tokio::test]
+async fn native_context_items_reach_http_json_without_scalar_projection() {
+    use pi_ai::types::{
+        Context, Message, Model, ProviderNativeContext, ProviderNativeFormat, UserContent, UserMessage, UserRole,
+    };
+    let model: Model = serde_json::from_value(serde_json::json!({"id":"probe","name":"probe","api":"openai-responses","provider":"openai","baseUrl":"https://provider.invalid/v1","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":10000,"maxTokens":1000})).unwrap();
+    let native = ProviderNativeContext {
+        provider: "openai".into(),
+        api: "openai-responses".into(),
+        format: ProviderNativeFormat::OpenAIResponsesInput,
+        value: parse_lossless(
+            r#"[{"type":"message","role":"user","content":[{"type":"input_text","text":"\ud800","\udfff":true}]}]"#,
+        )
+        .unwrap(),
+    };
+    let user = UserMessage {
+        role: UserRole::Tag,
+        content: UserContent::Text("fallback".into()),
+        input_source: None,
+        provider_native: Some(native),
+        timestamp: 1,
+    };
+    let fetch = std::sync::Arc::new(CaptureRequest::default());
+    let mut options = pi_ai::request::StreamOptions::default();
+    options.request.fetch = Some(fetch.clone());
+    options.request.api_key = Some("test".into());
+    options.request.max_retries = Some(0.0);
+    let mut stream = pi_ai::api::openai_responses::stream(
+        model,
+        Context {
+            system_prompt: None,
+            messages: vec![Message::User(user)],
+            tools: None,
+        },
+        options,
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while stream.next().await.is_some() {}
+    })
+    .await
+    .unwrap();
+    let requests = fetch.0.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let body = std::str::from_utf8(requests[0].body.as_ref().unwrap()).unwrap();
+    assert!(body.contains(r#""text":"\ud800""#), "{body}");
+    assert!(body.contains(r#""\udfff":true"#), "{body}");
+    assert!(!body.contains("fallback"));
+    let mut oracle = oracle::TsOracle::spawn(
+        "lossless-content-oracle.ts",
+        "packages/ai/src/utils/sanitize-unicode.ts",
+    );
+    assert_eq!(oracle.request(&serde_json::json!({"wire":body}))["wire"], body);
 }

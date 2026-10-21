@@ -1,11 +1,11 @@
 //! Port of `packages/ai/src/api/azure-openai-responses.ts` (+ `.lazy.ts`).
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsObject, JsValue};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::api::constrained_sampling::create_grammar_tool_input_properties;
@@ -197,7 +197,7 @@ pub fn build_params(
     stream_options: &StreamOptions,
     deployment_name: &str,
     grammar_tool_input_properties: &IndexMap<String, String>,
-) -> Result<Value, String> {
+) -> Result<JsValue, String> {
     let messages = convert_responses_messages(
         model,
         context,
@@ -211,26 +211,26 @@ pub fn build_params(
         }),
     )?;
 
-    let mut params = Map::new();
-    params.insert("model".to_owned(), Value::String(deployment_name.to_owned()));
-    params.insert("input".to_owned(), Value::Array(messages));
-    params.insert("stream".to_owned(), Value::Bool(true));
+    let mut params = JsObject::new();
+    params.insert("model".into(), JsValue::String(deployment_name.into()));
+    params.insert("input".into(), JsValue::Array(messages));
+    params.insert("stream".into(), JsValue::Bool(true));
     if let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_deref()) {
-        params.insert("prompt_cache_key".to_owned(), Value::String(key.to_owned()));
+        params.insert("prompt_cache_key".into(), JsValue::String(key.into()));
     }
-    params.insert("store".to_owned(), Value::Bool(false));
+    params.insert("store".into(), JsValue::Bool(false));
 
     if let Some(max_tokens) = stream_options
         .max_tokens
         .filter(|max_tokens| *max_tokens != 0.0 && max_tokens.is_finite())
     {
         params.insert(
-            "max_output_tokens".to_owned(),
-            js_number_value(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),
+            "max_output_tokens".into(),
+            js_number_value(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)).into(),
         );
     }
     if let Some(temperature) = stream_options.temperature {
-        params.insert("temperature".to_owned(), js_number_value(temperature));
+        params.insert("temperature".into(), js_number_value(temperature).into());
     }
     if let Some(tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
         let supports_strict_mode = match &model.compat {
@@ -242,7 +242,7 @@ pub fn build_params(
             _ => false,
         };
         params.insert(
-            "tools".to_owned(),
+            "tools".into(),
             convert_responses_tools(
                 tools,
                 Some(&ConvertResponsesToolsOptions {
@@ -261,33 +261,33 @@ pub fn build_params(
                 .reasoning_effort
                 .as_deref()
                 .map(|effort| mapped_effort(model, effort))
-                .unwrap_or_else(|| "medium".to_owned());
-            let summary = options.reasoning_summary.clone().unwrap_or_else(|| "auto".to_owned());
+                .unwrap_or_else(|| "medium".into());
+            let summary = options.reasoning_summary.clone().unwrap_or_else(|| "auto".into());
             params.insert(
-                "reasoning".to_owned(),
-                crate::api::openai_sdk::json_object(vec![
-                    ("effort", Value::String(effort)),
-                    ("summary", Value::String(summary)),
+                "reasoning".into(),
+                JsValue::object(vec![
+                    ("effort", JsValue::String(effort.into())),
+                    ("summary", JsValue::String(summary.into())),
                 ]),
             );
             params.insert(
-                "include".to_owned(),
-                Value::Array(vec![Value::String("reasoning.encrypted_content".to_owned())]),
+                "include".into(),
+                JsValue::Array(vec![JsValue::String("reasoning.encrypted_content".into())]),
             );
         } else if let Some(effort) = off_effort(model) {
             params.insert(
-                "reasoning".to_owned(),
-                crate::api::openai_sdk::json_object(vec![("effort", Value::String(effort))]),
+                "reasoning".into(),
+                JsValue::object(vec![("effort", JsValue::String(effort.into()))]),
             );
         }
     }
 
     if let Some(sampling_params) = &stream_options.sampling_params {
         for (key, value) in sampling_params {
-            params.insert(key.clone(), value.clone());
+            params.insert(key.clone().into(), value.clone().into());
         }
     }
-    Ok(Value::Object(params))
+    Ok(JsValue::Object(params))
 }
 
 fn merge_headers(

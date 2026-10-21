@@ -522,7 +522,7 @@ fn build_request_body(
     options: &OpenAICodexResponsesOptions,
     cache_session_id: Option<&str>,
     grammar_tool_input_properties: &IndexMap<String, String>,
-) -> Result<Value, CodexStreamError> {
+) -> Result<JsValue, CodexStreamError> {
     let supports_strict = supports_strict_mode(model);
     let supports_grammar = supports_grammar_tools(model);
     let deferred_mode = deferred_tools_mode(model);
@@ -549,68 +549,63 @@ fn build_request_body(
     )
     .map_err(CodexStreamError::Transport)?;
 
-    let mut body = Map::new();
-    body.insert("model".to_owned(), Value::String(model.id.clone()));
-    body.insert("store".to_owned(), Value::Bool(false));
-    body.insert("stream".to_owned(), Value::Bool(true));
+    let mut body = JsObject::new();
+    body.insert("model".into(), JsValue::String(model.id.clone().into()));
+    body.insert("store".into(), JsValue::Bool(false));
+    body.insert("stream".into(), JsValue::Bool(true));
     body.insert(
-        "instructions".to_owned(),
-        Value::String(
+        "instructions".into(),
+        JsValue::String(
             context
                 .system_prompt
                 .clone()
                 .filter(|prompt| !prompt.is_empty())
-                .unwrap_or_else(|| "You are a helpful assistant.".to_owned()),
+                .unwrap_or_else(|| "You are a helpful assistant.".into())
+                .into(),
         ),
     );
-    body.insert("input".to_owned(), Value::Array(messages));
+    body.insert("input".into(), JsValue::Array(messages));
     body.insert(
-        "text".to_owned(),
+        "text".into(),
         object(vec![(
             "verbosity",
-            Value::String(
+            JsValue::String(
                 options
                     .text_verbosity
                     .map(TextVerbosity::as_str)
                     .unwrap_or("low")
-                    .to_owned(),
+                    .into(),
             ),
         )]),
     );
     body.insert(
-        "include".to_owned(),
-        Value::Array(vec![Value::String("reasoning.encrypted_content".to_owned())]),
+        "include".into(),
+        JsValue::Array(vec![JsValue::String("reasoning.encrypted_content".into())]),
     );
     if let Some(cache_session_id) = cache_session_id {
-        body.insert(
-            "prompt_cache_key".to_owned(),
-            Value::String(cache_session_id.to_owned()),
-        );
+        body.insert("prompt_cache_key".into(), JsValue::String(cache_session_id.into()));
     }
     body.insert(
-        "tool_choice".to_owned(),
-        Value::String(
+        "tool_choice".into(),
+        JsValue::String(
             options
                 .tool_choice
                 .map(CodexToolChoice::as_str)
                 .unwrap_or("auto")
-                .to_owned(),
+                .into(),
         ),
     );
-    body.insert("parallel_tool_calls".to_owned(), Value::Bool(true));
+    body.insert("parallel_tool_calls".into(), JsValue::Bool(true));
 
     if let Some(temperature) = options.stream.temperature {
-        body.insert("temperature".to_owned(), js_number_value(temperature));
+        body.insert("temperature".into(), js_number_value(temperature).into());
     }
     if let Some(service_tier) = options.service_tier {
-        body.insert(
-            "service_tier".to_owned(),
-            Value::String(service_tier.as_str().to_owned()),
-        );
+        body.insert("service_tier".into(), JsValue::String(service_tier.as_str().into()));
     }
     if !tool_placement.immediate.is_empty() {
         body.insert(
-            "tools".to_owned(),
+            "tools".into(),
             convert_responses_tools(
                 &tool_placement.immediate,
                 Some(&ConvertResponsesToolsOptions {
@@ -627,17 +622,17 @@ fn build_request_body(
         let effort = reasoning_effort_value(model, reasoning_effort);
         if let Some(effort) = effort {
             body.insert(
-                "reasoning".to_owned(),
+                "reasoning".into(),
                 object(vec![
-                    ("effort", Value::String(effort)),
+                    ("effort", JsValue::String(effort.into())),
                     (
                         "summary",
-                        Value::String(
+                        JsValue::String(
                             options
                                 .reasoning_summary
                                 .map(ReasoningSummary::as_str)
                                 .unwrap_or("auto")
-                                .to_owned(),
+                                .into(),
                         ),
                     ),
                 ]),
@@ -645,7 +640,7 @@ fn build_request_body(
         }
     }
 
-    Ok(Value::Object(body))
+    Ok(JsValue::Object(body))
 }
 
 fn reasoning_effort_value(model: &Model, effort: CodexReasoningEffort) -> Option<String> {
@@ -702,12 +697,12 @@ fn resolve_codex_service_tier<'a>(
     response_service_tier.or(request_service_tier)
 }
 
-fn object(entries: Vec<(&str, Value)>) -> Value {
-    let mut map = Map::new();
+fn object(entries: Vec<(&str, JsValue)>) -> JsValue {
+    let mut map = JsObject::new();
     for (key, value) in entries {
-        map.insert(key.to_owned(), value);
+        map.insert(key.into(), value);
     }
-    Value::Object(map)
+    JsValue::Object(map)
 }
 
 fn codex_tool_call_providers() -> std::collections::BTreeSet<String> {
@@ -1663,7 +1658,7 @@ struct CacheEntry {
 struct CachedWebSocketContinuationState {
     last_request_body: JsValue,
     last_response_id: String,
-    last_response_items: Vec<Value>,
+    last_response_items: Vec<JsValue>,
 }
 
 struct WsLease {
@@ -2381,7 +2376,7 @@ fn convert_response_items(
     _context: &Context,
     output: &AssistantMessage,
     grammar_tool_input_properties: &IndexMap<String, String>,
-) -> Vec<Value> {
+) -> Vec<JsValue> {
     let response_context = Context {
         system_prompt: None,
         messages: vec![ChatMessage::Assistant(Box::new(output.clone()))],
@@ -2403,10 +2398,10 @@ fn convert_response_items(
         items
             .into_iter()
             .filter(|item| {
-                !matches!(
-                    item.get("type").and_then(Value::as_str),
-                    Some("function_call_output" | "custom_tool_call_output")
-                )
+                !item
+                    .get("type")
+                    .and_then(JsValue::as_string)
+                    .is_some_and(|kind| kind == "function_call_output" || kind == "custom_tool_call_output")
             })
             .collect()
     })
