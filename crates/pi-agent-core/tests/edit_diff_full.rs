@@ -7,8 +7,8 @@ use pi_agent_core::harness::tools::edit_diff::{
 
 fn edit(old_text: &str, new_text: &str) -> Edit {
     Edit {
-        old_text: old_text.to_owned(),
-        new_text: new_text.to_owned(),
+        old_text: old_text.to_owned().into(),
+        new_text: new_text.to_owned().into(),
     }
 }
 

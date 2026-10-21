@@ -10,7 +10,8 @@ use pi_ai::types::{
     ModelCost, ModelCostRates, StopReason, TextContent, ToolCall, ToolCallExecution, UserMessage, UserRole,
 };
 use pi_ai::utils::event_stream::{AssistantMessageEventStream, EventStream, create_assistant_message_event_stream};
-use serde_json::Value;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
+use serde_json::Value as SchemaValue;
 use tokio_util::sync::CancellationToken;
 
 pub fn model() -> Model {
@@ -47,8 +48,16 @@ pub fn text_assistant(text: &str) -> AssistantMessage {
     assistant(vec![AssistantContent::Text(TextContent::new(text))], StopReason::Stop)
 }
 
-pub fn tool_call(id: &str, name: &str, arguments: Value) -> ToolCall {
-    ToolCall::new(id, name, arguments.as_object().cloned().unwrap_or_default())
+pub fn tool_call(id: &str, name: &str, arguments: impl Into<Value>) -> ToolCall {
+    let arguments = arguments.into();
+    ToolCall::new(
+        id,
+        name,
+        arguments
+            .as_object()
+            .expect("tool fixture arguments must be an object")
+            .clone(),
+    )
 }
 
 pub fn tool_use(content: Vec<AssistantContent>) -> AssistantMessage {
@@ -58,7 +67,7 @@ pub fn tool_use(content: Vec<AssistantContent>) -> AssistantMessage {
 pub fn user(text: &str) -> UserMessage {
     UserMessage {
         role: UserRole::Tag,
-        content: pi_ai::types::UserContent::Text(text.to_owned()),
+        content: pi_ai::types::UserContent::Text(text.to_owned().into()),
         input_source: None,
         provider_native: None,
         timestamp: 1000,
@@ -184,7 +193,7 @@ pub struct TestTool {
     pub name: String,
     pub label: String,
     pub description: String,
-    pub parameters: Value,
+    pub parameters: SchemaValue,
     pub execution_mode: Option<pi_agent_core::harness::ToolExecutionMode>,
     pub prepare_arguments: Option<PrepareArgumentsFn>,
     pub prepare_execution: Option<PrepareExecutionFn>,
@@ -240,7 +249,7 @@ impl AgentTool for TestTool {
         &self.description
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
@@ -313,10 +322,11 @@ pub fn event_types(events: &[AgentEvent]) -> Vec<&'static str> {
         .collect()
 }
 
-pub fn text_result(text: &str) -> AgentToolResult {
+pub fn text_result(text: impl Into<JsString>) -> AgentToolResult {
+    let text = text.into();
     AgentToolResult {
-        content: vec![pi_ai::types::TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(serde_json::json!({"value": text})),
+        content: vec![pi_ai::types::TextOrImageContent::Text(TextContent::new(text.clone()))],
+        details: Some(pi_js_compat::js_json!({"value": text})),
         is_error: None,
         terminate: None,
     }

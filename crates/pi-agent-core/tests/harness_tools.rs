@@ -17,7 +17,7 @@ use pi_agent_core::harness::tools::write::WriteTool;
 use pi_agent_core::harness::types::ExecutionEnv;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::TextOrImageContent;
-use serde_json::{Value, json};
+use pi_js_compat::{js_json as json, js_json::JsValue as Value};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
@@ -50,16 +50,14 @@ async fn execute_aborted(
         .await
 }
 
-fn text_output(result: &AgentToolResult) -> String {
-    result
-        .content
-        .iter()
-        .filter_map(|part| match part {
-            TextOrImageContent::Text(text) => Some(text.text.as_str()),
+fn text_output(result: &AgentToolResult) -> pi_js_compat::js_json::JsString {
+    pi_js_compat::js_json::JsString::join(
+        result.content.iter().filter_map(|part| match part {
+            TextOrImageContent::Text(text) => Some(&text.text),
             TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }),
+        "\n",
+    )
 }
 
 #[test]
@@ -349,11 +347,11 @@ async fn edit_applies_disjoint_edits_and_returns_diff_and_patch() {
     .unwrap();
     assert_eq!(text_output(&result), "Successfully replaced 2 block(s) in edit.txt.");
     let details = result.details.unwrap();
-    let diff = details["diff"].as_str().unwrap();
+    let diff = details["diff"].as_string().unwrap();
     assert!(diff.contains("ALPHA"));
     assert!(diff.contains("GAMMA"));
     assert_eq!(
-        details["patch"].as_str().unwrap(),
+        details["patch"].as_string().unwrap(),
         "--- edit.txt\n+++ edit.txt\n@@ -1,4 +1,4 @@\n-alpha\n+ALPHA\n beta\n-gamma\n+GAMMA\n delta\n"
     );
     assert_eq!(details["firstChangedLine"], json!(1));
@@ -521,7 +519,7 @@ async fn edit_fuzzy_matches_smart_quotes_and_whitespace() {
     )
     .await
     .unwrap();
-    assert!(result.details.unwrap()["diff"].as_str().unwrap().contains("bye"));
+    assert!(result.details.unwrap()["diff"].as_string().unwrap().contains("bye"));
     assert_eq!(
         context.env.read_text_file("fuzzy.txt", None).await.unwrap(),
         "keep  \nsay \"bye\"\n"
@@ -644,10 +642,10 @@ async fn bash_reports_the_total_size_of_an_oversized_final_line() {
     let output = text_output(&result);
     assert!(
         output.contains("Showing last 10.0KB of line 1 (line is 58.6KB). Full output: "),
-        "{output}"
+        "{output:?}"
     );
     let details = result.details.unwrap();
-    assert!(details["fullOutputPath"].as_str().unwrap().ends_with(".log"));
+    assert!(details["fullOutputPath"].as_string().unwrap().ends_with(".log"));
     assert_eq!(details["truncation"]["lastLinePartial"], json!(true));
 }
 
@@ -677,8 +675,12 @@ async fn bash_truncates_line_output_and_persists_the_full_output() {
     assert_eq!(details["truncation"]["truncatedBy"], json!("bytes"));
     assert_eq!(details["truncation"]["totalLines"], json!(3000));
     assert_eq!(details["truncation"]["outputLines"], json!(1024));
-    let full_output_path = details["fullOutputPath"].as_str().unwrap();
-    let full_output = context.env.read_text_file(full_output_path, None).await.unwrap();
+    let full_output_path = details["fullOutputPath"]
+        .as_string()
+        .unwrap()
+        .to_utf8()
+        .expect("scalar temporary path");
+    let full_output = context.env.read_text_file(&full_output_path, None).await.unwrap();
     assert!(full_output.contains("line-1\nline-2"));
     assert!(full_output.contains("line-2999\nline-3000"));
     let last = updates.last().expect("final update");
@@ -700,9 +702,13 @@ async fn bash_preserves_truncated_output_when_a_command_times_out() {
     .unwrap_err();
     assert!(error.message.contains("Command timed out after 0.5 seconds"));
     let start = error.message.find("Full output: ").expect("full output notice") + "Full output: ".len();
-    let end = error.message[start..].find(']').expect("notice end") + start;
-    let path = &error.message[start..end];
-    let full_output = context.env.read_text_file(path, None).await.unwrap();
+    let end = error.message.find_from("]", start).expect("notice end");
+    let path = error
+        .message
+        .slice(start, end)
+        .to_utf8()
+        .expect("scalar temporary path");
+    let full_output = context.env.read_text_file(&path, None).await.unwrap();
     assert!(full_output.contains("line-1\nline-2"));
     assert!(full_output.contains("line-3000"));
 }
