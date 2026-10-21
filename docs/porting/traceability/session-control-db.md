@@ -91,7 +91,7 @@ inserts, so `JSON.stringify` bytes match. Covered by the 74-step `differential_c
 ## Session-name v15 deviation (approved 2026-10-20)
 
 Reference: `c248b0067c9fc3fa438f967f826c222875c54834` in
-[session-name-source-lock.json](../session-name-source-lock.json); the general pin stays unchanged.
+[source-lock.json](../source-lock.json); v15 is now included in the common re-pin (old approval to re-validate against 4f9e6f8a4).
 
 | Contract / branch | Rust | Behavioral proof |
 |---|---|---|

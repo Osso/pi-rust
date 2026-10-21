@@ -1,6 +1,8 @@
 # Batch A integration proof
 
-Runtime oracle remains `532f7d12`; type-only reference and DB-v15 deviations remain separately pinned. This batch is not whole-port completion. Baseline catalogs, live state and statistics are unchanged.
+**Historical old-pin evidence:** no results below cover 4f9e6f8a4; [current proof boundary](repin-infra.md).
+
+At the tested revisions, runtime oracle remained `532f7d12`; type-only reference and DB-v15 deviations remain separately pinned. This batch is not whole-port completion. Baseline catalogs, live state and statistics are unchanged.
 
 ## Capability and proof matrix
 
@@ -14,7 +16,7 @@ Runtime oracle remains `532f7d12`; type-only reference and DB-v15 deviations rem
 
 Foundation command: `cargo test -p pi-js-compat --test number --test differential_number --test differential_number_bits --test date --test differential_date_parse --test js_json_lossless --test differential_js_json_lossless --test image_generator_coercion --test image_generator_collation --test differential_locale_compare --test node_fs_errors -- --nocapture`; caller command: `cargo test -p pi-ai --test model_data_tools -- --nocapture`. Additional commands: `cargo fmt --check`, `cargo check -p pi-js-compat --all-targets`, `cargo clippy -p pi-js-compat --all-targets -- -D warnings`.
 
-Oracle command: `python3 scripts/test-sandbox.py -- ./run-tests.sh oracle`. Cargo's build/driver phase stays outside that namespace; compiled tests enter the mandatory Cargo runner. [Protected-runner fixes and preserved negative assertions](oracle-gate.md#protected-runner-integration).
+Oracle command: `python3 scripts/test-sandbox.py -- ./run-tests.sh oracle`. Cargo's build/driver phase stays outside that namespace; compiled tests enter the mandatory Cargo runner. [Protected-runner fixes and preserved negative assertions](oracle-gate.md#protected-invocation).
 
 ## Proof limits and readability disposition
 

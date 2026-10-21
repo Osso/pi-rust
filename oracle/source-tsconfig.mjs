@@ -26,13 +26,19 @@ export function buildSourceTsconfig(sourceWorktree, files) {
 		rewriteRelativeImportExtensions: false,
 		typeRoots: [join(sourceWorktree, "node_modules", "@types")],
 	};
-	if (paths) {
-		compilerOptions.paths = Object.fromEntries(
-			Object.entries(paths).map(([pattern, targets]) => [
+	compilerOptions.paths = {
+		...Object.fromEntries(
+			Object.entries(paths ?? {}).map(([pattern, targets]) => [
 				pattern,
 				targets.map((target) => resolve(sourceWorktree, target)),
 			]),
-		);
-	}
-	return { compilerOptions, files: files.map((file) => resolve(file)) };
+		),
+		"@pi-oracle-source/*": [join(sourceWorktree, "packages/*")],
+	};
+	return {
+		compilerOptions,
+		files: files.map((file) => resolve(file)),
+		// Retain source-provided ambient declarations in temporary fixture configs.
+		include: [join(sourceWorktree, "packages/*/src/**/*.d.ts")],
+	};
 }

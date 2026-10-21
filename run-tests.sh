@@ -9,6 +9,7 @@ read_source_worktree() {
 }
 
 typecheck_oracle() {
+	node oracle/typecheck-reference.mjs check
 	node --test oracle/typecheck-report.test.mjs oracle/typecheck-reference.test.mjs oracle/session-name-reference.test.mjs
 	local source_worktree
 	source_worktree="$(read_source_worktree)"

@@ -1132,7 +1132,7 @@ fn first_difference(path: &str, actual: &Value, expected: &Value) -> Option<Stri
 }
 
 pub async fn run_differential() {
-    let mut oracle = oracle::TsOracle::spawn("agent-loop-oracle.ts", "packages/agent/src/agent-loop.ts");
+    let mut oracle = oracle::TsOracle::spawn("agent-loop-oracle.ts", "packages/agent-core/src/agent-loop.ts");
     let scenarios = [
         "text",
         "tools",

@@ -9,7 +9,7 @@ import { runCompiler } from "./typecheck-report.mjs";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceLock = selectTypecheckReference(repoRoot);
 const sourceWorktree = sourceLock.worktree;
-const compactionModulePath = join(sourceWorktree, "packages/agent/src/harness/compaction/compaction.ts");
+const compactionModulePath = join(sourceWorktree, "packages/agent-core/src/harness/compaction/compaction.ts");
 const tsgoPath = join(sourceWorktree, "node_modules/.bin/tsgo");
 const EXPECTED_PROMPT =
 	"You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.";

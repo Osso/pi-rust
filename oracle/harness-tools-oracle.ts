@@ -1,7 +1,15 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 
-const SOURCE_ROOT = "/home/osso/.worktrees/pi-rust-source-532f7d12/packages/agent/src/harness";
+const lock = JSON.parse(
+	readFileSync(
+		new URL("../docs/porting/source-lock.json", import.meta.url),
+		"utf8",
+	),
+);
+const SOURCE_ROOT = join(lock.worktree, "packages/agent-core/src/harness");
 
 type ToolName = "read" | "write" | "edit" | "bash";
 
@@ -19,7 +27,9 @@ type Request =
 			prepare: boolean;
 	  };
 
-type Response = { id: number; ok: true; result: unknown } | { id: number; ok: false; error: { message: string } };
+type Response =
+	| { id: number; ok: true; result: unknown }
+	| { id: number; ok: false; error: { message: string } };
 
 type Tool = {
 	name: string;
@@ -46,13 +56,23 @@ type Apis = {
 };
 
 async function loadApis(): Promise<Apis> {
-	const env = (await import(pathToFileURL(`${SOURCE_ROOT}/env/nodejs.ts`).href)) as {
+	const env = (await import(
+		pathToFileURL(`${SOURCE_ROOT}/env/nodejs.ts`).href
+	)) as {
 		NodeExecutionEnv: new (options: { cwd: string }) => unknown;
 	};
-	const bash = (await import(pathToFileURL(`${SOURCE_ROOT}/tools/bash.ts`).href)) as { createBashTool: ToolFactory };
-	const edit = (await import(pathToFileURL(`${SOURCE_ROOT}/tools/edit.ts`).href)) as { createEditTool: ToolFactory };
-	const read = (await import(pathToFileURL(`${SOURCE_ROOT}/tools/read.ts`).href)) as { createReadTool: ToolFactory };
-	const write = (await import(pathToFileURL(`${SOURCE_ROOT}/tools/write.ts`).href)) as { createWriteTool: ToolFactory };
+	const bash = (await import(
+		pathToFileURL(`${SOURCE_ROOT}/tools/bash.ts`).href
+	)) as { createBashTool: ToolFactory };
+	const edit = (await import(
+		pathToFileURL(`${SOURCE_ROOT}/tools/edit.ts`).href
+	)) as { createEditTool: ToolFactory };
+	const read = (await import(
+		pathToFileURL(`${SOURCE_ROOT}/tools/read.ts`).href
+	)) as { createReadTool: ToolFactory };
+	const write = (await import(
+		pathToFileURL(`${SOURCE_ROOT}/tools/write.ts`).href
+	)) as { createWriteTool: ToolFactory };
 	return {
 		NodeExecutionEnv: env.NodeExecutionEnv,
 		createReadTool: read.createReadTool,
@@ -77,7 +97,10 @@ function schemas(apis: Apis): unknown[] {
 	}));
 }
 
-function createTool(apis: Apis, request: Extract<Request, { operation: "tool" }>): Tool {
+function createTool(
+	apis: Apis,
+	request: Extract<Request, { operation: "tool" }>,
+): Tool {
 	if (request.tool === "read" && request.imageProcessor) {
 		return apis.createReadTool({
 			autoResizeImages: false,
@@ -92,12 +115,17 @@ function createTool(apis: Apis, request: Extract<Request, { operation: "tool" }>
 	if (request.tool === "bash" && request.prepare) {
 		return apis.createBashTool({
 			commandPrefix: "prefix=ready",
-			prepare: async (execution: { cwd: string; env: Record<string, string>; inheritEnv: boolean; command: string }) => {
+			prepare: async (execution: {
+				cwd: string;
+				env: Record<string, string>;
+				inheritEnv: boolean;
+				command: string;
+			}) => {
 				execution.cwd = `${request.root}/workspace`;
 				execution.env = { PI_BASH_PREPARE_EXPLICIT: "explicit" };
 				execution.inheritEnv = false;
 				execution.command +=
-					"\nprintf '%s:%s:%s:%s' \"$prefix\" \"${PI_BASH_PREPARE_INHERITED-}\" \"$PI_BASH_PREPARE_EXPLICIT\" \"$PWD\"";
+					'\nprintf \'%s:%s:%s:%s\' "$prefix" "${PI_BASH_PREPARE_INHERITED-}" "$PI_BASH_PREPARE_EXPLICIT" "$PWD"';
 			},
 		});
 	}
@@ -113,15 +141,26 @@ function createTool(apis: Apis, request: Extract<Request, { operation: "tool" }>
 	}
 }
 
-async function executeTool(apis: Apis, request: Extract<Request, { operation: "tool" }>): Promise<unknown> {
+async function executeTool(
+	apis: Apis,
+	request: Extract<Request, { operation: "tool" }>,
+): Promise<unknown> {
 	const env = new apis.NodeExecutionEnv({ cwd: request.root });
 	const controller = new AbortController();
 	if (request.abort) controller.abort();
 	const updates: unknown[] = [];
-	const onUpdate = request.updates ? (update: unknown) => updates.push(update) : undefined;
+	const onUpdate = request.updates
+		? (update: unknown) => updates.push(update)
+		: undefined;
 	const tool = createTool(apis, request);
 	try {
-		const result = await tool.execute("call", request.input, controller.signal, onUpdate, { env });
+		const result = await tool.execute(
+			"call",
+			request.input,
+			controller.signal,
+			onUpdate,
+			{ env },
+		);
 		return {
 			ok: true,
 			content: result.content,
@@ -165,7 +204,9 @@ async function main(): Promise<void> {
 				const response: Response = {
 					id,
 					ok: false,
-					error: { message: error instanceof Error ? error.message : String(error) },
+					error: {
+						message: error instanceof Error ? error.message : String(error),
+					},
 				};
 				process.stdout.write(`${JSON.stringify(response)}\n`);
 			}
@@ -174,6 +215,8 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`harness-tools oracle startup failed: ${String(error)}\n`);
+	process.stderr.write(
+		`harness-tools oracle startup failed: ${String(error)}\n`,
+	);
 	process.exitCode = 1;
 });

@@ -159,7 +159,7 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 
 ## v15 session names (approved 2026-10-20)
 
-Name methods follow `c248b0067` ([reference lock](../session-name-source-lock.json)).
+Name methods follow `c248b0067` ([reference lock](../source-lock.json)).
 `set_session_name`/`clear_session_name` call the shared manager and propagate persistence errors.
 Both publish `SessionInfoChanged` to subscribers and extensions; neither appends JSONL.
 Proof: `agent_session::session_name_round_trips_through_session_metadata_state`,

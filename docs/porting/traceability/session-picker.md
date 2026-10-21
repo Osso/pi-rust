@@ -1,7 +1,7 @@
 # session-picker traceability
 
 Source: `packages/coding-agent/src/cli/session-picker.ts` at authorized `c248b0067`
-([reference lock](../session-name-source-lock.json), approved 2026-10-20).
+(now included in [common source lock](../source-lock.json); 2026-10-20 approval to re-validate against 4f9e6f8a4).
 Rust: `crates/pi-coding-agent/src/cli/session_picker.rs`.
 
 | Symbol / branch | Rust | Proof |

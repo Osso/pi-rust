@@ -8,7 +8,7 @@ import { buildSourceTsconfig } from "./source-tsconfig.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceLock = selectTypecheckReference(repoRoot);
-const modulePath = join(sourceLock.worktree, "packages/agent/src/harness/compaction/compaction.ts");
+const modulePath = join(sourceLock.worktree, "packages/agent-core/src/harness/compaction/compaction.ts");
 const tsgoPath = join(sourceLock.worktree, "node_modules/.bin/tsgo");
 const fixture = `
 import type { CompactionDetails } from ${JSON.stringify(modulePath)};

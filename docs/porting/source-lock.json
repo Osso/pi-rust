@@ -1,27 +1,17 @@
 {
-  "worktree": "/home/osso/.worktrees/pi-rust-source-532f7d12",
-  "commit": "532f7d12cd19235081bd4d6e425bde185652d86f",
-  "sourcePackage": "@earendil-works/pi-protocol",
-  "sourceVersion": "0.84.1",
-  "lockedOn": "2026-08-12",
+  "worktree": "/home/osso/.worktrees/pi-rust-source-4f9e6f8a4",
+  "commit": "4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d",
+  "sourcePackage": "@earendil-works/pi-coding-agent",
+  "sourceVersion": "0.80.3",
+  "lockedOn": "2026-10-21",
   "modelCatalog": {
-    "path": "crates/pi-ai/data/providers",
-    "generatedAt": "2026-10-18T06:09:19.167Z",
-    "generator": "packages/ai/scripts/generate-models.ts at pinned commit (network sources)",
-    "sha256": "71637bb43050611dc17b254c5512a15e8782ff7c890384f2ff8a2fa2d1384d47",
-    "supplements": {
-      "kimi-coding.json": "absent upstream on 2026-10-18; copied from a 2026-08-20 generation (same schema) so the pinned kimi-coding.models.ts import resolves"
-    },
-    "installedInSourceWorktree": "packages/ai/src/providers/data (gitignored)"
+    "path": "packages/ai/src/models.generated.ts",
+    "origin": "Tracked in the pinned TypeScript Git tree; no network generation or supplements. Rust provider data remains unchanged pending re-pin parity work."
   },
   "typecheckReference": {
-    "worktree": "/home/osso/.worktrees/pi-oracle-typecheck-532f7d12",
-    "baseCommit": "532f7d12cd19235081bd4d6e425bde185652d86f",
-    "commit": "16a52a4df1b412e1adcc183b64880a2e625b5418",
-    "tree": "2373941ed92e62e2d136f098da19c55c65bbb5c9",
-    "patch": "docs/porting/patches/oracle-typecheck-532f7d12.patch",
-    "patchSha256": "2436061a2cf24c9b68e8f77e25957835ea6d5f7ed2864f8131d5835c134b7940",
-    "modelCatalogSha256": "6857c86845b47766339bdf35a5f3e98373b28a31f5eb1c0719a04d679ad44705",
-    "commitDate": "2026-10-20T00:00:00+00:00"
-  }
+    "status": "unmodified",
+    "baseCommit": "4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d",
+    "note": "Original public index plus tracked ambient declaration compiles without provider patch. Type and runtime proofs use worktree above. Old patch fails cloudflare-ai-gateway.ts:6 and opencode-go.ts:2; retired, no replacement source changes."
+  },
+  "note": "Later master commits are tracked as explicit deltas."
 }

@@ -14,7 +14,7 @@ const sourceWorktree = sourceLock.worktree;
 // This fixture imports the pinned agent package index, not the protocol package schema.
 const publicIndexPath = join(sourceWorktree, "packages/agent/src/index.ts");
 const publicIndexImportPath = publicIndexPath.endsWith(".ts") ? publicIndexPath.slice(0, -3) : publicIndexPath;
-const definingTypesPath = join(sourceWorktree, "packages/agent/src/types.ts");
+const definingTypesPath = join(sourceWorktree, "packages/agent-core/src/types.ts");
 const tsconfigPath = join(sourceWorktree, "tsconfig.json");
 const tsgoPath = join(sourceWorktree, "node_modules/.bin/tsgo");
 const typescriptPath = join(sourceWorktree, "node_modules/typescript/lib/typescript.js");
@@ -714,7 +714,7 @@ try {
 	} else {
 		proveFreshExcessPropertyDiagnostic(options);
 		console.log(`compiler=${exportProof.compilerVersion}`);
-		console.log("BeforeToolCallResult export: real-index wildcard -> packages/agent/src/types.ts");
+		console.log("BeforeToolCallResult export: real-index wildcard -> packages/agent-core/src/types.ts");
 		console.log("BeforeToolCallResult properties: block, reason, terminate; optional, writable");
 		console.log(`exactOptionalPropertyTypes=${exportProof.exactOptionalPropertyTypes}`);
 		console.log("BeforeToolCallResult runtime interface identity: not claimed; source-shaped records only");

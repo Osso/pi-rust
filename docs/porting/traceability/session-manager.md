@@ -68,7 +68,7 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 
 ## Metadata-authoritative names (approved 2026-10-20)
 
-Name paths follow `c248b0067` ([reference lock](../session-name-source-lock.json)).
+Name paths use the [common source lock](../source-lock.json); former c248b0067 approval to re-validate against 4f9e6f8a4.
 `set_session_name` normalizes and writes metadata, `get_session_name` returns cached metadata
 state, and `has_session_name_state` distinguishes never named from explicitly cleared.
 `appendSessionInfo` is removed; `SessionInfoEntry` remains parseable history only.

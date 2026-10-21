@@ -11,7 +11,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceLock = selectTypecheckReference(repoRoot);
 const sourceWorktree = sourceLock.worktree;
 const defaultsModulePath = join(sourceWorktree, "packages/coding-agent/src/core/defaults.ts");
-const thinkingLevelModulePath = join(sourceWorktree, "packages/agent/src/types.ts");
+const thinkingLevelModulePath = join(sourceWorktree, "packages/agent-core/src/types.ts");
 const tsgoPath = join(sourceWorktree, "node_modules/.bin/tsgo");
 const tsxPath = join(sourceLock.runtimeWorktree, "node_modules/.bin/tsx");
 

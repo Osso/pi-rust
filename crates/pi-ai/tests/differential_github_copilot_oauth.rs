@@ -19,7 +19,7 @@ mod recording_fetch;
 
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 
-const SOURCE_MODULE: &str = "packages/ai/src/auth/oauth/github-copilot.ts";
+const SOURCE_MODULE: &str = "packages/ai/src/utils/oauth/github-copilot.ts";
 
 fn credential(value: &Value) -> OAuthCredential {
     let mut credential = OAuthCredential::new(

@@ -59,15 +59,20 @@ function fixture(t, state) {
 		}
 		if (state !== "missing-environment") {
 			mkdirSync(join(reference, "node_modules/.bin"), { recursive: true });
-			mkdirSync(join(reference, "packages/ai/src/providers/data"), {
+			mkdirSync(join(reference, "packages/ai/src"), {
 				recursive: true,
 			});
 			writeFileSync(join(reference, "node_modules/.bin/tsx"), "fixture");
 			writeFileSync(join(reference, "tsconfig.json"), "{}");
+			if (state !== "missing-catalog")
+				writeFileSync(
+					join(reference, "packages/ai/src/models.generated.ts"),
+					"export {};",
+				);
 		}
 	}
 	writeFileSync(
-		join(directory, "docs/porting/session-name-source-lock.json"),
+		join(directory, "docs/porting/source-lock.json"),
 		JSON.stringify({ worktree: "target/session-name-oracle", commit }),
 	);
 	const bin = join(directory, "bin");
@@ -107,11 +112,11 @@ for (const mode of ["all", "differential"]) {
 	}
 }
 
-for (const state of ["valid", "missing-environment"]) {
+for (const state of ["valid", "missing-environment", "missing-catalog"]) {
 	test(`explicit v15 preflight: ${state}`, (t) => {
 		const f = fixture(t, state);
 		const lockBefore = readFileSync(
-			join(f.directory, "docs/porting/session-name-source-lock.json"),
+			join(f.directory, "docs/porting/source-lock.json"),
 			"utf8",
 		);
 		const result = spawnSync(
@@ -129,12 +134,13 @@ for (const state of ["valid", "missing-environment"]) {
 				result.stdout.trim(),
 				join(f.directory, "target/session-name-oracle"),
 			);
-		else assert.ok(result.stderr.includes(setupDoc), result.stderr);
+		else {
+			assert.ok(result.stderr.includes(setupDoc), result.stderr);
+			if (state === "missing-catalog")
+				assert.match(result.stderr, /models\.generated\.ts/);
+		}
 		assert.equal(
-			readFileSync(
-				join(f.directory, "docs/porting/session-name-source-lock.json"),
-				"utf8",
-			),
+			readFileSync(join(f.directory, "docs/porting/source-lock.json"), "utf8"),
 			lockBefore,
 		);
 	});

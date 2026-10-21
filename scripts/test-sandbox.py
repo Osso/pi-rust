@@ -28,7 +28,6 @@ def reference_inputs():
     references = [
         ROOT,
         Path(lock["worktree"]),
-        Path(lock["typecheckReference"]["worktree"]),
     ]
     for reference in references:
         yield reference
