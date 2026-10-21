@@ -9,3 +9,7 @@ Reference: [source lock](../porting/source-lock.json), `4f9e6f8a4`.
 - Width uses frozen base-grapheme semantics, not later terminal-spacing-mark/conjunct corrections. Normalization decomposes Thai/Lao AM only, preserves tabs. Wrapping splits LF only. Truncation does not add an OSC8 close absent from frozen.
 
 Internal later-only component/interactive helpers remain pending Q2/Q13; they are not frozen package-root exports.
+
+## Explicit unresolved boundaries
+
+Non-finite RGB channels/Kitty flags and negative/fractional/non-finite terminal dimensions are pending user classification, not approved semantic deviations. Native Darwin modifiers and Windows VT-console helper remain approved platform gaps. Existing Rust driver-owned scheduling/event queues, byte-offset text APIs and valid-Unicode Strings remain representation adaptations; unrestricted JS number/surrogate behavior is not claimed.

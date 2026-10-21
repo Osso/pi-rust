@@ -419,11 +419,11 @@ fn terminal_stop_child() {
 #[test]
 fn rethrown_terminal_errors_use_the_node_stream_message() {
     // Node: `Error: write EPIPE` / `Error: read EBADF` for stream `error` events.
-    let write = pi_tui::TerminalIoError {
+    let write = pi_tui::terminal::TerminalIoError {
         syscall: "write",
         error: io::Error::from_raw_os_error(rustix::io::Errno::PIPE.raw_os_error()),
     };
-    let read = pi_tui::TerminalIoError {
+    let read = pi_tui::terminal::TerminalIoError {
         syscall: "read",
         error: io::Error::from_raw_os_error(rustix::io::Errno::BADF.raw_os_error()),
     };
