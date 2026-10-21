@@ -10,13 +10,13 @@ async function main(): Promise<void> {
     const src = join(dirname(source), "../../../src");
     const { MultiAgentStore } = await import(pathToFileURL(join(src, "core/multi-agent-store.ts")).href);
     const db = await import(pathToFileURL(join(src, "core/session-control-db.ts")).href);
-    
+
     function metadata(definition: any) {
         return { name: definition.name, label: definition.label, description: definition.description,
             promptGuidelines: definition.promptGuidelines, approvalRequired: definition.approvalRequired,
             parameters: definition.parameters };
     }
-    
+
     async function createLiveTarget(store: any, agentId: string, cwd: string) {
         const load = (name: string) => import(pathToFileURL(join(src, `core/${name}.ts`)).href);
         const { AuthStorage } = await load("auth-storage");
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
             target?.dispose();
         }
     }
-    
+
     for await (const line of createInterface({ input: process.stdin })) {
         try { process.stdout.write(`${JSON.stringify(await execute(JSON.parse(line)))}\n`); }
         catch (error) { process.stdout.write(`${JSON.stringify({ fixtureError: (error as Error).message })}\n`); }
