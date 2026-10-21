@@ -3,9 +3,25 @@ mod oracle;
 use pi_coding_agent::core::session_manager::{SessionManager, load_entries_from_file, read_session_header};
 use serde_json::{Value, json};
 fn configure_worker() {
-    let binary = std::path::Path::new(env!("CARGO_BIN_EXE_pi"));
-    pi_js_compat::process_env::set("PI_PACKAGE_DIR", binary.parent().unwrap().to_str().unwrap());
+    static PACKAGE: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let package = PACKAGE.get_or_init(|| {
+        let package = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_pi"), package.path().join("pi")).unwrap();
+        std::fs::create_dir(package.path().join("theme")).unwrap();
+        for name in ["dark.json", "light.json"] {
+            std::fs::copy(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("theme")
+                    .join(name),
+                package.path().join("theme").join(name),
+            )
+            .unwrap();
+        }
+        package
+    });
+    pi_js_compat::process_env::set("PI_PACKAGE_DIR", package.path().to_str().unwrap());
 }
+
 fn call(ts: &mut oracle::TsOracle, mut request: Value) -> Value {
     request["id"] = json!(1);
     let response = ts.request(&request);
@@ -114,7 +130,13 @@ async fn export_uses_read_only_stale_archive_and_legacy_source() {
     export_from_file(path, Some(ExportOptions::from_output_path(&out)))
         .await
         .unwrap();
-    assert!(std::fs::read_to_string(&out).unwrap().contains("hello"));
+    let html = std::fs::read_to_string(&out).unwrap();
+    let marker = "<script id=\"session-data\" type=\"application/json\">";
+    let start = html.find(marker).unwrap() + marker.len();
+    let end = start + html[start..].find("</script>").unwrap();
+    let data: Value = serde_json::from_slice(&pi_js_compat::base64::atob(&html[start..end]).unwrap()).unwrap();
+    assert_eq!(data["header"]["id"], created["id"]);
+    assert_eq!(data["entries"][0]["message"]["content"], "hello 😀漢字");
     assert!(!std::path::Path::new(path).exists());
     assert_eq!(std::fs::read(archived.as_str().unwrap()).unwrap(), bytes);
     call(&mut ts, json!({"op":"restore","db":db,"path":path}));
