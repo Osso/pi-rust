@@ -270,6 +270,11 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         "apply_overrides" => manager.apply_overrides(value.as_object().expect("overrides object")),
         "reload" => manager.reload(),
         "flush" => manager.flush(),
+        "project_write_then_revoke_same_turn" => {
+            manager.set_project_extension_paths(&parse_strings(value)).unwrap();
+            manager.set_project_trusted(false);
+            manager.flush();
+        }
         "setter_external_write_same_turn" => {
             manager.set_theme(value.as_str().unwrap());
             fs::write(agent_dir.join("settings.json"), step["content"].as_str().unwrap()).unwrap();
@@ -844,4 +849,61 @@ pub(crate) fn queued_write_ordering() {
             ],
         },
     );
+    run_scenario(
+        &mut oracle,
+        1,
+        &Scenario {
+            name: "queued-project-write-rechecks-trust",
+            global: None,
+            project: Some(r#"{"extensions":["original"]}"#),
+            steps: vec![json!({"op":"project_write_then_revoke_same_turn","value":["must-not-persist"]})],
+        },
+    );
+    run_scenario(
+        &mut oracle,
+        2,
+        &Scenario {
+            name: "queued-write-parse-error-is-drained",
+            global: Some(r#"{"theme":"original"}"#),
+            project: None,
+            steps: vec![json!({"op":"setter_external_write_same_turn","value":"must-not-persist","content":"invalid"})],
+        },
+    );
+}
+
+pub(crate) fn threshold_helper() {
+    use pi_coding_agent::core::compaction_threshold::parse_compaction_threshold_percent;
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-compaction-threshold-oracle.ts",
+        "packages/coding-agent/src/core/compaction-threshold.ts",
+    );
+    let mut values = vec![None];
+    values.extend(
+        [
+            json!(0.00001),
+            json!(100),
+            json!(70),
+            json!(0),
+            json!(-1),
+            json!(100.00001),
+            json!(null),
+            json!("70"),
+            json!(false),
+            json!([]),
+            json!([1, null, 2]),
+            json!({}),
+            json!({"toString":1}),
+        ]
+        .into_iter()
+        .map(Some),
+    );
+    for (index, value) in values.iter().enumerate() {
+        let response = oracle.request(&json!({"id":index,"missing":value.is_none(),"value":value}));
+        assert_eq!(response["ok"], true, "{response}");
+        let actual = match parse_compaction_threshold_percent(value.as_ref()) {
+            Ok(result) => json!({"result":result.map(number)}),
+            Err(error) => json!({"error":error.message()}),
+        };
+        assert_eq!(actual, response["output"], "input {value:?}");
+    }
 }

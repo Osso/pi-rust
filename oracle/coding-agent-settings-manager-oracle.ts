@@ -29,8 +29,8 @@ async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir:
 	try {
 		switch (step.op) {
 			case "set_last_changelog_version": manager.setLastChangelogVersion(step.value); break;
-            case "set_enable_analytics": manager.setEnableAnalytics(step.value); break;
-            case "set_theme": manager.setTheme(step.value); break;
+			case "set_enable_analytics": manager.setEnableAnalytics(step.value); break;
+			case "set_theme": manager.setTheme(step.value); break;
 			case "set_default_provider": manager.setDefaultProvider(step.value); break;
 			case "set_default_model": manager.setDefaultModel(step.value); break;
 			case "set_default_model_and_provider": manager.setDefaultModelAndProvider(step.provider, step.model); break;
@@ -47,8 +47,8 @@ async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir:
 			case "set_retry_enabled": manager.setRetryEnabled(step.value); break;
 			case "set_http_idle_timeout_ms": manager.setHttpIdleTimeoutMs(step.value); break;
 			case "set_hide_tool_output": manager.setHideToolOutput(step.value); break;
-            case "set_hide_coordination_messages": manager.setHideCoordinationMessages(step.value); break;
-            case "set_hide_thinking_block": manager.setHideThinkingBlock(step.value); break;
+			case "set_hide_coordination_messages": manager.setHideCoordinationMessages(step.value); break;
+			case "set_hide_thinking_block": manager.setHideThinkingBlock(step.value); break;
 			case "set_shell_path": manager.setShellPath(step.value ?? undefined); break;
 			case "set_quiet_startup": manager.setQuietStartup(step.value); break;
 			case "set_default_project_trust": manager.setDefaultProjectTrust(step.value); break;
@@ -84,6 +84,12 @@ async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir:
 			case "apply_overrides": manager.applyOverrides(step.value); break;
 			case "reload": await manager.reload(); break;
 			case "flush": await manager.flush(); break;
+			case "project_write_then_revoke_same_turn": {
+				manager.setProjectExtensionPaths(step.value);
+				manager.setProjectTrusted(false);
+				await manager.flush();
+				break;
+			}
 			case "setter_external_write_same_turn": {
 				manager.setTheme(step.value);
 				writeFileSync(join(agentDir, "settings.json"), step.content, "utf-8");
@@ -128,8 +134,8 @@ function snapshot(manager: SettingsManagerInstance): unknown {
 		mergedSettings: manager.getMergedSettings(),
 		projectTrusted: manager.isProjectTrusted(),
 		lastChangelogVersion: safe(() => manager.getLastChangelogVersion()),
-        externalEditorCommand: safe(() => manager.getExternalEditorCommand()),
-        theme: safe(() => manager.getTheme()),
+		externalEditorCommand: safe(() => manager.getExternalEditorCommand()),
+		theme: safe(() => manager.getTheme()),
 		themeSetting: safe(() => manager.getThemeSetting()),
 		defaultProvider: safe(() => manager.getDefaultProvider()),
 		defaultModel: safe(() => manager.getDefaultModel()),
@@ -155,9 +161,9 @@ function snapshot(manager: SettingsManagerInstance): unknown {
 		httpIdleTimeoutMs: safe(() => manager.getHttpIdleTimeoutMs()),
 		websocketConnectTimeoutMs: safe(() => manager.getWebSocketConnectTimeoutMs()),
 		hideThinkingBlock: safe(() => manager.getHideThinkingBlock()),
-        hideToolOutput: safe(() => manager.getHideToolOutput()),
-        hideCoordinationMessages: safe(() => manager.getHideCoordinationMessages()),
-        idleCompaction: safe(() => manager.getIdleCompactionEnabled()),
+		hideToolOutput: safe(() => manager.getHideToolOutput()),
+		hideCoordinationMessages: safe(() => manager.getHideCoordinationMessages()),
+		idleCompaction: safe(() => manager.getIdleCompactionEnabled()),
 		shellPath: safe(() => manager.getShellPath()),
 		sessionDir: safe(() => manager.getSessionDir()),
 		quietStartup: safe(() => manager.getQuietStartup()),
