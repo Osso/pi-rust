@@ -4,7 +4,8 @@ Frozen `extensions/agents-core/src/runtime.ts:196,2126-2295,3157-3168` bounds fo
 
 ## What it must do
 
-- [x] Track model_request_start for supervisor runtimes; clear the timestamp on agent_end and session_start. Child runtimes do not overwrite the supervisor timestamp.
+- [x] Track supervisor model_request_start and clear the timestamp on agent_end.
+- [ ] Independently exercise session_start reset and ignored child-runtime model requests.
 - [x] Finish the wait after 25 minutes from the latest model request start, not after 25 minutes from the tool call.
 - [x] Return timedOut true and explicit no-cancellation text; keep active agents running.
 - [x] Leave idle waits unbounded by the foreground deadline after agent_end.

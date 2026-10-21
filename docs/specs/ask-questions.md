@@ -40,7 +40,8 @@ Paths above are relative to `crates/pi-coding-agent/`.
 - [x] Five production mutants are killed by behavioral failures; all source restored.
 - [ ] Lone-surrogate text/details are an explicit unapproved gap pending the shared lossless TextContent/details lane; not a typed-core exclusion.
 - [x] Six exact frozen malformed/unchecked answer payload cases pass, retaining source cast behavior.
-- [ ] Late-reply poll and transport/route failure fixtures await GREEN; cancellation-vs-reply race still lacks an independent fixture.
+- [x] Late-reply 500ms poll and inactive/unavailable/parent-transport failure fixtures pass.
+- [ ] Cancellation-vs-reply race still lacks an independent fixture.
 
 ## Out of scope
 
