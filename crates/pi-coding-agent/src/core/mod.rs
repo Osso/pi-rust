@@ -1,3 +1,4 @@
+pub mod agent_lifecycle_trace;
 pub mod agent_session;
 pub mod agent_session_runtime;
 pub mod agent_session_services;
