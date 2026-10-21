@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 async function main() {
 const root = process.argv[2];
 const manager = await import(pathToFileURL(join(root, "session-manager.ts")).href);
@@ -27,7 +27,16 @@ async function handle(r: any) {
   if ("rawRefs" in r) for(const entry of m.getEntries()) if(entry.type==="message") entry.mailboxStoreRefs=r.rawRefs;
   if(r.legacy1){m.getHeader().version=1;for(const entry of m.getEntries()){delete entry.id;delete entry.parentId;}}
   m.persistForRecovery();
+  if(r.oversizedRaw) {
+   const entries=m.getEntries();
+   entries.find((e:any)=>e.type==="message"&&e.message.role==="toolResult").message.content=[{type:"text",text:"漢😀\\\"".repeat(180000)}];
+   writeFileSync(m.getSessionFile(),[m.getHeader(),...entries].map((e:any)=>JSON.stringify(e)).join("\n")+"\n");
+  }
   return {path:m.getSessionFile(), id:m.getSessionId()};
+ }
+ if(r.op === "migrateTools") {
+  const tools=await import(pathToFileURL(join(root,"session-tool-output.ts")).href);
+  return tools.migrateToolResultSessionFiles(r.dir,()=>new Date(1792584000000));
  }
  if(r.op === "extraTokens") {
   const entry=manager.SessionManager.openReadOnly(r.path).getEntries().find((e:any)=>e.type==="compaction");

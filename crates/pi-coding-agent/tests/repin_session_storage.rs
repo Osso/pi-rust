@@ -1022,3 +1022,51 @@ async fn legacy_v1_raw_receipt_survives_in_memory_migration_and_export() {
     );
     assert_eq!(std::fs::read(path).unwrap(), before);
 }
+
+#[test]
+fn source_lossless_tool_migration_preserves_receipt_summary_and_classifications() {
+    use pi_coding_agent::core::session_tool_output::migrate_tool_result_session_files;
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let rust_dir = tmp.path().join("rust");
+    let source_dir = tmp.path().join("source");
+    std::fs::create_dir_all(&source_dir).unwrap();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":rust_dir,"cwd":"/fixture","toolResult":true,"compacted":true,"splitSurrogate":true,"splitExtra":true,"oversizedRaw":true}),
+    );
+    let path = created["path"].as_str().unwrap();
+    let before = std::fs::read(path).unwrap();
+    let source_path = source_dir.join("fixture.jsonl");
+    std::fs::write(&source_path, &before).unwrap();
+    for dir in [&rust_dir, &source_dir] {
+        std::fs::write(dir.join("malformed.jsonl"), "{broken\n").unwrap();
+        std::fs::write(dir.join("non-session.jsonl"), "{}\n").unwrap();
+    }
+    let expected = call(&mut ts, json!({"op":"migrateTools","dir":source_dir}));
+    assert_eq!(expected["changedFiles"], 1);
+    assert_eq!(expected["skippedMalformedFiles"], 1);
+    assert_eq!(expected["skippedNonSessionFiles"], 1);
+    let report = migrate_tool_result_session_files(rust_dir.to_str().unwrap(), || 1792584000000);
+    assert_eq!(report.changed_files, 1, "{report:?}");
+    assert_eq!(report.truncated_messages, 1);
+    assert_eq!(report.scanned_files, 3);
+    assert_eq!(report.skipped_malformed_files, 1);
+    assert_eq!(report.skipped_non_session_files, 1);
+    assert_eq!(report.skipped_error_files, 0);
+    assert_eq!(std::fs::read(&report.backup_paths[0]).unwrap(), before);
+    for op in ["receiptTokens", "extraTokens"] {
+        assert_eq!(
+            call(&mut ts, json!({"op":op,"path":path})),
+            call(&mut ts, json!({"op":op,"path":source_path}))
+        );
+    }
+    let actual = call(&mut ts, json!({"op":"read","path":path}));
+    let expected = call(&mut ts, json!({"op":"read","path":source_path}));
+    assert_eq!(actual["entries"], expected["entries"]);
+    assert_eq!(
+        migrate_tool_result_session_files(rust_dir.to_str().unwrap(), || 1792584000000).changed_files,
+        0
+    );
+}

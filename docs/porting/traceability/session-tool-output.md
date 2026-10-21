@@ -1,6 +1,6 @@
 # coding-agent session-tool-output traceability
 
-Pinned source: `packages/coding-agent/src/core/session-tool-output.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen source: `packages/coding-agent/src/core/session-tool-output.ts` at `4f9e6f8a4`; earlier whole-module proof is not renewed by this bounded delta.
 
 Rust module: `crates/pi-coding-agent/src/core/session_tool_output.rs`.
 Focused tests: `crates/pi-coding-agent/tests/session_tool_output.rs` (6).
@@ -16,6 +16,12 @@ Differential: `crates/pi-coding-agent/tests/differential_session_manager.rs` (`t
 | `migrateToolResultSessionFiles` | recursive `.jsonl` scan, malformed/non-session/error counters, backup + atomic rewrite, mode preservation, idempotence, changed-file detection | `migrate_tool_result_session_files`; `migrates_oversized_sessions_atomically_and_idempotently`, `skips_a_session_that_changes_during_migration` |
 | `utf8Prefix` | UTF-8 byte prefix without replacement characters | `utf8_prefix`; multibyte tests |
 | `capTextContent`/`capSerializedContent`/`capToolResultContent`/`capToolResultEntry` | text-byte cap, serialized-content cap, entry-byte cap, minimal fallback | same-named private helpers; exercised by the focused and differential cases |
+
+## Frozen lossless migration boundary
+
+`read_session_file_for_migration` now calls the existing crate-visible `parse_session_file_entry` without changing its signature/visibility. Actual source-valid escaped receipt and unpaired summary extras previously counted malformed (RED:2 malformed/0 changes vs TS1 malformed/1 change). Focused migration differential covers exact rewritten entries, raw receipt/extra tokens, immutable backup bytes, idempotence, malformed JSON and non-session counters; GREEN pending. No generic public-serde rewrite.
+
+Entry sizing directly serializes the lossless KnownSessionEntry; impossible serialization errors fail explicitly, never count as zero. Existing cap/search algorithm unchanged. The same oversized escaped-text fixture compares actual frozen truncation output, not only sizes.
 
 ## Gaps
 

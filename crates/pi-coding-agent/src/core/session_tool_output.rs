@@ -9,7 +9,9 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_ai::utils::uuid::random_uuid;
 use serde_json::Value;
 
-use crate::core::session_manager::{FileEntry, KnownSessionEntry, SessionEntry, SessionMessageEntry};
+use crate::core::session_manager::{
+    FileEntry, KnownSessionEntry, SessionEntry, SessionMessageEntry, parse_session_file_entry,
+};
 use crate::utils::iso_time;
 
 /// Maximum UTF-8 byte length persisted for a tool result's content.
@@ -132,8 +134,8 @@ fn cap_tool_result_content(content: &[TextOrImageContent]) -> Vec<TextOrImageCon
 
 fn serialized_entry_bytes(entry: &SessionMessageEntry) -> usize {
     serde_json::to_string(&KnownSessionEntry::Message(entry.clone()))
-        .map(|json| json.len())
-        .unwrap_or(0)
+        .expect("lossless session message entry serialization must succeed")
+        .len()
 }
 
 fn build_tool_result_candidate(
@@ -346,11 +348,8 @@ fn read_session_file_for_migration(file_path: &str) -> SessionFileParseResult {
         if line.trim().is_empty() {
             continue;
         }
-        match serde_json::from_str::<Value>(line) {
-            Ok(value) => entries.push(
-                serde_json::from_value::<FileEntry>(value)
-                    .unwrap_or_else(|_| FileEntry::Entry(SessionEntry::Unknown(serde_json::Map::new().into()))),
-            ),
+        match parse_session_file_entry(line) {
+            Ok(entry) => entries.push(entry),
             Err(_) => return SessionFileParseResult::Malformed,
         }
     }
