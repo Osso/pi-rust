@@ -1,0 +1,13 @@
+# Orchestrator RPC process
+Frozen `packages/orchestrator/src/rpc-process.ts` at [common pin](../source-lock.json).
+
+| Export/branch | Proof |
+| --- | --- |
+| RpcProcessInstance / createRpcProcessInstance | `tests/rpc_process.rs` real fake child |
+| send / correlated response / event / UI dispatch | `routing_matches_frozen_process_and_disposal_rejects_pending` TS differential |
+| onEvent, onExit, UI handler, unsubscribes | routing tested; unsubscribe/exit-listener fixtures pending |
+| child exit rejects requests; send after exit | `child_response_correlation_events_exit_and_disposal` |
+| dispose rejects pending and waits SIGTERM | `routing_matches_frozen_process_and_disposal_rejects_pending` |
+| generated IDs, blank lines, partial frames, stderr, malformed JSON | implemented; fixtures pending |
+
+Packaging: parent approved native sibling `pi --mode rpc`, injectable command only for sandbox fakes. Shared coding-agent RPC envelopes re-exported by protocol. No source checkout changes. Frozen process spawn command is replaced on its prototype only inside oracle fixture; routing/lifetime code is unmodified.
