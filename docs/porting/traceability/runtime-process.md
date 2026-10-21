@@ -24,3 +24,5 @@ Differential proof: request `27012` compares `commandLineIsPiRuntime` across 13 
 ## Discrepancies
 
 None.
+
+Q16: `q16_new_exports::superseded_identity_matches_frozen_matrix` covers same/different PID/start marker, same/different/missing incarnation. Darwin `readDarwinProcessInfo` remains unimplemented: frozen module loads architecture-specific `process-info.node`, validates safe creation/group markers and R/Z/X states. Linux host cannot execute this native contract; no new deviation approval inferred.

@@ -11,3 +11,5 @@ Restart handoff rejects an empty session path and clears provider/model/thinking
 Resident console probes validate protocol/service without replacing the attached owner or subscribing to events. Snapshots preserve optional identity with version, PID, executable, optional entrypoint, instance ID, manager (`pi`/`external`), and `ready: true`. Malformed identity is rejected.
 
 Supervisor evaluation waits use the frozen 300ms default. Cancellation takes precedence over expiry and preemption, signals the evaluator, waits for its settlement, and never overwrites cancelled rows. Evaluation failures propagate to the caller rather than completing the row inside the service.
+
+Instruction classification is stateless, exact-token only (no trimming/case normalization); its context contains only the veto system prompt and current instruction text/timestamp. Runtime identities are superseded only for equal PID/start marker and two present, unequal incarnations.

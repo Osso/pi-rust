@@ -95,6 +95,14 @@ pub fn is_process_identity_alive(identity: &ProcessIdentity) -> bool {
     }
 }
 
+pub fn is_superseded_runtime_identity(current: &ProcessIdentity, replacement: &ProcessIdentity) -> bool {
+    current.pid == replacement.pid
+        && current.start_time_ticks == replacement.start_time_ticks
+        && current.incarnation.is_some()
+        && replacement.incarnation.is_some()
+        && current.incarnation != replacement.incarnation
+}
+
 pub fn is_pi_runtime_process_alive(pid: u32) -> bool {
     if pid == std::process::id() {
         return true;
