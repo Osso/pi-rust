@@ -2,6 +2,8 @@
 
 Date: 2026-10-20. Verifier role; read `/home/osso/AgentConfig/skills/verify/SKILL.md` before verification. No delegation.
 
+**Generator GAP superseded:** subsequent consumed-field implementation and proof are recorded in the [generator traceability matrix](traceability/model-catalog-generator.md#complete-consumed-field-matrix-2026-10-20); coverage now marks that row done. Original observations below remain historical evidence at the stated revision, not current pending work.
+
 ## Result
 
 **Seven rows can move to DONE. `ai/scripts/generate-models.ts` remains GAP.**

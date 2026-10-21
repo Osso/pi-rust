@@ -63,11 +63,11 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/tests/model_catalog_generator_workflow.rs`: full source module workflow with fixture HTTP and sandboxed temporary filesystem.
 - `crates/pi-ai/tests/model_catalog_generator_artifacts.rs`: source/native artifact bytes, manifests, include-table preservation, compiled fixture inclusion and current embedded values.
 
-## Known gaps (current cycle)
+## Closed acceptance boundaries
 
 - [x] Close identified URL-only custom-provider routing, empty-compat omission and actual deleted-CWD CLI proof boundaries; source-region/test map records scope.
 - [x] Reuse integrated native model-data validators, manifests and shared provider-structure reader.
-- [ ] Independent module acceptance/coverage promotion (parent-owned); no new schema or helper audit implied.
+- [x] Complete consumed-field matrix and validation proof; promote coverage under the completion brief. Targeted proof does not imply workspace checks or a live catalog refresh.
 
 ## Out of scope
 
