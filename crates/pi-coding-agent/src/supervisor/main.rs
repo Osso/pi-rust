@@ -287,8 +287,11 @@ pub trait SupervisorSession: Send + Sync {
 }
 
 type ClaimNextRequest = Arc<dyn Fn(&str, &str) -> Result<Option<SupervisorRequest>, ControlDbError> + Send + Sync>;
-type ProcessRequest =
-    Arc<dyn Fn(String, SupervisorRequest, Arc<dyn SupervisorSession>) -> BoxFuture<'static, ()> + Send + Sync>;
+type ProcessRequest = Arc<
+    dyn Fn(String, SupervisorRequest, Arc<dyn SupervisorSession>) -> BoxFuture<'static, Result<(), ControlDbError>>
+        + Send
+        + Sync,
+>;
 
 /// Inputs for [`run_supervisor_request_loop`].
 pub struct RunSupervisorRequestLoopInput {
@@ -311,9 +314,8 @@ pub async fn run_supervisor_request_loop(input: RunSupervisorRequestLoopInput) -
     let handle_request = input.process_request.unwrap_or_else(|| {
         Arc::new(
             |control_db_path: String, request: SupervisorRequest, session: Arc<dyn SupervisorSession>| {
-                Box::pin(async move {
-                    process_supervisor_request(&control_db_path, request, session).await;
-                }) as BoxFuture<'static, ()>
+                Box::pin(async move { process_supervisor_request(&control_db_path, request, session).await })
+                    as BoxFuture<'static, Result<(), ControlDbError>>
             },
         )
     });
@@ -321,7 +323,7 @@ pub async fn run_supervisor_request_loop(input: RunSupervisorRequestLoopInput) -
         let observed_generation = input.wake_server.current_generation();
         let request = claim_request(&input.control_db_path, &input.claim_token)?;
         if let Some(request) = request {
-            handle_request(input.control_db_path.clone(), request, Arc::clone(&input.session)).await;
+            handle_request(input.control_db_path.clone(), request, Arc::clone(&input.session)).await?;
             continue;
         }
         let console_prompt = input
@@ -330,7 +332,11 @@ pub async fn run_supervisor_request_loop(input: RunSupervisorRequestLoopInput) -
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take();
         if let Some(console_prompt) = console_prompt {
-            let _ = input.session.prompt(console_prompt.text).await;
+            input
+                .session
+                .prompt(console_prompt.text)
+                .await
+                .map_err(ControlDbError::new)?;
             continue;
         }
         input
@@ -492,11 +498,9 @@ pub async fn process_supervisor_request(
     control_db_path: &str,
     request: SupervisorRequest,
     session: Arc<dyn SupervisorSession>,
-) {
+) -> Result<(), ControlDbError> {
     let reviewer: SupervisorInstructionReviewer = Arc::new(|_, _| Box::pin(async { Ok(None) }));
-    if let Err(error) = process_supervisor_request_with_reviewer(control_db_path, request, session, reviewer).await {
-        eprintln!("Supervisor request failed: {error}");
-    }
+    process_supervisor_request_with_reviewer(control_db_path, request, session, reviewer).await
 }
 
 pub async fn process_supervisor_request_with_reviewer(
@@ -603,28 +607,6 @@ async fn apply_supervisor_instruction_veto(
         reason,
     })
     .map_err(|error| error.to_string())
-}
-
-fn supervisor_instruction_rejection_feedback(reason: SupervisorInstructionReviewDecision) -> &'static str {
-    use SupervisorInstructionReviewDecision::*;
-    match reason {
-        RejectTaskAssignment => {
-            "Policy rejection: task_assignment. Automatic goal reviews must not assign a tactical task."
-        }
-        RejectImplementationPrescription => {
-            "Policy rejection: implementation_prescription. Automatic goal reviews must not prescribe implementation details."
-        }
-        RejectSequencingInstruction => {
-            "Policy rejection: sequencing_instruction. Automatic goal reviews must not choose work order or next steps."
-        }
-        RejectAgentOrToolDirection => {
-            "Policy rejection: agent_or_tool_direction. Automatic goal reviews must not direct agents, tools, commands, or files."
-        }
-        RejectPlanOverride => {
-            "Policy rejection: plan_override. Automatic goal reviews must not replace or redirect the main agent's plan."
-        }
-        Accept => unreachable!("accepted instructions have no rejection feedback"),
-    }
 }
 
 async fn evaluate_supervisor_prompt(
@@ -1029,11 +1011,7 @@ pub async fn run_supervisor_service() -> Result<(), String> {
         claim_next_request: None,
         process_request: Some(Arc::new(move |path, request, session| {
             let reviewer = review_instructions.clone();
-            Box::pin(async move {
-                if let Err(error) = process_supervisor_request_with_reviewer(&path, request, session, reviewer).await {
-                    eprintln!("Supervisor request failed: {error}");
-                }
-            })
+            Box::pin(async move { process_supervisor_request_with_reviewer(&path, request, session, reviewer).await })
         })),
     })
     .await;

@@ -40,6 +40,36 @@ pub enum SupervisorInstructionReviewDecision {
     RejectPlanOverride,
 }
 
+pub const SUPERVISOR_INSTRUCTION_REJECTION_REASONS: [SupervisorInstructionReviewDecision; 5] = [
+    SupervisorInstructionReviewDecision::RejectTaskAssignment,
+    SupervisorInstructionReviewDecision::RejectImplementationPrescription,
+    SupervisorInstructionReviewDecision::RejectSequencingInstruction,
+    SupervisorInstructionReviewDecision::RejectAgentOrToolDirection,
+    SupervisorInstructionReviewDecision::RejectPlanOverride,
+];
+
+pub fn supervisor_instruction_rejection_feedback(reason: SupervisorInstructionReviewDecision) -> &'static str {
+    use SupervisorInstructionReviewDecision::*;
+    match reason {
+        RejectTaskAssignment => {
+            "Policy rejection: task_assignment. Automatic goal reviews must not assign a tactical task."
+        }
+        RejectImplementationPrescription => {
+            "Policy rejection: implementation_prescription. Automatic goal reviews must not prescribe implementation details."
+        }
+        RejectSequencingInstruction => {
+            "Policy rejection: sequencing_instruction. Automatic goal reviews must not choose work order or next steps."
+        }
+        RejectAgentOrToolDirection => {
+            "Policy rejection: agent_or_tool_direction. Automatic goal reviews must not direct agents, tools, commands, or files."
+        }
+        RejectPlanOverride => {
+            "Policy rejection: plan_override. Automatic goal reviews must not replace or redirect the main agent's plan."
+        }
+        Accept => unreachable!("accepted instructions have no rejection feedback"),
+    }
+}
+
 pub fn parse_supervisor_instruction_review_decision(raw: &Value) -> Option<SupervisorInstructionReviewDecision> {
     use SupervisorInstructionReviewDecision::*;
     match raw.as_str()? {

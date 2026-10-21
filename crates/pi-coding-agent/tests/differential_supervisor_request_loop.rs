@@ -177,8 +177,9 @@ async fn run_rust(dir: &str) -> Value {
         process_request: Some(Arc::new(move |db_path, request, session| {
             let process_signal = process_signal.clone();
             Box::pin(async move {
-                process_supervisor_request(&db_path, request, session).await;
+                process_supervisor_request(&db_path, request, session).await?;
                 process_signal.cancel();
+                Ok(())
             })
         })),
     })

@@ -398,6 +398,46 @@ fn blocks_file_access_outside_the_kb_and_symlink_escapes() {
     );
 }
 
+#[tokio::test]
+async fn console_prompt_failures_propagate_from_the_request_loop() {
+    use pi_coding_agent::supervisor::main::{
+        RunSupervisorRequestLoopInput, SupervisorConsolePromptQueue, run_supervisor_request_loop,
+    };
+    use pi_coding_agent::supervisor::request_wake::SupervisorRequestWakeServer;
+    struct FailingSession(tokio_util::sync::CancellationToken);
+    impl SupervisorSession for FailingSession {
+        fn abort(&self) -> BoxFuture<'static, Result<(), String>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn prompt(&self, _: String) -> BoxFuture<'static, Result<(), String>> {
+            self.0.cancel();
+            Box::pin(async { Err("console failure".into()) })
+        }
+        fn get_branch(&self) -> Vec<SessionEntry> {
+            Vec::new()
+        }
+        fn get_leaf_id(&self) -> Option<String> {
+            None
+        }
+    }
+    let (_temp, path) = fixture();
+    let signal = tokio_util::sync::CancellationToken::new();
+    let mut queue = SupervisorConsolePromptQueue::new();
+    queue.enqueue("prompt".into(), "console".into());
+    let result = run_supervisor_request_loop(RunSupervisorRequestLoopInput {
+        claim_token: "owner".into(),
+        console_prompts: Arc::new(Mutex::new(queue)),
+        control_db_path: path.clone(),
+        session: Arc::new(FailingSession(signal.clone())),
+        signal,
+        wake_server: Arc::new(SupervisorRequestWakeServer::new(&path)),
+        claim_next_request: None,
+        process_request: None,
+    })
+    .await;
+    assert_eq!(result.unwrap_err().to_string(), "console failure");
+}
+
 #[test]
 fn supervisor_snapshot_advertises_stable_ready_process_identity() {
     use pi_coding_agent::supervisor::main::create_supervisor_console_snapshot;
@@ -506,7 +546,9 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
             }
         }),
     });
-    process_supervisor_request(&control_db_path, request, session).await;
+    process_supervisor_request(&control_db_path, request, session)
+        .await
+        .unwrap();
     let stored = read_supervisor_request(&control_db_path, request_id).unwrap().unwrap();
     assert_eq!(
         stored.response,
@@ -523,7 +565,9 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
         manager: Arc::clone(&manager),
         on_prompt: Box::new(|_manager| {}),
     });
-    process_supervisor_request(&control_db_path, goal_request, goal_session).await;
+    process_supervisor_request(&control_db_path, goal_request, goal_session)
+        .await
+        .unwrap();
     let stored = read_supervisor_request(&control_db_path, goal_id).unwrap().unwrap();
     assert_eq!(
         stored.response,
@@ -551,7 +595,7 @@ async fn non_generic_automatic_instructions_are_suppressed_without_a_valid_veto_
                 .unwrap();
         }),
     });
-    process_supervisor_request(&path, request, session).await;
+    process_supervisor_request(&path, request, session).await.unwrap();
     assert_eq!(
         read_supervisor_request(&path, id).unwrap().unwrap().response,
         Some(SupervisorResponse::Continue {

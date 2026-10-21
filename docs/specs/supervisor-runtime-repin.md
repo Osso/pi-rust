@@ -27,3 +27,5 @@ Supervisor and Architect session opening use resident-file preparation, retainin
 Supervisor requires gpt-6.1-sol on an authenticated provider in frozen order: openai-codex, openai-codex-gc, openai-codex-team. The KB-only resource loader registers no old remote-compaction extension. Supervisor snapshots advertise version/process identity, stable per-process instance UUID, readiness, and Pi/external management based on autostart environment.
 
 Project identity extraction applies JS trimming and does not strip a scheme authority unless its terminating slash exists. Existing unreadable project config propagates a read error; only absent config returns empty mappings. Architect spec reads canonicalize the project root first and reject every relative path starting with `..`, including dotdot-prefixed filenames, exactly like frozen TS.
+
+Supervisor request/console processing propagates failures instead of dropping them or logging-and-continuing. Cancellation still suppresses completion-claim failures only when the stored row is cancelled.
