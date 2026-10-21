@@ -1893,7 +1893,9 @@ async fn caps_tool_result_text_at_the_byte_limit() {
 #[tokio::test]
 async fn caps_tool_result_text_by_utf16_code_units() {
     let result = tool_result_for(format!("a{}", "😀".repeat(3000)), None).await;
-    let expected = format!("{TOOL_RESULT_CAP_PREFIX}\u{FFFD}{}", "😀".repeat(2430));
+    let mut expected = JsString::from(TOOL_RESULT_CAP_PREFIX);
+    expected.push_unit(0xde00);
+    expected.push_str("😀".repeat(2430));
     assert_eq!(tool_result_text(&result), expected);
 }
 
