@@ -16,7 +16,6 @@ fn session(path: &str, name: Option<&str>, modified: i64, archived: bool) -> Ses
         modified,
         message_count: 0,
         first_message: String::new(),
-        all_messages_text: String::new(),
     }
 }
 

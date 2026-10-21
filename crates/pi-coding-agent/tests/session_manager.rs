@@ -1235,10 +1235,6 @@ fn session_info_listing_uses_message_timestamps_and_skips_extension_prompts() {
     assert_eq!(sessions[0].first_message, "resume the implementation");
     assert_eq!(sessions[0].modified, 1_700_000_000_000);
     assert_eq!(sessions[0].message_count, 4);
-    assert_eq!(
-        sessions[0].all_messages_text,
-        "coordination update coordination acknowledged resume the implementation implementation resumed"
-    );
 }
 
 #[test]

@@ -8,7 +8,7 @@ type SessionCase = {
 	name?: string | null;
 	cwd?: string;
 	messageCount?: number;
-	allMessagesText: string;
+	firstMessage: string;
 	modified: number;
 };
 
@@ -47,8 +47,7 @@ function toSession(session: SessionCase): unknown {
 		created: new Date(0),
 		modified: new Date(session.modified),
 		messageCount: session.messageCount ?? 1,
-		firstMessage: "(no messages)",
-		allMessagesText: session.allMessagesText,
+		firstMessage: session.firstMessage,
 	};
 }
 

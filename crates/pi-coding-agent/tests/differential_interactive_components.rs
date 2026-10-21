@@ -1441,7 +1441,6 @@ fn session_info_fixture(
         modified: now - modified_offset_ms,
         message_count: 4,
         first_message: first_message.to_owned(),
-        all_messages_text: first_message.to_owned(),
     }
 }
 
@@ -1457,7 +1456,7 @@ fn session_json(session: &pi_coding_agent::core::session_manager::SessionInfo) -
         "modified": session.modified,
         "messageCount": session.message_count,
         "firstMessage": session.first_message,
-        "allMessagesText": session.all_messages_text,
+
     })
 }
 

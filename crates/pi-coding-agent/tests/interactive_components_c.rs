@@ -1607,7 +1607,6 @@ fn session_info(
         modified: now - modified_offset_ms,
         message_count: 3,
         first_message: first_message.to_owned(),
-        all_messages_text: first_message.to_owned(),
     }
 }
 

@@ -31,7 +31,7 @@ fn install_dark_theme() {
     set_theme_instance(Arc::new(theme));
 }
 
-fn make_session(id: &str, modified: i64, all_messages_text: &str) -> SessionInfo {
+fn make_session(id: &str, modified: i64, first_message: &str) -> SessionInfo {
     SessionInfo {
         path: format!("/tmp/{id}.jsonl"),
         id: id.to_owned(),
@@ -42,8 +42,7 @@ fn make_session(id: &str, modified: i64, all_messages_text: &str) -> SessionInfo
         created: 0,
         modified,
         message_count: 1,
-        first_message: "(no messages)".to_owned(),
-        all_messages_text: all_messages_text.to_owned(),
+        first_message: first_message.to_owned(),
     }
 }
 

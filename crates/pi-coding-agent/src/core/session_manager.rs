@@ -775,7 +775,6 @@ pub struct SessionInfo {
     pub modified: i64,
     pub message_count: usize,
     pub first_message: String,
-    pub all_messages_text: String,
 }
 
 /// Progress callback: `(loaded, total)`.
@@ -1837,7 +1836,6 @@ fn load_session_file_entries(file_path: &str) -> Result<LoadedCurrentVersionSess
 struct SessionInfoAccumulator {
     message_count: usize,
     first_message: String,
-    all_messages_text: String,
     last_activity_time: Option<i64>,
 }
 
@@ -1939,22 +1937,17 @@ fn apply_session_info_entry(accumulator: &mut SessionInfoAccumulator, entry: &Se
     }
 
     let role = message_entry.message.role();
-    if role != "user" && role != "assistant" {
+    if role != "user"
+        || message_input_source(&message_entry.message) == Some("extension")
+        || !accumulator.first_message.is_empty()
+    {
         return;
     }
     let text = extract_text_content(&message_entry.message);
     if text.is_empty() {
         return;
     }
-    accumulator.all_messages_text = if accumulator.all_messages_text.is_empty() {
-        text.clone()
-    } else {
-        format!("{} {}", accumulator.all_messages_text, text)
-    };
-    let is_user_prompt = role == "user" && message_input_source(&message_entry.message) != Some("extension");
-    if accumulator.first_message.is_empty() && is_user_prompt {
-        accumulator.first_message = text;
-    }
+    accumulator.first_message = text;
 }
 
 fn finish_session_info(
@@ -1984,7 +1977,6 @@ fn finish_session_info(
         } else {
             accumulator.first_message
         },
-        all_messages_text: accumulator.all_messages_text,
     }
 }
 
@@ -3633,8 +3625,6 @@ fn session_info_from_metadata(metadata: &SessionMetadata) -> SessionInfo {
         modified: pi_js_compat::date::date_parse_millis(&metadata.modified_at).unwrap_or(0),
         message_count: usize::try_from(metadata.message_count).unwrap_or(0),
         first_message: metadata.first_message.clone(),
-        // Shared metadata no longer stores transcript search text.
-        all_messages_text: String::new(),
     }
 }
 
