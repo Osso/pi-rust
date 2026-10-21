@@ -251,3 +251,13 @@ registration. `/invaders` uses Kitty release opt-in for held movement/fire,
 a 50ms timer, owned saved state, and native custom UI. No default loading.
 `example_space_invaders` compares complete frames/state with the pinned game
 through real native/TS TUI input filters. [API and proof](../../../../docs/porting/traceability/core-ui-input.md).
+
+## Overlay QA (batch P)
+
+Embed `overlay_qa_tests.rs`, retain its `overlay_qa_tests/` companion directory,
+and explicitly register `overlay_qa_tests_extension(&ExtensionApi)` using the
+registry pattern above. Nothing loads by default. All thirteen `/overlay-*`
+QA commands use native custom components, local timers and overlay handles.
+`/overlay-overflow` spawns the source's bash output producer; enable deliberately.
+The source's width ≤3 stack-render bug awaits classification; see
+[batch P coverage and proof](../../../../docs/porting/traceability/extension-examples-p.md).
