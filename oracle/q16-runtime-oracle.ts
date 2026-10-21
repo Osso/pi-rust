@@ -1,6 +1,39 @@
 import { runOracle, requireCases } from "./coding-agent-utils-oracle-support.ts";
 
 void runOracle(async (api, request) => {
+	if (request.operation === "approvalScenarios") {
+		const results = [];
+		for (const raw of requireCases(request)) {
+			const input = raw as {
+				decision: unknown;
+				human: boolean;
+				escalate: boolean;
+				requestError?: string;
+				humanError?: string;
+			};
+			const log: string[] = [];
+			try {
+				const value = await (api.reviewToolCallWithSupervisor as (...args: unknown[]) => Promise<unknown>)(
+					async () => {
+						if (input.requestError) throw new Error(input.requestError);
+						return input.decision;
+					},
+					input.human
+						? async (reason: string) => {
+								log.push(reason);
+								if (input.humanError) throw new Error(input.humanError);
+								return { block: true, reason: `human: ${reason}` };
+							}
+						: undefined,
+					input.escalate,
+				);
+				results.push({ value: value ?? null, log });
+			} catch (error) {
+				results.push({ error: error instanceof Error ? error.message : String(error), log });
+			}
+		}
+		return results;
+	}
 	if (request.operation === "wakeCycle") {
 		const results = [];
 		for (const value of requireCases(request)) {
