@@ -1168,6 +1168,16 @@ fn lossless_utf16_validation_matches_frozen_typescript() {
     }
     for (name, schema, arguments) in [
         (
+            "unicode-pattern-property",
+            r#"{"type":"object","patternProperties":{"^.$":{"type":"number"}}}"#,
+            r#"{"😀":"x"}"#,
+        ),
+        (
+            "nonunicode-additional-property",
+            r#"{"type":"object","patternProperties":{"^.$":{"type":"number"}},"additionalProperties":false}"#,
+            r#"{"😀":5}"#,
+        ),
+        (
             "numeric-property-order",
             r#"{"type":"object","properties":{"10":{"type":"number"},"2":{"type":"number"},"\ud800":{"type":"number"}}}"#,
             r#"{"10":"x","2":"y","\ud800":"z"}"#,
@@ -1240,6 +1250,9 @@ fn lossless_utf16_validation_matches_frozen_typescript() {
     ] {
         fixtures.push(js_json!({"name":name,"kind":"plain","schema":parse_lossless(schema).unwrap(),"arguments":parse_lossless(arguments).unwrap()}));
     }
+    fixtures.push(js_json!({"name":"nonunicode-record-conversion","kind":"typebox",
+        "schema":{"t":"object","properties":{"value":{"t":"record","key":{"t":"string","options":{"pattern":"^..$"}},"value":{"t":"number"}}}},
+        "arguments":{"value":{"😀":"42"}}}));
     for text in [
         r#""\ud800""#,
         r#"" 42 ""#,
