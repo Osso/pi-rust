@@ -4,10 +4,10 @@ The bounded catalog contract is the complete `IMAGE_MODELS` literal exported by 
 
 ## What it must do
 
-- [ ] Preserve every record and field (including optional-field absence and exact floating-point values), with no supplements or source-absent records.
-- [ ] Preserve provider/model insertion order and membership through static lists and lookups.
-- [ ] Return full matching records for all source IDs and absence for all seven removed native-only IDs; missing provider/model sentinels return absence/empty lists.
-- [ ] Static OpenRouter provider catalog consumption preserves all full records in source order, without invoking auth, refresh or generation.
+- [x] Preserve every record and field (including optional-field absence and exact floating-point values), with no supplements or source-absent records.
+- [x] Preserve provider/model insertion order and membership through static lists and lookups.
+- [x] Return full matching records for all source IDs and absence for all seven removed native-only IDs; missing provider/model sentinels return absence/empty lists.
+- [x] Static OpenRouter provider catalog consumption preserves all full records in source order, without invoking auth, refresh or generation.
 
 ## How it works
 

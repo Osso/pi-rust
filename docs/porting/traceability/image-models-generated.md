@@ -8,11 +8,11 @@ Contract: [static generated image catalog](../../specs/image-catalog.md).
 
 | Exact scope | Proof | Status |
 |---|---|---|
-| Whole finite `IMAGE_MODELS` literal, all 35 full records, optional absence, arrays and f64 costs | Fresh sandbox literal export; `differential_image_models::image_catalog_matches_the_pinned_typescript_module` | Development GREEN pending |
-| Provider/model membership and insertion order | Explicit ordered key vectors and complete ordered value arrays in differential | Development GREEN pending |
-| All 35 source and seven removed native-only IDs (42 union lookups) | Actual frozen getter and native getter each compared with complete source literal records/null | Development GREEN pending |
-| Missing model/provider and empty missing-provider list | Differential sentinels + `image_models` behavioral tests | Development GREEN pending |
-| Static provider catalog consumption only | Full native factory list vs source literal; fresh external source factory list also equals literal | Development GREEN pending |
+| Whole finite `IMAGE_MODELS` literal, all 35 full records, optional absence, arrays and f64 costs | Fresh sandbox literal export; `differential_image_models::image_catalog_matches_the_pinned_typescript_module` | Targeted GREEN at d8fefff1 |
+| Provider/model membership and insertion order | Explicit ordered key vectors and complete ordered value arrays in differential | Targeted GREEN at d8fefff1 |
+| All 35 source and seven removed native-only IDs (42 union lookups) | Actual frozen getter and native getter each compared with complete source literal records/null | Targeted GREEN at d8fefff1 |
+| Missing model/provider and empty missing-provider list | Differential sentinels + `image_models` behavioral tests | Targeted GREEN at d8fefff1 |
+| Static provider catalog consumption only | Full native factory list vs source literal; fresh external source factory list also equals literal | Targeted GREEN at d8fefff1 |
 
 ## Provenance
 
@@ -24,6 +24,10 @@ Verified 2026-10-21. Fresh process directly imports actual frozen `IMAGE_MODELS`
 - Complete fresh source payload, ordered key vectors, full native proof output and 42 lookups: `/tmp/pi-rust-repin-image-catalog/{source-catalog.json,source-static.json,provenance.json,REPORT.md,ledger.md}`. These are local proof artifacts, not build inputs.
 
 Compared with b85d01795f614ca85893371c0aef2081c4b43f23: remove seven source-absent records; restore `google/gemini-2.5-flash-image.cost.cacheWrite` to `0.08333333333333334` (bits `0x3fb5555555555556`) and `x-ai/grok-imagine-image-quality.name` to `xAI: Grok Imagine Image Quality`. Remaining full records match, not just counts. Existing common relative order was already correct; `serde_json` `preserve_order`/`float_roundtrip` and loader remain unchanged.
+
+## Development evidence
+
+Existing exact b85 differential RED reused only after byte-for-byte scope validation (`red-reuse-scope.json`); not a fresh RED claim. At implementation commit `d8fefff1e3d4a6783a3a3cba5aa4c5236d74f56c`, focused catalog tests pass (1 differential, 5 behavioral), plus two selected static provider/collection tests. Real embedded-data mutants (old rounded cacheWrite, reintroduced Krea record, swapped first model positions) each fail the differential at the intended semantic assertion. Original payload restored and focused catalog GREEN rebuilt; no mutant committed. Full logs, mutation hashes and command/revision validity are in the local report ledger. Rust fmt passes; no broad suite/check/clippy/readability/final gate was run for this bounded development slice.
 
 ## Limits / open semantics
 
