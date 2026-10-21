@@ -2153,17 +2153,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pi-client"
-version = "0.0.0"
-dependencies = [
- "pi-protocol",
- "rustix 1.1.5",
- "serde_json",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "pi-coding-agent"
 version = "0.0.0"
 dependencies = [
@@ -2183,9 +2172,7 @@ dependencies = [
  "photon-rs",
  "pi-agent-core",
  "pi-ai",
- "pi-client",
  "pi-js-compat",
- "pi-protocol",
  "pi-tui",
  "regex",
  "rusqlite",
@@ -2203,25 +2190,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pi-evals"
-version = "0.0.0"
-dependencies = [
- "indexmap",
- "pi-agent-core",
- "pi-ai",
- "pi-coding-agent",
- "pi-js-compat",
- "regex",
- "rustix 1.1.5",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "pi-js-compat"
 version = "0.0.0"
 dependencies = [
@@ -2236,44 +2204,6 @@ dependencies = [
  "ryu-js",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "pi-protocol"
-version = "0.0.0"
-dependencies = [
- "rustix 1.1.5",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "pi-server"
-version = "0.0.0"
-dependencies = [
- "pi-ai",
- "pi-protocol",
- "rustix 1.1.5",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "pi-session-sqlite"
-version = "0.0.0"
-dependencies = [
- "pi-agent-core",
- "pi-ai",
- "pi-js-compat",
- "rusqlite",
- "rustix 1.1.5",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
 ]
 
 [[package]]
