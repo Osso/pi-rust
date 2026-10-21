@@ -955,6 +955,56 @@ async fn search_current_session_history_tool_differential() {
 }
 
 #[tokio::test]
+async fn search_current_session_history_live_numbers_differential() {
+    use pi_agent_core::{AgentHarnessTool, AgentMessage};
+    use pi_ai::types::{AssistantContent, AssistantMessage, ToolCall};
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
+    use std::sync::{Arc, Mutex};
+
+    let root = temp_root("pi-history-live-numbers-");
+    let cwd = root.path().display().to_string();
+    let mut manager = SessionManager::create(&cwd, Some(&cwd), None).unwrap();
+    manager
+        .append_message(
+            serde_json::from_value::<AgentMessage>(json!({"role":"user","content":"fixture","timestamp":1})).unwrap(),
+        )
+        .unwrap();
+    let mut assistant = AssistantMessage::empty("openai-responses", "openai", "fixture", 2);
+    assistant.content.push(AssistantContent::ToolCall(ToolCall::new(
+        "call",
+        "inspect",
+        serde_json::from_str(r#"{"scalar":1.0,"small":0.000001}"#).unwrap(),
+    )));
+    manager
+        .append_message(AgentMessage::Assistant(Box::new(assistant)))
+        .unwrap();
+    let session_path = manager.get_session_file().unwrap().to_owned();
+    let context = tool_context::TestContextBuilder::new(&cwd, Arc::new(Mutex::new(manager)))
+        .build()
+        .await
+        .1;
+    let mut oracle = Oracle::new();
+    for (query, count) in [("1.0", 0), ("0.000001", 1), ("1e-6", 0)] {
+        let params = json!({"query":query});
+        let source = oracle.request(tool_request(
+            "core/tools/search-current-session-history.ts",
+            "createSearchCurrentSessionHistoryToolDefinition",
+            params.clone(),
+            json!({"cwd":cwd,"sessionFile":session_path,"sessionDir":cwd}),
+        ));
+        let native = rust_tool_result(
+            SearchCurrentSessionHistoryTool::new()
+                .execute("call".into(), params, None, None, context.clone(), None)
+                .await,
+        );
+        assert_eq!(source["output"]["details"]["totalMatches"], count, "{query}");
+        assert_eq!(native["details"]["totalMatches"], count, "{query}");
+        assert_eq!(native["content"], source["output"]["content"], "{query}");
+    }
+}
+
+#[tokio::test]
 async fn resume_session_tool_differential() {
     use pi_agent_core::AgentHarnessTool;
     use pi_coding_agent::core::extensions::{ExtensionContext, SwitchSessionCallback};

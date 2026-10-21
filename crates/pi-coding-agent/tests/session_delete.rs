@@ -215,7 +215,7 @@ fn frozen_tree_deletion_batches_long_paths_and_cleans_partial_metadata() {
 
 #[test]
 fn trash_without_shebang_matches_node_execution() {
-    assert_trash_diagnostic_matches_frozen("exit 7\n", false);
+    assert_trash_diagnostic_matches_frozen("printf '%s\\n' \"$0\" \"$@\" > \"$2.args\"\nexit 7\n", false);
 }
 
 #[test]
@@ -232,11 +232,20 @@ fn assert_trash_diagnostic_matches_frozen(script: &str, utf16: bool) {
     let trash = root.path().join("trash");
     std::fs::write(&trash, script).unwrap();
     std::fs::set_permissions(&trash, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let path = root.path().join("blocked");
+    let path = root.path().join("blocked space ' $(not-a-command)");
     std::fs::create_dir(&path).unwrap();
     let mut oracle = TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
     let expected = oracle.request(&json!({"op":"delete","path":path,"pathEnv":root.path(),"utf16":utf16}));
     assert_eq!(expected["ok"], true, "{expected}");
+    let args_path = format!("{}.args", path.display());
+    let expected_args = if utf16 {
+        None
+    } else {
+        let args = std::fs::read_to_string(&args_path).unwrap();
+        assert_eq!(args, format!("{}\n--\n{}\n", trash.display(), path.display()));
+        std::fs::remove_file(&args_path).unwrap();
+        Some(args)
+    };
     let mut worker = std::process::Command::new(std::env::current_exe().unwrap());
     worker
         .args(["--exact", "delete_worker"])
@@ -261,6 +270,9 @@ fn assert_trash_diagnostic_matches_frozen(script: &str, utf16: bool) {
         );
     }
     assert_eq!(actual, expected["output"]);
+    if let Some(expected_args) = expected_args {
+        assert_eq!(std::fs::read_to_string(args_path).unwrap(), expected_args);
+    }
 }
 
 #[test]
