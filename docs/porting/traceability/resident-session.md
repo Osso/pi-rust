@@ -57,7 +57,9 @@ CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=$PWD/target cargo test -p pi-coding-agent --
 ```
 
 The test-only runner outer-mounts the approved checkout read-only at
-`/opt/pi-approved-deltas`, then invokes mandatory `scripts/test-sandbox.py`.
+`/opt/pi-delta-resident-8f8f3c26`, then invokes mandatory `scripts/test-sandbox.py`.
+The immutable detached checkout is `/home/osso/.worktrees/pi-delta-resident-8f8f3c26`;
+the original shared approved-deltas branch later advanced and is not used.
 Only a fresh private proof directory is writable. This explicit alias is needed
 because the mandatory guard hides `/home`; no common guard/runner configuration
 changes, live state or source writes. Rust verifies the alias's actual worktree
