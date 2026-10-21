@@ -44,11 +44,15 @@ fn native_mutation(getter: &str) -> Value {
 }
 
 fn source_mutation(delta: bool, getter: &str) -> Value {
-    let mut ts = oracle::TsOracle::spawn_with_environment(
-        "approved-images-oracle.mjs",
-        "packages/ai/src/image-models.ts",
-        &[("PI_APPROVED_DELTA", if delta { "1" } else { "0" }.into())],
-    );
+    let mut ts = if delta {
+        oracle::TsOracle::spawn_with_environment(
+            "approved-images-oracle.mjs",
+            "packages/ai/src/image-models.ts",
+            &[("PI_APPROVED_DELTA", "1".into())],
+        )
+    } else {
+        oracle::TsOracle::spawn("approved-images-oracle.mjs", "packages/ai/src/image-models.ts")
+    };
     ts.request(&json!({"getter":getter}))
 }
 

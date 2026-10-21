@@ -194,3 +194,5 @@ Existing v15 databases with live lifecycle owners accept name updates without re
 ## Approved empty-host delta 93b7d9af
 
 `approved_mailbox_deltas` proves source-first empty-host enqueue then native retry, native-first same-ID/no-extra-row retry, and genuine other-host conflict. Frozen retry asserts the exact canonical-routing Error. Native self-retry initially passed for the wrong reason (stored empty host); source-first RED exposed the routing mismatch. Match TS falsy omission on write and falsy-to-local comparison on retry.
+
+Bounded mutation proof: restoring the post-delivery limit check, removing empty-host comparison normalization, or persisting empty recipientHost each independently fails the focused approved-delta behavior test (3 killed mutants; exact diffs/logs `/tmp/pi-rust-repin-delta-proofs/mutants.json`). Existing `repin_control_mailbox` frozen discrepancy fixtures now assert exact claims/error and successful native counterparts. No whole-control acceptance claim.

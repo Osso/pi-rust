@@ -874,6 +874,7 @@ fn validation_matches_the_pinned_typescript_module() {
         let actual = rust_validate(&case["arguments"], schema, kind);
         if name == "plain-union-types" {
             // Exact approved discrepancy: 6d2363e6 fixes the frozen null-array throw.
+            assert_eq!(expected["error"]["name"], "TypeError");
             assert_eq!(
                 normalized_expected(expected),
                 json!({"ok":false,"message":"Cannot read properties of null (reading 'every')"})

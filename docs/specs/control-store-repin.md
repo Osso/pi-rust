@@ -1,6 +1,6 @@
 # Frozen shared control DB and store
 
-Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the common frozen pin](../porting/source-lock.json). Proof mapping: [control DB traceability](../porting/traceability/session-control-db.md).
+Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the common frozen pin](../porting/source-lock.json), except the approved zero-delivery-limit and empty-host-retry [deltas](../porting/delta-lock.json). Proof mapping: [control DB traceability](../porting/traceability/session-control-db.md).
 
 ## Integration status — 2026-10-21
 
@@ -43,7 +43,8 @@ Canonical checkpoint merge `35d6429097833d094ca448068dae07ce30c482af` integrates
 - [x] Exercise fresh Rust→TS initialization→Rust mutation→same TS reads across mailbox, agent/outbox, channel, supervisor and base control state.
 - [x] Fence delivery against a real peer payload update; abort on malformed later complete receipts before deleting, and honor raw ref short-circuit errors.
 - [x] Prove expected-payload CAS with an explicit guard-disabled negative control and byte-identical restoration.
-- [ ] Classify source limit0 and empty-host retry branches; resolve canonical lossless JSON and run independent group acceptance.
+- [x] Honor limit zero without claims/deliveries; retry empty recipientHost with the same enqueue ID and no extra rows. Assert exact approved frozen discrepancies and match the locked delta; retain different-host rejection.
+- [ ] Resolve canonical lossless JSON and run independent group acceptance.
 - [ ] Complete group-wide schema migration/reverse-init, export and whole-store acceptance; bounded migration, reciprocal and reset/error proofs do not establish whole-module parity.
 
 ## How it works
@@ -60,7 +61,7 @@ Canonical checkpoint merge `35d6429097833d094ca448068dae07ce30c482af` integrates
 
 ## Tests asserting this spec
 
-`crates/pi-coding-agent/tests/repin_control_{schema,sessions,channel,requests,mailbox}.rs`, `repin_runtime_mailbox_transcript.rs`.
+`crates/pi-coding-agent/tests/repin_control_{schema,sessions,channel,requests,mailbox}.rs`, `repin_runtime_mailbox_transcript.rs`, `approved_mailbox_deltas.rs`.
 
 ## Known gaps (current cycle)
 
