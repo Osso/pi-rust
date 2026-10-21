@@ -730,7 +730,7 @@ fn migrate_legacy_multi_agent_payload_table(
         "UPDATE {table} SET data = ?, updated_at = ? WHERE session_path = ? AND {id_column} = ?"
     ))?;
     for (session_path, id, data) in rows {
-        let Ok(parsed) = js_json::parse(&data) else {
+        let Ok(parsed) = js_json::parse_lossless(&data) else {
             // Leave malformed payloads for the normal restore validator to report with row context.
             continue;
         };
@@ -738,7 +738,7 @@ fn migrate_legacy_multi_agent_payload_table(
         if !changed {
             continue;
         }
-        update.execute(params![js_json::stringify(&migrated), now, session_path, id])?;
+        update.execute(params![js_json::stringify_lossless(&migrated), now, session_path, id])?;
     }
     Ok(())
 }
@@ -776,9 +776,10 @@ fn create_legacy_artifact_field_triggers(db: &Connection) -> Result<(), ControlD
     Ok(())
 }
 
-fn strip_legacy_artifact_fields(value: &Value) -> (Value, bool) {
+fn strip_legacy_artifact_fields(value: &js_json::JsValue) -> (js_json::JsValue, bool) {
+    use js_json::{JsObject, JsString, JsValue};
     match value {
-        Value::Array(items) => {
+        JsValue::Array(items) => {
             let mut changed = false;
             let migrated = items
                 .iter()
@@ -789,16 +790,16 @@ fn strip_legacy_artifact_fields(value: &Value) -> (Value, bool) {
                 })
                 .collect();
             if changed {
-                (Value::Array(migrated), true)
+                (JsValue::Array(migrated), true)
             } else {
                 (value.clone(), false)
             }
         }
-        Value::Object(object) => {
+        JsValue::Object(object) => {
             let mut changed = false;
-            let mut migrated = serde_json::Map::new();
+            let mut migrated = JsObject::new();
             for (key, nested) in object {
-                if key == "artifactIds" || key == "artifactRefs" {
+                if key == &JsString::from("artifactIds") || key == &JsString::from("artifactRefs") {
                     changed = true;
                     continue;
                 }
@@ -807,7 +808,7 @@ fn strip_legacy_artifact_fields(value: &Value) -> (Value, bool) {
                 migrated.insert(key.clone(), value);
             }
             if changed {
-                (Value::Object(migrated), true)
+                (JsValue::Object(migrated), true)
             } else {
                 (value.clone(), false)
             }

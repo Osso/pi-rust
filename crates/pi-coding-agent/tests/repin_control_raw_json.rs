@@ -198,6 +198,45 @@ fn raw_writer_multi_agent_failure_preserves_source_payload() {
 }
 
 #[test]
+fn raw_legacy_artifact_migration_preserves_unrelated_source_utf16_fields() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("control.sqlite").display().to_string();
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let wire = format!(
+        r#"[{},{{"recipient":{{"sessionId":"to","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/s","messageId":"m"}},"message":{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","unknown":{{"\ud800":"high","�":"replacement"}}}}}}]"#,
+        serde_json::to_string(&path).unwrap()
+    );
+    source_call(&mut source, "enqueueStoredRuntimeMailboxMessage", &wire);
+    let original = persisted_raw(&mut source, &path);
+    let mut historical = original.clone();
+    historical.insert(
+        js_json::JsString::from("legacy"),
+        JsValue::from(&json!({"artifactIds":["old"],"children":[{"artifactRefs":["old"],"keep":"value"}]})),
+    );
+    let serialized = js_json::stringify_lossless(&JsValue::Object(historical));
+    let mutation = format!(
+        "DROP TRIGGER multi_agent_mailbox_messages_reject_legacy_artifact_fields_update; UPDATE multi_agent_mailbox_messages SET data='{}'; PRAGMA user_version=13;",
+        serialized.replace('\'', "''")
+    );
+    let result = source.request(&json!({"id":1,"steps":[{"op":"fixtureExec","args":[path,mutation]}]}));
+    assert_eq!(result["output"][0]["ok"], true, "{result}");
+    read_session_metadata(&path, "/missing").unwrap();
+    let migrated = persisted_raw(&mut source, &path);
+    for key in ["body", "unknown"] {
+        let key = js_json::JsString::from(key);
+        assert_eq!(
+            migrated.get(&key),
+            original.get(&key),
+            "migration must not normalize raw field {key:?}"
+        );
+    }
+    assert_eq!(
+        migrated.get(&js_json::JsString::from("legacy")),
+        Some(&JsValue::from(&json!({"children":[{"keep":"value"}]})))
+    );
+}
+
+#[test]
 fn source_sql_bind_keys_and_raw_receipts_have_distinct_utf16_identity_on_recovery() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("control.sqlite").display().to_string();

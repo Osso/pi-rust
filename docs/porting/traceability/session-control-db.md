@@ -4,6 +4,8 @@
 
 `repin_control_raw_json::canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim` is RED. A real frozen TS enqueue writes body `before\ud800after`; native runtime projection replaces U+D800 with U+FFFD, and native claim rewrites the canonical stored body to U+FFFD. The same TS process reads that changed row. `canonical-raw-json-red.log` records both code-unit changes.
 
+Legacy artifact migration RED→GREEN5: public-source-created raw mailbox body/unknown keys survive historical artifact cleanup, including array-contained artifact refs; only exact legacy keys disappear. Recursive payload migration now uses JsValue/JsObject/JsString for both mailbox/agent tables rather than normalizing unrelated values. Existing four migration fixtures still pass (`canonical-migration-raw-green.log`). Legacy routing/lifecycle writers and public store/projection boundaries remain separately open.
+
 Agent writer RED2→GREEN9: source raw body/distinct keys survive native multi-agent pending→failed and atomic owned steering claim; canonical bytes for both now come from original lossless rows. Removed the unused serde-map CAS writer so no mutation caller can select it. Lifecycle rollback/replay/suppression8 remain passing (`canonical-agent-writers-green.log`); typed steering return payload remains a public projection blocker.
 
 Enqueue identity RED→GREEN: source canonical U+D800 body and caller U+FFFD body previously aliased after lossy delivery-state stripping. Native now strips delivery keys from lossless JSON; both source/native reject the same collision without row mutation. Ordinary missing-birth retry remains idempotent (`canonical-enqueue-identity-green.log` GREEN2). Public projection/raw-input types remain pending.
