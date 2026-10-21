@@ -177,6 +177,9 @@ fn prepare_native(f: &Value) -> Value {
     };
     match prepare_resident_session_file(f["agentDir"].as_str().unwrap(), role, f["db"].as_str().unwrap()) {
         Ok(result) => json!({"ok": true, "value": result}),
+        Err(ResidentSessionError::PathArgument(error)) => json!({"ok": false, "error": {
+            "name": error.name, "message": error.message.to_utf8_lossy(), "code": error.code
+        }, "messageUnits": error.message.units()}),
         Err(ResidentSessionError::Filesystem(error)) => json!({"ok": false, "error": {
             "name": error.name, "message": error.message, "code": error.code,
             "errno": error.errno, "syscall": error.syscall, "path": error.path
@@ -473,16 +476,45 @@ fn independent_selection_unicode_relative_types_and_paired_liveness() {
 #[test]
 fn nul_path_shared_argument_validation_boundary_is_explicit() {
     let mut oracle = oracle();
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().display().to_string();
-    let mut f = fixture(&root, "architect", "empty");
-    f["agentDir"] = json!(format!("{root}/agent\0tail"));
-    let source = request(&mut oracle, "prepare", &f);
-    let native = prepare_native(&f);
-    assert_eq!(source["error"]["name"], "TypeError");
-    assert_eq!(source["error"]["code"], "ERR_INVALID_ARG_VALUE");
-    assert_eq!(
-        source, native,
-        "unsupported shared Node argument-validation boundary; no fallback or waiver"
-    );
+    let cases = [
+        "/tmp/nul/agent\0tail".to_owned(),
+        "/tmp/nul/quote'\0tail".to_owned(),
+        "/tmp/nul/both'\"\0tail".to_owned(),
+        "/tmp/nul/all'\"`\0tail".to_owned(),
+        "/tmp/nul/${quote}'\"`\0tail".to_owned(),
+        "/tmp/nul/control\u{1}\u{8}\u{b}\u{c}\r\t\u{1b}\u{7f}\u{85}\0tail".to_owned(),
+        format!("/tmp/nul/{}\0tail", "a".repeat(300)),
+        format!("/tmp/nul/{}\0tail", "b".repeat(10100)),
+        format!("/tmp/nul/{}\n{}\0tail", "x".repeat(100), "y".repeat(100)),
+        format!("/tmp/nul/{}\0{}'tail", "x".repeat(10000), "y".repeat(100)),
+        format!("/tmp/{}😀\0tail", "a".repeat(121)),
+    ];
+    for path in cases {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().display().to_string();
+        let mut f = fixture(&root, "architect", "empty");
+        let prefix = format!("{root}/fresh/");
+        f["agentDir"] = if path.contains('😀') {
+            // Include only the high surrogate at the inspected 128-unit cutoff.
+            json!(format!(
+                "{prefix}{}😀\0tail",
+                "a".repeat(126 - prefix.encode_utf16().count())
+            ))
+        } else {
+            json!(format!("{prefix}{}", path.strip_prefix("/tmp/").unwrap()))
+        };
+        let source = request(&mut oracle, "prepare", &f);
+        let native = prepare_native(&f);
+        assert_eq!(source["error"]["name"], "TypeError");
+        assert_eq!(source["error"]["code"], "ERR_INVALID_ARG_VALUE");
+        assert_eq!(
+            source, native,
+            "actual-source path argument validation, including exact UTF-16 error message"
+        );
+        assert!(
+            !fs::exists(format!("{root}/fresh")).unwrap(),
+            "validation precedes mkdir"
+        );
+    }
+    assert!(pi_js_compat::node_fs::node_path_argument_error("/tmp/valid-path").is_none());
 }

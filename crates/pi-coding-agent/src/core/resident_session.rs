@@ -4,7 +4,7 @@ use std::fmt;
 use std::fs;
 use std::path::Path;
 
-use pi_js_compat::node_fs::{NodeFsError, node_fs_error_record};
+use pi_js_compat::node_fs::{NodeFsError, NodePathArgumentError, node_fs_error_record, node_path_argument_error};
 use serde::Serialize;
 
 use super::runtime_process::is_pi_runtime_process_alive;
@@ -38,6 +38,7 @@ pub struct PreparedResidentSessionFile {
 
 #[derive(Debug)]
 pub enum ResidentSessionError {
+    PathArgument(NodePathArgumentError),
     Filesystem(NodeFsError),
     ControlDb(ControlDbError),
 }
@@ -45,6 +46,7 @@ pub enum ResidentSessionError {
 impl fmt::Display for ResidentSessionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::PathArgument(error) => formatter.write_str(&error.message.to_utf8_lossy()),
             Self::Filesystem(error) => formatter.write_str(&error.message),
             Self::ControlDb(error) => error.fmt(formatter),
         }
@@ -74,6 +76,9 @@ pub fn prepare_resident_session_file(
     control_db_path: &str,
 ) -> Result<PreparedResidentSessionFile, ResidentSessionError> {
     let session_dir = join_path(agent_dir, &format!("{}-sessions", role.as_str()));
+    if let Some(error) = node_path_argument_error(&session_dir) {
+        return Err(ResidentSessionError::PathArgument(error));
+    }
     fs::create_dir_all(&session_dir).map_err(|error| filesystem_error(error, "mkdir", &session_dir))?;
     let canonical_file = format!("{}.jsonl", role.as_str());
     let suffix = format!("_{canonical_file}");

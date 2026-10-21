@@ -70,7 +70,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 		console.log(JSON.stringify({ ok: true, value: value ?? null }));
 	} catch (error) {
 		const e = error as NodeJS.ErrnoException;
-		console.log(JSON.stringify({ ok: false, error: { name: e.name, message: e.message, code: e.code, errno: e.errno, syscall: e.syscall, path: e.path } }));
+		const messageUnits = e.name === "TypeError" ? Array.from({ length: e.message.length }, (_, index) => e.message.charCodeAt(index)) : undefined;
+		console.log(JSON.stringify({ ok: false, error: { name: e.name, message: e.message.toWellFormed(), code: e.code, errno: e.errno, syscall: e.syscall, path: e.path }, messageUnits }));
 	}
 }
 for (const child of owned) if (child.exitCode === null && child.signalCode === null) child.kill();
