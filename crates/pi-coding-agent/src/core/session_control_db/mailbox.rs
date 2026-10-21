@@ -792,6 +792,8 @@ fn runtime_mailbox_claimant_is_live(claimant_process_identity: &str) -> Result<b
     let current = parse_process_identity(current)?;
     if claimant.pid == current.pid
         && claimant.start_time_ticks == current.start_time_ticks
+        && claimant.incarnation.is_some()
+        && current.incarnation.is_some()
         && claimant.incarnation != current.incarnation
     {
         return Ok(false);

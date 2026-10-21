@@ -27,7 +27,7 @@ pub(crate) fn assert_mailbox_message_fresh(message: &Map<String, Value>, context
 pub(crate) fn cleanup_expired_messages(db: &Connection) -> Result<(), ControlDbError> {
     cleanup_expired_messages_at(db, pi_js_compat::date::js_now_millis() as i64)
 }
-fn cleanup_expired_messages_at(db: &Connection, now_ms: i64) -> Result<(), ControlDbError> {
+pub(super) fn cleanup_expired_messages_at(db: &Connection, now_ms: i64) -> Result<(), ControlDbError> {
     let cutoff = now_ms - MAILBOX_MESSAGE_RETENTION_MS;
     db.execute(
         &format!("DELETE FROM multi_agent_mailbox_messages WHERE {MAILBOX_CREATED_AT_MS_SQL} <= ?"),

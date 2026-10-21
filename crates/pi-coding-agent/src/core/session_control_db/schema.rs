@@ -582,7 +582,7 @@ fn migrate_terminal_outbox_schema(db: &Connection) -> Result<(), ControlDbError>
 			PRIMARY KEY (session_path, agent_id, terminal_revision, event_kind)
 		);
 		INSERT INTO multi_agent_terminal_outbox
-		SELECT * FROM multi_agent_terminal_outbox_v12;
+		SELECT * FROM multi_agent_terminal_outbox_v12 WHERE status != 'delivered';
 		DROP TABLE multi_agent_terminal_outbox_v12;
 		DROP TABLE multi_agent_terminal_events;
 		CREATE INDEX IF NOT EXISTS multi_agent_terminal_outbox_status_idx

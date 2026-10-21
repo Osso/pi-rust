@@ -42,6 +42,24 @@ async function main(): Promise<void> {
 			return implementation(...(args ?? []));
 		}
 		// Fixture mutations run inside a schema initialized by the actual public API.
+		if (step.op === "fixtureExec") {
+			const [path, sql] = step.args as [string, string];
+			return api.withControlDb(path, (db: { exec(sql: string): void }) => db.exec(sql));
+		}
+		if (step.op === "retentionAt") {
+			const [path, now] = step.args as [string, number];
+			const OriginalDate = globalThis.Date;
+			class FixtureDate extends OriginalDate {
+				constructor(value?: string | number) {
+					if (value === undefined) super(now);
+					else super(value);
+				}
+				static now(): number { return now; }
+			}
+			globalThis.Date = FixtureDate as DateConstructor;
+			try { return api.listRuntimeMailboxMessages(path); }
+			finally { globalThis.Date = OriginalDate; }
+		}
 		if (step.op === "fixtureSql") {
 			const [path, sql, parameters = []] = step.args as [string, string, unknown[]];
 			return api.withControlDb(path, (db: { prepare(sql: string): { all(...args: unknown[]): unknown[] } }) =>

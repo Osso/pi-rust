@@ -1,3 +1,5 @@
+#[path = "support/repin_fixture_process.rs"]
+mod fixture_process;
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_coding_agent::core::session_control_db::*;
@@ -137,13 +139,19 @@ fn dead_owned_ts_claim_with_durable_complete_record_is_deleted_not_requeued() {
     let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
         .as_i64()
         .unwrap();
-    step(&mut ts, "registerSelf", json!([db, address(), path]));
+    let owner_identity: pi_coding_agent::core::runtime_process::ProcessIdentity = serde_json::from_str(
+        step(&mut ts, "registerSelf", json!([db, address(), path]))
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         call(&mut ts, "claimRuntimeMailboxMessages", json!([db, address(), 20]))[0]["status"],
         "claimed"
     );
     std::fs::write(&transcript,format!("{}\n{}",json!({"type":"custom","customType":"runtime_mailbox_acceptance","data":{"mailboxStoreRefs":[input("accepted")["storeRef"].clone()]}}),"{partial")).unwrap();
     drop(ts); // owned fixture process exits before replacement registration/recovery
+    fixture_process::wait_for_owned_fixture_exit(&owner_identity);
     register(&db, Some(&path));
     assert!(
         read_runtime_mailbox_message(&db, id).unwrap().is_none(),

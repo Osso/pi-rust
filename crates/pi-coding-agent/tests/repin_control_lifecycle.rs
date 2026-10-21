@@ -1,3 +1,5 @@
+#[path = "support/repin_fixture_process.rs"]
+mod fixture_process;
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_coding_agent::core::runtime_process::{ProcessIdentity, read_process_identity};
@@ -245,6 +247,7 @@ fn dead_owned_fixture_runtime_recovery_honors_persisted_suppression() {
         true
     );
     drop(child);
+    fixture_process::wait_for_owned_fixture_exit(&identity);
     let supervisor_identity: ProcessIdentity =
         serde_json::from_str(get_runtime_process_instance_id().unwrap()).unwrap();
     register_runtime_mailbox_listener(
