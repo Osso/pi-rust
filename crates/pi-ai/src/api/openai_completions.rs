@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/api/openai-completions.ts` (+ `.lazy.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -648,7 +649,7 @@ pub fn convert_messages(
                         .content
                         .iter()
                         .filter_map(|block| match block {
-                            crate::types::TextOrImageContent::Text(text) => Some(text.text.as_str()),
+                            crate::types::TextOrImageContent::Text(text) => Some(sanitize_surrogates(&text.text)),
                             crate::types::TextOrImageContent::Image(_) => None,
                         })
                         .collect::<Vec<_>>()
@@ -1655,7 +1656,7 @@ pub async fn process_completions_stream(
             }
             sender.push(AssistantMessageEvent::TextDelta {
                 content_index: index,
-                delta: content.to_owned(),
+                delta: content.into(),
                 partial: output.clone(),
             });
         }
@@ -1918,7 +1919,7 @@ async fn run_stream(
         .then_some(stream_options.session_id.as_deref())
         .flatten();
     let client = create_client(model, context, &api_key, stream_options, cache_session_id, &compat);
-    let mut params = build_params(
+    let params = build_params(
         model,
         context,
         stream_options,
@@ -1928,6 +1929,7 @@ async fn run_stream(
         &grammar_tool_input_properties,
     );
 
+    let mut params = JsValue::from(params);
     if let Some(on_payload) = &stream_options.request.on_payload
         && let Some(next_params) = on_payload(params.clone(), model.clone())
             .await

@@ -6,6 +6,7 @@
 //! [`AnthropicOptions`]. A caller-supplied `client` is not representable in the
 //! typed Rust contract.
 
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -273,10 +274,8 @@ fn is_oauth_token(api_key: &str) -> bool {
     api_key.contains("sk-ant-oat")
 }
 
-fn js_trimmed_is_empty(value: &str) -> bool {
-    value
-        .trim_matches(|character: char| character.is_whitespace() || character == '\u{feff}')
-        .is_empty()
+fn js_trimmed_is_empty(value: impl Into<JsString>) -> bool {
+    value.into().trim().is_empty()
 }
 
 fn has_header(headers: Option<&ProviderHeaders>, name: &str) -> bool {
@@ -438,7 +437,7 @@ fn convert_content_blocks(content: &[TextOrImageContent]) -> Value {
         let joined = content
             .iter()
             .map(|block| match block {
-                TextOrImageContent::Text(text) => text.text.clone(),
+                TextOrImageContent::Text(text) => sanitize_surrogates(&text.text),
                 TextOrImageContent::Image(_) => String::new(),
             })
             .collect::<Vec<_>>()
@@ -951,7 +950,7 @@ fn insert_system_param(
         system.push(text_block(CLAUDE_CODE_IDENTITY, cache_control));
     }
     if let Some(prompt) = &context.system_prompt {
-        system.push(text_block(sanitize_surrogates(prompt), cache_control));
+        system.push(text_block(&sanitize_surrogates(prompt), cache_control));
     }
     if !system.is_empty() {
         params.insert("system".to_owned(), Value::Array(system));
@@ -1140,7 +1139,7 @@ async fn drive_stream(
         .then_some(options.session_id.as_deref())
         .flatten();
     let client = create_client_headers(model, context, options, &anthropic, api_key, is_oauth, session_id);
-    let params = build_params(model, context, is_oauth, &anthropic, options)?;
+    let params = JsValue::from(build_params(model, context, is_oauth, &anthropic, options)?);
     let params = match &options.request.on_payload {
         Some(on_payload) => match on_payload(params.clone(), model.clone()).await {
             Ok(Some(next)) => next,
@@ -1351,7 +1350,7 @@ fn apply_content_block_delta(sender: &AssistantMessageEventSender, output: &mut 
                 block.text.push_str(text);
                 sender.push(AssistantMessageEvent::TextDelta {
                     content_index: position,
-                    delta: text.to_owned(),
+                    delta: text.into(),
                     partial: output.clone(),
                 });
             }

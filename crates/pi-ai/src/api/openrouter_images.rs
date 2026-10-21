@@ -160,12 +160,12 @@ async fn send_once(
     timeout: Option<std::time::Duration>,
 ) -> Result<SdkJsonResponse, ProviderRequestError<CallbackError>> {
     let Some(timeout) = timeout else {
-        return client.create_chat_completion(params, signal).await;
+        return client.create_chat_completion(params.into(), signal).await;
     };
     tokio::select! {
         biased;
         () = tokio::time::sleep(timeout) => Err(timeout_error()),
-        result = client.create_chat_completion(params, signal) => result,
+        result = client.create_chat_completion(params.into(), signal) => result,
     }
 }
 

@@ -5,6 +5,7 @@
 //! reproduces both: V8 error messages with UTF-16 positions, JavaScript number formatting, and the
 //! JavaScript object key order (array-index keys first, ascending; then insertion order).
 
+use serde::Deserialize;
 use std::fmt;
 
 use crate::number::{js_number_to_string, js_number_value};
@@ -12,7 +13,7 @@ use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
 /// A JavaScript string: identity and ordering are UTF-16 code-unit based.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct JsString(Vec<u16>);
 
 impl JsString {
@@ -24,6 +25,72 @@ impl JsString {
         &self.0
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// JavaScript string length, measured in UTF-16 code units.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn push_str(&mut self, text: impl Into<Self>) {
+        self.0.extend(text.into().0);
+    }
+
+    pub fn contains(&self, text: impl Into<Self>) -> bool {
+        let text = text.into();
+        text.is_empty() || self.0.windows(text.len()).any(|window| window == text.units())
+    }
+
+    pub fn starts_with(&self, text: impl Into<Self>) -> bool {
+        self.0.starts_with(text.into().units())
+    }
+    pub fn ends_with(&self, text: impl Into<Self>) -> bool {
+        self.0.ends_with(text.into().units())
+    }
+
+    pub fn encode_utf16(&self) -> impl Iterator<Item = u16> + '_ {
+        self.0.iter().copied()
+    }
+
+    pub fn split(&self, separator: char) -> impl Iterator<Item = Self> + '_ {
+        let separator = JsString::from(separator);
+        assert_eq!(separator.len(), 1, "split requires one UTF-16 code unit");
+        let unit = separator.0[0];
+        self.0.split(move |item| *item == unit).map(|part| Self(part.to_vec()))
+    }
+
+    pub fn trim(&self) -> Self {
+        self.clone().trim_js_whitespace()
+    }
+
+    fn trim_js_whitespace(self) -> Self {
+        let start = self
+            .0
+            .iter()
+            .position(|unit| !crate::string::is_js_whitespace_unit(*unit));
+        let end = self
+            .0
+            .iter()
+            .rposition(|unit| !crate::string::is_js_whitespace_unit(*unit));
+        match (start, end) {
+            (Some(start), Some(end)) => Self(self.0[start..=end].to_vec()),
+            _ => Self::default(),
+        }
+    }
+
+    pub fn join(texts: impl IntoIterator<Item = impl Into<Self>>, separator: &str) -> Self {
+        let mut result = Self::default();
+        for (index, text) in texts.into_iter().enumerate() {
+            if index != 0 {
+                result.push_str(separator);
+            }
+            result.push_str(text);
+        }
+        result
+    }
+
     /// Checked UTF-8 boundary; lone surrogates are rejected.
     pub fn to_utf8(&self) -> Result<String, std::string::FromUtf16Error> {
         String::from_utf16(&self.0)
@@ -31,7 +98,7 @@ impl JsString {
 
     /// Explicit Node UTF-8 encoding boundary, replacing lone surrogates with U+FFFD.
     pub fn to_utf8_lossy(&self) -> String {
-        String::from_utf16_lossy(&self.0)
+        encode_node_utf8(self)
     }
 }
 
@@ -53,6 +120,43 @@ impl<'de> serde::Deserialize<'de> for JsString {
     }
 }
 
+impl std::hash::Hash for JsString {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self.to_utf8() {
+            Ok(text) => text.hash(state),
+            Err(_) => self.0.hash(state),
+        }
+    }
+}
+
+// Exact UTF-8 key lookup in a UTF-16 object, without allocating a temporary key.
+impl indexmap::Equivalent<JsString> for str {
+    fn equivalent(&self, key: &JsString) -> bool {
+        key == self
+    }
+}
+impl indexmap::Equivalent<JsString> for String {
+    fn equivalent(&self, key: &JsString) -> bool {
+        key == self
+    }
+}
+
+impl PartialEq<str> for JsString {
+    fn eq(&self, other: &str) -> bool {
+        self.0.iter().copied().eq(other.encode_utf16())
+    }
+}
+impl PartialEq<&str> for JsString {
+    fn eq(&self, other: &&str) -> bool {
+        self == *other
+    }
+}
+impl PartialEq<String> for JsString {
+    fn eq(&self, other: &String) -> bool {
+        self == other.as_str()
+    }
+}
+
 impl From<&JsString> for JsString {
     fn from(text: &JsString) -> Self {
         text.clone()
@@ -71,10 +175,23 @@ impl From<&String> for JsString {
     }
 }
 
+impl From<char> for JsString {
+    fn from(character: char) -> Self {
+        Self::from(character.to_string())
+    }
+}
+
 impl From<&str> for JsString {
     fn from(text: &str) -> Self {
         Self(text.encode_utf16().collect())
     }
+}
+
+/// Node encodes a JS string to a UTF-8 stream, path, argument or environment
+/// value by replacing unmatched surrogate units with U+FFFD. Use only at that
+/// external boundary; JSON serialization must use the lossless writer instead.
+pub fn encode_node_utf8(text: &JsString) -> String {
+    String::from_utf16_lossy(text.units())
 }
 
 /// Insertion-ordered storage. Use `object_entries_lossless` for JavaScript enumeration order.
@@ -92,6 +209,12 @@ pub enum JsValue {
     Object(JsObject),
 }
 
+impl Default for JsValue {
+    fn default() -> Self {
+        Self::Null
+    }
+}
+
 impl serde::Serialize for JsValue {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let raw =
@@ -103,8 +226,41 @@ impl serde::Serialize for JsValue {
 /// Requires a serde_json text/bytes deserializer; see [`JsString`]'s serde contract.
 impl<'de> serde::Deserialize<'de> for JsValue {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = Box::<serde_json::value::RawValue>::deserialize(deserializer)?;
-        parse_lossless(raw.get()).map_err(serde::de::Error::custom)
+        struct JsonVisitor;
+        impl<'de> serde::de::Visitor<'de> for JsonVisitor {
+            type Value = JsValue;
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a raw JSON value")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(self, mut map: M) -> Result<JsValue, M::Error> {
+                let key = map.next_key::<String>()?;
+                if key.as_deref() != Some("$serde_json::private::RawValue") {
+                    return Err(serde::de::Error::custom("expected raw JSON fragment"));
+                }
+                let raw = map.next_value::<String>()?;
+                parse_lossless(&raw).map_err(serde::de::Error::custom)
+            }
+            // serde_json::Value has already admitted only Unicode scalar strings.
+            // This is an exact conversion of that input, not replacement of raw UTF-16.
+            fn visit_newtype_struct<D: serde::Deserializer<'de>>(self, d: D) -> Result<JsValue, D::Error> {
+                Value::deserialize(d).map(JsValue::from)
+            }
+        }
+        deserializer.deserialize_newtype_struct("$serde_json::private::RawValue", JsonVisitor)
+    }
+}
+
+/// Serde adapter for object-only fields. Serializing keys individually cannot
+/// carry lone surrogates through serde's map-key interface, so emit the whole
+/// object through the shared lossless value serializer.
+pub fn serialize_object<S: serde::Serializer>(object: &JsObject, serializer: S) -> Result<S::Ok, S::Error> {
+    serde::Serialize::serialize(&JsValue::Object(object.clone()), serializer)
+}
+
+pub fn deserialize_object<'de, D: serde::Deserializer<'de>>(d: D) -> Result<JsObject, D::Error> {
+    match JsValue::deserialize(d)? {
+        JsValue::Object(object) => Ok(object),
+        _ => Err(serde::de::Error::custom("expected a JSON object")),
     }
 }
 
@@ -115,6 +271,41 @@ pub fn deserialize_present<'de, D: serde::Deserializer<'de>>(deserializer: D) ->
 }
 
 impl JsValue {
+    pub fn object(entries: impl IntoIterator<Item = (impl Into<JsString>, JsValue)>) -> Self {
+        Self::Object(entries.into_iter().map(|(k, v)| (k.into(), v)).collect())
+    }
+
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut Self> {
+        self.as_object_mut()?.get_mut(&JsString::from(key))
+    }
+
+    pub fn as_object_mut(&mut self) -> Option<&mut JsObject> {
+        match self {
+            Self::Object(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Self>> {
+        match self {
+            Self::Array(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self, Self::Null)
+    }
+    pub fn is_object(&self) -> bool {
+        matches!(self, Self::Object(_))
+    }
+    pub fn is_array(&self) -> bool {
+        matches!(self, Self::Array(_))
+    }
+    pub fn is_string(&self) -> bool {
+        matches!(self, Self::String(_))
+    }
+
     pub fn get(&self, key: &str) -> Option<&Self> {
         self.as_object()?.get(&JsString::from(key))
     }
@@ -178,6 +369,13 @@ impl JsValue {
             }
         }
     }
+}
+
+/// Convert a serializable record directly to the lossless authority, without an
+/// intermediate serde_json::Value (which rejects lone-surrogate string escapes).
+pub fn to_value<T: serde::Serialize + ?Sized>(value: &T) -> Result<JsValue, serde_json::Error> {
+    let json = serde_json::to_string(value)?;
+    parse_lossless(&json).map_err(<serde_json::Error as serde::de::Error>::custom)
 }
 
 /// JavaScript Boolean conversion at a lossless JSON boundary.

@@ -1,10 +1,11 @@
 /// Removes unpaired UTF-16 surrogates, matching the TypeScript regex.
 ///
-/// Rust `str` values are valid Unicode and cannot contain unpaired surrogates,
-/// so the string API is an identity function. Callers holding raw UTF-16 code
-/// units use [`sanitize_surrogate_units`].
-pub fn sanitize_surrogates(text: &str) -> &str {
-    text
+/// Explicit provider boundary matching frozen `sanitizeSurrogates`; shared text
+/// remains lossless before this call. Valid surrogate pairs survive.
+pub fn sanitize_surrogates(text: impl Into<pi_js_compat::js_json::JsString>) -> String {
+    let text = text.into();
+    String::from_utf16(&sanitize_surrogate_units(text.units()))
+        .expect("surrogate sanitizer emits only Unicode scalar sequences")
 }
 
 pub fn sanitize_surrogate_units(units: &[u16]) -> Vec<u16> {

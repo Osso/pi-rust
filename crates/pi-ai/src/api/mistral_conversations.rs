@@ -5,6 +5,7 @@
 //! this port builds the same payload shape as ordered JSON and applies the
 //! identical camelCase-to-snake_case remapping.
 
+use pi_js_compat::js_json::{JsObject, JsValue};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -191,7 +192,7 @@ async fn produce_stream(
     };
     let transformed = transform_messages_with(&context.messages, model, Some(&normalize), now_millis());
 
-    let mut payload = build_chat_payload(model, context, &transformed, options)?;
+    let mut payload = JsValue::from(build_chat_payload(model, context, &transformed, options)?);
     if let Some(on_payload) = &options.stream.request.on_payload
         && let Some(next_payload) = on_payload(payload.clone(), model.clone())
             .await
@@ -422,7 +423,7 @@ struct MistralResponse {
 
 async fn request_mistral_stream(
     model: &Model,
-    payload: &Value,
+    payload: &JsValue,
     api_key: &str,
     options: &MistralOptions,
 ) -> Result<MistralResponse, MistralError> {
@@ -555,7 +556,7 @@ fn should_use_prompt_caching(options: &MistralOptions) -> bool {
             .is_some_and(|session_id| !session_id.is_empty())
 }
 
-fn to_mistral_wire_payload(payload: &Value) -> Result<Value, MistralError> {
+fn to_mistral_wire_payload(payload: &JsValue) -> Result<JsValue, MistralError> {
     let Some(payload) = payload.as_object() else {
         return Err(MistralError::message("Mistral payload must be an object"));
     };
@@ -579,44 +580,44 @@ fn to_mistral_wire_payload(payload: &Value) -> Result<Value, MistralError> {
 
     let messages = wire
         .get("messages")
-        .and_then(Value::as_array)
+        .and_then(JsValue::as_array)
         .ok_or_else(|| MistralError::message("Mistral payload messages must be an array"))?
         .clone();
-    let messages: Vec<Value> = messages.iter().map(to_mistral_wire_message).collect::<Result<_, _>>()?;
-    wire.insert("messages".to_owned(), Value::Array(messages));
+    let messages: Vec<JsValue> = messages.iter().map(to_mistral_wire_message).collect::<Result<_, _>>()?;
+    wire.insert("messages".into(), JsValue::Array(messages));
 
-    if let Some(Value::Object(response_format)) = wire.get("response_format").cloned() {
+    if let Some(JsValue::Object(response_format)) = wire.get("response_format").cloned() {
         let mut wire_response_format = response_format;
         remap_mistral_property(&mut wire_response_format, "jsonSchema", "json_schema");
-        if let Some(Value::Object(json_schema)) = wire_response_format.get("json_schema").cloned() {
+        if let Some(JsValue::Object(json_schema)) = wire_response_format.get("json_schema").cloned() {
             let mut wire_json_schema = json_schema;
             remap_mistral_property(&mut wire_json_schema, "schemaDefinition", "schema");
-            wire_response_format.insert("json_schema".to_owned(), Value::Object(wire_json_schema));
+            wire_response_format.insert("json_schema".into(), JsValue::Object(wire_json_schema));
         }
-        wire.insert("response_format".to_owned(), Value::Object(wire_response_format));
+        wire.insert("response_format".into(), JsValue::Object(wire_response_format));
     }
 
-    Ok(Value::Object(wire))
+    Ok(JsValue::Object(wire))
 }
 
-fn to_mistral_wire_message(message: &Value) -> Result<Value, MistralError> {
+fn to_mistral_wire_message(message: &JsValue) -> Result<JsValue, MistralError> {
     let Some(message) = message.as_object() else {
         return Err(MistralError::message("Mistral message must be an object"));
     };
     let mut wire = message.clone();
     remap_mistral_property(&mut wire, "toolCalls", "tool_calls");
     remap_mistral_property(&mut wire, "toolCallId", "tool_call_id");
-    if let Some(Value::Array(content)) = wire.get("content").cloned() {
-        let content: Vec<Value> = content
+    if let Some(JsValue::Array(content)) = wire.get("content").cloned() {
+        let content: Vec<JsValue> = content
             .iter()
             .map(to_mistral_wire_content_chunk)
             .collect::<Result<_, _>>()?;
-        wire.insert("content".to_owned(), Value::Array(content));
+        wire.insert("content".into(), JsValue::Array(content));
     }
-    Ok(Value::Object(wire))
+    Ok(JsValue::Object(wire))
 }
 
-fn to_mistral_wire_content_chunk(chunk: &Value) -> Result<Value, MistralError> {
+fn to_mistral_wire_content_chunk(chunk: &JsValue) -> Result<JsValue, MistralError> {
     let Some(chunk) = chunk.as_object() else {
         return Err(MistralError::message("Mistral content chunk must be an object"));
     };
@@ -631,16 +632,16 @@ fn to_mistral_wire_content_chunk(chunk: &Value) -> Result<Value, MistralError> {
     ] {
         remap_mistral_property(&mut wire, source, target);
     }
-    Ok(Value::Object(wire))
+    Ok(JsValue::Object(wire))
 }
 
-fn remap_mistral_property(record: &mut Map<String, Value>, source: &str, target: &str) {
+fn remap_mistral_property(record: &mut JsObject, source: &str, target: &str) {
     // TypeScript `delete` preserves the remaining insertion order; serde_json's
     // `remove` is `swap_remove` and would move the last entry into the hole.
     let Some(value) = record.shift_remove(source) else {
         return;
     };
-    record.insert(target.to_owned(), value);
+    record.insert(target.into(), value);
 }
 
 fn build_chat_payload(
@@ -1030,7 +1031,7 @@ fn finish_current_block(output: &AssistantMessage, sender: &AssistantMessageEven
         CurrentBlock::Text => {
             let content = match output.content.get(index) {
                 Some(AssistantContent::Text(text)) => text.text.clone(),
-                _ => String::new(),
+                _ => Default::default(),
             };
             sender.push(AssistantMessageEvent::TextEnd {
                 content_index: index,
@@ -1126,7 +1127,7 @@ fn append_text_delta(
     }
     sender.push(AssistantMessageEvent::TextDelta {
         content_index: index,
-        delta: text_delta,
+        delta: text_delta.into(),
         partial: output.clone(),
     });
 }

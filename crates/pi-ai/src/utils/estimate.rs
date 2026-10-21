@@ -50,7 +50,7 @@ pub fn estimate_text_and_image_content_tokens(content: TextOrImageInput<'_>) -> 
         TextOrImageInput::Blocks(blocks) => blocks
             .iter()
             .map(|block| match block {
-                TextOrImageContent::Text(text) => js_len(&text.text),
+                TextOrImageContent::Text(text) => text.text.len(),
                 TextOrImageContent::Image(_) => ESTIMATED_IMAGE_CHARS,
             })
             .sum(),
@@ -63,7 +63,7 @@ pub fn estimate_assistant_message_tokens(message: &AssistantMessage) -> f64 {
         .content
         .iter()
         .map(|block| match block {
-            AssistantContent::Text(text) => js_len(&text.text),
+            AssistantContent::Text(text) => text.text.len(),
             AssistantContent::Thinking(thinking) => js_len(&thinking.thinking),
             AssistantContent::ToolCall(call) => js_len(&call.name) + js_len(&safe_json_stringify(&call.arguments)),
         })

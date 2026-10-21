@@ -41,7 +41,7 @@ pub struct SdkRequest {
 
 pub fn build_request(
     model: &Model,
-    params: &Value,
+    params: &impl serde::Serialize,
     auth: Auth,
     default_headers: &ProviderHeaders,
     timeout_ms: Option<f64>,

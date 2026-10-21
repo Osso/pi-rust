@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/api/azure-openai-responses.ts` (+ `.lazy.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -371,7 +372,7 @@ async fn run_stream(
     let grammar_tool_input_properties =
         create_grammar_tool_input_properties(context.tools.as_deref(), supports_grammar)
             .map_err(|error| Failure::Message(error.message))?;
-    let mut params = build_params(
+    let params = build_params(
         model,
         context,
         options,
@@ -381,6 +382,7 @@ async fn run_stream(
     )
     .map_err(Failure::Message)?;
 
+    let mut params = JsValue::from(params);
     if let Some(on_payload) = &stream_options.request.on_payload
         && let Some(next_params) = on_payload(params.clone(), model.clone())
             .await

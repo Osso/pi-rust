@@ -248,7 +248,7 @@ fn joined_text_content(result: &ToolResultMessage) -> String {
         .content
         .iter()
         .filter_map(|content| match content {
-            crate::types::TextOrImageContent::Text(text) => Some(text.text.as_str()),
+            crate::types::TextOrImageContent::Text(text) => Some(sanitize_surrogates(&text.text)),
             crate::types::TextOrImageContent::Image(_) => None,
         })
         .collect::<Vec<_>>()

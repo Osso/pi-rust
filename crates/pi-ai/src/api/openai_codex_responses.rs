@@ -4,6 +4,7 @@
 //! machine: SSE with idle timeouts, WebSocket transports (including cached
 //! continuation), retries, and the session WebSocket cache.
 
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -213,7 +214,7 @@ pub struct OpenAICodexWebSocketDebugStats {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_delta_input_items: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_previous_response_id: Option<String>,
+    pub last_previous_response_id: Option<JsString>,
     pub websocket_failures: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_websocket_error: Option<String>,
@@ -404,13 +405,14 @@ async fn execute_stream(
         options.stream.session_id.as_deref()
     };
     let codex_session_id = clamp_openai_prompt_cache_key(cache_session_id).map(str::to_owned);
-    let mut body = build_request_body(
+    let body = build_request_body(
         model,
         context,
         options,
         codex_session_id.as_deref(),
         &grammar_tool_input_properties,
     )?;
+    let mut body = JsValue::from(body);
     if let Some(on_payload) = &options.stream.request.on_payload
         && let Some(next_body) = on_payload(body.clone(), model.clone())
             .await
@@ -1659,7 +1661,7 @@ struct CacheEntry {
 
 #[derive(Clone, Default)]
 struct CachedWebSocketContinuationState {
-    last_request_body: Value,
+    last_request_body: JsValue,
     last_response_id: String,
     last_response_items: Vec<Value>,
 }
@@ -2083,7 +2085,7 @@ struct WebSocketExecution<'a> {
     model: &'a Model,
     context: &'a Context,
     options: &'a OpenAICodexResponsesOptions,
-    body: Value,
+    body: JsValue,
     body_json: &'a str,
     headers: IndexMap<String, String>,
     http_timeout_ms: Option<f64>,
@@ -2232,12 +2234,15 @@ async fn process_websocket_stream(
 
     if let Some(session_id) = execution.cache_session_id {
         let reused = lease.reused;
-        let request_items = request_body.get("input").and_then(Value::as_array).map_or(0, Vec::len) as u64;
+        let request_items = request_body
+            .get("input")
+            .and_then(JsValue::as_array)
+            .map_or(0, Vec::len) as u64;
         let previous_response_id = request_body
             .get("previous_response_id")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        let store_true = request_body.get("store").and_then(Value::as_bool) == Some(true);
+            .and_then(JsValue::as_string)
+            .cloned();
+        let store_true = request_body.get("store").and_then(JsValue::as_bool) == Some(true);
         update_websocket_debug_stats(session_id, |stats| {
             stats.requests += 1;
             if reused {
@@ -2360,15 +2365,15 @@ async fn process_websocket_stream(
         None => Ok(()),
     }
 }
-fn response_create_frame(body: &Value) -> Value {
-    let mut frame = Map::new();
-    frame.insert("type".to_owned(), Value::String("response.create".to_owned()));
-    if let Value::Object(object) = body {
+fn response_create_frame(body: &JsValue) -> JsValue {
+    let mut frame = JsObject::new();
+    frame.insert("type".into(), JsValue::String("response.create".into()));
+    if let JsValue::Object(object) = body {
         for (key, value) in object {
             frame.insert(key.clone(), value.clone());
         }
     }
-    Value::Object(frame)
+    JsValue::Object(frame)
 }
 
 fn convert_response_items(
@@ -2408,36 +2413,43 @@ fn convert_response_items(
     .unwrap_or_default()
 }
 
-fn request_body_without_input(body: &Value) -> Value {
-    let Value::Object(object) = body else {
+fn request_body_without_input(body: &JsValue) -> JsValue {
+    let JsValue::Object(object) = body else {
         return body.clone();
     };
     let mut rest = object.clone();
-    rest.remove("input");
-    rest.remove("previous_response_id");
-    Value::Object(rest)
+    rest.shift_remove("input");
+    rest.shift_remove("previous_response_id");
+    JsValue::Object(rest)
 }
 
-fn request_bodies_match_except_input(a: &Value, b: &Value) -> bool {
+fn request_bodies_match_except_input(a: &JsValue, b: &JsValue) -> bool {
     request_body_without_input(a) == request_body_without_input(b)
 }
 
-fn response_inputs_equal(a: &[Value], b: &[Value]) -> bool {
+fn response_inputs_equal(a: &[JsValue], b: &[JsValue]) -> bool {
     a == b
 }
 
-fn cached_websocket_input_delta(body: &Value, continuation: &CachedWebSocketContinuationState) -> Option<Vec<Value>> {
+fn cached_websocket_input_delta(
+    body: &JsValue,
+    continuation: &CachedWebSocketContinuationState,
+) -> Option<Vec<JsValue>> {
     if !request_bodies_match_except_input(body, &continuation.last_request_body) {
         return None;
     }
-    let current = body.get("input").and_then(Value::as_array).cloned().unwrap_or_default();
+    let current = body
+        .get("input")
+        .and_then(JsValue::as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut baseline = continuation
         .last_request_body
         .get("input")
-        .and_then(Value::as_array)
+        .and_then(JsValue::as_array)
         .cloned()
         .unwrap_or_default();
-    baseline.extend(continuation.last_response_items.clone());
+    baseline.extend(continuation.last_response_items.iter().map(JsValue::from));
     if current.len() < baseline.len() {
         return None;
     }
@@ -2447,7 +2459,7 @@ fn cached_websocket_input_delta(body: &Value, continuation: &CachedWebSocketCont
     Some(current[baseline.len()..].to_vec())
 }
 
-fn build_cached_websocket_request_body(entry: &mut CacheEntry, body: &Value) -> Value {
+fn build_cached_websocket_request_body(entry: &mut CacheEntry, body: &JsValue) -> JsValue {
     let Some(continuation) = entry.continuation.clone() else {
         return body.clone();
     };
@@ -2459,15 +2471,15 @@ fn build_cached_websocket_request_body(entry: &mut CacheEntry, body: &Value) -> 
         entry.continuation = None;
         return body.clone();
     }
-    let Value::Object(mut object) = body.clone() else {
+    let JsValue::Object(mut object) = body.clone() else {
         return body.clone();
     };
     object.insert(
-        "previous_response_id".to_owned(),
-        Value::String(continuation.last_response_id),
+        "previous_response_id".into(),
+        JsValue::String(continuation.last_response_id.into()),
     );
-    object.insert("input".to_owned(), Value::Array(delta));
-    Value::Object(object)
+    object.insert("input".into(), JsValue::Array(delta));
+    JsValue::Object(object)
 }
 
 enum WsWait {

@@ -182,7 +182,7 @@ fn convert_tool_result_output(model: &Model, content: &[crate::types::TextOrImag
     let text_result = content
         .iter()
         .filter_map(|block| match block {
-            crate::types::TextOrImageContent::Text(text) => Some(text.text.as_str()),
+            crate::types::TextOrImageContent::Text(text) => Some(sanitize_surrogates(&text.text)),
             crate::types::TextOrImageContent::Image(_) => None,
         })
         .collect::<Vec<_>>()
@@ -1093,7 +1093,7 @@ fn emit_text_delta(
     }
     sender.push(AssistantMessageEvent::TextDelta {
         content_index,
-        delta: delta.to_owned(),
+        delta: delta.into(),
         partial: output.clone(),
     });
 }
@@ -1111,7 +1111,11 @@ fn append_provider_text_delta(
         return;
     }
     let last_character = match &output.content[content_index] {
-        AssistantContent::Text(block) => block.text.chars().last(),
+        AssistantContent::Text(block) => block
+            .text
+            .units()
+            .last()
+            .and_then(|unit| char::from_u32(u32::from(*unit))),
         _ => None,
     };
     let state = citation_state
@@ -1515,15 +1519,17 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         };
                         let existing = match &output.content[content_index] {
                             AssistantContent::Text(block) => block.text.clone(),
-                            _ => String::new(),
+                            _ => Default::default(),
                         };
-                        if let Some(remainder) = completed_text.strip_prefix(existing.as_str())
+                        let existing_utf8 = existing.to_utf8();
+                        if let Ok(existing_utf8) = existing_utf8
+                            && let Some(remainder) = completed_text.strip_prefix(existing_utf8.as_str())
                             && !remainder.is_empty()
                         {
                             emit_text_delta(sender, content_index, remainder, output);
                         }
                         if let AssistantContent::Text(block) = &mut output.content[content_index] {
-                            block.text = completed_text.clone();
+                            block.text = completed_text.clone().into();
                             block.text_signature = Some(encode_text_signature_v1(
                                 item.get("id").and_then(Value::as_str).unwrap_or(""),
                                 item.get("phase").and_then(Value::as_str),
@@ -1531,7 +1537,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         }
                         sender.push(AssistantMessageEvent::TextEnd {
                             content_index,
-                            content: completed_text,
+                            content: completed_text.into(),
                             partial: output.clone(),
                         });
                         output_slots.remove(&output_index);

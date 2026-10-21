@@ -1,6 +1,6 @@
 # Shared JSON UTF-16 strings
 
-`crates/pi-js-compat/src/js_json.rs` supplies additive JSON parsing/stringification retaining JavaScript UTF-16 string and property-key identity. Existing serde-facing callers remain unchanged. Implementation/proof map: [js_json traceability](../porting/traceability/js-json.md).
+`crates/pi-js-compat/src/js_json.rs` supplies additive JSON parsing/stringification retaining JavaScript UTF-16 string and property-key identity. Legacy parse callers retain their explicit replacement semantics; [Q18 message fields](lossless-content.md) use the lossless authority. Implementation/proof map: [js_json traceability](../porting/traceability/js-json.md).
 
 ## What it must do
 
@@ -54,4 +54,4 @@ The audit has six uncertain groups (despite the brief's count of five): scanning
 
 ## Shared serde (Q18, 2026-10-21)
 
-`JsString` and `JsValue` implement lossless JSON serde using raw JSON fragments and the shared parser/writer. JSON text/byte deserializers preserve lone-surrogate escapes and object keys; non-JSON formats and serde buffered untagged enums are unsupported. Optional arbitrary properties use `deserialize_present` with `default`, retaining missing versus explicit null. No conversion through `Value` occurs.
+`JsString` and `JsValue` implement lossless JSON serde using raw JSON fragments and the shared parser/writer. JSON text/byte deserializers preserve lone-surrogate escapes and object keys; non-JSON formats and serde buffered untagged enums are unsupported for arbitrary UTF-16. Existing scalar-only `serde_json::Value` inputs convert exactly, without replacement; lossless unions select from the raw AST before decoding their typed records. Optional arbitrary properties use `deserialize_present` with `default`, retaining missing versus explicit null. No conversion through `Value` occurs.

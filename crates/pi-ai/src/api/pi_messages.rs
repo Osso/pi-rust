@@ -4,6 +4,7 @@
 //! to `<baseUrl>/messages`, then an SSE stream of serialized assistant-message
 //! events plus a terminal `done`/`error` event.
 
+use pi_js_compat::js_json::JsValue;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -336,8 +337,8 @@ async fn resolve_payload(
     model: &Model,
     context: &Context,
     options: &PiMessagesOptions,
-) -> Result<Value, PiMessagesError> {
-    let payload = build_payload(model, context, options);
+) -> Result<JsValue, PiMessagesError> {
+    let payload = build_payload(model, context, options)?;
     let Some(on_payload) = &options.stream.request.on_payload else {
         return Ok(payload);
     };
@@ -469,15 +470,14 @@ fn messages_url(model: &Model, options: &PiMessagesOptions) -> Result<Url, PiMes
     Ok(url)
 }
 
-fn build_payload(model: &Model, context: &Context, options: &PiMessagesOptions) -> Value {
-    let mut payload = Map::new();
-    payload.insert("model".to_owned(), Value::String(model.id.clone()));
-    payload.insert(
-        "context".to_owned(),
-        serde_json::to_value(context).unwrap_or(Value::Null),
-    );
-    payload.insert("options".to_owned(), Value::Object(build_payload_options(options)));
-    Value::Object(payload)
+fn build_payload(model: &Model, context: &Context, options: &PiMessagesOptions) -> Result<JsValue, PiMessagesError> {
+    use pi_js_compat::js_json::{JsValue, to_value};
+    let context = to_value(context).map_err(|error| PiMessagesError::Message(error.to_string()))?;
+    Ok(JsValue::object([
+        ("model", JsValue::String(model.id.clone().into())),
+        ("context", context),
+        ("options", JsValue::from(Value::Object(build_payload_options(options)))),
+    ]))
 }
 
 fn build_payload_options(options: &PiMessagesOptions) -> Map<String, Value> {
@@ -721,7 +721,7 @@ impl EventConverter {
                 self.append_text(content_index, &delta)?;
                 Ok(AssistantMessageEvent::TextDelta {
                     content_index,
-                    delta,
+                    delta: delta.into(),
                     partial: self.partial.clone(),
                 })
             }
@@ -733,7 +733,7 @@ impl EventConverter {
                 self.finish_text(content_index, content.clone(), content_signature)?;
                 Ok(AssistantMessageEvent::TextEnd {
                     content_index,
-                    content,
+                    content: content.into(),
                     partial: self.partial.clone(),
                 })
             }
@@ -851,7 +851,7 @@ impl EventConverter {
     fn finish_text(&mut self, index: usize, content: String, signature: Option<String>) -> Result<(), PiMessagesError> {
         match self.partial.content.get_mut(index) {
             Some(AssistantContent::Text(text)) => {
-                text.text = content;
+                text.text = content.into();
                 text.text_signature = signature;
                 Ok(())
             }

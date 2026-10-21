@@ -10,6 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
 use crate::utils::diagnostics::AssistantMessageDiagnostic;
+use pi_js_compat::js_json::{JsString, JsValue};
 use pi_js_compat::number as js_number;
 
 /// `Api`: a known API literal or any custom string.
@@ -296,7 +297,7 @@ impl From<TextSignatureVersion> for u8 {
 #[serde(rename_all = "camelCase")]
 pub struct TextContent {
     pub r#type: TextTag,
-    pub text: String,
+    pub text: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_signature: Option<String>,
     /// Provider block index while streaming; absent after finalization.
@@ -308,7 +309,12 @@ pub struct TextContent {
 }
 
 impl TextContent {
-    pub fn new(text: impl Into<String>) -> Self {
+    /// Checked conversion for consumers that require Unicode scalar text.
+    pub fn text_utf8(&self) -> Result<String, std::string::FromUtf16Error> {
+        self.text.to_utf8()
+    }
+
+    pub fn new(text: impl Into<JsString>) -> Self {
         Self {
             r#type: TextTag::Tag,
             text: text.into(),
@@ -415,11 +421,45 @@ impl ToolCall {
 }
 
 /// `TextContent | ImageContent` (user blocks, tool results, image I/O).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum TextOrImageContent {
     Text(TextContent),
     Image(ImageContent),
+}
+
+// Serde's untagged buffering parses strings before selecting a variant, rejecting
+// lone surrogates. Select on the lossless AST, then decode the selected record.
+macro_rules! deserialize_content_union {
+    ($name:ident, $key:literal, $( $tag:literal => $variant:ident ),+ $(,)?) => {
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+                let value = JsValue::deserialize(d)?;
+                let tag = value.get($key).and_then(JsValue::as_string)
+                    .and_then(|text| text.to_utf8().ok());
+                let json = pi_js_compat::js_json::stringify_lossless(&value);
+                match tag.as_deref() {
+                    $(Some($tag) => serde_json::from_str(&json).map(Self::$variant).map_err(D::Error::custom),)+
+                    _ => Err(D::Error::custom(concat!("invalid ", $key, " discriminator"))),
+                }
+            }
+        }
+    };
+}
+deserialize_content_union!(TextOrImageContent, "type", "text" => Text, "image" => Image);
+deserialize_content_union!(AssistantContent, "type", "text" => Text, "thinking" => Thinking, "toolCall" => ToolCall);
+deserialize_content_union!(Message, "role", "user" => User, "assistant" => Assistant, "toolResult" => ToolResult);
+
+impl<'de> Deserialize<'de> for UserContent {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(d)?;
+        let json = pi_js_compat::js_json::stringify_lossless(&value);
+        match value {
+            JsValue::String(_) => serde_json::from_str(&json).map(Self::Text).map_err(D::Error::custom),
+            JsValue::Array(_) => serde_json::from_str(&json).map(Self::Blocks).map_err(D::Error::custom),
+            _ => Err(D::Error::custom("expected string or content array")),
+        }
+    }
 }
 
 pub type UserContentBlock = TextOrImageContent;
@@ -428,7 +468,7 @@ pub type ImagesInputContent = TextOrImageContent;
 pub type ImagesOutputContent = TextOrImageContent;
 
 /// `TextContent | ThinkingContent | ToolCall`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum AssistantContent {
     Text(TextContent),
@@ -541,7 +581,7 @@ pub enum InputSource {
 }
 
 /// `string | (TextContent | ImageContent)[]`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum UserContent {
     Text(String),
@@ -628,8 +668,12 @@ pub struct ToolResultMessage {
     pub tool_call_id: String,
     pub tool_name: String,
     pub content: Vec<ToolResultContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
+    pub details: Option<JsValue>,
     /// Usage from the tool execution itself; not part of main context accounting.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
@@ -641,7 +685,7 @@ pub struct ToolResultMessage {
     pub timestamp: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 /// `UserMessage | AssistantMessage | ToolResultMessage`, discriminated by each `role` tag.
 #[serde(untagged)]
 pub enum Message {
@@ -822,13 +866,13 @@ pub enum AssistantMessageEvent {
     TextDelta {
         #[serde(rename = "contentIndex")]
         content_index: usize,
-        delta: String,
+        delta: JsString,
         partial: AssistantMessage,
     },
     TextEnd {
         #[serde(rename = "contentIndex")]
         content_index: usize,
-        content: String,
+        content: JsString,
         partial: AssistantMessage,
     },
     ThinkingStart {

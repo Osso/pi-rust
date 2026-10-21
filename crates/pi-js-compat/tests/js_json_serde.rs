@@ -1,4 +1,45 @@
-use pi_js_compat::js_json::{JsString, JsValue, parse_lossless, stringify_lossless};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, parse_lossless, stringify_lossless};
+
+#[test]
+fn utf16_helpers_and_node_write_boundary_preserve_distinct_authorities() {
+    use pi_js_compat::js_json::encode_node_utf8;
+    let high = JsString::from_utf16(vec![0xd800]);
+    let low = JsString::from_utf16(vec![0xdfff]);
+    let joined = JsString::join([&high, &low], "|");
+    assert_eq!(joined.units(), &[0xd800, 0x7c, 0xdfff]);
+    assert_eq!(encode_node_utf8(&joined), "�|�");
+    assert_eq!(joined.units(), &[0xd800, 0x7c, 0xdfff]);
+    let trimmed = JsString::join(
+        [JsString::from("\u{feff} "), high.clone(), JsString::from("\u{2029}")],
+        "",
+    )
+    .trim();
+    assert_eq!(trimmed, high);
+    assert!(joined.contains(&high));
+    assert!(joined.starts_with(&high));
+    assert!(joined.ends_with(&low));
+    assert_eq!(joined.split('|').collect::<Vec<_>>(), vec![high, low]);
+}
+
+#[test]
+fn object_fields_and_scalar_serde_value_inputs_are_exact() {
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Record {
+        #[serde(
+            serialize_with = "pi_js_compat::js_json::serialize_object",
+            deserialize_with = "pi_js_compat::js_json::deserialize_object"
+        )]
+        args: JsObject,
+    }
+    let source = r#"{"args":{"ascii":1,"\ud800":"\udfff"}}"#;
+    let record: Record = serde_json::from_str(source).unwrap();
+    assert_eq!(record.args.get("ascii"), Some(&JsValue::Number(1.0)));
+    assert!(record.args.contains_key(&JsString::from_utf16(vec![0xd800])));
+    assert_eq!(serde_json::to_string(&record).unwrap(), source);
+    let value = serde_json::json!({"text":"😀"});
+    let actual: JsValue = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(actual, JsValue::from(value));
+}
 
 #[test]
 fn serde_preserves_utf16_strings_keys_and_nested_values() {

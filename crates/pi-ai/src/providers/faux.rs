@@ -4,6 +4,7 @@
 //! access. Token chunking and generated ids are not bit-identical to the
 //! TypeScript `Math.random` values; tests fix `tokenSize` and tool-call ids.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -102,7 +103,7 @@ impl From<Vec<AssistantContent>> for FauxContent {
     }
 }
 
-pub fn faux_text(text: impl Into<String>) -> AssistantContent {
+pub fn faux_text(text: impl Into<JsString>) -> AssistantContent {
     AssistantContent::Text(TextContent::new(text))
 }
 
@@ -213,7 +214,7 @@ pub struct FauxCore {
     tokens_per_second: Option<f64>,
     pending_responses: Arc<Mutex<Vec<FauxResponseStep>>>,
     state: Arc<Mutex<FauxProviderState>>,
-    prompt_cache: Arc<Mutex<HashMap<String, String>>>,
+    prompt_cache: Arc<Mutex<HashMap<String, JsString>>>,
     deferred_responses: Arc<Mutex<HashMap<String, DeferredEntry>>>,
     deferred: FauxDeferredOptions,
 }
@@ -570,7 +571,7 @@ impl FauxCore {
 
 struct FauxResolver {
     deferred_responses: Arc<Mutex<HashMap<String, DeferredEntry>>>,
-    prompt_cache: Arc<Mutex<HashMap<String, String>>>,
+    prompt_cache: Arc<Mutex<HashMap<String, JsString>>>,
     state: Arc<Mutex<FauxProviderState>>,
     api: String,
     provider: String,
@@ -912,7 +913,7 @@ async fn stream_with_deltas(
                     content_index: index,
                     partial: partial.clone(),
                 });
-                for chunk in split_string_by_token_size(&block.text, min_token_size, max_token_size) {
+                for chunk in split_text_by_token_size(&block.text, min_token_size, max_token_size) {
                     schedule_chunk(&chunk, tokens_per_second).await;
                     if signal.is_some_and(CancellationToken::is_cancelled) {
                         let aborted = create_aborted_message(&partial);
@@ -1021,7 +1022,7 @@ async fn stream_with_deltas(
     }
 }
 
-fn append_text(partial: &mut AssistantMessage, index: usize, chunk: &str) {
+fn append_text(partial: &mut AssistantMessage, index: usize, chunk: &JsString) {
     if let Some(AssistantContent::Text(block)) = partial.content.get_mut(index) {
         block.text.push_str(chunk);
     }
@@ -1033,7 +1034,7 @@ fn append_thinking(partial: &mut AssistantMessage, index: usize, chunk: &str) {
     }
 }
 
-async fn schedule_chunk(chunk: &str, tokens_per_second: Option<f64>) {
+async fn schedule_chunk(chunk: impl Into<JsString>, tokens_per_second: Option<f64>) {
     match tokens_per_second {
         Some(tokens_per_second) if tokens_per_second > 0.0 => {
             let delay_ms = (estimate_tokens(chunk) / tokens_per_second) * 1000.0;
@@ -1041,6 +1042,22 @@ async fn schedule_chunk(chunk: &str, tokens_per_second: Option<f64>) {
         }
         _ => tokio::task::yield_now().await,
     }
+}
+
+fn split_text_by_token_size(text: &JsString, min_token_size: usize, max_token_size: usize) -> Vec<JsString> {
+    let mut chunks = Vec::new();
+    let mut index = 0;
+    while index < text.len() {
+        let span = max_token_size.saturating_sub(min_token_size) + 1;
+        let token_size = min_token_size + (next_random() as usize % span);
+        let end = (index + (token_size * 4).max(1)).min(text.len());
+        chunks.push(JsString::from_utf16(text.units()[index..end].to_vec()));
+        index = end;
+    }
+    if chunks.is_empty() {
+        chunks.push(Default::default());
+    }
+    chunks
 }
 
 fn split_string_by_token_size(text: &str, min_token_size: usize, max_token_size: usize) -> Vec<String> {
@@ -1065,7 +1082,7 @@ fn with_usage_estimate(
     mut message: AssistantMessage,
     context: &Context,
     options: Option<&StreamOptions>,
-    prompt_cache: &Mutex<HashMap<String, String>>,
+    prompt_cache: &Mutex<HashMap<String, JsString>>,
 ) -> AssistantMessage {
     let prompt_text = serialize_context(context);
     let prompt_tokens = estimate_tokens(&prompt_text);
@@ -1084,8 +1101,8 @@ fn with_usage_estimate(
         let previous_prompt = lock(prompt_cache).get(&session_id).cloned();
         if let Some(previous_prompt) = previous_prompt {
             let cached_chars = common_prefix_length(&previous_prompt, &prompt_text);
-            cache_read = estimate_tokens(&previous_prompt[..cached_chars]);
-            cache_write = estimate_tokens(&prompt_text[cached_chars..]);
+            cache_read = (cached_chars as f64 / 4.0).ceil();
+            cache_write = ((prompt_text.len() - cached_chars) as f64 / 4.0).ceil();
             input = (prompt_tokens - cache_read).max(0.0);
         } else {
             cache_write = prompt_tokens;
@@ -1106,68 +1123,53 @@ fn with_usage_estimate(
     message
 }
 
-fn estimate_tokens(text: &str) -> f64 {
-    let units = text.encode_utf16().count();
+fn estimate_tokens(text: impl Into<JsString>) -> f64 {
+    let units = text.into().len();
     (units as f64 / 4.0).ceil()
 }
 
-fn common_prefix_length(a: &str, b: &str) -> usize {
-    let mut length = 0;
-    for (left, right) in a.chars().zip(b.chars()) {
-        if left != right {
-            break;
-        }
-        length += left.len_utf8();
-    }
-    length
+fn common_prefix_length(a: &JsString, b: &JsString) -> usize {
+    a.units().iter().zip(b.units()).take_while(|(a, b)| a == b).count()
 }
 
-fn content_to_text(content: &UserContent) -> String {
+fn content_to_text(content: &UserContent) -> JsString {
     match content {
-        UserContent::Text(text) => text.clone(),
-        UserContent::Blocks(blocks) => blocks
-            .iter()
-            .map(|block| match block {
-                TextOrImageContent::Text(block) => block.text.clone(),
-                TextOrImageContent::Image(block) => {
-                    format!("[image:{}:{}]", block.mime_type, block.data.encode_utf16().count())
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
+        UserContent::Text(text) => text.into(),
+        UserContent::Blocks(blocks) => JsString::join(blocks.iter().map(block_to_text), "\n"),
     }
 }
 
-fn assistant_content_to_text(content: &[AssistantContent]) -> String {
-    content
-        .iter()
-        .map(|block| match block {
+fn block_to_text(block: &TextOrImageContent) -> JsString {
+    match block {
+        TextOrImageContent::Text(block) => block.text.clone(),
+        TextOrImageContent::Image(block) => {
+            format!("[image:{}:{}]", block.mime_type, block.data.encode_utf16().count()).into()
+        }
+    }
+}
+
+fn assistant_content_to_text(content: &[AssistantContent]) -> JsString {
+    JsString::join(
+        content.iter().map(|block| match block {
             AssistantContent::Text(block) => block.text.clone(),
-            AssistantContent::Thinking(block) => block.thinking.clone(),
+            AssistantContent::Thinking(block) => block.thinking.clone().into(),
             AssistantContent::ToolCall(block) => format!(
                 "{}:{}",
                 block.name,
                 serde_json::to_string(&block.arguments).unwrap_or_default()
-            ),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+            )
+            .into(),
+        }),
+        "\n",
+    )
 }
 
-fn tool_result_to_text(message: &crate::types::ToolResultMessage) -> String {
-    let mut parts = vec![message.tool_name.clone()];
-    for block in &message.content {
-        parts.push(match block {
-            TextOrImageContent::Text(block) => block.text.clone(),
-            TextOrImageContent::Image(block) => {
-                format!("[image:{}:{}]", block.mime_type, block.data.encode_utf16().count())
-            }
-        });
-    }
-    parts.join("\n")
+fn tool_result_to_text(message: &crate::types::ToolResultMessage) -> JsString {
+    let parts = std::iter::once(message.tool_name.clone().into()).chain(message.content.iter().map(block_to_text));
+    JsString::join(parts, "\n")
 }
 
-fn message_to_text(message: &Message) -> String {
+fn message_to_text(message: &Message) -> JsString {
     match message {
         Message::User(message) => content_to_text(&message.content),
         Message::Assistant(message) => assistant_content_to_text(&message.content),
@@ -1175,10 +1177,10 @@ fn message_to_text(message: &Message) -> String {
     }
 }
 
-fn serialize_context(context: &Context) -> String {
+fn serialize_context(context: &Context) -> JsString {
     let mut parts = Vec::new();
     if let Some(system_prompt) = &context.system_prompt {
-        parts.push(format!("system:{system_prompt}"));
+        parts.push(JsString::from(format!("system:{system_prompt}")));
     }
     for message in &context.messages {
         let role = match message {
@@ -1186,14 +1188,17 @@ fn serialize_context(context: &Context) -> String {
             Message::Assistant(_) => "assistant",
             Message::ToolResult(_) => "toolResult",
         };
-        parts.push(format!("{role}:{}", message_to_text(message)));
+        parts.push(JsString::join(
+            [format!("{role}:").into(), message_to_text(message)],
+            "",
+        ));
     }
     if let Some(tools) = &context.tools
         && !tools.is_empty()
     {
-        parts.push(format!("tools:{}", serde_json::to_string(tools).unwrap_or_default()));
+        parts.push(format!("tools:{}", serde_json::to_string(tools).unwrap_or_default()).into());
     }
-    parts.join("\n\n")
+    JsString::join(parts, "\n\n")
 }
 
 fn random_id(prefix: &str) -> String {

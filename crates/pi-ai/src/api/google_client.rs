@@ -6,6 +6,7 @@
 //! `ApiError`-shaped HTTP failures, and ADC service-account/authorized-user
 //! access-token exchange.
 
+use pi_js_compat::js_json::{JsObject, JsValue};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -292,13 +293,20 @@ impl GoogleClient {
     /// `client.models.generateContentStream(params)`, resolved through `fetch`.
     pub async fn generate_content_stream(
         &self,
-        params: &Value,
+        params: &JsValue,
         fetch: &dyn Fetch,
         signal: Option<&CancellationToken>,
     ) -> Result<GoogleStream, GoogleRequestError> {
-        let url = self.request_url(params.get("model").and_then(Value::as_str).unwrap_or_default())?;
+        let model = params
+            .get("model")
+            .and_then(JsValue::as_string)
+            .map(|text| text.to_utf8())
+            .transpose()
+            .map_err(|_| GoogleRequestError::new("URI malformed", None))?
+            .unwrap_or_default();
+        let url = self.request_url(&model)?;
         let body = request_body(self.endpoint.vertexai, params);
-        let body = js_json(&body);
+        let body = pi_js_compat::js_json::stringify_lossless(&body);
         let headers = self.request_headers(fetch, signal).await?;
         let request = HttpRequest {
             method: "POST".to_owned(),
@@ -675,12 +683,12 @@ fn encode_url_path(path: &str) -> String {
 }
 
 /// Transform `GenerateContentParameters` into the wire body.
-fn request_body(vertexai: bool, params: &Value) -> Value {
-    let mut body = Map::new();
-    if let Some(contents) = params.get("contents").and_then(Value::as_array) {
+fn request_body(vertexai: bool, params: &JsValue) -> JsValue {
+    let mut body = JsObject::new();
+    if let Some(contents) = params.get("contents").and_then(JsValue::as_array) {
         body.insert(
-            "contents".to_owned(),
-            Value::Array(
+            "contents".into(),
+            JsValue::Array(
                 contents
                     .iter()
                     .map(|content| transform_content(vertexai, content))
@@ -688,56 +696,56 @@ fn request_body(vertexai: bool, params: &Value) -> Value {
             ),
         );
     }
-    let config = params.get("config").cloned().unwrap_or(Value::Null);
+    let config = params.get("config").cloned().unwrap_or(JsValue::Null);
     if let Some(system_instruction) = config.get("systemInstruction") {
         body.insert(
-            "systemInstruction".to_owned(),
+            "systemInstruction".into(),
             transform_system_instruction(vertexai, system_instruction),
         );
     }
-    if let Some(tools) = config.get("tools").and_then(Value::as_array) {
+    if let Some(tools) = config.get("tools").and_then(JsValue::as_array) {
         body.insert(
-            "tools".to_owned(),
-            Value::Array(tools.iter().map(|tool| transform_tool(vertexai, tool)).collect()),
+            "tools".into(),
+            JsValue::Array(tools.iter().map(|tool| transform_tool(vertexai, tool)).collect()),
         );
     }
     if let Some(tool_config) = config.get("toolConfig") {
-        body.insert("toolConfig".to_owned(), transform_tool_config(vertexai, tool_config));
+        body.insert("toolConfig".into(), transform_tool_config(vertexai, tool_config));
     }
     if config.is_object() {
-        let mut generation_config = Map::new();
+        let mut generation_config = JsObject::new();
         for key in ["temperature", "maxOutputTokens"] {
             if let Some(value) = config.get(key) {
-                generation_config.insert(key.to_owned(), value.clone());
+                generation_config.insert(key.into(), value.clone());
             }
         }
         if let Some(value) = config.get("thinkingConfig") {
-            generation_config.insert("thinkingConfig".to_owned(), value.clone());
+            generation_config.insert("thinkingConfig".into(), value.clone());
         }
-        body.insert("generationConfig".to_owned(), Value::Object(generation_config));
+        body.insert("generationConfig".into(), JsValue::Object(generation_config));
     }
-    Value::Object(body)
+    JsValue::Object(body)
 }
 
-fn transform_content(vertexai: bool, content: &Value) -> Value {
-    let mut result = Map::new();
-    if let Some(parts) = content.get("parts").and_then(Value::as_array) {
+fn transform_content(vertexai: bool, content: &JsValue) -> JsValue {
+    let mut result = JsObject::new();
+    if let Some(parts) = content.get("parts").and_then(JsValue::as_array) {
         result.insert(
-            "parts".to_owned(),
-            Value::Array(parts.iter().map(|part| transform_part(vertexai, part)).collect()),
+            "parts".into(),
+            JsValue::Array(parts.iter().map(|part| transform_part(vertexai, part)).collect()),
         );
     }
     if let Some(role) = content.get("role") {
-        result.insert("role".to_owned(), role.clone());
+        result.insert("role".into(), role.clone());
     }
-    Value::Object(result)
+    JsValue::Object(result)
 }
 
-fn transform_part(vertexai: bool, part: &Value) -> Value {
-    let mut result = Map::new();
+fn transform_part(vertexai: bool, part: &JsValue) -> JsValue {
+    let mut result = JsObject::new();
     if let Some(function_call) = part.get("functionCall") {
         result.insert(
-            "functionCall".to_owned(),
+            "functionCall".into(),
             if vertexai {
                 function_call.clone()
             } else {
@@ -746,11 +754,11 @@ fn transform_part(vertexai: bool, part: &Value) -> Value {
         );
     }
     if let Some(function_response) = part.get("functionResponse") {
-        result.insert("functionResponse".to_owned(), function_response.clone());
+        result.insert("functionResponse".into(), function_response.clone());
     }
     if let Some(inline_data) = part.get("inlineData") {
         result.insert(
-            "inlineData".to_owned(),
+            "inlineData".into(),
             if vertexai {
                 inline_data.clone()
             } else {
@@ -760,45 +768,54 @@ fn transform_part(vertexai: bool, part: &Value) -> Value {
     }
     for key in ["text", "thought", "thoughtSignature"] {
         if let Some(value) = part.get(key) {
-            result.insert(key.to_owned(), value.clone());
+            result.insert(key.into(), value.clone());
         }
     }
-    Value::Object(result)
+    JsValue::Object(result)
 }
 
-fn transform_function_call(function_call: &Value) -> Value {
-    let mut result = Map::new();
+fn transform_function_call(function_call: &JsValue) -> JsValue {
+    let mut result = JsObject::new();
     for key in ["id", "args", "name"] {
         if let Some(value) = function_call.get(key) {
-            result.insert(key.to_owned(), value.clone());
+            result.insert(key.into(), value.clone());
         }
     }
-    Value::Object(result)
+    JsValue::Object(result)
 }
 
-fn transform_inline_data(inline_data: &Value) -> Value {
-    let mut result = Map::new();
+fn transform_inline_data(inline_data: &JsValue) -> JsValue {
+    let mut result = JsObject::new();
     for key in ["data", "mimeType"] {
         if let Some(value) = inline_data.get(key) {
-            result.insert(key.to_owned(), value.clone());
+            result.insert(key.into(), value.clone());
         }
     }
-    Value::Object(result)
+    JsValue::Object(result)
 }
 
-fn transform_system_instruction(vertexai: bool, instruction: &Value) -> Value {
+fn transform_system_instruction(vertexai: bool, instruction: &JsValue) -> JsValue {
     match instruction {
-        Value::String(text) => transform_content(vertexai, &json!({"parts": [{"text": text}], "role": "user"})),
+        JsValue::String(text) => transform_content(
+            vertexai,
+            &JsValue::object([
+                (
+                    "parts",
+                    JsValue::Array(vec![JsValue::object([("text", JsValue::String(text.clone()))])]),
+                ),
+                ("role", JsValue::String("user".into())),
+            ]),
+        ),
         other => transform_content(vertexai, other),
     }
 }
 
-fn transform_tool(vertexai: bool, tool: &Value) -> Value {
-    let mut result = Map::new();
-    if let Some(declarations) = tool.get("functionDeclarations").and_then(Value::as_array) {
+fn transform_tool(vertexai: bool, tool: &JsValue) -> JsValue {
+    let mut result = JsObject::new();
+    if let Some(declarations) = tool.get("functionDeclarations").and_then(JsValue::as_array) {
         result.insert(
-            "functionDeclarations".to_owned(),
-            Value::Array(
+            "functionDeclarations".into(),
+            JsValue::Array(
                 declarations
                     .iter()
                     .map(|declaration| {
@@ -812,11 +829,11 @@ fn transform_tool(vertexai: bool, tool: &Value) -> Value {
             ),
         );
     }
-    Value::Object(result)
+    JsValue::Object(result)
 }
 
-fn transform_function_declaration(declaration: &Value) -> Value {
-    let mut result = Map::new();
+fn transform_function_declaration(declaration: &JsValue) -> JsValue {
+    let mut result = JsObject::new();
     for key in [
         "description",
         "name",
@@ -826,25 +843,25 @@ fn transform_function_declaration(declaration: &Value) -> Value {
         "responseJsonSchema",
     ] {
         if let Some(value) = declaration.get(key) {
-            result.insert(key.to_owned(), value.clone());
+            result.insert(key.into(), value.clone());
         }
     }
-    Value::Object(result)
+    JsValue::Object(result)
 }
 
-fn transform_tool_config(vertexai: bool, tool_config: &Value) -> Value {
+fn transform_tool_config(vertexai: bool, tool_config: &JsValue) -> JsValue {
     if vertexai {
         return tool_config.clone();
     }
-    let mut result = Map::new();
+    let mut result = JsObject::new();
     if let Some(function_calling_config) = tool_config.get("functionCallingConfig") {
-        let mut transformed = Map::new();
+        let mut transformed = JsObject::new();
         if let Some(mode) = function_calling_config.get("mode") {
-            transformed.insert("mode".to_owned(), mode.clone());
+            transformed.insert("mode".into(), mode.clone());
         }
-        result.insert("functionCallingConfig".to_owned(), Value::Object(transformed));
+        result.insert("functionCallingConfig".into(), JsValue::Object(transformed));
     }
-    Value::Object(result)
+    JsValue::Object(result)
 }
 
 fn now_millis_f64() -> f64 {
@@ -1110,7 +1127,7 @@ fn apply_text_part(
     let event = match kind {
         BlockKind::Text => AssistantMessageEvent::TextDelta {
             content_index: index,
-            delta: text.to_owned(),
+            delta: text.into(),
             partial: output.clone(),
         },
         BlockKind::Thinking => AssistantMessageEvent::ThinkingDelta {
@@ -1325,7 +1342,7 @@ pub(crate) fn completed_reason(
 /// Open the streaming response with the shared Google retry policy.
 pub(crate) async fn open_generate_stream(
     client: &GoogleClient,
-    params: &Value,
+    params: &JsValue,
     request: &crate::request::ProviderRequestOptions,
 ) -> Result<GoogleStream, GoogleRequestError> {
     let fetch = request.fetch.clone().unwrap_or_else(default_fetch);

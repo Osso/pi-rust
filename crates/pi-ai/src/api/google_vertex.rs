@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/api/google-vertex.ts`.
 
+use pi_js_compat::js_json::JsValue;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
@@ -225,8 +226,10 @@ fn resolve_client(model: &Model, options: &GoogleVertexOptions) -> Result<Google
     .map_err(|error| error.message)
 }
 
-async fn prepare_params(model: &Model, context: &Context, options: &GoogleVertexOptions) -> Result<Value, String> {
-    let params = Value::Object(build_params(model, context, options).map_err(|error| error.message)?);
+async fn prepare_params(model: &Model, context: &Context, options: &GoogleVertexOptions) -> Result<JsValue, String> {
+    let params = JsValue::from(Value::Object(
+        build_params(model, context, options).map_err(|error| error.message)?,
+    ));
     let Some(on_payload) = &options.stream.request.on_payload else {
         return Ok(params);
     };

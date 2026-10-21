@@ -6,6 +6,7 @@
 //! differential oracle.
 
 use indexmap::IndexMap;
+use pi_js_compat::js_json::{JsString, JsValue};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -311,7 +312,7 @@ async fn drive(
         .max_tokens
         .or_else(|| is_anthropic_claude_model(model).then_some(model.max_tokens));
 
-    let mut command_input = build_command_input(
+    let command_input = build_command_input(
         model,
         context,
         &options,
@@ -320,20 +321,13 @@ async fn drive(
         inference_max_tokens,
         output.timestamp,
     )?;
+    let mut command_input = JsValue::from(command_input);
     if let Some(on_payload) = &options.stream.request.on_payload {
         command_input = apply_on_payload(on_payload, command_input, model).await?;
     }
     let mut body_value = command_input;
-    if let Some(object) = body_value.as_object_mut()
-        && object.contains_key("modelId")
-    {
-        let mut without_model_id = Map::new();
-        for (key, value) in std::mem::take(object) {
-            if key != "modelId" {
-                without_model_id.insert(key, value);
-            }
-        }
-        *object = without_model_id;
+    if let Some(object) = body_value.as_object_mut() {
+        object.shift_remove(&JsString::from("modelId"));
     }
     let body = serde_json::to_vec(&body_value)
         .map_err(|error| BedrockError::other(format!("Failed to serialize Bedrock request: {error}")))?;
@@ -406,7 +400,7 @@ async fn drive(
     }
 }
 
-async fn apply_on_payload(on_payload: &OnPayload, payload: Value, model: &Model) -> Result<Value, BedrockError> {
+async fn apply_on_payload(on_payload: &OnPayload, payload: JsValue, model: &Model) -> Result<JsValue, BedrockError> {
     match on_payload(payload.clone(), model.clone()).await {
         Ok(Some(replacement)) => Ok(replacement),
         Ok(None) => Ok(payload),
@@ -665,7 +659,7 @@ fn cache_point(cache_retention: CacheRetention) -> Value {
     object(vec![("cachePoint", Value::Object(point))])
 }
 
-fn non_blank_text_block(text: &str) -> Option<Value> {
+fn non_blank_text_block(text: impl Into<JsString>) -> Option<Value> {
     let sanitized = sanitize_surrogates(text);
     if sanitized.trim().is_empty() {
         None
@@ -1112,7 +1106,7 @@ fn handle_content_block_delta(
         }
         sender.push(AssistantMessageEvent::TextDelta {
             content_index: index,
-            delta: text.to_owned(),
+            delta: text.into(),
             partial: output.clone(),
         });
         return;

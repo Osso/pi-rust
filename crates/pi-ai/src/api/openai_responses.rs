@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/api/openai-responses.ts` (+ `.lazy.ts`).
 
+use pi_js_compat::js_json::JsValue;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -442,7 +443,7 @@ async fn run_stream(
         create_grammar_tool_input_properties(context.tools.as_deref(), compat.supports_openai_grammar_tools)
             .map_err(|error| Failure::Message(error.message))?;
     let client = create_client(model, context, &api_key, stream_options, cache_session_id, &compat);
-    let mut params = build_params(
+    let params = build_params(
         model,
         context,
         options,
@@ -452,6 +453,7 @@ async fn run_stream(
     )
     .map_err(Failure::Message)?;
 
+    let mut params = JsValue::from(params);
     if let Some(on_payload) = &stream_options.request.on_payload
         && let Some(next_params) = on_payload(params.clone(), model.clone())
             .await

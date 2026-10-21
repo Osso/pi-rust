@@ -5,6 +5,7 @@
 //! carries API-specific fields untyped through generic dispatch; Rust keeps them
 //! in [`StreamOptions::extra`] and each API module parses its typed options from it.
 
+use pi_js_compat::js_json::JsValue;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -55,7 +56,7 @@ impl std::error::Error for CallbackError {}
 
 /// `onPayload(payload, model)`: `Ok(None)` keeps the payload, `Ok(Some(v))` replaces it.
 pub type OnPayload =
-    Arc<dyn Fn(Value, Model) -> BoxFuture<'static, Result<Option<Value>, CallbackError>> + Send + Sync>;
+    Arc<dyn Fn(JsValue, Model) -> BoxFuture<'static, Result<Option<JsValue>, CallbackError>> + Send + Sync>;
 /// `onResponse(response, model)`, awaited before the body is consumed.
 pub type OnResponse =
     Arc<dyn Fn(ProviderResponse, Model) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;

@@ -2,6 +2,7 @@
 //! URL/header construction, JSON body encoding, HTTP error mapping, and SSE
 //! decoding. All provider modules send through [`SdkClient::create_stream`].
 
+use pi_js_compat::js_json::JsValue;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
@@ -68,7 +69,7 @@ impl SdkClient {
     /// `client.chat.completions.create(params, { stream: true }).withResponse()`.
     pub fn create_chat_completion_stream(
         &self,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
     ) -> BoxFuture<'_, Result<SdkResponse, ProviderRequestError<CallbackError>>> {
         self.create_stream("/chat/completions", params, signal)
@@ -77,7 +78,7 @@ impl SdkClient {
     /// `client.chat.completions.create(params, { stream: false }).withResponse()`.
     pub fn create_chat_completion(
         &self,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
     ) -> BoxFuture<'_, Result<SdkJsonResponse, ProviderRequestError<CallbackError>>> {
         Box::pin(async move { self.send_json("/chat/completions", params, signal).await })
@@ -86,7 +87,7 @@ impl SdkClient {
     /// `client.responses.create(params, { stream: true }).withResponse()`.
     pub fn create_response_stream(
         &self,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
     ) -> BoxFuture<'_, Result<SdkResponse, ProviderRequestError<CallbackError>>> {
         // The pinned Azure SDK does not list `/responses` as a deployment
@@ -98,7 +99,7 @@ impl SdkClient {
     fn create_stream(
         &self,
         path: &str,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
     ) -> BoxFuture<'_, Result<SdkResponse, ProviderRequestError<CallbackError>>> {
         let path = path.to_owned();
@@ -108,7 +109,7 @@ impl SdkClient {
     async fn send(
         &self,
         path: &str,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
     ) -> Result<SdkResponse, ProviderRequestError<CallbackError>> {
         let response = self.send_raw(path, &params, signal.clone()).await?;
@@ -123,7 +124,7 @@ impl SdkClient {
     async fn send_json(
         &self,
         path: &str,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
     ) -> Result<SdkJsonResponse, ProviderRequestError<CallbackError>> {
         let response = self.send_raw(path, &params, signal.clone()).await?;
@@ -138,7 +139,7 @@ impl SdkClient {
     async fn send_raw(
         &self,
         path: &str,
-        params: &Value,
+        params: &JsValue,
         signal: Option<CancellationToken>,
     ) -> Result<HttpResponse, ProviderRequestError<CallbackError>> {
         if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
