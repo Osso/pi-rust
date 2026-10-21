@@ -1,0 +1,154 @@
+//! Frozen search-only session history traversal, including compacted ancestors.
+use super::session_manager::{SessionEntry, SessionManager, SessionManagerError};
+use super::session_transcript::{create_session_transcript_read_stream, read_session_transcript_path};
+use std::fs::{File, OpenOptions};
+use std::io::{self, Read, Seek, SeekFrom};
+const READ_BUFFER_SIZE: usize = 64 * 1024;
+fn error(cause: impl std::fmt::Display) -> SessionManagerError {
+    SessionManagerError::new(cause.to_string())
+}
+
+struct ReverseEntries {
+    file: File,
+    position: u64,
+    pending: Vec<u8>,
+    directory: Option<tempfile::TempDir>,
+}
+impl ReverseEntries {
+    fn open(path: &str) -> Result<Self, SessionManagerError> {
+        let source = read_session_transcript_path(path);
+        let (file, directory) = if source.ends_with(".jsonl.zst") {
+            let directory = tempfile::Builder::new()
+                .prefix("pi-history-")
+                .tempdir()
+                .map_err(error)?;
+            let plain = directory.path().join("transcript.jsonl");
+            let mut output = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&plain)
+                .map_err(error)?;
+            io::copy(
+                &mut create_session_transcript_read_stream(&source).map_err(error)?,
+                &mut output,
+            )
+            .map_err(error)?;
+            (File::open(plain).map_err(error)?, Some(directory))
+        } else {
+            (File::open(source).map_err(error)?, None)
+        };
+        let position = file.metadata().map_err(error)?.len();
+        Ok(Self {
+            file,
+            position,
+            pending: Vec::new(),
+            directory,
+        })
+    }
+    fn next_entry(&mut self) -> Result<Option<SessionEntry>, SessionManagerError> {
+        loop {
+            if let Some(index) = self.pending.iter().rposition(|b| *b == b'\n') {
+                let line = self.pending.split_off(index + 1);
+                self.pending.pop();
+                if let Some(entry) = parse_entry(&line) {
+                    return Ok(Some(entry));
+                }
+                continue;
+            }
+            if self.position == 0 {
+                let line = std::mem::take(&mut self.pending);
+                let entry = parse_entry(&line);
+                if entry.is_none() {
+                    if let Some(directory) = self.directory.take() {
+                        directory.close().map_err(error)?;
+                    }
+                }
+                return Ok(entry);
+            }
+            let size = (READ_BUFFER_SIZE as u64).min(self.position) as usize;
+            self.position -= size as u64;
+            self.file.seek(SeekFrom::Start(self.position)).map_err(error)?;
+            let mut buffer = vec![0; size];
+            let read = self.file.read(&mut buffer).map_err(error)?;
+            buffer.truncate(read);
+            buffer.append(&mut self.pending);
+            self.pending = buffer;
+        }
+    }
+}
+fn parse_entry(line: &[u8]) -> Option<SessionEntry> {
+    let value: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(line)).ok()?;
+    if value.get("type").and_then(serde_json::Value::as_str) == Some("session") || value.is_null() {
+        return None;
+    }
+    Some(SessionEntry::from_value(value))
+}
+
+pub struct SessionHistoryReverse {
+    branch: std::iter::Rev<std::vec::IntoIter<SessionEntry>>,
+    parent: Option<String>,
+    path: Option<String>,
+    transcript: Option<ReverseEntries>,
+    done: bool,
+}
+impl Iterator for SessionHistoryReverse {
+    type Item = Result<SessionEntry, SessionManagerError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(entry) = self.branch.next() {
+            return Some(Ok(entry));
+        }
+        if self.done || self.parent.is_none() || self.path.is_none() {
+            self.done = true;
+            if let Some(mut transcript) = self.transcript.take() {
+                if let Some(directory) = transcript.directory.take() {
+                    if let Err(cause) = directory.close() {
+                        return Some(Err(error(cause)));
+                    }
+                }
+            }
+            return None;
+        }
+        let result = self.next_ancestor();
+        match result {
+            Ok(Some(entry)) => Some(Ok(entry)),
+            Ok(None) => {
+                self.done = true;
+                self.transcript = None;
+                None
+            }
+            Err(cause) => {
+                self.done = true;
+                self.transcript = None;
+                Some(Err(cause))
+            }
+        }
+    }
+}
+impl SessionHistoryReverse {
+    fn next_ancestor(&mut self) -> Result<Option<SessionEntry>, SessionManagerError> {
+        if self.transcript.is_none() {
+            self.transcript = Some(ReverseEntries::open(self.path.as_deref().expect("checked path"))?);
+        }
+        let transcript = self.transcript.as_mut().expect("opened transcript");
+        while let Some(entry) = transcript.next_entry()? {
+            if entry.id() != self.parent.as_deref() {
+                continue;
+            }
+            self.parent = entry.parent_id().map(str::to_owned);
+            return Ok(Some(entry));
+        }
+        Ok(None)
+    }
+}
+/// Lazy newest-first traversal. Never installs historical entries into model context.
+pub fn read_session_history_reverse(manager: &SessionManager) -> SessionHistoryReverse {
+    let branch = manager.get_branch(None);
+    let parent = branch.first().and_then(|e| e.parent_id()).map(str::to_owned);
+    SessionHistoryReverse {
+        branch: branch.into_iter().rev(),
+        parent,
+        path: manager.get_session_file().map(str::to_owned),
+        transcript: None,
+        done: false,
+    }
+}

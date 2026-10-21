@@ -43,6 +43,9 @@ pub async fn run_cli_entry<'a>(
     detached_runner: &dyn DetachedRunnerHost,
     main: CliMain<'a>,
 ) -> Result<i32, String> {
+    if let Some(exit_code) = crate::core::session_transcript_spool::run_internal_session_transcript_worker(args) {
+        return Ok(exit_code);
+    }
     if let Some(exit_code) = run_internal_bwrap_fs_worker(args) {
         return Ok(exit_code);
     }

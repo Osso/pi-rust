@@ -72,3 +72,28 @@ fn rust_archive_restores_with_frozen_ts_and_exact_bytes() {
     assert_eq!(restore_archived_session(&db, path).unwrap(), path);
     assert_eq!(std::fs::read(path).unwrap(), bytes);
 }
+
+#[test]
+fn frozen_compacted_archive_history_follows_only_active_ancestors() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(&mut ts, json!({"op":"create","dir":dir,"cwd":dir,"compacted":true}));
+    let path = created["path"].as_str().unwrap();
+    let expected = call(&mut ts, json!({"op":"read","path":path}));
+    let archive = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
+    let bytes = std::fs::read(archive.as_str().unwrap()).unwrap();
+    let manager = SessionManager::open_read_only(path, None).unwrap();
+    let entries = pi_coding_agent::core::session_history::read_session_history_reverse(&manager)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(serde_json::to_value(entries).unwrap(), expected["history"]);
+    assert_eq!(
+        serde_json::to_value(manager.get_entries()).unwrap(),
+        expected["entries"]
+    );
+    assert_eq!(std::fs::read(archive.as_str().unwrap()).unwrap(), bytes);
+    assert!(!std::path::Path::new(path).exists());
+}
