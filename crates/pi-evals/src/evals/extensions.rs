@@ -74,9 +74,12 @@ async fn extension_authoring_output(args: PiHarnessOutputArgs) -> Result<Value, 
         loaded_extensions: extensions
             .extensions
             .iter()
-            .map(|extension| LoadedExtensionSummary {
-                path: extension.path.clone(),
-                tools: extension.tools.keys().cloned().collect(),
+            .map(|extension| {
+                let extension = extension.read();
+                LoadedExtensionSummary {
+                    path: extension.path.clone(),
+                    tools: extension.tools.keys().cloned().collect(),
+                }
             })
             .collect(),
         extension_source,
