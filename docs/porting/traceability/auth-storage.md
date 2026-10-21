@@ -1,6 +1,29 @@
 # auth-storage traceability
 
-Pinned source: `packages/coding-agent/src/core/auth-storage.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Current source: `packages/coding-agent/src/core/auth-storage.ts` at frozen `4f9e6f8a4`.
+
+## Phase1 revalidation
+
+- `auth_phase1::sync_auth_contender_cannot_steal_three_second_live_async_lock`: actual healthy async holder; sync auth caller must use 30s stale, not global default.
+- `auth_phase1::compromised_callback_cannot_write_under_lost_lock`: remove owned fixture lock during callback, allow 15s heartbeat to detect loss, then return write; write must be rejected.
+- Async acquisition matches frozen retry count/min/max/factor; cancellation is a Rust-only boundary.
+- `auth_phase1_modes::auth_creates_all_parent_directories_private`: nested parent creation must use 0700 for every newly created level, not chmod only the leaf. Auth file creation uses mode 0600 on open; chmod failures propagate instead of being suppressed.
+- Public native source surface: `get`, `get_all`, `set`, `remove`, `has`, `has_auth`, `get_provider_env`, runtime overrides, status, `drain_errors`, `login`, `logout`, OAuth listing. `get_api_key`/refresh are segregated into an external blocked WIP patch pending sourcebug classification; absent from integration head. Frozen `list()` is temporarily named `list_providers()` to avoid colliding with obsolete trait `list(options)` callers.
+- `auth_phase1_public`: TS public set → Rust read/set → TS reload and reverse OAuth update; accountId/email/sentinel extras, provider env, unrelated raw provider entries, modes, reload/error recovery, runtime precedence, ordering.
+- `auth_phase1_process`: actual healthy TS process and Rust process, sync contenders at 3s and beyond 15s, observed mtime heartbeat, post-release acquisition; kill owned process group then age only its lock fixture to test stale recovery.
+- External blocked WIP `auth_phase1_rotation`: fake provider returns B from consumed A, injected callback-return-before-write cancellation/write error/actual heartbeat compromise; rescue success, concurrent unrelated changes preserved, fresh TS process sees B, subsequent refresh consumes B→C, refresh error without rescue, failed rescue with successful subsequent reload. Ordinary cases proved before segregation; NOT implemented in offered partial head.
+- `auth_source_discrepancy`: frozen TS successful API-key return despite persisted A when all sync operations fail after rotation; exact in-memory B/error ordering reproduced. Native refresh/get-api-key implementation removed to an external blocked patch pending user classification, not silently preserved/fixed; integration head has no production placeholder.
+- Existing CredentialStore/read-only/shared-revision code remains obsolete compilation scaffolding, not current-pin parity evidence. No OAuth rescue was added to generic `modify`. Historical proof inventory below must not be read as revalidated.
+
+## Remaining current-pin boundaries
+
+- `auth_phase1_errors`: exact EISDIR public error, Node UTF-8 replacement decoding, untouched raw UTF-16 provider keys/values preserved byte-equivalently to source during unrelated public set via lossless merge.
+- Raw UTF-16 preservation applies to persisted untouched entries, not the current `Value`-based public getter or typed OAuth credential adapter. Lone-surrogate public get/list and touched OAuth extra fields remain unsupported without a lossless public boundary; no waiver approved.
+- Constructor still has obsolete shared-revision scaffolding; source per-instance reload semantics and native consumer removal remain pending integration. In-memory backend retains obsolete serialized-chain semantics pending whole-module completion.
+- Source `getApiKey`, `refreshOAuthTokenWithLock`, error/reload/rescue branches absent from partial head; blocked WIP patch and proof ledger under `/tmp/pi-rust-repin-auth`.
+- Login/provider callbacks, all registry restore/order/error branches and built-in flows need full differential proof; no whole-module done claim.
+
+## Historical pre-repin inventory (not current-pin proof)
 Rust: `crates/pi-coding-agent/src/core/auth_storage.rs`.
 
 Cross-implementation proof (`tests/auth_storage_cross_process.rs`, `oracle/auth-storage-oracle.ts`):

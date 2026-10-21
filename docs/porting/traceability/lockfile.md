@@ -8,7 +8,15 @@ The TypeScript and Rust runtimes must share one agent directory, so the on-disk 
 contract: a directory named `<file>.lock` (or `options.lockfilePath`), its mtime as the liveness
 signal, and `stale`/`retries` rules.
 
-## Cross-implementation proof
+## Common-pin auth dependency revalidation
+
+Frozen `4f9e6f8a4` proper-lockfile `lib/lockfile.js:updateLock`: threshold uses the acquired options.stale, not a separate primitive default. Transient stat/utimes failures retry after 1s until stale; missing lock or changed mtime compromises immediately. Error code is ECOMPROMISED while retaining the underlying filesystem error.
+
+`auth_phase1::auth_heartbeat_permission_error_uses_auth_thirty_second_threshold`: make only the owned parent inaccessible, wait through first 15s heartbeat, restore access before 30s, observe renewal within 1s retry. Behavioral RED exposed the hardcoded 10s threshold. Global default and other callers' stale policy unchanged.
+
+`auth_phase1_process` proves actual healthy TS/Rust holders across first heartbeat, sync exclusion at 3s/16s, release and owned crash/stale recovery.
+
+## Historical pre-repin cross-implementation proof
 
 `crates/pi-coding-agent/tests/lockfile_cross_process.rs` runs the pinned `proper-lockfile` through
 `oracle/lockfile-cross-process.ts` and proves both directions:

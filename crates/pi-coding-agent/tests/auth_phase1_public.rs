@@ -1,0 +1,110 @@
+//! Frozen public APIs and bidirectional files, with synthetic credentials only.
+use pi_coding_agent::core::auth_storage::AuthStorage;
+use serde_json::{Value, json};
+use std::{fs, time::SystemTime};
+#[path = "support/oracle.rs"]
+mod oracle;
+fn fixture() -> std::path::PathBuf {
+    let p = std::env::temp_dir().join(format!(
+        "public-auth-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&p).unwrap();
+    p.join("private/nested/auth.json")
+}
+#[test]
+fn public_ts_rust_ts_and_reverse_preserve_oauth_extras_and_unrelated_providers() {
+    let path = fixture();
+    let mut oracle = oracle::TsOracle::spawn(
+        "auth-storage-oracle.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
+    );
+    let credential = json!({"type":"oauth","refresh":"A","access":"synthetic-access","expires":4_000_000_000_000u64,"accountId":"account","email":"synthetic@example.test","sentinel":{"extra":[1,true]}});
+    for (provider, cred) in [
+        ("openai-codex", credential.clone()),
+        (
+            "api",
+            json!({"type":"api_key","key":"${TOKEN}","env":{"TOKEN":"synthetic-key"},"unknown":"preserve"}),
+        ),
+        ("unrelated", json!({"raw":["untouched"]})),
+    ] {
+        let out = oracle.request(&json!({"id":1,"op":"modify","authPath":path,"provider":provider,"credential":cred}));
+        assert_eq!(out["ok"], true, "{out}");
+    }
+    let storage = AuthStorage::create(Some(path.to_str().unwrap()));
+    assert_eq!(storage.get("openai-codex"), Some(credential.clone()));
+    assert_eq!(storage.get_all()["unrelated"], json!({"raw":["untouched"]}));
+    assert_eq!(storage.get_provider_env("api").unwrap()["TOKEN"], "synthetic-key");
+    storage
+        .set("new-provider", json!({"type":"api_key","key":"rust-key"}))
+        .unwrap();
+    let out = oracle.request(&json!({"id":2,"op":"list","authPath":path,"provider":"new-provider"}));
+    assert_eq!(out["ok"], true, "{out}");
+    assert_eq!(out["output"]["all"]["openai-codex"], credential);
+    assert_eq!(out["output"]["all"]["api"]["unknown"], "preserve");
+    let newer = json!({"type":"oauth","refresh":"B","access":"from-ts","expires":4_000_000_000_001u64,"accountId":"account","email":"next@example.test","sentinel":{"next":true}});
+    let out =
+        oracle.request(&json!({"id":3,"op":"modify","authPath":path,"provider":"openai-codex","credential":newer}));
+    assert_eq!(out["ok"], true, "{out}");
+    storage.reload();
+    assert_eq!(storage.get("openai-codex"), Some(newer));
+    assert_eq!(storage.get_all()["unrelated"], json!({"raw":["untouched"]}));
+    storage.remove("new-provider").unwrap();
+    let out = oracle.request(&json!({"id":4,"op":"read","authPath":path,"provider":"new-provider"}));
+    assert_eq!(out["output"]["credential"], Value::Null);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(path.parent().unwrap().parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+    }
+}
+#[test]
+fn source_runtime_status_errors_and_reload_recovery() {
+    let path = fixture();
+    let storage = AuthStorage::create(Some(path.to_str().unwrap()));
+    storage.set_runtime_api_key("synthetic", "runtime");
+    assert!(storage.has_auth("synthetic"));
+    assert!(!storage.has("synthetic"));
+    assert_eq!(storage.get_auth_status("synthetic").source.as_deref(), Some("runtime"));
+    assert!(!storage.get_auth_status("synthetic").configured);
+    storage
+        .set("synthetic", json!({"type":"api_key","key":"stored"}))
+        .unwrap();
+    assert!(storage.get_auth_status("synthetic").configured);
+    storage.remove_runtime_api_key("synthetic");
+    assert_eq!(storage.get("synthetic").unwrap()["key"], "stored");
+    fs::write(&path, "broken-json").unwrap();
+    storage.reload();
+    assert_eq!(storage.get("synthetic").unwrap()["key"], "stored");
+    assert!(
+        storage
+            .set("other", json!({"type":"api_key","key":"x"}))
+            .unwrap_err()
+            .to_string()
+            .contains("Cannot update auth storage because it could not be loaded")
+    );
+    assert!(!storage.drain_errors().is_empty());
+    assert!(storage.drain_errors().is_empty());
+    fs::write(&path, "{}").unwrap();
+    storage.set("2", json!({"type":"api_key","key":"two"})).unwrap();
+    storage.set("1", json!({"type":"api_key","key":"one"})).unwrap();
+    assert_eq!(storage.list_providers(), ["1", "2"]);
+    storage.logout("2").unwrap();
+    assert!(!storage.has("2"));
+}
