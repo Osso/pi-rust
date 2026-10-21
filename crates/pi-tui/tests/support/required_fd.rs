@@ -1,5 +1,21 @@
 use std::os::unix::fs::PermissionsExt;
 
+pub fn require_fd(candidate: Option<String>) -> String {
+    let fd = candidate.expect("fd is required for autocomplete coverage");
+    let output = std::process::Command::new(&fd)
+        .arg("--version")
+        .output()
+        .expect("fd is required: failed to launch version probe");
+    assert!(
+        output.status.success(),
+        "fd probe exited with {}\nstdout: {}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    fd
+}
+
 pub fn assert_unusable_fd_fails(test_name: &str) {
     let directory = tempfile::tempdir().unwrap();
     let fd = directory.path().join("fd");

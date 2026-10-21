@@ -222,7 +222,7 @@ const SUGGESTION_CASES: &[SuggestionCase] = &[
 
 #[test]
 fn autocomplete_matches_the_pinned_typescript_source() {
-    let fd = find_fd().expect("fd is required for autocomplete differential coverage");
+    let fd = required_fd::require_fd(find_fd());
 
     let root = TempDir::new().expect("temp dir");
     let base = root.path().join("cwd");
