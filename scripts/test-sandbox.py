@@ -54,9 +54,18 @@ def pyrun_inputs():
     yield (venv / "bin/python").resolve().parent.parent
 
 
-def private_environment(state):
+def find_required_test_tools():
+    executable = shutil.which("rg")
+    if not executable:
+        raise RuntimeError("test isolation requires installed rg on the host PATH")
+    return [Path(executable).absolute()]
+
+
+def private_environment(state, test_tools):
+    tool_directories = [str(tool.parent) for tool in test_tools]
+    path_entries = [*tool_directories, "/usr/bin", "/bin", "/home/osso/.local/bin"]
     environment = {
-        "PATH": "/usr/bin:/bin:/home/osso/.local/bin",
+        "PATH": os.pathsep.join(path_entries),
         "HOME": str(state / "home"),
         "XDG_CONFIG_HOME": str(state / "config"),
         "XDG_STATE_HOME": str(state / "state"),
@@ -147,7 +156,8 @@ def launch(command):
     state.mkdir(parents=True, exist_ok=True)
     if state in [Path("/"), Path("/tmp"), Path.home()]:
         raise RuntimeError("PI_TEST_SANDBOX_DIR must be a private test directory")
-    environment = private_environment(state)
+    test_tools = find_required_test_tools()
+    environment = private_environment(state, test_tools)
     if selected:
         environment["PI_TEST_SANDBOX_DIR"] = str(state)
     if parent_tmp != Path("/tmp"):
@@ -206,7 +216,7 @@ def launch(command):
         "--proc",
         "/proc",
     ]
-    for source in dict.fromkeys([*reference_inputs(), *pyrun_inputs()]):
+    for source in dict.fromkeys([*reference_inputs(), *pyrun_inputs(), *test_tools]):
         bind(arguments, source)
     # Parent-created literal fixture files and sockets must survive nested guards.
     # Never expose the host's entire /tmp; the initial guard supplies private TMPDIR.
