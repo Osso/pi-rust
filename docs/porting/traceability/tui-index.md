@@ -9,3 +9,5 @@ Removed later root reexports: AltScreenFlashContainer; HStack/VStack/Stack optio
 Added missing root aliases `RootFlowLayout`/`RootLayoutRect` and `FlowRenderRegionLayout`. `OverlayUnfocusOptions` is represented by the existing Rust `OverlayHandle::unfocus_to(Option<ComponentRef>)` adaptation; no separate struct. KeyId is a String alias; Box maps to BoxComponent. Component/focus traits and event/poll/timer adaptations remain explicit in module traceability.
 
 Remaining frozen root exports are unchanged: autocomplete, component/editor types, fuzzy, keybindings, keys, root compositor, StdinBuffer, terminal error/type, terminal colors, image utilities, container/fixed/render/flow/overlay types, four width/slice/truncate/wrap utilities. Their other module proofs belong to their owning slices; this row proves export mapping, not all component behavior.
+
+`TerminalIoError` is a Rust stream-adaptation detail, not a frozen root export; interactive error consumers use `terminal::TerminalIoError`. First workspace check found two lingering root annotations; migrated without changing behavior.

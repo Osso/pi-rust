@@ -648,3 +648,21 @@ fn frozen_empty_flow_region_refuses_full_redraw() {
         ]}),
     );
 }
+
+#[test]
+fn frozen_overlay_focus_can_replace_a_blocked_restore() {
+    let mut oracle = TsOracle::spawn("tui-core-oracle.ts", "packages/tui/src");
+    assert_scenario(
+        &mut oracle,
+        json!({"kind":"renderer", "columns":20,"rows":5,"steps":[
+            {"kind":"add","lines":["base"],"focusable":true},
+            {"kind":"add","lines":["a"],"focusable":true},
+            {"kind":"add","lines":["b"],"focusable":true},
+            {"kind":"add","lines":["tool"],"focusable":true},
+            {"kind":"focus","component":0},{"kind":"start"},{"kind":"wait"},
+            {"kind":"overlay","component":1},{"kind":"overlay","component":2,"options":{"nonCapturing":true}},
+            {"kind":"focus","component":3},{"kind":"focus","component":2},
+            {"kind":"send_input","data":"x"},{"kind":"wait"},{"kind":"stop"}
+        ]}),
+    );
+}

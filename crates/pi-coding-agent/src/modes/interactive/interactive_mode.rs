@@ -145,7 +145,7 @@ const DEAD_TERMINAL_ERROR_CODES: [i32; 3] = [
 ];
 
 /// Node's stream error message: `<syscall> <CODE>` (`write EPIPE`).
-pub fn terminal_error_message(failure: &pi_tui::TerminalIoError) -> String {
+pub fn terminal_error_message(failure: &pi_tui::terminal::TerminalIoError) -> String {
     format!(
         "{} {}",
         failure.syscall,
@@ -10357,7 +10357,7 @@ impl InteractiveMode {
     }
 
     /// `terminalErrorHandler`: the stdin/stdout/stderr `error` listener.
-    fn terminal_error_handler(&self, failure: &pi_tui::TerminalIoError) {
+    fn terminal_error_handler(&self, failure: &pi_tui::terminal::TerminalIoError) {
         match terminal_error_action(&failure.error) {
             TerminalErrorAction::EmergencyExit => self.emergency_terminal_exit(),
             TerminalErrorAction::Ignore => {}
