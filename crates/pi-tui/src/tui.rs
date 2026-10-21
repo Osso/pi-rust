@@ -1031,9 +1031,6 @@ impl TuiBase {
             return;
         }
         if force {
-            if let Some(renderer) = self.renderer() {
-                renderer.reset_render_state();
-            }
             self.request_immediate_render();
             return;
         }

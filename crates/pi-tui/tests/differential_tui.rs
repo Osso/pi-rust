@@ -667,3 +667,15 @@ fn frozen_overlay_focus_can_replace_a_blocked_restore() {
         ]}),
     );
 }
+
+#[test]
+fn frozen_force_render_does_not_reset_state_before_next_tick() {
+    let mut oracle = TsOracle::spawn("tui-core-oracle.ts", "packages/tui/src");
+    assert_scenario(
+        &mut oracle,
+        json!({"kind":"renderer", "columns":20,"rows":5,"steps":[
+            {"kind":"add","lines":["one","two"]},{"kind":"start"},{"kind":"wait"},
+            {"kind":"request_render","force":true},{"kind":"stop"}
+        ]}),
+    );
+}
