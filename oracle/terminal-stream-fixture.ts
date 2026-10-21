@@ -1,7 +1,9 @@
 import { pathToFileURL } from "node:url";
 
 async function main(): Promise<void> {
-	const { ProcessTerminal } = await import(pathToFileURL(process.argv[2]).href);
+	const modulePath = process.argv[2];
+	if (modulePath === undefined) throw new Error("expected frozen terminal module path");
+	const { ProcessTerminal } = await import(pathToFileURL(modulePath).href);
 	const cycles = Number(process.env.Q1_STREAM_CYCLES ?? "1");
 	for (let cycle = 0; cycle < cycles; cycle++) {
 		const terminal = new ProcessTerminal();

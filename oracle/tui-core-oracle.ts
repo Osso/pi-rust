@@ -424,6 +424,7 @@ async function captureTerminalWriteLog(sourceDirectory: string): Promise<unknown
 		process.stdout.write = (() => true) as typeof write;
 		new api.ProcessTerminal().write("payload\n");
 		const filename = fs.readdirSync(directory)[0];
+		if (filename === undefined) throw new Error("terminal did not create a write log");
 		const normalized = filename.replace(/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/, "TIME").replace(`-${process.pid}.log`, "-PID.log");
 		const contents = fs.readFileSync(path.join(directory, filename), "utf8");
 		const missing = path.join(directory, "absent", "log.txt");

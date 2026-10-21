@@ -224,41 +224,53 @@ fn write_log_path() -> Option<PathBuf> {
     Some(path)
 }
 
+fn wait_for_stdin(stdin: &std::io::Stdin) -> std::io::Result<bool> {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+    let mut descriptors = [PollFd::new(stdin, PollFlags::IN)];
+    let timeout = Timespec {
+        tv_sec: 0,
+        tv_nsec: 10_000_000,
+    };
+    match poll(&mut descriptors, Some(&timeout)) {
+        Ok(count) => Ok(count > 0),
+        Err(rustix::io::Errno::INTR) => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn send_stdin_chunk(stdin: &std::io::Stdin, sender: &std::sync::mpsc::Sender<Vec<u8>>) -> std::io::Result<bool> {
+    let mut buffer = [0_u8; 4096];
+    match rustix::io::read(stdin, &mut buffer) {
+        Ok(0) => Ok(false),
+        Ok(count) => Ok(sender.send(buffer[..count].to_vec()).is_ok()),
+        Err(rustix::io::Errno::INTR) => Ok(true),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn read_stdin_chunks(
     sender: std::sync::mpsc::Sender<Vec<u8>>,
     errors: std::sync::mpsc::Sender<std::io::Error>,
     stop: Arc<AtomicBool>,
 ) {
-    use rustix::event::{PollFd, PollFlags, Timespec, poll};
     let stdin = std::io::stdin();
-    let mut descriptors = [PollFd::new(&stdin, PollFlags::IN)];
-    let timeout = Timespec {
-        tv_sec: 0,
-        tv_nsec: 10_000_000,
-    };
-    let mut buffer = [0_u8; 4096];
     while !stop.load(Ordering::Relaxed) {
-        match poll(&mut descriptors, Some(&timeout)) {
-            Ok(0) | Err(rustix::io::Errno::INTR) => continue,
+        match wait_for_stdin(&stdin) {
+            Ok(false) => continue,
             Err(error) => {
-                let _ = errors.send(error.into());
+                let _ = errors.send(error);
                 break;
             }
-            Ok(_) => {}
+            Ok(true) => {}
         }
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        match rustix::io::read(&stdin, &mut buffer) {
-            Ok(0) => break,
-            Ok(count) => {
-                if sender.send(buffer[..count].to_vec()).is_err() {
-                    break;
-                }
-            }
-            Err(rustix::io::Errno::INTR) => continue,
+        match send_stdin_chunk(&stdin, &sender) {
+            Ok(true) => {}
+            Ok(false) => break,
             Err(error) => {
-                let _ = errors.send(error.into());
+                let _ = errors.send(error);
                 break;
             }
         }
