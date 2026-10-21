@@ -7,6 +7,7 @@ import readline from 'node:readline';
 const source=process.argv[2];
 const base=resolve(dirname(source),'../../..');
 const moduleUrl=(path:string)=>pathToFileURL(resolve(base,path)).href;
+async function main(){
 const [loader,runnerModule,session,auth,utils,events,tui]=await Promise.all([
  import(moduleUrl('coding-agent/src/core/extensions/loader.ts')),
  import(moduleUrl('coding-agent/src/core/extensions/runner.ts')),
@@ -70,3 +71,6 @@ for await(const line of readline.createInterface({input:process.stdin})) {
  try {console.log(JSON.stringify(await run(JSON.parse(line))));}
  catch(error:any){console.error(error);process.exit(1);}
 }
+
+}
+main().catch(error=>{console.error(error);process.exit(1);});
