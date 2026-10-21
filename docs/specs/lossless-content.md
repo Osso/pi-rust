@@ -12,6 +12,8 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 - [x] User and thinking text use the same UTF-16 authority.
 - [ ] Custom-message text uses the same UTF-16 authority.
 - [x] Tool-call arguments and complete/partial JSON argument parsing use lossless object/value authorities.
+- [x] Anthropic SSE retains text/thinking and native UTF-16 JSON fragments through ordered block/delta/stop handling.
+- [ ] Classify checked scalar provider metadata restrictions (ids/names/type tags, stop reasons/explanations, signatures).
 - [ ] Execution/hook parameters use those same authorities.
 - [ ] Agent result text/details survive agent loop, JSONL append/reload and TS reread in both directions.
 - [ ] Question relay, ask-questions, mailbox and session-name tools preserve arbitrary UTF-16.

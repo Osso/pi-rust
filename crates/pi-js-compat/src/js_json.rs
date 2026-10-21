@@ -38,6 +38,10 @@ impl JsString {
         self.0.extend(text.into().0);
     }
 
+    pub fn push_unit(&mut self, unit: u16) {
+        self.0.push(unit);
+    }
+
     pub fn contains(&self, text: impl Into<Self>) -> bool {
         let text = text.into();
         text.is_empty() || self.0.windows(text.len()).any(|window| window == text.units())

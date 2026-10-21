@@ -35,9 +35,14 @@ Proof: `arguments-red.log` reproduces the old ToolCall argument-key rejection. `
 
 A generic dispatcher fixture hung after a Google provider task panicked on a bare JsObject macro leaf. The Cargo group was terminated and all children verified exited; partial proof is `arguments-provider-green-2.log` (five prior cases passed, new case unproven). Bounded direct-provider reproduction (`arguments-provider-direct.log`) identified the key-serialization panic; construction now wraps the object in JsValue, with no guard/fallback. `arguments-provider-direct-green.log` passes.
 
-### Temporary checked adapters — must be removed before merge
+### Checked-boundary status
 
-1. `pi-ai/src/utils/validation.rs::validate_tool_arguments`: TODO(validator lane), explicit UTF-16 rejection via checked `to_serde`; parent approved branch-only bridge 2026-10-21. Public validation return values already use JsValue. A separate validator lane owns its replacement.
-2. `pi-ai/src/api/anthropic_messages.rs::AnthropicEventReader::decode_event`: TODO(ingress lane), explicit UTF-16 rejection via checked `to_serde`; parent approved branch-only bridge 2026-10-21. No claim of arbitrary UTF-16 Anthropic event ingestion.
+No whole-value argument/event adapters remain. Validator integration at `1120b034` uses the lane's JsValue engine directly; its entrypoint now constructs JsValue::Object(call.arguments.clone()). Anthropic events are JsValue throughout.
 
-Neither adapter replaces unsupported units or stores parallel message representations. Workspace compilation, consumer fixtures and end-to-end agent/JSONL/question/mailbox/name proof remain pending.
+`anthropic_messages::metadata_text` remains a checked UTF-8 restriction for scalar provider metadata (ids/names/type discriminators, stop reasons/explanations, signatures). Parent approved this explicit gap pending user classification on 2026-10-21. Unmatched units produce an error, never replacement. Text, thinking and argument content never call this helper.
+
+### Native fragment / Anthropic ingress checkpoint
+
+`ToolCall.partial_json` and ToolCallDelta text use JsString; provider argument buffers and complete/repair/partial parsers operate on native UTF-16. `anthropic-ingress-red.log` reproduces the removed event adapter rejecting a valid text delta. `anthropic-ingress-green-attempt.log`: eight sandbox cases PASS, zero warnings, including actual ordered SSE message/text/thinking/tool-fragment/delta/stop handling. The tool fragment carries a native unmatched unit after outer JSON parsing; its final argument retains that exact unit. Frozen partial-parser differential additionally covers raw unmatched units in complete and unterminated strings.
+
+Workspace compilation, consumer fixtures and end-to-end agent/JSONL/question/mailbox/name proof remain pending.

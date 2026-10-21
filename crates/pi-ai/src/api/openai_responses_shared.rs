@@ -837,7 +837,7 @@ enum Slot {
     },
     ToolCall {
         content_index: usize,
-        partial_json: Option<String>,
+        partial_json: Option<pi_js_compat::js_json::JsString>,
         custom_input: Option<CustomInput>,
     },
 }
@@ -894,7 +894,7 @@ fn append_custom_tool_call_input(
 fn push_tool_call_delta(
     sender: &AssistantMessageEventSender,
     content_index: usize,
-    delta: Option<String>,
+    delta: Option<impl Into<pi_js_compat::js_json::JsString>>,
     output: &AssistantMessage,
 ) {
     let Some(delta) = delta else {
@@ -902,12 +902,12 @@ fn push_tool_call_delta(
     };
     sender.push(AssistantMessageEvent::ToolCallDelta {
         content_index,
-        delta,
+        delta: delta.into(),
         partial: output.clone(),
     });
 }
 
-fn parse_arguments(partial_json: Option<&str>) -> pi_js_compat::js_json::JsObject {
+fn parse_arguments(partial_json: Option<&pi_js_compat::js_json::JsString>) -> pi_js_compat::js_json::JsObject {
     match parse_streaming_json(partial_json) {
         pi_js_compat::js_json::JsValue::Object(map) => map,
         _ => Default::default(),
@@ -983,7 +983,7 @@ fn create_slot(
                 output_index,
                 Slot::ToolCall {
                     content_index,
-                    partial_json: Some(partial_json),
+                    partial_json: Some(partial_json.into()),
                     custom_input: None,
                 },
             );
@@ -1395,17 +1395,15 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let Some(content_index) = get_slot(&output_slots, output_index, "toolCall") else {
                     continue;
                 };
-                let arguments = event.get("arguments").and_then(Value::as_str).unwrap_or("").to_owned();
+                let arguments =
+                    pi_js_compat::js_json::JsString::from(event.get("arguments").and_then(Value::as_str).unwrap_or(""));
                 let Some(Slot::ToolCall { partial_json, .. }) = output_slots.get_mut(&output_index) else {
                     continue;
                 };
                 let Some(previous) = partial_json.as_ref() else {
                     continue;
                 };
-                let delta = arguments
-                    .strip_prefix(previous.as_str())
-                    .filter(|delta| !delta.is_empty())
-                    .map(str::to_owned);
+                let delta = arguments.strip_prefix(previous).filter(|delta| !delta.is_empty());
                 *partial_json = Some(arguments.clone());
                 let parsed = parse_arguments(Some(&arguments));
                 if let AssistantContent::ToolCall(block) = &mut output.content[content_index] {
@@ -1563,10 +1561,10 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                             .get("arguments")
                             .and_then(Value::as_str)
                             .filter(|arguments| !arguments.is_empty())
-                            .map(str::to_owned)
+                            .map(pi_js_compat::js_json::JsString::from)
                             .or_else(|| partial_json.clone())
                             .filter(|arguments| !arguments.is_empty())
-                            .unwrap_or_else(|| "{}".to_owned());
+                            .unwrap_or_else(|| "{}".into());
                         let parsed = parse_arguments(Some(&arguments));
                         let namespace = item.get("namespace").and_then(Value::as_str).map(str::to_owned);
                         let tool_call = match &mut output.content[content_index] {

@@ -405,7 +405,7 @@ pub struct ToolCall {
     pub index: Option<f64>,
     /// Unparsed tool input accumulated during streaming.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub partial_json: Option<String>,
+    pub partial_json: Option<JsString>,
 }
 
 impl ToolCall {
@@ -906,7 +906,7 @@ pub enum AssistantMessageEvent {
     ToolCallDelta {
         #[serde(rename = "contentIndex")]
         content_index: usize,
-        delta: String,
+        delta: JsString,
         partial: AssistantMessage,
     },
     #[serde(rename = "toolcall_end")]

@@ -1197,7 +1197,7 @@ fn emit_tool_call(sender: &AssistantMessageEventSender, output: &mut AssistantMe
     });
     sender.push(AssistantMessageEvent::ToolCallDelta {
         content_index: index,
-        delta: pi_js_compat::js_json::stringify_lossless(&JsValue::Object(tool_call.arguments.clone())),
+        delta: pi_js_compat::js_json::stringify_lossless(&JsValue::Object(tool_call.arguments.clone())).into(),
         partial: output.clone(),
     });
     sender.push(AssistantMessageEvent::ToolCallEnd {

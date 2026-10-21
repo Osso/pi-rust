@@ -1358,7 +1358,7 @@ fn create_client(
 
 #[derive(Default)]
 struct ToolState {
-    partial_args: Option<String>,
+    partial_args: Option<pi_js_compat::js_json::JsString>,
     custom_property: Option<String>,
     json_buffer: GrammarToolInputJsonBuffer,
     stream_index: Option<i64>,
@@ -1453,7 +1453,7 @@ fn append_custom_tool_call_input(
     Ok(delta)
 }
 
-fn parse_arguments(partial_args: Option<&str>) -> JsObject {
+fn parse_arguments(partial_args: Option<&pi_js_compat::js_json::JsString>) -> JsObject {
     match parse_streaming_json(partial_args) {
         JsValue::Object(map) => map,
         _ => JsObject::new(),
@@ -1515,7 +1515,11 @@ fn ensure_tool_call_block(
         tool_states.insert(
             index,
             ToolState {
-                partial_args: if has_custom_input { None } else { Some(String::new()) },
+                partial_args: if has_custom_input {
+                    None
+                } else {
+                    Some(Default::default())
+                },
                 custom_property: custom_input_property,
                 json_buffer: GrammarToolInputJsonBuffer::default(),
                 stream_index,
@@ -1759,7 +1763,7 @@ pub async fn process_completions_stream(
                 {
                     delta_text = arguments.to_owned();
                     let state = tool_states.entry(index).or_default();
-                    let partial = state.partial_args.get_or_insert_with(String::new);
+                    let partial = state.partial_args.get_or_insert_default();
                     partial.push_str(arguments);
                     let parsed = parse_arguments(Some(partial));
                     if let AssistantContent::ToolCall(block) = &mut output.content[index] {
@@ -1782,7 +1786,7 @@ pub async fn process_completions_stream(
                 }
                 sender.push(AssistantMessageEvent::ToolCallDelta {
                     content_index: index,
-                    delta: delta_text,
+                    delta: delta_text.into(),
                     partial: output.clone(),
                 });
             }

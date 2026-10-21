@@ -787,11 +787,11 @@ impl EventConverter {
                     delta
                 );
                 self.tool_json.insert(content_index, json.clone());
-                let parsed = parse_streaming_json(Some(&json));
+                let parsed = parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from(&json)));
                 self.set_tool_arguments(content_index, parsed)?;
                 Ok(AssistantMessageEvent::ToolCallDelta {
                     content_index,
-                    delta,
+                    delta: delta.into(),
                     partial: self.partial.clone(),
                 })
             }

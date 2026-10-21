@@ -976,7 +976,7 @@ async fn stream_with_deltas(
                     }
                     sender.push(AssistantMessageEvent::ToolCallDelta {
                         content_index: index,
-                        delta: chunk.clone(),
+                        delta: chunk.clone().into(),
                         partial: partial.clone(),
                     });
                 }

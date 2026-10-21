@@ -970,7 +970,7 @@ async fn consume_chat_stream(
 struct StreamState {
     current_block: Option<CurrentBlock>,
     tool_blocks: Vec<(String, usize)>,
-    partial_args: BTreeMap<usize, String>,
+    partial_args: BTreeMap<usize, pi_js_compat::js_json::JsString>,
 }
 
 /// Applies one parsed event; `true` means the `[DONE]` sentinel ended the stream.
@@ -1214,7 +1214,7 @@ fn consume_tool_call_delta(
             )));
             let index = output.content.len() - 1;
             state.tool_blocks.push((key.clone(), index));
-            state.partial_args.insert(index, String::new());
+            state.partial_args.insert(index, Default::default());
             sender.push(AssistantMessageEvent::ToolCallStart {
                 content_index: index,
                 partial: output.clone(),
@@ -1237,7 +1237,7 @@ fn consume_tool_call_delta(
     }
     sender.push(AssistantMessageEvent::ToolCallDelta {
         content_index: block_index,
-        delta: args_delta,
+        delta: args_delta.into(),
         partial: output.clone(),
     });
 }
@@ -1253,7 +1253,7 @@ fn finalize_tool_blocks(
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
     tool_blocks: &[(String, usize)],
-    partial_args: &mut BTreeMap<usize, String>,
+    partial_args: &mut BTreeMap<usize, pi_js_compat::js_json::JsString>,
 ) {
     for (_, index) in tool_blocks {
         let index = *index;

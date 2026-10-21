@@ -248,19 +248,142 @@ async fn five_provider_argument_bodies_keep_utf16_and_match_node_json() {
 
 #[test]
 fn complete_and_partial_argument_json_retains_utf16_like_frozen_parser() {
+    use pi_js_compat::js_json::{JsString, stringify_lossless};
     let mut oracle = oracle::TsOracle::spawn("lossless-arguments-oracle.ts", "packages/ai/src/utils/json-parse.ts");
-    for input in [
+    let mut inputs: Vec<JsString> = [
         r#"{"name":"\ud800"}"#,
         r#"{"\ud800":["\udfff",{"text":"x"}]}"#,
         r#"{"name":"\ud800"#,
         r#"{"name":"x\udfff","next":[1,"last"#,
-    ] {
-        let result = pi_ai::utils::json_parse::parse_streaming_json(Some(input));
-        let expected = oracle.request(&serde_json::json!({"input":input}));
+    ]
+    .into_iter()
+    .map(JsString::from)
+    .collect();
+    inputs.push(JsString::join(
+        [
+            JsString::from("{\"name\":\""),
+            JsString::from_utf16(vec![0xd800]),
+            JsString::from("\"}"),
+        ],
+        "",
+    ));
+    inputs.push(JsString::join(
+        [JsString::from("{\"name\":\""), JsString::from_utf16(vec![0xdfff])],
+        "",
+    ));
+    for input in inputs {
+        let result = pi_ai::utils::json_parse::parse_streaming_json(Some(&input));
+        let expected = oracle.request(&serde_json::json!({"inputUnits":input.units()}));
         assert_eq!(
-            pi_js_compat::js_json::stringify_lossless(&result),
+            stringify_lossless(&result),
             expected["wire"].as_str().unwrap(),
-            "{input}"
+            "{:?}",
+            input.units()
         );
+    }
+}
+
+struct SseBody(Option<Vec<u8>>);
+impl pi_ai::request::HttpBody for SseBody {
+    fn next_chunk(&mut self) -> pi_ai::request::BoxFuture<'_, Option<Result<Vec<u8>, pi_ai::request::CallbackError>>> {
+        let chunk = self.0.take();
+        Box::pin(async move { chunk.map(Ok) })
+    }
+}
+#[tokio::test]
+async fn anthropic_sse_retains_text_thinking_and_native_utf16_argument_fragments() {
+    use pi_ai::types::{AssistantContent, Context, Model, StopReason};
+    let model: Model = serde_json::from_value(serde_json::json!({
+        "id":"probe", "name":"probe", "api":"anthropic-messages", "provider":"anthropic", "baseUrl":"https://provider.invalid/v1", "reasoning":true, "input":["text"],
+        "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":10000, "maxTokens":1000
+    })).unwrap();
+    let events = concat!(
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg\",\"model\":\"probe\",\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\n",
+        r#"event: content_block_start
+ data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+ event: content_block_delta
+ data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"\ud800"}}
+
+ event: content_block_stop
+ data: {"type":"content_block_stop","index":0}
+
+ event: content_block_start
+ data: {"type":"content_block_start","index":1,"content_block":{"type":"thinking","thinking":""}}
+
+ event: content_block_delta
+ data: {"type":"content_block_delta","index":1,"delta":{"type":"thinking_delta","thinking":"\udfff"}}
+
+ event: content_block_delta
+ data: {"type":"content_block_delta","index":1,"delta":{"type":"signature_delta","signature":"sig"}}
+
+ event: content_block_stop
+ data: {"type":"content_block_stop","index":1}
+
+ event: content_block_start
+ data: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"call","name":"probe","input":{}}}
+
+ event: content_block_delta
+ data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"name\":\"\ud800\"}"}}
+
+ event: content_block_stop
+ data: {"type":"content_block_stop","index":2}
+
+ event: message_delta
+ data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":1}}
+
+ event: message_stop
+ data: {"type":"message_stop"}
+
+"#
+    );
+    let events = events.replace("\n ", "\n");
+    let mut options = pi_ai::request::StreamOptions::default();
+    options.request.api_key = Some("test".into());
+    options.request.fetch = Some(std::sync::Arc::new(OwnedSse(events)));
+    options.request.max_retries = Some(0.0);
+    let mut stream = pi_ai::api::anthropic_messages::stream(
+        model,
+        Context {
+            system_prompt: None,
+            messages: vec![],
+            tools: None,
+        },
+        options,
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while stream.next().await.is_some() {}
+    })
+    .await
+    .unwrap();
+    let result = stream.result().await.unwrap();
+    assert_eq!(result.stop_reason, StopReason::ToolUse, "{:?}", result.error_message);
+    assert!(matches!(&result.content[0], AssistantContent::Text(text) if text.text.units() == [0xd800]));
+    assert!(matches!(&result.content[1], AssistantContent::Thinking(text) if text.thinking.units() == [0xdfff]));
+    let AssistantContent::ToolCall(call) = &result.content[2] else {
+        panic!("tool call missing")
+    };
+    assert_eq!(
+        call.arguments.get("name").unwrap().as_string().unwrap().units(),
+        &[0xd800]
+    );
+}
+
+struct OwnedSse(String);
+impl pi_ai::request::Fetch for OwnedSse {
+    fn fetch(
+        &self,
+        _: pi_ai::request::HttpRequest,
+        _: Option<tokio_util::sync::CancellationToken>,
+    ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, pi_ai::request::CallbackError>> {
+        let bytes = self.0.as_bytes().to_vec();
+        Box::pin(async {
+            Ok(pi_ai::request::HttpResponse {
+                status: 200,
+                status_text: "OK".into(),
+                headers: vec![],
+                body: Box::new(SseBody(Some(bytes))),
+            })
+        })
     }
 }

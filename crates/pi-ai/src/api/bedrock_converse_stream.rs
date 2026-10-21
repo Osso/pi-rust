@@ -992,7 +992,7 @@ fn map_stop_reason(reason: Option<&str>) -> (StopReason, Option<String>) {
 struct BlockState {
     content: AssistantContent,
     index: Option<i64>,
-    partial_json: Option<String>,
+    partial_json: Option<JsString>,
 }
 
 fn sync_content(output: &mut AssistantMessage, blocks: &[BlockState]) {
@@ -1053,7 +1053,7 @@ fn handle_message(
                         JsObject::new(),
                     )),
                     index: Some(index),
-                    partial_json: Some(String::new()),
+                    partial_json: Some(Default::default()),
                 };
                 blocks.push(block);
                 sync_content(output, blocks);
@@ -1147,7 +1147,7 @@ fn handle_content_block_delta(
         sync_content(output, blocks);
         sender.push(AssistantMessageEvent::ToolCallDelta {
             content_index: index,
-            delta: input.to_owned(),
+            delta: input.to_owned().into(),
             partial: output.clone(),
         });
         return;
@@ -1161,7 +1161,7 @@ fn handle_content_block_delta(
                     content: AssistantContent::Thinking(ThinkingContent {
                         r#type: crate::types::ThinkingTag::Tag,
                         thinking: String::new().into(),
-                        thinking_signature: Some(String::new()),
+                        thinking_signature: Some(Default::default()),
                         redacted: None,
                         index: None,
                     }),
@@ -1233,7 +1233,7 @@ fn handle_content_block_stop(
             partial: output.clone(),
         }),
         AssistantContent::ToolCall(block) => {
-            block.arguments = parse_streaming_json(partial_json.as_deref())
+            block.arguments = parse_streaming_json(partial_json.as_ref())
                 .as_object()
                 .cloned()
                 .unwrap_or_default();

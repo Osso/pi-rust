@@ -832,7 +832,7 @@ fn convert_tools(
     Ok(converted)
 }
 
-fn map_stop_reason(reason: &str, stop_details: Option<&Value>) -> Result<(StopReason, Option<String>), String> {
+fn map_stop_reason(reason: &str, stop_details: Option<&JsValue>) -> Result<(StopReason, Option<String>), String> {
     match reason {
         "end_turn" => Ok((StopReason::Stop, None)),
         "max_tokens" => Ok((StopReason::Length, None)),
@@ -840,9 +840,10 @@ fn map_stop_reason(reason: &str, stop_details: Option<&Value>) -> Result<(StopRe
         "refusal" => {
             let explanation = stop_details
                 .and_then(|details| details.get("explanation"))
-                .and_then(Value::as_str)
+                .map(|value| metadata_text(value, "stop explanation"))
+                .transpose()?
+                .flatten()
                 .filter(|explanation| !explanation.is_empty())
-                .map(str::to_owned)
                 .unwrap_or_else(|| "The model refused to complete the request".to_owned());
             Ok((StopReason::Error, Some(explanation)))
         }
@@ -1096,15 +1097,27 @@ fn find_block(output: &AssistantMessage, index: f64) -> Option<usize> {
     })
 }
 
-fn event_index(event: &Value) -> Option<f64> {
-    event.get("index").and_then(Value::as_f64)
+// Explicit gap pending user classification: scalar provider metadata remains UTF-8.
+// Text/thinking/argument content must never call this helper.
+fn metadata_text(value: &JsValue, field: &str) -> Result<Option<String>, String> {
+    value
+        .as_string()
+        .map(|text| {
+            text.to_utf8()
+                .map_err(|_| format!("Unsupported UTF-16 in Anthropic metadata field {field}"))
+        })
+        .transpose()
 }
 
-fn number_field(value: &Value, key: &str) -> Option<f64> {
-    value.get(key).and_then(Value::as_f64)
+fn event_index(event: &JsValue) -> Option<f64> {
+    event.get("index").and_then(JsValue::as_f64)
 }
 
-fn update_usage_field(target: &mut f64, usage: &Value, key: &str) {
+fn number_field(value: &JsValue, key: &str) -> Option<f64> {
+    value.get(key).and_then(JsValue::as_f64)
+}
+
+fn update_usage_field(target: &mut f64, usage: &JsValue, key: &str) {
     if let Some(value) = number_field(usage, key) {
         *target = value;
     }
@@ -1168,10 +1181,10 @@ async fn drive_stream(
 
     let mut reader = AnthropicEventReader::new(response.body, options.request.signal.clone());
     while let Some(event) = reader.next_event().await? {
-        match event["type"].as_str() {
-            Some("message_start") => apply_message_start(model, output, &event),
-            Some("content_block_start") => apply_content_block_start(sender, context, output, &event, is_oauth),
-            Some("content_block_delta") => apply_content_block_delta(sender, output, &event),
+        match metadata_text(&event["type"], "event type")?.as_deref() {
+            Some("message_start") => apply_message_start(model, output, &event)?,
+            Some("content_block_start") => apply_content_block_start(sender, context, output, &event, is_oauth)?,
+            Some("content_block_delta") => apply_content_block_delta(sender, output, &event)?,
             Some("content_block_stop") => apply_content_block_stop(sender, output, &event),
             Some("message_delta") => apply_message_delta(model, output, &event)?,
             _ => {}
@@ -1230,9 +1243,9 @@ fn done_reason(reason: StopReason) -> DoneReason {
     }
 }
 
-fn apply_message_start(model: &Model, output: &mut AssistantMessage, event: &Value) {
+fn apply_message_start(model: &Model, output: &mut AssistantMessage, event: &JsValue) -> Result<(), String> {
     let message = &event["message"];
-    output.response_id = message["id"].as_str().map(str::to_owned);
+    output.response_id = metadata_text(&message["id"], "message.id")?;
     let usage = &message["usage"];
     output.usage.input = number_field(usage, "input_tokens").unwrap_or(0.0);
     output.usage.output = number_field(usage, "output_tokens").unwrap_or(0.0);
@@ -1245,6 +1258,7 @@ fn apply_message_start(model: &Model, output: &mut AssistantMessage, event: &Val
             .unwrap_or(0.0),
     );
     update_total_and_cost(model, output);
+    Ok(())
 }
 
 fn update_total_and_cost(model: &Model, output: &mut AssistantMessage) {
@@ -1257,16 +1271,16 @@ fn apply_content_block_start(
     sender: &AssistantMessageEventSender,
     context: &Context,
     output: &mut AssistantMessage,
-    event: &Value,
+    event: &JsValue,
     is_oauth: bool,
-) {
+) -> Result<(), String> {
     let Some(index) = event_index(event) else {
-        return;
+        return Ok(());
     };
     let content_block = &event["content_block"];
-    match content_block["type"].as_str() {
+    match metadata_text(&content_block["type"], "content_block.type")?.as_deref() {
         Some("text") => {
-            let text = content_block["text"].as_str().unwrap_or_default();
+            let text = content_block["text"].as_string().cloned().unwrap_or_default();
             let mut block = TextContent::new(text);
             block.index = Some(index);
             output.content.push(AssistantContent::Text(block));
@@ -1277,8 +1291,9 @@ fn apply_content_block_start(
             });
         }
         Some("thinking") => {
-            let mut thinking = ThinkingContent::new(content_block["thinking"].as_str().unwrap_or_default());
-            thinking.thinking_signature = Some(content_block["signature"].as_str().unwrap_or_default().to_owned());
+            let mut thinking = ThinkingContent::new(content_block["thinking"].as_string().cloned().unwrap_or_default());
+            thinking.thinking_signature =
+                Some(metadata_text(&content_block["signature"], "signature")?.unwrap_or_default());
             thinking.index = Some(index);
             output.content.push(AssistantContent::Thinking(thinking));
             let content_index = output.content.len() - 1;
@@ -1289,7 +1304,8 @@ fn apply_content_block_start(
         }
         Some("redacted_thinking") => {
             let mut thinking = ThinkingContent::new("[Reasoning redacted]");
-            thinking.thinking_signature = Some(content_block["data"].as_str().unwrap_or_default().to_owned());
+            thinking.thinking_signature =
+                Some(metadata_text(&content_block["data"], "redacted signature")?.unwrap_or_default());
             thinking.redacted = Some(true);
             thinking.index = Some(index);
             output.content.push(AssistantContent::Thinking(thinking));
@@ -1300,22 +1316,17 @@ fn apply_content_block_start(
             });
         }
         Some("tool_use") => {
-            let name = content_block["name"].as_str().unwrap_or_default();
+            let name = metadata_text(&content_block["name"], "tool name")?.unwrap_or_default();
             let name = if is_oauth {
-                from_claude_code_name(name, context.tools.as_deref())
+                from_claude_code_name(&name, context.tools.as_deref())
             } else {
                 name.to_owned()
             };
-            let arguments = content_block["input"]
-                .as_object()
-                .into_iter()
-                .flat_map(|args| args.iter())
-                .map(|(key, value)| (key.into(), JsValue::from(value)))
-                .collect();
-            let id = content_block["id"].as_str().unwrap_or_default();
+            let arguments = content_block["input"].as_object().cloned().unwrap_or_default();
+            let id = metadata_text(&content_block["id"], "tool id")?.unwrap_or_default();
             let mut block = ToolCall::new(id, name, arguments);
             block.index = Some(index);
-            block.partial_json = Some(String::new());
+            block.partial_json = Some(JsString::default());
             output.content.push(AssistantContent::ToolCall(block));
             let content_index = output.content.len() - 1;
             sender.push(AssistantMessageEvent::ToolCallStart {
@@ -1325,21 +1336,26 @@ fn apply_content_block_start(
         }
         _ => {}
     }
+    Ok(())
 }
 
-fn apply_content_block_delta(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, event: &Value) {
+fn apply_content_block_delta(
+    sender: &AssistantMessageEventSender,
+    output: &mut AssistantMessage,
+    event: &JsValue,
+) -> Result<(), String> {
     let Some(index) = event_index(event) else {
-        return;
+        return Ok(());
     };
     let Some(position) = find_block(output, index) else {
-        return;
+        return Ok(());
     };
     let delta = &event["delta"];
-    match delta["type"].as_str() {
+    match metadata_text(&delta["type"], "delta.type")?.as_deref() {
         Some("text_delta") => {
-            let text = delta["text"].as_str().unwrap_or_default();
+            let text = delta["text"].as_string().cloned().unwrap_or_default();
             if let Some(AssistantContent::Text(block)) = output.content.get_mut(position) {
-                block.text.push_str(text);
+                block.text.push_str(&text);
                 sender.push(AssistantMessageEvent::TextDelta {
                     content_index: position,
                     delta: text.into(),
@@ -1348,9 +1364,9 @@ fn apply_content_block_delta(sender: &AssistantMessageEventSender, output: &mut 
             }
         }
         Some("thinking_delta") => {
-            let thinking = delta["thinking"].as_str().unwrap_or_default();
+            let thinking = delta["thinking"].as_string().cloned().unwrap_or_default();
             if let Some(AssistantContent::Thinking(block)) = output.content.get_mut(position) {
-                block.thinking.push_str(thinking);
+                block.thinking.push_str(&thinking);
                 sender.push(AssistantMessageEvent::ThinkingDelta {
                     content_index: position,
                     delta: thinking.to_owned().into(),
@@ -1359,10 +1375,10 @@ fn apply_content_block_delta(sender: &AssistantMessageEventSender, output: &mut 
             }
         }
         Some("input_json_delta") => {
-            let partial_json = delta["partial_json"].as_str().unwrap_or_default();
+            let partial_json = delta["partial_json"].as_string().cloned().unwrap_or_default();
             if let Some(AssistantContent::ToolCall(block)) = output.content.get_mut(position) {
-                block.partial_json.get_or_insert_default().push_str(partial_json);
-                block.arguments = parse_streaming_json(block.partial_json.as_deref())
+                block.partial_json.get_or_insert_default().push_str(&partial_json);
+                block.arguments = parse_streaming_json(block.partial_json.as_ref())
                     .as_object()
                     .cloned()
                     .unwrap_or_default();
@@ -1374,17 +1390,18 @@ fn apply_content_block_delta(sender: &AssistantMessageEventSender, output: &mut 
             }
         }
         Some("signature_delta") => {
-            let signature = delta["signature"].as_str().unwrap_or_default();
+            let signature = metadata_text(&delta["signature"], "signature")?.unwrap_or_default();
             if let Some(AssistantContent::Thinking(block)) = output.content.get_mut(position) {
                 let existing = block.thinking_signature.take().unwrap_or_default();
-                block.thinking_signature = Some(existing + signature);
+                block.thinking_signature = Some(existing + &signature);
             }
         }
         _ => {}
     }
+    Ok(())
 }
 
-fn apply_content_block_stop(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, event: &Value) {
+fn apply_content_block_stop(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, event: &JsValue) {
     let Some(index) = event_index(event) else {
         return;
     };
@@ -1410,7 +1427,7 @@ fn apply_content_block_stop(sender: &AssistantMessageEventSender, output: &mut A
         }
         Some(AssistantContent::ToolCall(block)) => {
             block.index = None;
-            block.arguments = parse_streaming_json(block.partial_json.take().as_deref())
+            block.arguments = parse_streaming_json(block.partial_json.take().as_ref())
                 .as_object()
                 .cloned()
                 .unwrap_or_default();
@@ -1425,11 +1442,11 @@ fn apply_content_block_stop(sender: &AssistantMessageEventSender, output: &mut A
     }
 }
 
-fn apply_message_delta(model: &Model, output: &mut AssistantMessage, event: &Value) -> Result<(), String> {
+fn apply_message_delta(model: &Model, output: &mut AssistantMessage, event: &JsValue) -> Result<(), String> {
     let delta = &event["delta"];
-    if let Some(stop_reason) = delta["stop_reason"].as_str() {
+    if let Some(stop_reason) = metadata_text(&delta["stop_reason"], "stop reason")? {
         output.raw_stop_reason = Some(stop_reason.to_owned());
-        let (mapped, error_message) = map_stop_reason(stop_reason, delta.get("stop_details"))?;
+        let (mapped, error_message) = map_stop_reason(&stop_reason, delta.get("stop_details"))?;
         output.stop_reason = mapped;
         if let Some(error_message) = error_message {
             output.error_message = Some(error_message);
@@ -1526,7 +1543,7 @@ impl AnthropicEventReader {
         }
     }
 
-    pub async fn next_event(&mut self) -> Result<Option<Value>, String> {
+    pub async fn next_event(&mut self) -> Result<Option<JsValue>, String> {
         loop {
             if let Some(event) = self.queue.pop_front() {
                 if let Some(event) = self.decode_event(event)? {
@@ -1584,7 +1601,7 @@ impl AnthropicEventReader {
         }
     }
 
-    fn decode_event(&mut self, sse: SseEvent) -> Result<Option<Value>, String> {
+    fn decode_event(&mut self, sse: SseEvent) -> Result<Option<JsValue>, String> {
         if sse.event.as_deref() == Some("error") {
             return Err(sse.data);
         }
@@ -1600,11 +1617,7 @@ impl AnthropicEventReader {
                 sse.raw.join("\\n")
             )
         })?;
-        // TODO(ingress lane): replace this checked checkpoint bridge before merge.
-        let event = event
-            .to_serde()
-            .map_err(|error| format!("Lossless Anthropic ingress pending ingress lane: {error}"))?;
-        match event["type"].as_str() {
+        match metadata_text(&event["type"], "event type")?.as_deref() {
             Some("message_start") => self.saw_message_start = true,
             Some("message_stop") => self.saw_message_stop = true,
             _ => {}
