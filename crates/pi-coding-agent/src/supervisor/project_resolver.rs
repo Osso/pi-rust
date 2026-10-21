@@ -68,7 +68,7 @@ pub struct ResolveSupervisorProjectInput<'a> {
 }
 
 pub fn extract_remote_repository_identity(remote_url: &str) -> Option<String> {
-    let normalized = strip_authority(remote_url.trim());
+    let normalized = strip_authority(pi_js_compat::string::js_trim(remote_url));
     let segments: Vec<&str> = normalized.split('/').filter(|segment| !segment.is_empty()).collect();
     match segments.len() {
         0 => None,
@@ -103,7 +103,7 @@ fn strip_scheme_authority(value: &str) -> &str {
     let remainder = &value[scheme_end + 3..];
     match remainder.find('/') {
         Some(authority_end) => &remainder[authority_end + 1..],
-        None => "",
+        None => value,
     }
 }
 
@@ -163,9 +163,11 @@ pub fn resolve_supervisor_project_for_cwd(cwd: &str, kb_dir: &str) -> Result<Str
 
 /// The error message is the source text; JSON syntax errors come from `serde_json`.
 pub fn read_supervisor_project_config(path: &Path) -> Result<SupervisorProjectConfig, String> {
-    let Ok(bytes) = std::fs::read(path) else {
+    if !path.exists() {
         return Ok(SupervisorProjectConfig::new());
-    };
+    }
+    let bytes = std::fs::read(path)
+        .map_err(|error| crate::core::tools::node_fs::node_read_error(&error, &path.display().to_string()))?;
     let text = String::from_utf8_lossy(&bytes);
     let parsed: Value = pi_js_compat::js_json::parse(&text).map_err(|error| error.to_string())?;
     let Some(object) = parsed.as_object() else {

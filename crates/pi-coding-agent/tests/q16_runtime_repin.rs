@@ -11,6 +11,91 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 #[test]
+fn project_remote_and_unreadable_configuration_match_frozen() {
+    use pi_coding_agent::supervisor::project_resolver::extract_remote_repository_identity;
+    let cases = json!([
+        ["https://host"],
+        ["ssh://server/owner/repo.git/"],
+        ["owner/repo"],
+        ["\u{feff}git@host:owner/repo.git\u{feff}"]
+    ]);
+    let mut ts = oracle::TsOracle::spawn(
+        "q16-runtime-oracle.ts",
+        "packages/coding-agent/src/supervisor/project-resolver.ts",
+    );
+    let expected = ts.request(&json!({"id":10,"operation":"extractRemoteRepositoryIdentity","cases":cases}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let actual: Vec<Value> = cases
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| json!(extract_remote_repository_identity(case[0].as_str().unwrap())))
+        .collect();
+    assert_eq!(json!(actual), expected["output"]);
+}
+
+#[test]
+fn unreadable_project_config_is_not_an_empty_configuration() {
+    use pi_coding_agent::supervisor::project_resolver::read_supervisor_project_config;
+    let mut ts = oracle::TsOracle::spawn(
+        "q16-runtime-oracle.ts",
+        "packages/coding-agent/src/supervisor/project-resolver.ts",
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let expected = ts.request(&json!({"id":11,"operation":"readSupervisorProjectConfig","cases":[[directory.path()]]}));
+    assert_eq!(expected["ok"], false, "{expected}");
+    assert!(read_supervisor_project_config(directory.path()).is_err());
+}
+
+#[tokio::test]
+async fn architect_spec_reading_rejects_dotdot_prefix_and_follows_project_symlinks() {
+    use pi_coding_agent::architect::project_spec::read_project_spec;
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    let specs = root.join("docs/specs");
+    std::fs::create_dir_all(&specs).unwrap();
+    std::fs::write(specs.join("README.md"), "index").unwrap();
+    std::fs::write(specs.join("..private.md"), "hidden").unwrap();
+    let alias = directory.path().join("alias");
+    std::os::unix::fs::symlink(&root, &alias).unwrap();
+    let mut ts = oracle::TsOracle::spawn(
+        "q16-runtime-oracle.ts",
+        "packages/coding-agent/src/architect/project-spec.ts",
+    );
+    let expected = ts.request(&json!({"id":12,"operation":"readProjectSpec","cases":[[alias,"README.md"]]}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    assert_eq!(
+        read_project_spec(&alias.display().to_string(), "README.md")
+            .await
+            .unwrap(),
+        expected["output"][0]
+    );
+}
+
+#[tokio::test]
+async fn architect_spec_dotdot_prefixed_filename_is_rejected() {
+    use pi_coding_agent::architect::project_spec::read_project_spec;
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    let specs = root.join("docs/specs");
+    std::fs::create_dir_all(&specs).unwrap();
+    std::fs::write(specs.join("README.md"), "index").unwrap();
+    std::fs::write(specs.join("..private.md"), "hidden").unwrap();
+    let mut ts = oracle::TsOracle::spawn(
+        "q16-runtime-oracle.ts",
+        "packages/coding-agent/src/architect/project-spec.ts",
+    );
+    let expected = ts.request(&json!({"id":13,"operation":"readProjectSpec","cases":[[root,"..private.md"]]}));
+    assert_eq!(expected["ok"], false, "{expected}");
+    assert_eq!(
+        read_project_spec(&root.display().to_string(), "..private.md")
+            .await
+            .unwrap_err(),
+        expected["error"]["message"]
+    );
+}
+
+#[test]
 fn empty_content_does_not_hide_a_structured_supervisor_response() {
     let cases = json!([
         ["approval_review", {"kind":"approve","reason":"ok","content":[{"type":"text","text":""}]}],

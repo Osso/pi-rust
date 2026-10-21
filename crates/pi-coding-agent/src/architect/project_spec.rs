@@ -13,17 +13,18 @@ const SPEC_INDEX_PATH: [&str; 3] = ["docs", "specs", "README.md"];
 
 /// `readProjectSpec`: reads a Markdown spec under `<projectRoot>/docs/specs`.
 pub async fn read_project_spec(project_cwd: &str, spec_path: &str) -> Result<String, String> {
-    let project_root = find_project_root(project_cwd).await?;
+    let project_root =
+        std::fs::canonicalize(find_project_root(project_cwd).await?).map_err(|error| error.to_string())?;
     let specs_root =
         std::fs::canonicalize(project_root.join(Path::new("docs").join("specs"))).map_err(|error| error.to_string())?;
     let specs_relative_path = relative_path(&project_root, &specs_root);
-    if specs_relative_path.starts_with("..") || specs_relative_path.is_absolute() {
+    if specs_relative_path.to_string_lossy().starts_with("..") || specs_relative_path.is_absolute() {
         return Err("Architect project specs directory must remain inside the project root".to_owned());
     }
     let requested_path = resolve_path(&specs_root, spec_path);
     let lexical_relative_path = relative_path(&specs_root, &requested_path);
     if Path::new(spec_path).is_absolute()
-        || lexical_relative_path.starts_with("..")
+        || lexical_relative_path.to_string_lossy().starts_with("..")
         || lexical_relative_path.is_absolute()
         || !requested_path.to_string_lossy().ends_with(".md")
     {
@@ -31,7 +32,7 @@ pub async fn read_project_spec(project_cwd: &str, spec_path: &str) -> Result<Str
     }
     let canonical_path = std::fs::canonicalize(&requested_path).map_err(|error| error.to_string())?;
     let relative_path = relative_path(&specs_root, &canonical_path);
-    if relative_path.starts_with("..") || relative_path.is_absolute() {
+    if relative_path.to_string_lossy().starts_with("..") || relative_path.is_absolute() {
         return Err("Architect project spec path must remain inside docs/specs".to_owned());
     }
     tokio::fs::read_to_string(&canonical_path)

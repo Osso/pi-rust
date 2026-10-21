@@ -31,3 +31,5 @@ Differential proof: request `27011` reads three real config files (populated, `{
 
 - Focused cases: 11.
 - Differential request: `27011` (10 resolutions, 9 URL identities, 3 config reads).
+
+Q16 counterexamples: `q16_runtime_repin` proves no-slash scheme authority, BOM trimming and existing-directory config read failures against frozen module. RED `/tmp/pi-rust-repin-supervisor-runtime/red-project-branches.log`.
