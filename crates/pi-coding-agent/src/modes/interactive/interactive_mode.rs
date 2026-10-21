@@ -10886,6 +10886,7 @@ impl InteractiveMode {
         let done_component = Rc::clone(&component_slot);
         let mode = self.ui_id.get();
         let overlay = options.as_ref().and_then(|options| options.overlay).unwrap_or(false);
+        let saved_text = self.editor().borrow().get_text();
         let done = ExtensionUiDone::new(Rc::new(move |value| {
             let respond = done_respond
                 .lock()
@@ -10900,6 +10901,7 @@ impl InteractiveMode {
                     mode.ui.hide_overlay();
                 } else {
                     mode.restore_editor();
+                    mode.editor().borrow_mut().set_text(&saved_text);
                 }
             });
             let _ = respond.send(Ok(value));
@@ -14684,6 +14686,50 @@ mod ui_tests {
                 mode.ui.process_events();
                 assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("typed 🚀")));
                 assert!(!mode.ui.has_overlay_entries());
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_custom_restores_text_saved_before_construction_only_without_overlay() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                for overlay in [false, true] {
+                    mode.editor().borrow_mut().set_text("before");
+                    let editor = mode.editor();
+                    let (send, receive) = tokio::sync::oneshot::channel();
+                    mode.show_extension_custom(
+                        Rc::new(move |context, done| {
+                            editor.borrow_mut().set_text("factory");
+                            Ok(Box::new(LocalEditorForm {
+                                editor: RefCell::new(pi_tui::components::editor::Editor::new(
+                                    Rc::new(context.tui),
+                                    crate::modes::interactive::theme::get_editor_theme(),
+                                    pi_tui::components::editor::EditorOptions::default(),
+                                )),
+                                done,
+                            }))
+                        }),
+                        Some(ExtensionUiCustomOptions {
+                            overlay: Some(overlay),
+                            ..Default::default()
+                        }),
+                        send,
+                    );
+                    let ui = mode.ui_context();
+                    ui.set_editor_text("during");
+                    mode.handle_ui_requests().await;
+                    assert_eq!(mode.editor().borrow().get_text(), "during");
+                    terminal.borrow_mut().send_input("\r");
+                    mode.ui.process_events();
+                    assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("")));
+                    assert_eq!(
+                        mode.editor().borrow().get_text(),
+                        if overlay { "during" } else { "before" }
+                    );
+                }
             })
             .await;
     }
