@@ -50,6 +50,20 @@ function listeners(color, live) {
     return calls;
 }
 
+function staleUnsubscribe(color) {
+    const tui = new TUI(terminal());
+    const add = (callback) => color ? tui.onTerminalColorSchemeChange(callback) : tui.addInputListener(callback);
+    let count = 0;
+    const callback = () => { count++; };
+    const first = add(callback);
+    const second = add(callback);
+    second();
+    add(callback);
+    first();
+    tui.handleInput(color ? "\x1b[?997;1n" : "a");
+    return count;
+}
+
 function termux() {
     return [false, true].map((late) => {
         delete process.env.TERMUX_VERSION;
@@ -103,6 +117,8 @@ async function run(scenario) {
         case "children": return duplicateChildren();
         case "input": return listeners(false, false);
         case "color": return listeners(true, false);
+        case "stale-input": return staleUnsubscribe(false);
+        case "stale-color": return staleUnsubscribe(true);
         case "live-input": return listeners(false, true);
         case "live-color": return listeners(true, true);
         case "termux": return termux();

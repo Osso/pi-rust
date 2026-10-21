@@ -7,7 +7,7 @@
 //! the source relies on for focus, overlays, fixed cells, and render regions.
 
 use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 use std::time::{Duration, Instant};
@@ -118,9 +118,12 @@ pub struct Container {
     children: Vec<ComponentRef>,
 }
 
-// Callback IDs preserve insertion order; Rc identity matches JS function identity.
+type ListenerHandles<T> = RefCell<HashMap<usize, Weak<T>>>;
+
+// Insertion IDs order live dispatch; unsubscribe handles retain callback identity.
 fn register_listener<T: ?Sized>(
     listeners: &RefCell<Vec<(usize, Rc<T>)>>,
+    handles: &ListenerHandles<T>,
     next_id: &Cell<usize>,
     listener: Rc<T>,
 ) -> usize {
@@ -133,8 +136,18 @@ fn register_listener<T: ?Sized>(
     }
     let id = next_id.get();
     next_id.set(id + 1);
+    handles.borrow_mut().insert(id, Rc::downgrade(&listener));
     listeners.push((id, listener));
     id
+}
+
+fn remove_listener<T: ?Sized>(listeners: &RefCell<Vec<(usize, Rc<T>)>>, handles: &ListenerHandles<T>, id: usize) {
+    let Some(listener) = handles.borrow().get(&id).and_then(Weak::upgrade) else {
+        return;
+    };
+    listeners
+        .borrow_mut()
+        .retain(|(_, registered)| !Rc::ptr_eq(registered, &listener));
 }
 
 fn next_listener<T: ?Sized>(
@@ -719,6 +732,7 @@ struct TuiBaseInner {
     focused_component: RefCell<Option<ComponentRef>>,
     deferred_focus_updates: RefCell<Vec<(ComponentRef, bool)>>,
     input_listeners: RefCell<Vec<(usize, TuiInputListener)>>,
+    input_listener_handles: ListenerHandles<dyn Fn(&str) -> TuiInputListenerResult>,
     next_listener_id: Cell<usize>,
     on_debug: RefCell<Option<Rc<dyn Fn()>>>,
     render_requested: Cell<bool>,
@@ -737,6 +751,7 @@ struct TuiBaseInner {
     pending_osc11_replies: Cell<usize>,
     pending_color_scheme_queries: RefCell<Vec<Rc<RefCell<ColorSchemeQueryState>>>>,
     terminal_color_scheme_listeners: RefCell<Vec<(usize, ColorSchemeListener)>>,
+    terminal_color_scheme_listener_handles: ListenerHandles<dyn Fn(TerminalColorScheme)>,
     terminal_color_scheme_notifications_enabled: Cell<bool>,
     log_directory: PathBuf,
     focus_order_counter: Cell<u64>,
@@ -768,6 +783,7 @@ impl TuiBase {
             focused_component: RefCell::new(None),
             deferred_focus_updates: RefCell::new(Vec::new()),
             input_listeners: RefCell::new(Vec::new()),
+            input_listener_handles: RefCell::new(HashMap::new()),
             next_listener_id: Cell::new(0),
             on_debug: RefCell::new(None),
             render_requested: Cell::new(false),
@@ -788,6 +804,7 @@ impl TuiBase {
             pending_osc11_replies: Cell::new(0),
             pending_color_scheme_queries: RefCell::new(Vec::new()),
             terminal_color_scheme_listeners: RefCell::new(Vec::new()),
+            terminal_color_scheme_listener_handles: RefCell::new(HashMap::new()),
             terminal_color_scheme_notifications_enabled: Cell::new(false),
             log_directory: log_directory.unwrap_or_else(default_log_directory),
             focus_order_counter: Cell::new(0),
@@ -977,29 +994,33 @@ impl TuiBase {
     }
 
     pub fn add_input_listener(&self, listener: TuiInputListener) -> usize {
-        register_listener(&self.inner.input_listeners, &self.inner.next_listener_id, listener)
+        register_listener(
+            &self.inner.input_listeners,
+            &self.inner.input_listener_handles,
+            &self.inner.next_listener_id,
+            listener,
+        )
     }
 
     pub fn remove_input_listener(&self, id: usize) {
-        self.inner
-            .input_listeners
-            .borrow_mut()
-            .retain(|(listener_id, _)| *listener_id != id);
+        remove_listener(&self.inner.input_listeners, &self.inner.input_listener_handles, id);
     }
 
     pub fn on_terminal_color_scheme_change(&self, listener: ColorSchemeListener) -> usize {
         register_listener(
             &self.inner.terminal_color_scheme_listeners,
+            &self.inner.terminal_color_scheme_listener_handles,
             &self.inner.next_listener_id,
             listener,
         )
     }
 
     pub fn remove_terminal_color_scheme_listener(&self, id: usize) {
-        self.inner
-            .terminal_color_scheme_listeners
-            .borrow_mut()
-            .retain(|(listener_id, _)| *listener_id != id);
+        remove_listener(
+            &self.inner.terminal_color_scheme_listeners,
+            &self.inner.terminal_color_scheme_listener_handles,
+            id,
+        );
     }
 
     pub fn set_terminal_color_scheme_notifications(&self, enabled: bool) {

@@ -141,6 +141,60 @@ fn color_callback_identity_deduplicates_registration_and_unsubscribe() {
 }
 
 #[test]
+fn stale_input_unsubscribe_removes_reregistered_callback() {
+    let (terminal, handle) = concrete(80, 24);
+    let tui = pi_tui::TUI::new(handle);
+    let calls = Rc::new(Cell::new(0));
+    let count = calls.clone();
+    let listener: TuiInputListener = Rc::new(move |_| {
+        count.set(count.get() + 1);
+        TuiInputListenerResult::default()
+    });
+    let first = tui.add_input_listener(listener.clone());
+    let second = tui.add_input_listener(listener.clone());
+    tui.remove_input_listener(second);
+    tui.add_input_listener(listener.clone());
+    tui.remove_input_listener(first);
+    terminal.borrow_mut().send_input("a");
+    tui.process_events();
+    let expected = frozen("stale-input");
+    assert_eq!(expected, json!(0));
+    assert_eq!(json!(calls.get()), expected);
+
+    // Unsubscribe handles remain callable after they have already removed L.
+    tui.add_input_listener(listener);
+    tui.remove_input_listener(first);
+    terminal.borrow_mut().send_input("a");
+    tui.process_events();
+    assert_eq!(calls.get(), 0);
+}
+
+#[test]
+fn stale_color_unsubscribe_removes_reregistered_callback() {
+    let (terminal, handle) = concrete(80, 24);
+    let tui = pi_tui::TUI::new(handle);
+    let calls = Rc::new(Cell::new(0));
+    let count = calls.clone();
+    let listener: Rc<dyn Fn(pi_tui::TerminalColorScheme)> = Rc::new(move |_| count.set(count.get() + 1));
+    let first = tui.on_terminal_color_scheme_change(listener.clone());
+    let second = tui.on_terminal_color_scheme_change(listener.clone());
+    tui.base().remove_terminal_color_scheme_listener(second);
+    tui.on_terminal_color_scheme_change(listener.clone());
+    tui.base().remove_terminal_color_scheme_listener(first);
+    terminal.borrow_mut().send_input("\x1b[?997;1n");
+    tui.process_events();
+    let expected = frozen("stale-color");
+    assert_eq!(expected, json!(0));
+    assert_eq!(json!(calls.get()), expected);
+
+    tui.on_terminal_color_scheme_change(listener);
+    tui.base().remove_terminal_color_scheme_listener(first);
+    terminal.borrow_mut().send_input("\x1b[?997;1n");
+    tui.process_events();
+    assert_eq!(calls.get(), 0);
+}
+
+#[test]
 fn termux_environment_is_nonempty_and_read_at_render_time() {
     let mut redraws = Vec::new();
     for late in [false, true] {
