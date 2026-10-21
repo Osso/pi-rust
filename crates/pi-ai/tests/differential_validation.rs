@@ -860,19 +860,17 @@ fn validation_matches_the_pinned_typescript_module() {
     let results = response["output"]["results"].as_array().expect("results array");
     assert_eq!(results.len(), cases.len());
 
+    let mut mismatches = Vec::new();
     for (case, expected) in cases.iter().zip(results) {
         let name = case["name"].as_str().expect("case name");
         let kind = case["kind"].as_str().expect("case kind");
         let schema = &expected["schemas"][0];
         let actual = rust_validate(&case["arguments"], schema, kind);
-        assert_eq!(
-            actual,
-            normalized_expected(expected),
-            "case {name}: schema {} arguments {}",
-            case["schema"],
-            case["arguments"]
-        );
+        if actual != normalized_expected(expected) {
+            mismatches.push(format!("{name}: Rust {actual}; TS {}", normalized_expected(expected)));
+        }
     }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 
 #[test]
@@ -945,4 +943,132 @@ fn tool_call_lookup_matches_the_pinned_typescript_module() {
         };
         assert_eq!(actual, normalized_expected(expected), "case {}", case["name"]);
     }
+}
+
+#[test]
+fn optional_nulls_and_union_order_match_the_frozen_source() {
+    let mut fixtures = Vec::new();
+    for (name, plain_schema, typebox_schema) in [
+        ("string", json!({"type":"string"}), json!({"t":"string"})),
+        ("number", json!({"type":"number"}), json!({"t":"number"})),
+        ("integer", json!({"type":"integer"}), json!({"t":"integer"})),
+        ("boolean", json!({"type":"boolean"}), json!({"t":"boolean"})),
+        ("null", json!({"type":"null"}), json!({"t":"null"})),
+        (
+            "enum",
+            json!({"type":"string","enum":["high","low"]}),
+            json!({"t":"unsafe","schema":{"type":"string","enum":["high","low"]}}),
+        ),
+        (
+            "nullable",
+            json!({"anyOf":[{"type":"number"},{"type":"null"}]}),
+            json!({"t":"union","anyOf":[{"t":"number"},{"t":"null"}]}),
+        ),
+        (
+            "array",
+            json!({"type":"array","items":{"type":"number"}}),
+            json!({"t":"array","items":{"t":"number"}}),
+        ),
+        (
+            "object",
+            json!({"type":"object"}),
+            json!({"t":"object","properties":{}}),
+        ),
+    ] {
+        for required in [false, true] {
+            let required_keys = if required { json!(["value"]) } else { json!([]) };
+            fixtures.push(case(
+                &format!("plain-{name}-required-{required}"),
+                plain(json!({
+                    "type":"object", "properties":{"value":plain_schema}, "required":required_keys
+                })),
+                json!({"value":null}),
+            ));
+            let property = if required {
+                typebox_schema.clone()
+            } else {
+                json!({"t":"optional","schema":typebox_schema})
+            };
+            fixtures.push(case(
+                &format!("typebox-{name}-required-{required}"),
+                typebox(json!({
+                    "t":"object", "properties":{"value":property}
+                })),
+                json!({"value":null}),
+            ));
+        }
+    }
+    for keyword in ["anyOf", "oneOf"] {
+        for (name, arms, input) in [
+            (
+                "coerce-before-existing-match",
+                json!([{"type":"number"},{"type":"string"}]),
+                json!("42"),
+            ),
+            ("null-first", json!([{"type":"null"},{"type":"number"}]), Value::Null),
+            ("number-first", json!([{"type":"number"},{"type":"null"}]), Value::Null),
+            (
+                "reject-first-candidate",
+                json!([{"type":"number","minimum":5},{"type":"string"}]),
+                json!("2"),
+            ),
+            (
+                "no-valid-candidate",
+                json!([{"type":"integer"},{"type":"boolean"}]),
+                json!({}),
+            ),
+            (
+                "object-candidate-clone",
+                json!([
+                    {"type":"object","properties":{"value":{"type":"number"}},"required":["missing"]},
+                    {"type":"object","properties":{"value":{"type":"string"}}}
+                ]),
+                json!({"value":null}),
+            ),
+        ] {
+            let mut union = Map::new();
+            union.insert(keyword.into(), arms);
+            fixtures.push(case(
+                &format!("{keyword}-{name}"),
+                plain(json!({
+                    "type":"object", "properties":{"value":union}, "required":["value"]
+                })),
+                json!({"value":input}),
+            ));
+        }
+    }
+    fixtures.push(case("set-agent-model-explicit-nulls", typebox(json!({
+        "t":"object", "properties":{
+            "agentId":{"t":"string"},
+            "provider":{"t":"optional","schema":{"t":"string"}},
+            "modelId":{"t":"optional","schema":{"t":"string"}},
+            "thinkingLevel":{"t":"optional","schema":{"t":"unsafe","schema":{"type":"string","enum":["off","minimal","low","medium","high","xhigh"]}}}
+        }
+    })), json!({"agentId":1,"provider":null,"modelId":null})));
+    let mut rejected = fixtures.last().unwrap().clone();
+    rejected["name"] = json!("set-agent-model-null-thinking-level");
+    rejected["arguments"]["thinkingLevel"] = Value::Null;
+    fixtures.push(rejected);
+
+    let mut oracle = oracle::TsOracle::spawn("validation-oracle.ts", "packages/ai/src/utils/validation.ts");
+    let response = oracle.request(&json!({"id":1,"operation":"validate_tool_arguments","cases":fixtures}));
+    assert_eq!(response["ok"], json!(true), "{response}");
+    let results = response["output"]["results"].as_array().unwrap();
+    assert_eq!(results.len(), fixtures.len());
+    let mut mismatches = Vec::new();
+    for (fixture, expected) in fixtures.iter().zip(results) {
+        let actual = rust_validate(
+            &fixture["arguments"],
+            &expected["schemas"][0],
+            fixture["kind"].as_str().unwrap(),
+        );
+        if actual != normalized_expected(expected) {
+            mismatches.push(format!(
+                "{}: Rust {actual}; TS {}",
+                fixture["name"],
+                normalized_expected(expected)
+            ));
+        }
+    }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }

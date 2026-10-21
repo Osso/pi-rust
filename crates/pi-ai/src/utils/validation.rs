@@ -58,7 +58,6 @@ pub fn validate_tool_call(tools: &[Tool], tool_call: &ToolCall) -> Result<Value,
 /// Validates tool call arguments against the tool's schema.
 pub fn validate_tool_arguments(tool: &Tool, tool_call: &ToolCall) -> Result<Value, ValidationError> {
     let mut args = Value::Object(tool_call.arguments.clone());
-    normalize_optional_nulls(&mut args, &tool.parameters);
     if tool.typebox_kind {
         let _ = convert(&tool.parameters, &mut args, &Map::new());
     }
@@ -161,69 +160,6 @@ fn deep_equal(left: &Value, right: &Value) -> bool {
         }
         (Value::Number(left), Value::Number(right)) => left.as_f64() == right.as_f64(),
         _ => false,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Optional null normalization
-// ---------------------------------------------------------------------------
-
-fn normalize_optional_nulls(value: &mut Value, schema: &Value) {
-    if let Value::Array(items) = value {
-        normalize_array_nulls(items, schema);
-        return;
-    }
-    normalize_object_nulls(value, schema);
-}
-
-fn normalize_array_nulls(items: &mut [Value], schema: &Value) {
-    match schema.get("items") {
-        Some(Value::Array(item_schemas)) => {
-            for (index, item) in items.iter_mut().enumerate() {
-                if let Some(item_schema) = item_schemas.get(index) {
-                    normalize_optional_nulls(item, item_schema);
-                }
-            }
-        }
-        Some(item_schema) if item_schema.is_object() => {
-            for item in items.iter_mut() {
-                normalize_optional_nulls(item, item_schema);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn normalize_object_nulls(value: &mut Value, schema: &Value) {
-    if !value.is_object() {
-        return;
-    }
-    let Some(properties) = object_field(schema, "properties") else {
-        return;
-    };
-    let required: Vec<&str> = array_field(schema, "required")
-        .map(|keys| keys.iter().filter_map(Value::as_str).collect())
-        .unwrap_or_default();
-    let keys: Vec<String> = properties.keys().cloned().collect();
-    let Some(map) = value.as_object_mut() else {
-        return;
-    };
-    for key in keys {
-        let Some(property_schema) = properties.get(&key) else {
-            continue;
-        };
-        if !map.contains_key(&key) {
-            continue;
-        }
-        let should_delete = map.get(&key).is_some_and(Value::is_null)
-            && !required.contains(&key.as_str())
-            && !matches!(property_schema.get("$ref"), Some(Value::String(_)))
-            && !check(property_schema, &Value::Null);
-        if should_delete {
-            map.remove(&key);
-        } else if let Some(property) = map.get_mut(&key) {
-            normalize_optional_nulls(property, property_schema);
-        }
     }
 }
 
@@ -667,11 +603,6 @@ fn coerce_primitive(types: &[String], value: &mut Value) {
 }
 
 fn coerce_union(schemas: &[Value], value: &mut Value) -> Conversion {
-    for schema in schemas {
-        if check(schema, value) {
-            return Conversion::InPlace;
-        }
-    }
     for schema in schemas {
         let mut candidate = value.clone();
         coerce_in_place(&mut candidate, schema);

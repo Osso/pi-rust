@@ -1,6 +1,23 @@
 # utils/validation traceability
 
-Sources: `packages/ai/src/utils/validation.ts` (350 lines) at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Source: complete `packages/ai/src/utils/validation.ts` (326 lines) read at
+`4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
+Spec: [shared validation](../../specs/validation.md).
+
+## Re-pin status — bounded repair, not whole-module parity
+
+- Removed the old pre-conversion optional-null deletion pass; source has no such pass.
+- Removed plain union coercion's already-valid-arm precheck. Source coerces and checks
+  cloned candidates in declaration order (`coerceWithUnionSchema`, lines 194–204).
+- New differential test `optional_nulls_and_union_order_match_the_frozen_source`
+  covers 50 cases: optional/required primitive, enum, nullable, array and object nulls;
+  anyOf/oneOf ordering and rejected-candidate isolation; exact set_agent_model-shaped
+  arguments. RED observed before production changes (24 new-case mismatches).
+- The prior 68-case differential matrix is not current-pin whole-module proof:
+  `plain-union-types` now exposes a TS nullable-array compiler exception. Classification
+  is pending; no waiver, runtime-input exclusion, or source-bug choice is made here.
+- Historical claims below describe the previous implementation, not fresh proof of
+  every engine branch. Wider gaps remain unresolved, even if older text says unused.
 Rust: `crates/pi-ai/src/utils/validation.rs`.
 
 Differential oracle: `oracle/validation-oracle.ts` (builds TypeBox schemas with the pinned
@@ -13,8 +30,8 @@ Tests: `crates/pi-ai/tests/validation.rs` (26 behavioral cases), `crates/pi-ai/t
 - `Tool.parameters` stays a plain `serde_json::Value` (JSON Schema). TypeBox origin is recorded on
   `Tool.typebox_kind`; `Tool::typebox` sets it, `Tool::new` leaves it false. TypeScript records the
   same fact with a hidden `~kind` string property, which a `serde_json::Value` cannot carry.
-  `typebox_kind` gates only the `Value.Convert` pass, because that is the only place TypeBox
-  dispatches on the marker.
+  `typebox_kind` gates only the `Value.Convert` pass. Nested origin is not represented;
+  that is an unresolved parity boundary, not a new exclusion.
 - `validate_tool_arguments` / `validate_tool_call` return `Result<Value, ValidationError>`.
   `ValidationError` implements `Display`/`Error` with the exact TypeScript `Error.message`.
 - Coercion is modeled with an in-place/replacement enum (`Conversion::{InPlace, Replaced}`) to mirror
@@ -34,7 +51,7 @@ Tests: `crates/pi-ai/tests/validation.rs` (26 behavioral cases), `crates/pi-ai/t
 |---|---|---|
 | `validateToolCall` | `validate_tool_call` | `validate_tool_call_reports_unknown_tool_names`, `validate_tool_call_validates_matching_tools`, differential `tool_call_lookup_matches_the_pinned_typescript_module` |
 | `validateToolArguments` | `validate_tool_arguments` | 26 behavioral tests + 68 differential cases |
-| `normalizeOptionalNulls` | `normalize_optional_nulls` | `null_is_omitted_for_optional_non_nullable_typebox_properties`, `optional_nulls_with_nullable_references_are_preserved`, `nulls_matching_a_typebox_nullable_union_arm_are_preserved`, `typebox-array-of-objects-optional-nulls` |
+| no normalization in current source | removed old `normalize_optional_nulls` | new 50-case null/order matrix; `optional_nulls_are_converted_without_deleting_properties` |
 | `Value.Convert` (`FromType` dispatch) | `convert` + `convert_*` + `try_*` | `typebox-*` differential cases, including `typebox-bigint-like-strings` |
 | `CheckSchema` inside keywords | `check` (standalone sub-schema) / `check_with` (caller schema stack) | `plain-contains-ref`, `plain-not-ref`, `plain-any-of-ref`, `plain-additional-properties-ref` |
 | `coerceWithJsonSchema` | `coerce_into`, `coerce_union`, `coerce_primitive_by_type` | `plain-*` differential cases, `plain_schemas_use_ajv_compatible_primitive_coercions` |
@@ -81,7 +98,14 @@ keywords; number keywords; ref/const/enum/if/not/allOf/anyOf/oneOf):
   per node. `StringEnum` is the only in-repo `Type.Unsafe` use and its observable behavior matches;
   an `Unsafe({type:"integer"})` node with `"42.9"` would truncate in Rust where TypeScript fails.
 
-## Discrepancies
+## Current-pin discrepancy awaiting classification
+
+`plain-union-types` uses `{type:["array","null"],items:{type:"number"}}`
+for property `c`, receiving `null`. The actual frozen module throws
+`Cannot read properties of null (reading 'every')`; Rust currently accepts it.
+The existing differential test remains red rather than silently dropping this case.
+
+## Historical discrepancies (re-validation required)
 
 - `TYPEBOX_KIND` is dead code at the pinned TypeBox version (1.3.7). `Type.Object(...)` has no symbol
   properties (`Object.getOwnPropertySymbols` is empty); the marker is a hidden `~kind` string. The
