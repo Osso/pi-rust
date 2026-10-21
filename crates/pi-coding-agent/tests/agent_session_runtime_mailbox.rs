@@ -307,6 +307,131 @@ fn reserve_agent(store: &Arc<MultiAgentStore>, env: &TestEnv, id: &str, parent_i
 }
 
 #[tokio::test(start_paused = true)]
+async fn acceptance_tracks_distinct_messages_once_and_releases_only_unaccepted_claims() {
+    use pi_coding_agent::core::runtime_mailbox_acceptance::{
+        RuntimeMailboxAcceptance, RuntimeMailboxAcceptanceRef, release_unaccepted_runtime_mailbox_messages,
+    };
+    use pi_coding_agent::core::session_control_db::{
+        claim_runtime_mailbox_messages, register_runtime_mailbox_listener,
+    };
+    let env = test_env(false).await;
+    let recipient = RuntimeMailboxAddress {
+        agent_id: None,
+        session_id: session_id(&env),
+    };
+    register_runtime_mailbox_listener(
+        &env.control_db,
+        &recipient,
+        std::process::id(),
+        Some(&session_path(&env)),
+        Default::default(),
+    )
+    .expect("listener");
+    let first_id = enqueue_stored_message(&env, "first", "first", None);
+    let second_id = enqueue_stored_message(&env, "second", "second", None);
+    let claims = claim_runtime_mailbox_messages(&env.control_db, &recipient, 10).expect("claim");
+    let refs = claims.iter().map(RuntimeMailboxAcceptanceRef::from).collect::<Vec<_>>();
+    assert_eq!(refs.len(), 2);
+    let first: AgentMessage =
+        serde_json::from_value(json!({"role":"user", "content":"first", "timestamp":1})).expect("first user");
+    let second: AgentMessage =
+        serde_json::from_value(json!({"role":"user", "content":"second", "timestamp":2})).expect("second user");
+    let mut acceptance = RuntimeMailboxAcceptance::default();
+    {
+        let mut manager = lock_session_manager(&env.session_manager);
+        acceptance
+            .accept_messages(&mut manager, &env.control_db, &refs[..1], Some(&first))
+            .expect("accept first before any assistant");
+        release_unaccepted_runtime_mailbox_messages(&manager, &env.control_db, &refs).expect("release second");
+    }
+    assert!(
+        read_runtime_mailbox_message(&env.control_db, first_id)
+            .expect("first removed")
+            .is_none()
+    );
+    assert_eq!(
+        read_runtime_mailbox_message(&env.control_db, second_id)
+            .expect("read second")
+            .expect("second pending")
+            .status,
+        RuntimeMailboxMessageStatus::Pending
+    );
+    assert!(!acceptance.consume_persisted_message(&second));
+    assert!(acceptance.consume_persisted_message(&first));
+    assert!(!acceptance.consume_persisted_message(&first));
+    let second_claim = claim_runtime_mailbox_messages(&env.control_db, &recipient, 10).expect("reclaim second");
+    let second_refs = second_claim
+        .iter()
+        .map(RuntimeMailboxAcceptanceRef::from)
+        .collect::<Vec<_>>();
+    acceptance
+        .accept_messages(
+            &mut lock_session_manager(&env.session_manager),
+            &env.control_db,
+            &second_refs,
+            Some(&second),
+        )
+        .expect("accept distinct second");
+    assert!(!acceptance.consume_persisted_message(&first));
+    assert!(acceptance.consume_persisted_message(&second));
+    assert!(!acceptance.consume_persisted_message(&second));
+    let receipts = pi_coding_agent::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs(Some(
+        &session_path(&env),
+    ))
+    .expect("receipts");
+    assert_eq!(receipts.len(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn rejected_unpersisted_acceptance_keeps_claim_until_finally_release() {
+    use pi_coding_agent::core::runtime_mailbox_acceptance::{
+        RuntimeMailboxAcceptance, RuntimeMailboxAcceptanceRef, release_unaccepted_runtime_mailbox_messages,
+    };
+    use pi_coding_agent::core::session_control_db::{
+        claim_runtime_mailbox_messages, register_runtime_mailbox_listener,
+    };
+    let env = test_env(false).await;
+    let recipient = RuntimeMailboxAddress {
+        agent_id: None,
+        session_id: session_id(&env),
+    };
+    register_runtime_mailbox_listener(
+        &env.control_db,
+        &recipient,
+        std::process::id(),
+        Some(&session_path(&env)),
+        Default::default(),
+    )
+    .expect("listener");
+    let id = enqueue_stored_message(&env, "retry me", "retry", None);
+    let claims = claim_runtime_mailbox_messages(&env.control_db, &recipient, 10).expect("claim");
+    let refs = claims.iter().map(RuntimeMailboxAcceptanceRef::from).collect::<Vec<_>>();
+    let mut recipient_session = SessionManager::in_memory(Some(&env.cwd), None).expect("memory session");
+    let failure = RuntimeMailboxAcceptance::default()
+        .accept_messages(&mut recipient_session, &env.control_db, &refs, None)
+        .expect_err("must persist receipt");
+    assert_eq!(
+        failure.message(),
+        "Mailbox acceptance requires a persisted recipient session"
+    );
+    assert_eq!(
+        read_runtime_mailbox_message(&env.control_db, id)
+            .expect("read claim")
+            .expect("claim remains")
+            .status,
+        RuntimeMailboxMessageStatus::Claimed
+    );
+    release_unaccepted_runtime_mailbox_messages(&recipient_session, &env.control_db, &refs).expect("finally release");
+    assert_eq!(
+        read_runtime_mailbox_message(&env.control_db, id)
+            .expect("read release")
+            .expect("retry remains")
+            .status,
+        RuntimeMailboxMessageStatus::Pending
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn polling_claims_mailbox_messages_only_after_listener_binding() {
     let env = test_env(false).await;
     let message_id = enqueue_stored_message(&env, "Constructor poll wake", "runtime_test_poll", None);
@@ -329,9 +454,37 @@ async fn polling_claims_mailbox_messages_only_after_listener_binding() {
     env.faux.set_responses(vec![
         faux_assistant_message("mailbox reply", FauxAssistantMessageOptions::default()).into(),
     ]);
-    let expected_prompt = format_runtime_mailbox_prompt(&message, &session_id(&env));
+    let second_id = enqueue_stored_message(&env, "Second distinct message", "runtime_test_poll_second", None);
+    let second = read_runtime_mailbox_message(&env.control_db, second_id)
+        .expect("read second")
+        .expect("second");
+    let expected_prompt = format!(
+        "{}\n\n{}",
+        format_runtime_mailbox_prompt(&message, &session_id(&env)),
+        format_runtime_mailbox_prompt(&second, &session_id(&env))
+    );
     advance(30_000).await;
     assert_eq!(user_texts(&env.session), vec![expected_prompt]);
+    let accepted = pi_coding_agent::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs(Some(
+        &session_path(&env),
+    ))
+    .expect("receipt refs");
+    assert_eq!(accepted.len(), 2, "both distinct messages must have durable receipts");
+    let transcript = std::fs::read_to_string(session_path(&env)).expect("transcript");
+    let user_records = transcript
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("record"))
+        .filter(|entry| entry["type"] == "message" && entry["message"]["role"] == "user")
+        .count();
+    assert_eq!(
+        user_records, 1,
+        "accepted prompt must not be appended again at MessageEnd"
+    );
+    assert!(
+        read_runtime_mailbox_message(&env.control_db, second_id)
+            .expect("second removed")
+            .is_none()
+    );
     // Frozen session-control-db.ts:1092-1101 deletes delivered canonical rows.
     assert!(
         read_runtime_mailbox_message(&env.control_db, message_id)
@@ -446,7 +599,7 @@ async fn steering_delivery_marks_the_store_message_and_completes_the_agent() {
     let AgentSteeringRequestResult::Ok { message, .. } = steered else {
         panic!("steering rejected: {steered:?}");
     };
-    let transport_id = enqueue_steering_transport(&env, &message.id, "agent_1");
+    enqueue_steering_transport(&env, &message.id, "agent_1");
     env.faux.set_responses(vec![
         faux_assistant_message("initial reply", FauxAssistantMessageOptions::default()).into(),
         faux_assistant_message("steer done", FauxAssistantMessageOptions::default()).into(),
@@ -457,11 +610,16 @@ async fn steering_delivery_marks_the_store_message_and_completes_the_agent() {
         .await
         .expect("prompt");
 
-    // Frozen session-control-db.ts:1092-1101 deletes delivered canonical rows.
+    // Frozen mailbox rowids can be reused by the new terminal notification.
+    // Assert the immutable store reference, not absence of a retired rowid.
     assert!(
-        read_runtime_mailbox_message(&env.control_db, transport_id)
-            .expect("read transport")
-            .is_none()
+        pi_coding_agent::core::session_control_db::get_multi_agent_mailbox_message_status(
+            &env.control_db,
+            &session_path(&env),
+            &message.id,
+        )
+        .expect("steering status")
+        .is_none()
     );
     let agent = store.get_agent("agent_1").expect("agent");
     assert_eq!(agent.lifecycle, AgentLifecycle::Completed);

@@ -168,7 +168,8 @@ fn tool_results_match_source_shapes() {
 
     let failure = error_tool_result("bad", json!({"value": 2}));
     assert_eq!(text(&failure), "bad");
-    assert_eq!(failure.is_error, Some(true));
+    // Frozen runtime.ts:402-412 errorResult omits isError.
+    assert_eq!(failure.is_error, None);
 
     let empty = empty_tool_result();
     assert!(empty.content.is_empty());

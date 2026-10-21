@@ -19,6 +19,10 @@ Differential proof: request `27004` compares provider display names (ordered ent
 | `ResourceDiagnostic` | `type`, `message`, optional `path`/`collision` | `ResourceDiagnostic` with `type` rename and omitted-when-absent fields; same test |
 | `SessionImportFileNotFoundError` | `name`, `message` = `File not found: <path>`, `filePath` | `SessionImportFileNotFoundError` (`NAME`, `Display`, `file_path`); differential `27004` |
 
+## Frozen 4f9e6f8a4 capability refresh
+
+`tool-capabilities.ts:1-11` now contains nine child-disabled tools, including `answer_question` and `set_agent_model`. `core_constants::exposes_radius_and_tool_capability_constants` reproduces the missing `answer_question` entry and checks the complete ordered list. Other historical proofs above are not renewed by this bounded fix.
+
 ## Exclusions
 
 - `ResourceDiagnostic`/`ResourceCollision` are Rust records with typed fields instead of TypeScript interfaces; there are no runtime validators in the source, so none were invented.
