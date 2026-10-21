@@ -55,3 +55,17 @@ Both ordinary TS-client→Rust-server and Rust-client→TS-server paths run in t
 The prior IPC client/server and RPC process done claims are withdrawn: 5 done / 8 partial. Probe RED reproduced child-exit delay, disconnected-work cancellation, BOM framing rejection and successful Radius body errors. Fixes use child exit before reader EOF, a detached accepted-work queue, shared `pi_js_compat::string::js_trim`, and status-only success for maybePost. Renewed proof is recorded separately; the original ledger above is historical, not current acceptance.
 
 Renewed focused proof at `a95ac55c`: nine tests across cli/frame_whitespace/radius_body/verifier_regressions pass; seven independent semantic mutants killed. Artifacts: `/tmp/pi-rust-repin-orchestrator-fixes/*-red.log`, `fix-regressions-green.log`, `mutants.json`, `mutant-*.log`. The 31-code-point matrix uses Node language semantics rather than importing each frozen module; frozen-module probes separately cover BOM server, disconnect completion, descendant-held pipes and Radius disconnect. Existing partial gaps remain open.
+
+## Integrated verifier-fix acceptance (2026-10-21)
+
+`master` `166eac08` merged branch-locally as `0ca61cfd`; sole conflict was the coverage count header. All 686 rows verified as the parent union, frozen 13-module bytes and every locked delta HEAD/SHA256 verified, orchestrator production bytes unchanged by merge. No source conflict or canonical merge.
+
+| Current proof scope | Result | Artifact under `/tmp/pi-rust-repin-orchestrator-fixes` |
+| --- | --- | --- |
+| `cargo test -p pi-orchestrator` at 0ca61cfd | 56 passed; subsequent test-only lint changes covered by replacement targets below | final-orchestrator.log |
+| Replacement frame_whitespace/radius at e8cba5dc; errors at d4a43a60; ipc at 1db1081b | 7 + 7 + 8 passed; all other prior tests remain current | final-affected-tests.log, final-errors.log, final-ipc.log |
+| `cargo test -p pi-js-compat --test node_fs_errors` | 6 passed; unchanged scope | final-node-fs.log |
+| `cargo check --workspace --all-targets` at 1db1081b | exit0, zero warnings | final-workspace-check-passing.log |
+| `cargo clippy -p pi-orchestrator -p pi-js-compat -j4 --all-targets -- -D warnings` at 1db1081b | exit0, zero warnings | final-clippy-passing.log |
+
+Formatting passes before each commit. All Cargo commands use jobs4/offline/worktree target; test binaries use the mandatory sandbox runner. Detailed command/revision/invalidation ledger: `proof-ledger.md` in that artifact directory. No independent verifier/delegation, network, push or canonical merge. Coverage remains 5 done / 8 partial; this does not close named parity gaps.
