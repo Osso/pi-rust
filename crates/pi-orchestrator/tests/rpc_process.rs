@@ -135,3 +135,43 @@ async fn child_signal_error_uses_node_signal_name() {
     );
     rpc.dispose().await.unwrap();
 }
+
+#[tokio::test]
+async fn native_sibling_pi_receives_rpc_mode_and_working_directory() {
+    use std::os::unix::fs::PermissionsExt;
+    if let Some(cwd) = std::env::var_os("ORCHESTRATOR_SIBLING_PROBE") {
+        let rpc = RpcProcessInstance::spawn(std::path::Path::new(&cwd)).unwrap();
+        let response = rpc.send(json!({"type":"get_state","id":"probe"})).await.unwrap();
+        println!("SIBLING_PROBE={}", response["data"]);
+        rpc.dispose().await.unwrap();
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let runner = dir.path().join("embedding");
+    std::fs::copy(std::env::current_exe().unwrap(), &runner).unwrap();
+    let pi = dir.path().join("pi");
+    std::fs::write(&pi,"#!/usr/bin/python3\nimport sys,json,os\nfor line in sys.stdin:\n request=json.loads(line)\n print(json.dumps({'type':'response','success':True,'id':request['id'],'command':request['type'],'data':{'argv':sys.argv[1:],'cwd':os.getcwd()}}),flush=True)\n").unwrap();
+    std::fs::set_permissions(&pi, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let cwd = dir.path().join("working");
+    std::fs::create_dir(&cwd).unwrap();
+    let output = tokio::process::Command::new(runner)
+        .args([
+            "--exact",
+            "native_sibling_pi_receives_rpc_mode_and_working_directory",
+            "--nocapture",
+        ])
+        .env("ORCHESTRATOR_SIBLING_PROBE", &cwd)
+        .output()
+        .await
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let text = String::from_utf8(output.stdout).unwrap();
+    let result = text
+        .lines()
+        .find_map(|line| line.strip_prefix("SIBLING_PROBE="))
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(result).unwrap(),
+        json!({"argv":["--mode","rpc"],"cwd":cwd})
+    );
+}
