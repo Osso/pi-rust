@@ -1,6 +1,6 @@
 # Extension examples M: forms and overlays
 
-Pinned source root: `/home/osso/.worktrees/pi-rust-source-532f7d12/packages/coding-agent/examples/extensions/`.
+Historical old-pin proof; current source root is `worktree` in [source-lock.json](../source-lock.json), under `packages/coding-agent/examples/extensions/`. Re-run pending.
 Audited against Rust base `1e27e41f8498c4cca42b353bae759c4494a84b7e` on 2026-10-20.
 Historical audit: all three modules were **stopped, not ported** at that base. The statements and RED evidence below describe that audit, not current API availability. The subsequent [core UI slice](core-ui-overlay.md) ports both forms and supplies the missing overlay operations; `overlay-qa-tests.ts` itself remains unported. Nothing loads by default.
 

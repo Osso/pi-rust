@@ -34,11 +34,8 @@ impl TsOracle {
         source_module: &str,
         env_pairs: &[(&str, OsString)],
     ) -> Self {
-        let (source_lock, source_module) = match source_module.strip_prefix("session-names:") {
-            Some(module) => (read_session_name_source_lock(), module),
-            None => (read_source_lock(), source_module),
-        };
-        Self::spawn_with_source(source_lock, oracle_filename, source_module, env_pairs)
+        let source_module = source_module.strip_prefix("session-names:").unwrap_or(source_module);
+        Self::spawn_with_source(read_source_lock(), oracle_filename, source_module, env_pairs)
     }
 
     fn spawn_with_source(
@@ -116,10 +113,6 @@ fn read_source_lock() -> SourceLock {
         .map(str::to_owned)
         .expect("source lock commit must be a string");
     SourceLock { worktree, commit }
-}
-
-fn read_session_name_source_lock() -> SourceLock {
-    read_source_lock()
 }
 
 fn spawn_oracle_process(

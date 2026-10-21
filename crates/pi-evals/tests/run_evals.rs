@@ -108,11 +108,14 @@ fn copy_pinned_script(fixture: &Fixture) -> PathBuf {
     let vitest = reference.join("node_modules/vitest");
     fs::create_dir_all(&scripts).unwrap();
     fs::create_dir_all(&vitest).unwrap();
-    fs::copy(
-        "/home/osso/.worktrees/pi-rust-source-532f7d12/packages/evals/scripts/run-evals.mjs",
-        scripts.join("run-evals.mjs"),
-    )
+    let lock: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/porting/source-lock.json"
+    )))
     .unwrap();
+    let source = PathBuf::from(lock["worktree"].as_str().unwrap()).join("packages/evals/scripts/run-evals.mjs");
+    fs::copy(&source, scripts.join("run-evals.mjs"))
+        .unwrap_or_else(|error| panic!("locked source module {}: {error}", source.display()));
     fs::write(vitest.join("package.json"), r#"{"name":"vitest","version":"0.0.0"}"#).unwrap();
     fs::write(
         vitest.join("vitest.mjs"),

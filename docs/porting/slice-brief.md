@@ -1,6 +1,6 @@
 # Slice brief (for porting agents)
 
-Read `AGENTS.md` first. Use absolute paths and `.cwd(<worktree>)`. Source oracle (read-only): `/home/osso/.worktrees/pi-rust-source-532f7d12/packages/...`.
+Read `AGENTS.md` first. Use absolute paths and `.cwd(<worktree>)`. Read-only source: use `worktree` and full revision from [source-lock.json](source-lock.json), currently 4f9e6f8a4. Old approvals/proofs are pending revalidation; see [re-pin boundary](repin-infra.md).
 
 ## Workflow per module
 1. Read the TS module and its tests (`packages/<pkg>/test/*`) to learn observable behavior.

@@ -1,11 +1,13 @@
 # Control DB v15 slice proof
 
+**Historical proof only:** old c248b0067 approval is to re-validate against 4f9e6f8a4; no test result below covers the [current common pin](source-lock.json).
+
 Branch: `port/ca-db-v15`, based on `6ffdddf`. Source behavior:
-[authorized c248b0067 reference](source-lock.json), except unchanged
+`c248b0067c9fc3fa438f967f826c222875c54834`, except unchanged
 broad AgentSession/RPC differentials, which retain the general pin and exercise
 name commands after JSONL snapshots. No output field/event is removed to force parity.
 
-## Current relevant proof
+## Historical slice proof
 
 | Scope | Revision | Command (all test invocations bounded by `timeout 600`) | Result |
 |---|---|---|---|

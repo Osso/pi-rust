@@ -34,16 +34,16 @@ mod truncate_line;
 
 fn spawn_oracle() -> oracle::TsOracle {
     oracle::TsOracle::spawn(&[
-        "packages/agent/src/harness/utils/truncate.ts",
+        "packages/agent-core/src/harness/utils/truncate.ts",
         "packages/agent/src/harness/utils/shell-output.ts",
         "packages/agent/src/index.ts",
-        "packages/agent/src/harness/prompt-templates.ts",
-        "packages/agent/src/harness/skills.ts",
-        "packages/agent/src/harness/system-prompt.ts",
+        "packages/agent-core/src/harness/prompt-templates.ts",
+        "packages/agent-core/src/harness/skills.ts",
+        "packages/agent-core/src/harness/system-prompt.ts",
         "packages/agent/src/harness/tools/image.ts",
         "packages/agent/src/harness/tools/edit-diff.ts",
-        "packages/agent/src/harness/compaction/utils.ts",
-        "packages/agent/src/harness/compaction/compaction.ts",
+        "packages/agent-core/src/harness/compaction/utils.ts",
+        "packages/agent-core/src/harness/compaction/compaction.ts",
     ])
 }
 

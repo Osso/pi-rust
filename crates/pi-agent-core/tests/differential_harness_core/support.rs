@@ -113,10 +113,10 @@ fn verify_source_head(source_lock: &SourceLock) {
 
 const SOURCE_MODULES: [&str; 6] = [
     "packages/agent/src/harness/events.ts",
-    "packages/agent/src/harness/messages.ts",
-    "packages/agent/src/harness/skills.ts",
-    "packages/agent/src/harness/prompt-templates.ts",
-    "packages/agent/src/harness/env/nodejs.ts",
+    "packages/agent-core/src/harness/messages.ts",
+    "packages/agent-core/src/harness/skills.ts",
+    "packages/agent-core/src/harness/prompt-templates.ts",
+    "packages/agent-core/src/harness/env/nodejs.ts",
     "packages/agent/src/harness/reducer.ts",
 ];
 

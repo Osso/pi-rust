@@ -32,9 +32,9 @@ mod support;
 
 use support::TsOracle;
 
-const COMPACTION_MODULE: &str = "packages/agent/src/harness/compaction/compaction.ts";
-const BRANCH_MODULE: &str = "packages/agent/src/harness/compaction/branch-summarization.ts";
-const MESSAGES_MODULE: &str = "packages/agent/src/harness/messages.ts";
+const COMPACTION_MODULE: &str = "packages/agent-core/src/harness/compaction/compaction.ts";
+const BRANCH_MODULE: &str = "packages/agent-core/src/harness/compaction/branch-summarization.ts";
+const MESSAGES_MODULE: &str = "packages/agent-core/src/harness/messages.ts";
 const SESSION_MODULE: &str = "packages/agent/src/harness/session/index.ts";
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 # Custom-operation errors and SSH example
 
 Runtime source: `532f7d12cd19235081bd4d6e425bde185652d86f`, read-only
-`/home/osso/.worktrees/pi-rust-source-532f7d12/packages/coding-agent/`.
+the historical old pin; current source is [source-lock.json](../source-lock.json), proof renewal pending.
 Worktree: `/home/osso/.worktrees/pi-rust-core-ssh-errors`; no merge/push.
 
 ## Root correction

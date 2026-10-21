@@ -11,7 +11,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceLock = selectTypecheckReference(repoRoot);
 const sourceWorktree = sourceLock.worktree;
 const argsModulePath = join(sourceWorktree, "packages/coding-agent/src/cli/args.ts");
-const thinkingLevelModulePath = join(sourceWorktree, "packages/agent/src/types.ts");
+const thinkingLevelModulePath = join(sourceWorktree, "packages/agent-core/src/types.ts");
 const highlightDeclarationPath = join(
   sourceWorktree,
   "packages/coding-agent/src/utils/highlight-js-lib-index.d.ts",

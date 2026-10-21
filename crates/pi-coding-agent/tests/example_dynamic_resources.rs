@@ -30,9 +30,13 @@ async fn startup_and_reload_return_complete_paths_with_real_assets() {
             "<module>/SKILL.md"
         );
     }
-    let pinned = std::path::Path::new(
-        "/home/osso/.worktrees/pi-rust-source-532f7d12/packages/coding-agent/examples/extensions/dynamic-resources",
-    );
+    let lock: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/porting/source-lock.json"
+    )))
+    .unwrap();
+    let pinned = std::path::PathBuf::from(lock["worktree"].as_str().unwrap())
+        .join("packages/coding-agent/examples/extensions/dynamic-resources");
     let native = std::path::Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/examples/extensions/dynamic-resources"

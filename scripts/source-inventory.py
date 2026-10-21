@@ -47,6 +47,11 @@ def parse_rows(text):
 
 
 def repin_rows(old, expected, changes):
+    old = {name: row.copy() for name, row in old.items()}
+    for row in old.values():
+        if not (row[2].isdigit() or row[2] == "—"):
+            assert row[2].startswith("`"), f"Invalid legacy level: {row[0]}"
+            row[2], row[4], row[5] = "—", row[2], row[4] + "; " + row[5]
     changed, renamed = {}, {}
     for kind, paths in changes:
         paths = [p.removeprefix("packages/") for p in paths]
@@ -106,6 +111,11 @@ def validate(text, expected):
                                 "extra": sorted(actual.keys() - expected.keys()),
                                 "counts": [n for n in actual.keys() & expected.keys() if actual[n] != expected[n]]}
     assert all(row[3] in STATUSES for row in rows), "Invalid status"
+    assert all(row[2].isdigit() or row[2] == "—" for row in rows), "Invalid level"
+    counts = Counter(row[3] for row in rows)
+    summary = re.search(r"Status counts: (.+)\.", active).group(1)
+    displayed = dict((status, int(count)) for status, count in re.findall(r"`(\w+)` (\d+)", summary))
+    assert displayed == {status: counts[status] for status in STATUSES}, "Status summary mismatch"
     count, lines = re.search(r"\*\*([\d,]+) unique files, ([\d,]+) lines\*\*", active).groups()
     assert len(actual) == int(count.replace(",", "")), "Header file count"
     assert sum(actual.values()) == int(lines.replace(",", "")), "Header line count"

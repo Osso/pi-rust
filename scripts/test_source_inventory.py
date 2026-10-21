@@ -43,9 +43,18 @@ class InventoryTests(unittest.TestCase):
         for mutated in [text.replace("| 2 |", "| 9 |", 1),
                         text.replace("| done |", "| invalid |", 1),
                         text.replace("4 unique files", "5 unique files"),
+                        text.replace("`done` 1", "`done` 8"),
                         text.replace("## Removed by re-pin", "| `a/same.ts` | 1 | 0 | done | — | duplicate |\n\n## Removed by re-pin")]:
             with self.assertRaises((AssertionError, ValueError)):
                 inventory.validate(mutated, expected)
+
+    def test_legacy_mapping_column_is_normalized_without_losing_proof(self):
+        old = {"a/change.ts": ["a/change.ts", "1", "`crates/a.rs`", "done", "real compiler proof", "notes"]}
+        rows, removed = inventory.repin_rows(old, {"a/change.ts": 2}, [["M", ["packages/a/change.ts"]]])
+        self.assertEqual(rows[0][2], "—")
+        self.assertEqual(rows[0][4], "`crates/a.rs`")
+        self.assertIn("real compiler proof", rows[0][5])
+        self.assertIn("old Rust: `crates/a.rs`", rows[0][5])
 
 
 if __name__ == "__main__":
