@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::{
     ControlDbError, parse_stored_json_object, require_string_field, to_runtime_mailbox_message_kind,
@@ -918,7 +918,19 @@ fn migrate_legacy_runtime_mailbox_row(
         },
         store_ref,
     };
+    let mut updated = super::parse_canonical_mailbox_payload_lossless(&canonical)?;
+    assert_runtime_mailbox_routing(&updated, &input)?;
     let routed = add_runtime_mailbox_routing(&message, &input)?;
+    for key in [
+        "recipientSessionId",
+        "recipientAgentId",
+        "senderSessionId",
+        "senderAgentId",
+    ] {
+        if let Some(value) = routed.get(key) {
+            updated.insert(js_json::JsString::from(key), js_json::JsValue::from(value));
+        }
+    }
     if routed.get("status").and_then(Value::as_str) == Some("delivered") || row.status == "delivered" {
         db.execute(
             "DELETE FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",
@@ -928,8 +940,7 @@ fn migrate_legacy_runtime_mailbox_row(
     }
     let canonical_status = to_runtime_mailbox_message_status(&require_string_field(&routed, "status", &context)?);
     let status = migrated_mailbox_status(row, canonical_status);
-    let mut updated = routed.clone();
-    apply_migrated_mailbox_fields(&mut updated, &routed, row, status, now_iso);
+    apply_migrated_mailbox_fields(&mut updated, row, status, now_iso);
     write_canonical_mailbox_payload(
         db,
         canonical.id,
@@ -957,37 +968,41 @@ fn migrated_mailbox_status(
 }
 
 fn apply_migrated_mailbox_fields(
-    updated: &mut Map<String, Value>,
-    routed: &Map<String, Value>,
+    updated: &mut js_json::JsObject,
     row: &LegacyRuntimeMailboxRow,
     status: super::RuntimeMailboxMessageStatus,
     now_iso: &str,
 ) {
-    updated.insert(
-        "createdAt".to_owned(),
-        match routed.get("createdAt") {
-            Some(Value::String(value)) => Value::String(value.clone()),
-            _ => Value::String(row.created_at.clone()),
-        },
-    );
-    updated.insert("status".to_owned(), Value::String(status_name(status).to_owned()));
-    updated.insert(
-        "updatedAt".to_owned(),
-        Value::String(if row.updated_at.is_empty() {
-            now_iso.to_owned()
-        } else {
-            row.updated_at.clone()
-        }),
-    );
-    updated.remove("claimedAt");
-    updated.remove("claimantProcessIdentity");
-    if status == super::RuntimeMailboxMessageStatus::Failed {
+    use js_json::{JsString, JsValue};
+    if !matches!(updated.get(&JsString::from("createdAt")), Some(JsValue::String(_))) {
         updated.insert(
-            "error".to_owned(),
-            match routed.get("error") {
-                Some(Value::String(value)) => Value::String(value.clone()),
-                _ => row.error.clone().map(Value::String).unwrap_or(Value::Null),
-            },
+            JsString::from("createdAt"),
+            JsValue::String(JsString::from(row.created_at.as_str())),
+        );
+    }
+    updated.insert(
+        JsString::from("status"),
+        JsValue::String(JsString::from(status_name(status))),
+    );
+    updated.insert(
+        JsString::from("updatedAt"),
+        JsValue::String(JsString::from(if row.updated_at.is_empty() {
+            now_iso
+        } else {
+            &row.updated_at
+        })),
+    );
+    updated.shift_remove(&JsString::from("claimedAt"));
+    updated.shift_remove(&JsString::from("claimantProcessIdentity"));
+    if status == super::RuntimeMailboxMessageStatus::Failed
+        && !matches!(updated.get(&JsString::from("error")), Some(JsValue::String(_)))
+    {
+        updated.insert(
+            JsString::from("error"),
+            row.error
+                .as_deref()
+                .map(|text| JsValue::String(JsString::from(text)))
+                .unwrap_or(JsValue::Null),
         );
     }
 }

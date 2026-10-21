@@ -237,6 +237,36 @@ fn raw_legacy_artifact_migration_preserves_unrelated_source_utf16_fields() {
 }
 
 #[test]
+fn raw_legacy_routing_migration_preserves_unrelated_source_utf16_fields() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("control.sqlite").display().to_string();
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let wire = format!(
+        r#"[{},{{"recipient":{{"sessionId":"to","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/s","messageId":"m"}},"message":{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","unknown":{{"\ud800":"high","�":"replacement"}}}}}}]"#,
+        serde_json::to_string(&path).unwrap()
+    );
+    source_call(&mut source, "enqueueStoredRuntimeMailboxMessage", &wire);
+    let original = persisted_raw(&mut source, &path);
+    let mutation = "CREATE TABLE runtime_mailbox_messages AS SELECT rowid AS id,'to' AS recipient_session_id,NULL AS recipient_agent_id,'from' AS sender_session_id,NULL AS sender_agent_id,'message' AS kind,session_path AS store_session_path,message_id AS store_message_id,'claimed' AS status,json_extract(data,'$.createdAt') AS created_at,updated_at,NULL AS error FROM multi_agent_mailbox_messages; PRAGMA user_version=13;";
+    let result = source.request(&json!({"id":1,"steps":[{"op":"fixtureExec","args":[path,mutation]}]}));
+    assert_eq!(result["output"][0]["ok"], true, "{result}");
+    read_session_metadata(&path, "/missing").unwrap();
+    let migrated = persisted_raw(&mut source, &path);
+    for key in ["body", "unknown"] {
+        let key = js_json::JsString::from(key);
+        assert_eq!(
+            migrated.get(&key),
+            original.get(&key),
+            "legacy routing must preserve raw field {key:?}"
+        );
+    }
+    assert_eq!(
+        migrated.get(&js_json::JsString::from("status")),
+        Some(&JsValue::String(js_json::JsString::from("pending")))
+    );
+}
+
+#[test]
 fn source_sql_bind_keys_and_raw_receipts_have_distinct_utf16_identity_on_recovery() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("control.sqlite").display().to_string();

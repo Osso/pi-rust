@@ -1055,12 +1055,16 @@ pub(crate) fn serialize_canonical_mailbox_mutation(
 pub(crate) fn write_canonical_mailbox_payload(
     db: &Connection,
     id: i64,
-    message: &Map<String, Value>,
+    message: &js_json::JsObject,
     updated_at: &str,
 ) -> Result<(), ControlDbError> {
     let updated = db.execute(
         "UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ? WHERE rowid = ?",
-        params![js_json::stringify(&Value::Object(message.clone())), updated_at, id],
+        params![
+            js_json::stringify_lossless(&js_json::JsValue::Object(message.clone())),
+            updated_at,
+            id
+        ],
     )?;
     if updated != 1 {
         return Err(ControlDbError::new(format!("Canonical mailbox mutation lost row {id}")));
