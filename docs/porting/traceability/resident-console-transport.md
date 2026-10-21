@@ -36,3 +36,7 @@ Proof:
 ## Discrepancies
 
 None.
+
+## Q16 frozen probe/identity
+
+`differential_resident_console::typescript_probe_reads_snapshot_without_taking_console_ownership` exercises frozen probe against the Rust server while an attached client retains ownership. `rust_client_attaches_prompts_and_receives_typescript_server_events` checks identity survives the frozen server→Rust client boundary. Both tests failed before the port (`red-resident-probe.log`, `red-resident-identity.log` under `/tmp/pi-rust-repin-supervisor-runtime`). Remaining malformed-identity/client probe branches pending.

@@ -72,6 +72,7 @@ fn snapshot(cwd: &str, branch: Vec<SessionEntry>) -> ResidentConsoleSnapshot<Ses
         session_id: "session-1".to_owned(),
         cwd: cwd.to_owned(),
         generation: 7,
+        identity: None,
         branch,
     }
 }

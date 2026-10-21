@@ -191,6 +191,7 @@ pub fn create_supervisor_console_snapshot(
         session_id: session_id.unwrap_or(SUPERVISOR_SESSION_ID).to_owned(),
         cwd: cwd.to_owned(),
         generation,
+        identity: None,
         branch,
     }
 }

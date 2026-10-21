@@ -20,6 +20,7 @@ fn snapshot() -> Snapshot {
         session_id: "supervisor".into(),
         cwd: "/resident".into(),
         generation: 9,
+        identity: None,
         branch: vec![json!({"value": "existing"})],
     }
 }

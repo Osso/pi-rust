@@ -7,3 +7,5 @@ Supervisor request prompts reconcile cumulative objectives against explicit user
 The resident regex delta remains governed by [delta lock](../porting/delta-lock.json). Q14 standalone `--no-supervisor` behavior is outside this slice.
 
 Restart handoff rejects an empty session path and clears provider/model/thinking CLI overrides so saved session selection wins. Empty text content in a structured Supervisor response does not mask the object response; whitespace-only text still parses as invalid JSON.
+
+Resident console probes validate protocol/service without replacing the attached owner or subscribing to events. Snapshots preserve optional identity with version, PID, executable, optional entrypoint, instance ID, manager (`pi`/`external`), and `ready: true`. Malformed identity is rejected.

@@ -28,11 +28,33 @@ pub enum ResidentConsoleService {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ResidentConsoleIdentity {
+    pub version: String,
+    pub pid: serde_json::Number,
+    pub executable: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<String>,
+    pub instance_id: String,
+    pub managed_by: ResidentManagedBy,
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ResidentManagedBy {
+    External,
+    Pi,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResidentConsoleSnapshot<Entry> {
     pub service: ResidentConsoleService,
     pub session_id: String,
     pub cwd: String,
     pub generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<ResidentConsoleIdentity>,
     pub branch: Vec<Entry>,
 }
 
@@ -268,6 +290,11 @@ async fn handle_line<Entry, Event>(
     };
     match message["type"].as_str() {
         Some("attach") => attach(state, connection_id, sender, &message),
+        Some("probe") => {
+            if validate_request(state, sender, &message) {
+                write_snapshot(state, sender, "probed");
+            }
+        }
         _ => handle_owned_message(state, connection_id, sender, &message).await,
     }
 }
@@ -281,22 +308,11 @@ fn attach<Entry, Event>(
     Entry: Serialize + Send + Sync + 'static,
     Event: Serialize + Send + Sync + 'static,
 {
-    if message["version"].as_u64() != Some(u64::from(RESIDENT_CONSOLE_PROTOCOL_VERSION)) {
-        state.send_error(
-            sender,
-            "version_mismatch",
-            "Resident console protocol version mismatch",
-            None,
-        );
-        return;
-    }
-    let service = serde_json::from_value::<ResidentConsoleService>(message["service"].clone()).ok();
-    if service != Some(state.service) {
-        state.send_error(sender, "service_mismatch", "Resident console service mismatch", None);
+    if !validate_request(state, sender, message) {
         return;
     }
     state.release_owner();
-    let snapshot = state.host.get_snapshot();
+    write_snapshot(state, sender, "attached");
     let sequence = Arc::clone(&state.sequence);
     let event_sender = sender.clone();
     let unsubscribe = state.host.subscribe(Arc::new(move |event: Event| {
@@ -310,18 +326,42 @@ fn attach<Entry, Event>(
         unsubscribe: Some(unsubscribe),
         marker: PhantomData,
     });
-    state.write(
-        sender,
-        json!({
-            "type": "attached",
-            "version": RESIDENT_CONSOLE_PROTOCOL_VERSION,
-            "service": snapshot.service,
-            "sessionId": snapshot.session_id,
-            "cwd": snapshot.cwd,
-            "generation": snapshot.generation,
-            "branch": snapshot.branch,
-        }),
-    );
+}
+
+fn validate_request<Entry, Event>(state: &ServerState<Entry, Event>, sender: &LineSender, message: &Value) -> bool
+where
+    Entry: Serialize + Send + Sync + 'static,
+    Event: Serialize + Send + Sync + 'static,
+{
+    if message["version"].as_u64() != Some(u64::from(RESIDENT_CONSOLE_PROTOCOL_VERSION)) {
+        state.send_error(
+            sender,
+            "version_mismatch",
+            "Resident console protocol version mismatch",
+            None,
+        );
+        return false;
+    }
+    let service = serde_json::from_value::<ResidentConsoleService>(message["service"].clone()).ok();
+    if service != Some(state.service) {
+        state.send_error(sender, "service_mismatch", "Resident console service mismatch", None);
+        return false;
+    }
+    true
+}
+
+fn write_snapshot<Entry, Event>(state: &ServerState<Entry, Event>, sender: &LineSender, kind: &str)
+where
+    Entry: Serialize + Send + Sync + 'static,
+    Event: Serialize + Send + Sync + 'static,
+{
+    let mut message = json!({"type":kind, "version":RESIDENT_CONSOLE_PROTOCOL_VERSION});
+    let snapshot = serde_json::to_value(state.host.get_snapshot()).expect("resident snapshot serializes");
+    message
+        .as_object_mut()
+        .unwrap()
+        .extend(snapshot.as_object().unwrap().clone());
+    state.write(sender, message);
 }
 
 async fn handle_owned_message<Entry, Event>(
@@ -575,9 +615,9 @@ where
     if message["type"] == "error" {
         return Err(message["message"]
             .as_str()
-            .map_or_else(|| "Resident attach failed".to_owned(), str::to_owned));
+            .map_or_else(|| "Resident console request failed".to_owned(), str::to_owned));
     }
-    let valid = message["type"] == "attached"
+    let valid = (message["type"] == "attached" || message["type"] == "probed")
         && message["version"].as_u64() == Some(u64::from(RESIDENT_CONSOLE_PROTOCOL_VERSION))
         && serde_json::from_value::<ResidentConsoleService>(message["service"].clone()).ok() == Some(service)
         && message["sessionId"].is_string()
@@ -585,8 +625,23 @@ where
         && message["generation"].is_u64()
         && message["branch"].is_array();
     if !valid {
-        return Err("Invalid resident console attach response".to_owned());
+        return Err("Invalid resident console response".to_owned());
     }
+    let identity = match message.get("identity") {
+        None => None,
+        Some(value) => {
+            let identity: ResidentConsoleIdentity =
+                serde_json::from_value(value.clone()).map_err(|_| "Invalid resident console identity".to_owned())?;
+            if !identity.ready
+                || value
+                    .get("entrypoint")
+                    .is_some_and(|entrypoint| !entrypoint.is_string())
+            {
+                return Err("Invalid resident console identity".to_owned());
+            }
+            Some(identity)
+        }
+    };
     let branch: Vec<Entry> = serde_json::from_value(message["branch"].clone())
         .map_err(|_| "Invalid resident console attach response".to_owned())?;
     Ok(ResidentConsoleSnapshot {
@@ -594,6 +649,7 @@ where
         session_id: message["sessionId"].as_str().unwrap_or_default().to_owned(),
         cwd: message["cwd"].as_str().unwrap_or_default().to_owned(),
         generation: message["generation"].as_u64().unwrap_or_default(),
+        identity,
         branch,
     })
 }

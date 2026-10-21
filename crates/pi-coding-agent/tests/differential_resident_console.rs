@@ -22,6 +22,7 @@ fn snapshot() -> ResidentConsoleSnapshot<Value> {
         session_id: "supervisor".into(),
         cwd: "/resident".into(),
         generation: 9,
+        identity: None,
         branch: vec![json!({"value": "existing"})],
     }
 }
@@ -84,6 +85,38 @@ fn socket_path() -> (tempfile::TempDir, String) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn typescript_probe_reads_snapshot_without_taking_console_ownership() {
+    let (_directory, path) = socket_path();
+    let host = CrossHost::new();
+    let server = ResidentConsoleServer::new(ResidentConsoleServerOptions {
+        socket_path: path.clone().into(),
+        service: ResidentConsoleService::Supervisor,
+        host: Arc::clone(&host) as Arc<dyn ResidentConsoleHost<Value, Value>>,
+    });
+    server.start().await.unwrap();
+    let client: ResidentConsoleClient<Value, Value> =
+        ResidentConsoleClient::connect(&path, ResidentConsoleService::Supervisor)
+            .await
+            .unwrap();
+    let mut ts = oracle::TsOracle::spawn(
+        "q16-runtime-oracle.ts",
+        "packages/coding-agent/src/core/resident-console-transport.ts",
+    );
+    let result = ts.request(
+        &json!({"id":16,"operation":"probeResidentConsole","cases":[[{"socketPath":path,"service":"supervisor"}]]}),
+    );
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["output"][0], serde_json::to_value(snapshot()).unwrap());
+    client.prompt("still-owner", "after probe").await.unwrap();
+    assert_eq!(
+        host.prompts(),
+        vec![("still-owner".to_owned(), "after probe".to_owned())]
+    );
+    client.close().await;
+    server.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn typescript_client_attaches_prompts_and_receives_rust_server_events() {
     let (_directory, path) = socket_path();
     let host = CrossHost::new();
@@ -143,6 +176,7 @@ async fn rust_client_attaches_prompts_and_receives_typescript_server_events() {
             "sessionId": "typescript",
             "cwd": "/ts",
             "generation": 3,
+            "identity": {"version":"frozen", "pid":123, "executable":"/fake/pi", "instanceId":"instance", "managedBy":"pi", "ready":true},
             "branch": [{"value": "ts"}],
         },
     }));
@@ -154,6 +188,10 @@ async fn rust_client_attaches_prompts_and_receives_typescript_server_events() {
             .expect("Rust client must attach to the TypeScript server");
     assert_eq!(client.snapshot().session_id, "typescript");
     assert_eq!(client.snapshot().generation, 3);
+    assert_eq!(
+        serde_json::to_value(client.snapshot()).unwrap()["identity"],
+        json!({"version":"frozen", "pid":123, "executable":"/fake/pi", "instanceId":"instance", "managedBy":"pi", "ready":true})
+    );
 
     let events = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&events);

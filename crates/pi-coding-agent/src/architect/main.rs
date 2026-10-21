@@ -119,6 +119,7 @@ pub fn create_architect_console_snapshot(
         session_id: session_id.unwrap_or(ARCHITECT_SESSION_ID).to_owned(),
         cwd: cwd.to_owned(),
         generation,
+        identity: None,
         branch,
     }
 }
