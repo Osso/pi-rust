@@ -76,6 +76,7 @@ async fn ask_secret_matches_typescript() {
         })),
     });
     let ui = Arc::new(RecordingUi {
+        confirmed: std::sync::Mutex::new(false),
         calls: harness.calls.clone(),
         inputs: std::sync::Mutex::new(
             ["rei-user".to_owned(), "super-secret".to_owned()]
@@ -128,6 +129,7 @@ async fn ask_secret_matches_typescript() {
     assert_eq!(error.message, steps[3]["error"]["message"]);
 
     let cancelled_ui = Arc::new(RecordingUi {
+        confirmed: std::sync::Mutex::new(false),
         calls: harness.calls.clone(),
         inputs: std::sync::Mutex::new([None].into_iter().collect()),
     });

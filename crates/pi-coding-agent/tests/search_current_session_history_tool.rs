@@ -49,7 +49,7 @@ fn details(result: &pi_agent_core::AgentToolResult) -> &Value {
 }
 
 #[tokio::test]
-async fn matches_user_messages_without_searching_assistant_or_tool_content() {
+async fn matches_user_and_assistant_messages() {
     let (_temp_dir, mut manager) = manager_fixture();
     manager
         .append_message(user_message("list-skills", 1))
@@ -69,8 +69,8 @@ async fn matches_user_messages_without_searching_assistant_or_tool_content() {
     assert_eq!(details(&user_match)["entries"][0]["role"], "user");
     assert_eq!(details(&user_match)["entries"][0]["content"], "list-skills");
     assert_eq!(details(&user_match)["entries"][0]["matched"], true);
-    assert_eq!(details(&assistant_match)["totalMatches"], 0);
-    assert_eq!(details(&assistant_match)["entries"], json!([]));
+    assert_eq!(details(&assistant_match)["totalMatches"], 1);
+    assert_eq!(details(&assistant_match)["entries"][0]["role"], "assistant");
 }
 
 #[tokio::test]

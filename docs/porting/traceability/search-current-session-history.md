@@ -1,38 +1,21 @@
-# coding-agent search-current-session-history traceability
+# Current session history search traceability
 
-Pinned source: `packages/coding-agent/src/core/tools/search-current-session-history.ts` at `532f7d12`.
+Frozen source: `packages/coding-agent/src/core/tools/search-current-session-history.ts` at `4f9e6f8a4` ([lock](../source-lock.json)). Rust: `crates/pi-coding-agent/src/core/tools/search_current_session_history.rs`. Contract: [spec](../../specs/search-current-session-history.md).
 
-Rust: `crates/pi-coding-agent/src/core/tools/search_current_session_history.rs`
-(`SearchCurrentSessionHistoryTool`).
-
-| Source | Rust | Tests |
+| Source symbol/branch | Rust | Proof |
 |---|---|---|
-| `searchCurrentSessionHistorySchema` | `parameters()` | differential |
-| `collectSearchTexts` (recursive strings) | `collect_search_texts` | differential |
-| `searchableEntry` (message/custom_message/compaction/branch_summary) | `searchable_entry` | 7 behavioral tests |
-| `parseCursor` (`^\d+$`) | `parse_cursor` | `rejects_an_invalid_cursor`, differential |
-| `selectedIndexes` (context window) | `selected_indexes` | neighbor test, differential |
-| `requirePersistedSession` | `require_persisted_session` | `requires_a_persisted_current_session` |
-| matching (`toLocaleLowerCase` literal `includes` over user text) | `execute` (`str::to_lowercase`) | user-only, multiline, pagination tests |
-| `compacted` via `buildContextEntries` ids | same | compaction-hidden test, differential |
-| `JSON.stringify(details, null, 2)` / no-match text | `serde_json::to_string_pretty` | differential byte comparison |
+| schema, description, label/name, snippet/guidelines, parallel mode | `parameters`, constants, definition | frozen `history:definition` exact JSON differential |
+| `collectArgumentTexts`: keys, nested arrays, string/number/bool/null | `collect_argument_texts`, shared `js_number_to_string` | nested key/value/scalar fixtures; reopened-session numeric queries and `search_current_session_history_live_numbers_differential` prove `1.0` exclusion / `0.000001` inclusion / `1e-6` exclusion against frozen |
+| `collectSearchTexts`, text/tool name/arguments, thinking/signature/image omission | `collect_search_texts` | assistant/tool fixtures, hidden thinking/signature no-match fixtures; image exclusion inspected |
+| `collectMessageSearchTexts`: nonself tool results, bash command/output, inline summaries | `collect_message_search_texts` | result, bash command/output and compactionSummary fixtures |
+| own tool calls/results excluded | both collection helpers | self-traffic no-match fixture, context retains full original content |
+| `searchableEntry`: message/custom/compaction/branch summary | `searchable_entry` | exact result JSON for each entry family |
+| cursor, chronological page, neighboring context/compacted flag | existing execute pipeline | two real deployment matches plus summary; pages 1/2; limit, context, huge/leading-zero/invalid cursors |
+| persisted guard / trimmed empty query / no match / inactive branch | execute guards and history reader | eight behavioral tests + differential empty-query/no-match |
+| `renderCall`, `renderResult` | retained renderers | inspected against frozen; prior renderer differential is historical, not rerun as fresh pin proof |
 
-Differential: `tests/differential_session_tools.rs::search_current_session_history_tool_differential`
-(match with context, assistant content excluded, pagination page 1/2, no match, invalid cursor).
+Assistant match reproduced RED before production edits. `differential_session_tools::search_current_session_history_tool_differential` now GREEN with 25 query cases and registration comparison; eight native behavior tests GREEN at `3d4e6a32`. Own-tool-call-inclusion mutant killed by self-traffic mismatch. Old user-only contract/test retired. [History storage](session-storage-integration.md), [proof limits](../session-archive-history-proof.md).
 
-## Gaps
+Verifier corrections at `9bb38edf`: 30 reopened-session queries plus three live-manager numeric queries pass frozen differential. Numeric-format mutant killed by live `1.0` false positive; fixed-point false negative reproduced RED independently. Four-target evidence: [updated proof](../session-archive-history-proof.md#verifier-corrections-2026-10-21).
 
-- None.
-
-## Renderers
-
-Renderers ported: `render_call` (title + `JSON.stringify(query ?? "")`), `render_result` (tool output). Covered by `differential_interactive_components.rs::tool_renderer_cases`.
-- `String.prototype.toLocaleLowerCase` is ported as `str::to_lowercase` (Unicode default case
-  mapping). Node's default locale on the pinned host is `en-US`; locale-specific case folding
-  (e.g. Turkish `İ`) is an approved deviation already used by `pi-agent-core::search`.
-
-## JS-value boundary regression (2026-10-20)
-
-Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).
-
-Frozen storage edge: tool now consumes session_history iterator (order restored for existing search pipeline). `repin_session_storage::persisted_history_tool_recovers_source_compacted_ancestor` initially RED totalMatches0 instead1. Broader population/filtering repin not part of this edge.
+Typed Rust input exclusions remain explicit in [compatibility spec](../../specs/compatibility.md). Lowercasing remains inherited Unicode default mapping; no new locale waiver is claimed. Native generic serde UTF-16 representation edges are not expanded by this lane.
