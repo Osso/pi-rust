@@ -668,3 +668,83 @@ async fn escaped_receipt_html_export_retains_source_raw_utf16_tokens() {
     );
     assert!(!std::path::Path::new(path).exists());
 }
+
+#[test]
+fn large_unicode_compacted_history_streaming_and_early_drop_cleanup() {
+    use pi_coding_agent::core::session_history::read_session_history_reverse;
+    use pi_coding_agent::core::session_transcript::{
+        create_session_transcript_read_stream, read_session_transcript_text,
+    };
+    use std::io::{Read, Write};
+    if std::env::var_os("PI_STORAGE_HISTORY_CHILD").is_none() {
+        let private = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "large_unicode_compacted_history_streaming_and_early_drop_cleanup",
+                "--nocapture",
+            ])
+            .env("PI_STORAGE_HISTORY_CHILD", "1")
+            .env("TMPDIR", private.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"compacted":true,"text":"漢😀é".repeat(150000)}),
+    );
+    let path = created["path"].as_str().unwrap();
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .unwrap()
+        .write_all(b"{\"type\":\"message\"")
+        .unwrap();
+    let expected = call(&mut ts, json!({"op":"read","path":path}));
+    let original = std::fs::read(path).unwrap();
+    let archive = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
+    let archive = archive.as_str().unwrap();
+    let compressed = std::fs::read(archive).unwrap();
+    let mut stream = create_session_transcript_read_stream(path).unwrap();
+    let mut actual = Vec::new();
+    let mut buffer = [0; 13];
+    loop {
+        let n = stream.read(&mut buffer).unwrap();
+        if n == 0 {
+            break;
+        }
+        actual.extend_from_slice(&buffer[..n]);
+    }
+    assert_eq!(actual, original);
+    assert_eq!(read_session_transcript_text(path).unwrap().as_bytes(), original);
+    let manager = SessionManager::open_read_only(path, None).unwrap();
+    let history = read_session_history_reverse(&manager)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(serde_json::to_value(history).unwrap(), expected["history"]);
+    let mut history = read_session_history_reverse(&manager);
+    for _ in 0..4 {
+        assert!(history.next().unwrap().is_ok());
+    }
+    drop(history);
+    assert!(
+        std::fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|e| !e.file_name().to_string_lossy().starts_with("pi-history-"))
+    );
+    assert_eq!(std::fs::read(archive).unwrap(), compressed);
+    assert!(!std::path::Path::new(path).exists());
+}
