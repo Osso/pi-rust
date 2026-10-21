@@ -159,8 +159,19 @@ async fn trash_session_files(paths: &[String]) -> Option<String> {
 fn exit_status_text(status: std::process::ExitStatus) -> String {
     use std::os::unix::process::ExitStatusExt;
     if let Some(signal) = status.signal() {
-        return rustix::process::Signal::from_raw(signal)
-            .map_or_else(|| signal.to_string(), |signal| format!("{signal:?}"));
+        return rustix::process::Signal::from_named_raw(signal).map_or_else(
+            || signal.to_string(),
+            |signal| {
+                let debug = format!("{signal:?}");
+                let name = debug.trim_matches('"').trim_start_matches("Signal::");
+                let name = match name {
+                    "ABORT" => "ABRT",
+                    "ALARM" => "ALRM",
+                    other => other,
+                };
+                format!("SIG{name}")
+            },
+        );
     }
     status.code().map_or_else(|| "null".to_owned(), |code| code.to_string())
 }
