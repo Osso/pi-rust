@@ -133,7 +133,8 @@ fn stored_message(
     register_listener(db, recipient);
     let message = serde_json::json!({
         "body": body,
-        "createdAt": "2026-06-21T00:00:00.000Z",
+        // Frozen session-control-db.ts:2331 compares birth against Date.now().
+        "createdAt": pi_coding_agent::utils::iso_time::now_iso_string(),
         "fromAgentId": sender.agent_id.clone().unwrap_or_else(|| "main".to_owned()),
         "id": message_id,
         "kind": "message",
@@ -623,8 +624,16 @@ fn runtime_mailbox_routing_preserves_payload_order_and_identity() {
             |row| row.get(0),
         )
         .expect("row");
+    // Frozen session-control-db.ts defaults omitted creation time before routing.
+    let mut payload: serde_json::Value = serde_json::from_str(&data).expect("payload");
+    let birth = payload
+        .as_object_mut()
+        .expect("object")
+        .remove("createdAt")
+        .expect("birth");
+    assert!(pi_js_compat::date::date_parse(birth.as_str().expect("birth string")).is_finite());
     assert_eq!(
-        data,
+        pi_js_compat::js_json::stringify(&payload),
         "{\"body\":\"hello\",\"fromAgentId\":\"main\",\"id\":\"message_1\",\"kind\":\"message\",\"status\":\"pending\",\"toAgentId\":\"main\",\"recipientSessionId\":\"recipient\",\"recipientAgentId\":null,\"senderSessionId\":\"sender\",\"senderAgentId\":null}"
     );
 
@@ -1015,8 +1024,9 @@ fn lifecycle_and_terminal_mutations_write_the_outbox() {
     assert_eq!(record.attempt_count, 1);
     assert!(deliver_multi_agent_terminal_outbox(&db, &record).expect("deliver"));
     assert_eq!(
+        // Frozen session-control-db.ts: delivered outbox rows are deleted immediately.
         cleanup_multi_agent_terminal_outbox(&db, "2026-06-21T00:00:05.000Z").expect("cleanup"),
-        1
+        0
     );
 }
 
@@ -1068,7 +1078,7 @@ fn steering_mutations_require_registered_authority() {
             process_identity: process_identity.clone(),
             owner: owner("supervisor"),
             requested_lifecycle: "steering_pending".to_owned(),
-            updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+            updated_at: pi_coding_agent::utils::iso_time::now_iso_string(),
             body: "steer".to_owned(),
             file_refs: None,
             from_agent_id: "supervisor".to_owned(),
@@ -1201,7 +1211,7 @@ fn finalize_detached_job_records_terminal_transport_and_artifacts() {
                 owner: owner("owner"),
                 process_identity,
                 output_label: "Bash output".to_owned(),
-                terminal_at: "2026-06-21T00:00:03.000Z".to_owned(),
+                terminal_at: pi_coding_agent::utils::iso_time::now_iso_string(),
                 tool_call_id: Some("tool-1".to_owned()),
                 duration_ms: Some(42),
                 outcome: DetachedJobOutcome::Completed {
@@ -1927,7 +1937,7 @@ fn runtime_mailbox_claim_respects_registered_listener_pid() {
 }
 
 #[test]
-fn mailbox_status_transitions_require_pending_state() {
+fn mailbox_consumption_removes_even_a_legacy_delivered_row() {
     let (_dir, db) = temp_db();
     let session_path = "/sessions/main.jsonl";
     upsert_multi_agent_mailbox_message(
@@ -1944,7 +1954,8 @@ fn mailbox_status_transitions_require_pending_state() {
     )
     .expect("upsert");
     assert!(
-        !pi_coding_agent::core::session_control_db::mark_multi_agent_mailbox_message_delivered(
+        // Frozen session-control-db.ts deletes by store reference regardless of status.
+        pi_coding_agent::core::session_control_db::mark_multi_agent_mailbox_message_delivered(
             &db,
             session_path,
             "message_1"
@@ -1953,7 +1964,7 @@ fn mailbox_status_transitions_require_pending_state() {
     );
     assert_eq!(
         get_multi_agent_mailbox_message_status(&db, session_path, "message_1").expect("status"),
-        Some("delivered".to_owned())
+        None
     );
 }
 
