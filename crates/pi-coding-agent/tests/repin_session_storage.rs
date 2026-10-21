@@ -479,3 +479,34 @@ fn archive_restore_modes_metadata_rollback_and_surviving_plain_precedence() {
             .all(|e| !e.file_name().to_string_lossy().contains(".archive-temp-"))
     );
 }
+
+#[test]
+fn unknown_legacy_summary_usage_survives_without_a_typed_accounting_contract() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"compacted":true,"legacyUsage":"legacy raw payload"}),
+    );
+    let path = created["path"].as_str().unwrap();
+    let mut manager = SessionManager::open(path, None, None).unwrap();
+    let compaction = manager
+        .get_entries()
+        .into_iter()
+        .find(|e| e.entry_type() == "compaction")
+        .unwrap();
+    manager
+        .update_compaction_summary(compaction.id().unwrap(), "new summary")
+        .unwrap();
+    let read = call(&mut ts, json!({"op":"read","path":path}));
+    let entry = read["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["type"] == "compaction")
+        .unwrap();
+    assert_eq!(entry["usage"], "legacy raw payload");
+    assert_eq!(entry["summary"], "new summary");
+}

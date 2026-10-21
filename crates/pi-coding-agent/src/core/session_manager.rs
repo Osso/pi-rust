@@ -15,7 +15,7 @@ use pi_agent_core::harness::messages::{
     CompactionSummaryOptions, CustomMessageContent, create_branch_summary_message, create_compaction_summary_message,
     create_custom_message,
 };
-use pi_ai::types::{ProviderNativeContext, TextOrImageContent, Usage, UserContent};
+use pi_ai::types::{ProviderNativeContext, TextOrImageContent, UserContent};
 use pi_ai::utils::uuid::{random_uuid, uuidv7};
 use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
@@ -288,8 +288,8 @@ pub struct CompactionEntry {
     pub first_kept_entry_id: String,
     #[serde(serialize_with = "js_number::serialize")]
     pub tokens_before: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Box<Usage>>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "js_number::serialize_option"
@@ -320,8 +320,8 @@ pub struct BranchSummaryEntry {
     pub summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Box<Usage>>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_hook: Option<bool>,
 }
@@ -662,7 +662,6 @@ pub enum ForkEntrySelection {
 pub struct CompactionAppendOptions {
     pub details: Option<Value>,
     pub from_hook: Option<bool>,
-    pub usage: Option<Usage>,
     pub duration_ms: Option<f64>,
     pub provider_native: Option<ProviderNativeContext>,
 }
@@ -3010,7 +3009,7 @@ impl SessionManager {
             summary: summary.to_owned(),
             first_kept_entry_id: first_kept_entry_id.to_owned(),
             tokens_before,
-            usage: options.usage.map(Box::new),
+            extra: Map::new(),
             duration_ms: options.duration_ms,
             details: options.details.map(Box::new),
             provider_native: options.provider_native.map(Box::new),
@@ -3199,7 +3198,6 @@ impl SessionManager {
         summary: &str,
         details: Option<Value>,
         from_hook: Option<bool>,
-        usage: Option<Usage>,
     ) -> Result<String, SessionManagerError> {
         if let Some(branch_from_id) = branch_from_id
             && !self.by_id.contains_key(branch_from_id)
@@ -3214,7 +3212,7 @@ impl SessionManager {
             from_id: branch_from_id.unwrap_or("root").to_owned(),
             summary: summary.to_owned(),
             details,
-            usage: usage.map(Box::new),
+            extra: Map::new(),
             from_hook,
         }));
         self.append_entry(entry)

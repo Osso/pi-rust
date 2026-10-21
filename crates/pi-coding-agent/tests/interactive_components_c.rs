@@ -1243,7 +1243,7 @@ fn compaction_entry(id: &str, parent_id: &str, first_kept_entry_id: &str, summar
         summary: summary.to_owned(),
         first_kept_entry_id: first_kept_entry_id.to_owned(),
         tokens_before: 12_345.0,
-        usage: None,
+        extra: Default::default(),
         duration_ms: None,
         details: None,
         provider_native: None,
