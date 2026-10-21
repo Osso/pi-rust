@@ -32,7 +32,10 @@ fails exact-padding and missing-padding tests. `overlay-mutations.log` rejects
 all four regressions plus fifth-item saturation and relative stack sleeps (seven
 failing behavioral tests). All mutations restored before GREEN. The all-command
 lifecycle audit compares both sequences for all thirteen commands; no additional
-close/dispose mismatch found.
+close/dispose mismatch found. Final `readable-oracles-green.log`: **9 passed**
+after the async-factory migration and master integration; every current overlay
+proof remains active. The timing fixture uses the paused command runtime and
+constructs the actual stack components, not private UI-thread elapsed time.
 
 ## Proof ledger
 

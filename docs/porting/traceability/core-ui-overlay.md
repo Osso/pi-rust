@@ -94,11 +94,33 @@ state and calls after dropping the original wrapper. Existing overlay tests
 cover focus, nested handles, disposal, and first settlement without changed
 assertions. Follow-up proof: `/tmp/pi-rust-clippy-final/`.
 
+## Async/target fidelity proof
+
+`/tmp/pi-rust-ui-fidelity/ledger.md` retains command, exact revision/diff and
+RED/GREEN/mutation logs. API RED (`async-unfocus-api-red.log`) proves the old
+signature cannot express future factories or explicit unfocus targets; it is a
+compile rejection, not a runtime failure. `retained-done-red.log` is behavioral
+RED for rejection/closure separation. `restored-core-green.log`: **17 passed**.
+`async-unfocus-mutations.log`, `async-rejection-null-mutations.log` and
+`retained-done-mutation.log` reject missing early-Done guard, ignored explicit
+target, null-as-omitted, lost rejection text restoration and response-as-closed.
+All mutations were restored byte-for-byte.
+
+Fifteen example factories and the bundled llama factory use
+`ready_custom_component`; fixture hosts consume that same future. Immediate-only
+fixture seams explicitly require readiness; the production host awaits arbitrary
+UI-local futures. After merging master, `migrated-targets-{1,2,3}.log` cover all
+**30 affected targets, 77 tests**, with unchanged behavior assertions. Expected
+invalid-regex/missing-path stderr belongs to `example_truncated_tool`'s passing
+error fixtures. `package-clippy-fixed.log` passes package `--all-targets -- -D
+warnings`; subsequent changes are oracle readability/docs only. No workspace
+suite, new dependency, spawned agent, model CLI or unsandboxed oracle ran.
+
 ## Synchronous custom-factory rejection (batch Q prerequisite)
 
 Pinned `interactive-mode.ts:3483–3505` evaluates `factory(...)` inside the
 Promise executor. A synchronous throw rejects directly: the later chained
-`.catch` at `:3533–3537` is never attached. No overlay hide, editor/focus
+`.catch` at `:3529–3533` is never attached. No overlay hide, editor/focus
 restoration, component mount, options/handle callback, or disposal occurs.
 `close` at `:3487–3503` settles first when called before that throw.
 
