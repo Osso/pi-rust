@@ -503,7 +503,20 @@ pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) ->
   loop{
    tokio::select!{
     line=reader.next_line()=>{let Some(line)=line.map_err(|e|e.to_string())?else{break;};if let Ok(data)=serde_json::from_str(&line){app.borrow_mut().receive(&data);tui.request_render(false);}},
-    _=input.tick()=>{tui.process_events();let streaming=app.borrow().streaming;if streaming&&!was_streaming{timer=tokio::time::Instant::now();}if streaming&&timer.elapsed()>=std::time::Duration::from_millis(400){app.borrow_mut().tick();timer=tokio::time::Instant::now();tui.request_render(false);}was_streaming=streaming;tui.flush_pending();},
+    _ = input.tick() => {
+        tui.process_events();
+        let streaming = app.borrow().streaming;
+        if streaming && !was_streaming {
+            timer = tokio::time::Instant::now();
+        }
+        if streaming && timer.elapsed() >= std::time::Duration::from_millis(400) {
+            app.borrow_mut().tick();
+            timer = tokio::time::Instant::now();
+            tui.request_render(false);
+        }
+        was_streaming = streaming;
+        tui.flush_pending();
+    },
    }
    let commands=app.borrow_mut().take_commands();for command in commands{let mut bytes=serde_json::to_vec(&command).map_err(|e|e.to_string())?;bytes.push(b'\n');stdin.write_all(&bytes).await.map_err(|e|e.to_string())?;}
    if app.borrow().exit_requested(){if let Some(pid)=child.id().and_then(|p|rustix::process::Pid::from_raw(p as i32)){let _=rustix::process::kill_process(pid,rustix::process::Signal::TERM);}break;}

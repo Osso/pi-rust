@@ -389,6 +389,9 @@ fn absolute_artifacts_do_not_canonicalize_symlinks_or_change_existing_permission
 
 #[test]
 fn default_artifacts_use_iso_timestamp_and_uuid_v4_syntax() {
+    let timestamp_pattern = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$").unwrap();
+    let uuid_pattern =
+        regex::Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$").unwrap();
     for empty in [false, true] {
         let fixture = Fixture::new();
         // The Cargo runner mounts the checkout read-only. Overlay only this child's
@@ -423,16 +426,8 @@ fn default_artifacts_use_iso_timestamp_and_uuid_v4_syntax() {
         assert_eq!(path.parent().unwrap(), Path::new(ROOT).join(".eval"));
         let name = path.file_name().unwrap().to_str().unwrap();
         let (timestamp, uuid) = name.split_once('_').unwrap();
-        assert!(
-            regex::Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$")
-                .unwrap()
-                .is_match(timestamp)
-        );
-        assert!(
-            regex::Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
-                .unwrap()
-                .is_match(uuid)
-        );
+        assert!(timestamp_pattern.is_match(timestamp));
+        assert!(uuid_pattern.is_match(uuid));
         let created = fixture.temp.path().join(".eval").join(name);
         assert_eq!(fs::metadata(&created).unwrap().permissions().mode() & 0o777, 0o700);
         fs::remove_dir(created).unwrap();
