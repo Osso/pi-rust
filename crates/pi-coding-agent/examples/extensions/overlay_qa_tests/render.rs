@@ -321,9 +321,11 @@ fn streaming(m: &Model, s: &State, width: usize) -> Vec<String> {
     let focused = if s.focus_index == -1 {
         fg(m, ThemeColor::Success, "Controller (this panel)")
     } else {
-        panels::STREAM_LABELS
+        m.entries
+            .borrow()
             .get(s.focus_index as usize)
-            .unwrap_or(&"?")
+            .map(|entry| panels::STREAM_LABELS[entry.index])
+            .unwrap_or("?")
             .to_string()
     };
     let separator = dim(m, &" ─".repeat(width.saturating_sub(2) / 2));
