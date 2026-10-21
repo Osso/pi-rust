@@ -7,9 +7,10 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use oracle::TsOracle;
+use pi_tui::TUI as TuiRenderer;
 use pi_tui::tui::{
     Component, ComponentRef, FixedCell, FlowRenderRegionLayout, Focusable, OverlayAnchor, OverlayHandle, OverlayMargin,
-    OverlayOptions, RenderRegionRect, SizeValue, TuiExt, TuiRenderer, component,
+    OverlayOptions, RenderRegionRect, SizeValue, TuiExt, component,
 };
 use serde_json::{Value, json};
 use virtual_terminal::concrete;

@@ -386,8 +386,33 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 	};
 }
 
+async function terminalNumericDomains(request: Request, sourceDirectory: string): Promise<unknown> {
+    const api = await loadApi(sourceDirectory, "terminal.ts") as {
+        ProcessTerminal: new () => { columns: number; rows: number };
+        parseKeyboardProtocolNegotiationSequence(sequence: string): unknown;
+    };
+    const previousColumns = process.env.COLUMNS;
+    const previousLines = process.env.LINES;
+    try {
+        const terminal = new api.ProcessTerminal();
+        const dimensions = (request.values as string[]).map((value) => {
+            process.env.COLUMNS = value;
+            process.env.LINES = value;
+            return { input: value, columns: String(terminal.columns), rows: String(terminal.rows) };
+        });
+        return { dimensions, hugeFlags: api.parseKeyboardProtocolNegotiationSequence("\x1b[?" + "9".repeat(400) + "u") };
+    } finally {
+        if (previousColumns === undefined) delete process.env.COLUMNS;
+        else process.env.COLUMNS = previousColumns;
+        if (previousLines === undefined) delete process.env.LINES;
+        else process.env.LINES = previousLines;
+    }
+}
+
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
 	switch (request.operation) {
+		case "terminal_numeric_domains":
+			return terminalNumericDomains(request, sourceDirectory);
 		case "keybindings":
 			return keybindingsOperation(request, sourceDirectory);
 		case "terminal":
