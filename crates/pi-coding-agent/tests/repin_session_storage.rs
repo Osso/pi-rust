@@ -748,3 +748,67 @@ fn large_unicode_compacted_history_streaming_and_early_drop_cleanup() {
     assert_eq!(std::fs::read(archive).unwrap(), compressed);
     assert!(!std::path::Path::new(path).exists());
 }
+
+#[test]
+fn frozen_transcript_exports_match_stream_frame_and_utf8_error_boundaries() {
+    use pi_coding_agent::core::session_transcript::*;
+    use std::io::Read;
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"text":"😀漢é".repeat(10000)}),
+    );
+    let path = created["path"].as_str().unwrap();
+    let original = std::fs::read(path).unwrap();
+    let archive = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
+    let archive = archive.as_str().unwrap();
+    let compressed = std::fs::read(archive).unwrap();
+    for bytes in [
+        compressed.clone(),
+        [compressed.clone(), compressed.clone()].concat(),
+        [compressed.clone(), b"garbage".to_vec()].concat(),
+        compressed[..compressed.len() - 1].to_vec(),
+        vec![0, 1, 2, 3],
+    ] {
+        std::fs::write(archive, &bytes).unwrap();
+        let source = ts.request(&json!({"id":1,"op":"transcript","path":path}));
+        let rust = read_session_transcript_bytes(path);
+        assert_eq!(rust.is_ok(), source["ok"] == true, "{source}");
+        if let Ok(bytes) = rust {
+            let source = &source["output"];
+            assert_eq!(read_session_transcript_path(path), source["path"]);
+            assert_eq!(is_session_transcript_file(path), source["isTranscript"]);
+            assert_eq!(pi_js_compat::base64::btoa(&bytes), source["bytes"]);
+            assert_eq!(read_session_transcript_text(path).unwrap(), source["text"]);
+            let mut streamed = Vec::new();
+            create_session_transcript_read_stream(path)
+                .unwrap()
+                .read_to_end(&mut streamed)
+                .unwrap();
+            assert_eq!(String::from_utf8_lossy(&streamed), source["streamed"]);
+        }
+    }
+    // Existing plain wins even over the last corrupt compressed sibling; replacement UTF8 follows Node.
+    let mut plain = original;
+    plain.extend_from_slice(&[0xf0, 0x9f, 0xff, 0x80]);
+    std::fs::write(path, &plain).unwrap();
+    let source = call(&mut ts, json!({"op":"transcript","path":path}));
+    assert_eq!(read_session_transcript_text(path).unwrap(), source["streamed"]);
+    for name in ["plain.jsonl", "archive.jsonl.zst", "ordinary.zst", "other.json"] {
+        let fixture = tmp.path().join(name);
+        std::fs::write(&fixture, b"plain text").unwrap();
+        let result = ts.request(&json!({"id":1,"op":"transcript","path":fixture}));
+        if result["ok"] == true {
+            assert_eq!(
+                is_session_transcript_file(fixture.to_str().unwrap()),
+                result["output"]["isTranscript"]
+            );
+        } else {
+            assert!(read_session_transcript_bytes(fixture.to_str().unwrap()).is_err());
+        }
+    }
+}
