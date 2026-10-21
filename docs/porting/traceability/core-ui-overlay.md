@@ -81,6 +81,18 @@ Full commands, revisions and outcomes: `/tmp/pi-rust-core-ui-overlay/ledger.md`;
 - Main reports these three were reproduced at base `04f51ba` by the core-ui-input slice and assigned to a separate fixer. They are not passing evidence. No restore/bisect or unrelated fix was performed here. The hung process tree was cancelled and all owned processes verified exited. No broad rerun.
 - No Cargo check, Clippy, workspace suite, deployment or live smoke test was run, per this task's focused-test-only instruction. Independent/final integration verification belongs to main; this slice does not claim a globally clean milestone.
 
+## UI-local ownership / Clippy follow-up
+
+`ExtensionUiDone` and overlay handles use `Rc`; local callback slots use
+`Rc<RefCell<_>>`. `ExtensionUiOnHandle` still crosses threads as a Send/Sync
+`Arc` callback, but receives an `Rc` handle only on the UI thread. Public custom
+factories and `ExtensionUiTuiBackend` retain Send/Sync `Arc` ownership; direct
+UI-thread factories use `LocalExtensionUiCustomFactory`.
+`extension_ui_done_clones_share_local_callback_state` checks retained callback
+state and calls after dropping the original wrapper. Existing overlay tests
+cover focus, nested handles, disposal, and first settlement without changed
+assertions. Follow-up proof: `/tmp/pi-rust-clippy-final/`.
+
 ## Synchronous custom-factory rejection (batch Q prerequisite)
 
 Pinned `interactive-mode.ts:3483–3505` evaluates `factory(...)` inside the

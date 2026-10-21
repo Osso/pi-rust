@@ -1,5 +1,9 @@
 #[path = "../examples/extensions/qna.rs"]
 mod example;
+#[path = "support/extensions.rs"]
+mod extension_support;
+#[path = "support/oracle.rs"]
+mod oracle;
 #[path = "support/extension_examples_b.rs"]
 mod support;
 use pi_coding_agent::core::extensions::*;

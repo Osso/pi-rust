@@ -4,20 +4,20 @@ use std::sync::Arc;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme};
 use serde_json::{Value, json};
+#[path = "extensions.rs"]
+mod fixture;
 #[path = "oracle.rs"]
 mod oracle;
-#[path = "extensions.rs"]
-mod support;
 
 pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
     let cwd = request["cwd"].as_str().unwrap();
-    let runtime = support::runtime();
+    let runtime = fixture::runtime();
     let mut registry = ExtensionRegistry::new();
     registry.register("<example:built-in-tool-renderer>", factory);
     let extension = load_extension_from_factory(
         registry.get("<example:built-in-tool-renderer>").unwrap().clone(),
         cwd,
-        support::event_bus(),
+        fixture::event_bus(),
         runtime.clone(),
         "<example:built-in-tool-renderer>",
     )
@@ -28,8 +28,8 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
         4,
         "example must replace all four built-ins"
     );
-    let model_registry = support::model_registry().await;
-    let runner = support::runner_for(vec![extension.clone()], cwd, runtime, model_registry);
+    let model_registry = fixture::model_registry().await;
+    let runner = fixture::runner_for(vec![extension.clone()], cwd, runtime, model_registry);
     let theme = Theme::new(
         &request["colors"]
             .as_object()

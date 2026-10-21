@@ -1,4 +1,5 @@
 //! Batch A's real-runtime transcript fixture. No provider calls or live session files.
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::types::CredentialStore;
@@ -15,10 +16,7 @@ use serde_json::{Map, Value, json};
 
 #[path = "footer_thread.rs"]
 mod footer_thread;
-#[path = "oracle.rs"]
-mod oracle;
-#[path = "extensions.rs"]
-mod support;
+use crate::{extension_support as fixture, oracle};
 
 pub type Trace = Arc<Mutex<Vec<Value>>>;
 
@@ -35,7 +33,7 @@ impl ExtensionUiTuiBackend for Terminal {
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
         _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
         panic!("this fixture does not mount nested overlays")
     }
 
@@ -196,8 +194,8 @@ pub fn run_oracle(name: &str, request: &Value) -> Value {
 pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -> Value {
     let trace: Trace = Arc::default();
     let factory = factory(trace.clone());
-    let runtime = support::runtime();
-    let bus = support::event_bus();
+    let runtime = fixture::runtime();
+    let bus = fixture::event_bus();
     let mut registry = ExtensionRegistry::new();
     registry.register("<example:batch-a>", factory);
     let cwd = request["cwd"].as_str().unwrap_or("/fixture");
@@ -281,10 +279,10 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
         None,
     );
     let prompt = Arc::new(Mutex::new(String::new()));
-    let mut context = support::context_actions();
+    let mut context = fixture::context_actions();
     let current_prompt = prompt.clone();
     context.get_system_prompt = Arc::new(move || current_prompt.lock().unwrap().clone());
-    let mut actions = support::actions();
+    let mut actions = fixture::actions();
     let session_name = Arc::new(Mutex::new(request["name"].as_str().map(str::to_owned)));
     let fixture_name = session_name.clone();
     let name = session_name.clone();
@@ -539,10 +537,10 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     .unwrap();
                 let bytes = tokio::time::timeout(std::time::Duration::from_secs(3), async {
                     loop {
-                        if let Ok(bytes) = std::fs::read(&path) {
-                            if !bytes.is_empty() {
-                                break bytes;
-                            }
+                        if let Ok(bytes) = std::fs::read(&path)
+                            && !bytes.is_empty()
+                        {
+                            break bytes;
                         }
                         rx.recv().await.unwrap().unwrap();
                     }

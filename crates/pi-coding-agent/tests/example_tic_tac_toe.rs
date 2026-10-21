@@ -1,9 +1,13 @@
 #[path = "../examples/extensions/tic_tac_toe.rs"]
 mod example;
+#[path = "support/extensions.rs"]
+mod extension_support;
 #[path = "support/extension_examples_b.rs"]
 mod harness;
 #[path = "support/extension_examples_a.rs"]
 mod messages;
+#[path = "support/oracle.rs"]
+mod oracle;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -148,8 +152,7 @@ async fn persisted_message_and_tool_renderers_match_complete_ansi_lines() {
     harness::compare("tic-tac-toe", factory(), json!({"cases":cases})).await;
 }
 
-#[path = "support/extensions.rs"]
-mod scheduler;
+use extension_support as scheduler;
 
 #[tokio::test(start_paused = true)]
 async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {

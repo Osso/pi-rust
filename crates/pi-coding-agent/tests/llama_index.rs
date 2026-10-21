@@ -5,6 +5,7 @@ mod llama_fetch;
 #[path = "support/tool_context.rs"]
 mod tool_context;
 
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -62,7 +63,7 @@ impl pi_coding_agent::core::extensions::types::ExtensionUiTuiBackend for TestBac
         &self,
         _component: Box<dyn ExtensionUiComponent>,
         _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
         panic!("this fixture does not mount nested overlays")
     }
     fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
@@ -134,7 +135,7 @@ impl Default for FakeUi {
                     match request {
                         FixtureRequest::Custom(factory, sender) => {
                             let sender = std::cell::RefCell::new(Some(sender));
-                            let done = ExtensionUiDone::new(Arc::new(move |_| {
+                            let done = ExtensionUiDone::new(Rc::new(move |_| {
                                 if let Some(sender) = sender.borrow_mut().take() {
                                     let _ = sender.send(());
                                 }
@@ -223,10 +224,10 @@ async fn wait_for_component(ui: &Arc<FakeUi>) -> () {
 
 async fn wait_for_text(ui: &Arc<FakeUi>, needle: &str) {
     for _ in 0..200 {
-        if let Some(lines) = ui.render() {
-            if text(&lines).iter().any(|line| line.contains(needle)) {
-                return;
-            }
+        if let Some(lines) = ui.render()
+            && text(&lines).iter().any(|line| line.contains(needle))
+        {
+            return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }

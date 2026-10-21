@@ -1,7 +1,11 @@
 #[path = "../examples/extensions/structured_output.rs"]
 mod example;
+#[path = "support/extensions.rs"]
+mod extension_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
+#[path = "support/oracle.rs"]
+mod oracle;
 use serde_json::json;
 #[tokio::test]
 async fn terminating_result_schema_prompts_and_rendered_lines_match() {

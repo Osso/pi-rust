@@ -288,17 +288,16 @@ fn alien_shoot(s: &mut State, random: &Random) {
 fn check_collisions(s: &mut State) {
     s.bullets.retain(|bullet| {
         let mut remove = false;
-        if bullet.direction == -1 {
-            if let Some(alien) = s
+        if bullet.direction == -1
+            && let Some(alien) = s
                 .aliens
                 .iter_mut()
                 .find(|a| a.alive && (bullet.x - a.x).abs() <= 1 && bullet.y == a.y)
-            {
-                alien.alive = false;
-                remove = true;
-                s.score += [10, 20, 30][alien.r#type];
-                s.high_score = s.high_score.max(s.score);
-            }
+        {
+            alien.alive = false;
+            remove = true;
+            s.score += [10, 20, 30][alien.r#type];
+            s.high_score = s.high_score.max(s.score);
         }
         if bullet.direction == 1 && (bullet.x - s.player.x).abs() <= 1 && bullet.y == PLAYER_Y {
             remove = true;

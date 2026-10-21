@@ -1,7 +1,5 @@
 //! Opt-in native port of `border-status-editor.ts`.
-#[path = "editor_composition.rs"]
-mod editor_composition;
-use editor_composition::{ComposedEditor, EditorBehavior};
+use super::editor_composition::{ComposedEditor, EditorBehavior};
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::components::custom_editor::{CustomEditor, CustomEditorOptions};
 use pi_coding_agent::modes::interactive::theme::ThemeColor;
@@ -61,7 +59,7 @@ fn format_context(ctx: &ExtensionContext) -> String {
     let window = usage
         .as_ref()
         .map(|u| u.context_window)
-        .or_else(|| ctx.model().expect("live model").map(|m| m.context_window as f64));
+        .or_else(|| ctx.model().expect("live model").map(|m| m.context_window));
     match (window, usage.and_then(|u| u.percent)) {
         (Some(w), Some(percent)) if w != 0.0 => format!(
             "ctx {}%/{}k",

@@ -104,7 +104,7 @@ impl ExtensionUiTuiBackend for Terminal {
         &self,
         component: Box<dyn ExtensionUiComponent>,
         options: Option<ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn ExtensionUiOverlayHandle> {
         let panel = Rc::new(Panel {
             component,
             options: options.unwrap_or_default(),
@@ -112,7 +112,7 @@ impl ExtensionUiTuiBackend for Terminal {
             focused: Cell::new(false),
         });
         PANELS.with(|ps| ps.borrow_mut().push(panel.clone()));
-        Arc::new(Handle(panel))
+        Rc::new(Handle(panel))
     }
 }
 fn theme() -> Arc<Theme> {
@@ -236,7 +236,7 @@ impl ExtensionUiContext for Ui {
                 REQUESTS.with(|count| count.set(0));
                 let result = Rc::new(RefCell::new(None));
                 let saved = result.clone();
-                let done = ExtensionUiDone::new(Arc::new(move |v| {
+                let done = ExtensionUiDone::new(Rc::new(move |v| {
                     *saved.borrow_mut() = Some(v);
                 }));
                 let component = factory(
@@ -249,7 +249,7 @@ impl ExtensionUiContext for Ui {
                 )
                 .unwrap();
                 component.set_focused(true);
-                component.on_overlay_handle(Arc::new(MainHandle(calls.clone(), false)));
+                component.on_overlay_handle(Rc::new(MainHandle(calls.clone(), false)));
                 let cloned = script["clone"].as_bool().unwrap_or(false).then(|| {
                     let cloned = factory(
                         ExtensionUiFactoryContext {
@@ -257,10 +257,10 @@ impl ExtensionUiContext for Ui {
                             theme: theme(),
                             keybindings: KeybindingsManager::new(Vec::new(), None),
                         },
-                        ExtensionUiDone::new(Arc::new(|_| {})),
+                        ExtensionUiDone::new(Rc::new(|_| {})),
                     )
                     .unwrap();
-                    cloned.on_overlay_handle(Arc::new(MainHandle(calls.clone(), true)));
+                    cloned.on_overlay_handle(Rc::new(MainHandle(calls.clone(), true)));
                     cloned
                 });
                 let opts = opts.unwrap();
@@ -348,11 +348,11 @@ impl ExtensionUiContext for Ui {
     }
 }
 async fn native(request: &Value) -> Value {
-    if request["command"] == "overlay-overflow" {
-        if let Some(control) = pi_js_compat::process_env::get("OVERLAY_QA_CONTROL") {
-            std::fs::write(&control, "").unwrap();
-            let _ = std::fs::remove_file(format!("{control}.pid"));
-        }
+    if request["command"] == "overlay-overflow"
+        && let Some(control) = pi_js_compat::process_env::get("OVERLAY_QA_CONTROL")
+    {
+        std::fs::write(&control, "").unwrap();
+        let _ = std::fs::remove_file(format!("{control}.pid"));
     }
     let runtime = create_extension_runtime();
     let mut registry = ExtensionRegistry::new();

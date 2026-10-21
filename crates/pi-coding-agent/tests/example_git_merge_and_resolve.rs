@@ -1,9 +1,13 @@
 #[path = "../examples/extensions/git_merge_and_resolve.rs"]
 mod example;
+#[path = "support/extensions.rs"]
+mod extension_support;
 #[path = "support/extension_examples_e_git.rs"]
 mod git_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
+#[path = "support/oracle.rs"]
+mod oracle;
 use serde_json::{Value, json};
 use std::path::Path;
 

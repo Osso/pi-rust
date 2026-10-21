@@ -7,6 +7,7 @@ use pi_coding_agent::core::{
 };
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path};
 use serde_json::{Map, Value, json};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 #[path = "oracle.rs"]
 mod oracle;
@@ -24,7 +25,7 @@ impl ExtensionUiTuiBackend for Backend {
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
         _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
         panic!("this fixture does not mount nested overlays")
     }
 
@@ -94,7 +95,7 @@ impl ExtensionUiContext for Ui {
         };
         let component = factory(
             context,
-            ExtensionUiDone::new(Arc::new(move |value| *captured.lock().unwrap() = value)),
+            ExtensionUiDone::new(Rc::new(move |value| *captured.lock().unwrap() = value)),
         )
         .expect("custom component fixture factory");
         self.trace.lock().unwrap().push(json!(["custom", component.render(80)]));
@@ -335,7 +336,7 @@ pub async fn compare(
                     .read()
                     .shortcuts
                     .values()
-                    .find(|s| s.shortcut.to_string() == step["key"].as_str().unwrap())
+                    .find(|s| s.shortcut == step["key"].as_str().unwrap())
                     .unwrap()
                     .handler
                     .clone();

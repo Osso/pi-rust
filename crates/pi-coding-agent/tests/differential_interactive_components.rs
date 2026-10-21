@@ -1250,14 +1250,13 @@ fn tree_selector_cases() -> Vec<(Value, Value)> {
     if let pi_coding_agent::core::session_manager::SessionEntry::Known(
         pi_coding_agent::core::session_manager::KnownSessionEntry::Message(entry),
     ) = &mut numeric_entry
+        && let pi_agent_core::agent::AgentMessage::Assistant(message) = entry.message.as_mut()
     {
-        if let pi_agent_core::agent::AgentMessage::Assistant(message) = entry.message.as_mut() {
-            message.content.push(AssistantContent::ToolCall(ToolCall::new(
-                "call",
-                "unknown",
-                serde_json::from_str(r#"{"2":2.0,"1":1.0,"pad":"abcdefghijklmnopqrstuvwxyz"}"#).unwrap(),
-            )));
-        }
+        message.content.push(AssistantContent::ToolCall(ToolCall::new(
+            "call",
+            "unknown",
+            serde_json::from_str(r#"{"2":2.0,"1":1.0,"pad":"abcdefghijklmnopqrstuvwxyz"}"#).unwrap(),
+        )));
     }
     type TreeCase<'a> = (
         u64,

@@ -156,17 +156,17 @@ impl Questionnaire {
             self.refresh(state);
             return;
         }
-        if let Some(value) = state.editor.input(data) {
-            if let Some(id) = state.input_id.clone().filter(|s| !s.is_empty()) {
-                let trimmed = js_trim(&value);
-                let text = if trimmed.is_empty() { "(no response)" } else { trimmed };
-                state
-                    .answers
-                    .insert(id.clone(), json!({"id":id,"value":text,"label":text,"wasCustom":true}));
-                state.input_id = None;
-                state.editor.editor.set_text("");
-                self.advance(state);
-            }
+        if let Some(value) = state.editor.input(data)
+            && let Some(id) = state.input_id.clone().filter(|s| !s.is_empty())
+        {
+            let trimmed = js_trim(&value);
+            let text = if trimmed.is_empty() { "(no response)" } else { trimmed };
+            state
+                .answers
+                .insert(id.clone(), json!({"id":id,"value":text,"label":text,"wasCustom":true}));
+            state.input_id = None;
+            state.editor.editor.set_text("");
+            self.advance(state);
         }
         self.refresh(state);
     }

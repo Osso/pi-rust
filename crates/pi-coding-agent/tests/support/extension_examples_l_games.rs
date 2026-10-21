@@ -1,7 +1,7 @@
+#[path = "extensions.rs"]
+mod fixture;
 #[path = "oracle.rs"]
 mod oracle;
-#[path = "extensions.rs"]
-mod support;
 #[path = "ui_thread.rs"]
 mod ui_thread;
 use pi_coding_agent::core::{
@@ -11,6 +11,7 @@ use pi_coding_agent::core::{
     session_manager::SessionManager,
 };
 use serde_json::{Value, json};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 type Trace = Arc<Mutex<Vec<Value>>>;
@@ -30,7 +31,7 @@ impl ExtensionUiTuiBackend for Backend {
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
         _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
         panic!("this fixture does not mount nested overlays")
     }
 
@@ -136,10 +137,10 @@ impl ExtensionUiContext for Ui {
                 let component = factory(
                     ExtensionUiFactoryContext {
                         tui: ExtensionUiTui::new(Arc::new(Backend(trace.clone()))),
-                        theme: theme,
+                        theme,
                         keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
                     },
-                    ExtensionUiDone::new(Arc::new(move |_| {
+                    ExtensionUiDone::new(Rc::new(move |_| {
                         *done.lock().unwrap() = true;
                         done_trace.lock().unwrap().push(json!(["done"]));
                     })),
@@ -203,7 +204,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     let extension = load_extension_from_factory(
         factory,
         "/fixture",
-        support::event_bus(),
+        fixture::event_bus(),
         runtime.clone(),
         "<example:l-game>",
     )
@@ -246,13 +247,13 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     let trace: Trace = Arc::default();
     let log = trace.clone();
     let saved = manager.clone();
-    let mut actions = support::actions();
+    let mut actions = fixture::actions();
     actions.append_entry = Arc::new(move |kind, data| {
         saved.lock().unwrap().append_custom_entry(kind, data.clone()).unwrap();
         log.lock().unwrap().push(json!(["append", kind, data]));
         Ok(())
     });
-    runner.bind_core(actions, support::context_actions(), None);
+    runner.bind_core(actions, fixture::context_actions(), None);
     let log = trace.clone();
     let _error = runner.on_error(Arc::new(move |e| {
         log.lock().unwrap().push(json!(["error", e.event, e.error]))

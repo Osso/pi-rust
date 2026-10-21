@@ -2,13 +2,14 @@ use super::*;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::utils::{truncate_to_width_with, visible_width};
 use pi_tui::{Component, Focusable};
+use std::rc::Rc;
 pub(super) const LABELS: [&str; 3] = ["Alpha", "Beta", "Gamma"];
 pub(super) const STREAM_LABELS: [&str; 3] = ["Panel A", "Panel B", "Panel C"];
 pub(super) const COLORS: [ThemeColor; 3] = [ThemeColor::Error, ThemeColor::Success, ThemeColor::Accent];
 pub(super) struct Entry {
     pub index: usize,
     pub closed: Rc<Cell<bool>>,
-    pub handle: Arc<dyn ExtensionUiOverlayHandle>,
+    pub handle: Rc<dyn ExtensionUiOverlayHandle>,
 }
 struct Panel {
     controller: Weak<Model>,
@@ -17,7 +18,7 @@ struct Panel {
     input: RefCell<Input>,
     typed: RefCell<Vec<u16>>,
     inputs: RefCell<Vec<String>>,
-    handle: Rc<RefCell<Option<Arc<dyn ExtensionUiOverlayHandle>>>>,
+    handle: Rc<RefCell<Option<Rc<dyn ExtensionUiOverlayHandle>>>>,
 }
 pub(super) fn mount(model: &Rc<Model>) {
     let count = if model.demo == Demo::Passive { 1 } else { 3 };

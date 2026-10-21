@@ -5,6 +5,7 @@ mod bundled;
 #[path = "support/extensions.rs"]
 mod support;
 
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use bundled::{Harness, HarnessOptions, test_model};
@@ -61,7 +62,7 @@ impl ExtensionUiTuiBackend for StubTui {
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
         _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
         panic!("this fixture does not mount nested overlays")
     }
 

@@ -1,7 +1,11 @@
 #[path = "../examples/extensions/system_prompt_header.rs"]
 mod example;
+#[path = "support/extensions.rs"]
+mod extension_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
+#[path = "support/oracle.rs"]
+mod oracle;
 use serde_json::json;
 
 #[tokio::test]

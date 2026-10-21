@@ -1,7 +1,5 @@
 //! Opt-in native port of `modal-editor.ts`.
-#[path = "editor_composition.rs"]
-mod editor_composition;
-use editor_composition::{ComposedEditor, EditorBehavior};
+use super::editor_composition::{ComposedEditor, EditorBehavior};
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::components::custom_editor::CustomEditor;
 use pi_tui::tui::Component;
@@ -52,13 +50,13 @@ impl EditorBehavior for Modal {
     fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<String> {
         let mut lines = editor.render(width);
         let label = if self.normal { " NORMAL " } else { " INSERT " };
-        if let Some(last) = lines.last_mut() {
-            if visible_width(last) >= label.len() {
-                *last = format!(
-                    "{}{label}",
-                    truncate_to_width_with(last, width.saturating_sub(label.len()), "", false)
-                );
-            }
+        if let Some(last) = lines.last_mut()
+            && visible_width(last) >= label.len()
+        {
+            *last = format!(
+                "{}{label}",
+                truncate_to_width_with(last, width.saturating_sub(label.len()), "", false)
+            );
         }
         lines
     }

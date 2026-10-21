@@ -18,6 +18,7 @@ use pi_coding_agent::core::{
 };
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path, set_theme_instance};
 use serde_json::{Map, Value, json};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 type Trace = Arc<Mutex<Vec<Value>>>;
 struct Backend;
@@ -26,7 +27,7 @@ impl ExtensionUiTuiBackend for Backend {
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
         _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
         panic!("this fixture does not mount nested overlays")
     }
 
@@ -90,10 +91,10 @@ impl ExtensionUiContext for Ui {
                 let component = factory(
                     ExtensionUiFactoryContext {
                         tui: ExtensionUiTui::new(Arc::new(Backend)),
-                        theme: theme,
+                        theme,
                         keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
                     },
-                    ExtensionUiDone::new(Arc::new(move |value| {
+                    ExtensionUiDone::new(Rc::new(move |value| {
                         if let Some(sender) = sender.lock().unwrap().take() {
                             let _ = sender.send(value);
                         }

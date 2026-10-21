@@ -34,10 +34,10 @@ pub fn discover_agents(cwd: &Path, scope: &str, agent_dir: &Path) -> Result<Agen
     if scope != "project" {
         merge_agents(&mut agents, load_agents(&agent_dir.join("agents"), "user")?);
     }
-    if scope != "user" {
-        if let Some(dir) = &project_agents_dir {
-            merge_agents(&mut agents, load_agents(dir, "project")?);
-        }
+    if scope != "user"
+        && let Some(dir) = &project_agents_dir
+    {
+        merge_agents(&mut agents, load_agents(dir, "project")?);
     }
     Ok(AgentDiscoveryResult {
         agents,

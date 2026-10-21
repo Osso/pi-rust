@@ -292,7 +292,7 @@ pub trait ExtensionUiComponent {
     /// Called once by `custom` immediately after mounting, not by raw
     /// `show_overlay`. Unlike the shared
     /// options callback, this hook may retain the handle in `Rc` state.
-    fn on_overlay_handle(&self, _handle: Arc<dyn ExtensionUiOverlayHandle>) {}
+    fn on_overlay_handle(&self, _handle: Rc<dyn ExtensionUiOverlayHandle>) {}
 }
 
 /// Backend behind the [`ExtensionUiTui`] handle passed to factories.
@@ -311,7 +311,7 @@ pub trait ExtensionUiTuiBackend: Send + Sync {
         &self,
         component: Box<dyn ExtensionUiComponent>,
         options: Option<ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn ExtensionUiOverlayHandle>;
+    ) -> Rc<dyn ExtensionUiOverlayHandle>;
 }
 
 /// Thread-safe `TUI` handle passed to extension factories.
@@ -334,7 +334,7 @@ impl ExtensionUiTui {
         &self,
         component: Box<dyn ExtensionUiComponent>,
         options: Option<ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn ExtensionUiOverlayHandle> {
         self.backend.show_overlay(component, options)
     }
 
@@ -430,10 +430,10 @@ pub type ExtensionEditorFactory = Arc<
 /// UI-local `done` callback (`interactive-mode.ts:3486–3505`).
 /// Factory closures cross threads; their created callbacks/components do not.
 #[derive(Clone)]
-pub struct ExtensionUiDone(Arc<dyn Fn(Option<Value>)>);
+pub struct ExtensionUiDone(Rc<dyn Fn(Option<Value>)>);
 
 impl ExtensionUiDone {
-    pub fn new(callback: Arc<dyn Fn(Option<Value>)>) -> Self {
+    pub fn new(callback: Rc<dyn Fn(Option<Value>)>) -> Self {
         Self(callback)
     }
 
@@ -506,7 +506,7 @@ pub struct ExtensionUiCustomOptions {
 }
 
 /// `onHandle` callback receiving the overlay handle.
-pub type ExtensionUiOnHandle = Arc<dyn Fn(Arc<dyn ExtensionUiOverlayHandle>) + Send + Sync>;
+pub type ExtensionUiOnHandle = Arc<dyn Fn(Rc<dyn ExtensionUiOverlayHandle>) + Send + Sync>;
 
 pub type TerminalInputHandler = Arc<dyn Fn(&str) -> Option<TerminalInputResult> + Send + Sync>;
 
@@ -3455,4 +3455,21 @@ pub type ExtensionCustomEntry = CustomEntry;
 /// Preserve standalone tool-definition inference (`defineTool`).
 pub fn define_tool(tool: ToolDefinition) -> ToolDefinition {
     tool
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extension_ui_done_clones_share_local_callback_state() {
+        let values = Rc::new(RefCell::new(Vec::new()));
+        let captured = Rc::clone(&values);
+        let done = ExtensionUiDone::new(Rc::new(move |value| captured.borrow_mut().push(value)));
+        let cloned = done.clone();
+        drop(done);
+        cloned.call(Some(serde_json::json!("closed")));
+        cloned.call(None);
+        assert_eq!(*values.borrow(), vec![Some(serde_json::json!("closed")), None]);
+    }
 }

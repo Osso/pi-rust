@@ -196,7 +196,8 @@ Register these factories explicitly using the native pattern above:
 | `rainbow_editor.rs` | `rainbow_editor_extension` |
 | `overlay_test.rs` | `overlay_test_extension` |
 
-Copy `editor_composition.rs` alongside the three editor modules. It delegates
+Copy `editor_composition.rs` alongside the three editor modules and declare
+`mod editor_composition;` once in their common parent module. It delegates
 the real CustomEditor surface while the example overrides input/render behavior;
 the host still wires base callbacks and focus. Border-status hides the footer
 and working indicator; overlay-test registers `/overlay-test`. No example loads

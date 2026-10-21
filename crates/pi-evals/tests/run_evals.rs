@@ -389,6 +389,9 @@ fn absolute_artifacts_do_not_canonicalize_symlinks_or_change_existing_permission
 
 #[test]
 fn default_artifacts_use_iso_timestamp_and_uuid_v4_syntax() {
+    let timestamp_pattern = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$").unwrap();
+    let uuid_pattern =
+        regex::Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$").unwrap();
     for empty in [false, true] {
         let fixture = Fixture::new();
         // The Cargo runner mounts the checkout read-only. Overlay only this child's
@@ -423,16 +426,8 @@ fn default_artifacts_use_iso_timestamp_and_uuid_v4_syntax() {
         assert_eq!(path.parent().unwrap(), Path::new(ROOT).join(".eval"));
         let name = path.file_name().unwrap().to_str().unwrap();
         let (timestamp, uuid) = name.split_once('_').unwrap();
-        assert!(
-            regex::Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$")
-                .unwrap()
-                .is_match(timestamp)
-        );
-        assert!(
-            regex::Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
-                .unwrap()
-                .is_match(uuid)
-        );
+        assert!(timestamp_pattern.is_match(timestamp));
+        assert!(uuid_pattern.is_match(uuid));
         let created = fixture.temp.path().join(".eval").join(name);
         assert_eq!(fs::metadata(&created).unwrap().permissions().mode() & 0o777, 0o700);
         fs::remove_dir(created).unwrap();
@@ -580,7 +575,7 @@ fn node_spawnsync_enoent_diagnostic_matches_with_forwarded_arguments() {
 #[test]
 fn mkdir_failure_reports_error_without_announcing_or_spawning() {
     let fixture = Fixture::new();
-    fs::write(&fixture.artifacts.parent().unwrap().to_path_buf(), "not a directory").unwrap();
+    fs::write(fixture.artifacts.parent().unwrap(), "not a directory").unwrap();
     let output = fixture.command().output().unwrap();
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8(output.stderr).unwrap();

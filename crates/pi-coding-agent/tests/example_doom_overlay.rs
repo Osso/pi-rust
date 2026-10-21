@@ -117,7 +117,7 @@ impl ExtensionUiTuiBackend for Backend {
         &self,
         _: Box<dyn ExtensionUiComponent>,
         _: Option<ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn ExtensionUiOverlayHandle> {
         panic!("no nested overlay")
     }
 }
@@ -220,7 +220,7 @@ impl ExtensionUiContext for Ui {
                         theme,
                         keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
                     },
-                    ExtensionUiDone::new(Arc::new(move |result| {
+                    ExtensionUiDone::new(Rc::new(move |result| {
                         *captured.lock().unwrap() = result.clone();
                         actions.lock().unwrap().push(json!(["done", result]));
                     })),

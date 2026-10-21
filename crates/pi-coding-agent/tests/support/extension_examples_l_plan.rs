@@ -7,11 +7,12 @@ use pi_coding_agent::core::{
 };
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path};
 use serde_json::{Map, Value, json};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+#[path = "extensions.rs"]
+mod fixture;
 #[path = "oracle.rs"]
 mod oracle;
-#[path = "extensions.rs"]
-mod support;
 pub type Trace = Arc<Mutex<Vec<Value>>>;
 struct Ui {
     trace: Trace,
@@ -24,7 +25,7 @@ impl ExtensionUiTuiBackend for Backend {
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
         _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
         panic!("this fixture does not mount nested overlays")
     }
 
@@ -94,7 +95,7 @@ impl ExtensionUiContext for Ui {
         };
         let component = factory(
             context,
-            ExtensionUiDone::new(Arc::new(move |value| *captured.lock().unwrap() = value)),
+            ExtensionUiDone::new(Rc::new(move |value| *captured.lock().unwrap() = value)),
         )
         .expect("custom component fixture factory");
         self.trace.lock().unwrap().push(json!(["custom", component.render(80)]));
@@ -135,7 +136,7 @@ pub async fn compare(
     let extension = load_extension_from_factory(
         factories.get(name).unwrap().clone(),
         cwd,
-        support::event_bus(),
+        fixture::event_bus(),
         runtime.clone(),
         "<example:g>",
     )
@@ -193,8 +194,8 @@ pub async fn compare(
     let model = Arc::new(Mutex::new(
         serde_json::from_value(request.get("initialModel").cloned().unwrap_or(Value::Null)).unwrap(),
     ));
-    let mut actions = support::actions();
-    let mut context = support::context_actions();
+    let mut actions = fixture::actions();
+    let mut context = fixture::context_actions();
     let state = tools.clone();
     actions.get_active_tools = Arc::new(move || Ok(state.lock().unwrap().clone()));
     let state = tools.clone();
@@ -339,7 +340,7 @@ pub async fn compare(
                     .read()
                     .shortcuts
                     .values()
-                    .find(|s| s.shortcut.to_string() == step["key"].as_str().unwrap())
+                    .find(|s| s.shortcut == step["key"].as_str().unwrap())
                     .unwrap()
                     .handler
                     .clone();
