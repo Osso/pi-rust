@@ -188,7 +188,7 @@ const SUPERVISOR_AUTO_APPROVED_READ_ONLY_TOOLS: [&str; 7] =
     ["find", "grep", "ls", "outline", "read", "references", "symbol"];
 
 fn build_allow_always_agent_prompt(cwd: &str, input: &Map<String, Value>, tool_name: &str) -> String {
-    let input = serde_json::to_string_pretty(&Value::Object(input.clone())).unwrap_or_default();
+    let input = pi_js_compat::js_json::stringify_pretty(&Value::Object(input.clone()));
     [
         "Add a persistent allow rule for a command that was approved with Allow always in Pi.".to_owned(),
         String::new(),
@@ -2122,7 +2122,7 @@ impl AgentSession {
                     .as_ref()
                     .map(|reason| format!("\nReason: {reason}"))
                     .unwrap_or_default();
-                let input = serde_json::to_string_pretty(&Value::Object(event.input.clone())).unwrap_or_default();
+                let input = pi_js_compat::js_json::stringify_pretty(&Value::Object(event.input.clone()));
                 let title = format!("Approve {}?{reason_text}\n{input}", event.tool_name.as_str());
                 let selection = ui
                     .select(

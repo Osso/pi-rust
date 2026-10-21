@@ -71,7 +71,10 @@ impl ModelConfig {
     }
 
     pub fn get_provider_ids(&self) -> Vec<String> {
-        self.providers.keys().cloned().collect()
+        js_json::object_entries(&self.providers)
+            .into_iter()
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     pub fn get_error(&self) -> Option<&str> {

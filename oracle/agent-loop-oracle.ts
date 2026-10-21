@@ -848,7 +848,7 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				if (mode === "single") return "a".repeat(20000);
 				return "😀".repeat(3000);
 			};
-			const bigDetails = (mode: string) => ({ value: mode === "lines" ? "y".repeat(20000) : bigText(mode) });
+			const bigDetails = (mode: string) => ({ "2": 2.0, "1": 1.0, value: mode === "lines" ? "y".repeat(20000) : bigText(mode) });
 			const big = {
 				name: "big",
 				label: "Big",

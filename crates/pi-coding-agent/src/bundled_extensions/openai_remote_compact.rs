@@ -344,8 +344,7 @@ pub fn extract_openai_compact_details(
         ));
     }
     let replacement_history = deduplicate_openai_message_items(response_items);
-    let serialized =
-        serde_json::to_string(&replacement_history).map_err(|error| HandlerError::new(error.to_string()))?;
+    let serialized = pi_js_compat::js_json::stringify(&Value::Array(replacement_history.clone()));
     let replacement_history_bytes = serialized.len() as f64;
     Ok(OpenAiRemoteCompactionDetails {
         details_type: DETAILS_TYPE.to_owned(),
@@ -407,13 +406,30 @@ fn parse_openai_compact_response(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|_| json!({"output": [{"type": "error", "text": text}]}))
 }
 
+#[cfg(test)]
+mod js_value_tests {
+    use super::*;
+
+    #[test]
+    fn error_fallback_uses_javascript_json() {
+        let body = serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap();
+        assert_eq!(format_openai_error(&body), r#"{"1":1,"2":2}"#);
+    }
+
+    #[test]
+    fn serialized_budget_uses_javascript_numbers() {
+        let items = vec![serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap()];
+        assert_eq!(serialized_openai_input_chars(&items), 15);
+    }
+}
+
 fn format_openai_error(body: &Value) -> String {
     if let Some(error) = body.get("error")
         && let Some(message) = error.get("message").and_then(Value::as_str)
     {
         return message.to_owned();
     }
-    serde_json::to_string(body).unwrap_or_default()
+    pi_js_compat::js_json::stringify(body)
 }
 
 /// `buildCompactEndpoint`.
@@ -589,7 +605,7 @@ fn openai_message_deduplication_key(item: &Value) -> Option<String> {
     let mut message = item.as_object()?.clone();
     message.shift_remove("id");
     let canonical = canonicalize_json_value(&Value::Object(message));
-    serde_json::to_string(&canonical).ok()
+    Some(pi_js_compat::js_json::stringify(&canonical))
 }
 
 fn canonicalize_json_value(value: &Value) -> Value {
@@ -688,9 +704,9 @@ fn convert_assistant_message(content: &[AssistantContent]) -> Vec<Value> {
                 item.insert("name".to_owned(), Value::String(tool_call.name.clone()));
                 item.insert(
                     "arguments".to_owned(),
-                    Value::String(
-                        serde_json::to_string(&Value::Object(tool_call.arguments.clone())).unwrap_or_default(),
-                    ),
+                    Value::String(pi_js_compat::js_json::stringify(&Value::Object(
+                        tool_call.arguments.clone(),
+                    ))),
                 );
                 output.push(Value::Object(item));
             }
@@ -819,7 +835,8 @@ fn reconcile_openai_tool_pairs(items: &[Value]) -> Vec<usize> {
 }
 
 fn serialized_openai_input_chars(items: &[Value]) -> usize {
-    serde_json::to_string(items).map_or(0, |serialized| utf16_len(&serialized))
+    let serialized = pi_js_compat::js_json::stringify(&Value::Array(items.to_vec()));
+    utf16_len(&serialized)
 }
 
 /// `limitOpenAICompactInput`.

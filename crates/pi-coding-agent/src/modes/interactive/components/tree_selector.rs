@@ -236,6 +236,17 @@ fn shorten_path(path: &str) -> String {
     path.to_owned()
 }
 
+#[cfg(test)]
+mod js_value_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_tool_label_stringifies_before_truncating() {
+        let args = serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap();
+        assert_eq!(format_tool_call("unknown", &args), r#"[unknown: {"1":1,"2":2}]"#);
+    }
+}
+
 fn format_tool_call(name: &str, args: &Value) -> String {
     let string_arg = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
     let path = || {
@@ -306,7 +317,7 @@ fn format_tool_call(name: &str, args: &Value) -> String {
             format!("[ls: {}]", shorten_path(path))
         }
         _ => {
-            let serialized = serde_json::to_string(args).unwrap_or_default();
+            let serialized = pi_js_compat::js_json::stringify(args);
             let short = slice_utf16(&serialized, 40);
             let suffix = if utf16_len(&serialized) > 40 { "..." } else { "" };
             format!("[{name}: {short}{suffix}]")

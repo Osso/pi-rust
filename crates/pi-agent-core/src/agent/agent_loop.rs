@@ -1362,7 +1362,7 @@ fn cap_tool_result_content(content: Vec<TextOrImageContent>) -> Vec<TextOrImageC
 
 fn cap_tool_result_details(details: Option<Value>) -> Option<Value> {
     let details = details?;
-    let text = serde_json::to_string(&details).ok()?;
+    let text = pi_js_compat::js_json::stringify(&details);
     if !is_tool_result_text_too_large(&text) {
         return Some(details);
     }

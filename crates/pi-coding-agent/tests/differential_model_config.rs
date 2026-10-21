@@ -66,6 +66,10 @@ fn fixtures() -> Vec<(&'static str, &'static str)> {
   }
 }"#,
         ),
+        (
+            "numeric-provider-order",
+            r#"{"providers":{"2":{},"1":{},"z":{},"01":{},"4294967295":{}}}"#,
+        ),
         ("missing-providers", r#"{"other": true}"#),
         ("providers-not-object", r#"{"providers": []}"#),
         ("invalid-json", r#"{"providers": }"#),

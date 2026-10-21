@@ -117,6 +117,36 @@ async fn searches_full_active_branch_entries_hidden_by_compaction_and_includes_n
 }
 
 #[tokio::test]
+async fn context_tool_arguments_use_javascript_json_in_visible_text() {
+    let (_temp_dir, mut manager) = manager_fixture();
+    manager.append_message(user_message("needle", 1)).unwrap();
+    let mut message = AssistantMessage::empty("openai-responses", "openai", "gpt", 2);
+    message
+        .content
+        .push(AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
+            "call",
+            "unknown",
+            serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap(),
+        )));
+    manager
+        .append_message(AgentMessage::Assistant(Box::new(message)))
+        .unwrap();
+    let result = search(
+        &Arc::new(Mutex::new(manager)),
+        json!({"query":"needle", "context_entries":1}),
+    )
+    .await;
+    let text = serde_json::to_value(result.content).unwrap();
+    let text = text[0]["text"].as_str().unwrap();
+    assert!(text.contains("\"1\": 1,"), "{text}");
+    assert!(
+        text.find("\"1\": 1,").unwrap() < text.find("\"2\": 2").unwrap(),
+        "{text}"
+    );
+    assert!(!text.contains("2.0"), "{text}");
+}
+
+#[tokio::test]
 async fn excludes_entries_from_inactive_branches() {
     let (_temp_dir, mut manager) = manager_fixture();
     let root_id = manager

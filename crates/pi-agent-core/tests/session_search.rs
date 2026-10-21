@@ -66,6 +66,19 @@ async fn scans_an_arbitrary_in_memory_projected_source() {
 }
 
 #[tokio::test]
+async fn searches_javascript_json_for_nested_values() {
+    let session = memory_session("numeric");
+    let data = serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap();
+    session.append_custom_entry("numeric", Some(data)).await.unwrap();
+    let search = memory_search(vec![Arc::new(session)]);
+    let hits = search
+        .search(r#""1":1,"2":2"#, SessionSearchOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+}
+
+#[tokio::test]
 async fn includes_labels_in_memory_scanning_projections() {
     let session = memory_session("session");
     let entry_id = session.append_message(message("plain body")).await.unwrap();

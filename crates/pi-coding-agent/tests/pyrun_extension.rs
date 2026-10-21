@@ -260,6 +260,8 @@ fn formats_result_values_like_the_tool_output() {
     assert_eq!(format_result_value(&result), None);
     result.value = Some(json!({"stdout": "", "stderr": "", "exit_code": 2}));
     assert_eq!(format_result_value(&result), Some("exit code 2".to_owned()));
+    result.value = Some(serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap());
+    assert_eq!(format_result_value(&result).as_deref(), Some(r#"{"1":1,"2":2}"#));
     result.value = Some(json!({"a": 1}));
     assert_eq!(format_result_value(&result), Some("{\"a\":1}".to_owned()));
 
@@ -298,6 +300,8 @@ fn formats_progress_updates_in_priority_order() {
         format_progress_text(&update(json!({"type": "console", "value": {"a": 1}}))),
         "{\"a\":1}"
     );
+    let numeric = serde_json::from_str(r#"{"type":"console","value":{"2":2.0,"1":1.0}}"#).unwrap();
+    assert_eq!(format_progress_text(&update(numeric)), r#"{"1":1,"2":2}"#);
     assert_eq!(format_progress_text(&update(json!({"type": "other"}))), "other");
 }
 

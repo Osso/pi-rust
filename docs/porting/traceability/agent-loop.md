@@ -57,3 +57,7 @@ Tests: `crates/pi-agent-core/tests/agent_loop.rs`, `crates/pi-agent-core/tests/a
 - `prepareArguments` must return a JSON object; TypeScript accepts any runtime value and lets validation decide. Explicit typed exclusion.
 - Sparse/`null` holes in assistant content cannot be represented; the loop treats content blocks as typed values.
 - Tool-result text capping mirrors JS UTF-16 `slice` via `Vec<u16>`; lone surrogates (not representable in Rust `String`) become U+FFFD.
+
+## JS-value boundary regression (2026-10-20)
+
+Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).

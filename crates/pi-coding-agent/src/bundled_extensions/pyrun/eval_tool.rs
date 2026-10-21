@@ -113,7 +113,7 @@ pub fn format_result_value(result: &CanonicalPyrunEvalResult) -> Option<String> 
             Some(text.to_owned())
         };
     }
-    Some(serde_json::to_string(value).unwrap_or_default())
+    Some(pi_js_compat::js_json::stringify(value))
 }
 
 /// `formatConsoleEntry`.
@@ -222,7 +222,7 @@ pub fn format_progress_text(update: &CanonicalPyrunProgressUpdate) -> String {
     if let Some(value) = update.value() {
         return match value {
             Value::String(text) => text.clone(),
-            other => serde_json::to_string(other).unwrap_or_default(),
+            other => pi_js_compat::js_json::stringify(other),
         };
     }
     update.message_type().to_owned()

@@ -83,7 +83,24 @@ async fn differential_export_probe() {
 
     let mut oracle = Oracle::new();
     let dir = tempfile::tempdir().expect("temp dir");
-    let input = fixture_path();
+    let input = dir.path().join("numeric-session.jsonl");
+    let fixture = fs::read_to_string(fixture_path()).unwrap();
+    let fixture = fixture.replace("\"arguments\":{", "\"arguments\":{\"2\":2.0,\"1\":1.0,");
+    // Append arbitrary details to an existing message without changing session topology.
+    let fixture = fixture
+        .lines()
+        .map(|line| {
+            let mut entry: Value = serde_json::from_str(line).unwrap();
+            if entry["message"]["role"] == "toolResult" {
+                entry["message"]["details"] = serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap();
+            }
+            serde_json::to_string(&entry).unwrap()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(fixture.contains("2.0"));
+    fs::write(&input, fixture).unwrap();
+    let input = input.display().to_string();
 
     for theme in ["dark", "light", ""] {
         let theme_name = (!theme.is_empty()).then_some(theme);

@@ -114,6 +114,19 @@ pub fn parameters() -> &'static Value {
     })
 }
 
+#[cfg(test)]
+mod js_value_tests {
+    use super::*;
+
+    #[test]
+    fn collects_numeric_properties_in_javascript_order() {
+        let value = serde_json::from_str(r#"{"2":"second","1":"first"}"#).unwrap();
+        let mut texts = Vec::new();
+        collect_search_texts(&value, &mut texts);
+        assert_eq!(texts, ["first", "second"]);
+    }
+}
+
 fn collect_search_texts(value: &Value, texts: &mut Vec<String>) {
     match value {
         Value::String(text) => texts.push(text.clone()),
@@ -123,7 +136,7 @@ fn collect_search_texts(value: &Value, texts: &mut Vec<String>) {
             }
         }
         Value::Object(object) => {
-            for item in object.values() {
+            for (_, item) in pi_js_compat::js_json::object_entries(object) {
                 collect_search_texts(item, texts);
             }
         }
@@ -326,7 +339,8 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
             let text = if all_match_indexes.is_empty() {
                 "No matches found in current session history.".to_owned()
             } else {
-                serde_json::to_string_pretty(&details).expect("search details must serialize")
+                let value = serde_json::to_value(&details).expect("search details must serialize");
+                pi_js_compat::js_json::stringify_pretty(&value)
             };
             let details_value = serde_json::to_value(&details).expect("search details must serialize");
             Ok(text_result(text, details_value))

@@ -76,3 +76,7 @@ its development RED/GREEN evidence is recorded above. No full-port claim follows
 - Legacy differential inputs: 1,617; existing split-error `toWellFormed()` normalization remains.
 - New lossless differential inputs: 45; compact/pretty bytes and key units compared without normalization.
 - Independent merged proof: nine focused tests plus two differential test functions, all passed at `e31b4c8`.
+
+## JS-value boundary regression (2026-10-20)
+
+Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).

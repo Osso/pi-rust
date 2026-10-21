@@ -160,3 +160,7 @@ API or example-13 production code was changed. This remains an unsatisfied
 accepted finding; panic-based control flow and extra pre-transition aborts were
 not substituted.
 
+
+## JS-value boundary regression (2026-10-20)
+
+Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).

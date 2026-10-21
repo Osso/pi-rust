@@ -69,7 +69,7 @@ async fn round_trips_a_durable_request_and_exact_identity_response() {
         control_db_path: control_db_path.clone(),
         identity: identity.clone(),
         method: "models.scoped".to_owned(),
-        params: serde_json::Value::Null,
+        params: serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap(),
         runner_address: runner_address.clone(),
         session_path: session_path.clone(),
         tool_call_id: Some("pyrun-call-1".to_owned()),
@@ -82,7 +82,8 @@ async fn round_trips_a_durable_request_and_exact_identity_response() {
     assert_eq!(request.method, "models.scoped");
     assert_eq!(request.request_id, request_id);
     assert_eq!(request.tool_call_id.as_deref(), Some("pyrun-call-1"));
-    assert_eq!(request.params, serde_json::Value::Null);
+    assert_eq!(request.params, json!({"1":1,"2":2}));
+    assert!(message.body.contains(r#""params":{"1":1,"2":2}"#), "{}", message.body);
 
     for tool_call_id in [json!(42), json!("")] {
         let mut body: serde_json::Value = serde_json::from_str(&message.body).expect("body");

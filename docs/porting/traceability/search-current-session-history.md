@@ -30,3 +30,7 @@ Renderers ported: `render_call` (title + `JSON.stringify(query ?? "")`), `render
 - `String.prototype.toLocaleLowerCase` is ported as `str::to_lowercase` (Unicode default case
   mapping). Node's default locale on the pinned host is `en-US`; locale-specific case folding
   (e.g. Turkish `İ`) is an approved deviation already used by `pi-agent-core::search`.
+
+## JS-value boundary regression (2026-10-20)
+
+Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).

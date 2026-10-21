@@ -39,3 +39,7 @@ files and the three error prefixes.
 
 - Differential: 21 fixtures plus the missing-file case.
 - Focused cases: 1 test with five assertions.
+
+## JS-value boundary regression (2026-10-20)
+
+Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).

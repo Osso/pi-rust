@@ -151,7 +151,9 @@ impl From<SessionError> for SearchError {
 }
 
 fn default_search_text<M>(_metadata: &M, entry: &Entry, label: Option<&str>) -> String {
-    let serialized = serde_json::to_string(entry).unwrap_or_default();
+    let serialized = serde_json::to_value(entry)
+        .map(|value| pi_js_compat::js_json::stringify(&value))
+        .unwrap_or_default();
     match label {
         None => serialized,
         Some(label) => format!("{serialized} {label}"),

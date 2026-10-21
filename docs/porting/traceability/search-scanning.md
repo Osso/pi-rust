@@ -31,3 +31,7 @@ Rust: `crates/pi-agent-core/src/search/scanning.rs`. Tests: `session_search.rs`,
 - Custom `THit` types must implement `SessionSearchHit` and `From<ScanningSessionSearchHit>`; TS uses structural
   typing.
 - TS can throw an arbitrary `signal.reason`; Rust has no reason channel (see `search-index.md`).
+
+## JS-value boundary regression (2026-10-20)
+
+Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).

@@ -171,7 +171,7 @@ fn persist_bridge_message(input: PersistBridgeMessageInput) -> Result<(), String
     let mut message = serde_json::Map::new();
     message.insert(
         "body".to_owned(),
-        Value::String(serde_json::to_string(&input.body).map_err(|error| error.to_string())?),
+        Value::String(pi_js_compat::js_json::stringify(&input.body)),
     );
     message.insert("fromAgentId".to_owned(), Value::String(input.from_agent_id.clone()));
     message.insert("id".to_owned(), Value::String(input.message_id.clone()));

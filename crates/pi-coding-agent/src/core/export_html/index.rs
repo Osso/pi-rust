@@ -303,7 +303,8 @@ fn generate_html(session_data: &SessionData, theme_name: Option<&str>) -> Result
         .info_bg
         .unwrap_or_else(|| derived_export_colors.info_bg.clone());
 
-    let session_json = serde_json::to_string(session_data).map_err(|error| ExportError::Message(error.to_string()))?;
+    let session_value = serde_json::to_value(session_data).map_err(|error| ExportError::Message(error.to_string()))?;
+    let session_json = pi_js_compat::js_json::stringify(&session_value);
     let session_data_base64 = btoa(session_json.as_bytes());
 
     let css = replace(TEMPLATE_CSS, "{{THEME_VARS}}", &theme_vars);
