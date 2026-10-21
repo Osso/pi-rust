@@ -53,3 +53,5 @@ Both ordinary TS-client→Rust-server and Rust-client→TS-server paths run in t
 ## Verifier corrections (2026-10-21)
 
 The prior IPC client/server and RPC process done claims are withdrawn: 5 done / 8 partial. Probe RED reproduced child-exit delay, disconnected-work cancellation, BOM framing rejection and successful Radius body errors. Fixes use child exit before reader EOF, a detached accepted-work queue, shared `pi_js_compat::string::js_trim`, and status-only success for maybePost. Renewed proof is recorded separately; the original ledger above is historical, not current acceptance.
+
+Renewed focused proof at `a95ac55c`: nine tests across cli/frame_whitespace/radius_body/verifier_regressions pass; seven independent semantic mutants killed. Artifacts: `/tmp/pi-rust-repin-orchestrator-fixes/*-red.log`, `fix-regressions-green.log`, `mutants.json`, `mutant-*.log`. The 31-code-point matrix uses Node language semantics rather than importing each frozen module; frozen-module probes separately cover BOM server, disconnect completion, descendant-held pipes and Radius disconnect. Existing partial gaps remain open.

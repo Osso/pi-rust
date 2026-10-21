@@ -16,4 +16,6 @@ Proof is bounded to the listed representable runtime/serialization cases; no exh
 
 ## Verifier correction (2026-10-21)
 
-Accepted work now outlives client disconnect; shared JS trim handles frames. Verifier regressions and Unicode frame matrix tracked; renewed proof pending, not an unconditional done claim.
+`queued_command_survives_disconnect_like_frozen` now completes one in-flight side effect after socket close, matching frozen. `frame_whitespace.rs` proves 31 code points for both ordinary and established-stream framing vs Node trim+JSON.parse. Several already-queued commands across disconnect are not yet independently proved.
+
+Prior unconditional done claim withdrawn. Seven regression mutants (exit EOF, queue abort, four trim sites, successful-body read) were killed by behavioral failures, not compiler failures.

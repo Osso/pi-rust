@@ -13,4 +13,6 @@ Proof is bounded to the listed representable runtime/serialization cases; no exh
 
 ## Verifier correction (2026-10-21)
 
-JS framing whitespace regression uses shared js_trim; renewed frame matrix is tracked in frame_whitespace.rs. Prior done claim withdrawn; broader framing/platform coverage is not exhaustive.
+31 padding code points (24 trimmed; 7 rejected), exact values/errors vs Node trim+JSON.parse across real sockets: `frame_whitespace.rs`. Full frozen module BOM boundary is independently demonstrated server-side in `verifier_regressions.rs`; the full client Unicode matrix is a language-semantic oracle, not a full-module differential. Arbitrary Unicode chunk splits remain unproved.
+
+Prior unconditional done claim withdrawn. Seven regression mutants (exit EOF, queue abort, four trim sites, successful-body read) were killed by behavioral failures, not compiler failures.

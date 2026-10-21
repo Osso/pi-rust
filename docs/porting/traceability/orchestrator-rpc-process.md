@@ -16,4 +16,6 @@ Proof is bounded to the listed representable runtime/serialization cases; no exh
 
 ## Verifier correction (2026-10-21)
 
-Exit state/notifications/disposal follow child exit, independently of inherited-pipe EOF. Verifier regression and Unicode child-frame matrix tracked; renewed proof pending, not an unconditional done claim.
+`child_exit_is_not_delayed_until_inherited_pipes_close` now notifies in 20ms vs frozen 19ms with a 900ms descendant holding both descriptors. `frame_whitespace.rs` proves 31 child-output padding cases vs Node trim+JSON.parse. Inherited-pipe pending rejection/disposal and callback mutation/reentrancy are not separately proved.
+
+Prior unconditional done claim withdrawn. Seven regression mutants (exit EOF, queue abort, four trim sites, successful-body read) were killed by behavioral failures, not compiler failures.
