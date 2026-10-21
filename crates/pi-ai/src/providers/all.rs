@@ -41,19 +41,8 @@ pub fn get_builtin_models(provider: &str) -> Vec<Model> {
     models_data::provider_models(provider).unwrap_or_default()
 }
 
-/// `getBuiltinModelDataUrl(provider)`.
-///
-/// Rust has no generated per-provider JS module; the embedded catalog JSON is
-/// the development artifact whose mtime this helper exposes.
-pub fn get_builtin_model_data_url(provider: &str) -> Option<String> {
-    models_data::provider_models(provider)?;
-    Some(format!(
-        "file://{}/data/providers/{provider}.json",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-}
-
-/// `getBuiltinModelDataGeneratedAt()`.
+/// Source-absent staged compilation dependency of coding-agent model_runtime.
+/// Not frozen-source parity; remove with that consumer's re-pin.
 pub fn get_builtin_model_data_generated_at() -> Option<f64> {
     models_data::model_data_generated_at()
 }

@@ -11,8 +11,8 @@ Tests: `crates/pi-ai/tests/providers.rs`,
 | `getBuiltinModel(provider, modelId)` | `get_builtin_model` | `catalog_keeps_ts_generated_order_and_metadata`, differential catalog |
 | `getBuiltinProviders()` | `get_builtin_providers()` | `builtin_provider_order_matches_all_ts_without_codex`, differential catalog |
 | `getBuiltinModels(provider)` | `get_builtin_models` | differential catalog (all 40 providers) |
-| `getBuiltinModelDataUrl(provider)` | `get_builtin_model_data_url` | `catalog_helpers_report_manifest_metadata` |
-| `getBuiltinModelDataGeneratedAt()` | `get_builtin_model_data_generated_at` | `catalog_helpers_report_manifest_metadata`, differential catalog |
+| source-absent data URL | deleted | no production consumers |
+| source-absent timestamp | retained staged model_runtime dependency only | no frozen-source parity; see [catalog boundary](providers-models.md) |
 | `builtinProviders()` | `builtin_providers()` | `builtin_provider_order_matches_all_ts`, `provider_metadata_matches_the_ts_factories`, differential provider descriptors |
 | `builtinModels(options?)` | `builtin_models(options)` | `builtin_models_registers_every_builtin_provider_with_models` |
 | `builtinImagesProviders()` | `builtin_images_providers()` | `builtin_images_providers_and_models_register_openrouter` |

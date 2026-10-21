@@ -6,7 +6,7 @@ use pi_ai::images_models::ImagesModels;
 use pi_ai::models::{CreateModelsOptions, Models, MutableModels, Provider, create_models};
 use pi_ai::providers::all::{
     builtin_images_models, builtin_images_providers, builtin_models, builtin_providers, get_builtin_model,
-    get_builtin_model_data_generated_at, get_builtin_model_data_url, get_builtin_models, get_builtin_providers,
+    get_builtin_model_data_generated_at, get_builtin_models, get_builtin_providers,
 };
 use pi_ai::request::{SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{Context, Model, ModelCompat, ModelCostRates};
@@ -543,15 +543,9 @@ fn catalog_keeps_ts_generated_order_and_metadata() {
 }
 
 #[test]
-fn catalog_helpers_report_manifest_metadata() {
-    assert_eq!(
-        get_builtin_model_data_generated_at(),
-        Some(1792303759167.0),
-        "manifest generatedAt in unix milliseconds"
-    );
-    let url = get_builtin_model_data_url("anthropic").expect("anthropic data url");
-    assert!(url.ends_with("/data/providers/anthropic.json"), "{url}");
-    assert!(get_builtin_model_data_url("not-a-provider").is_none());
+fn staged_timestamp_helper_has_no_fabricated_source_timestamp() {
+    // Kept only while coding-agent model_runtime still consumes the old API.
+    assert_eq!(get_builtin_model_data_generated_at(), None);
 }
 
 #[test]
