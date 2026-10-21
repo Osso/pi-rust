@@ -74,3 +74,5 @@ Q16 client: `supervisor_client` injects ensure-running fakes; pre-abort/startup 
 Q16 veto: `non_generic_automatic_instructions_are_suppressed_without_a_valid_veto_decision` failed on stale behavior before implementation. Runtime session adapter persists hidden `supervisor_policy_feedback`; full decision/error/abort matrix pending.
 
 Q16 evaluator wiring: native fake-provider test `instruction_evaluator_uses_only_fake_provider_and_classifies_its_exact_token`; no live model calls. Runtime selects authenticated frozen provider order, composes retry/timeout/attribution settings, builds fresh context per call and skips only frozen quota-error categories. Request-loop oracle now uses frozen SDK/ModelRegistry APIs (old ModelRuntime/createSupervisorSession exports were removed).
+
+Q16 compaction cancellation boundary: `cancelling_during_compaction_aborts_the_session_before_any_prompt` reproduces a durable cancellation during a blocked fake compaction. Original request evaluation hung (2s timeout); listener now spans the full evaluation and veto.

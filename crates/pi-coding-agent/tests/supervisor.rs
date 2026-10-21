@@ -399,6 +399,79 @@ fn blocks_file_access_outside_the_kb_and_symlink_escapes() {
 }
 
 #[tokio::test]
+async fn cancelling_during_compaction_aborts_the_session_before_any_prompt() {
+    struct CompactSession {
+        entered: Arc<tokio::sync::Notify>,
+        finished: Arc<tokio::sync::Notify>,
+        aborts: Arc<std::sync::atomic::AtomicUsize>,
+    }
+    impl SupervisorSession for CompactSession {
+        fn abort(&self) -> BoxFuture<'static, Result<(), String>> {
+            self.aborts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.finished.notify_one();
+            Box::pin(async { Ok(()) })
+        }
+        fn compact(&self, _: &str) -> Option<BoxFuture<'static, Result<(), String>>> {
+            let entered = self.entered.clone();
+            let finished = self.finished.clone();
+            Some(Box::pin(async move {
+                entered.notify_one();
+                finished.notified().await;
+                Ok(())
+            }))
+        }
+        fn context_percent(&self) -> Option<f64> {
+            Some(100.0)
+        }
+        fn prompt(&self, _: String) -> BoxFuture<'static, Result<(), String>> {
+            Box::pin(async { Err("must not prompt after cancellation".into()) })
+        }
+        fn get_branch(&self) -> Vec<SessionEntry> {
+            Vec::new()
+        }
+        fn get_leaf_id(&self) -> Option<String> {
+            None
+        }
+    }
+    let (_temp, path) = fixture();
+    let id = post_request(&path, SupervisorRequestKind::GoalIdleReview);
+    let request = claim_next_supervisor_request(&path, "owner").unwrap().unwrap();
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let aborts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let session = Arc::new(CompactSession {
+        entered: entered.clone(),
+        finished: Arc::new(tokio::sync::Notify::new()),
+        aborts: aborts.clone(),
+    });
+    let cancel_path = path.clone();
+    let cancellation = tokio::spawn(async move {
+        entered.notified().await;
+        assert!(
+            pi_coding_agent::core::session_control_db::cancel_supervisor_request(
+                &cancel_path,
+                id,
+                "main",
+                "cancel compaction"
+            )
+            .unwrap()
+        );
+    });
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        process_supervisor_request(&path, request, session),
+    )
+    .await
+    .expect("compaction cancellation must settle")
+    .unwrap();
+    cancellation.await.unwrap();
+    assert_eq!(aborts.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        read_supervisor_request(&path, id).unwrap().unwrap().status,
+        SupervisorRequestStatus::Cancelled
+    );
+}
+
+#[tokio::test]
 async fn console_prompt_failures_propagate_from_the_request_loop() {
     use pi_coding_agent::supervisor::main::{
         RunSupervisorRequestLoopInput, SupervisorConsolePromptQueue, run_supervisor_request_loop,

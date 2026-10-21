@@ -514,10 +514,7 @@ pub async fn process_supervisor_request_with_reviewer(
         let session = session.clone();
         let request = evaluation_request.clone();
         let reviewer = reviewer.clone();
-        Box::pin(async move {
-            let raw = evaluate_supervisor_prompt(session.clone(), prompt, signal.clone()).await?;
-            apply_supervisor_instruction_veto(&request, raw, session, reviewer, signal).await
-        })
+        Box::pin(evaluate_supervisor_request(session, request, reviewer, prompt, signal))
     });
     let result = run_supervisor_request(RunSupervisorRequestInput {
         control_db_path: control_db_path.into(),
@@ -609,8 +606,10 @@ async fn apply_supervisor_instruction_veto(
     .map_err(|error| error.to_string())
 }
 
-async fn evaluate_supervisor_prompt(
+async fn evaluate_supervisor_request(
     session: Arc<dyn SupervisorSession>,
+    request: SupervisorRequest,
+    reviewer: SupervisorInstructionReviewer,
     prompt: String,
     signal: CancellationToken,
 ) -> Result<Value, String> {
@@ -618,6 +617,23 @@ async fn evaluate_supervisor_prompt(
         session.abort().await?;
         return Err("Supervisor request aborted".to_owned());
     }
+    let evaluation = async {
+        let raw = evaluate_supervisor_prompt_workflow(session.clone(), prompt, signal.clone()).await?;
+        apply_supervisor_instruction_veto(&request, raw, session.clone(), reviewer, signal.clone()).await
+    };
+    tokio::pin!(evaluation);
+    tokio::select! {
+        biased;
+        ()=signal.cancelled()=>{session.abort().await?;evaluation.await},
+        result=&mut evaluation=>result,
+    }
+}
+
+async fn evaluate_supervisor_prompt_workflow(
+    session: Arc<dyn SupervisorSession>,
+    prompt: String,
+    signal: CancellationToken,
+) -> Result<Value, String> {
     let context_percent = session.context_percent();
     if let (Some(percent), Some(compact)) = (context_percent, session.compact(SUPERVISOR_COMPACTION_INSTRUCTIONS))
         && percent >= SUPERVISOR_COMPACTION_PERCENT
@@ -631,13 +647,7 @@ async fn evaluate_supervisor_prompt(
         return Err("Supervisor request aborted".to_owned());
     }
     let previous_leaf_id = session.get_leaf_id();
-    tokio::select! {
-        result = session.prompt(prompt) => result?,
-        () = signal.cancelled() => {
-            session.abort().await?;
-            return Err("Supervisor request aborted".to_owned());
-        }
-    }
+    session.prompt(prompt).await?;
     read_current_supervisor_response(&session.get_branch(), previous_leaf_id.as_deref())
 }
 
