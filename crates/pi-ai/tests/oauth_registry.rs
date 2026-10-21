@@ -144,7 +144,7 @@ fn outbound_json_form_and_header_match_node_without_mutating_tokens() {
             Err(AuthError::Failed(error)) => {
                 assert_eq!(error.name, source["header"]["name"]);
                 assert_eq!(error.message, source["header"]["message"]);
-                assert_eq!(source["header"]["code"], "ERR_INVALID_CHAR");
+                assert_eq!(error.code.as_deref(), source["header"]["code"].as_str());
             }
             Err(error) => panic!("unexpected error: {error}"),
         }

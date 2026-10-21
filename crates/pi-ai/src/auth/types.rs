@@ -75,6 +75,7 @@ impl OAuthCredential {
         if invalid {
             let mut error = CallbackError::new(format!("Invalid character in header content [\"{header}\"]"));
             error.name = "TypeError".into();
+            error.code = Some("ERR_INVALID_CHAR".into());
             return Err(AuthError::Failed(error));
         }
         Ok(self.refresh.to_utf8().expect("validated header units are scalar"))
