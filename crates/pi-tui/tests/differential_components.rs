@@ -5,12 +5,10 @@ mod oracle;
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::time::Duration;
 
 use components::test_component;
 use oracle::TsOracle;
 use pi_tui::components::StyleFn;
-use pi_tui::components::alt_screen_flash::AltScreenFlashContainer;
 use pi_tui::components::r#box::BoxComponent;
 use pi_tui::components::cancellable_loader::CancellableLoader;
 use pi_tui::components::dynamic_border::DynamicBorder;
@@ -443,44 +441,6 @@ fn spacer_dynamic_border_and_truncated_text_match_typescript() {
         })
         .collect();
     assert_eq!(truncated_output["results"], json!(truncated_expected));
-}
-
-#[test]
-fn alt_screen_flash_matches_typescript() {
-    let cases = json!([
-        {"steps": [
-            {"kind": "render", "width": 20},
-            {"kind": "flash", "message": "saved", "durationMs": 1000},
-            {"kind": "render", "width": 20},
-            {"kind": "flash", "message": "a much longer flash message", "durationMs": 0},
-            {"kind": "render", "width": 12},
-            {"kind": "dispose"},
-            {"kind": "render", "width": 20}
-        ]}
-    ]);
-    let mut oracle = TsOracle::spawn("tui-components-oracle.ts", SOURCE_DIRECTORY);
-    let output = run(&mut oracle, "alt_screen_flash", cases.clone());
-
-    let mut expected = Vec::new();
-    for case in cases.as_array().unwrap() {
-        let renders = Rc::new(RefCell::new(0usize));
-        let counter = Rc::clone(&renders);
-        let mut container = AltScreenFlashContainer::new(Rc::new(move || *counter.borrow_mut() += 1));
-        let mut snapshots = Vec::new();
-        for step in case["steps"].as_array().unwrap() {
-            match step["kind"].as_str().unwrap() {
-                "flash" => container.flash(
-                    step["message"].as_str().unwrap(),
-                    Duration::from_millis(step["durationMs"].as_u64().unwrap()),
-                ),
-                "render" => snapshots.push(container.render(step["width"].as_u64().unwrap() as usize)),
-                "dispose" => container.dispose(),
-                other => panic!("unsupported flash step: {other}"),
-            }
-        }
-        expected.push(json!({"snapshots": snapshots, "renderCount": *renders.borrow()}));
-    }
-    assert_eq!(output["results"], json!(expected));
 }
 
 #[test]

@@ -3,10 +3,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::core::settings_manager::ScrollViewScrollbar;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::Transport;
 use pi_js_compat::number::parse_int;
-use pi_tui::components::scroll_view::ScrollViewScrollbar;
 use pi_tui::components::settings_list::{SettingItem, SettingsList, SettingsListOptions, SubmenuDone};
 use pi_tui::tui::TuiMode;
 use pi_tui::tui::component;

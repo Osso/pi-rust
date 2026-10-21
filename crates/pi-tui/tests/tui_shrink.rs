@@ -7,8 +7,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use components::test_component;
+use pi_tui::TUI;
 use pi_tui::tui::TuiExt;
-use pi_tui::tui_main_screen::TuiMainScreen;
 use virtual_terminal::{VirtualTerminal, concrete};
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
@@ -19,7 +19,7 @@ fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
 #[test]
 fn clears_all_rendered_lines_when_content_shrinks_to_zero() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (content, _state) = test_component(&["first", "second", "third"]);
     tui.add_child(content);
     tui.start().unwrap();

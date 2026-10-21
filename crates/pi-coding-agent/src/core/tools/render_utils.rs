@@ -46,7 +46,49 @@ pub fn link_path(styled_text: &str, raw_path: &str, cwd: &str) -> String {
     }
     let absolute_path =
         resolve_path(raw_path, cwd, &PathInputOptions::default()).unwrap_or_else(|_| raw_path.to_owned());
-    hyperlink(styled_text, &pi_tui::terminal_image::path_to_file_url(&absolute_path))
+    hyperlink(styled_text, &path_to_file_url(&absolute_path))
+}
+
+/// Node `pathToFileURL` file URL for an absolute path (or `cwd`-joined relative path).
+fn path_to_file_url(filename: &str) -> String {
+    let path = if std::path::Path::new(filename).is_absolute() {
+        filename.to_string()
+    } else {
+        std::env::current_dir()
+            .map(|directory| directory.join(filename).to_string_lossy().into_owned())
+            .unwrap_or_else(|_| filename.to_string())
+    };
+
+    let mut encoded = String::from("file://");
+    for byte in path.bytes() {
+        let allowed = byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'-' | b'.'
+                    | b'_'
+                    | b'~'
+                    | b'!'
+                    | b'$'
+                    | b'&'
+                    | b'\''
+                    | b'('
+                    | b')'
+                    | b'*'
+                    | b'+'
+                    | b','
+                    | b';'
+                    | b'='
+                    | b':'
+                    | b'@'
+                    | b'/'
+            );
+        if allowed {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 /// `getTextOutput`: join text blocks and append image fallbacks when images cannot be shown.

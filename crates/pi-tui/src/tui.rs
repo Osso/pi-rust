@@ -1,8 +1,7 @@
 //! Ported from `packages/tui/src/tui.ts`.
 //!
-//! The TypeScript class hierarchy (`Container` → `TuiBase` → `TUIRenderer`) is
-//! represented by a shared [`TuiBase`] core plus two renderer structs
-//! ([`TuiRenderer`], [`TuiMainScreen`]) that implement [`RendererApi`]. Components
+//! The frozen `Container` and `TUI` are represented by [`TuiBase`] and
+//! [`TuiRenderer`], with [`RendererApi`] as an internal lifecycle seam. Components
 //! are `Rc<RefCell<dyn Component>>` handles, which preserves the object identity
 //! the source relies on for focus, overlays, fixed cells, and render regions.
 
@@ -19,7 +18,7 @@ use crate::terminal_colors::{
     parse_terminal_color_scheme_report,
 };
 use crate::terminal_image::{delete_kitty_image, get_capabilities, is_image_line, set_cell_dimensions};
-use crate::utils::{extract_segments, normalize_terminal_output, slice_by_column, slice_with_width};
+use crate::utils::{extract_segments, normalize_terminal_output, slice_by_column, slice_with_width, visible_width};
 
 const TERMINAL_FOCUS_IN: &str = "\x1b[I";
 const TERMINAL_FOCUS_OUT: &str = "\x1b[O";
@@ -27,8 +26,6 @@ const ENABLE_TERMINAL_FOCUS_REPORTING: &str = "\x1b[?1004h";
 const DISABLE_TERMINAL_FOCUS_REPORTING: &str = "\x1b[?1004l";
 const KITTY_SEQUENCE_PREFIX: &str = "\x1b_G";
 const SEGMENT_RESET: &str = "\x1b[0m\x1b]8;;\x07";
-
-pub use crate::tui_main_screen::TuiMainScreen;
 
 /// Cursor position marker emitted by focused components.
 pub const CURSOR_MARKER: &str = "\x1b_pi:c\x07";
@@ -71,11 +68,6 @@ pub trait Component {
     }
 
     fn as_container(&self) -> Option<&Container> {
-        None
-    }
-
-    /// Layout node exposed to `layout.rs` (TypeScript's `LAYOUT_NODE` symbol).
-    fn layout_node(&self) -> Option<crate::layout_node::LayoutNode> {
         None
     }
 
@@ -429,8 +421,6 @@ pub struct FixedCell {
 #[derive(Clone)]
 pub(crate) enum FixedCellWriter {
     Immediate(Weak<TuiRenderer>),
-    Deferred(Weak<TuiMainScreen>),
-    Alternate(Weak<crate::tui_alt_screen::TuiAltScreen>),
 }
 
 impl FixedCell {
@@ -462,18 +452,6 @@ impl FixedCell {
                 Some(renderer) => renderer.write_fixed_cell(&self.state),
                 None => false,
             },
-            FixedCellWriter::Deferred(screen) => {
-                if let Some(screen) = screen.upgrade() {
-                    screen.base.request_render(false);
-                }
-                false
-            }
-            FixedCellWriter::Alternate(screen) => {
-                if let Some(screen) = screen.upgrade() {
-                    TuiExt::request_render(screen.as_ref(), false);
-                }
-                false
-            }
         }
     }
 
@@ -484,8 +462,6 @@ impl FixedCell {
         drop(state);
         let owner = match &self.writer {
             FixedCellWriter::Immediate(renderer) => renderer.upgrade().map(|renderer| renderer.base.clone()),
-            FixedCellWriter::Deferred(screen) => screen.upgrade().map(|screen| screen.base.clone()),
-            FixedCellWriter::Alternate(screen) => screen.upgrade().map(|screen| TuiExt::base(screen.as_ref()).clone()),
         };
         if let Some(base) = owner {
             base.unregister_fixed_cell(&self.state);
@@ -514,7 +490,6 @@ pub struct RenderRegion {
 
 pub(crate) enum RegionWriter {
     Immediate(Weak<TuiRenderer>),
-    Deferred(Weak<TuiMainScreen>),
 }
 
 impl RenderRegion {
@@ -523,11 +498,6 @@ impl RenderRegion {
             RegionWriter::Immediate(renderer) => {
                 if let Some(renderer) = renderer.upgrade() {
                     renderer.place_render_region(&self.state, rect);
-                }
-            }
-            RegionWriter::Deferred(screen) => {
-                if let Some(screen) = screen.upgrade() {
-                    screen.place_deferred_render_region(&self.state, rect);
                 }
             }
         }
@@ -540,11 +510,6 @@ impl RenderRegion {
                     renderer.clear_render_region(&self.state);
                 }
             }
-            RegionWriter::Deferred(screen) => {
-                if let Some(screen) = screen.upgrade() {
-                    screen.clear_deferred_render_region(&self.state);
-                }
-            }
         }
     }
 
@@ -554,7 +519,6 @@ impl RenderRegion {
             RegionWriter::Immediate(renderer) => renderer
                 .upgrade()
                 .is_some_and(|renderer| renderer.try_render_region(&self.state)),
-            RegionWriter::Deferred(_) => false,
         }
     }
 
@@ -564,12 +528,6 @@ impl RenderRegion {
                 Some(renderer) => renderer.request_render_region(&self.state),
                 None => false,
             },
-            RegionWriter::Deferred(screen) => {
-                if let Some(screen) = screen.upgrade() {
-                    screen.base.request_render(false);
-                }
-                false
-            }
         }
     }
 
@@ -578,11 +536,6 @@ impl RenderRegion {
             RegionWriter::Immediate(renderer) => {
                 if let Some(renderer) = renderer.upgrade() {
                     renderer.dispose_render_region(&self.state);
-                }
-            }
-            RegionWriter::Deferred(screen) => {
-                if let Some(screen) = screen.upgrade() {
-                    screen.dispose_deferred_render_region(&self.state);
                 }
             }
         }
@@ -603,11 +556,6 @@ impl FlowRenderRegion {
                     renderer.place_flow_render_region(&self.state, layout);
                 }
             }
-            RegionWriter::Deferred(screen) => {
-                if let Some(screen) = screen.upgrade() {
-                    screen.place_deferred_render_region(&self.state, layout.rect);
-                }
-            }
         }
     }
 
@@ -616,7 +564,6 @@ impl FlowRenderRegion {
             state: Rc::clone(&self.state),
             writer: match &self.writer {
                 RegionWriter::Immediate(renderer) => RegionWriter::Immediate(renderer.clone()),
-                RegionWriter::Deferred(screen) => RegionWriter::Deferred(screen.clone()),
             },
         }
         .clear();
@@ -627,7 +574,6 @@ impl FlowRenderRegion {
             state: Rc::clone(&self.state),
             writer: match &self.writer {
                 RegionWriter::Immediate(renderer) => RegionWriter::Immediate(renderer.clone()),
-                RegionWriter::Deferred(screen) => RegionWriter::Deferred(screen.clone()),
             },
         }
         .request_render()
@@ -638,7 +584,6 @@ impl FlowRenderRegion {
             state: Rc::clone(&self.state),
             writer: match &self.writer {
                 RegionWriter::Immediate(renderer) => RegionWriter::Immediate(renderer.clone()),
-                RegionWriter::Deferred(screen) => RegionWriter::Deferred(screen.clone()),
             },
         }
         .dispose();
@@ -707,21 +652,6 @@ pub trait RendererApi {
     fn mode(&self) -> TuiMode {
         TuiMode::Regular
     }
-}
-
-/// Fullscreen viewport surface (`ViewportTUI` in the source).
-///
-/// The source marks viewport TUIs with the `VIEWPORT_TUI` symbol and exposes
-/// [`is_viewport_tui`] as the type guard.
-pub trait ViewportTui {
-    fn set_layout_root(&self, component: Option<ComponentRef>);
-    fn viewport_top(&self) -> usize;
-    fn is_following_output(&self) -> bool;
-}
-
-/// Whether a TUI renders a fullscreen viewport (`isViewportTUI`).
-pub fn is_viewport_tui<T: TuiExt>(tui: &T) -> bool {
-    tui.as_viewport_tui().is_some()
 }
 
 struct TuiBaseInner {
@@ -2545,16 +2475,6 @@ impl RenderFrameState {
         self.max_lines_rendered = 0;
         self.previous_viewport_top = 0;
     }
-
-    pub(crate) fn reset_for_main_screen(&mut self) {
-        self.previous_lines.clear();
-        self.previous_width = -1;
-        self.previous_height = -1;
-        self.cursor_row = 0;
-        self.hardware_cursor_row = 0;
-        self.max_lines_rendered = 0;
-        self.previous_viewport_top = 0;
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -3154,11 +3074,6 @@ fn position_hardware_cursor(
 /// Common TUI surface shared by both renderer variants.
 pub trait TuiExt: RendererApi + Sized {
     fn base(&self) -> &TuiBase;
-
-    /// Viewport surface when this TUI is a fullscreen viewport renderer.
-    fn as_viewport_tui(&self) -> Option<&dyn ViewportTui> {
-        None
-    }
 
     fn mode(&self) -> TuiMode {
         TuiMode::Regular
@@ -4068,23 +3983,6 @@ impl Component for TuiRenderer {
         self.base.invalidate_all();
     }
 }
-
-impl Component for TuiMainScreen {
-    fn render(&mut self, width: usize) -> Vec<String> {
-        self.base.render_children(width)
-    }
-
-    fn wants_input(&self) -> bool {
-        false
-    }
-
-    fn invalidate(&mut self) {
-        self.base.invalidate_all();
-    }
-}
-
-// Re-export the visible-width helper as the source does.
-pub use crate::utils::visible_width;
 
 #[cfg(test)]
 mod kitty_header_tests {

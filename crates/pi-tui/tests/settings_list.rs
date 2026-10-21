@@ -29,21 +29,24 @@ fn list(changes: Rc<RefCell<Vec<(String, String)>>>, enable_search: bool) -> Set
 }
 
 #[test]
-fn includes_spaces_in_an_active_search_instead_of_changing_the_selected_setting() {
+fn space_activates_during_search_and_multi_character_input_strips_spaces() {
     let changes = Rc::new(RefCell::new(Vec::new()));
     let mut list = list(Rc::clone(&changes), true);
-
-    for character in "TUI mode".chars() {
-        list.handle_input(&character.to_string());
-    }
-
-    assert!(changes.borrow().is_empty());
-    assert!(list.render(80)[0].contains("TUI mode"));
-
-    list.handle_input("\r");
+    list.handle_input("TUI");
+    list.handle_input(" ");
     assert_eq!(
         *changes.borrow(),
         vec![("tui-mode".to_string(), "fullscreen".to_string())]
+    );
+    list.handle_input(" mo de");
+    assert!(list.render(80)[0].contains("TUImode"));
+    list.handle_input("\r");
+    assert_eq!(
+        *changes.borrow(),
+        vec![
+            ("tui-mode".to_string(), "fullscreen".to_string()),
+            ("tui-mode".to_string(), "regular".to_string())
+        ]
     );
 }
 

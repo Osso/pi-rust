@@ -1,11 +1,9 @@
 //! Terminal image protocols, capabilities, and Kitty image metadata.
 
-use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::hash::{BuildHasher, Hasher};
-use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Inline-image protocol supported by the terminal.
@@ -92,33 +90,6 @@ pub struct Iterm2Options {
     pub inline: Option<bool>,
 }
 
-/// Kitty image metadata registered for a rendered image.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KittyImageMetadata {
-    pub image_id: u32,
-    pub columns: u32,
-    pub rows: u32,
-    pub width_px: u32,
-    pub height_px: u32,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct RegisteredKittyImageMetadata {
-    metadata: KittyImageMetadata,
-    transmission_generation: u64,
-}
-
-/// Placement-only command derived from an image line.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KittyImagePlacement {
-    pub image_id: u32,
-    pub transmission_generation: u64,
-    pub transmission_bytes: usize,
-    pub estimated_decoded_bytes: u64,
-    pub sequence: String,
-    pub replacement_line: String,
-}
-
 /// Result of [`render_image`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderedImage {
@@ -147,7 +118,6 @@ pub struct TerminalEnvironment {
     pub warp_terminal_session_uuid: bool,
     pub iterm_session_id: bool,
     pub wt_session: bool,
-    pub is_windows_console: bool,
 }
 
 impl TerminalEnvironment {
@@ -165,7 +135,6 @@ impl TerminalEnvironment {
             warp_terminal_session_uuid: environment_flag("WARP_TERMINAL_SESSION_UUID"),
             iterm_session_id: environment_flag("ITERM_SESSION_ID"),
             wt_session: environment_flag("WT_SESSION"),
-            is_windows_console: cfg!(windows),
         }
     }
 }
@@ -423,10 +392,6 @@ pub fn delete_all_kitty_images() -> String {
     "\x1b_Ga=d,d=A,q=2\x1b\\".to_string()
 }
 
-pub fn delete_all_kitty_placements() -> String {
-    "\x1b_Ga=d,d=a,q=2\x1b\\".to_string()
-}
-
 pub fn encode_iterm2(base64_data: &str, options: &Iterm2Options) -> String {
     let mut params = vec![format!("inline={}", if options.inline == Some(false) { 0 } else { 1 })];
 
@@ -446,165 +411,6 @@ pub fn encode_iterm2(base64_data: &str, options: &Iterm2Options) -> String {
     }
 
     format!("\x1b]1337;File={}:{base64_data}\x07", params.join(";"))
-}
-
-#[derive(Debug, Default)]
-struct Registry {
-    entries: HashMap<u32, RegisteredKittyImageMetadata>,
-    order: VecDeque<u32>,
-    generation: u64,
-}
-
-fn registry() -> &'static Mutex<Registry> {
-    static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(Registry::default()))
-}
-
-fn registry_lock() -> std::sync::MutexGuard<'static, Registry> {
-    registry().lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-pub fn register_kitty_image_metadata(metadata: KittyImageMetadata) {
-    let mut registry = registry_lock();
-    registry.generation += 1;
-    let transmission_generation = registry.generation;
-    if registry.entries.remove(&metadata.image_id).is_some() {
-        registry.order.retain(|image_id| *image_id != metadata.image_id);
-    }
-    registry.entries.insert(
-        metadata.image_id,
-        RegisteredKittyImageMetadata {
-            metadata,
-            transmission_generation,
-        },
-    );
-    registry.order.push_back(metadata.image_id);
-
-    if registry.entries.len() > 1000
-        && let Some(oldest) = registry.order.pop_front()
-    {
-        registry.entries.remove(&oldest);
-    }
-}
-
-fn find_kitty_controls(line: &str) -> Option<(usize, &str)> {
-    let start = line.find(KITTY_PREFIX)?;
-    let controls_start = start + KITTY_PREFIX.len();
-    let controls_end = line[controls_start..].find(';')? + controls_start;
-    Some((start, &line[controls_start..controls_end]))
-}
-
-fn kitty_image_id_from_controls(controls: &str) -> Option<u32> {
-    for control in controls.split(',') {
-        if let Some(value) = control.strip_prefix("i=")
-            && !value.is_empty()
-            && value.bytes().all(|byte| byte.is_ascii_digit())
-        {
-            return value.parse().ok();
-        }
-    }
-    None
-}
-
-fn get_registered_kitty_image_metadata(line: &str) -> Option<RegisteredKittyImageMetadata> {
-    let (_, controls) = find_kitty_controls(line)?;
-    let image_id = kitty_image_id_from_controls(controls)?;
-    registry_lock().entries.get(&image_id).copied()
-}
-
-pub fn get_kitty_image_metadata(line: &str) -> Option<KittyImageMetadata> {
-    get_registered_kitty_image_metadata(line).map(|registered| registered.metadata)
-}
-
-const KITTY_PLACEMENT_CONTROL_KEYS: &[&str] = &[
-    "i", "p", "x", "y", "w", "h", "X", "Y", "c", "r", "C", "U", "z", "P", "Q", "H", "V",
-];
-
-fn has_chunk_continuation(controls: &str) -> bool {
-    controls.split(',').any(|control| control == "m=1")
-}
-
-/// Build a placement-only command for an image line emitted by [`render_image`].
-pub fn get_kitty_image_placement(line: &str) -> Option<KittyImagePlacement> {
-    let (match_start, match_controls) = find_kitty_controls(line)?;
-    let metadata = get_registered_kitty_image_metadata(line)?;
-
-    let mut command_start = match_start;
-    let mut command_controls = match_controls.to_string();
-    let mut transmission_end;
-    loop {
-        let terminator = line[command_start + KITTY_PREFIX.len()..]
-            .find("\x1b\\")
-            .map(|offset| command_start + KITTY_PREFIX.len() + offset)?;
-        transmission_end = terminator + 2;
-        if !has_chunk_continuation(&command_controls) {
-            break;
-        }
-        command_start = transmission_end;
-        let rest = line.get(command_start..)?;
-        let rest = rest.strip_prefix(KITTY_PREFIX)?;
-        let controls_end = rest.find(';')?;
-        command_controls = rest[..controls_end].to_string();
-    }
-
-    let controls: Vec<&str> = match_controls
-        .split(',')
-        .filter(|control| {
-            let key = control.split('=').next().unwrap_or("");
-            KITTY_PLACEMENT_CONTROL_KEYS.contains(&key)
-        })
-        .collect();
-    let sequence = format!("\x1b_Ga=p,q=2,{}\x1b\\", controls.join(","));
-    let replacement_line = format!("{}{}{}", &line[..match_start], sequence, &line[transmission_end..]);
-
-    Some(KittyImagePlacement {
-        image_id: metadata.metadata.image_id,
-        transmission_generation: metadata.transmission_generation,
-        transmission_bytes: transmission_end - match_start,
-        estimated_decoded_bytes: u64::from(metadata.metadata.width_px) * u64::from(metadata.metadata.height_px) * 4,
-        sequence,
-        replacement_line,
-    })
-}
-
-pub fn crop_kitty_image_line(line: &str, hidden_rows: i64, visible_rows: i64) -> String {
-    let Some(metadata) = get_kitty_image_metadata(line) else {
-        return line.to_string();
-    };
-    let Some((match_start, controls)) = find_kitty_controls(line) else {
-        return line.to_string();
-    };
-    if hidden_rows < 0 || hidden_rows >= i64::from(metadata.rows) || visible_rows <= 0 {
-        return line.to_string();
-    }
-
-    let cropped_rows = visible_rows.min(i64::from(metadata.rows) - hidden_rows);
-    if hidden_rows == 0 && cropped_rows == i64::from(metadata.rows) {
-        return line.to_string();
-    }
-
-    let height = i64::from(metadata.height_px);
-    let rows = i64::from(metadata.rows);
-    let source_y = height * hidden_rows / rows;
-    let source_end = (height * (hidden_rows + cropped_rows) + rows - 1) / rows;
-    let source_height = 1.max(height.min(source_end) - source_y);
-
-    let mut new_controls: Vec<String> = controls
-        .split(',')
-        .filter(|control| !(control.starts_with("y=") || control.starts_with("h=") || control.starts_with("r=")))
-        .map(str::to_string)
-        .collect();
-    new_controls.push(format!("y={source_y}"));
-    new_controls.push(format!("h={source_height}"));
-    new_controls.push(format!("r={cropped_rows}"));
-
-    let controls_end = match_start + KITTY_PREFIX.len() + controls.len();
-    format!(
-        "{}\x1b_G{};{}",
-        &line[..match_start],
-        new_controls.join(","),
-        &line[controls_end + 1..]
-    )
 }
 
 pub fn calculate_image_cell_size(
@@ -796,15 +602,6 @@ pub fn render_image(
 
     match protocol {
         ImageProtocol::Kitty => {
-            if let Some(image_id) = options.image_id {
-                register_kitty_image_metadata(KittyImageMetadata {
-                    image_id,
-                    columns: size.columns,
-                    rows: size.rows,
-                    width_px: image_dimensions.width_px,
-                    height_px: image_dimensions.height_px,
-                });
-            }
             let sequence = encode_kitty(
                 base64_data,
                 &KittyEncodeOptions {
@@ -844,48 +641,6 @@ pub fn render_image(
 /// Wrap text in an OSC 8 hyperlink.
 pub fn hyperlink(text: &str, url: &str) -> String {
     format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
-}
-
-/// Node `pathToFileURL` file URL for an absolute path (or `cwd`-joined relative path).
-pub fn path_to_file_url(filename: &str) -> String {
-    let path = if Path::new(filename).is_absolute() {
-        filename.to_string()
-    } else {
-        std::env::current_dir()
-            .map(|directory| directory.join(filename).to_string_lossy().into_owned())
-            .unwrap_or_else(|_| filename.to_string())
-    };
-
-    let mut encoded = String::from("file://");
-    for byte in path.bytes() {
-        let allowed = byte.is_ascii_alphanumeric()
-            || matches!(
-                byte,
-                b'-' | b'.'
-                    | b'_'
-                    | b'~'
-                    | b'!'
-                    | b'$'
-                    | b'&'
-                    | b'\''
-                    | b'('
-                    | b')'
-                    | b'*'
-                    | b'+'
-                    | b','
-                    | b';'
-                    | b'='
-                    | b':'
-                    | b'@'
-                    | b'/'
-            );
-        if allowed {
-            encoded.push(byte as char);
-        } else {
-            encoded.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    encoded
 }
 
 /// Text fallback when the terminal cannot render inline images.

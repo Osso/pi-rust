@@ -7,8 +7,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use components::test_component;
+use pi_tui::TUI;
 use pi_tui::tui::TuiExt;
-use pi_tui::tui_main_screen::TuiMainScreen;
 use virtual_terminal::{VirtualTerminal, concrete};
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
@@ -21,7 +21,7 @@ fn does_not_leak_styles_when_a_trailing_reset_sits_beyond_the_last_visible_colum
     let width = 20;
     let base_line = format!("\x1b[3m{}\x1b[23m", "X".repeat(width));
     let (terminal, handle) = concrete(width, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, _state) = test_component(&[&base_line, "INPUT"]);
     tui.add_child(child);
     tui.start().unwrap();
@@ -37,7 +37,7 @@ fn does_not_leak_styles_when_overlay_slicing_drops_trailing_sgr_resets() {
     let width = 20;
     let base_line = format!("\x1b[3m{}\x1b[23m", "X".repeat(width));
     let (terminal, handle) = concrete(width, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, _state) = test_component(&[&base_line, "INPUT"]);
     tui.add_child(child);
     let (overlay, _overlay_state) = test_component(&["OVR"]);

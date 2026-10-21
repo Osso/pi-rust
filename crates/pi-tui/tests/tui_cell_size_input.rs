@@ -7,12 +7,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use components::focusable_component;
+use pi_tui::TUI;
 use pi_tui::terminal_image::{
     CellDimensions, ImageProtocol, TerminalCapabilities, get_cell_dimensions, reset_capabilities_cache,
     set_capabilities, set_cell_dimensions,
 };
 use pi_tui::tui::TuiExt;
-use pi_tui::tui_main_screen::TuiMainScreen;
 use virtual_terminal::{VirtualTerminal, concrete};
 
 static CAPS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -41,7 +41,7 @@ fn send<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>, data: &
 #[test]
 fn invokes_the_global_debug_handler_only_for_the_initial_key_press() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let calls = Rc::new(std::cell::Cell::new(0));
     let recorded = Rc::clone(&calls);
     tui.set_on_debug(Rc::new(move || recorded.set(recorded.get() + 1)));
@@ -59,7 +59,7 @@ fn invokes_the_global_debug_handler_only_for_the_initial_key_press() {
 fn forwards_bare_escape_even_when_a_cell_size_query_was_sent_at_startup() {
     with_image_terminal(|| {
         let (terminal, handle) = concrete(80, 24);
-        let tui = TuiMainScreen::new(handle);
+        let tui = TUI::new(handle);
         let (recorder, state, _focus) = focusable_component(&[""]);
         tui.set_focus(Some(recorder));
         tui.start().unwrap();
@@ -80,7 +80,7 @@ fn consumes_cell_size_responses_and_still_forwards_later_user_input() {
         });
 
         let (terminal, handle) = concrete(80, 24);
-        let tui = TuiMainScreen::new(handle);
+        let tui = TUI::new(handle);
         let (recorder, state, _focus) = focusable_component(&[""]);
         tui.set_focus(Some(recorder));
         tui.start().unwrap();

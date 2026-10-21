@@ -7,8 +7,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use components::{TestState, test_component};
+use pi_tui::TUI;
 use pi_tui::tui::{ComponentRef, OverlayAnchor, OverlayMargin, OverlayOptions, SizeValue, TuiExt};
-use pi_tui::tui_main_screen::TuiMainScreen;
 use virtual_terminal::{VirtualTerminal, concrete};
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
@@ -31,7 +31,7 @@ fn overlay(lines: &[&str]) -> (ComponentRef, Rc<RefCell<TestState>>) {
 #[test]
 fn truncates_overlay_lines_that_exceed_declared_width() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&[&"X".repeat(100)]);
     tui.show_overlay(
@@ -54,7 +54,7 @@ fn truncates_overlay_lines_that_exceed_declared_width() {
 #[test]
 fn handles_overlay_with_complex_ansi_sequences_without_crashing() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let complex_line = format!(
         "\x1b[48;2;40;50;40m \x1b[38;2;128;128;128mSome styled content\x1b[39m\x1b[49m\x1b]8;;http://example.com\x07link\x1b]8;;\x07{}",
@@ -79,7 +79,7 @@ fn handles_overlay_with_complex_ansi_sequences_without_crashing() {
 #[test]
 fn handles_overlay_composited_on_styled_base_content() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (base, base_state) = test_component(&[]);
     base_state.borrow_mut().lines = vec![
         format!("\x1b[1m\x1b[38;2;255;0;0m{}\x1b[0m", "X".repeat(80)),
@@ -107,7 +107,7 @@ fn handles_overlay_composited_on_styled_base_content() {
 #[test]
 fn handles_wide_characters_at_the_overlay_boundary() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["中文日本語한글テスト漢字"]);
     tui.show_overlay(
@@ -128,7 +128,7 @@ fn handles_wide_characters_at_the_overlay_boundary() {
 #[test]
 fn handles_overlay_positioned_at_the_terminal_edge() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&[&"X".repeat(50)]);
     tui.show_overlay(
@@ -150,7 +150,7 @@ fn handles_overlay_positioned_at_the_terminal_edge() {
 #[test]
 fn handles_overlay_on_base_content_with_osc_sequences() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (base, base_state) = test_component(&[]);
     let link = "\x1b]8;;file:///path/to/file.ts\x07file.ts\x1b]8;;\x07";
     base_state.borrow_mut().lines = vec![
@@ -179,7 +179,7 @@ fn handles_overlay_on_base_content_with_osc_sequences() {
 #[test]
 fn renders_overlay_at_percentage_of_terminal_width() {
     let (terminal, handle) = concrete(100, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, state) = overlay(&["test"]);
     tui.show_overlay(
@@ -200,7 +200,7 @@ fn renders_overlay_at_percentage_of_terminal_width() {
 #[test]
 fn respects_min_width_when_percentage_results_in_smaller_width() {
     let (terminal, handle) = concrete(100, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, state) = overlay(&["test"]);
     tui.show_overlay(
@@ -222,7 +222,7 @@ fn respects_min_width_when_percentage_results_in_smaller_width() {
 #[test]
 fn positions_overlay_at_top_left() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["TOP-LEFT"]);
     tui.show_overlay(
@@ -244,7 +244,7 @@ fn positions_overlay_at_top_left() {
 #[test]
 fn positions_overlay_at_bottom_right() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["BTM-RIGHT"]);
     tui.show_overlay(
@@ -268,7 +268,7 @@ fn positions_overlay_at_bottom_right() {
 #[test]
 fn positions_overlay_at_top_center() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["CENTERED"]);
     tui.show_overlay(
@@ -293,7 +293,7 @@ fn positions_overlay_at_top_center() {
 #[test]
 fn clamps_negative_margins_to_zero() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["NEG-MARGIN"]);
     tui.show_overlay(
@@ -321,7 +321,7 @@ fn clamps_negative_margins_to_zero() {
 #[test]
 fn respects_margin_as_a_number() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["MARGIN"]);
     tui.show_overlay(
@@ -353,7 +353,7 @@ fn respects_margin_as_a_number() {
 #[test]
 fn respects_margin_object() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["MARGIN"]);
     tui.show_overlay(
@@ -383,7 +383,7 @@ fn respects_margin_object() {
 #[test]
 fn applies_offset_x_and_offset_y_from_anchor_position() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["OFFSET"]);
     tui.show_overlay(
@@ -409,7 +409,7 @@ fn applies_offset_x_and_offset_y_from_anchor_position() {
 #[test]
 fn positions_with_row_and_col_percentages() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["PCT"]);
     tui.show_overlay(
@@ -438,7 +438,7 @@ fn positions_with_row_and_col_percentages() {
 #[test]
 fn row_percent_zero_positions_at_top() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["TOP"]);
     tui.show_overlay(
@@ -460,7 +460,7 @@ fn row_percent_zero_positions_at_top() {
 #[test]
 fn row_percent_hundred_positions_at_bottom() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["BOTTOM"]);
     tui.show_overlay(
@@ -482,7 +482,7 @@ fn row_percent_hundred_positions_at_bottom() {
 #[test]
 fn truncates_overlay_to_max_height() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["Line 1", "Line 2", "Line 3", "Line 4", "Line 5"]);
     tui.show_overlay(
@@ -508,7 +508,7 @@ fn truncates_overlay_to_max_height() {
 #[test]
 fn truncates_overlay_to_max_height_percentage() {
     let (terminal, handle) = concrete(80, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let lines: Vec<String> = (1..=10).map(|index| format!("L{index}")).collect();
     let (content, _state) = test_component(&[]);
@@ -534,7 +534,7 @@ fn truncates_overlay_to_max_height_percentage() {
 #[test]
 fn row_and_col_override_anchor() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (content, _state) = overlay(&["ABSOLUTE"]);
     tui.show_overlay(
@@ -560,7 +560,7 @@ fn row_and_col_override_anchor() {
 #[test]
 fn renders_multiple_overlays_with_later_ones_on_top() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (first, _first_state) = overlay(&["FIRST-OVERLAY"]);
     tui.show_overlay(
@@ -591,7 +591,7 @@ fn renders_multiple_overlays_with_later_ones_on_top() {
 #[test]
 fn handles_overlays_at_different_positions_without_interference() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (top, _top_state) = overlay(&["TOP-LEFT"]);
     tui.show_overlay(
@@ -624,7 +624,7 @@ fn handles_overlays_at_different_positions_without_interference() {
 #[test]
 fn properly_hides_overlays_in_stack_order() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     let (first, _first_state) = overlay(&["FIRST"]);
     tui.show_overlay(

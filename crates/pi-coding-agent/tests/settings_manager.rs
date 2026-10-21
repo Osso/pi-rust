@@ -397,12 +397,12 @@ fn tui_mode_and_fullscreen_settings_validate_stored_values() {
     assert_eq!(manager.get_fullscreen_exit_output(), FullscreenExitOutput::Transcript);
     assert_eq!(
         manager.get_fullscreen_scrollbar(),
-        pi_tui::components::scroll_view::ScrollViewScrollbar::Auto
+        pi_coding_agent::core::settings_manager::ScrollViewScrollbar::Auto
     );
 
     manager.set_tui_mode(pi_tui::tui::TuiMode::Fullscreen);
     manager.set_fullscreen_exit_output(FullscreenExitOutput::ResumeHint);
-    manager.set_fullscreen_scrollbar(pi_tui::components::scroll_view::ScrollViewScrollbar::Hidden);
+    manager.set_fullscreen_scrollbar(pi_coding_agent::core::settings_manager::ScrollViewScrollbar::Hidden);
     manager.flush();
     let saved = workspace.global();
     assert_eq!(saved["tuiMode"], "fullscreen");
@@ -417,7 +417,7 @@ fn tui_mode_and_fullscreen_settings_validate_stored_values() {
     assert_eq!(manager.get_fullscreen_exit_output(), FullscreenExitOutput::Transcript);
     assert_eq!(
         manager.get_fullscreen_scrollbar(),
-        pi_tui::components::scroll_view::ScrollViewScrollbar::Auto
+        pi_coding_agent::core::settings_manager::ScrollViewScrollbar::Auto
     );
 }
 

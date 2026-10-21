@@ -14,9 +14,10 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Duration;
 
+use pi_tui::TUI;
 use pi_tui::terminal::Terminal;
 use pi_tui::terminal_colors::RgbColor;
-use pi_tui::tui::{ComponentRef, TuiExt, TuiMainScreen, component};
+use pi_tui::tui::{ComponentRef, TuiExt, component};
 
 use crate::modes::interactive::components::first_time_setup::{
     FirstTimeSetupComponent, FirstTimeSetupOptions, FirstTimeSetupResult,
@@ -132,7 +133,7 @@ pub async fn create_startup_tui(
     settings_manager: &SettingsManager,
     terminal: Rc<RefCell<dyn Terminal>>,
     env: &BTreeMap<String, String>,
-) -> Result<Rc<TuiMainScreen>, String> {
+) -> Result<Rc<TUI>, String> {
     let themes = load_startup_themes(settings_manager).await?;
     set_registered_themes(themes).map_err(|error| error.to_string())?;
     let terminal_theme = detect_terminal_background_from_env(env).theme;
@@ -141,7 +142,7 @@ pub async fn create_startup_tui(
     init_theme(Some(&theme_name), false).map_err(|error| error.to_string())?;
     let agent_dir = config::get_agent_dir();
     KeybindingsManager::create(Some(&agent_dir)).install();
-    let ui = TuiMainScreen::with_options(
+    let ui = TUI::with_options(
         terminal,
         Some(settings_manager.get_show_hardware_cursor()),
         Some(agent_dir),
@@ -152,7 +153,7 @@ pub async fn create_startup_tui(
 
 /// `startStartupTui`.
 pub fn start_startup_tui(
-    ui: &Rc<TuiMainScreen>,
+    ui: &Rc<TUI>,
     settings_manager: &SettingsManager,
     env: &BTreeMap<String, String>,
 ) -> Result<(), String> {
@@ -162,11 +163,7 @@ pub fn start_startup_tui(
 }
 
 /// `applyDetectedStartupTheme`.
-pub fn apply_detected_startup_theme(
-    ui: &Rc<TuiMainScreen>,
-    settings_manager: &SettingsManager,
-    env: &BTreeMap<String, String>,
-) {
+pub fn apply_detected_startup_theme(ui: &Rc<TUI>, settings_manager: &SettingsManager, env: &BTreeMap<String, String>) {
     let theme_setting = settings_manager.get_theme_setting();
     if theme_setting.is_some() && parse_auto_theme_setting(theme_setting).is_none() {
         return;
@@ -236,7 +233,7 @@ pub async fn show_first_time_setup(
 }
 
 /// `clearStartupTui`.
-pub fn clear_startup_tui(ui: &TuiMainScreen) {
+pub fn clear_startup_tui(ui: &TUI) {
     ui.clear();
     ui.request_render(false);
     std::thread::sleep(CLEAR_DELAY);
@@ -322,7 +319,7 @@ pub async fn show_startup_selector<T: Clone + 'static>(
     }))
 }
 
-fn wait_for_selection(ui: &TuiMainScreen, receiver: &Receiver<Option<String>>) -> Option<String> {
+fn wait_for_selection(ui: &TUI, receiver: &Receiver<Option<String>>) -> Option<String> {
     loop {
         ui.process_events();
         ui.flush_pending();
@@ -335,7 +332,7 @@ fn wait_for_selection(ui: &TuiMainScreen, receiver: &Receiver<Option<String>>) -
 }
 
 struct StartupThemeDetector {
-    ui: Rc<TuiMainScreen>,
+    ui: Rc<TUI>,
 }
 
 impl TerminalBackgroundThemeDetector for StartupThemeDetector {
@@ -359,7 +356,7 @@ impl TerminalAutoThemeDetector for StartupThemeDetector {
     }
 }
 
-fn wait_for_query<T>(ui: &TuiMainScreen, result: impl Fn() -> Option<T>) {
+fn wait_for_query<T>(ui: &TUI, result: impl Fn() -> Option<T>) {
     loop {
         ui.process_events();
         if result().is_some() {

@@ -5,9 +5,9 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
+use pi_tui::TUI;
 use pi_tui::components::loader::{DEFAULT_INTERVAL_MS, Loader, LoaderIndicatorOptions};
 use pi_tui::tui::{Component, ComponentRef, TuiExt, component};
-use pi_tui::tui_main_screen::TuiMainScreen;
 use virtual_terminal::concrete;
 
 struct RenderCounter {
@@ -113,7 +113,7 @@ fn styled_frames_and_messages_apply_callbacks() {
 #[test]
 fn falls_back_to_a_normal_root_render_when_no_region_is_registered() {
     let (terminal, handle) = concrete(30, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let renders = Rc::new(Cell::new(0));
     let counter = Rc::clone(&renders);
     let slot: Rc<RefCell<Option<ComponentRef>>> = Rc::new(RefCell::new(None));

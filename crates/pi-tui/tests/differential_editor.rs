@@ -269,6 +269,14 @@ fn scenario(ops: Vec<Value>) -> Value {
 fn scenarios() -> Vec<(&'static str, Value)> {
     let mut cases = Vec::new();
 
+    let mut scroll_ops = vec![
+        json!({"op":"setText", "text": (0..20).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n")}),
+        render(10),
+    ];
+    scroll_ops.extend((0..10).map(|_| input("\x1b[A")));
+    scroll_ops.push(render(10));
+    cases.push(("frozen-narrow-top-and-bottom-indicators", scenario(scroll_ops)));
+
     cases.push((
         "typing",
         scenario(vec![

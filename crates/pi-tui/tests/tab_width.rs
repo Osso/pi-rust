@@ -7,8 +7,8 @@
 #[path = "support/virtual_terminal.rs"]
 mod virtual_terminal;
 
+use pi_tui::TUI;
 use pi_tui::tui::{Component, OverlayOptions, SizeValue, TuiExt};
-use pi_tui::tui_main_screen::TuiMainScreen;
 use virtual_terminal::concrete;
 
 struct FullViewportContent;
@@ -33,7 +33,7 @@ impl Component for TabStatusOverlay {
 #[test]
 fn keeps_tab_containing_overlays_on_one_physical_terminal_row() {
     let (terminal, handle) = concrete(16, 3);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(pi_tui::tui::component(FullViewportContent));
     tui.show_overlay(
         pi_tui::tui::component(TabStatusOverlay),

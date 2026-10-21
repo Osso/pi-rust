@@ -2,21 +2,14 @@ use std::sync::Mutex;
 
 use pi_tui::terminal_image::{
     CellDimensions, ImageCellSize, ImageDimensions, ImageProtocol, ImageRenderOptions, Iterm2Size,
-    TerminalCapabilities, TerminalEnvironment, calculate_image_cell_size, calculate_image_rows, crop_kitty_image_line,
-    delete_all_kitty_images, delete_all_kitty_placements, delete_kitty_image, detect_capabilities_in, encode_iterm2,
-    encode_kitty, get_cell_dimensions, get_gif_dimensions, get_image_dimensions, get_jpeg_dimensions,
-    get_kitty_image_metadata, get_kitty_image_placement, get_png_dimensions, get_webp_dimensions, hyperlink,
-    image_fallback, is_image_line, register_kitty_image_metadata, render_image, reset_capabilities_cache,
+    TerminalCapabilities, TerminalEnvironment, calculate_image_cell_size, calculate_image_rows,
+    delete_all_kitty_images, delete_kitty_image, detect_capabilities_in, encode_iterm2, encode_kitty,
+    get_cell_dimensions, get_gif_dimensions, get_image_dimensions, get_jpeg_dimensions, get_png_dimensions,
+    get_webp_dimensions, hyperlink, image_fallback, is_image_line, render_image, reset_capabilities_cache,
     set_capabilities, set_cell_dimensions,
 };
 
 static CAPS_LOCK: Mutex<()> = Mutex::new(());
-static REGISTRY_LOCK: Mutex<()> = Mutex::new(());
-
-fn lock_registry() -> std::sync::MutexGuard<'static, ()> {
-    REGISTRY_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
 fn with_caps(caps: TerminalCapabilities, test: impl FnOnce()) {
     let _guard = CAPS_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     set_capabilities(caps);
@@ -216,17 +209,7 @@ fn detects_truecolor_hints() {
 }
 
 #[test]
-fn windows_console_detection_keeps_hyperlinks_off() {
-    let mut environment = env();
-    environment.is_windows_console = true;
-    let caps = detect_capabilities_in(&environment, || true);
-    assert_eq!(caps.images, None);
-    assert!(caps.true_color);
-    assert!(!caps.hyperlinks);
-}
-
-#[test]
-fn encodes_iterm2_with_size_and_options() {
+fn encodes_iterm2_with_frozen_options_without_size_metadata() {
     assert_eq!(
         encode_iterm2(
             "AAAA",
@@ -236,7 +219,7 @@ fn encodes_iterm2_with_size_and_options() {
                 ..Default::default()
             }
         ),
-        "\x1b]1337;File=inline=1;size=3;width=2;height=auto:AAAA\x07"
+        "\x1b]1337;File=inline=1;width=2;height=auto:AAAA\x07"
     );
 }
 
@@ -258,7 +241,6 @@ fn encodes_kitty_with_cursor_movement_controls() {
 fn emits_kitty_delete_commands() {
     assert_eq!(delete_kitty_image(42), "\x1b_Ga=d,d=I,i=42,q=2\x1b\\");
     assert_eq!(delete_all_kitty_images(), "\x1b_Ga=d,d=A,q=2\x1b\\");
-    assert_eq!(delete_all_kitty_placements(), "\x1b_Ga=d,d=a,q=2\x1b\\");
 }
 
 #[test]
@@ -308,73 +290,6 @@ fn renders_kitty_images_without_cursor_movement_when_requested() {
         assert!(result.sequence.contains(",C=1,"));
         assert_eq!(result.rows, 2);
     });
-}
-
-#[test]
-fn registers_metadata_and_crops_a_partially_visible_placement() {
-    let _registry_guard = lock_registry();
-    with_caps(kitty_caps(), || {
-        set_cell_dimensions(CellDimensions {
-            width_px: 10,
-            height_px: 10,
-        });
-        let result = render_image(
-            "AAAA",
-            ImageDimensions {
-                width_px: 100,
-                height_px: 100,
-            },
-            &ImageRenderOptions {
-                max_width_cells: Some(3.0),
-                image_id: Some(42),
-                move_cursor: Some(false),
-                ..Default::default()
-            },
-        )
-        .expect("image");
-        assert_eq!(
-            get_kitty_image_metadata(&result.sequence),
-            Some(pi_tui::terminal_image::KittyImageMetadata {
-                image_id: 42,
-                columns: 3,
-                rows: 3,
-                width_px: 100,
-                height_px: 100,
-            })
-        );
-        assert!(crop_kitty_image_line(&result.sequence, 2, 1).contains("y=66,h=34,r=1"));
-    });
-}
-
-#[test]
-fn creates_placement_only_commands_for_uploaded_and_cropped_images() {
-    let _registry_guard = lock_registry();
-    register_kitty_image_metadata(pi_tui::terminal_image::KittyImageMetadata {
-        image_id: 42,
-        columns: 3,
-        rows: 3,
-        width_px: 100,
-        height_px: 100,
-    });
-    let transmission = encode_kitty(
-        &"A".repeat(8192),
-        &pi_tui::terminal_image::KittyEncodeOptions {
-            columns: Some(3),
-            rows: Some(3),
-            image_id: Some(42),
-            move_cursor: Some(false),
-        },
-    );
-    let line = format!("left {} right", crop_kitty_image_line(&transmission, 2, 1));
-    let placement = get_kitty_image_placement(&line).expect("placement");
-    assert_eq!(
-        placement.transmission_bytes,
-        line.len() - "left ".len() - " right".len()
-    );
-    assert_eq!(placement.estimated_decoded_bytes, 100 * 100 * 4);
-    assert_eq!(placement.sequence, "\x1b_Ga=p,q=2,C=1,c=3,i=42,y=66,h=34,r=1\x1b\\");
-    assert_eq!(placement.replacement_line, format!("left {} right", placement.sequence));
-    assert!(!placement.replacement_line.contains("AAAA"));
 }
 
 #[test]
@@ -613,7 +528,7 @@ fn builds_image_fallbacks() {
                     }),
                     Some(&path)
                 ),
-                "[Image: ~/.pi/agent/shot.png [image/png] 1280x720]"
+                format!("[Image: {path} [image/png] 1280x720]")
             );
             assert_eq!(
                 image_fallback(
@@ -642,7 +557,7 @@ fn builds_image_fallbacks() {
 }
 
 #[test]
-fn hyperlinks_absolute_filenames_when_supported() {
+fn fallback_keeps_literal_absolute_filename_even_with_hyperlinks() {
     with_caps(
         TerminalCapabilities {
             images: None,
@@ -660,9 +575,7 @@ fn hyperlinks_absolute_filenames_when_supported() {
                 }),
                 Some(&path),
             );
-            assert!(result.contains("\x1b]8;;file://"), "{result:?}");
-            assert!(result.contains(&path), "{result:?}");
-            assert_eq!(strip_osc8(&result), "[Image: ~/.pi/agent/shot.png [image/png] 10x10]");
+            assert_eq!(result, format!("[Image: {path} [image/png] 10x10]"));
         },
     );
 }
@@ -676,22 +589,6 @@ fn allocate_image_id_stays_in_range() {
 }
 
 #[test]
-fn registry_evicts_oldest_entries_beyond_1000() {
-    let _registry_guard = lock_registry();
-    for image_id in 20_000..21_100 {
-        register_kitty_image_metadata(pi_tui::terminal_image::KittyImageMetadata {
-            image_id,
-            columns: 1,
-            rows: 1,
-            width_px: 1,
-            height_px: 1,
-        });
-    }
-    assert_eq!(get_kitty_image_metadata("\x1b_Gi=20000;"), None);
-    assert!(get_kitty_image_metadata("\x1b_Gi=21099;").is_some());
-}
-
-#[test]
 fn default_cell_dimensions_match_the_source() {
     let _guard = CAPS_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     assert_eq!(
@@ -701,21 +598,4 @@ fn default_cell_dimensions_match_the_source() {
             height_px: 18
         }
     );
-}
-
-fn strip_osc8(value: &str) -> String {
-    let mut result = String::new();
-    let mut index = 0;
-    while index < value.len() {
-        if value[index..].starts_with("\x1b]8;")
-            && let Some(end) = value[index..].find("\x1b\\")
-        {
-            index += end + 2;
-            continue;
-        }
-        let character = value[index..].chars().next().expect("character");
-        result.push(character);
-        index += character.len_utf8();
-    }
-    result
 }

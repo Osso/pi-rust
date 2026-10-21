@@ -15,8 +15,9 @@ use std::time::Duration;
 use pi_agent_core::agent::types::AgentMessage;
 use pi_ai::types::{TextOrImageContent, UserContent};
 use pi_js_compat::string::js_trim;
+use pi_tui::TUI;
 use pi_tui::components::input::InputOptions;
-use pi_tui::tui::{ComponentRef, TuiExt, TuiMainScreen, component};
+use pi_tui::tui::{ComponentRef, TuiExt, component};
 use pi_tui::{Component, Container, Focusable, Input, Spacer, Text};
 use serde::Deserialize;
 use serde_json::Value;
@@ -183,7 +184,7 @@ pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Re
 }
 
 async fn pump_console(
-    ui: &TuiMainScreen,
+    ui: &TUI,
     console: &ResidentConsoleUi,
     client: &ResidentConsoleClient<SessionEntry, ResidentConsoleEvent>,
     initial_prompt: Option<&str>,
@@ -220,7 +221,7 @@ async fn pump_console(
 }
 
 async fn submit(
-    ui: &TuiMainScreen,
+    ui: &TUI,
     console: &ResidentConsoleUi,
     client: &ResidentConsoleClient<SessionEntry, ResidentConsoleEvent>,
     value: &str,

@@ -163,7 +163,6 @@ type TerminalImageApi = {
 	): string;
 	deleteKittyImage(imageId: number): string;
 	deleteAllKittyImages(): string;
-	deleteAllKittyPlacements(): string;
 	calculateImageCellSize(
 		image: { widthPx: number; heightPx: number },
 		maxWidthCells: number,
@@ -175,22 +174,6 @@ type TerminalImageApi = {
 	getGifDimensions(data: string): { widthPx: number; heightPx: number } | null;
 	getWebpDimensions(data: string): { widthPx: number; heightPx: number } | null;
 	getImageDimensions(data: string, mimeType: string): { widthPx: number; heightPx: number } | null;
-	registerKittyImageMetadata(metadata: {
-		imageId: number;
-		columns: number;
-		rows: number;
-		widthPx: number;
-		heightPx: number;
-	}): void;
-	getKittyImageMetadata(line: string): {
-		imageId: number;
-		columns: number;
-		rows: number;
-		widthPx: number;
-		heightPx: number;
-	} | undefined;
-	cropKittyImageLine(line: string, hiddenRows: number, visibleRows: number): string;
-	getKittyImagePlacement(line: string): unknown;
 	renderImage(
 		data: string,
 		image: { widthPx: number; heightPx: number },
@@ -201,7 +184,7 @@ type TerminalImageApi = {
 			imageId?: number;
 			moveCursor?: boolean;
 		},
-	): { sequence: string; columns: number; rows: number; imageId?: number } | null;
+	): { sequence: string; rows: number; imageId?: number } | null;
 	hyperlink(text: string, url: string): string;
 	imageFallback(
 		mimeType: string,
@@ -504,25 +487,6 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 				),
 			};
 		}
-		case "terminal_image_placement": {
-			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
-			api.registerKittyImageMetadata({ imageId: 42, columns: 3, rows: 3, widthPx: 100, heightPx: 100 });
-			const transmission = api.encodeKitty("A".repeat(8192), {
-				columns: 3,
-				rows: 3,
-				imageId: 42,
-				moveCursor: false,
-			});
-			const cropped = api.cropKittyImageLine(transmission, 2, 1);
-			const line = `left ${cropped} right`;
-			return {
-				results: {
-					metadata: api.getKittyImageMetadata(transmission) ?? null,
-					cropped,
-					placement: api.getKittyImagePlacement(line) ?? null,
-				},
-			};
-		}
 		case "terminal_image_render": {
 			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
 			const cases = requireArray<{
@@ -579,7 +543,6 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 				results: {
 					one: api.deleteKittyImage(42),
 					all: api.deleteAllKittyImages(),
-					placements: api.deleteAllKittyPlacements(),
 				},
 			};
 		}

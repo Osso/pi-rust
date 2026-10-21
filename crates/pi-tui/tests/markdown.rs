@@ -8,10 +8,10 @@ mod virtual_terminal;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use pi_tui::TUI;
 use pi_tui::components::markdown::{DefaultTextStyle, Markdown, MarkdownOptions, MarkdownTheme};
 use pi_tui::terminal_image::{TerminalCapabilities, reset_capabilities_cache, set_capabilities};
 use pi_tui::tui::{Component, TuiExt, component};
-use pi_tui::tui_main_screen::TuiMainScreen;
 
 use self::markdown_theme::{CYAN, ChalkTheme, GRAY, MAGENTA, YELLOW, apply as apply_chalk};
 use self::virtual_terminal::concrete;
@@ -622,7 +622,7 @@ fn does_not_leak_styles_into_following_lines_in_tui() {
     };
 
     let (terminal, handle) = concrete(80, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(component(wrapper));
     tui.start().expect("tui starts");
     tui.flush_pending();
@@ -890,7 +890,7 @@ fn does_not_leak_h1_underline_into_padding() {
     let _guard = lock();
     let markdown = markdown("# Important distinction from `open()`");
     let (terminal, handle) = concrete(80, 4);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(component(markdown));
     tui.start().expect("tui starts");
     tui.flush_pending();
