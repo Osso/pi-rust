@@ -283,3 +283,29 @@ fn openai_remote_compact_helpers_match_typescript() {
         }
     }
 }
+
+#[test]
+fn numeric_properties_consume_compaction_budget_in_javascript_order() {
+    let item: Value = serde_json::from_str(&format!(
+        r#"{{"type":"message","2":{{"type":"input_text","text":"{}"}},"1":{{"type":"input_text","text":"{}"}}}}"#,
+        "B".repeat(300_000),
+        "A".repeat(300_000)
+    ))
+    .unwrap();
+    let mut ts = oracle::TsOracle::spawn("coding-agent-openai-remote-compact-oracle.ts", SOURCE_MODULE);
+    let response = ts.request(&json!({"id": 2, "operation": "openai-remote-compact", "cases": [
+        {"kind": "limit", "name": "numeric-budget", "items": [item.clone()]}
+    ]}));
+    assert_eq!(response["ok"], true);
+    let expected = &response["output"]["results"][0]["value"];
+    println!(
+        "pinned TS retained A={}, B={}",
+        expected[0]["1"]["text"].as_str().unwrap().len(),
+        expected[0]["2"]["text"].as_str().unwrap().len()
+    );
+    let actual = limit_openai_compact_input(vec![item], &HashSet::new(), &HashSet::new());
+    assert!(
+        serde_json::to_value(actual).unwrap() == *expected,
+        "full compacted output differs from pinned TS"
+    );
+}
