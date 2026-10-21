@@ -136,13 +136,18 @@ fn initialize_supervisor_session(
 }
 
 fn register_session_start_hook(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let model_request_started = registration.runtime_handles.latest_model_request_started_at.clone();
     let registration = registration.clone_for_hooks();
     let journal = JournalWriter::from_api(pi);
     let _ = pi.on_session_start(move |_event, ctx| {
         let registration = registration.clone();
         let journal = journal.clone();
+        let model_request_started = model_request_started.clone();
         let future: crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>> =
             Box::pin(async move {
+                if !is_child_agent_runtime(&ctx)? {
+                    *model_request_started.lock().expect("model request start") = None;
+                }
                 registration.runtime_lifecycle_mirror.dispose();
                 *registration.journal_binding.lock().expect("journal binding") = None;
                 initialize_supervisor_session(&journal, &registration, &ctx)?;
@@ -480,8 +485,37 @@ fn register_steer_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistr
     ));
 }
 
+fn register_wait_slice_hooks(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let started = registration.runtime_handles.latest_model_request_started_at.clone();
+    let _ = pi.on_model_request_start(move |_event, ctx| {
+        let started = started.clone();
+        Box::pin(async move {
+            if !is_child_agent_runtime(&ctx)? {
+                *started.lock().expect("model request start") = Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("system clock")
+                        .as_millis() as i64,
+                );
+            }
+            Ok(None)
+        }) as crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>>
+    });
+    let started = registration.runtime_handles.latest_model_request_started_at.clone();
+    let _ = pi.on_agent_end(move |_event, ctx| {
+        let started = started.clone();
+        Box::pin(async move {
+            if !is_child_agent_runtime(&ctx)? {
+                *started.lock().expect("model request start") = None;
+            }
+            Ok(None)
+        }) as crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>>
+    });
+}
+
 pub fn register_agents_core_tools(pi: &ExtensionApi, options: &MultiAgentExtensionOptions) -> Result<(), HandlerError> {
     let registration = create_registration_context(options);
+    register_wait_slice_hooks(pi, &registration);
     register_session_start_hook(pi, &registration);
     register_session_shutdown_hook(pi, &registration);
     register_background_command(pi, &registration);

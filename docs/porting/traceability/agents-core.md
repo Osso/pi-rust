@@ -1,5 +1,9 @@
 # agents-core traceability
 
+## Foreground wait slice refresh
+
+Frozen runtime.ts:196,2126-2295,3157-3168 maps to shared `latest_model_request_started_at`, model-request-start and agent/session-end hooks, and the captured deadline in native wait_runtime.rs. `wait_slice_uses_latest_model_request_and_does_not_cancel_active_agents` uses a real SQLite active child and paused Tokio timers: timedOut true, child still running, agent_end clears the deadline. Model-request-start/end events now exist in extension types/runner and AgentSession forwarding. [Contract and remaining event-boundary proof](../../specs/agent-wait-slice.md).
+
 ## Frozen 4f9e6f8a4 refresh — 2026-10-21
 
 Historical module inventory below is not renewed source correspondence. Frozen `runtime.ts` now owns private `emptyAgent` (3065), `isInFlightLifecycle` (2526), result helpers (391-412), prompt validators (424-455), `listAgents` (1875) and wait validation (993). The deterministic oracle loads an in-memory transpiled copy and exposes those declarations without editing frozen files; viewer now loads `extensions/agent-viewer/src/runtime.ts:85`.

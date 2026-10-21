@@ -7493,7 +7493,22 @@ impl AgentSession {
                 runner.emit(&mut extension_event).await;
                 None
             }
-            AgentEvent::ModelRequestStart | AgentEvent::ModelRequestEnd => None,
+            AgentEvent::ModelRequestStart => {
+                runner
+                    .emit(&mut ExtensionEvent::ModelRequestStart(
+                        crate::core::extensions::types::ModelRequestStartEvent {},
+                    ))
+                    .await;
+                None
+            }
+            AgentEvent::ModelRequestEnd => {
+                runner
+                    .emit(&mut ExtensionEvent::ModelRequestEnd(
+                        crate::core::extensions::types::ModelRequestEndEvent {},
+                    ))
+                    .await;
+                None
+            }
         }
     }
 

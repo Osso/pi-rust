@@ -47,6 +47,7 @@ pub type SharedDispatch = Shared<BoxFuture<'static, Result<AgentSnapshot, String
 
 #[derive(Clone, Default)]
 pub struct MultiAgentRuntimeHandles {
+    pub latest_model_request_started_at: Arc<Mutex<Option<i64>>>,
     pub dispatches: Arc<Mutex<HashMap<String, SharedDispatch>>>,
     pub ownerships: Arc<Mutex<HashMap<String, Arc<OwnedAgentRuntime>>>>,
     pub sessions: Arc<Mutex<HashMap<String, Arc<dyn ChildAgentSession>>>>,
@@ -192,9 +193,7 @@ pub async fn wait_agents(
     signal: Option<CancellationToken>,
     ctx: Option<&ExtensionContext>,
 ) -> Result<AgentToolResult, HandlerError> {
-    let wake =
-        super::wait_runtime::wait_notifications_runtime(store, &runtime_handles.wait_wake_listeners, signal, ctx)
-            .await?;
+    let wake = super::wait_runtime::wait_notifications_runtime(store, runtime_handles, signal, ctx).await?;
     super::wait_runtime::consume_notifications_runtime(store, &wake, ctx, &format_agent_status)
 }
 
@@ -204,7 +203,7 @@ pub async fn wait_notifications(
     signal: Option<CancellationToken>,
     ctx: Option<&ExtensionContext>,
 ) -> Result<super::wait_runtime::WaitNotificationsWake, HandlerError> {
-    super::wait_runtime::wait_notifications_runtime(store, &runtime_handles.wait_wake_listeners, signal, ctx).await
+    super::wait_runtime::wait_notifications_runtime(store, runtime_handles, signal, ctx).await
 }
 
 pub fn consume_notifications(
