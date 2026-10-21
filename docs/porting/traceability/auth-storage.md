@@ -7,7 +7,12 @@ Current source: `packages/coding-agent/src/core/auth-storage.ts` at frozen `4f9e
 - `auth_phase1::sync_auth_contender_cannot_steal_three_second_live_async_lock`: actual healthy async holder; sync auth caller must use 30s stale, not global default.
 - `auth_phase1::compromised_callback_cannot_write_under_lost_lock`: remove owned fixture lock during callback, allow 15s heartbeat to detect loss, then return write; write must be rejected.
 - Async acquisition matches frozen retry count/min/max/factor; cancellation is a Rust-only boundary.
-- Frozen public API and rotation rescue pending. Existing CredentialStore/read-only/shared-revision code is obsolete compilation scaffolding, not current-pin parity evidence. Historical proof inventory below must not be read as revalidated.
+- Public native source surface: `get`, `get_all`, `set`, `remove`, `has`, `has_auth`, `get_provider_env`, runtime overrides, status, `drain_errors`, `login`, `logout`, OAuth listing, `get_api_key`. Frozen `list()` is temporarily named `list_providers()` to avoid colliding with obsolete trait `list(options)` callers.
+- `auth_phase1_public`: TS public set → Rust read/set → TS reload and reverse OAuth update; accountId/email/sentinel extras, provider env, unrelated raw provider entries, modes, reload/error recovery, runtime precedence, ordering.
+- `auth_phase1_process`: actual healthy TS process and Rust process, sync contenders at 3s and beyond 15s, observed mtime heartbeat, post-release acquisition; kill owned process group then age only its lock fixture to test stale recovery.
+- `auth_phase1_rotation`: fake provider returns B from consumed A, injected callback-return-before-write cancellation or write error; rescue success, unrelated preservation, refresh error without rescue, failed rescue with successful subsequent reload.
+- `auth_source_discrepancy`: frozen TS successful API-key return despite persisted A when all sync operations fail after rotation; exact in-memory B/error ordering reproduced. Native branch explicitly disabled pending user classification, not silently preserved/fixed.
+- Existing CredentialStore/read-only/shared-revision code remains obsolete compilation scaffolding, not current-pin parity evidence. No OAuth rescue was added to generic `modify`. Historical proof inventory below must not be read as revalidated.
 
 ## Historical pre-repin inventory (not current-pin proof)
 Rust: `crates/pi-coding-agent/src/core/auth_storage.rs`.

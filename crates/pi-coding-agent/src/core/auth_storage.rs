@@ -354,15 +354,34 @@ impl AuthStorageBackend for InMemoryAuthStorageBackend {
     }
 }
 
-type AuthStorageData = Map<String, Value>;
+pub type AuthStorageData = Map<String, Value>;
 
 fn parse_auth_data(content: Option<&str>) -> Result<AuthStorageData, StorageError> {
-    let Some(content) = content else {
+    let Some(content) = content.filter(|content| !content.is_empty()) else {
         return Ok(Map::new());
     };
     match js_json::parse(content).map_err(|error| StorageError::new(error.to_string()))? {
         Value::Object(object) => Ok(object),
         _ => Ok(Map::new()),
+    }
+}
+
+fn source_now_millis() -> f64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as f64
+}
+fn oauth_value(credential: pi_ai::oauth::OAuthCredentials) -> Result<Value, StorageError> {
+    serde_json::to_value(Credential::OAuth(credential)).map_err(|error| StorageError::new(error.to_string()))
+}
+fn json_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(v) => *v,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
     }
 }
 
@@ -531,7 +550,42 @@ type SharedReadState = Option<(String, Arc<Mutex<ReadState>>)>;
 static SHARED_READ_STATE: OnceLock<Mutex<SharedReadState>> = OnceLock::new();
 
 /// Credential storage backed by a JSON file (`AuthStorage`).
+#[derive(Default)]
+struct SourceAuthState {
+    data: AuthStorageData,
+    runtime_overrides: std::collections::HashMap<String, String>,
+    load_error: Option<StorageError>,
+    errors: Vec<StorageError>,
+}
+
+#[derive(Clone, Debug)]
+pub struct GetApiKeyOptions {
+    pub include_fallback: bool,
+    pub throw_on_refresh_failure: bool,
+    /// Native cancellation boundary; frozen TS AuthStorage has no cancellation option.
+    pub signal: Option<CancellationToken>,
+}
+impl Default for GetApiKeyOptions {
+    fn default() -> Self {
+        Self {
+            include_fallback: true,
+            throw_on_refresh_failure: false,
+            signal: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct AuthStatus {
+    pub configured: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
 pub struct AuthStorage {
+    source_state: Arc<Mutex<SourceAuthState>>,
     storage: Arc<dyn AuthStorageBackend>,
     auth_path: Option<String>,
     read_state: Arc<Mutex<ReadState>>,
@@ -575,7 +629,12 @@ impl AuthStorage {
                 reload: None,
             })),
         };
+        let source_data = lock(&read_state).data.clone();
         let store = Self {
+            source_state: Arc::new(Mutex::new(SourceAuthState {
+                data: source_data,
+                ..Default::default()
+            })),
             storage,
             auth_path,
             read_state,
@@ -599,6 +658,275 @@ impl AuthStorage {
         Self::from_storage(backend)
     }
 
+    /// Frozen public API: raw stored credential, without config resolution or refresh.
+    pub fn get(&self, provider: &str) -> Option<Value> {
+        lock(&self.source_state).data.get(provider).cloned()
+    }
+    pub fn get_all(&self) -> AuthStorageData {
+        lock(&self.source_state).data.clone()
+    }
+    /// Named separately until obsolete CredentialStore::list(options) consumers are removed.
+    pub fn list_providers(&self) -> Vec<String> {
+        ordered_provider_ids(&lock(&self.source_state).data)
+    }
+    pub fn has(&self, provider: &str) -> bool {
+        lock(&self.source_state).data.contains_key(provider)
+    }
+    pub fn get_provider_env(&self, provider: &str) -> Option<std::collections::HashMap<String, String>> {
+        let credential = self.get(provider)?;
+        if credential_type(&credential) != Some("api_key") {
+            return None;
+        }
+        serde_json::from_value(credential.get("env")?.clone()).ok()
+    }
+    pub fn set_runtime_api_key(&self, provider: &str, api_key: &str) {
+        lock(&self.source_state)
+            .runtime_overrides
+            .insert(provider.to_owned(), api_key.to_owned());
+    }
+    pub fn remove_runtime_api_key(&self, provider: &str) {
+        lock(&self.source_state).runtime_overrides.remove(provider);
+    }
+    pub fn has_auth(&self, provider: &str) -> bool {
+        let source = lock(&self.source_state);
+        source.runtime_overrides.contains_key(provider)
+            || source.data.get(provider).is_some_and(json_truthy)
+            || pi_ai::env_api_keys::get_env_api_key(provider, None).is_some()
+    }
+    pub fn get_auth_status(&self, provider: &str) -> AuthStatus {
+        let source = lock(&self.source_state);
+        if source.data.get(provider).is_some_and(json_truthy) {
+            return AuthStatus {
+                configured: true,
+                source: Some("stored".to_owned()),
+                label: None,
+            };
+        }
+        if source.runtime_overrides.contains_key(provider) {
+            return AuthStatus {
+                configured: false,
+                source: Some("runtime".to_owned()),
+                label: Some("--api-key".to_owned()),
+            };
+        }
+        if let Some(label) = pi_ai::env_api_keys::find_env_keys(provider, None).and_then(|keys| keys.into_iter().next())
+        {
+            return AuthStatus {
+                configured: false,
+                source: Some("environment".to_owned()),
+                label: Some(label),
+            };
+        }
+        AuthStatus {
+            configured: false,
+            source: None,
+            label: None,
+        }
+    }
+    fn record_error(&self, error: StorageError) {
+        lock(&self.source_state).errors.push(error);
+    }
+    pub fn drain_errors(&self) -> Vec<StorageError> {
+        std::mem::take(&mut lock(&self.source_state).errors)
+    }
+    fn persist_provider_change(
+        &self,
+        provider: &str,
+        credential: Option<Value>,
+    ) -> Result<AuthStorageData, StorageError> {
+        if lock(&self.source_state).load_error.is_some() {
+            self.reload();
+        }
+        let load_error = lock(&self.source_state).load_error.clone();
+        if let Some(error) = load_error {
+            let error = StorageError::new(format!(
+                "Cannot update auth storage because it could not be loaded: {error}"
+            ));
+            self.record_error(error.clone());
+            return Err(error);
+        }
+        let mut persisted = None;
+        let result = self.storage.with_lock(Box::new(|current| {
+            let mut merged = parse_auth_data(current)?;
+            if let Some(credential) = credential {
+                merged.insert(provider.to_owned(), credential);
+            } else {
+                merged.shift_remove(provider);
+            }
+            let content = js_json::stringify_pretty(&Value::Object(merged.clone()));
+            persisted = Some(merged);
+            Ok(Some(content))
+        }));
+        if let Err(error) = result {
+            self.record_error(error.clone());
+            return Err(error);
+        }
+        lock(&self.source_state).load_error = None;
+        Ok(persisted.expect("successful backend must call operation"))
+    }
+    pub fn set(&self, provider: &str, credential: Value) -> Result<(), StorageError> {
+        let persisted = self.persist_provider_change(provider, Some(credential))?;
+        lock(&self.source_state).data = persisted;
+        Ok(())
+    }
+    pub fn remove(&self, provider: &str) -> Result<(), StorageError> {
+        let persisted = self.persist_provider_change(provider, None)?;
+        lock(&self.source_state).data = persisted;
+        Ok(())
+    }
+    pub fn logout(&self, provider: &str) -> Result<(), StorageError> {
+        self.remove(provider)
+    }
+    pub async fn login(
+        &self,
+        provider_id: &str,
+        callbacks: Arc<dyn pi_ai::oauth::OAuthLoginCallbacks>,
+    ) -> Result<(), StorageError> {
+        let provider = pi_ai::oauth::get_oauth_provider(provider_id)
+            .ok_or_else(|| StorageError::new(format!("Unknown OAuth provider: {provider_id}")))?;
+        let credential = provider
+            .login(callbacks)
+            .await
+            .map_err(|error| StorageError::new(error.to_string()))?;
+        self.set(provider_id, oauth_value(credential)?)
+    }
+    pub fn get_oauth_providers(&self) -> Vec<Arc<dyn pi_ai::oauth::OAuthProviderInterface>> {
+        pi_ai::oauth::get_oauth_providers()
+    }
+    async fn refresh_oauth_token_with_lock(
+        &self,
+        provider_id: &str,
+        options: &GetApiKeyOptions,
+    ) -> Result<Option<pi_ai::oauth::OAuthApiKey>, StorageError> {
+        let Some(provider) = pi_ai::oauth::get_oauth_provider(provider_id) else {
+            return Ok(None);
+        };
+        let rotated = Arc::new(Mutex::new(None));
+        let captured = rotated.clone();
+        let result = Arc::new(Mutex::new(None));
+        let captured_result = result.clone();
+        let source = Arc::clone(&self.source_state);
+        let id = provider_id.to_owned();
+        let refresh = self
+            .storage
+            .with_lock_async(
+                Box::new(move |current| {
+                    Box::pin(async move {
+                        let mut data = parse_auth_data(current.as_deref())?;
+                        {
+                            let mut source = lock(&source);
+                            source.data = data.clone();
+                            source.load_error = None;
+                        }
+                        let Some(value) = data.get(&id) else { return Ok(None) };
+                        if credential_type(value) != Some("oauth") {
+                            return Ok(None);
+                        }
+                        let credential = to_credential(value)?.into_oauth().expect("checked OAuth");
+                        if source_now_millis() < credential.expires {
+                            *lock(&captured_result) = Some(pi_ai::oauth::OAuthApiKey {
+                                api_key: provider.get_api_key(&credential),
+                                new_credentials: credential,
+                            });
+                            return Ok(None);
+                        }
+                        let credentials = data
+                            .iter()
+                            .filter(|(_, v)| credential_type(v) == Some("oauth"))
+                            .map(|(id, v)| {
+                                to_credential(v).map(|c| (id.clone(), c.into_oauth().expect("checked OAuth")))
+                            })
+                            .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
+                        let Some(refreshed) = pi_ai::oauth::get_oauth_api_key(&id, &credentials)
+                            .await
+                            .map_err(|error| StorageError::new(error.to_string()))?
+                        else {
+                            return Ok(None);
+                        };
+                        *lock(&captured) = Some(refreshed.clone());
+                        data.insert(id, oauth_value(refreshed.new_credentials.clone())?);
+                        {
+                            let mut source = lock(&source);
+                            source.data = data.clone();
+                            source.load_error = None;
+                        }
+                        *lock(&captured_result) = Some(refreshed);
+                        Ok(Some(js_json::stringify_pretty(&Value::Object(data))))
+                    })
+                }),
+                AuthOperationOptions {
+                    signal: options.signal.clone(),
+                },
+            )
+            .await;
+        match refresh {
+            Ok(()) => Ok(lock(&result).take()),
+            Err(error) => {
+                let Some(rotated) = lock(&rotated).take() else {
+                    return Err(error);
+                };
+                self.record_error(error);
+                self.set(provider_id, oauth_value(rotated.new_credentials.clone())?)?;
+                Ok(Some(rotated))
+            }
+        }
+    }
+    pub async fn get_api_key(
+        &self,
+        provider_id: &str,
+        options: GetApiKeyOptions,
+    ) -> Result<Option<String>, StorageError> {
+        let runtime = lock(&self.source_state).runtime_overrides.get(provider_id).cloned();
+        if runtime.as_deref().is_some_and(|key| !key.is_empty()) {
+            return Ok(runtime);
+        }
+        if let Some(credential) = self.get(provider_id) {
+            if credential_type(&credential) == Some("api_key") {
+                let key = credential.get("key").and_then(Value::as_str);
+                return Ok(key.and_then(|key| resolve_config_value(key, self.get_provider_env(provider_id).as_ref())));
+            }
+            if credential_type(&credential) == Some("oauth") {
+                let Some(provider) = pi_ai::oauth::get_oauth_provider(provider_id) else {
+                    return Ok(None);
+                };
+                let credential = to_credential(&credential)?.into_oauth().expect("checked OAuth");
+                if source_now_millis() < credential.expires {
+                    return Ok(Some(provider.get_api_key(&credential)));
+                }
+                match self.refresh_oauth_token_with_lock(provider_id, &options).await {
+                    Ok(Some(result)) => return Ok(Some(result.api_key)),
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.record_error(error.clone());
+                        self.reload();
+                        // Source all-sync-fails branch is disabled pending user classification.
+                        if lock(&self.source_state).load_error.is_some() {
+                            unimplemented!("Source memory-only refresh success: pending user classification")
+                        }
+                        if let Some(updated) = self.get(provider_id) {
+                            if credential_type(&updated) == Some("oauth") {
+                                let updated = to_credential(&updated)?.into_oauth().expect("checked OAuth");
+                                if source_now_millis() < updated.expires {
+                                    return Ok(Some(provider.get_api_key(&updated)));
+                                }
+                            }
+                        }
+                        if options.throw_on_refresh_failure {
+                            return Err(StorageError::new(format!(
+                                "Authentication failed for \"{provider_id}\": {error}. Run '/login {provider_id}' to re-authenticate."
+                            )));
+                        }
+                        return Ok(None);
+                    }
+                }
+            }
+        }
+        if !options.include_fallback {
+            return Ok(None);
+        }
+        Ok(pi_ai::env_api_keys::get_env_api_key(provider_id, None))
+    }
+
     fn current_revision(&self) -> Option<String> {
         self.auth_path.as_deref().and_then(get_file_revision)
     }
@@ -616,14 +944,29 @@ impl AuthStorage {
             *captured.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((parsed, revision));
             Ok(None)
         }));
-        if result.is_err() {
+        if let Err(error) = result {
+            let mut source = lock(&self.source_state);
+            source.load_error = Some(error.clone());
+            source.errors.push(error);
             return;
         }
         let captured = outcome.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
-        if let Some((Ok(data), revision)) = captured {
-            let mut state = lock(&state);
-            state.data = data;
-            state.revision = revision;
+        if let Some((parsed, revision)) = captured {
+            match parsed {
+                Ok(data) => {
+                    let mut source = lock(&self.source_state);
+                    source.data = data.clone();
+                    source.load_error = None;
+                    let mut state = lock(&state);
+                    state.data = data;
+                    state.revision = revision;
+                }
+                Err(error) => {
+                    let mut source = lock(&self.source_state);
+                    source.load_error = Some(error.clone());
+                    source.errors.push(error);
+                }
+            }
         }
     }
 
