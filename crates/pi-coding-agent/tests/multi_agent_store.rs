@@ -52,7 +52,7 @@ fn scout_input(parent: Option<&str>) -> AgentSnapshot {
 
 fn spawn_agent(store: &MultiAgentStore, parent: Option<&str>) -> AgentSnapshot {
     let mut agent = scout_input(parent);
-    agent.id = store.allocate_agent_id_for_lifecycle_coordinator("agent");
+    agent.id = store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap();
     if let Some(persistence) = store.get_persistence_target() {
         pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent(
             &persistence.control_db_path,
@@ -299,7 +299,7 @@ fn active_counts_follow_core_lifecycle_state() {
 fn pinned_slots_preserve_metadata_and_conflict_with_occupants() {
     let store = new_store();
     let mut input = scout_input(Some("root"));
-    input.id = store.allocate_agent_id_for_lifecycle_coordinator("agent");
+    input.id = store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap();
     input.account = Some(pi_coding_agent::core::multi_agent_store::AgentAccount {
         id: "account-1".to_owned(),
         budget_id: Some("budget-1".to_owned()),

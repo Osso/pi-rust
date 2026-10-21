@@ -377,7 +377,7 @@ async fn effort_only_shown_for_reasoning_models() {
 
 fn spawn_agent(store: &MultiAgentStore, name: &str, slot: Option<i64>) -> String {
     let mut agent = AgentSnapshot {
-        id: store.allocate_agent_id_for_lifecycle_coordinator("agent"),
+        id: store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap(),
         parent_id: None,
         display_name: name.to_owned(),
         agent_type: "worker".to_owned(),
@@ -407,7 +407,7 @@ fn spawn_agent(store: &MultiAgentStore, name: &str, slot: Option<i64>) -> String
         extra: serde_json::Map::new(),
     };
     let id = agent.id.clone();
-    store.publish_lifecycle_coordinator_snapshot(&agent);
+    store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
     agent.id.clear();
     id
 }
@@ -438,7 +438,7 @@ async fn selected_agent_shows_slot_and_state() {
     let mut snapshot = store.get_agent(&second).expect("second agent");
     snapshot.lifecycle = AgentLifecycle::WaitingForInput;
     snapshot.revision += 1;
-    store.publish_lifecycle_coordinator_snapshot(&snapshot);
+    store.publish_lifecycle_coordinator_snapshot(&snapshot).unwrap();
     store.select_agent_slot(2).expect("select slot");
 
     let fixture = fixture(

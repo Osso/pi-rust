@@ -13573,7 +13573,7 @@ mod ui_tests {
         model: Option<crate::core::multi_agent_store::AgentModel>,
     ) -> String {
         let agent = AgentSnapshot {
-            id: store.allocate_agent_id_for_lifecycle_coordinator("agent"),
+            id: store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap(),
             parent_id: None,
             display_name: name.to_owned(),
             agent_type: "worker".to_owned(),
@@ -13606,7 +13606,7 @@ mod ui_tests {
             extra: serde_json::Map::new(),
         };
         let id = agent.id.clone();
-        store.publish_lifecycle_coordinator_snapshot(&agent);
+        store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
         id
     }
 
@@ -13709,7 +13709,7 @@ mod ui_tests {
                 let mut snapshot = store.get_agent(&done).expect("agent");
                 snapshot.lifecycle = AgentLifecycle::Completed;
                 snapshot.revision += 1;
-                store.publish_lifecycle_coordinator_snapshot(&snapshot);
+                store.publish_lifecycle_coordinator_snapshot(&snapshot).unwrap();
                 let active = spawn_agent(&store, "Active", Some(2), None, None);
                 let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store), TuiMode::Regular).await;
                 let _events = start(&mode).await;

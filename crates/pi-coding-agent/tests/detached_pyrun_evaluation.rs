@@ -84,7 +84,11 @@ async fn fixture(name: &str) -> Fixture {
             control_db_path: control_db_path.clone(),
             create_agent_id: {
                 let store = Arc::clone(&store);
-                Arc::new(move || store.allocate_agent_id_for_lifecycle_coordinator("pyrun"))
+                Arc::new(move || {
+                    store
+                        .allocate_agent_id_for_lifecycle_coordinator("pyrun")
+                        .map_err(|error| pi_coding_agent::core::sqlite::ControlDbError::new(error.message))
+                })
             },
             now: Arc::new(|| "2026-10-18T00:00:00.000Z".to_owned()),
             process_identity: process_identity(DEAD_PID),

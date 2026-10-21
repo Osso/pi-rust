@@ -66,7 +66,7 @@ fn fixture(now: &'static str) -> Fixture {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.clone(),
-        create_agent_id: Arc::new(|| "unused".to_owned()),
+        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
         now: Arc::new(move || now.to_owned()),
         process_identity: test_process_identity("runner-1"),
         session_path: session_path.clone(),
@@ -152,7 +152,7 @@ fn launch_manifest_enumerates_numeric_environment_names_like_javascript() {
 #[tokio::test]
 async fn owns_payload_exit_and_commits_one_exact_terminal_input() {
     let fixture = fixture("2026-07-11T22:00:00.000Z");
-    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash);
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     let activation_path = fixture
         .directory
         .path()
@@ -202,7 +202,7 @@ async fn owns_payload_exit_and_commits_one_exact_terminal_input() {
 #[tokio::test]
 async fn completes_a_foreground_run_without_registering_a_background_job() {
     let fixture = fixture("2026-07-11T22:00:00.000Z");
-    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash);
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     let activation_path = fixture
         .directory
         .path()
@@ -294,7 +294,7 @@ async fn adopts_the_cancelling_revision_terminates_the_payload_group_and_finaliz
 
     let coordinator = LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: fixture.control_db_path.clone(),
-        create_agent_id: Arc::new(|| "unused".to_owned()),
+        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
         now: Arc::new(|| "2026-07-11T22:00:00.000Z".to_owned()),
         process_identity: test_process_identity("runner-1"),
         session_path: fixture.session_path.clone(),
@@ -339,6 +339,7 @@ async fn adopts_the_cancelling_revision_terminates_the_payload_group_and_finaliz
         &fixture.control_db_path,
         &EnqueueRuntimeMailboxMessageInput {
             recipient: data.runner_address.clone(),
+            recipient_host: None,
             sender: RuntimeMailboxAddress {
                 agent_id: None,
                 session_id: "main".to_owned(),
@@ -727,7 +728,7 @@ async fn wait_for(mut predicate: impl FnMut() -> bool, label: &str) {
 #[test]
 fn real_pi_binary_finalizes_a_detached_bash_job() {
     let fixture = fixture("2026-07-11T22:00:00.000Z");
-    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash);
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     let activation_path = fixture
         .directory
         .path()
