@@ -17,19 +17,57 @@ fn oracle() -> oracle::TsOracle {
     )
 }
 
-fn has_real_runner() -> bool {
-    std::process::Command::new("pyrun-jsonl")
+fn require_real_runner() {
+    let output = std::process::Command::new("pyrun-jsonl")
         .arg("--help")
         .output()
-        .is_ok_and(|output| output.status.success())
+        .expect("pyrun-jsonl is required: failed to launch interpreter probe");
+    assert!(
+        output.status.success(),
+        "pyrun-jsonl probe exited with {}\nstdout: {}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn missing_broken_and_nonexecutable_runners_fail_instead_of_skipping() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let runner = directory.path().join("pyrun-jsonl");
+    for mode in ["missing", "broken", "nonexecutable"] {
+        if mode != "missing" {
+            std::fs::write(
+                &runner,
+                "#!/usr/bin/python3\nimport sys\nsys.stderr.write('entropy probe failure')\nsys.exit(42)\n",
+            )
+            .unwrap();
+            let permissions = if mode == "broken" { 0o755 } else { 0o644 };
+            std::fs::set_permissions(&runner, std::fs::Permissions::from_mode(permissions)).unwrap();
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "matches_typescript_runner_results_against_real_pyrun_jsonl",
+                "--nocapture",
+            ])
+            .env("PATH", directory.path())
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{mode} runner silently passed: {output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("pyrun-jsonl"), "missing runner context: {stderr}");
+        if mode == "broken" {
+            assert!(stderr.contains("entropy probe failure"), "missing diagnostic: {stderr}");
+        }
+    }
 }
 
 #[tokio::test]
 async fn matches_typescript_runner_results_against_real_pyrun_jsonl() {
-    if !has_real_runner() {
-        eprintln!("pyrun-jsonl is not installed; skipping real-runner differential");
-        return;
-    }
+    require_real_runner();
     let cases = [
         json!({"code": "1 + 1", "session_id": "diff-int"}),
         json!({"code": "\"a\" + \"b\"", "session_id": "diff-str"}),

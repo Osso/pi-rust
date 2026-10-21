@@ -27,6 +27,14 @@ fallback. `.cargo/config.toml` routes compiled test binaries through
 `scripts/cargo-runner.sh` and `scripts/test-sandbox.py`, including the Cargo phases
 of `run-tests.sh`. Ordinary `cargo run` is deliberately unchanged.
 
+Real-runner Pyrun differential coverage requires installed `pyrun-jsonl`;
+fd-backed autocomplete coverage requires `fd`. Missing tools, failed probes, and
+broken interpreters fail tests rather than silently skipping coverage. Standard
+random devices remain usable across nested guards, including Python runtimes
+that initialize hash randomization from `/dev/urandom` rather than `getrandom()`.
+Run sandbox regressions with
+`python3 -m unittest discover -s scripts -p test_test_sandbox.py -v`.
+
 For a bounded CLI startup proof, use the same boundary explicitly:
 
 ```text
