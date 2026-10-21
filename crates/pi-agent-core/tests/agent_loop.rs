@@ -1157,7 +1157,7 @@ async fn stops_after_current_turn_when_should_stop_after_turn_returns_true() {
     cfg.should_stop_after_turn = {
         let callback_tool_result_ids = Arc::clone(&callback_tool_result_ids);
         let callback_context_roles = Arc::clone(&callback_context_roles);
-        Some(Arc::new(move |turn_context, _signal| {
+        Some(Arc::new(move |turn_context| {
             let callback_tool_result_ids = Arc::clone(&callback_tool_result_ids);
             let callback_context_roles = Arc::clone(&callback_context_roles);
             Box::pin(async move {

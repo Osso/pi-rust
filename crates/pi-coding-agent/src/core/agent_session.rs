@@ -1510,8 +1510,9 @@ impl AgentSession {
     fn install_duplicate_turn_stop(&self) {
         let previous = self.inner.agent.should_stop_after_turn_hook();
         let weak = Arc::downgrade(&self.inner);
-        self.inner.agent.set_should_stop_after_turn(Some(Arc::new(
-            move |turn: ShouldStopAfterTurnContext, signal: Option<CancellationToken>| {
+        self.inner
+            .agent
+            .set_should_stop_after_turn(Some(Arc::new(move |turn: ShouldStopAfterTurnContext| {
                 let weak = weak.clone();
                 let previous = previous.clone();
                 Box::pin(async move {
@@ -1522,12 +1523,11 @@ impl AgentSession {
                         return Ok(true);
                     }
                     match previous {
-                        Some(hook) => hook(turn, signal).await,
+                        Some(hook) => hook(turn).await,
                         None => Ok(false),
                     }
                 })
-            },
-        )));
+            })));
     }
 
     fn build_runtime(

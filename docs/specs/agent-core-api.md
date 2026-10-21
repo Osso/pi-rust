@@ -5,6 +5,11 @@ Reference: immutable `4f9e6f8a4`, `packages/agent-core/src/{agent-loop,agent,typ
 - Restored tool batches exclude completed calls and never replay an assistant stopped with `error` or `aborted`; expose `restoredPendingToolMessage` as `restored_pending_tool_message`.
 - A run failure preserves the current assistant partial, including content/usage/identity; emit `message_start` only when no assistant partial exists.
 - Reset clears transcript, queues and runtime state even during an active run; it does not abort or release that run.
+- Rejected low-level parallel sinks do not cancel already-started sibling tool promises.
+- Proxy request options use the frozen whitelist; omit old-only sampling parameters.
+- Proxy cancellation interrupts a pending body read; empty error text keeps the status-based error message.
+- After-tool overrides rebuild the result payload without retaining the original `isError` hint; the finalized error flag remains separate.
+- Stop hooks receive turn context only, not an additional abort signal.
 - Proxy `toolcall_end` carries only `contentIndex`; finalize the tool call reconstructed from start/delta events, ignoring extra end-event fields.
 
 - Agent listeners use live set iteration and deduplicate identical listeners. Await each listener; log rejection and continue without failing the run. Low-level event sinks still propagate rejection.

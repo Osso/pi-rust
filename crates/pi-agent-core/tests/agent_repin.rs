@@ -32,7 +32,7 @@ async fn stop_hook_observes_replaced_context_for_prompt_and_restoration() {
         }));
         let observed = Arc::new(Mutex::new(Vec::new()));
         let observed_hook = observed.clone();
-        cfg.should_stop_after_turn = Some(Arc::new(move |ctx, _| {
+        cfg.should_stop_after_turn = Some(Arc::new(move |ctx: ShouldStopAfterTurnContext| {
             observed_hook.lock().unwrap().push(ctx.context.system_prompt);
             Box::pin(async { Ok(true) })
         }));
@@ -94,6 +94,41 @@ async fn hooks_keep_original_tool_call_after_argument_preparation() {
 }
 
 #[tokio::test]
+async fn after_override_rebuilds_result_without_old_is_error_hint() {
+    let mut cfg = AgentLoopConfig::new(model(), identity_convert());
+    cfg.after_tool_call = Some(Arc::new(|_, _| {
+        Box::pin(async { Ok(Some(AfterToolCallResult::default())) })
+    }));
+    let tool = TestTool::no_args("lookup", || {
+        let mut result = text_result("failed");
+        result.is_error = Some(true);
+        result
+    });
+    let response = tool_use(vec![AssistantContent::ToolCall(tool_call("call", "lookup", json!({})))]);
+    let (events, result) = collect_events(agent_loop(
+        vec![user("hello").into()],
+        context(Vec::new(), vec![Arc::new(tool)]),
+        cfg,
+        None,
+        Some(scripted_stream_fn(vec![
+            Script::message(response),
+            Script::message(text_assistant("done")),
+        ])),
+    ))
+    .await;
+    result.unwrap();
+    let (result, is_error) = events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolExecutionEnd { result, is_error, .. } => Some((result, is_error)),
+            _ => None,
+        })
+        .unwrap();
+    assert!(*is_error);
+    assert_eq!(result.is_error, None);
+}
+
+#[tokio::test]
 async fn empty_block_reason_uses_default_text() {
     let mut cfg = AgentLoopConfig::new(model(), identity_convert());
     cfg.before_tool_call = Some(Arc::new(|_, _| {
@@ -124,6 +159,53 @@ async fn empty_block_reason_uses_default_text() {
         result.content,
         AgentToolResult::text("Tool execution was blocked").content
     );
+}
+
+#[tokio::test]
+async fn rejected_parallel_sink_does_not_cancel_already_started_sibling_tools() {
+    let release = Arc::new(tokio::sync::Notify::new());
+    let completed = Arc::new(tokio::sync::Notify::new());
+    let release_tool = release.clone();
+    let completed_tool = completed.clone();
+    let mut tool = TestTool::no_args("lookup", || text_result("found"));
+    tool.execute = Arc::new(move |id, _, _, _| {
+        let release = release_tool.clone();
+        let completed = completed_tool.clone();
+        Box::pin(async move {
+            if id == "slow" {
+                release.notified().await;
+                completed.notify_one();
+            }
+            Ok(text_result("found"))
+        })
+    });
+    let response = tool_use(vec![
+        AssistantContent::ToolCall(tool_call("fast", "lookup", json!({}))),
+        AssistantContent::ToolCall(tool_call("slow", "lookup", json!({}))),
+    ]);
+    let emit: AgentEventSink = Arc::new(|event| {
+        Box::pin(async move {
+            if matches!(event, AgentEvent::ToolExecutionEnd { tool_call_id, .. } if tool_call_id == "fast") {
+                Err(AgentError::new("sink rejected"))
+            } else {
+                Ok(())
+            }
+        })
+    });
+    let result = run_agent_loop(
+        vec![user("hello").into()],
+        context(Vec::new(), vec![Arc::new(tool)]),
+        AgentLoopConfig::new(model(), identity_convert()),
+        emit,
+        None,
+        Some(scripted_stream_fn(vec![Script::message(response)])),
+    )
+    .await;
+    assert_eq!(result.unwrap_err().to_string(), "sink rejected");
+    release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_millis(200), completed.notified())
+        .await
+        .expect("already-started sibling must finish after Promise.all rejects");
 }
 
 #[tokio::test]

@@ -141,6 +141,8 @@ async fn reconstructs_tool_call_from_deltas_without_trusting_end_payload() {
         honour_cancel: false,
     });
 
+    let mut opts = options(fetch, None);
+    opts.stream_options.stream.sampling_params = Some(json!({"top_p": 0.5}).as_object().unwrap().clone());
     let stream = stream_proxy(
         model(),
         Context {
@@ -148,7 +150,7 @@ async fn reconstructs_tool_call_from_deltas_without_trusting_end_payload() {
             messages: Vec::new(),
             tools: None,
         },
-        options(fetch, None),
+        opts,
     );
     let (events, result) = collect(stream).await;
 
@@ -182,7 +184,84 @@ async fn reconstructs_tool_call_from_deltas_without_trusting_end_payload() {
     let body: serde_json::Value = serde_json::from_slice(request.body.as_ref().unwrap()).unwrap();
     assert_eq!(body["model"]["id"], json!("gpt-5.4"));
     assert_eq!(body["context"]["messages"], json!([]));
-    assert!(body["options"].is_object());
+    assert_eq!(body["options"], json!({}));
+}
+
+struct PendingReadBody(Arc<tokio::sync::Notify>);
+
+impl HttpBody for PendingReadBody {
+    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+        self.0.notify_one();
+        Box::pin(std::future::pending())
+    }
+}
+
+struct PendingReadFetch(Arc<tokio::sync::Notify>);
+
+impl Fetch for PendingReadFetch {
+    fn fetch(
+        &self,
+        _: HttpRequest,
+        _: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        let started = self.0.clone();
+        Box::pin(async move {
+            Ok(HttpResponse {
+                status: 200,
+                status_text: "OK".into(),
+                headers: Vec::new(),
+                body: Box::new(PendingReadBody(started)),
+            })
+        })
+    }
+}
+
+#[tokio::test]
+async fn abort_cancels_a_pending_proxy_body_read() {
+    let started = Arc::new(tokio::sync::Notify::new());
+    let signal = CancellationToken::new();
+    let stream = stream_proxy(
+        model(),
+        Context {
+            system_prompt: None,
+            messages: Vec::new(),
+            tools: None,
+        },
+        options(Arc::new(PendingReadFetch(started.clone())), Some(signal.clone())),
+    );
+    started.notified().await;
+    signal.cancel();
+    let message = tokio::time::timeout(std::time::Duration::from_millis(200), stream.result())
+        .await
+        .expect("cancelled body read must settle")
+        .unwrap();
+    assert_eq!(message.stop_reason, StopReason::Aborted);
+    assert_eq!(message.error_message.as_deref(), Some("Request aborted by user"));
+}
+
+#[tokio::test]
+async fn empty_proxy_error_uses_status_message() {
+    let fetch = Arc::new(ScriptedFetch {
+        status: 500,
+        status_text: "Internal Server Error".into(),
+        chunks: vec![br#"{"error":""}"#.to_vec()],
+        requests: Arc::new(Mutex::new(Vec::new())),
+        honour_cancel: false,
+    });
+    let (_, message) = collect(stream_proxy(
+        model(),
+        Context {
+            system_prompt: None,
+            messages: Vec::new(),
+            tools: None,
+        },
+        options(fetch, None),
+    ))
+    .await;
+    assert_eq!(
+        message.error_message.as_deref(),
+        Some("Proxy error: 500 Internal Server Error")
+    );
 }
 
 #[tokio::test]

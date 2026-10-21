@@ -8,8 +8,8 @@ mod stream_fn;
 pub mod types;
 
 pub use agent_loop::{
-    AgentEventSink, AgentEventStream, ScriptedAssistantStream, agent_loop, agent_loop_continue,
-    restored_pending_tool_message, run_agent_loop, run_agent_loop_continue,
+    AgentEventSink, AgentEventStream, agent_loop, agent_loop_continue, restored_pending_tool_message, run_agent_loop,
+    run_agent_loop_continue,
 };
 pub use proxy::{ProxyAssistantMessageEvent, ProxyStreamOptions, stream_proxy};
 pub use runtime::{

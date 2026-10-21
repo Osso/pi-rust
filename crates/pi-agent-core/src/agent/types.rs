@@ -456,11 +456,8 @@ pub type AfterToolCallHook = Arc<
         + Sync,
 >;
 /// `shouldStopAfterTurn` hook.
-pub type ShouldStopAfterTurnHook = Arc<
-    dyn Fn(ShouldStopAfterTurnContext, Option<CancellationToken>) -> BoxFuture<'static, Result<bool, AgentError>>
-        + Send
-        + Sync,
->;
+pub type ShouldStopAfterTurnHook =
+    Arc<dyn Fn(ShouldStopAfterTurnContext) -> BoxFuture<'static, Result<bool, AgentError>> + Send + Sync>;
 /// `prepareNextTurn` hook.
 pub type PrepareNextTurnHook = Arc<
     dyn Fn(PrepareNextTurnContext) -> BoxFuture<'static, Result<Option<AgentLoopTurnUpdate>, AgentError>> + Send + Sync,

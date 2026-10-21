@@ -927,8 +927,6 @@ async fn forwards_should_stop_after_turn_through_agent_options() {
     let tool = TestTool::no_args("noop", || text_result("tool complete"));
     let request_count = Arc::new(AtomicUsize::new(0));
     let request_count_hook = Arc::clone(&request_count);
-    let saw_signal = Arc::new(AtomicBool::new(false));
-    let saw_signal_hook = Arc::clone(&saw_signal);
     let callback_roles = Arc::new(Mutex::new(Vec::<String>::new()));
     let callback_roles_hook = Arc::clone(&callback_roles);
     let agent = Agent::new(AgentOptions {
@@ -936,8 +934,7 @@ async fn forwards_should_stop_after_turn_through_agent_options() {
             tools: Some(vec![Arc::new(tool)]),
             ..Default::default()
         }),
-        should_stop_after_turn: Some(Arc::new(move |context, signal| {
-            saw_signal_hook.store(signal.is_some(), Ordering::SeqCst);
+        should_stop_after_turn: Some(Arc::new(move |context| {
             *callback_roles_hook.lock().unwrap() = context
                 .context
                 .messages
@@ -972,7 +969,6 @@ async fn forwards_should_stop_after_turn_through_agent_options() {
     .unwrap();
     agent.prompt("start").await.unwrap();
     assert_eq!(request_count.load(Ordering::SeqCst), 1);
-    assert!(saw_signal.load(Ordering::SeqCst));
     assert_eq!(
         *callback_roles.lock().unwrap(),
         vec!["user".to_owned(), "assistant".to_owned(), "toolResult".to_owned()]

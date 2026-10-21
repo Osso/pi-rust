@@ -556,7 +556,7 @@ async fn should_stop_after_turn(
     context: ShouldStopAfterTurnContext,
 ) -> Result<bool, AgentError> {
     match &config.should_stop_after_turn {
-        Some(hook) => hook(context, None).await,
+        Some(hook) => hook(context).await,
         None => Ok(false),
     }
 }
@@ -1005,8 +1005,17 @@ async fn join_finalized_entries(entries: Vec<FinalizedEntry>) -> Result<Vec<Fina
         }
     }
     while let Some(joined) = pending.join_next().await {
-        let (index, finalized) = joined.map_err(|error| AgentError::new(error.to_string()))?;
-        slots[index] = Some(finalized?);
+        let outcome = joined
+            .map_err(|error| AgentError::new(error.to_string()))
+            .and_then(|(index, result)| result.map(|finalized| (index, finalized)));
+        match outcome {
+            Ok((index, finalized)) => slots[index] = Some(finalized),
+            Err(error) => {
+                // Promise.all rejects without cancelling sibling tool promises.
+                pending.detach_all();
+                return Err(error);
+            }
+        }
     }
     slots
         .into_iter()
@@ -1309,6 +1318,7 @@ fn apply_after_tool_call_result(
     after_result: crate::agent::types::AfterToolCallResult,
 ) -> (AgentToolResult, bool) {
     let mut result = executed.result;
+    result.is_error = None;
     let mut is_error = executed.is_error;
     if let Some(content) = after_result.content {
         result.content = content;
@@ -1516,6 +1526,3 @@ fn now_ms_f64() -> f64 {
 
 /// Event stream type produced by [`agent_loop`] and [`agent_loop_continue`].
 pub type AgentEventStream = EventStream<AgentEvent, Vec<AgentMessage>>;
-
-/// Assistant stream alias used by scripted test stream functions.
-pub type ScriptedAssistantStream = AssistantMessageEventStream;

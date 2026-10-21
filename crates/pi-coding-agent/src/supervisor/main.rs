@@ -513,7 +513,7 @@ pub async fn create_supervisor_resource_loader(
                             block: result.block,
                             input: None,
                             reason: result.reason,
-                            terminate: result.terminate,
+                            terminate: None,
                         }
                     }),
                 )

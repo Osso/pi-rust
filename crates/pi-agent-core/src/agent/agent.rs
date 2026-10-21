@@ -16,8 +16,7 @@ use crate::agent::stream_fn::default_stream_fn;
 use crate::agent::types::{
     AfterToolCallHook, AgentContext, AgentError, AgentEvent, AgentLoopConfig, AgentLoopTurnUpdate, AgentMessage,
     AgentState, AgentTool, BeforeToolCallHook, ConvertToLlm, GetApiKey, MessageQueueHook, PrepareNextTurnContext,
-    PrepareNextTurnHook, ShouldStopAfterTurnContext, ShouldStopAfterTurnHook, StreamFn, TransformContext,
-    reasoning_for,
+    PrepareNextTurnHook, ShouldStopAfterTurnHook, StreamFn, TransformContext, reasoning_for,
 };
 use crate::harness::types::{QueueMode, ThinkingLevel, ToolExecutionMode};
 
@@ -743,7 +742,7 @@ impl Agent {
             convert_to_llm: Arc::clone(&self.inner.convert_to_llm),
             transform_context: self.inner.transform_context.clone(),
             get_api_key: self.inner.get_api_key.clone(),
-            should_stop_after_turn: self.build_should_stop_hook(run_signal.clone()),
+            should_stop_after_turn: self.hook(&self.inner.should_stop_after_turn),
             prepare_next_turn: self.build_prepare_next_turn_hook(run_signal),
             get_steering_messages,
             get_follow_up_messages,
@@ -785,16 +784,6 @@ impl Agent {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         stream_options
-    }
-
-    fn build_should_stop_hook(&self, run_signal: Option<CancellationToken>) -> Option<ShouldStopAfterTurnHook> {
-        self.hook(&self.inner.should_stop_after_turn).map(|hook| {
-            Arc::new(
-                move |context: ShouldStopAfterTurnContext, _: Option<CancellationToken>| {
-                    hook(context, run_signal.clone())
-                },
-            ) as ShouldStopAfterTurnHook
-        })
     }
 
     fn build_prepare_next_turn_hook(&self, run_signal: Option<CancellationToken>) -> Option<PrepareNextTurnHook> {

@@ -523,7 +523,7 @@ pub async fn run_architect_service() -> Result<(), String> {
                             block: result.block,
                             input: None,
                             reason: result.reason,
-                            terminate: result.terminate,
+                            terminate: None,
                         }),
                     )
                 }) as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>

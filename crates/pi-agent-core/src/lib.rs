@@ -23,9 +23,8 @@ pub use pi_telemetry::{
 pub use agent::types::*;
 pub use agent::{
     Agent, AgentEventSink, AgentEventStream, AgentInitialState, AgentListener, AgentOptions, ContinueOptions,
-    PrepareNextTurnSignalHook, PromptInput, ProxyAssistantMessageEvent, ProxyStreamOptions, ScriptedAssistantStream,
-    agent_loop, agent_loop_continue, restored_pending_tool_message, run_agent_loop, run_agent_loop_continue,
-    stream_proxy,
+    PrepareNextTurnSignalHook, PromptInput, ProxyAssistantMessageEvent, ProxyStreamOptions, agent_loop,
+    agent_loop_continue, restored_pending_tool_message, run_agent_loop, run_agent_loop_continue, stream_proxy,
 };
 pub use harness::agent_harness::*;
 pub use harness::compaction::{

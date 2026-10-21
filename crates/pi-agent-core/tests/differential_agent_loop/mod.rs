@@ -653,7 +653,7 @@ async fn run_scenario(name: &str) -> Value {
                     })
                 }))
             };
-            cfg.should_stop_after_turn = Some(Arc::new(|_context, _signal| Box::pin(async { Ok(true) })));
+            cfg.should_stop_after_turn = Some(Arc::new(|_context| Box::pin(async { Ok(true) })));
             let mut output = run_loop(
                 vec![AgentMessage::User(user("work"))],
                 context(Vec::new(), Vec::new(), ""),
