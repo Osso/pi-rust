@@ -261,3 +261,19 @@ QA commands use native custom components, local timers and overlay handles.
 `/overlay-overflow` spawns the source's bash output producer; enable deliberately.
 The source's width ≤3 stack-render bug awaits classification; see
 [batch P coverage and proof](../../../../docs/porting/traceability/extension-examples-p.md).
+
+
+## Doom overlay (batch Q)
+
+Embed `doom_overlay/index.rs` via `#[path]`, keeping its component, engine and
+key modules beside it. Explicitly register a factory calling
+`doom_overlay_extension(api, ensure_wad, load_engine)` using the registry
+pattern above. Nothing loads by default.
+
+`EnsureWad` composes `wad_finder.rs::WadFinder::ensure_wad_file` with the host's
+Fetch and explicit module/cwd/HOME locations. `LoadEngine` supplies an initialized
+`DoomEngine` backed by the host's `DoomModule`; initialization errors retain their
+Error message. The generated Emscripten JavaScript/WASM loader remains waived,
+not replaced with a bundled fixture or a default runtime. Factories run on the
+host UI LocalSet; `/doom-overlay` pauses on Q and reuses the engine for the same
+WAD. [Proof and boundary details](../../../../docs/porting/traceability/extension-examples-q.md).

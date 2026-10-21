@@ -103,3 +103,5 @@ and `extension_ui_factory_done_before_error_keeps_first_settlement`.
 RED: `/tmp/pi-rust-ext-examples-q/01-core-red.log` rejects both new `Err` factories
 at compile time against baseline `7769ff0c`; subsequent commands/results live
 in that directory's `ledger.md`.
+GREEN at `8712f86a`: `extension_ui_` 12/12, full `interactive_mode` 87/87,
+and all 28 affected example/fixture targets pass (logs 03–05).

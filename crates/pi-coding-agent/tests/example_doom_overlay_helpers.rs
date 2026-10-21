@@ -87,6 +87,35 @@ fn lone_surrogates_survive_mapping_with_explicit_string_core_projection() {
     assert_eq!(mapped[2], vec![65533]);
 }
 
+#[test]
+fn all_bmp_units_and_supplementary_cased_letters_match_pinned_lowercase_mapping() {
+    let _protocol = KEY_PROTOCOL.lock().unwrap();
+    pi_tui::keys::set_kitty_protocol_active(false);
+    let mut units: Vec<Vec<u16>> = (0..=u16::MAX).map(|unit| vec![unit]).collect();
+    units.extend(
+        (0x10000..=0x10ffff)
+            .filter_map(char::from_u32)
+            .filter(|ch| ch.is_lowercase() || ch.is_uppercase())
+            .map(|ch| {
+                let mut buffer = [0; 2];
+                ch.encode_utf16(&mut buffer).to_vec()
+            }),
+    );
+    assert!(units.len() > 65536);
+    let mut ts = oracle::TsOracle::spawn(
+        "example-doom-helpers-oracle.ts",
+        "packages/coding-agent/examples/extensions/doom-overlay/doom-keys.ts",
+    );
+    for (index, chunk) in units.chunks(2048).enumerate() {
+        let expected = ts.request(&json!({"kind":"keys","units":chunk,"kitty":false}));
+        let actual: Vec<_> = chunk
+            .iter()
+            .map(|units| doom_keys::map_key_to_doom(&JsString::from_utf16(units.clone())))
+            .collect();
+        assert_eq!(json!(actual), expected["mapped"], "Unicode corpus chunk {index}");
+    }
+}
+
 #[derive(Clone)]
 struct Module {
     trace: Arc<Mutex<Vec<Value>>>,
@@ -130,17 +159,17 @@ impl doom_engine::DoomModule for Module {
         self.trace.lock().unwrap().push(json!(["free", ptr]));
         Ok(())
     }
-    fn frame_buffer(&self) -> u32 {
-        1024
+    fn frame_buffer(&self) -> Result<u32, String> {
+        Ok(1024)
     }
-    fn width(&self) -> usize {
-        2
+    fn width(&self) -> Result<usize, String> {
+        Ok(2)
     }
-    fn height(&self) -> usize {
-        1
+    fn height(&self) -> Result<usize, String> {
+        Ok(1)
     }
-    fn get_i32(&self, ptr: u32) -> i32 {
-        if ptr == 1024 { 0x12345678 } else { 0xffabcdefu32 as i32 }
+    fn get_i32(&self, ptr: u32) -> Result<i32, String> {
+        Ok(if ptr == 1024 { 0x12345678 } else { 0xffabcdefu32 as i32 })
     }
     fn tick(&mut self) -> Result<(), String> {
         self.trace.lock().unwrap().push(json!(["tick"]));
@@ -167,7 +196,7 @@ fn engine_wrapper_matches_pinned_memory_frame_and_input_lifecycle() {
         let mut engine = doom_engine::DoomEngine::new(wad.clone());
         assert!(!engine.is_initialized());
         assert_eq!((engine.width(), engine.height()), (640, 400));
-        assert_eq!(engine.get_frame_rgba(), vec![0; 640 * 400 * 4]);
+        assert_eq!(engine.get_frame_rgba().unwrap(), vec![0; 640 * 400 * 4]);
         engine.tick().unwrap();
         engine.push_key(true, 173).unwrap();
         assert!(trace.lock().unwrap().is_empty());
@@ -176,18 +205,62 @@ fn engine_wrapper_matches_pinned_memory_frame_and_input_lifecycle() {
             next: 64,
             fail,
         };
-        let error = engine.init_with_module(Box::new(module)).err();
+        let error = engine
+            .init_with_module(Box::new(module))
+            .err()
+            .map(|error| error.to_string());
         engine.tick().unwrap();
         engine.push_key(true, 173).unwrap();
         engine.push_key(false, 173).unwrap();
-        let actual = json!({"trace":trace.lock().unwrap().clone(), "error":error, "initialized":engine.is_initialized(), "width":engine.width(), "height":engine.height(), "frame":engine.get_frame_rgba()});
+        let actual = json!({"trace":trace.lock().unwrap().clone(), "error":error, "initialized":engine.is_initialized(), "width":engine.width(), "height":engine.height(), "frame":engine.get_frame_rgba().unwrap()});
         assert_eq!(actual, expected);
         if !fail {
             assert_eq!(
-                engine.get_frame_rgba(),
+                engine.get_frame_rgba().unwrap(),
                 vec![0x34, 0x56, 0x78, 255, 0xab, 0xcd, 0xef, 255]
             );
         }
+    }
+}
+
+#[test]
+fn wad_read_failures_match_node_error_messages_before_any_module_calls() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("file.wad");
+    std::fs::write(&file, b"IWAD").unwrap();
+    let cycle = temp.path().join("cycle.wad");
+    std::os::unix::fs::symlink(&cycle, &cycle).unwrap();
+    let mut ts = oracle::TsOracle::spawn(
+        "example-doom-helpers-oracle.ts",
+        "packages/coding-agent/examples/extensions/doom-overlay/doom-engine.ts",
+    );
+    for path in [
+        temp.path().join("missing '🚀.wad"),
+        temp.path().to_owned(),
+        file.join("child"),
+        cycle,
+    ] {
+        let expected = ts.request(&json!({"kind":"engine-read", "wad":path}));
+        let trace = Arc::new(Mutex::new(Vec::new()));
+        let mut engine = doom_engine::DoomEngine::new(path);
+        let error = engine
+            .init_with_module(Box::new(Module {
+                trace: trace.clone(),
+                next: 64,
+                fail: false,
+            }))
+            .unwrap_err();
+        assert_eq!(error.to_string(), expected["error"]["message"].as_str().unwrap());
+        let doom_engine::DoomInitError::Wad(identity) = error else {
+            panic!("WAD read must retain Node error identity")
+        };
+        assert_eq!(
+            json!({"name":identity.name,"message":identity.message,"errno":identity.errno,"code":identity.code,"syscall":identity.syscall,"path":identity.path}),
+            expected["error"]
+        );
+        assert_eq!(json!(trace.lock().unwrap().clone()), expected["trace"]);
+        assert!(!engine.is_initialized());
+        assert_eq!((engine.width(), engine.height()), (640, 400));
     }
 }
 
@@ -227,6 +300,84 @@ impl Fetch for Download {
                 }))),
             })
         })
+    }
+}
+
+#[tokio::test]
+async fn absent_home_directory_wads_and_concatenated_gzip_match_pinned() {
+    let mut ts = oracle::TsOracle::spawn(
+        "example-doom-helpers-oracle.ts",
+        "packages/coding-agent/examples/extensions/doom-overlay/wad-finder.ts",
+    );
+    for case in [
+        "absent-home",
+        "empty-home",
+        "cwd-directory",
+        "bundled-directory",
+        "concatenated-gzip",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let cwd = temp.path().join("cwd");
+        let bundled = temp.path().join("module");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(&bundled).unwrap();
+        let finder = wad_finder::WadFinder::new(&bundled, &cwd, if case == "empty-home" { Some("") } else { None });
+        if matches!(case, "absent-home" | "empty-home") {
+            std::fs::write(cwd.join("chosen.wad"), b"IWAD").unwrap();
+            let mut request = json!({"kind":"wad-find","bundled":bundled,"cwd":cwd,"custom":"~./chosen.wad"});
+            if case == "empty-home" {
+                request["home"] = json!("");
+            }
+            assert_eq!(
+                json!(finder.find_wad_file(Some("~./chosen.wad"))),
+                ts.request(&request),
+                "{case}"
+            );
+            request["custom"] = json!("~/definitely-missing-pi-rust-doom-q.wad");
+            assert_eq!(
+                json!(finder.find_wad_file(request["custom"].as_str())),
+                ts.request(&request),
+                "{case} absolute tilde expansion"
+            );
+            request["custom"] = Value::Null;
+            assert_eq!(
+                json!(finder.find_wad_file(None)),
+                ts.request(&request),
+                "{case} defaults"
+            );
+            continue;
+        }
+        if case == "cwd-directory" {
+            std::fs::create_dir(cwd.join("doom1.wad")).unwrap();
+        }
+        if case == "bundled-directory" {
+            std::fs::create_dir(bundled.join("doom1.wad")).unwrap();
+        }
+        let first = ts.request(&json!({"kind":"gzip","bytes":b"IWAD-first".to_vec()}));
+        let second = ts.request(&json!({"kind":"gzip","bytes":b"second-member".to_vec()}));
+        let mut bytes: Vec<u8> = serde_json::from_value(first).unwrap();
+        bytes.extend(serde_json::from_value::<Vec<u8>>(second).unwrap());
+        let expected = ts.request(&json!({"kind":"wad-ensure","bundled":bundled,"cwd":cwd,"bytes":bytes,"status":200}));
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let fetch = Download {
+            status: 200,
+            bytes,
+            fail: false,
+            body_fail: false,
+            calls: calls.clone(),
+        };
+        let result = finder.ensure_wad_file(&fetch).await;
+        assert_eq!(
+            json!({"path":result,"calls":calls.lock().unwrap().clone(),"bytes":std::fs::read(bundled.join("doom1.wad")).ok()}),
+            expected,
+            "{case}"
+        );
+        if case == "concatenated-gzip" {
+            assert_eq!(
+                std::fs::read(bundled.join("doom1.wad")).unwrap(),
+                b"IWAD-firstsecond-member"
+            );
+        }
     }
 }
 
