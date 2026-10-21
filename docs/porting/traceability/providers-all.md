@@ -15,7 +15,7 @@ Tests: `crates/pi-ai/tests/providers.rs`,
 | `getBuiltinModels(provider)` | `get_builtin_models` | differential catalog (all 40 providers) |
 | source-absent data URL | deleted | no production consumers |
 | source-absent timestamp | retained staged model_runtime dependency only | no frozen-source parity; see [catalog boundary](providers-models.md) |
-| `builtinProviders()` ID/order only | `builtin_providers()` inventory | new `differential_provider_inventory` actual-source RED (old baseten panic), GREEN pending; factory/auth/protocol whole parity remains TODO |
+| `builtinProviders()` ID/order only | `builtin_providers()` inventory | new `differential_provider_inventory` actual-source RED (old baseten panic) → GREEN; order mutant killed; factory/auth/protocol whole parity remains TODO |
 | `builtinModels(options?)` | `builtin_models(options)` | `builtin_models_registers_every_builtin_provider_with_models` |
 | `builtinImagesProviders()` | `builtin_images_providers()` | `builtin_images_providers_and_models_register_openrouter` |
 | `builtinImagesModels(options?)` | `builtin_images_models(options)` | same |
