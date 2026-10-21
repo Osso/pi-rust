@@ -11,7 +11,7 @@ use crate::core::session_control_db::{
 };
 use crate::core::session_manager::lock_session_manager;
 use crate::core::tools::ask_questions::{
-    self, AskQuestionsParams, Question, format_answers, parse_params, question_result, validate_questions,
+    self, AskQuestionsParams, Question, parse_params, question_result, validate_questions,
 };
 use pi_agent_core::AgentToolResult;
 use serde::Deserialize;
@@ -185,24 +185,91 @@ async fn ask_parent(
     let Some(delivered) = wait_for_answer(&inbox, &request_id, signal).await? else {
         return Ok(question_result(&params, "Questions cancelled", json!({}), true));
     };
-    let answer: Value = serde_json::from_str(&delivered.body).map_err(handler)?;
-    if !answer.is_object() || answer["type"] != "ask_questions_answer" {
+    delivered_answer_result(&params, &inbox, &delivered)
+}
+
+fn delivered_answer_result(
+    params: &Value,
+    inbox: &Inbox,
+    delivered: &RuntimeMailboxMessage,
+) -> Result<AgentToolResult, HandlerError> {
+    use pi_js_compat::js_json::{self, JsString, JsValue};
+    let parsed = js_json::parse_lossless(&delivered.body).map_err(handler)?;
+    let JsValue::Object(answer) = parsed else {
+        return Err(handler(format!(
+            "Malformed question answer {}",
+            delivered.store_ref.message_id
+        )));
+    };
+    if answer.get(&JsString::from("type")) != Some(&JsValue::String(JsString::from("ask_questions_answer"))) {
         return Err(handler(format!(
             "Malformed question answer {}",
             delivered.store_ref.message_id
         )));
     }
-    let cancelled = answer["cancelled"].as_bool().unwrap_or(false);
-    let outcome = if cancelled { "cancelled" } else { "answered" };
+    let answers = answer.get(&JsString::from("answers"));
+    let text = format_answer_payload(answers)?;
+    let cancelled = answer.get(&JsString::from("cancelled"));
+    let outcome = if cancelled.is_some_and(js_json::is_truthy) {
+        "cancelled"
+    } else {
+        "answered"
+    };
     let mut result = question_result(
-        &params,
-        format!("Parent {outcome} questions:\n{}", format_answers(&answer["answers"])),
-        answer["answers"].clone(),
-        cancelled,
+        params,
+        format!("Parent {outcome} questions:\n{text}"),
+        answers.cloned().unwrap_or(JsValue::Null).into_serde_lossy(),
+        false,
     );
-    result.details.as_mut().unwrap()["runtimeMailboxDelivery"] =
+    let details = result.details.as_mut().unwrap();
+    if let Some(cancelled) = cancelled {
+        details["cancelled"] = cancelled.clone().into_serde_lossy();
+    } else {
+        details.as_object_mut().unwrap().remove("cancelled");
+    }
+    details["runtimeMailboxDelivery"] =
         json!({"controlDbPath":inbox.db,"messages":[{"id":delivered.id,"storeRef":delivered.store_ref}]});
     Ok(result)
+}
+
+fn format_answer_payload(answers: Option<&pi_js_compat::js_json::JsValue>) -> Result<String, HandlerError> {
+    use pi_js_compat::js_json::{self, JsString, JsValue};
+    let entries = match answers {
+        None | Some(JsValue::Null) => return Err(handler("Cannot convert undefined or null to object")),
+        Some(JsValue::Object(object)) => js_json::object_entries_lossless(object)
+            .into_iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<Vec<_>>(),
+        Some(JsValue::Array(values)) => values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| (JsString::from(index.to_string().as_str()), value.clone()))
+            .collect(),
+        Some(JsValue::String(text)) => text
+            .units()
+            .iter()
+            .enumerate()
+            .map(|(index, unit)| {
+                (
+                    JsString::from(index.to_string().as_str()),
+                    JsValue::String(JsString::from_utf16(vec![*unit])),
+                )
+            })
+            .collect(),
+        Some(JsValue::Bool(_) | JsValue::Number(_)) => Vec::new(),
+    };
+    entries
+        .into_iter()
+        .map(|(question, answer)| {
+            let value = if js_json::is_truthy(&answer) {
+                js_json::to_js_string(&answer).map_err(handler)?
+            } else {
+                JsString::from("(no selection)")
+            };
+            Ok(format!("- {} → {}", question.to_utf8_lossy(), value.to_utf8_lossy()))
+        })
+        .collect::<Result<Vec<_>, HandlerError>>()
+        .map(|lines| lines.join("\n"))
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

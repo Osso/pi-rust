@@ -10,9 +10,9 @@ Frozen `packages/coding-agent/extensions/agents-core/src/question-relay-tools.ts
 | askParent nonblocking / cancellation | ask_parent, wait_for_answer | queued/requestId; sent request survives cancellation |
 | takeQuestionAnswer, waitForQuestionAnswer, deliveredAnswerResult | child/request mailbox predicate, 500ms cancellation-aware poll, runtimeMailboxDelivery | blocking_reply_claims_only_child_and_request_and_returns_acceptance_descriptor |
 | readAnswerRoute, answerQuestion | active direct-child/store validation and enqueue_stored_runtime_mailbox_message | direct-child rejection, correlated recipient session and JSON; inactive/unavailable branch proof pending |
-| parseQuestionAnswer malformed type | type discriminator check | implementation present; malformed payload differential pending |
+| parseQuestionAnswer / formatAnswers with unchecked fields | lossless JS JSON parser, discriminator, JS truthiness/enumeration/string coercion | six malformed/unchecked payload differential fixtures; parser error RED reproduced serde-vs-V8 error text, GREEN pending |
 | durable tool result acceptance | AgentSession MessageEnd captures descriptor before extensions; accept/finally release | question_tool_result_persists_receipt_before_consuming_answer |
 
 Six whole-module frozen differential requests cover nonblocking request formatting, cancellation, free-text/multi-choice formatting, explicit-blocking and missing-identity validation. Real SQLite tests separately prove answer delivery/correlation.
 
-No eager answer deletion; receipt integration uses the shared frozen mailbox acceptance boundary. Source malformed JSON/type and answer failure cases remain explicit proof gaps, not approved deviations.
+No eager answer deletion; receipt integration uses the shared frozen mailbox acceptance boundary. Source discrepancy: the QuestionAnswer cast validates only the type discriminator, not answers/cancelled. Preserve absent cancelled, truthy nonboolean cancellation, Object.entries null rejection and V8 JSON parse errors rather than adding validation. Six fixtures drive that behavior; source-typed valid Unicode remains the supported text boundary. Lone-surrogate answer field representation awaits parent classification; do not claim that case. Other answer failure/late-arrival proofs remain open.

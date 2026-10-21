@@ -1,4 +1,6 @@
 import { createInterface } from "node:readline";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 async function main() {
@@ -10,6 +12,9 @@ async function main() {
 	);
 	const { MultiAgentStore } = await import(
 		pathToFileURL(join(root, "src/core/multi-agent-store.ts")).href
+	);
+	const control = await import(
+		pathToFileURL(join(root, "src/core/session-control-db.ts")).href
 	);
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
@@ -33,16 +38,48 @@ async function main() {
 		);
 		const signal = new AbortController();
 		if (request.cancelled) signal.abort();
+		const inboxRoot =
+			request.answerBody === undefined
+				? undefined
+				: mkdtempSync(join(tmpdir(), "question-answer-"));
+		const db = inboxRoot ? join(inboxRoot, "control.sqlite") : request.db;
+		if (inboxRoot) {
+			const recipient = {
+				agentId: request.agentId,
+				sessionId: "session-child",
+			};
+			control.registerRuntimeMailboxListener(db, recipient, process.pid);
+			const messageId = `ask_questions:${request.agentId}:${request.id}`;
+			control.enqueueStoredRuntimeMailboxMessage(db, {
+				kind: "reply",
+				message: {
+					body: request.answerBody,
+					id: messageId,
+					kind: "reply",
+					status: "pending",
+					fromAgentId: "main",
+					toAgentId: request.agentId,
+				},
+				recipient,
+				sender: { agentId: null, sessionId: "parent" },
+				storeRef: { sessionPath: "/store", messageId },
+			});
+		}
 		const ctx = {
 			multiAgentAgentId: request.agentId,
 			multiAgentRequiresAgentId: request.requiresId,
-			controlDbPath: request.db,
+			controlDbPath: db,
 			sessionManager: { getSessionId: () => "session-child" },
 		};
 		try {
 			const result = await tools
 				.get(request.tool ?? "ask_questions")
 				.execute(request.id, request.params, signal.signal, undefined, ctx);
+			if (result.details?.runtimeMailboxDelivery) {
+				result.details.runtimeMailboxDelivery.controlDbPath = "<db>";
+				for (const message of result.details.runtimeMailboxDelivery.messages)
+					message.storeRef.sessionPath = "<store>";
+			}
 			console.log(
 				JSON.stringify({
 					result: {
@@ -60,6 +97,8 @@ async function main() {
 					sent,
 				}),
 			);
+		} finally {
+			if (inboxRoot) rmSync(inboxRoot, { recursive: true, force: true });
 		}
 	}
 }

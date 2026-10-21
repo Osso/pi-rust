@@ -393,3 +393,56 @@ async fn relay_requests_validation_and_cancellation_match_frozen_whole_module() 
         assert_eq!(actual, expected, "{params}");
     }
 }
+
+#[tokio::test]
+async fn delivered_answer_parsing_and_unchecked_payload_fields_match_frozen() {
+    use pi_coding_agent::core::session_control_db::{
+        EnqueueStoredRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind,
+        RuntimeMailboxStoreRef, enqueue_stored_runtime_mailbox_message, register_runtime_mailbox_listener,
+    };
+    let mut oracle = oracle::TsOracle::spawn("question-relay-tools-oracle.ts", "packages/coding-agent");
+    for body in [
+        "not json",
+        "null",
+        r#"{"type":"other"}"#,
+        r#"{"type":"ask_questions_answer","answers":{"Choose?":"A"}}"#,
+        r#"{"type":"ask_questions_answer","answers":null,"cancelled":false}"#,
+        r#"{"type":"ask_questions_answer","answers":{"Choose?":""},"cancelled":"declined"}"#,
+    ] {
+        let f = Fixture::new().await;
+        let expected = oracle.request(
+            &json!({"id":"call","params":questions(true),"agentId":"child","requiresId":true,"answerBody":body}),
+        );
+        let recipient = RuntimeMailboxAddress {
+            agent_id: Some("child".into()),
+            session_id: "session-child".into(),
+        };
+        register_runtime_mailbox_listener(&f.db, &recipient, std::process::id(), None, Default::default()).unwrap();
+        enqueue_stored_runtime_mailbox_message(&f.db,&EnqueueStoredRuntimeMailboxMessageInput{recipient_host:None,recipient,sender:RuntimeMailboxAddress{agent_id:None,session_id:"parent".into()},kind:RuntimeMailboxMessageKind::Reply,store_ref:RuntimeMailboxStoreRef{session_path:lock_session_manager(&f.session).get_session_file().unwrap().into(),message_id:"ask_questions:child:call".into()},message:json!({"body":body,"id":"ask_questions:child:call","kind":"reply","status":"pending","fromAgentId":"main","toAgentId":"child"}),updated_at:None}).unwrap();
+        let result = (f.ask.execute)(
+            "call".into(),
+            questions(true),
+            None,
+            None,
+            f.context(Some("child"), true).await,
+        )
+        .await;
+        let sent = f
+            .store
+            .list_pending_mailbox_messages_for_agent("main")
+            .unwrap()
+            .into_iter()
+            .map(|message| json!({"message":message.body,"threadId":message.thread_id}))
+            .collect::<Vec<_>>();
+        let actual = match result {
+            Ok(mut result) => {
+                let delivery = &mut result.details.as_mut().unwrap()["runtimeMailboxDelivery"];
+                delivery["controlDbPath"] = json!("<db>");
+                delivery["messages"][0]["storeRef"]["sessionPath"] = json!("<store>");
+                json!({"result":{"content":result.content,"details":result.details,"isError":result.is_error},"sent":sent})
+            }
+            Err(error) => json!({"error":error.message,"sent":sent}),
+        };
+        assert_eq!(actual, expected, "answer body {body}");
+    }
+}
