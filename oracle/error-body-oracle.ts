@@ -57,6 +57,10 @@ function serializeNormalized(norm: never, formatProviderError: (norm: never, pre
 	};
 }
 
+function utf16Units(text: string): number[] {
+	return Array.from({ length: text.length }, (_, index) => text.charCodeAt(index));
+}
+
 function execute(request: Request, api: Record<string, unknown>): Response {
 	const normalizeProviderError = api.normalizeProviderError as (error: unknown) => never;
 	const formatProviderError = api.formatProviderError as (
@@ -96,7 +100,7 @@ function execute(request: Request, api: Record<string, unknown>): Response {
 			output: {
 				results: request.cases.map((item) => ({
 					name: item.name,
-					text: truncateErrorText(item.text, item.maxChars),
+					units: utf16Units(truncateErrorText(item.text, item.maxChars)),
 				})),
 			},
 		};

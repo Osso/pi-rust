@@ -14,7 +14,10 @@ pub(crate) fn run() {
 }
 
 fn compare_errors(oracle: &mut oracle::TsOracle) {
-    let cases = error_cases();
+    compare_error_cases(oracle, error_cases());
+}
+
+fn compare_error_cases(oracle: &mut oracle::TsOracle, cases: Vec<ErrorCase>) {
     let response = oracle.request(&json!({
         "id": 1,
         "operation": "normalize",
@@ -59,6 +62,8 @@ fn compare_values(oracle: &mut oracle::TsOracle) {
         json!({"reason": "boom"}),
         json!({"nested": {"a": [1, 2]}}),
         json!([1, 2, 3]),
+        serde_json::from_str(r#"{"z":1.0,"10":1e-7,"2":1e20,"01":-0.0,"nested":{"9":9007199254740993,"1":1e21}}"#)
+            .unwrap(),
     ];
     let response = oracle.request(&json!({
         "id": 2,
@@ -100,8 +105,8 @@ fn compare_truncation(oracle: &mut oracle::TsOracle) {
     assert_eq!(results.len(), cases.len());
     for (result, (text, max_chars)) in results.iter().zip(cases.iter()) {
         assert_eq!(
-            result["text"],
-            json!(truncate_error_text(text, *max_chars)),
+            result["units"],
+            json!(truncate_error_text(text, *max_chars).encode_utf16().collect::<Vec<_>>()),
             "truncate mismatch for {text:?}"
         );
     }
@@ -280,6 +285,141 @@ fn error_cases() -> Vec<ErrorCase> {
         None,
     ));
     cases
+}
+
+pub(crate) fn run_trim() {
+    let mut oracle = oracle::TsOracle::spawn("error-body-oracle.ts", "packages/ai/src");
+    let whitespace = [
+        "\u{feff}", "\u{85}", "\u{a0}", "\u{2000}", "\u{2028}", "\u{2029}", "\u{202f}", "\u{205f}", "\u{3000}",
+        "\u{180e}", "\u{200b}",
+    ];
+    compare_error_cases(
+        &mut oracle,
+        whitespace
+            .into_iter()
+            .map(|space| {
+                case(
+                    ProviderError {
+                        body: Some(ErrorBody::Text(format!("{space}body{space}"))),
+                        ..base("failed")
+                    },
+                    None,
+                )
+            })
+            .collect(),
+    );
+}
+
+pub(crate) fn run_stringify() {
+    let mut oracle = oracle::TsOracle::spawn("error-body-oracle.ts", "packages/ai/src");
+    compare_values(&mut oracle);
+}
+
+pub(crate) fn run_selection() {
+    let mut oracle = oracle::TsOracle::spawn("error-body-oracle.ts", "packages/ai/src");
+    let mut cases = Vec::new();
+    for value in [
+        json!(null),
+        json!(false),
+        json!(0),
+        json!("ignored"),
+        json!([]),
+        json!({}),
+        json!([null]),
+        json!({"2": "two", "1": "one"}),
+    ] {
+        cases.push(case(
+            ProviderError {
+                body: Some(ErrorBody::Json(value.clone())),
+                error: Some(json!(["parsed"])),
+                response_body: Some(ErrorBody::Text("response".to_owned())),
+                ..base("failed")
+            },
+            Some(""),
+        ));
+        cases.push(case(
+            ProviderError {
+                error: Some(value.clone()),
+                response_body: Some(ErrorBody::Text("response".to_owned())),
+                ..base("failed")
+            },
+            Some("Provider"),
+        ));
+        cases.push(case(
+            ProviderError {
+                response_body: Some(ErrorBody::Json(value)),
+                ..base("failed")
+            },
+            None,
+        ));
+    }
+    for text in ["", " \t\r\n", "\u{feff}", " raw body "] {
+        for body in [ErrorBody::Text(text.to_owned()), ErrorBody::Json(json!(text))] {
+            cases.push(case(
+                ProviderError {
+                    body: Some(body.clone()),
+                    error: Some(json!(["parsed"])),
+                    response_body: Some(ErrorBody::Text("response".to_owned())),
+                    ..base("failed")
+                },
+                None,
+            ));
+            cases.push(case(
+                ProviderError {
+                    response_body: Some(body),
+                    ..base("failed")
+                },
+                None,
+            ));
+        }
+    }
+    for (status_code, status, metadata_http_status_code, response_status_code) in [
+        (Some(0.0), Some(402.0), Some(403.0), Some(404.0)),
+        (None, Some(402.0), Some(403.0), Some(404.0)),
+        (None, None, Some(403.0), Some(404.0)),
+        (None, None, None, Some(404.0)),
+    ] {
+        cases.push(case(
+            ProviderError {
+                status_code,
+                status,
+                metadata_http_status_code,
+                response_status_code,
+                body: Some(ErrorBody::Text("body".to_owned())),
+                ..base("failed")
+            },
+            Some(""),
+        ));
+    }
+    compare_error_cases(&mut oracle, cases);
+}
+
+pub(crate) fn run_utf16_boundary() {
+    let mut oracle = oracle::TsOracle::spawn("error-body-oracle.ts", "packages/ai/src");
+    let response = oracle.request(&json!({"id": 4, "operation": "truncate", "cases": [
+        {"name": "split", "text": "a🙈b", "maxChars": 2},
+        {"name": "body cap split", "text": format!("{}🙈b", "a".repeat(3999)), "maxChars": 4000}
+    ]}));
+    assert_eq!(response["ok"], true);
+    for (index, (text, cap)) in [("a🙈b".to_owned(), 2), (format!("{}🙈b", "a".repeat(3999)), 4000)]
+        .iter()
+        .enumerate()
+    {
+        let source_units: Vec<u16> =
+            serde_json::from_value(response["output"]["results"][index]["units"].clone()).unwrap();
+        let mut expected: Vec<u16> = text.encode_utf16().take(*cap).collect();
+        expected.extend("... [truncated 2 chars]".encode_utf16());
+        assert_eq!(source_units, expected);
+        assert!(
+            String::from_utf16(&source_units).is_err(),
+            "source returns a lone high surrogate"
+        );
+        assert_ne!(
+            source_units,
+            truncate_error_text(text, *cap).encode_utf16().collect::<Vec<_>>(),
+            "OPEN shared String boundary; this is not parity proof"
+        );
+    }
 }
 
 fn truncation_cases() -> Vec<(String, usize)> {
