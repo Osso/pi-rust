@@ -22,7 +22,6 @@ pub struct SupervisorRequestWakeServer {
     socket_path: PathBuf,
     generation: watch::Sender<u64>,
     generation_rx: watch::Receiver<u64>,
-    shutdown: CancellationToken,
     accept_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
@@ -33,7 +32,6 @@ impl SupervisorRequestWakeServer {
             socket_path: PathBuf::from(get_supervisor_request_socket_path(control_db_path)),
             generation,
             generation_rx,
-            shutdown: CancellationToken::new(),
             accept_task: Mutex::new(None),
         }
     }
@@ -53,17 +51,10 @@ impl SupervisorRequestWakeServer {
         let listener = listen_with_stale_socket_recovery(&self.socket_path).await?;
         set_private_socket_mode(&self.socket_path)?;
         let generation = self.generation.clone();
-        let shutdown = self.shutdown.clone();
         let task = tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    () = shutdown.cancelled() => break,
-                    accepted = listener.accept() => {
-                        let Ok((stream, _address)) = accepted else { break };
-                        generation.send_modify(|value| *value += 1);
-                        drop(stream);
-                    }
-                }
+            while let Ok((stream, _address)) = listener.accept().await {
+                generation.send_modify(|value| *value += 1);
+                drop(stream);
             }
         });
         *self.accept_task() = Some(task);
@@ -76,18 +67,18 @@ impl SupervisorRequestWakeServer {
 
     pub async fn wait_for_wake_after(&self, observed_generation: u64, signal: &CancellationToken) {
         let mut receiver = self.generation_rx.clone();
+        receiver.borrow_and_update();
         if signal.is_cancelled() || self.current_generation() > observed_generation {
             return;
         }
         tokio::select! {
             _ = receiver.changed() => {}
             () = signal.cancelled() => {}
-            () = self.shutdown.cancelled() => {}
         }
     }
 
     pub async fn close(&self) -> Result<(), String> {
-        self.shutdown.cancel();
+        self.generation.send_modify(|_| {});
         if let Some(task) = self.accept_task().take() {
             task.abort();
         }
@@ -104,7 +95,7 @@ impl SupervisorRequestWakeServer {
 
 impl Drop for SupervisorRequestWakeServer {
     fn drop(&mut self) {
-        self.shutdown.cancel();
+        self.generation.send_modify(|_| {});
         if let Some(task) = self
             .accept_task
             .get_mut()

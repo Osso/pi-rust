@@ -95,6 +95,7 @@ async fn startup_scenarios_match_frozen_with_process_fakes() {
         "q16-runtime-oracle.ts",
         "packages/coding-agent/src/supervisor/ensure-running.ts",
     );
+    let mut reference_version = String::new();
     for (index, scenario) in ["ready", "absent", "external", "replace", "timeout", "launch-error"]
         .iter()
         .enumerate()
@@ -174,6 +175,50 @@ async fn startup_scenarios_match_frozen_with_process_fakes() {
             Ok(result) => json!({"result":result,"trace":trace.lock().unwrap().clone()}),
             Err(error) => json!({"error":error,"trace":trace.lock().unwrap().clone()}),
         };
-        assert_eq!(actual, expected["output"][0], "{scenario}");
+        if *scenario == "ready" {
+            reference_version = expected["output"][0]["result"]["version"].as_str().unwrap().to_owned();
+        }
+        assert_eq!(
+            normalize_fixture_version(actual, pi_coding_agent::config::version()),
+            normalize_fixture_version(expected["output"][0].clone(), &reference_version),
+            "{scenario}"
+        );
     }
+}
+
+// Version is a dependency parameter for algorithm scenarios, checked separately below.
+fn normalize_fixture_version(value: serde_json::Value, version: &str) -> serde_json::Value {
+    use serde_json::Value;
+    match value {
+        Value::String(text) => Value::String(text.replace(version, "<version>")),
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(|value| normalize_fixture_version(value, version))
+                .collect(),
+        ),
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(key, value)| (key, normalize_fixture_version(value, version)))
+                .collect(),
+        ),
+        value => value,
+    }
+}
+
+#[tokio::test]
+async fn advertised_runtime_version_matches_frozen_config_dependency() {
+    use serde_json::json;
+    let directory = tempfile::tempdir().unwrap();
+    let mut ts = oracle::TsOracle::spawn(
+        "q16-runtime-oracle.ts",
+        "packages/coding-agent/src/supervisor/ensure-running.ts",
+    );
+    let response=ts.request(&json!({"id":100,"operation":"startupScenario","cases":[{"scenario":"ready","db":directory.path().join("unused.sqlite")}]}));
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        json!(pi_coding_agent::config::version()),
+        response["output"][0]["result"]["version"],
+        "Q16 dependency: embedded package version must be re-pinned, not normalized in whole-output parity"
+    );
 }

@@ -1,3 +1,5 @@
+#[path = "support/oracle.rs"]
+mod oracle;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -137,4 +139,38 @@ async fn close_resolves_pending_waiters() {
 #[test]
 fn notifying_a_missing_socket_is_silent() {
     notify_supervisor_request("/tmp/pi-rust-missing-supervisor/control.sqlite");
+}
+
+#[tokio::test]
+async fn close_start_cycles_wait_for_new_wakes_like_frozen() {
+    let (_directory, path) = socket_path();
+    let tsdir = tempfile::tempdir().unwrap();
+    let mut ts = oracle::TsOracle::spawn(
+        "q16-runtime-oracle.ts",
+        "packages/coding-agent/src/supervisor/request-wake.ts",
+    );
+    let expected =
+        ts.request(&serde_json::json!({"id":16,"operation":"wakeCycle","cases":[tsdir.path().join("control.sqlite")]}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let server = SupervisorRequestWakeServer::new(&path);
+    let mut generations = Vec::new();
+    for _ in 0..2 {
+        server.start().await.unwrap();
+        let observed = server.current_generation();
+        let sender_path = path.clone();
+        let sender = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            notify_supervisor_request(&sender_path);
+        });
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            server.wait_for_wake_after(observed, &CancellationToken::new()),
+        )
+        .await
+        .unwrap();
+        generations.push(server.current_generation());
+        sender.await.unwrap();
+        server.close().await.unwrap();
+    }
+    assert_eq!(serde_json::json!(generations), expected["output"][0]);
 }

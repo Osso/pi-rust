@@ -33,9 +33,7 @@ async function loadModules() {
 	const { createSupervisorResponseTool } = await import(`${packagesRoot}/coding-agent/src/supervisor/response-tool.ts`);
 	const controlDb = await import(`${packagesRoot}/coding-agent/src/core/session-control-db.ts`);
 	const sqlite = await import(`${packagesRoot}/coding-agent/src/core/sqlite.ts`);
-	const { registerFauxProvider, fauxAssistantMessage, fauxToolCall } = await import(
-		`${packagesRoot}/ai/src/compat.ts`
-	);
+	const { registerFauxProvider, fauxAssistantMessage, fauxToolCall } = await import(`${packagesRoot}/ai/src/compat.ts`);
 	const { createExtensionRuntime } = await import(`${packagesRoot}/coding-agent/src/core/extensions/index.ts`);
 	return {
 		main,
@@ -68,7 +66,14 @@ function normalizeSessionFile(text: string): unknown[] {
 					if (key === "id" || key === "parentId" || key === "toolCallId") result[key] = "<id>";
 					else if (key === "timestamp") result[key] = "<timestamp>";
 					else if (key === "cwd") result[key] = "<cwd>";
-					else if (key === "input" || key === "output" || key === "cacheRead" || key === "cacheWrite" || key === "totalTokens") result[key] = "<number>";
+					else if (
+						key === "input" ||
+						key === "output" ||
+						key === "cacheRead" ||
+						key === "cacheWrite" ||
+						key === "totalTokens"
+					)
+						result[key] = "<number>";
 					else result[key] = normalize(child);
 				}
 				return result;
@@ -77,15 +82,18 @@ function normalizeSessionFile(text: string): unknown[] {
 		});
 }
 
-function dumpControlDb(controlDbPath: string, sqlite: { createSqliteDatabase: (path: string) => {
-	prepare: (sql: string) => { all: () => unknown[] };
-	close: () => void;
-} }) {
+function dumpControlDb(
+	controlDbPath: string,
+	sqlite: {
+		createSqliteDatabase: (path: string) => {
+			prepare: (sql: string) => { all: () => unknown[] };
+			close: () => void;
+		};
+	},
+) {
 	const db = sqlite.createSqliteDatabase(controlDbPath);
 	try {
-		return db
-			.prepare("SELECT id, kind, status, response_json FROM supervisor_requests ORDER BY id")
-			.all() as unknown[];
+		return db.prepare("SELECT id, kind, status, response_json FROM supervisor_requests ORDER BY id").all() as unknown[];
 	} finally {
 		db.close();
 	}
@@ -154,8 +162,15 @@ async function run(request: Request) {
 	const sessionManager = SessionManager.create(dir, sessionDir, { id: "supervisor" });
 	sessionManager.setMetadataControlDbPath(controlDbPath, { indexMessageText: false });
 	const { session } = await createAgentSession({
-		cwd: dir, authStorage, model, modelRegistry: modelRuntime, disableRuntimeCoordinationInbound: true,
-		customTools: [createSupervisorResponseTool()], tools: [...main.SUPERVISOR_TOOL_NAMES, "supervisor_response"], excludeTools: main.SUPERVISOR_EXCLUDED_TOOL_NAMES, thinkingLevel: "low",
+		cwd: dir,
+		authStorage,
+		model,
+		modelRegistry: modelRuntime,
+		disableRuntimeCoordinationInbound: true,
+		customTools: [createSupervisorResponseTool()],
+		tools: [...main.SUPERVISOR_TOOL_NAMES, "supervisor_response"],
+		excludeTools: main.SUPERVISOR_EXCLUDED_TOOL_NAMES,
+		thinkingLevel: "low",
 		agentDir: dir,
 		resourceLoader: createResourceLoader(createExtensionRuntime()),
 		sessionManager,
@@ -188,7 +203,15 @@ async function run(request: Request) {
 	});
 	const sessionFile = sessionManager.getSessionFile();
 	return {
-		controlRows: dumpControlDb(controlDbPath, sqlite as unknown as { createSqliteDatabase: (path: string) => { prepare: (sql: string) => { all: () => unknown[] }; close: () => void } }),
+		controlRows: dumpControlDb(
+			controlDbPath,
+			sqlite as unknown as {
+				createSqliteDatabase: (path: string) => {
+					prepare: (sql: string) => { all: () => unknown[] };
+					close: () => void;
+				};
+			},
+		),
 		session: sessionFile ? normalizeSessionFile(readFileSync(sessionFile, "utf8")) : [],
 	};
 }
