@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::fmt::{self, Display, Formatter};
 
 use crate::jsdiff::{self, Part};
@@ -23,8 +24,8 @@ impl LineEnding {
 /// The leading BOM, if present, and the remaining text.
 #[derive(Debug)]
 pub struct StripBomResult {
-    pub bom: String,
-    pub text: String,
+    pub bom: JsString,
+    pub text: JsString,
 }
 
 /// A direct-module result record from exact or fuzzy text matching.
@@ -34,40 +35,40 @@ pub struct FuzzyMatchResult {
     pub index: f64,
     pub match_length: f64,
     pub used_fuzzy_match: bool,
-    pub content_for_replacement: String,
+    pub content_for_replacement: JsString,
 }
 
 /// A direct-module edit record with replacement text.
 #[derive(Debug)]
 pub struct Edit {
-    pub old_text: String,
-    pub new_text: String,
+    pub old_text: JsString,
+    pub new_text: JsString,
 }
 
-/// A replacement expressed in byte offsets of the base content.
+/// A replacement expressed in UTF-16 unit offsets of the base content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextReplacement {
     pub match_index: usize,
     pub match_length: usize,
-    pub new_text: String,
+    pub new_text: JsString,
 }
 
 /// A direct-module result record from edit application.
 #[derive(Debug)]
 pub struct AppliedEditsResult {
-    pub base_content: String,
-    pub new_content: String,
+    pub base_content: JsString,
+    pub new_content: JsString,
 }
 
 /// Failure produced by exact-text edit application.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditError {
-    pub message: String,
+    pub message: JsString,
 }
 
 impl EditError {
     /// Creates an edit failure with the source message text.
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
@@ -76,7 +77,7 @@ impl EditError {
 
 impl Display for EditError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
@@ -85,12 +86,15 @@ impl std::error::Error for EditError {}
 /// Display-oriented diff output and the first changed new-file line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffStringResult {
-    pub diff: String,
+    pub diff: JsString,
     pub first_changed_line: Option<usize>,
 }
 
 /// Detects the first line-ending style using the source's first-LF ordering.
-pub fn detect_line_ending(content: &str) -> LineEnding {
+pub fn detect_line_ending(content: impl Into<JsString>) -> LineEnding {
+    let content = content.into();
+    let content = &content;
+
     let Some(first_lf) = content.find('\n') else {
         return LineEnding::Lf;
     };
@@ -106,12 +110,18 @@ pub fn detect_line_ending(content: &str) -> LineEnding {
 }
 
 /// Replaces CRLF and then every remaining CR with LF.
-pub fn normalize_to_lf(text: &str) -> String {
+pub fn normalize_to_lf(text: impl Into<JsString>) -> JsString {
+    let text = text.into();
+    let text = &text;
+
     text.replace("\r\n", "\n").replace('\r', "\n")
 }
 
 /// Restores LF to CRLF, including any CRLF already present in the input.
-pub fn restore_line_endings(text: &str, ending: LineEnding) -> String {
+pub fn restore_line_endings(text: impl Into<JsString>, ending: LineEnding) -> JsString {
+    let text = text.into();
+    let text = &text;
+
     match ending {
         LineEnding::CrLf => text.replace('\n', "\r\n"),
         LineEnding::Lf => text.to_owned(),
@@ -119,51 +129,54 @@ pub fn restore_line_endings(text: &str, ending: LineEnding) -> String {
 }
 
 /// Removes exactly one leading UTF-8 BOM and returns it separately.
-pub fn strip_bom(content: &str) -> StripBomResult {
+pub fn strip_bom(content: impl Into<JsString>) -> StripBomResult {
+    let content = content.into();
+    let content = &content;
+
     match content.strip_prefix('\u{feff}') {
         Some(text) => StripBomResult {
-            bom: "\u{feff}".to_owned(),
+            bom: "\u{feff}".into(),
             text: text.to_owned(),
         },
         None => StripBomResult {
-            bom: String::new(),
+            bom: JsString::default(),
             text: content.to_owned(),
         },
     }
 }
 
 /// Normalizes text for fuzzy matching: NFKC, trailing whitespace, quotes, dashes, and spaces.
-pub fn normalize_for_fuzzy_match(text: &str) -> String {
-    let normalized = normalize_nfkc(text);
-    normalized
-        .split('\n')
-        .map(trim_end_javascript)
-        .collect::<Vec<_>>()
-        .join("\n")
-        .chars()
-        .map(normalize_fuzzy_character)
-        .collect()
-}
-
-fn is_javascript_trim_character(character: char) -> bool {
-    matches!(
-        character,
-        '\u{0009}'..='\u{000D}'
-            | '\u{0020}'
-            | '\u{00A0}'
-            | '\u{1680}'
-            | '\u{2000}'..='\u{200A}'
-            | '\u{2028}'
-            | '\u{2029}'
-            | '\u{202F}'
-            | '\u{205F}'
-            | '\u{3000}'
-            | '\u{FEFF}'
+pub fn normalize_for_fuzzy_match(text: impl Into<JsString>) -> JsString {
+    let text = text.into();
+    let normalized = normalize_nfkc_utf16(&text);
+    let lines = normalized.split('\n').map(|line| line.trim_end());
+    let joined = JsString::join(lines, "\n");
+    JsString::from_utf16(
+        joined
+            .units()
+            .iter()
+            .map(|unit| {
+                char::from_u32(u32::from(*unit)).map_or(*unit, |character| normalize_fuzzy_character(character) as u16)
+            })
+            .collect(),
     )
 }
 
-fn trim_end_javascript(value: &str) -> &str {
-    value.trim_end_matches(is_javascript_trim_character)
+fn normalize_nfkc_utf16(text: &JsString) -> JsString {
+    let mut output = JsString::default();
+    let mut chunk = std::string::String::new();
+    for decoded in char::decode_utf16(text.units().iter().copied()) {
+        match decoded {
+            Ok(character) => chunk.push(character),
+            Err(error) => {
+                output.push_str(normalize_nfkc(&chunk));
+                chunk.clear();
+                output.push_unit(error.unpaired_surrogate());
+            }
+        }
+    }
+    output.push_str(normalize_nfkc(&chunk));
+    output
 }
 
 fn normalize_fuzzy_character(character: char) -> char {
@@ -177,14 +190,14 @@ fn normalize_fuzzy_character(character: char) -> char {
 }
 
 /// Finds `old_text` exactly first, then through fuzzy normalization.
-pub fn fuzzy_find_text(content: &str, old_text: &str) -> FuzzyMatchResult {
-    match find_text(content, old_text) {
+pub fn fuzzy_find_text(content: impl Into<JsString>, old_text: impl Into<JsString>) -> FuzzyMatchResult {
+    let content = content.into();
+    let old_text = old_text.into();
+    match find_text(&content, &old_text) {
         Some(found) => FuzzyMatchResult {
             found: true,
-            index: utf16_length(&found.content_for_replacement[..found.byte_index]) as f64,
-            match_length: utf16_length(
-                &found.content_for_replacement[found.byte_index..found.byte_index + found.byte_length],
-            ) as f64,
+            index: found.unit_index as f64,
+            match_length: found.unit_length as f64,
             used_fuzzy_match: found.used_fuzzy_match,
             content_for_replacement: found.content_for_replacement,
         },
@@ -193,23 +206,23 @@ pub fn fuzzy_find_text(content: &str, old_text: &str) -> FuzzyMatchResult {
             index: -1.0,
             match_length: 0.0,
             used_fuzzy_match: false,
-            content_for_replacement: content.to_owned(),
+            content_for_replacement: content,
         },
     }
 }
 
 struct TextMatch {
-    byte_index: usize,
-    byte_length: usize,
+    unit_index: usize,
+    unit_length: usize,
     used_fuzzy_match: bool,
-    content_for_replacement: String,
+    content_for_replacement: JsString,
 }
 
-fn find_text(content: &str, old_text: &str) -> Option<TextMatch> {
-    if let Some(byte_index) = content.find(old_text) {
+fn find_text(content: &JsString, old_text: &JsString) -> Option<TextMatch> {
+    if let Some(unit_index) = content.find(old_text) {
         return Some(TextMatch {
-            byte_index,
-            byte_length: old_text.len(),
+            unit_index,
+            unit_length: old_text.len(),
             used_fuzzy_match: false,
             content_for_replacement: content.to_owned(),
         });
@@ -217,31 +230,41 @@ fn find_text(content: &str, old_text: &str) -> Option<TextMatch> {
 
     let fuzzy_content = normalize_for_fuzzy_match(content);
     let fuzzy_old_text = normalize_for_fuzzy_match(old_text);
-    let byte_index = fuzzy_content.find(&fuzzy_old_text)?;
+    let unit_index = fuzzy_content.find(&fuzzy_old_text)?;
     Some(TextMatch {
-        byte_index,
-        byte_length: fuzzy_old_text.len(),
+        unit_index,
+        unit_length: fuzzy_old_text.len(),
         used_fuzzy_match: true,
         content_for_replacement: fuzzy_content,
     })
 }
 
-fn utf16_length(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-fn count_occurrences(content: &str, old_text: &str) -> usize {
-    let fuzzy_content = normalize_for_fuzzy_match(content);
-    let fuzzy_old_text = normalize_for_fuzzy_match(old_text);
-    fuzzy_content.match_indices(&fuzzy_old_text).count()
+fn count_occurrences(content: &JsString, old_text: &JsString) -> usize {
+    let content = normalize_for_fuzzy_match(content);
+    let old_text = normalize_for_fuzzy_match(old_text);
+    if old_text.is_empty() {
+        return 0;
+    }
+    let mut count = 0;
+    let mut offset = 0;
+    while let Some(index) = content.find_from(&old_text, offset) {
+        count += 1;
+        offset = index + old_text.len();
+    }
+    count
 }
 
 /// Applies one or more exact-text replacements to LF-normalized content.
 pub fn apply_edits_to_normalized_content(
-    normalized_content: &str,
+    normalized_content: impl Into<JsString>,
     edits: &[Edit],
-    path: &str,
+    path: impl Into<JsString>,
 ) -> Result<AppliedEditsResult, EditError> {
+    let normalized_content = normalized_content.into();
+    let normalized_content = &normalized_content;
+    let path = path.into();
+    let path = &path;
+
     let normalized_edits = normalize_edits(edits);
     ensure_nonempty_edits(&normalized_edits, path)?;
 
@@ -265,7 +288,7 @@ pub fn apply_edits_to_normalized_content(
         apply_replacements(&replacement_base_content, &replacements, 0)
     };
 
-    if normalized_content == new_content {
+    if normalized_content == &new_content {
         return Err(no_change_error(path, normalized_edits.len()));
     }
     Ok(AppliedEditsResult {
@@ -284,7 +307,7 @@ fn normalize_edits(edits: &[Edit]) -> Vec<Edit> {
         .collect()
 }
 
-fn ensure_nonempty_edits(edits: &[Edit], path: &str) -> Result<(), EditError> {
+fn ensure_nonempty_edits(edits: &[Edit], path: &JsString) -> Result<(), EditError> {
     for (index, edit) in edits.iter().enumerate() {
         if edit.old_text.is_empty() {
             return Err(empty_old_text_error(path, index, edits.len()));
@@ -299,7 +322,11 @@ struct MatchedEdit {
     replacement: TextReplacement,
 }
 
-fn match_edits(edits: &[Edit], replacement_base_content: &str, path: &str) -> Result<Vec<MatchedEdit>, EditError> {
+fn match_edits(
+    edits: &[Edit],
+    replacement_base_content: &JsString,
+    path: &JsString,
+) -> Result<Vec<MatchedEdit>, EditError> {
     let mut matched = Vec::with_capacity(edits.len());
     for (index, edit) in edits.iter().enumerate() {
         let Some(found) = find_text(replacement_base_content, &edit.old_text) else {
@@ -312,8 +339,8 @@ fn match_edits(edits: &[Edit], replacement_base_content: &str, path: &str) -> Re
         matched.push(MatchedEdit {
             edit_index: index,
             replacement: TextReplacement {
-                match_index: found.byte_index,
-                match_length: found.byte_length,
+                match_index: found.unit_index,
+                match_length: found.unit_length,
                 new_text: edit.new_text.clone(),
             },
         });
@@ -324,72 +351,86 @@ fn match_edits(edits: &[Edit], replacement_base_content: &str, path: &str) -> Re
         let previous = &pair[0];
         let current = &pair[1];
         if previous.replacement.match_index + previous.replacement.match_length > current.replacement.match_index {
-            return Err(EditError::new(format!(
-                "edits[{}] and edits[{}] overlap in {path}. Merge them into one edit or target disjoint regions.",
-                previous.edit_index, current.edit_index
-            )));
+            return Err(EditError::new(
+                JsString::from(format!(
+                    "edits[{}] and edits[{}] overlap in ",
+                    previous.edit_index, current.edit_index
+                )) + path
+                    + ". Merge them into one edit or target disjoint regions.",
+            ));
         }
     }
     Ok(matched)
 }
 
-pub fn empty_old_text_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
-    if total_edits == 1 {
-        EditError::new(format!("oldText must not be empty in {path}."))
+pub fn empty_old_text_error(path: impl Into<JsString>, edit_index: usize, total_edits: usize) -> EditError {
+    let path = path.into();
+    let path = &path;
+
+    let prefix = if total_edits == 1 {
+        "oldText must not be empty in ".to_owned()
     } else {
-        EditError::new(format!("edits[{edit_index}].oldText must not be empty in {path}."))
+        format!("edits[{edit_index}].oldText must not be empty in ")
+    };
+    EditError::new(JsString::from(prefix) + path + ".")
+}
+
+pub fn not_found_error(path: impl Into<JsString>, edit_index: usize, total_edits: usize) -> EditError {
+    let path = path.into();
+    let path = &path;
+
+    if total_edits == 1 {
+        EditError::new(
+            JsString::from("Could not find the exact text in ")
+                + path
+                + ". The old text must match exactly including all whitespace and newlines.",
+        )
+    } else {
+        EditError::new(
+            JsString::from(format!("Could not find edits[{edit_index}] in "))
+                + path
+                + ". The oldText must match exactly including all whitespace and newlines.",
+        )
     }
 }
 
-pub fn not_found_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
+fn duplicate_error(path: &JsString, edit_index: usize, total_edits: usize, occurrences: usize) -> EditError {
     if total_edits == 1 {
-        EditError::new(format!(
-            "Could not find the exact text in {path}. The old text must match exactly including all whitespace and newlines."
-        ))
+        EditError::new(
+            JsString::from(format!("Found {occurrences} occurrences of the text in "))
+                + path
+                + ". The text must be unique. Please provide more context to make it unique.",
+        )
     } else {
-        EditError::new(format!(
-            "Could not find edits[{edit_index}] in {path}. The oldText must match exactly including all whitespace and newlines."
-        ))
+        EditError::new(
+            JsString::from(format!("Found {occurrences} occurrences of edits[{edit_index}] in "))
+                + path
+                + ". Each oldText must be unique. Please provide more context to make it unique.",
+        )
     }
 }
 
-fn duplicate_error(path: &str, edit_index: usize, total_edits: usize, occurrences: usize) -> EditError {
+pub fn no_change_error(path: impl Into<JsString>, total_edits: usize) -> EditError {
+    let path = path.into();
+    let path = &path;
+
     if total_edits == 1 {
-        EditError::new(format!(
-            "Found {occurrences} occurrences of the text in {path}. The text must be unique. Please provide more context to make it unique."
-        ))
+        EditError::new(
+            JsString::from("No changes made to ")
+                + path
+                + ". The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected.",
+        )
     } else {
-        EditError::new(format!(
-            "Found {occurrences} occurrences of edits[{edit_index}] in {path}. Each oldText must be unique. Please provide more context to make it unique."
-        ))
+        EditError::new(
+            JsString::from("No changes made to ")
+                + path
+                + ". The replacements produced identical content. This might indicate an issue with special characters or the text not existing as expected.",
+        )
     }
 }
 
-pub fn no_change_error(path: &str, total_edits: usize) -> EditError {
-    if total_edits == 1 {
-        EditError::new(format!(
-            "No changes made to {path}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected."
-        ))
-    } else {
-        EditError::new(format!(
-            "No changes made to {path}. The replacements produced identical content."
-        ))
-    }
-}
-
-fn split_lines_with_endings(content: &str) -> Vec<&str> {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    for (index, byte) in content.bytes().enumerate() {
-        if byte == b'\n' {
-            lines.push(&content[start..=index]);
-            start = index + 1;
-        }
-    }
-    if start < content.len() {
-        lines.push(&content[start..]);
-    }
-    lines
+fn split_lines_with_endings(content: &JsString) -> Vec<JsString> {
+    content.split_inclusive('\n').collect()
 }
 
 struct LineSpan {
@@ -397,7 +438,7 @@ struct LineSpan {
     end: usize,
 }
 
-fn get_line_spans(content: &str) -> Vec<LineSpan> {
+fn get_line_spans(content: &JsString) -> Vec<LineSpan> {
     let mut offset = 0;
     split_lines_with_endings(content)
         .into_iter()
@@ -431,11 +472,14 @@ fn get_replacement_line_range(lines: &[LineSpan], replacement: &TextReplacement)
     Ok((start_line, end_line + 1))
 }
 
-pub fn apply_replacements(content: &str, replacements: &[TextReplacement], offset: usize) -> String {
+pub fn apply_replacements(content: impl Into<JsString>, replacements: &[TextReplacement], offset: usize) -> JsString {
+    let content = content.into();
+    let content = &content;
+
     let mut result = content.to_owned();
     for replacement in replacements.iter().rev() {
         let start = replacement.match_index - offset;
-        result.replace_range(start..start + replacement.match_length, replacement.new_text.as_str());
+        result.replace_range(start..start + replacement.match_length, &replacement.new_text);
     }
     result
 }
@@ -443,10 +487,15 @@ pub fn apply_replacements(content: &str, replacements: &[TextReplacement], offse
 /// Applies replacements matched against `base_content` to `original_content`, preserving
 /// unchanged line blocks from the original.
 pub fn apply_replacements_preserving_unchanged_lines(
-    original_content: &str,
-    base_content: &str,
+    original_content: impl Into<JsString>,
+    base_content: impl Into<JsString>,
     replacements: &[TextReplacement],
-) -> Result<String, EditError> {
+) -> Result<JsString, EditError> {
+    let original_content = original_content.into();
+    let original_content = &original_content;
+    let base_content = base_content.into();
+    let base_content = &base_content;
+
     let original_lines = split_lines_with_endings(original_content);
     let base_lines = get_line_spans(base_content);
     if original_lines.len() != base_lines.len() {
@@ -494,35 +543,59 @@ fn group_replacements(
 }
 
 fn render_preserved_groups(
-    base_content: &str,
-    original_lines: &[&str],
+    base_content: &JsString,
+    original_lines: &[JsString],
     base_lines: &[LineSpan],
     groups: &[ReplacementGroup],
-) -> String {
+) -> JsString {
     let mut original_line_index = 0;
-    let mut result = String::new();
+    let mut result = JsString::default();
     for group in groups {
-        result.push_str(&original_lines[original_line_index..group.start_line].concat());
+        result.push_str(&JsString::join(
+            &original_lines[original_line_index..group.start_line],
+            "",
+        ));
         let group_start_offset = base_lines[group.start_line].start;
         let group_end_offset = base_lines[group.end_line - 1].end;
         result.push_str(&apply_replacements(
-            &base_content[group_start_offset..group_end_offset],
+            &base_content.slice(group_start_offset, group_end_offset),
             &group.replacements,
             group_start_offset,
         ));
         original_line_index = group.end_line;
     }
-    result.push_str(&original_lines[original_line_index..].concat());
+    result.push_str(&JsString::join(&original_lines[original_line_index..], ""));
     result
 }
 
 /// Generates a standard unified patch with file headers only.
-pub fn generate_unified_patch(path: &str, old_content: &str, new_content: &str, context_lines: usize) -> String {
+pub fn generate_unified_patch(
+    path: impl Into<JsString>,
+    old_content: impl Into<JsString>,
+    new_content: impl Into<JsString>,
+    context_lines: usize,
+) -> JsString {
+    let path = path.into();
+    let path = &path;
+    let old_content = old_content.into();
+    let old_content = &old_content;
+    let new_content = new_content.into();
+    let new_content = &new_content;
+
     jsdiff::create_two_files_patch(path, old_content, new_content, context_lines)
 }
 
 /// Generates a display-oriented diff string with line numbers and context.
-pub fn generate_diff_string(old_content: &str, new_content: &str, context_lines: usize) -> DiffStringResult {
+pub fn generate_diff_string(
+    old_content: impl Into<JsString>,
+    new_content: impl Into<JsString>,
+    context_lines: usize,
+) -> DiffStringResult {
+    let old_content = old_content.into();
+    let old_content = &old_content;
+    let new_content = new_content.into();
+    let new_content = &new_content;
+
     let parts = jsdiff::diff_lines(old_content, new_content);
     let old_lines = old_content.split('\n').collect::<Vec<_>>();
     let new_lines = new_content.split('\n').collect::<Vec<_>>();
@@ -548,13 +621,13 @@ pub fn generate_diff_string(old_content: &str, new_content: &str, context_lines:
     }
 
     DiffStringResult {
-        diff: renderer.output.join("\n"),
+        diff: JsString::join(renderer.output, "\n"),
         first_changed_line: renderer.first_changed_line,
     }
 }
 
 struct DiffRenderer {
-    output: Vec<String>,
+    output: Vec<JsString>,
     old_line_num: usize,
     new_line_num: usize,
     line_num_width: usize,
@@ -566,18 +639,14 @@ impl DiffRenderer {
         self.first_changed_line.get_or_insert(self.new_line_num);
         for line in split_part_lines(&part.value) {
             if part.added {
-                self.output.push(format!(
-                    "+{:>width$} {line}",
-                    self.new_line_num,
-                    width = self.line_num_width
-                ));
+                self.output.push(
+                    JsString::from(format!("+{:>width$} ", self.new_line_num, width = self.line_num_width)) + line,
+                );
                 self.new_line_num += 1;
             } else {
-                self.output.push(format!(
-                    "-{:>width$} {line}",
-                    self.old_line_num,
-                    width = self.line_num_width
-                ));
+                self.output.push(
+                    JsString::from(format!("-{:>width$} ", self.old_line_num, width = self.line_num_width)) + line,
+                );
                 self.old_line_num += 1;
             }
         }
@@ -596,7 +665,7 @@ impl DiffRenderer {
         }
     }
 
-    fn push_surrounded_context(&mut self, raw: &[&str], context_lines: usize) {
+    fn push_surrounded_context(&mut self, raw: &[JsString], context_lines: usize) {
         if raw.len() <= context_lines * 2 {
             self.push_context_lines(raw);
             return;
@@ -607,7 +676,7 @@ impl DiffRenderer {
         self.push_context_lines(&raw[raw.len() - context_lines..]);
     }
 
-    fn push_trailing_context(&mut self, raw: &[&str], context_lines: usize) {
+    fn push_trailing_context(&mut self, raw: &[JsString], context_lines: usize) {
         let shown = context_lines.min(raw.len());
         self.push_context_lines(&raw[..shown]);
         let skipped = raw.len() - shown;
@@ -616,7 +685,7 @@ impl DiffRenderer {
         }
     }
 
-    fn push_leading_context(&mut self, raw: &[&str], context_lines: usize) {
+    fn push_leading_context(&mut self, raw: &[JsString], context_lines: usize) {
         let skipped = raw.len().saturating_sub(context_lines);
         if skipped > 0 {
             self.push_skipped(skipped);
@@ -624,20 +693,18 @@ impl DiffRenderer {
         self.push_context_lines(&raw[skipped..]);
     }
 
-    fn push_context_lines(&mut self, lines: &[&str]) {
+    fn push_context_lines(&mut self, lines: &[JsString]) {
         for line in lines {
-            self.output.push(format!(
-                " {:>width$} {line}",
-                self.old_line_num,
-                width = self.line_num_width
-            ));
+            self.output
+                .push(JsString::from(format!(" {:>width$} ", self.old_line_num, width = self.line_num_width)) + line);
             self.old_line_num += 1;
             self.new_line_num += 1;
         }
     }
 
     fn push_skipped(&mut self, skipped: usize) {
-        self.output.push(format!(" {} ...", " ".repeat(self.line_num_width)));
+        self.output
+            .push(format!(" {} ...", " ".repeat(self.line_num_width)).into());
         self.skip_lines(skipped);
     }
 
@@ -647,9 +714,9 @@ impl DiffRenderer {
     }
 }
 
-fn split_part_lines(value: &str) -> Vec<&str> {
+fn split_part_lines(value: &JsString) -> Vec<JsString> {
     let mut raw = value.split('\n').collect::<Vec<_>>();
-    if raw.last() == Some(&"") {
+    if raw.last().is_some_and(JsString::is_empty) {
         raw.pop();
     }
     raw

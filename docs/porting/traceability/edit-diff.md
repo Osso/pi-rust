@@ -1,6 +1,20 @@
 # Edit-diff traceability
 
-## Agent-core `edit_diff`
+## Q18 common-pin UTF-16 checkpoint
+
+Contract: [lossless content](../../specs/lossless-content.md). Source: coding-agent `edit-diff.ts` and its frozen `diff` dependency at `4f9e6f8a4`. Core `edit_diff` and `jsdiff` now retain JsString content, paths, replacement offsets, diff parts and patch lines. Retired harness provenance is not new-pin whole-module evidence.
+
+| Capability | Current implementation | Proof / gap |
+|---|---|---|
+| Unit matching/replacement | May match one surrogate unit inside a valid pair; offsets/slicing are UTF-16 | `lossless_edit`: pair-split test and actual file-write test |
+| Error/diff/patch text | JsString through result/details; explicit Node encoding only at file/display boundaries | Four frozen edit cases compare complete raw output; raw-path error test |
+| Line/word diff | One lossless jsdiff implementation, preserving regex-`u` character grouping and raw units | Three frozen word-diff cases compare flags and values |
+| Core edit execution | Removed checked bridge; raw new text reaches diff before Node-encoded write | Actual file changes `😀` to encoded `�x` while diff retains the unmatched high unit |
+| Coding preview/duplicate context | Consumer adaptation pending | No current-pin whole-module acceptance yet |
+
+`edit-differential-red.jsonl` records compiler RED. `edit-substrate-green-3.log`: five sandbox tests PASS, zero warnings before the tokenizer readability extraction; post-checkpoint focused proof remains required. Historical scalar corpora below have not yet been rerun on this API.
+
+## Historical agent-core `edit_diff` (old pin)
 
 Pinned source: `packages/agent/src/harness/tools/edit-diff.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
@@ -31,17 +45,17 @@ Rust: `crates/pi-agent-core/src/harness/tools/edit_diff.rs`. Behavioral proof: `
 
 ## Rust boundary and discrepancies
 
-- `FuzzyMatchResult.index`/`match_length` count UTF-16 code units, matching JavaScript string lengths. Internal matching uses byte offsets so Rust slicing stays correct.
+- Historically, public match offsets counted UTF-16 but internal matching used byte offsets. The Q18 checkpoint above replaces internal byte offsets with exact UTF-16 offsets.
 - `normalize_for_fuzzy_match` trims the JavaScript `trimEnd` character set (including U+FEFF, excluding U+0085), not Rust `str::trim_end`; the coding-agent differential normalize cases cover NEL and BOM.
 - `generate_unified_patch`/`generate_diff_string` take an explicit context-line count; the tool passes 4, matching the source default.
 - Only the `diffLines`/`createTwoFilesPatch` paths used by the source are ported; callbacks, `maxEditLength`, timeout aborts, and other jsdiff diff variants are not.
 - NFKC uses `pi_agent_core::unicode::normalize_nfkc` (`icu_normalizer = 2.3.0`); `differential_unicode_normalize` proves all four `String.prototype.normalize` forms against Node over Hangul, combining marks, compatibility characters, and emoji.
 
-## Shared jsdiff module
+## Historical shared jsdiff module (old pin)
 
 `pi_agent_core::jsdiff` is the single port of `diff@8.0.4`: `tokenize` (line tokenization including CRLF), `diff_lines` (empty-token removal, Myers edit-length search with the source's diagonal pruning and tie-breaking, component flattening), `structured_patch` (hunk construction, context, `\ No newline at end of file`, zero-line start quirk), and `create_two_files_patch` (file headers only). Both edit-diff modules call it; neither keeps a second copy. Differential coverage: 700 seeded diff/patch cases over a duplication-heavy line alphabet plus targeted empty, append-only, deletion-only, CRLF, and no-newline cases (coding-agent), and the harness-tools edit fixtures (agent-core).
 
-## Coding-agent `edit_diff`
+## Historical coding-agent `edit_diff` (old pin)
 
 Pinned source: `packages/coding-agent/src/core/tools/edit-diff.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
@@ -67,7 +81,7 @@ Rust: `pi_coding_agent::core::tools::edit_diff`. Functions whose TypeScript body
 
 ## Deviations and gaps
 
-- `TextReplacement` uses byte offsets; the source uses UTF-16 indices. `fuzzy_find_text` still reports UTF-16 units, matching the source record; the coding-agent match path converts those offsets to bytes.
+- Historical `TextReplacement` used byte offsets. Q18 now uses UTF-16 offsets; coding-agent conversion/preview adaptation is still pending.
 - `truncate_context_line` keeps whole scalars where the source can split a surrogate pair; the same approved class of deviation as `truncate_line`.
 - Error codes are mapped from `io::ErrorKind`; only `ENOENT`, `EACCES`, `EISDIR`, `ENOTDIR`, `EEXIST`, and `EINVAL` are named, other read failures fall back to the Rust error text.
 - `compute_edits_diff` is async (Tokio file I/O) and returns `Result<EditDiffOutcome, PathError>`; the path-resolution failure is the only `Err`, mirroring the source's uncaught throw from `resolveToCwd`.

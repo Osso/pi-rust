@@ -43,7 +43,12 @@ impl JsString {
     }
 
     pub fn find(&self, text: impl Into<Self>) -> Option<usize> {
-        find_unit_sequence(&self.0, text.into().units())
+        self.find_from(text, 0)
+    }
+
+    pub fn find_from(&self, text: impl Into<Self>, start: usize) -> Option<usize> {
+        let start = start.min(self.len());
+        find_unit_sequence(&self.0[start..], text.into().units()).map(|offset| start + offset)
     }
 
     pub fn contains(&self, text: impl Into<Self>) -> bool {

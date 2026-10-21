@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use pi_js_compat::js_json::{JsObject, JsValue};
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
+use pi_js_compat::js_json::{JsObject as Map, JsValue as Value};
+use serde_json::Value as SchemaValue;
 
 use crate::agent::{AgentTool, AgentToolResult, ToolError};
 use crate::harness::tools::edit_diff::{
@@ -20,7 +22,7 @@ const DESCRIPTION: &str = "Edit a single file using exact text replacement. Ever
 /// Applies exact-text replacements to one file.
 pub struct EditTool {
     context: Arc<ExecutionToolContext>,
-    parameters: Value,
+    parameters: SchemaValue,
 }
 
 impl EditTool {
@@ -32,8 +34,8 @@ impl EditTool {
     }
 }
 
-fn edit_schema() -> Value {
-    json!({
+fn edit_schema() -> SchemaValue {
+    serde_json::json!({
         "type": "object",
         "required": ["path", "edits"],
         "properties": {
@@ -63,7 +65,7 @@ impl AgentTool for EditTool {
         DESCRIPTION
     }
 
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
@@ -132,10 +134,10 @@ fn merge_legacy_edits(args: JsObject) -> JsValue {
     JsValue::Object(result)
 }
 
-fn parse_edit_input(input: &Value) -> Result<(String, Vec<Edit>), ToolError> {
+fn parse_edit_input(input: &Value) -> Result<(JsString, Vec<Edit>), ToolError> {
     let path = input
         .get("path")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .ok_or_else(|| ToolError::new("edit tool requires a string path"))?
         .to_owned();
     let edits = parse_edit_list(input.get("edits"))?;
@@ -159,12 +161,12 @@ fn parse_edit_list(value: Option<&Value>) -> Result<Vec<Edit>, ToolError> {
             Ok(Edit {
                 old_text: edit
                     .get("oldText")
-                    .and_then(Value::as_str)
+                    .and_then(Value::as_string)
                     .ok_or_else(|| ToolError::new("edit tool requires string oldText"))?
                     .to_owned(),
                 new_text: edit
                     .get("newText")
-                    .and_then(Value::as_str)
+                    .and_then(Value::as_string)
                     .ok_or_else(|| ToolError::new("edit tool requires string newText"))?
                     .to_owned(),
             })
@@ -172,11 +174,8 @@ fn parse_edit_list(value: Option<&Value>) -> Result<Vec<Edit>, ToolError> {
         .collect()
 }
 
-fn edit_access_error(path: &str, error: &FileError) -> ToolError {
-    ToolError::new(format!(
-        "Could not edit file: {path}. Error code: {}.",
-        error.code.as_str()
-    ))
+fn edit_access_error(path: &JsString, error: &FileError) -> ToolError {
+    ToolError::new(JsString::from("Could not edit file: ") + path + format!(". Error code: {}.", error.code.as_str()))
 }
 
 async fn execute_edit(
@@ -184,12 +183,8 @@ async fn execute_edit(
     params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
-    // TODO(edit lane): branch-only checked bridge; remove before merge.
-    let params = params
-        .to_serde()
-        .map_err(|error| ToolError::new(format!("Lossless UTF-16 edits pending edit lane: {error}")))?;
     let (path, edits) = parse_edit_input(&params)?;
-    let absolute_path = resolve_tool_path(context.env.as_ref(), &path, signal.as_ref())
+    let absolute_path = resolve_tool_path(context.env.as_ref(), &encode_node_utf8(&path), signal.as_ref())
         .await
         .map_err(|error| ToolError::new(error.message))?;
     let env = Arc::clone(&context.env);
@@ -203,7 +198,7 @@ async fn execute_edit(
 
 async fn apply_edit_operation(
     env: &dyn ExecutionEnv,
-    path: &str,
+    path: &JsString,
     edits: &[Edit],
     absolute_path: &str,
     signal: Option<&CancellationToken>,
@@ -214,14 +209,11 @@ async fn apply_edit_operation(
         .map_err(|error| ToolError::new(error.message))?;
     ensure_not_aborted(signal)?;
 
-    let final_content = format!(
-        "{}{}",
-        content.bom,
-        restore_line_endings(&applied.new_content, content.line_ending)
-    );
+    let final_content = content.bom + restore_line_endings(&applied.new_content, content.line_ending);
+    let encoded_content = encode_node_utf8(&final_content);
     env.write_file(
         absolute_path,
-        crate::harness::types::FileContent::Text(&final_content),
+        crate::harness::types::FileContent::Text(&encoded_content),
         signal,
     )
     .await
@@ -231,14 +223,14 @@ async fn apply_edit_operation(
 }
 
 struct EditableContent {
-    bom: String,
+    bom: JsString,
     line_ending: crate::harness::tools::edit_diff::LineEnding,
-    normalized: String,
+    normalized: JsString,
 }
 
 async fn read_editable_file(
     env: &dyn ExecutionEnv,
-    path: &str,
+    path: &JsString,
     absolute_path: &str,
     signal: Option<&CancellationToken>,
 ) -> Result<EditableContent, ToolError> {
@@ -247,9 +239,9 @@ async fn read_editable_file(
         .await
         .map_err(|error| edit_access_error(path, &error))?;
     if !matches!(info.kind, FileKind::File | FileKind::Symlink) {
-        return Err(ToolError::new(format!(
-            "Could not edit file: {path}. Path is not a file."
-        )));
+        return Err(ToolError::new(
+            JsString::from("Could not edit file: ") + path + ". Path is not a file.",
+        ));
     }
     let text = env
         .read_text_file(absolute_path, signal)
@@ -272,15 +264,15 @@ fn ensure_not_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolErro
 }
 
 fn edit_success_result(
-    path: &str,
+    path: &JsString,
     edit_count: usize,
     applied: &crate::harness::tools::edit_diff::AppliedEditsResult,
 ) -> AgentToolResult {
     let diff_result = generate_diff_string(&applied.base_content, &applied.new_content, 4);
     let mut details = Map::new();
-    details.insert("diff".to_owned(), Value::String(diff_result.diff));
+    details.insert("diff".into(), Value::String(diff_result.diff));
     details.insert(
-        "patch".to_owned(),
+        "patch".into(),
         Value::String(generate_unified_patch(
             path,
             &applied.base_content,
@@ -289,13 +281,13 @@ fn edit_success_result(
         )),
     );
     if let Some(first_changed_line) = diff_result.first_changed_line {
-        details.insert("firstChangedLine".to_owned(), json!(first_changed_line));
+        details.insert("firstChangedLine".into(), json!(first_changed_line));
     }
     AgentToolResult {
-        content: vec![TextOrImageContent::Text(TextContent::new(format!(
-            "Successfully replaced {edit_count} block(s) in {path}."
-        )))],
-        details: Some(Value::Object(details).into()),
+        content: vec![TextOrImageContent::Text(TextContent::new(
+            JsString::from(format!("Successfully replaced {edit_count} block(s) in ")) + path + ".",
+        ))],
+        details: Some(Value::Object(details)),
         is_error: None,
         terminate: None,
     }

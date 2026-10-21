@@ -5,6 +5,7 @@ fn search_slicing_and_replacement_operate_on_utf16_units() {
     let value = JsString::from("😀x😀");
     let low = JsString::from_utf16(vec![0xde00]);
     assert_eq!(value.find(&low), Some(1));
+    assert_eq!(value.find_from(&low, 2), Some(4));
     assert_eq!(value.slice(1, 2), low);
     assert_eq!(value.replace(&low, "z").units(), &[0xd83d, 0x7a, 0x78, 0xd83d, 0x7a]);
     let mut edited = value.clone();
