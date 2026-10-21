@@ -62,3 +62,7 @@ Rust: `crates/pi-coding-agent/src/supervisor/` (`approval_reviewer.rs`, `respons
 ## Discrepancies
 
 None.
+
+## Q16 partial frozen revalidation
+
+Frozen objective-authority prompt matrix: `differential_supervisor_service` (five request kinds). Empty-content structured response branch: `q16_runtime_repin::empty_content_does_not_hide_a_structured_supervisor_response`. Remaining service/client/main exports still pending; prior proofs above are historical.

@@ -77,7 +77,7 @@ pub fn consume_self_restart_request(
     if !requested {
         return None;
     }
-    let session_file = session_file?;
+    let session_file = session_file.filter(|path| !path.is_empty())?;
     let old_pid = match old_pid_raw {
         Some(raw) if !raw.is_empty() => {
             let parsed = pi_js_compat::number::parse_number(&raw);
@@ -169,6 +169,9 @@ pub fn apply_self_restart_request(parsed: &mut Args, handoff: Option<&SelfRestar
         return;
     };
     parsed.session = Some(handoff.session_file.clone());
+    parsed.provider = None;
+    parsed.model = None;
+    parsed.thinking = None;
     parsed.resume = Some(false);
     parsed.continue_session = Some(true);
     parsed.fork = None;

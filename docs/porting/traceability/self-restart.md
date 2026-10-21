@@ -36,3 +36,7 @@ concurrent environment readers (root cause and proof in
 [test-infrastructure.md](test-infrastructure.md#6-self_restart-suite-corruption-flake-root-cause-commandext-exec)).
 `nix::unistd::execve` gives the same `execve` semantics (same PID, no PATH search) without touching
 `environ`. Non-UTF-8 environment entries follow Node's lossy decoding via `process_env::vars()`.
+
+## Q16 frozen revalidation
+
+`q16_runtime_repin` differentially proves empty-session rejection against frozen `consumeSelfRestartRequest`; `restart_clears_model_overrides` proves provider/model/thinking reset. Remaining restart exports are not yet revalidated. RED logs: `/tmp/pi-rust-repin-supervisor-runtime/red-runtime-leaves.log`, `red-model-overrides.log`.

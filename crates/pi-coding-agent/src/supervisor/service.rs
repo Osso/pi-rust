@@ -155,7 +155,8 @@ fn parse_response_object(raw_response: &Value) -> Option<Map<String, Value>> {
         Value::Object(response) => {
             let text = extract_text_content(response);
             match text {
-                Some(text) => parse_json_object(&text),
+                Some(text) if !text.is_empty() => parse_json_object(&text),
+                Some(_) => Some(response.clone()),
                 None => Some(response.clone()),
             }
         }
