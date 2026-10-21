@@ -131,6 +131,7 @@ async fn blocking_panels_match_frozen_answers_for_real_keystrokes() {
             vec!["\u{1b}[B", "\r"],
         ),
         (json!([{"question":"Free?"}]), vec!["  answer  ", "\r"]),
+        (json!([{"question":"__proto__"}]), vec!["  answer  ", "\r"]),
         (
             json!([{"question":"2"},{"question":"1"}]),
             vec!["second", "\r", "first", "\r", "\r"],
@@ -250,4 +251,121 @@ async fn failed_panel_does_not_strand_later_requests() {
     );
     assert_eq!(first.unwrap_err().message, "panel failed");
     assert_eq!(second.unwrap().details.unwrap()["answers"]["Free?"], "next");
+}
+
+#[derive(Default)]
+struct PendingUi {
+    panels: Mutex<Vec<tokio::sync::oneshot::Sender<Value>>>,
+    entered: tokio::sync::Notify,
+}
+impl PendingUi {
+    fn settle(&self) {
+        let sender = self.panels.lock().unwrap().remove(0);
+        sender
+            .send(json!({"answers":{"Question?":"settled"},"cancelled":false}))
+            .unwrap();
+    }
+}
+impl ExtensionUiContext for PendingUi {
+    fn custom<'a>(
+        &'a self,
+        _: ExtensionUiCustomFactory,
+        _: Option<ExtensionUiCustomOptions>,
+    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+        Box::pin(async move {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            self.panels.lock().unwrap().push(sender);
+            self.entered.notify_one();
+            Ok(Some(receiver.await.unwrap()))
+        })
+    }
+}
+
+#[tokio::test]
+async fn agent_abort_keeps_pending_panel_fifo_until_settlement() {
+    use pi_agent_core::agent::{Agent, AgentInitialState, AgentOptions};
+    use pi_ai::providers::faux::{
+        FauxAssistantMessageOptions, create_faux_core, faux_assistant_message, faux_tool_call,
+    };
+    use pi_ai::types::{AssistantMessageEvent, DoneReason, StopReason};
+    use pi_ai::utils::event_stream::create_assistant_message_event_stream;
+    use pi_coding_agent::core::tools::{
+        ask_questions::create_ask_questions_tool_definition, tool_definition_wrapper::wrap_definition,
+    };
+    let ui = Arc::new(PendingUi::default());
+    let context = tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
+        .mode(ExtensionMode::Tui)
+        .ui(ui.clone())
+        .build()
+        .await
+        .1;
+    let params = json!({"blocking":true,"questions":[{"question":"Question?"}]});
+    let model = create_faux_core(Default::default()).get_model(None).unwrap();
+    let call_params = params.clone();
+    let agent_context = context.clone();
+    let agent = Agent::new(AgentOptions {
+        initial_state: Some(AgentInitialState {
+            model: Some(model),
+            tools: Some(vec![wrap_definition(
+                create_ask_questions_tool_definition(),
+                Arc::new(move || agent_context.clone()),
+            )]),
+            ..Default::default()
+        }),
+        stream_fn: Some(Arc::new(move |_, _, _| {
+            let message = faux_assistant_message(
+                faux_tool_call(
+                    "ask_questions",
+                    call_params.as_object().unwrap().clone(),
+                    Some("first".into()),
+                ),
+                FauxAssistantMessageOptions {
+                    stop_reason: Some(StopReason::ToolUse),
+                    ..Default::default()
+                },
+            );
+            Box::pin(async move {
+                let (sender, stream) = create_assistant_message_event_stream();
+                sender.push(AssistantMessageEvent::Done {
+                    reason: DoneReason::ToolUse,
+                    message,
+                });
+                stream
+            })
+        })),
+        ..Default::default()
+    })
+    .unwrap();
+    let running = agent.clone();
+    let first = tokio::spawn(async move { running.prompt("ask").await });
+    ui.entered.notified().await;
+    agent.abort();
+    tokio::time::timeout(std::time::Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(!agent.is_streaming());
+    let mut second = tokio::spawn(AskQuestionsTool::new().execute("second".into(), params, None, None, context, None));
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        ui.panels.lock().unwrap().len(),
+        1,
+        "aborting the tool waiter must not start a simultaneous panel"
+    );
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(20), &mut second)
+            .await
+            .is_err()
+    );
+    ui.settle();
+    ui.entered.notified().await;
+    assert_eq!(ui.panels.lock().unwrap().len(), 1);
+    ui.settle();
+    assert_eq!(
+        second.await.unwrap().unwrap().details.unwrap()["answers"]["Question?"],
+        "settled"
+    );
 }

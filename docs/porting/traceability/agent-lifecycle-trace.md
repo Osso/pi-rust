@@ -6,7 +6,7 @@ Whole frozen `core/agent-lifecycle-trace.ts` at `4f9e6f8a4` maps to `core/agent_
 |---|---|---|
 | readAgentLifecycleTrace | read_agent_lifecycle_trace | differential_agent_lifecycle_trace reads same isolated SQLite and JSONL as frozen |
 | agentSnapshotEvent / descendantTraceEvents / listTraceDescendants | snapshot + BFS adjacency/visited set | root, child, grandchild and unrelated agent fixtures |
-| readRuntimeOwnership / parseProcessIdentity | readonly ownership query + parsed process value | owner main, session, pid/ticks/incarnation differential; 100.0 / -0 / 1e21 formatting RED reproduced JSON-number drift; shared JS parser/number formatter fixes it; float/-0/exponent/absent ownership cases GREEN |
+| readRuntimeOwnership / parseProcessIdentity | readonly ownership query + parsed process value | owner main, session, pid/ticks/incarnation differential; 100.0 / -0 / 1e21 formatting RED reproduced JSON-number drift; shared JS parser/number formatter fixes it; float/-0/exponent/absent ownership cases; overflow pid/ticks fixtures reproduce nonfinite loss and now retain binary64 until formatting, serializing nonfinite fields as null |
 | readTerminalOutboxEvents | per-root/descendant ordered rows | pending child event, attempts/error fields differential |
 | readParentAgentEvents / parentAgentEvent | real session-manager file entries | matching start/complete, child transcript reference |
 | readChildEndTurnEvents / childEndTurnEvent / readEndTurnReason | transcript ID/header/timestamp filter; successful end_turn only | successful and errored child end_turn fixtures |

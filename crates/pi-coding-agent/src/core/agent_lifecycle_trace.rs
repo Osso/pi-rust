@@ -11,7 +11,31 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub struct AgentLifecycleTrace {
     pub events: Vec<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ownership: Option<Value>,
+    pub ownership: Option<TraceOwnership>,
+}
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceOwnership {
+    agent_id: String,
+    owner: Value,
+    session_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    process_identity: Option<TraceProcessIdentity>,
+}
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TraceProcessIdentity {
+    pid: f64,
+    start_time_ticks: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    incarnation: Option<String>,
+}
+struct OwnershipRow {
+    agent_id: String,
+    owner_agent_id: Option<String>,
+    owner_session_id: Option<String>,
+    process_identity: Option<String>,
+    session_path: String,
 }
 fn err(error: impl std::fmt::Display) -> ControlDbError {
     ControlDbError::new(error.to_string())
@@ -62,24 +86,58 @@ fn descendant_events(agent: &AgentSnapshot) -> [Value; 2] {
         json!({"agentId":agent.id,"kind":"descendant_snapshot","lifecycle":lifecycle(agent),"parentId":agent.parent_id,"revision":agent.revision,"source":"control_db","timestamp":agent.updated_at,"timestampSource":"descendant.updatedAt"}),
     ]
 }
-fn read_ownership(db: &Connection, path: &str, id: &str) -> Result<Option<Value>, ControlDbError> {
-    let row:Option<(String,Option<String>,Option<String>,Option<String>,String)>=db.query_row("SELECT agent_id, owner_agent_id, owner_session_id, process_identity, session_path FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?",[path,id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?))).optional().map_err(err)?;
-    let Some((id, owner_agent, owner_session, process, path)) = row else {
+fn parse_process_identity(serialized: &str) -> Result<Option<TraceProcessIdentity>, ControlDbError> {
+    use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
+    let JsValue::Object(process) = parse_lossless(serialized).map_err(err)? else {
         return Ok(None);
     };
-    let mut result = json!({"agentId":id,"owner":{"agentId":owner_agent},"sessionPath":path});
-    if let Some(session) = owner_session {
-        result["owner"]["sessionId"] = json!(session);
+    let (Some(JsValue::Number(pid)), Some(JsValue::Number(ticks))) = (
+        process.get(&JsString::from("pid")),
+        process.get(&JsString::from("startTimeTicks")),
+    ) else {
+        return Ok(None);
+    };
+    let incarnation = match process.get(&JsString::from("incarnation")) {
+        Some(JsValue::String(value)) => Some(value.to_utf8_lossy()),
+        _ => None,
+    };
+    Ok(Some(TraceProcessIdentity {
+        pid: *pid,
+        start_time_ticks: *ticks,
+        incarnation,
+    }))
+}
+fn read_ownership(db: &Connection, path: &str, id: &str) -> Result<Option<TraceOwnership>, ControlDbError> {
+    let row = db.query_row(
+        "SELECT agent_id, owner_agent_id, owner_session_id, process_identity, session_path FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?",
+        [path, id],
+        |row| Ok(OwnershipRow {
+            agent_id: row.get(0)?,
+            owner_agent_id: row.get(1)?,
+            owner_session_id: row.get(2)?,
+            process_identity: row.get(3)?,
+            session_path: row.get(4)?,
+        }),
+    ).optional().map_err(err)?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let mut owner = json!({"agentId":row.owner_agent_id});
+    if let Some(session) = row.owner_session_id {
+        owner["sessionId"] = json!(session);
     }
-    if let Some(serialized) = process.filter(|process| !process.is_empty()) {
-        let process = pi_js_compat::js_json::parse(&serialized).map_err(err)?;
-        if process.is_object() && process["pid"].is_number() && process["startTimeTicks"].is_number() {
-            let mut identity = json!({"pid":process["pid"],"startTimeTicks":process["startTimeTicks"]});
-            optional_string(&mut identity, "incarnation", &process["incarnation"]);
-            result["processIdentity"] = identity;
-        }
-    }
-    Ok(Some(result))
+    let process_identity = row
+        .process_identity
+        .filter(|process| !process.is_empty())
+        .map(|serialized| parse_process_identity(&serialized))
+        .transpose()?
+        .flatten();
+    Ok(Some(TraceOwnership {
+        agent_id: row.agent_id,
+        owner,
+        session_path: row.session_path,
+        process_identity,
+    }))
 }
 fn read_outbox(db: &Connection, path: &str, ids: &[&str]) -> Result<Vec<Value>, ControlDbError> {
     let mut events = Vec::new();
@@ -198,21 +256,18 @@ pub fn read_agent_lifecycle_trace(
     });
     Ok(AgentLifecycleTrace { events, ownership })
 }
-fn format_ownership(ownership: Option<&Value>) -> String {
+fn format_ownership(ownership: Option<&TraceOwnership>) -> String {
     let Some(ownership) = ownership else {
         return "runtime_ownership absent".into();
     };
-    let owner_agent = ownership["owner"]["agentId"].as_str().unwrap_or("main");
-    let owner_session = ownership["owner"]["sessionId"].as_str().unwrap_or("unknown");
-    let process = &ownership["processIdentity"];
-    let process = if process.is_object() {
+    let owner_agent = ownership.owner["agentId"].as_str().unwrap_or("main");
+    let owner_session = ownership.owner["sessionId"].as_str().unwrap_or("unknown");
+    let process = if let Some(process) = &ownership.process_identity {
         format!(
             "{}:{}:{}",
-            pi_js_compat::number::js_number_to_string(process["pid"].as_f64().expect("numeric process pid")),
-            pi_js_compat::number::js_number_to_string(
-                process["startTimeTicks"].as_f64().expect("numeric process ticks")
-            ),
-            process["incarnation"].as_str().unwrap_or("legacy")
+            pi_js_compat::number::js_number_to_string(process.pid),
+            pi_js_compat::number::js_number_to_string(process.start_time_ticks),
+            process.incarnation.as_deref().unwrap_or("legacy")
         )
     } else {
         "unbound".into()

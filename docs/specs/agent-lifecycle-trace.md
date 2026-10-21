@@ -6,7 +6,7 @@ Frozen `extensions/agent-viewer/src/runtime.ts` and `core/agent-lifecycle-trace.
 
 - [x] Require storeSessionId for trace; preserve missing-agent and transcript-session mismatch errors.
 - [x] Read root/descendant snapshots, ownership, parent start/complete records, successful child end_turn records and terminal outbox without mutation.
-- [x] Return exact frozen trace JSON and human-readable text, including timestamp origin and same-timestamp kind ordering.
+- [x] Return exact frozen trace JSON and human-readable text, including timestamp origin and same-timestamp kind ordering. Historical ownership numbers retain JavaScript overflow: `1e400` formats as `Infinity` while serializing as null.
 - [x] Exclude unrelated agents and failed end_turn results.
 - [ ] Exercise every malformed/missing transcript and ownership branch against frozen.
 

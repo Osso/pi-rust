@@ -110,6 +110,8 @@ async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership
     for ownership in [
         Some(r#"{"pid":100.0,"startTimeTicks":1e21}"#),
         Some(r#"{"pid":-0,"startTimeTicks":4.5}"#),
+        Some(r#"{"pid":1e400,"startTimeTicks":1}"#),
+        Some(r#"{"pid":1,"startTimeTicks":-1e400}"#),
         None,
     ] {
         if let Some(process) = ownership {

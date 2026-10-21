@@ -117,7 +117,9 @@ impl QuestionPanel {
         state.finished = true;
         let mut answers = Map::new();
         for (question, answer) in self.questions.iter().zip(&state.answers) {
-            if !cancelled || answer.has_answer() {
+            // Frozen collects with assignment on {}, whose inherited __proto__ setter
+            // ignores string values instead of creating an own answer property.
+            if question.question != "__proto__" && (!cancelled || answer.has_answer()) {
                 answers.insert(question.question.clone(), Value::String(answer.format(question)));
             }
         }

@@ -157,6 +157,8 @@ struct PanelResult {
     cancelled: bool,
 }
 struct QuestionJob {
+    // A pending panel owns its serialization boundary even if its caller is aborted.
+    _queue: Arc<QuestionQueue>,
     questions: Vec<Question>,
     result: oneshot::Sender<Result<PanelResult, String>>,
 }
@@ -202,6 +204,7 @@ fn queue_questions(
     queue
         .sender
         .send(QuestionJob {
+            _queue: Arc::clone(&queue),
             questions,
             result: sender,
         })
