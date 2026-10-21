@@ -404,7 +404,7 @@ impl ExtensionRunner {
         self.emit_error(ExtensionError {
             extension_path: extension_path.to_owned(),
             event: "register_provider".to_owned(),
-            error: error.to_owned(),
+            error: error.into(),
             stack: None,
         });
     }
@@ -1255,7 +1255,7 @@ impl ExtensionRunner {
                             self.emit_error(ExtensionError {
                                 extension_path,
                                 event: "message_end".to_owned(),
-                                error: "message_end handlers must return a message with the same role".to_owned(),
+                                error: "message_end handlers must return a message with the same role".into(),
                                 stack: None,
                             });
                             continue;

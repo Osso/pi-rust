@@ -85,7 +85,7 @@ pub async fn resolve_project_trusted(options: ResolveProjectTrustedOptions<'_>) 
             if let Some(on_extension_error) = options.on_extension_error {
                 on_extension_error(format!(
                     "Extension \"{}\" project_trust error: {}",
-                    error.extension_path, error.error
+                    error.extension_path, pi_js_compat::js_json::encode_node_utf8(&error.error)
                 ));
             }
         }

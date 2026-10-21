@@ -541,7 +541,7 @@ pub struct CompactionEndEvent {
     pub aborted: bool,
     pub will_retry: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
+    pub error_message: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2013,14 +2013,14 @@ impl AgentSession {
                         let tool_inner = tool_inner.clone();
                         Box::pin(async move {
                             let Some(inner) = tool_inner.upgrade() else {
-                                return Err("Session is disposed".to_owned());
+                                return Err(JsString::from("Session is disposed"));
                             };
                             let tool = lock(&inner.tool_registry)
                                 .get(tool_name)
                                 .cloned()
-                                .ok_or_else(|| format!("Permission prompt tool not found: {tool_name}"))?;
+                                .ok_or_else(|| JsString::from(format!("Permission prompt tool not found: {tool_name}")))?;
                             let tool_use_id = input.tool_use_id.clone();
-                            let params = serde_json::to_value(&input).map_err(|error| error.to_string())?;
+                            let params = pi_js_compat::js_json::to_value(&input).map_err(|error| JsString::from(error.to_string()))?;
                             let result = tool
                                 .execute(
                                     format!("permission-prompt:{tool_use_id}"),
@@ -2031,7 +2031,7 @@ impl AgentSession {
                                 )
                                 .await
                                 .map_err(|error| error.message)?;
-                            pi_js_compat::js_json::to_value(&result).map_err(|error| error.to_string())
+                            pi_js_compat::js_json::to_value(&result).map_err(|error| JsString::from(error.to_string()))
                         })
                     });
                 let cwd = session.inner.cwd.clone();
@@ -2990,7 +2990,7 @@ impl AgentSession {
                             })
                             .await
                         {
-                            eprintln!("Failed to drain runtime coordination messages: {}", error.message());
+                            eprintln!("Failed to drain runtime coordination messages: {error}");
                         }
                     }
                 }
@@ -3127,7 +3127,7 @@ impl AgentSession {
                                 })
                                 .await
                             {
-                                eprintln!("Failed to drain runtime coordination messages: {}", error.message());
+                                eprintln!("Failed to drain runtime coordination messages: {error}");
                             }
                         }
                     }
@@ -3708,7 +3708,7 @@ impl AgentSession {
             }
             Err(error) => {
                 cache.state = BackgroundCompactionState::Failed;
-                eprintln!("Background compaction cache generation failed: {}", error.message());
+                eprintln!("Background compaction cache generation failed: {error}");
             }
         }
     }
@@ -5118,7 +5118,7 @@ impl AgentSession {
             error_message: message
                 .error_message
                 .clone()
-                .unwrap_or_else(|| "Unknown error".to_owned()),
+                .unwrap_or_else(|| "Unknown error".to_owned()).into(),
         }));
         let mut messages = self.inner.agent.messages();
         if matches!(messages.last(), Some(AgentMessage::Assistant(_))) {
@@ -5795,7 +5795,7 @@ impl AgentSession {
                     result: None,
                     aborted,
                     will_retry: false,
-                    error_message: (!aborted).then(|| format!("Compaction failed: {}", error.message())),
+                    error_message: (!aborted).then(|| JsString::from("Compaction failed: ") + error.message()),
                 })));
                 self.reconnect_to_agent();
                 Err(error)
@@ -6320,9 +6320,9 @@ impl AgentSession {
                     will_retry: false,
                     error_message: (!aborted).then(|| {
                         if reason == "overflow" {
-                            format!("Context overflow recovery failed: {}", error.message())
+                            JsString::from("Context overflow recovery failed: ") + error.message()
                         } else {
-                            format!("Auto-compaction failed: {}", error.message())
+                            JsString::from("Auto-compaction failed: ") + error.message()
                         }
                     }),
                 })));
@@ -7593,7 +7593,7 @@ impl AgentSession {
             runner.emit_error(crate::core::extensions::types::ExtensionError {
                 extension_path: format!("command:{command_name}"),
                 event: "command".to_owned(),
-                error: error.to_string(),
+                error: error.to_string().into(),
                 stack: None,
             });
         }

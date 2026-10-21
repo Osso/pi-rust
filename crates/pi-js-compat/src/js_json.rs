@@ -301,8 +301,10 @@ pub fn deserialize_object<'de, D: serde::Deserializer<'de>>(d: D) -> Result<JsOb
 
 /// Deserialize an optional JSON property without conflating explicit null with omission.
 /// Use with `#[serde(default, deserialize_with = "deserialize_present")]`.
-pub fn deserialize_present<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<JsValue>, D::Error> {
-    serde::Deserialize::deserialize(deserializer).map(Some)
+pub fn deserialize_present<'de, D: serde::Deserializer<'de>, T: serde::Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(deserializer).map(Some)
 }
 
 impl JsValue {

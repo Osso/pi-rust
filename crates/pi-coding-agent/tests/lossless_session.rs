@@ -87,6 +87,8 @@ fn session_jsonl_retains_message_summary_and_custom_units_on_reload() {
     for record in [
         r#"{"type":"message","id":"m","parentId":null,"timestamp":"2026-10-21T00:00:00Z","message":{"role":"toolResult","toolCallId":"c","toolName":"probe","content":[{"type":"text","text":"\ud800"}],"details":{"\udfff":"\ud800"},"isError":false,"timestamp":1}}"#,
         r#"{"type":"custom","id":"c","parentId":null,"timestamp":"2026-10-21T00:00:00Z","customType":"probe","data":{"\ud800":"\udfff"}}"#,
+        r#"{"type":"custom","id":"null","parentId":null,"timestamp":"2026-10-21T00:00:00Z","customType":"probe","data":null}"#,
+        r#"{"type":"custom","id":"absent","parentId":null,"timestamp":"2026-10-21T00:00:00Z","customType":"probe"}"#,
         r#"{"type":"compaction","id":"s","parentId":null,"timestamp":"2026-10-21T00:00:00Z","summary":"\ud800","firstKeptEntryId":"m","tokensBefore":4,"details":{"path":"\udfff"}}"#,
     ] {
         let header =

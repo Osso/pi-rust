@@ -438,7 +438,7 @@ impl AgentSessionRuntime {
         self.session
             .continue_run()
             .await
-            .map_err(|error| error.message().to_owned())
+            .map_err(|error| error.to_string())
     }
 
     /// Relocates the session to a new working directory.
