@@ -9,4 +9,6 @@ Frozen: `packages/coding-agent/src/core/host-relay-client.ts`, common pin `4f9e6
 | Blank/option alias validation; half/full jitter, 30s cap | first test checks boundary inputs and failure counts 0/1/4/5/100 |
 | connectRelay; stderr tail, protocol failure cleanup and 1s forced kill | ported; ordinary failure/TERM tested. Dedicated 4096-UTF16-unit stderr truncation, ignored-SIGTERM kill and 30s reset differential pending |
 
-No real SSH is invoked: fake `ssh` is an executable Python program inside sandbox-private PATH. Client/fake process proof is not presented as a deterministic TS differential; store/protocol differentials cover the shared frames. Final mutation/check evidence: lane report.
+`frozen_client_runs_same_fake_outage_reconnect_and_ack_on_rust_queue` runs the actual frozen client against the same executable fake and Rust-created canonical queue, verifies its exact outage log/argv, ACK deletion and child termination. `spawn_failure_is_logged_like_frozen_without_executing_any_ssh` compares frozen/native EACCES logs; its PATH contains only a non-executable fake SSH and Node, so it cannot resolve a real SSH executable. RED native log was `Permission denied (os error 13)`, fixed by the shared Node spawn-error formatter.
+
+No real SSH is invoked: executable fakes live inside sandbox-private PATH. Final mutation/check evidence: lane report.

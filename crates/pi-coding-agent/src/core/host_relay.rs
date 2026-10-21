@@ -33,7 +33,12 @@ impl RelayFrame {
             }
             Self::Ack { kind, id } => JsValue::from(serde_json::json!({"type":"ack","kind":kind,"id":id})),
             Self::Mailbox(message) => {
-                let mut frame = JsValue::from(serde_json::json!({"type":"mailbox","seq":message.seq,"sessionPath":message.session_path,"messageId":message.message_id})).as_object().unwrap().clone();
+                let mut frame = JsValue::from(serde_json::json!({"type":"mailbox","seq":message.seq}))
+                    .as_object()
+                    .unwrap()
+                    .clone();
+                frame.insert("sessionPath".into(), JsValue::String(message.session_path.clone()));
+                frame.insert("messageId".into(), JsValue::String(message.message_id.clone()));
                 frame.insert("data".into(), message.data.clone());
                 JsValue::Object(frame)
             }
@@ -53,34 +58,12 @@ pub fn parse_frame(line: &str) -> Result<RelayFrame, ControlDbError> {
         .map(|s| s.to_utf8_lossy());
     match kind.as_deref() {
         Some("hello") => Ok(RelayFrame::Hello {
-            host: require_lossless_text(frame.get("host"), "host")?,
+            host: require_text(frame.get("host"), "host")?,
         }),
-        Some("ack") => {
-            let kind = frame
-                .get("kind")
-                .and_then(JsValue::as_string)
-                .map(|s| s.to_utf8_lossy());
-            let Some(kind) = kind.filter(|kind| kind == "mailbox" || kind == "channel") else {
-                return Err(ControlDbError::new("Invalid relay ack kind"));
-            };
-            Ok(RelayFrame::Ack {
-                kind,
-                id: positive_integer(frame.get("id"))?,
-            })
-        }
-        Some("mailbox") => {
-            let Some(data) = frame.get("data").filter(|data| data.as_object().is_some()) else {
-                return Err(ControlDbError::new("Invalid relay mailbox data"));
-            };
-            Ok(RelayFrame::Mailbox(RelayMailbox {
-                seq: positive_integer(frame.get("seq"))?,
-                session_path: require_text(frame.get("sessionPath"), "sessionPath")?,
-                message_id: require_text(frame.get("messageId"), "messageId")?,
-                data: data.clone(),
-            }))
-        }
+        Some("ack") => parse_ack(&frame),
+        Some("mailbox") => parse_mailbox(&frame),
         Some("channel") => Ok(RelayFrame::Channel(RelayChannel {
-            origin_host: require_lossless_text(frame.get("originHost"), "originHost")?,
+            origin_host: require_text(frame.get("originHost"), "originHost")?,
             origin_id: positive_integer(frame.get("originId"))?,
             sender_session_id: require_text(frame.get("senderSessionId"), "senderSessionId")?,
             sender_agent_id: nullable_text(frame.get("senderAgentId"), "senderAgentId")?,
@@ -89,6 +72,31 @@ pub fn parse_frame(line: &str) -> Result<RelayFrame, ControlDbError> {
         })),
         _ => Err(ControlDbError::new("Unknown relay frame type")),
     }
+}
+
+fn parse_ack(frame: &JsValue) -> Result<RelayFrame, ControlDbError> {
+    let kind = frame
+        .get("kind")
+        .and_then(JsValue::as_string)
+        .map(JsString::to_utf8_lossy);
+    let Some(kind) = kind.filter(|kind| kind == "mailbox" || kind == "channel") else {
+        return Err(ControlDbError::new("Invalid relay ack kind"));
+    };
+    Ok(RelayFrame::Ack {
+        kind,
+        id: positive_integer(frame.get("id"))?,
+    })
+}
+fn parse_mailbox(frame: &JsValue) -> Result<RelayFrame, ControlDbError> {
+    let Some(data) = frame.get("data").filter(|data| data.as_object().is_some()) else {
+        return Err(ControlDbError::new("Invalid relay mailbox data"));
+    };
+    Ok(RelayFrame::Mailbox(RelayMailbox {
+        seq: positive_integer(frame.get("seq"))?,
+        session_path: require_text(frame.get("sessionPath"), "sessionPath")?,
+        message_id: require_text(frame.get("messageId"), "messageId")?,
+        data: data.clone(),
+    }))
 }
 
 struct RelayState<'a> {

@@ -15,4 +15,6 @@ Frozen: `packages/coding-agent/src/core/host-relay-resident.ts`, common pin `4f9
 
 Main call site starts the helper as an error-logged background task after startup diagnostics, and skips `--no-supervisor`. Parser/diagnostics and early invalid standalone rejection have focused proof. Full standalone orchestration/handoff suppression is a separate Q14 main/CLI gap, not a relay semantic deviation. See [main](main.md).
 
-Tests use private settings/control DBs and fake SSH only. Final mutation/check evidence: lane report. TS resident identity/lock interoperability differential remains pending; shared proper-lockfile implementation already uses frozen protocol, but earlier lock proofs are not promoted to new-pin relay evidence.
+`resident_identity_bytes_and_reuse_refusal_errors_match_frozen_bidirectionally` writes identity via frozen TS, reads/rewrites via Rust with exact byte equality, then lets frozen ensure reuse it without spawning. Old own/unverified PID and malformed JSON/identity errors match exactly; both runtimes release the shared startup lock. Frozen `VERSION` is `0.80.3`, native embedded package version is `0.84.1`: each implementation compares against its own runtime config as frozen code requires. Global package metadata re-pin is outside this slice; no relay-local version substitution is introduced.
+
+Tests use private settings/control DBs and fake SSH only. Final mutation/check evidence: lane report.

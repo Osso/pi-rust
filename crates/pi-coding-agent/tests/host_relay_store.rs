@@ -110,7 +110,7 @@ fn ts_store_rust_sequence_ts_ack_and_lossless_inbound_replay() {
     ack_relay_mailbox(&a, "peer", &second).unwrap();
     let third = next_relay_mailbox(&a, "peer").unwrap().unwrap();
     assert_eq!(third.seq, 3);
-    assert_eq!(third.message_id, "three");
+    assert_eq!(third.message_id.to_utf8_lossy(), "three");
     assert_eq!(counter(&a, "relay-out:peer"), 3);
 }
 #[test]
@@ -213,6 +213,24 @@ fn channel_tail_origin_dedup_expiry_and_monotonic_cursors_match_frozen() {
     );
 }
 #[test]
+fn newly_allocated_invalid_sequence_rolls_back_like_frozen() {
+    let (_a, a) = temp();
+    let mut ts = oracle::TsOracle::spawn("host-relay-oracle.ts", "packages/coding-agent/src");
+    call(
+        &mut ts,
+        "db",
+        "enqueueStoredRuntimeMailboxMessage",
+        json!([a, input("bad-counter")]),
+    );
+    with_control_db(&a,|db|{db.execute("INSERT INTO shared_channel_cursors(session_id,agent_id_key,last_seen_id,updated_at) VALUES ('relay-out:peer','',-1,'fixture')",[])?;Ok(())}).unwrap();
+    let expected = ts.request(&json!({"op":"store","fn":"nextRelayMailbox","args":json!([a,"peer"]).to_string()}));
+    assert_eq!(expected["ok"], false);
+    let error = next_relay_mailbox(&a, "peer").unwrap_err();
+    assert_eq!(expected["error"], error.to_string());
+    assert_eq!(counter(&a, "relay-out:peer"), -1);
+}
+
+#[test]
 fn invalid_stored_sequence_and_expired_rows_match_frozen() {
     let (_a, a) = temp();
     let mut ts = oracle::TsOracle::spawn("host-relay-oracle.ts", "packages/coding-agent/src");
@@ -247,6 +265,44 @@ fn invalid_stored_sequence_and_expired_rows_match_frozen() {
     assert!(next_relay_mailbox(&a, "peer").unwrap().is_none());
     assert_eq!(call(&mut ts, "store", "nextRelayMailbox", json!([a, "peer"])), "null");
 }
+#[test]
+fn text_validation_preserves_utf16_like_frozen() {
+    let mut ts = oracle::TsOracle::spawn("host-relay-oracle.ts", "packages/coding-agent/src");
+    for wire in [
+        r#""a\ud800""#,
+        r#""\udc00""#,
+        r#"" plain ""#,
+        r#""""#,
+        r#""\ufeff\u00a0""#,
+        "null",
+        "1",
+        "[]",
+        "{}",
+    ] {
+        let value = js_json::parse_lossless(wire).unwrap();
+        for nullable in [false, true] {
+            let name = if nullable { "nullableText" } else { "requireText" };
+            let actual = if nullable {
+                nullable_text(Some(&value), "fixture")
+                    .map(|v| v.map(|s| JsValue::String(s.into())).unwrap_or(JsValue::Null))
+            } else {
+                require_text(Some(&value), "fixture").map(|s| JsValue::String(s.into()))
+            };
+            let expected = ts.request(&json!({"op":"store","fn":name,"args":format!("[{wire},\"fixture\"]")}));
+            match actual {
+                Ok(value) => {
+                    assert_eq!(expected["ok"], true, "{expected}");
+                    assert_eq!(expected["wire"], js_json::stringify_lossless(&value));
+                }
+                Err(error) => {
+                    assert_eq!(expected["ok"], false);
+                    assert_eq!(expected["error"], error.to_string());
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn parser_preserves_lossless_nested_payload_wire() {
     let wire =

@@ -1,4 +1,6 @@
 //! Resident/client process boundaries, sandbox-owned files/processes and an executable fake SSH only.
+#[path = "support/oracle.rs"]
+mod oracle;
 use pi_coding_agent::core::host_relay_resident::*;
 use pi_coding_agent::core::runtime_process::{is_process_identity_alive, read_process_identity};
 use pi_coding_agent::core::session_control_db::*;
@@ -274,4 +276,119 @@ fn ssh_peer_validation_and_backoff_boundaries() {
         .unwrap(),
         "pi relay serve"
     );
+}
+
+#[test]
+fn frozen_client_runs_same_fake_outage_reconnect_and_ack_on_rust_queue() {
+    let f = Fixture::new(true);
+    fs::write(f.temp.path().join("fail-first"), "").unwrap();
+    queue(&f.db);
+    let path = format!("{}:{}", f.temp.path().display(), std::env::var("PATH").unwrap());
+    let mut ts = oracle::TsOracle::spawn_with_environment(
+        "host-relay-oracle.ts",
+        "packages/coding-agent/src",
+        &[("PATH", path.into())],
+    );
+    let result=ts.request(&json!({"op":"client","path":f.db,"settings":{"peer":"fake-peer","remoteCommand":"fixture relay serve"},"readyPath":f.temp.path().join("received")}));
+    assert_eq!(result["ok"], true, "{result}");
+    let logs: Vec<String> = serde_json::from_str(result["wire"].as_str().unwrap()).unwrap();
+    assert_eq!(logs, vec!["[relay:fake-peer] ssh exited 255: fixture peer unavailable"]);
+    assert_eq!(
+        fs::read_to_string(f.temp.path().join("starts"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+    assert!(list_runtime_mailbox_messages(&f.db).unwrap().is_empty());
+    let pid: u32 = fs::read_to_string(f.temp.path().join("peer-pid"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(read_process_identity(pid).is_err());
+    let argv: Value = serde_json::from_str(&fs::read_to_string(f.temp.path().join("argv.json")).unwrap()).unwrap();
+    assert_eq!(
+        argv,
+        json!([
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ServerAliveInterval=15",
+            "fake-peer",
+            "fixture relay serve"
+        ])
+    );
+}
+
+#[tokio::test]
+async fn resident_identity_bytes_and_reuse_refusal_errors_match_frozen_bidirectionally() {
+    let t = tempfile::tempdir().unwrap();
+    let path = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("host-relay-oracle.ts", "packages/coding-agent/src");
+    let result = ts.request(&json!({"op":"writeIdentity","path":path}));
+    assert_eq!(result["ok"], true, "{result}");
+    let ts_wire: String = serde_json::from_str(result["wire"].as_str().unwrap()).unwrap();
+    let identity = read_relay_identity(&path).unwrap().unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&ts_wire).unwrap()["version"],
+        identity.version
+    );
+    write_relay_identity(&path, &identity).unwrap();
+    assert_eq!(fs::read_to_string(format!("{path}.relay.json")).unwrap(), ts_wire);
+    let result = ts.request(&json!({"op":"ensure","path":path,"settings":{"peer":"never-invoked"}}));
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(
+        serde_json::from_str::<String>(result["wire"].as_str().unwrap()).unwrap(),
+        ts_wire
+    );
+    let mut old = identity;
+    old.version = "0.0.0".into();
+    write_relay_identity(&path, &old).unwrap();
+    let settings = pi_coding_agent::core::host_relay_client::RelaySettings {
+        peer: "never-invoked".into(),
+        remote_command: None,
+    };
+    let rust = ensure_relay_running(&path, Some(&settings)).await.unwrap_err();
+    let result = ts.request(&json!({"op":"ensure","path":path,"settings":{"peer":"never-invoked"}}));
+    assert_eq!(result["ok"], false, "{result}");
+    assert_eq!(result["error"], rust);
+    for wire in [
+        "{",
+        r#"{"pid":"wrong","startTimeTicks":1,"version":"x"}"#,
+        r#"{"pid":1,"version":"x"}"#,
+    ] {
+        fs::write(format!("{path}.relay.json"), wire).unwrap();
+        let rust = read_relay_identity(&path).unwrap_err();
+        let result = ts.request(&json!({"op":"ensure","path":path,"settings":{"peer":"never-invoked"}}));
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["error"], rust);
+    }
+    assert!(!Path::new(&format!("{path}.relay-start.lock")).exists());
+}
+
+#[test]
+fn spawn_failure_is_logged_like_frozen_without_executing_any_ssh() {
+    use std::io::Read;
+    let f = Fixture::new(true);
+    fs::set_permissions(f.temp.path().join("ssh"), fs::Permissions::from_mode(0o600)).unwrap();
+    std::os::unix::fs::symlink("/usr/bin/node", f.temp.path().join("node")).unwrap();
+    let mut cmd = f.command();
+    cmd.env("PATH", f.temp.path()).stderr(Stdio::piped());
+    let mut child = OwnedChild(cmd.args(["relay", "connect"]).spawn().unwrap());
+    std::thread::sleep(Duration::from_millis(100));
+    terminate(child.0.id());
+    assert!(child.0.wait().unwrap().success());
+    let mut log = String::new();
+    child.0.stderr.take().unwrap().read_to_string(&mut log).unwrap();
+    let mut ts = oracle::TsOracle::spawn_with_environment(
+        "host-relay-oracle.ts",
+        "packages/coding-agent/src",
+        &[("PATH", f.temp.path().as_os_str().to_owned())],
+    );
+    let response=ts.request(&json!({"op":"client","path":f.db,"settings":{"peer":"fake-peer","remoteCommand":"fixture relay serve"},"stopAfterMs":100}));
+    assert_eq!(response["ok"], true, "{response}");
+    let expected: Vec<String> = serde_json::from_str(response["wire"].as_str().unwrap()).unwrap();
+    assert_eq!(log.lines().collect::<Vec<_>>(), expected);
+    assert_eq!(expected, vec!["[relay:fake-peer] spawn ssh EACCES"]);
+    assert!(!f.temp.path().join("starts").exists());
 }

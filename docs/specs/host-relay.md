@@ -14,7 +14,7 @@ Reference: frozen `4f9e6f8a4` `core/host-relay{,-client,-resident,-store}.ts`.
 
 ## Boundaries
 
-Native binaries use the frozen compiled-binary launch branch. Linux `setsid` supplies Node's detached-session semantics without unsafe pre-exec code. Tests use private databases, streams and executable SSH fakes, never real SSH or hosts. No new Rust dependencies.
+Native binaries use the frozen compiled-binary launch branch. Linux `setsid` supplies Node's detached-session semantics without unsafe pre-exec code. Tests use private databases, streams and executable SSH fakes, never real SSH or hosts. No new Rust dependencies. The identity's version is the active runtime's package version, not a relay-local constant; current frozen/native package versions differ (`0.80.3` / `0.84.1`) and must not be silently substituted.
 
 The CLI flag/diagnostics and early standalone rejection are included. Broader standalone orchestration/restart-handoff suppression remains the pre-existing main/CLI slice Q14 gap; this relay slice does not claim full `--no-supervisor` parity. [Main traceability](../porting/traceability/main.md).
 

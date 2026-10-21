@@ -70,11 +70,11 @@ async fn cleanup_child(child: &mut Child) -> Result<(), String> {
         return Ok(());
     }
     terminate(child)?;
-    if tokio::time::timeout(Duration::from_secs(1), child.wait())
-        .await
-        .is_err()
-    {
-        child.kill().await.map_err(|e| e.to_string())?;
+    match tokio::time::timeout(Duration::from_secs(1), child.wait()).await {
+        Ok(status) => {
+            status.map_err(|error| error.to_string())?;
+        }
+        Err(_) => child.kill().await.map_err(|error| error.to_string())?,
     }
     Ok(())
 }
@@ -85,7 +85,7 @@ async fn connect_relay(path: &str, settings: &RelaySettings, signal: &Cancellati
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| crate::utils::child_process::node_spawn_error_message("spawn", "ssh", &error))?;
     let stderr = tokio::spawn(read_stderr_tail(child.stderr.take().unwrap()));
     let result = run_host_relay(
         child.stdout.take().unwrap(),
@@ -98,35 +98,32 @@ async fn connect_relay(path: &str, settings: &RelaySettings, signal: &Cancellati
         },
     )
     .await;
-    let result = match result {
+    let status = match result {
+        Ok(()) => wait_for_ssh_exit(&mut child, signal).await,
         Err(error) => Err(error),
-        Ok(()) => {
-            let status = tokio::select! {
-                biased;
-                _ = signal.cancelled() => { terminate(&child)?; child.wait().await },
-                status = child.wait() => status,
-            }
-            .map_err(|e| e.to_string())?;
-            let tail = stderr.await.map_err(|e| e.to_string())??;
-            if signal.is_cancelled() || status.code() == Some(0) {
-                return Ok(());
-            }
-            use std::os::unix::process::ExitStatusExt;
-            let code = status
-                .code()
-                .map(|code| code.to_string())
-                .unwrap_or_else(|| match status.signal() {
-                    Some(15) => "SIGTERM".into(),
-                    Some(9) => "SIGKILL".into(),
-                    Some(n) => format!("SIG{n}"),
-                    None => "null".into(),
-                });
-            return Err(format!("ssh exited {code}: {}", pi_js_compat::string::js_trim(&tail)));
-        }
     };
     cleanup_child(&mut child).await?;
-    stderr.await.map_err(|e| e.to_string())??;
-    result
+    let tail = stderr.await.map_err(|e| e.to_string())??;
+    check_ssh_status(status?, &tail, signal.is_cancelled())
+}
+
+async fn wait_for_ssh_exit(child: &mut Child, signal: &CancellationToken) -> Result<std::process::ExitStatus, String> {
+    tokio::select! {
+        biased;
+        _ = signal.cancelled() => { terminate(child)?; child.wait().await },
+        status = child.wait() => status,
+    }
+    .map_err(|e| e.to_string())
+}
+fn check_ssh_status(status: std::process::ExitStatus, stderr: &str, cancelled: bool) -> Result<(), String> {
+    if cancelled || status.code() == Some(0) {
+        return Ok(());
+    }
+    let code = status
+        .code()
+        .map(|code| code.to_string())
+        .unwrap_or_else(|| crate::utils::child_process::exit_signal_name(&status));
+    Err(format!("ssh exited {code}: {}", pi_js_compat::string::js_trim(stderr)))
 }
 
 /// Failure stays within this connection; local canonical queues remain untouched.
