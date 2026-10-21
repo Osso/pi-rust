@@ -88,6 +88,7 @@ fn route_runtime_mailbox_message(
         );
         let message = parse_stored_json_object(&row.data, &context)?;
         validate_mailbox_payload(&Value::Object(message.clone()), &context)?;
+        assert_runtime_mailbox_routing(&super::parse_canonical_mailbox_payload_lossless(&row)?, input)?;
         let routed = add_runtime_mailbox_routing(&message, input)?;
         let serialized = super::serialize_canonical_mailbox_mutation(&row, |canonical| {
             for key in [
@@ -272,7 +273,7 @@ fn validate_existing_stored_runtime_mailbox_message(
         )));
     }
     assert_runtime_mailbox_routing(
-        &previous,
+        &super::parse_canonical_mailbox_payload_lossless(existing)?,
         &EnqueueRuntimeMailboxMessageInput {
             recipient_host: input.recipient_host.clone(),
             recipient: input.recipient.clone(),

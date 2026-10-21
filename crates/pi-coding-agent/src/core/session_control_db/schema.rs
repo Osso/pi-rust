@@ -1003,7 +1003,11 @@ pub(crate) fn add_runtime_mailbox_routing(
     message: &serde_json::Map<String, Value>,
     input: &super::EnqueueRuntimeMailboxMessageInput,
 ) -> Result<serde_json::Map<String, Value>, ControlDbError> {
-    assert_runtime_mailbox_routing(message, input)?;
+    let lossless = message
+        .iter()
+        .map(|(key, value)| (js_json::JsString::from(key.as_str()), js_json::JsValue::from(value)))
+        .collect();
+    assert_runtime_mailbox_routing(&lossless, input)?;
     let mut routed = message.clone();
     if let Some(host) = &input.recipient_host {
         routed.insert("recipientHost".into(), Value::String(host.clone()));
@@ -1033,30 +1037,28 @@ pub(crate) fn add_runtime_mailbox_routing(
 }
 
 pub(crate) fn assert_runtime_mailbox_routing(
-    message: &serde_json::Map<String, Value>,
+    message: &js_json::JsObject,
     input: &super::EnqueueRuntimeMailboxMessageInput,
 ) -> Result<(), ControlDbError> {
-    let has_routing = matches!(message.get("recipientSessionId"), Some(Value::String(_)));
-    if !has_routing {
+    use js_json::{JsString, JsValue};
+    let field = |key: &str| message.get(&JsString::from(key));
+    let text = |text: &str| JsValue::String(JsString::from(text));
+    let nullable_text = |value: Option<&str>| value.map(text).unwrap_or(JsValue::Null);
+    if !matches!(field("recipientSessionId"), Some(JsValue::String(_))) {
         return Ok(());
     }
-    let same_recipient = message.get("recipientSessionId") == Some(&Value::String(input.recipient.session_id.clone()))
-        && message.get("recipientAgentId")
-            == Some(
-                &input
-                    .recipient
-                    .agent_id
-                    .clone()
-                    .map(Value::String)
-                    .unwrap_or(Value::Null),
-            );
-    let same_sender = message.get("senderSessionId") == Some(&Value::String(input.sender.session_id.clone()))
-        && message.get("senderAgentId")
-            == Some(&input.sender.agent_id.clone().map(Value::String).unwrap_or(Value::Null));
-    let same_kind = message.get("kind") == Some(&Value::String(kind_name(input.kind).to_owned()));
+    let same_recipient = field("recipientSessionId") == Some(&text(&input.recipient.session_id))
+        && field("recipientAgentId") == Some(&nullable_text(input.recipient.agent_id.as_deref()));
+    let same_sender = field("senderSessionId") == Some(&text(&input.sender.session_id))
+        && field("senderAgentId") == Some(&nullable_text(input.sender.agent_id.as_deref()));
+    let same_kind = field("kind") == Some(&text(kind_name(input.kind)));
     let host = gethostname::gethostname().to_string_lossy().into_owned();
-    let same_host = message.get("recipientHost").and_then(Value::as_str).unwrap_or(&host)
-        == input.recipient_host.as_deref().unwrap_or(&host);
+    let default_host = text(&host);
+    let previous_host = match field("recipientHost") {
+        None | Some(JsValue::Null) => &default_host,
+        Some(value) => value,
+    };
+    let same_host = previous_host == &text(input.recipient_host.as_deref().unwrap_or(&host));
     if same_recipient && same_sender && same_kind && same_host {
         return Ok(());
     }

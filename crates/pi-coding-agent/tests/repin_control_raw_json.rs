@@ -116,6 +116,45 @@ fn routing_existing_source_mailbox_preserves_raw_utf16_fields() {
 }
 
 #[test]
+fn routing_identity_does_not_alias_raw_surrogate_with_replacement_character() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("control.sqlite").display().to_string();
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let wire = format!(
+        r#"[{},{{"recipient":{{"sessionId":"\ud800","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/s","messageId":"m"}},"message":{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"identity"}}}}]"#,
+        serde_json::to_string(&path).unwrap()
+    );
+    source_call(&mut source, "enqueueStoredRuntimeMailboxMessage", &wire);
+    let original = persisted_raw(&mut source, &path);
+    let input = EnqueueRuntimeMailboxMessageInput {
+        recipient_host: None,
+        recipient: RuntimeMailboxAddress {
+            session_id: "�".into(),
+            agent_id: None,
+        },
+        sender: RuntimeMailboxAddress {
+            session_id: "from".into(),
+            agent_id: None,
+        },
+        kind: RuntimeMailboxMessageKind::Message,
+        store_ref: RuntimeMailboxStoreRef {
+            session_path: "/fixture/s".into(),
+            message_id: "m".into(),
+        },
+    };
+    let peer =
+        source.request(&json!({"id":1,"steps":[{"op":"call","args":["enqueueRuntimeMailboxMessage",[path,input]]}]}));
+    assert_eq!(peer["output"][0]["ok"], false, "{peer}");
+    let error = enqueue_runtime_mailbox_message(&path, &input).unwrap_err();
+    assert_eq!(error.message(), peer["output"][0]["error"]["message"].as_str().unwrap());
+    assert_eq!(
+        persisted_raw(&mut source, &path),
+        original,
+        "rejected routing may not mutate canonical identity"
+    );
+}
+
+#[test]
 fn source_sql_bind_keys_and_raw_receipts_have_distinct_utf16_identity_on_recovery() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("control.sqlite").display().to_string();
