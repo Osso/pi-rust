@@ -4,6 +4,7 @@ Native factories cross the extension/UI request boundary; their returned compone
 
 ## What it must do
 
+- [x] A synchronous custom-factory error rejects `custom()` unchanged, without mounting, focus/editor restoration, or disposal. If the factory calls `done` before failing, that first result wins.
 - [x] Factory-created components may own the existing `Rc`-based Editor without unsafe thread traits or a new thread-local registry. Render-only TUI requests remain usable by Send timers.
 - [x] Nested overlays preserve options, keyboard routing, passive focus, hide/restore, and native handle focus queries.
 - [x] Overlay `custom()` delivers its handle immediately after mounting, once per invocation; non-overlay and synchronously completed factories do not deliver one.

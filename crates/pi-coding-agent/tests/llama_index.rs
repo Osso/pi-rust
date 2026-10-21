@@ -139,16 +139,19 @@ impl Default for FakeUi {
                                     let _ = sender.send(());
                                 }
                             }));
-                            component = Some(factory(
-                                ExtensionUiFactoryContext {
-                                    tui: ExtensionUiTui::new(Arc::new(TestBackend {
-                                        renders: AtomicUsize::new(0),
-                                    })),
-                                    theme: install_theme(),
-                                    keybindings: KeybindingsManager::new(Vec::new(), None),
-                                },
-                                done,
-                            ));
+                            component = Some(
+                                factory(
+                                    ExtensionUiFactoryContext {
+                                        tui: ExtensionUiTui::new(Arc::new(TestBackend {
+                                            renders: AtomicUsize::new(0),
+                                        })),
+                                        theme: install_theme(),
+                                        keybindings: KeybindingsManager::new(Vec::new(), None),
+                                    },
+                                    done,
+                                )
+                                .expect("custom component fixture factory"),
+                            );
                         }
                         FixtureRequest::Render(sender) => {
                             sender.send(component.as_ref().map(|c| c.render(80))).unwrap();

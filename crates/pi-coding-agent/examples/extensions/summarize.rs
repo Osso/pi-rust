@@ -146,11 +146,11 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
     if ctx.mode()? == ExtensionMode::Tui {
         ui.custom(
             Arc::new(move |context, done| {
-                Box::new(Summary {
+                Ok(Box::new(Summary {
                     text: text.clone(),
                     context,
                     done,
-                })
+                }))
             }),
             None,
         )
