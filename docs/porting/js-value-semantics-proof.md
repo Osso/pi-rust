@@ -47,7 +47,7 @@ The report contains six uncertain groups, despite the brief's count of five. All
 | Pyrun manifest bytes/checksum | Pinned `differential_pyrun_detached`: RED 15, GREEN 20. Numeric manifests previously failed their own read-back (14) |
 | Persisted Pyrun params equality | Real manifest write/read and terminal artifact restore: RED checksum failure 14, then isolated false collision 18; GREEN 33. Existing collision error retained |
 | Remote HTTP request body | Loopback request capture plus error response: RED 14, GREEN 33, mutation 22 |
-| Session branch JSONL export | Public `AgentSession::export_to_jsonl` persists custom data with numeric keys and 9007199254740993; pinned source lines 5999/6005 use stringify. RED 43; GREEN pending |
+| Session branch JSONL export | Public `AgentSession::export_to_jsonl` persists custom data with numeric keys and 9007199254740993; pinned source lines 5999/6005 use stringify. RED 43; GREEN 44 |
 | Shared artifact hash/JSONL | Concrete bytes/digest in `js_value_artifacts`; manifest differential checks shared hash integration: RED 15/17, GREEN 20; mutation 23/22 |
 
 ## Remaining inventory
@@ -64,7 +64,7 @@ Typed-schema property insertion order remains a separate existing caveat: adding
 
 ## Preservation and limits
 
-57 executed targets, 551 passing test functions across the retained scoped logs. Six ignored entrypoints are child-process probes exercised through their parent tests. `proof-targets.json` maps exact targets/counts/logs; it combines the ten passing session-tool cases from 31 with the resume case in 32. The latter required only the documented local v15 reference setup, not a product change.
+57 executed targets, 552 passing test functions across the retained scoped logs. Six ignored entrypoints are child-process probes exercised through their parent tests. `proof-targets.json` maps exact targets/counts/logs; it combines the ten passing session-tool cases from 31 with the resume case in 32. The latter required only the documented local v15 reference setup, not a product change.
 
 | Proof scope | Logs |
 |---|---|
@@ -73,7 +73,7 @@ Typed-schema property insertion order remains a separate existing caveat: adding
 | Core compaction targets | 26 |
 | Shared lossless JS JSON and legacy JS JSON | 27–28 |
 | Coding compaction, export, remote extension and persistence constants | 28 |
-| Full agent-session target/family | 29–30 |
+| Full agent-session target/family, including final JSONL export | 30, 44 |
 | Session-manager, tree-selector native coverage, continuation and session tools | 31–32, 38 |
 | Pyrun durable/process/native targets, artifact hashes and formatting | 20, 33–34 |
 | Final history conversion reuse | 37–38; other module proofs unchanged |
