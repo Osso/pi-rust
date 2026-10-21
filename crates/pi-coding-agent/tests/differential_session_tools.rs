@@ -882,7 +882,7 @@ async fn search_current_session_history_tool_differential() {
     let definition = pi_coding_agent::core::tools::search_current_session_history::create_search_current_session_history_tool_definition();
     assert_eq!(
         registration["output"],
-        json!({"name":definition.name,"label":definition.label,"description":definition.description,"promptSnippet":definition.prompt_snippet,"promptGuidelines":definition.prompt_guidelines,"parameters":definition.parameters,"executionMode":definition.execution_mode})
+        json!({"name":definition.name,"label":definition.label,"description":definition.description,"promptSnippet":definition.prompt_snippet,"promptGuidelines":definition.prompt_guidelines,"parameters":definition.parameters,"executionMode":definition.execution_mode.map(|mode| mode.as_str())})
     );
     for (name, params) in [
         ("tool-name", json!({"query":"inspectWidget"})),
