@@ -235,6 +235,14 @@ async fn session_archive_matches_typescript() {
         response["output"]["steps"][2]["calls"]
     );
     use pi_coding_agent::core::extensions::types::{ExtensionEvent, SessionShutdownEvent, SessionShutdownReason};
+    manager
+        .lock()
+        .unwrap()
+        .append_message(
+            serde_json::from_value(json!({"role":"user","content":"last write before quit","timestamp":1})).unwrap(),
+        )
+        .unwrap();
+    manager.lock().unwrap().persist_for_recovery().unwrap();
     harness
         .runner
         .emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
@@ -243,6 +251,11 @@ async fn session_archive_matches_typescript() {
         }))
         .await;
     let archived = format!("{session_file}.zst");
+    assert!(
+        pi_coding_agent::core::session_transcript::read_session_transcript_text(&archived)
+            .unwrap()
+            .contains("last write before quit")
+    );
     assert!(!std::path::Path::new(&session_file).exists());
     assert!(std::path::Path::new(&archived).exists());
     assert_eq!(
@@ -522,9 +535,9 @@ async fn session_archive_command_branches_match_frozen() {
         read_session_metadata(&db, &path).unwrap().unwrap().is_archived,
         Some(false)
     );
-    for count in [1, 2] {
+    for (count, has_path) in [(1, true), (2, true), (1, false)] {
         let store = Arc::new(MultiAgentStore::new(Default::default()));
-        let agents:Vec<_> = (0..count).map(|index| json!({"id":format!("agent-{index}"),"displayName":"child","agentType":"worker","lifecycle":"running","revision":1,"createdAt":"2026-10-21T00:00:00.000Z","updatedAt":"2026-10-21T00:00:00.000Z","cwd":"/tmp","permission":{"policy":"on-request","narrowed":true},"transcript":{"sessionId":"child","path":"/tmp/child.jsonl"}})).collect();
+        let agents:Vec<_> = (0..count).map(|index| json!({"id":format!("agent-{index}"),"displayName":"child","agentType":"worker","lifecycle":"running","revision":1,"createdAt":"2026-10-21T00:00:00.000Z","updatedAt":"2026-10-21T00:00:00.000Z","cwd":"/tmp","permission":{"policy":"on-request","narrowed":true},"transcript":{"sessionId":"child","path":has_path.then_some("/tmp/child.jsonl")}})).collect();
         for agent in &agents {
             store
                 .publish_lifecycle_coordinator_snapshot(
@@ -532,10 +545,12 @@ async fn session_archive_command_branches_match_frozen() {
                 )
                 .unwrap();
         }
+        let ui = Arc::new(RecordingUi::default());
+        *ui.confirmed.lock().unwrap() = true;
         let harness = Harness::load_full(
             "/tmp",
             Arc::clone(&manager),
-            Arc::new(RecordingUi::default()),
+            ui,
             Some(db.clone()),
             pi_coding_agent::bundled_extensions::session_archive::session_archive_extension,
         )

@@ -189,7 +189,15 @@ const handlers: Record<string, (src: string, request: Request) => Promise<unknow
     "tool:definition": async (src, request) => {
         const module = await load(src, request.module as string);
         const tool = module[request.factory as string]();
-        return {name:tool.name,label:tool.label,description:tool.description,promptSnippet:tool.promptSnippet,promptGuidelines:tool.promptGuidelines,parameters:tool.parameters,executionMode:tool.executionMode};
+        return {
+            name: tool.name,
+            label: tool.label,
+            description: tool.description,
+            promptSnippet: tool.promptSnippet,
+            promptGuidelines: tool.promptGuidelines,
+            parameters: tool.parameters,
+            executionMode: tool.executionMode,
+        };
     },
 	"tool:execute": async (src, request) => {
 		if (request.setup) {
