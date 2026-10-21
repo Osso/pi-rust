@@ -122,3 +122,16 @@ async fn duplicate_id_frozen_discrepancy_is_explicitly_preserved() {
     );
     // Same observable before/after predicate is asserted against Rust in the real-child test.
 }
+
+#[tokio::test]
+async fn child_signal_error_uses_node_signal_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut command = tokio::process::Command::new("node");
+    command.arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../oracle/orchestrator-rpc-fake.mjs"));
+    let rpc = RpcProcessInstance::spawn_command(&mut command, dir.path()).unwrap();
+    assert_eq!(
+        rpc.send(json!({"type":"sigkill","id":"kill"})).await.unwrap_err(),
+        "RPC process exited (code=null signal=SIGKILL). Stderr: "
+    );
+    rpc.dispose().await.unwrap();
+}

@@ -2,6 +2,7 @@ import readline from "node:readline";
 for await (const line of readline.createInterface({input:process.stdin})) {
  const command=JSON.parse(line);
  if(command.type === "exit") process.exit(7);
+ if(command.type === "sigkill") {process.kill(process.pid,"SIGKILL");continue;}
  if(command.type === "hang") continue;
  if(command.type === "malformed") {process.stdout.write("{\n");continue;}
  if(command.type === "extension_ui_response") continue;

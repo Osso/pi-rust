@@ -231,3 +231,174 @@ async fn three_machine_not_found_heartbeats_re_register_machine_and_live_pis() {
     );
     presence.stop().await.unwrap();
 }
+
+struct ScriptedFetch {
+    sequence: Mutex<std::collections::VecDeque<(u16, serde_json::Value)>>,
+    requests: Mutex<Vec<serde_json::Value>>,
+}
+impl Fetch for ScriptedFetch {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        _signal: Option<tokio_util::sync::CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        Box::pin(async move {
+            tokio::task::yield_now().await;
+            let mut body: serde_json::Value = serde_json::from_slice(request.body.as_ref().unwrap()).unwrap();
+            for key in ["hostname", "platform", "arch", "pid"] {
+                body.as_object_mut().unwrap().remove(key);
+            }
+            self.requests
+                .lock()
+                .unwrap()
+                .push(json!({"url":request.url,"body":body}));
+            let (status, data) = self
+                .sequence
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("unexpected extra HTTP request");
+            let bytes = if let Some(text) = data.as_str() {
+                text.as_bytes().to_vec()
+            } else {
+                data.to_string().into_bytes()
+            };
+            Ok(HttpResponse {
+                status,
+                status_text: String::new(),
+                headers: vec![],
+                body: Box::new(Body(Some(bytes))),
+            })
+        })
+    }
+}
+#[tokio::test(start_paused = true)]
+async fn frozen_radius_machine_and_pi_retry_recovery_matrices() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
+    let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+    for scenario in ["machine", "pi"] {
+        let dir = tempfile::tempdir().unwrap();
+        let output = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
+            .arg("--tsconfig")
+            .arg(source.join("tsconfig.json"))
+            .arg(root.join("oracle/orchestrator-radius-retry-oracle.mjs"))
+            .arg(source)
+            .arg(scenario)
+            .env("PI_ORCHESTRATOR_DIR", dir.path())
+            .output()
+            .await
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let mut expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let registration =
+            |id: &str, interval: u64| json!({"id":id,"heartbeatIntervalMs":interval,"expiresInMs":interval*2});
+        let sequence = if scenario == "machine" {
+            vec![
+                (200, registration("m1", 10)),
+                (500, json!("oops")),
+                (500, json!("oops")),
+                (200, json!({})),
+                (404, json!("gone")),
+                (404, json!("gone")),
+                (404, json!("gone")),
+                (200, registration("m2", 10)),
+                (200, registration("p1", 10)),
+                (200, json!({})),
+            ]
+        } else {
+            vec![
+                (200, registration("m1", 1000000)),
+                (200, registration("p1", 10)),
+                (500, json!("oops")),
+                (200, json!({})),
+                (404, json!("gone")),
+                (404, json!("gone")),
+                (404, json!("gone")),
+                (200, registration("p2", 10)),
+                (200, json!({})),
+                (200, json!({})),
+            ]
+        };
+        let fake = Arc::new(ScriptedFetch {
+            sequence: Mutex::new(sequence.into()),
+            requests: Mutex::new(vec![]),
+        });
+        let storage = pi_orchestrator::storage::Storage(dir.path().join("rust"));
+        let presence = RadiusPresence::new(
+            storage,
+            fake.clone(),
+            RadiusOptions {
+                env: Arc::new(|| [("PI_RADIUS_API_KEY".into(), "key".into())].into()),
+                credential: Arc::new(|| None),
+                now: Arc::new(|| "2026-10-21T00:00:00.000Z".into()),
+                random: Arc::new(|| 0.5),
+                hostname: "test".into(),
+                platform: "linux".into(),
+                arch: "x64".into(),
+                pid: 1,
+            },
+        );
+        let coordinator = Arc::new(Coordinator(Mutex::new(
+            json!({"id":"local","cwd":"/tmp","sessionId":"session"}),
+        )));
+        let dyn_coordinator: Arc<dyn RadiusPresenceCoordinator> = coordinator.clone();
+        presence.set_coordinator(Arc::downgrade(&dyn_coordinator));
+        presence.start(Some("desk".into())).await.unwrap();
+        if scenario == "pi" {
+            let instance = presence
+                .register_pi(coordinator.0.lock().unwrap().clone())
+                .await
+                .unwrap();
+            *coordinator.0.lock().unwrap() = instance;
+        }
+        let delays = if scenario == "machine" {
+            vec![10, 1125, 2250, 10, 10, 10]
+        } else {
+            vec![10, 1125, 10, 10, 10]
+        };
+        for delay in delays {
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
+            let before = fake.requests.lock().unwrap().len();
+            tokio::time::advance(std::time::Duration::from_millis(delay - 1)).await;
+            for _ in 0..10 {
+                tokio::task::yield_now().await;
+            }
+            assert_eq!(
+                fake.requests.lock().unwrap().len(),
+                before,
+                "{scenario}: fired before frozen deadline"
+            );
+            tokio::time::advance(std::time::Duration::from_millis(1)).await;
+            for _ in 0..30 {
+                tokio::task::yield_now().await;
+            }
+        }
+        if scenario == "pi" {
+            let instance = coordinator.0.lock().unwrap().clone();
+            presence.disconnect_pi(&instance).await.unwrap();
+        }
+        presence.stop().await.unwrap();
+        let mut actual_requests = fake.requests.lock().unwrap().clone();
+        for requests in [&mut actual_requests, expected["requests"].as_array_mut().unwrap()] {
+            for request in requests {
+                if request["url"].as_str().unwrap().contains("/machines/")
+                    && request["url"].as_str().unwrap().ends_with("/heartbeat")
+                {
+                    let body = request["body"].as_object_mut().unwrap();
+                    body.remove("cwd");
+                    body.remove("socketPath");
+                }
+            }
+        }
+        assert_eq!(json!(actual_requests), expected["requests"], "{scenario}");
+        assert!(fake.sequence.lock().unwrap().is_empty());
+        assert_eq!(
+            coordinator.0.lock().unwrap()["radiusPiId"],
+            expected["updates"][0]["radiusPiId"]
+        );
+    }
+}

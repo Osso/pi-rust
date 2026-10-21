@@ -181,7 +181,7 @@ impl RpcProcessInstance {
 fn attach_readers(
     inner: Arc<Inner>,
     stdout: tokio::process::ChildStdout,
-    mut stderr: tokio::process::ChildStderr,
+    stderr: tokio::process::ChildStderr,
     mut child: tokio::process::Child,
 ) {
     let output = inner.clone();
@@ -192,25 +192,7 @@ fn attach_readers(
         }
         result
     });
-    let errors = inner.clone();
-    let stderr_task = tokio::spawn(async move {
-        let mut bytes = [0; 8192];
-        loop {
-            match stderr.read(&mut bytes).await {
-                Ok(0) => break,
-                Ok(count) => errors
-                    .state
-                    .lock()
-                    .unwrap()
-                    .stderr
-                    .push_str(&String::from_utf8_lossy(&bytes[..count])),
-                Err(e) => {
-                    eprintln!("RPC stderr: {e}");
-                    break;
-                }
-            }
-        }
-    });
+    let stderr_task = tokio::spawn(read_stderr(inner.clone(), stderr));
     tokio::spawn(async move {
         let status = child.wait().await;
         let output_result = stdout_task.await;
@@ -222,6 +204,25 @@ fn attach_readers(
         }
         finish_exit(&inner, status);
     });
+}
+
+async fn read_stderr(inner: Arc<Inner>, mut stderr: tokio::process::ChildStderr) {
+    let mut bytes = [0; 8192];
+    loop {
+        match stderr.read(&mut bytes).await {
+            Ok(0) => return,
+            Ok(count) => inner
+                .state
+                .lock()
+                .unwrap()
+                .stderr
+                .push_str(&String::from_utf8_lossy(&bytes[..count])),
+            Err(error) => {
+                eprintln!("RPC stderr: {error}");
+                return;
+            }
+        }
+    }
 }
 
 async fn read_stdout(inner: &Inner, stdout: tokio::process::ChildStdout) -> Result<(), String> {
@@ -272,7 +273,7 @@ fn finish_exit(inner: &Inner, status: std::io::Result<std::process::ExitStatus>)
                 status.code().map(|v| v.to_string()).unwrap_or("null".into()),
                 status
                     .signal()
-                    .map(|v| if v == 15 { "SIGTERM".into() } else { v.to_string() })
+                    .map(pi_coding_agent::utils::child_process::signal_name)
                     .unwrap_or("null".into()),
                 state.stderr
             ),
