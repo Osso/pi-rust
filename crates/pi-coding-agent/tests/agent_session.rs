@@ -276,6 +276,71 @@ fn agent_event_name(event: &pi_agent_core::agent::types::AgentEvent) -> &'static
     }
 }
 
+fn retry_completion_response() -> pi_ai::types::AssistantMessage {
+    faux_assistant_message(
+        vec![pi_ai::providers::faux::faux_tool_call(
+            "end_turn",
+            serde_json::Map::from_iter([("reason".to_owned(), json!("done"))]),
+            Some("retry-complete".to_owned()),
+        )],
+        FauxAssistantMessageOptions::default(),
+    )
+}
+
+#[tokio::test]
+async fn repin_settings_retry_delay_grows_with_attempt() {
+    let settings = serde_json::from_value(json!({
+        "retry": {"enabled": true, "maxRetries": 3, "baseDelayMs": 10,
+                  "maxBackoffMs": 80, "provider": {"maxRetries": 0}}
+    }))
+    .unwrap();
+    let fixture = fixture_with(settings, Vec::new(), None, Some(Vec::new())).await;
+    let delays = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = Arc::clone(&delays);
+    fixture.session.subscribe(Arc::new(move |event| {
+        if let AgentSessionEvent::AutoRetryStart(retry) = event {
+            observed.lock().unwrap().push(retry.delay_ms);
+        }
+    }));
+    let retry_error = faux_assistant_message(
+        "",
+        FauxAssistantMessageOptions {
+            stop_reason: Some(pi_ai::types::StopReason::Error),
+            error_message: Some("overloaded_error: server overloaded".to_owned()),
+            ..Default::default()
+        },
+    );
+    fixture.faux.set_responses(vec![
+        retry_error.clone().into(),
+        retry_error.into(),
+        retry_completion_response().into(),
+    ]);
+    fixture.session.prompt("retry", PromptOptions::default()).await.unwrap();
+    let delays = delays.lock().unwrap();
+    assert_eq!(delays.len(), 2, "two session retries must occur");
+    assert!((8.0..=12.0).contains(&delays[0]), "first delay: {}", delays[0]);
+    assert!((16.0..=24.0).contains(&delays[1]), "second delay: {}", delays[1]);
+}
+
+#[tokio::test]
+async fn repin_settings_invalid_compaction_threshold_rejects_before_request() {
+    let settings = serde_json::from_value(json!({"compaction": {"thresholdPercent": 101}})).unwrap();
+    let fixture = fixture_with(settings, Vec::new(), None, Some(Vec::new())).await;
+    fixture.faux.set_responses(vec![retry_completion_response().into()]);
+    let error = fixture
+        .session
+        .prompt("invalid settings", PromptOptions::default())
+        .await
+        .expect_err("invalid compaction setting must fail before a provider request");
+    assert!(
+        error
+            .to_string()
+            .contains("Invalid compaction.thresholdPercent setting"),
+        "{error}"
+    );
+    assert_eq!(fixture.faux.get_pending_response_count(), 1, "provider was not called");
+}
+
 #[tokio::test]
 async fn prompt_persists_user_and_assistant_messages() {
     let fixture = fixture().await;
