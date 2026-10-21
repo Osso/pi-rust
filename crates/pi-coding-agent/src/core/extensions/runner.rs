@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex};
 use indexmap::IndexMap;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::{ImageContent, ProviderHeaders};
+use pi_js_compat::js_json::{JsObject, JsValue};
 use pi_tui::keybindings::{KeyId, KeybindingsConfig};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::core::detached_job_runner::DetachedJobLifecycleController;
@@ -1451,7 +1451,7 @@ impl ExtensionRunner {
         Ok(current_messages)
     }
 
-    pub async fn emit_before_provider_request(&self, payload: Value) -> Value {
+    pub async fn emit_before_provider_request(&self, payload: JsValue) -> JsValue {
         let ctx = self.create_context();
         let mut current_payload = payload;
         for extension in &self.extensions {
@@ -1686,7 +1686,7 @@ fn apply_approval_reviewer_result(
     Some(result)
 }
 
-fn replace_tool_input(target: &mut serde_json::Map<String, Value>, source: &serde_json::Map<String, Value>) {
+fn replace_tool_input(target: &mut JsObject, source: &JsObject) {
     target.clear();
     for (key, value) in source {
         target.insert(key.clone(), value.clone());

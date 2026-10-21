@@ -19,6 +19,7 @@ use pi_ai::types::{
     AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, ProviderHeaders, TextOrImageContent,
     ToolCallExecution, Usage,
 };
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_tui::keybindings::KeyId;
 use pi_tui::tui::ComponentRef;
 use serde::{Deserialize, Serialize};
@@ -1433,7 +1434,7 @@ impl ToolRenderState {
 
 #[derive(Clone)]
 pub struct ToolRenderContext {
-    pub args: Value,
+    pub args: JsValue,
     pub tool_call_id: String,
     pub invalidate: Arc<dyn Fn() + Send + Sync>,
     pub last_component: Option<ComponentRef>,
@@ -1449,7 +1450,7 @@ pub struct ToolRenderContext {
     pub is_error: bool,
 }
 
-pub type PrepareArguments = Arc<dyn Fn(&Value) -> Result<Value, HandlerError> + Send + Sync>;
+pub type PrepareArguments = Arc<dyn Fn(&JsValue) -> Result<JsValue, HandlerError> + Send + Sync>;
 
 pub type PrepareExecution = Arc<
     dyn Fn(
@@ -1464,7 +1465,7 @@ pub type PrepareExecution = Arc<
 pub type ToolExecute = Arc<
     dyn Fn(
             String,
-            Value,
+            JsValue,
             Option<CancellationToken>,
             Option<AgentToolUpdateCallback>,
             ExtensionContext,
@@ -1474,7 +1475,7 @@ pub type ToolExecute = Arc<
 >;
 
 pub type ToolRenderer =
-    Arc<dyn Fn(&Value, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError> + Send + Sync>;
+    Arc<dyn Fn(&JsValue, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError> + Send + Sync>;
 
 pub type ToolResultRenderer = Arc<
     dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError>
@@ -1485,7 +1486,7 @@ pub type ToolResultRenderer = Arc<
 /// Adapts a built-in renderer, which cannot fail, to the fallible renderer type.
 pub fn infallible_render_call<F>(renderer: F) -> ToolRenderer
 where
-    F: Fn(&Value, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync + 'static,
+    F: Fn(&JsValue, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync + 'static,
 {
     Arc::new(move |args, theme, context| Ok(renderer(args, theme, context)))
 }
@@ -1805,7 +1806,7 @@ pub struct ContextEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BeforeProviderRequestEvent {
-    pub payload: Value,
+    pub payload: JsValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2105,7 +2106,11 @@ pub struct ToolCallEvent {
     pub tool_name: ToolName,
     pub tool_call_id: String,
     pub bypass_permissions: bool,
-    pub input: serde_json::Map<String, Value>,
+    #[serde(
+        serialize_with = "pi_js_compat::js_json::serialize_object",
+        deserialize_with = "pi_js_compat::js_json::deserialize_object"
+    )]
+    pub input: JsObject,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2113,13 +2118,17 @@ pub struct ToolCallEvent {
 pub struct ToolResultEvent {
     pub tool_name: ToolName,
     pub tool_call_id: String,
-    pub input: serde_json::Map<String, Value>,
+    #[serde(
+        serialize_with = "pi_js_compat::js_json::serialize_object",
+        deserialize_with = "pi_js_compat::js_json::deserialize_object"
+    )]
+    pub input: JsObject,
     pub content: Vec<TextOrImageContent>,
     pub is_error: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
+    pub details: Option<JsValue>,
 }
 
 pub fn is_tool_call_event_type(event: &ToolCallEvent, tool_name: &str) -> bool {
@@ -2275,14 +2284,14 @@ pub struct ContextEventResult {
     pub messages: Option<Vec<AgentMessage>>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolCallEventResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block: Option<bool>,
     /// Rust-native input patch; the source mutates `event.input` in place.
     #[serde(skip)]
-    pub input: Option<serde_json::Map<String, Value>>,
+    pub input: Option<JsObject>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2303,7 +2312,7 @@ pub struct ToolResultEventResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<Vec<TextOrImageContent>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
+    pub details: Option<JsValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2324,22 +2333,12 @@ pub struct CustomMessagePayload {
     pub content: CustomMessageContent,
     pub display: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
+    pub details: Option<JsValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum CustomMessageContent {
-    Text(String),
-    Blocks(Vec<TextOrImageContent>),
-}
+pub use pi_agent_core::harness::messages::CustomMessageContent;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum UserMessageContent {
-    Text(String),
-    Blocks(Vec<TextOrImageContent>),
-}
+pub use pi_agent_core::harness::messages::CustomMessageContent as UserMessageContent;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2427,9 +2426,9 @@ pub struct SessionCompactionSourceResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionTreeSummary {
-    pub summary: String,
+    pub summary: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
+    pub details: Option<JsValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
 }
@@ -2453,8 +2452,13 @@ pub struct SessionBeforeTreeResult {
 #[serde(tag = "action", rename_all = "lowercase", rename_all_fields = "camelCase")]
 pub enum ApprovalReviewerResult {
     Allow {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        updated_input: Option<serde_json::Map<String, Value>>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_optional_js_object",
+            deserialize_with = "deserialize_optional_js_object",
+            default
+        )]
+        updated_input: Option<JsObject>,
     },
     Ask {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -2475,6 +2479,26 @@ pub enum InputEventResult {
         images: Option<InputImages>,
     },
     Handled,
+}
+
+fn serialize_optional_js_object<S: serde::Serializer>(
+    value: &Option<JsObject>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    value
+        .as_ref()
+        .map(|object| JsValue::Object(object.clone()))
+        .serialize(serializer)
+}
+
+fn deserialize_optional_js_object<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<JsObject>, D::Error> {
+    match Option::<JsValue>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(JsValue::Object(object)) => Ok(Some(object)),
+        Some(_) => Err(serde::de::Error::custom("expected object")),
+    }
 }
 
 // ============================================================================
@@ -2526,7 +2550,7 @@ pub struct CustomMessageValue {
     pub content: CustomMessageContent,
     pub display: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
+    pub details: Option<JsValue>,
     pub timestamp: f64,
 }
 
@@ -2647,7 +2671,7 @@ pub struct ExtensionHandlers {
     pub session_before_tree: Vec<HandlerHandle<SessionBeforeTreeEvent, SessionBeforeTreeResult>>,
     pub session_tree: Vec<HandlerHandle<SessionTreeEvent, ()>>,
     pub context: Vec<HandlerHandle<ContextEvent, ContextEventResult>>,
-    pub before_provider_request: Vec<HandlerHandle<BeforeProviderRequestEvent, Value>>,
+    pub before_provider_request: Vec<HandlerHandle<BeforeProviderRequestEvent, JsValue>>,
     pub before_provider_headers: Vec<HandlerHandle<BeforeProviderHeadersEvent, ProviderHeaders>>,
     pub after_provider_response: Vec<HandlerHandle<AfterProviderResponseEvent, ()>>,
     pub before_agent_start: Vec<HandlerHandle<BeforeAgentStartEvent, BeforeAgentStartEventResult>>,
@@ -2809,7 +2833,7 @@ pub type SendMessageHandler =
     Arc<dyn Fn(CustomMessagePayload, Option<SendMessageOptions>) -> Result<(), HandlerError> + Send + Sync>;
 pub type SendUserMessageHandler =
     Arc<dyn Fn(UserMessageContent, Option<SendUserMessageOptions>) -> Result<(), HandlerError> + Send + Sync>;
-pub type AppendEntryHandler = Arc<dyn Fn(&str, Option<Value>) -> Result<(), HandlerError> + Send + Sync>;
+pub type AppendEntryHandler = Arc<dyn Fn(&str, Option<JsValue>) -> Result<(), HandlerError> + Send + Sync>;
 pub type SetSessionNameHandler = Arc<dyn Fn(&str) -> Result<(), HandlerError> + Send + Sync>;
 pub type GetSessionNameHandler = Arc<dyn Fn() -> Result<Option<String>, HandlerError> + Send + Sync>;
 pub type SetLabelHandler = Arc<dyn Fn(&str, Option<&str>) -> Result<(), HandlerError> + Send + Sync>;
@@ -2819,7 +2843,7 @@ pub type SetActiveToolsHandler = Arc<dyn Fn(&[String]) -> Result<(), HandlerErro
 pub type CallToolHandler = Arc<
     dyn Fn(
             String,
-            Value,
+            JsValue,
             Option<CancellationToken>,
             Option<String>,
         ) -> BoxFuture<'static, Result<AgentToolResult, HandlerError>>
@@ -3068,7 +3092,7 @@ impl ExtensionApi {
 
     pub fn on_before_provider_request(
         &self,
-        handler: impl Handler<BeforeProviderRequestEvent, Value> + 'static,
+        handler: impl Handler<BeforeProviderRequestEvent, JsValue> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.before_provider_request, handler)
     }
@@ -3349,7 +3373,7 @@ impl ExtensionApi {
         (self.runtime.actions().send_user_message)(content, options)
     }
 
-    pub fn append_entry(&self, custom_type: &str, data: Option<Value>) -> Result<(), HandlerError> {
+    pub fn append_entry(&self, custom_type: &str, data: Option<JsValue>) -> Result<(), HandlerError> {
         self.runtime.assert_active()?;
         (self.runtime.actions().append_entry)(custom_type, data)
     }
@@ -3416,7 +3440,7 @@ impl ExtensionApi {
     pub fn call_tool(
         &self,
         name: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         tool_call_id: Option<String>,
     ) -> BoxFuture<'static, Result<AgentToolResult, HandlerError>> {
