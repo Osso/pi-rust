@@ -43,8 +43,10 @@ async function main(): Promise<void> {
 			return { result, calls, errors: storage.drainErrors().map((error: Error) => error.message), memory: storage.getAll(), file: readFileSync(request.authPath, "utf8") };
 		}
 		const storage: Storage = api.AuthStorage.create(request.authPath);
+		if (request.op === "errors") return {errors: storage.drainErrors().map(error => error.message)};
 		if (request.op === "read") return { credential: storage.get(request.provider) ?? null };
-		if (request.op === "modify") storage.set(request.provider, request.credential);
+		if (request.op === "modify" || request.op === "modify-file") storage.set(request.provider, request.credential);
+		if (request.op === "modify-file") return {file: readFileSync(request.authPath,"utf8")};
 		if (request.op === "delete") storage.remove(request.provider);
 		return {
 			credential: storage.get(request.provider) ?? null,
