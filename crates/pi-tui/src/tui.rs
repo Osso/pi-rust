@@ -2661,6 +2661,9 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
 
     if state.previous_lines.is_empty() && !width_changed && !height_changed {
         log_redraw(base, "first render", 0, new_lines.len(), height);
+        if !allow_full_render {
+            return false;
+        }
         full_render(base, state, new_lines, cursor_pos, width, height, false);
         return true;
     }
@@ -2672,6 +2675,9 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             new_lines.len(),
             height,
         );
+        if !allow_full_render {
+            return false;
+        }
         full_render(base, state, new_lines, cursor_pos, width, height, true);
         return true;
     }
@@ -2683,6 +2689,9 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             new_lines.len(),
             height,
         );
+        if !allow_full_render {
+            return false;
+        }
         full_render(base, state, new_lines, cursor_pos, width, height, true);
         return true;
     }
@@ -2694,6 +2703,9 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             new_lines.len(),
             height,
         );
+        if !allow_full_render {
+            return false;
+        }
         full_render(base, state, new_lines, cursor_pos, width, height, true);
         return true;
     }

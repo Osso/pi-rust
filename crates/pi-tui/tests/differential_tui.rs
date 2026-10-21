@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use oracle::TsOracle;
 use pi_tui::tui::{
-    Component, ComponentRef, FixedCell, Focusable, OverlayAnchor, OverlayHandle, OverlayMargin, OverlayOptions,
-    SizeValue, TuiExt, TuiRenderer, component,
+    Component, ComponentRef, FixedCell, FlowRenderRegionLayout, Focusable, OverlayAnchor, OverlayHandle, OverlayMargin,
+    OverlayOptions, RenderRegionRect, SizeValue, TuiExt, TuiRenderer, component,
 };
 use serde_json::{Value, json};
 use virtual_terminal::concrete;
@@ -212,6 +212,8 @@ fn run_scenario(scenario: &Value) -> Value {
     let mut overlay_handles: Vec<OverlayHandle> = Vec::new();
     let mut fixed_cells: Vec<FixedCell> = Vec::new();
     let mut background_queries = Vec::new();
+    let mut flow_regions = Vec::new();
+    let mut flow_results = Vec::new();
 
     for step in scenario["steps"].as_array().unwrap() {
         match step["kind"].as_str().unwrap() {
@@ -318,6 +320,26 @@ fn run_scenario(scenario: &Value) -> Value {
                 fixed_cells[index].update(step["update"].as_str().unwrap_or(""));
             }
             "stop" => tui.stop(),
+            "flow_create" => flow_regions.push(tui.0.create_flow_render_region(
+                components.borrow()[step["component"].as_u64().unwrap_or(0) as usize].clone(),
+            )),
+            "flow_place" => {
+                let layout = &step["layout"];
+                let rect = &layout["rect"];
+                flow_regions[0].place(FlowRenderRegionLayout {
+                    rect: RenderRegionRect {
+                        row: rect["row"].as_i64().unwrap(),
+                        col: rect["col"].as_i64().unwrap(),
+                        width: rect["width"].as_u64().unwrap() as usize,
+                        height: rect["height"].as_u64().unwrap() as usize,
+                    },
+                    flow_end_row: layout["flowEndRow"].as_i64().unwrap(),
+                    bottom_row: layout["bottomRow"].as_i64().unwrap(),
+                    bottom_height: layout["bottomHeight"].as_i64().unwrap(),
+                    viewport_height: layout["viewportHeight"].as_i64().unwrap(),
+                });
+            }
+            "flow_request" => flow_results.push(flow_regions[0].request_render()),
             "query_background" => {
                 background_queries.push(tui.0.query_terminal_background_color(std::time::Duration::ZERO))
             }
@@ -353,6 +375,7 @@ fn run_scenario(scenario: &Value) -> Value {
         "fullRedraws": tui.full_redraws(),
         "components": component_output,
         "background": background_queries.iter().map(|query| query.result().flatten().map(|rgb| json!({"r": rgb.r, "g": rgb.g, "b": rgb.b}))).collect::<Vec<_>>(),
+        "flowResults": flow_results,
         "focus": focus,
     })
 }
@@ -393,6 +416,7 @@ fn assert_scenario(oracle: &mut TsOracle, scenario: Value) {
     assert_eq!(actual["components"], expected["components"], "scenario: {scenario}");
     assert_eq!(actual["focus"], expected["focus"], "scenario: {scenario}");
     assert_eq!(actual["background"], expected["background"], "scenario: {scenario}");
+    assert_eq!(actual["flowResults"], expected["flowResults"], "scenario: {scenario}");
 }
 
 #[test]
@@ -606,6 +630,20 @@ fn frozen_overlay_margins_and_input_frames() {
         json!({"kind":"renderer", "columns":20,"rows":5,"steps":[
             {"kind":"add","lines":["base"],"focusable":true},{"kind":"focus","component":0},
             {"kind":"start"},{"kind":"wait"},{"kind":"send_input","data":"\u{1b}[6;+10;20t"},
+            {"kind":"wait"},{"kind":"stop"}
+        ]}),
+    );
+}
+
+#[test]
+fn frozen_empty_flow_region_refuses_full_redraw() {
+    let mut oracle = TsOracle::spawn("tui-core-oracle.ts", "packages/tui/src");
+    assert_scenario(
+        &mut oracle,
+        json!({"kind":"renderer", "columns":20,"rows":5,"steps":[
+            {"kind":"add","lines":[]},{"kind":"start"},{"kind":"wait"},
+            {"kind":"flow_create","component":0},{"kind":"flow_place","layout":{"rect":{"row":0,"col":0,"width":20,"height":0},"flowEndRow":0,"bottomRow":0,"bottomHeight":0,"viewportHeight":5}},
+            {"kind":"set_lines","component":0,"lines":["tail"]},{"kind":"flow_request"},
             {"kind":"wait"},{"kind":"stop"}
         ]}),
     );

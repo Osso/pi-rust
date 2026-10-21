@@ -276,6 +276,8 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 	const tuiRef: { current?: { setFocus(component: unknown): void } } = { current: tui };
 	const components: ScenarioComponent[] = [];
 	const overlayHandles: Array<{ hide(): void }> = [];
+	const flowRegions: any[] = [];
+	const flowResults: boolean[] = [];
 	const backgroundQueries: Array<Promise<unknown>> = [];
 	const fixedCells: Array<{ place(row: number, col: number): void; update(value: string): boolean }> = [];
 	let nextComponent = 0;
@@ -351,6 +353,15 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 			case "stop":
 				tui.stop();
 				break;
+			case "flow_create":
+				flowRegions.push(tui.createFlowRenderRegion(components[step.component ?? 0]));
+				break;
+			case "flow_place":
+				flowRegions[0].place((step as unknown as { layout: unknown }).layout);
+				break;
+			case "flow_request":
+				flowResults.push(flowRegions[0].requestRender());
+				break;
 			case "query_background":
 				backgroundQueries.push(tui.queryTerminalBackgroundColor({ timeoutMs: 0 }));
 				break;
@@ -370,6 +381,7 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 			focused: Boolean((component as unknown as { focused?: boolean }).focused),
 		})),
 		background: await Promise.all(backgroundQueries),
+		flowResults,
 		focus: components.findIndex((component) => Boolean((component as unknown as { focused?: boolean }).focused)),
 	};
 }
