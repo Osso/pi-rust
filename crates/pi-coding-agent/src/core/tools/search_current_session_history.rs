@@ -114,19 +114,6 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-#[cfg(test)]
-mod js_value_tests {
-    use super::*;
-
-    #[test]
-    fn collects_numeric_properties_in_javascript_order() {
-        let value = serde_json::from_str(r#"{"2":"second","1":"first"}"#).unwrap();
-        let mut texts = Vec::new();
-        collect_search_texts(&value, &mut texts);
-        assert_eq!(texts, ["first", "second"]);
-    }
-}
-
 fn collect_search_texts(value: &Value, texts: &mut Vec<String>) {
     match value {
         Value::String(text) => texts.push(text.clone()),
@@ -384,4 +371,17 @@ pub fn create_search_current_session_history_tool_definition() -> ToolDefinition
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
+}
+
+#[cfg(test)]
+mod js_value_tests {
+    use super::*;
+
+    #[test]
+    fn collects_numeric_properties_in_javascript_order() {
+        let value = serde_json::from_str(r#"{"2":"second","1":"first"}"#).unwrap();
+        let mut texts = Vec::new();
+        collect_search_texts(&value, &mut texts);
+        assert_eq!(texts, ["first", "second"]);
+    }
 }

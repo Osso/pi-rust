@@ -65,7 +65,7 @@ impl ExtensionUiTuiBackend for Backend {
         &self,
         _: Box<dyn ExtensionUiComponent>,
         _: Option<ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn ExtensionUiOverlayHandle> {
         panic!("forms do not create nested overlays")
     }
 }
@@ -92,7 +92,7 @@ impl ExtensionUiContext for Ui {
                 theme: self.theme.clone(),
                 keybindings: KeybindingsManager::new(Vec::new(), None),
             },
-            ExtensionUiDone::new(Arc::new(move |value| *captured.borrow_mut() = Some(value))),
+            ExtensionUiDone::new(Rc::new(move |value| *captured.borrow_mut() = Some(value))),
         )
         .expect("custom component fixture factory");
         let record = || {

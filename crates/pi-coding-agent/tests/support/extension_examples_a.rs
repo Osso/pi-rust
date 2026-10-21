@@ -35,7 +35,7 @@ impl ExtensionUiTuiBackend for Terminal {
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
         _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
         panic!("this fixture does not mount nested overlays")
     }
 

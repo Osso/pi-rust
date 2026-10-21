@@ -34,7 +34,7 @@ impl ExtensionUiContext for Ui {
                 pi_coding_agent::modes::interactive::theme::set_theme_instance(fixture_theme());
                 let done_value = Arc::new(Mutex::new(None));
                 let value = done_value.clone();
-                let done = ExtensionUiDone::new(Arc::new(move |v| {
+                let done = ExtensionUiDone::new(Rc::new(move |v| {
                     let mut value = value.lock().unwrap();
                     if value.is_none() {
                         *value = Some(v);
@@ -427,7 +427,7 @@ impl ExtensionUiTuiBackend for FixtureTui {
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
         _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
         panic!("this fixture does not mount nested overlays")
     }
 

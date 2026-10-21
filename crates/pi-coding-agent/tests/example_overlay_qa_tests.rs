@@ -104,7 +104,7 @@ impl ExtensionUiTuiBackend for Terminal {
         &self,
         component: Box<dyn ExtensionUiComponent>,
         options: Option<ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn ExtensionUiOverlayHandle> {
         let panel = Rc::new(Panel {
             component,
             options: options.unwrap_or_default(),
@@ -112,7 +112,7 @@ impl ExtensionUiTuiBackend for Terminal {
             focused: Cell::new(false),
         });
         PANELS.with(|ps| ps.borrow_mut().push(panel.clone()));
-        Arc::new(Handle(panel))
+        Rc::new(Handle(panel))
     }
 }
 fn theme() -> Arc<Theme> {
@@ -236,7 +236,7 @@ impl ExtensionUiContext for Ui {
                 REQUESTS.with(|count| count.set(0));
                 let result = Rc::new(RefCell::new(None));
                 let saved = result.clone();
-                let done = ExtensionUiDone::new(Arc::new(move |v| {
+                let done = ExtensionUiDone::new(Rc::new(move |v| {
                     *saved.borrow_mut() = Some(v);
                 }));
                 let component = factory(
@@ -257,7 +257,7 @@ impl ExtensionUiContext for Ui {
                             theme: theme(),
                             keybindings: KeybindingsManager::new(Vec::new(), None),
                         },
-                        ExtensionUiDone::new(Arc::new(|_| {})),
+                        ExtensionUiDone::new(Rc::new(|_| {})),
                     )
                     .unwrap();
                     cloned.on_overlay_handle(Arc::new(MainHandle(calls.clone(), true)));

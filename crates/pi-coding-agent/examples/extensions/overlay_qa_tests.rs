@@ -291,7 +291,7 @@ async fn stack(ui: Arc<dyn ExtensionUiContext>) -> Result<(), HandlerError> {
 }
 
 // The source has one global handle; all custom components run on the UI thread.
-thread_local! {static TOGGLE_HANDLE:RefCell<Option<Arc<dyn ExtensionUiOverlayHandle>>>=const {RefCell::new(None)};}
+thread_local! {static TOGGLE_HANDLE:RefCell<Option<Rc<dyn ExtensionUiOverlayHandle>>>=const {RefCell::new(None)};}
 
 struct Model {
     demo: Demo,
@@ -590,7 +590,7 @@ impl ExtensionUiComponent for QaComponent {
             TOGGLE_HANDLE.with(|slot| slot.borrow_mut().take());
         }
     }
-    fn on_overlay_handle(&self, handle: Arc<dyn ExtensionUiOverlayHandle>) {
+    fn on_overlay_handle(&self, handle: Rc<dyn ExtensionUiOverlayHandle>) {
         if self.0.demo == Demo::Toggle {
             TOGGLE_HANDLE.with(|slot| *slot.borrow_mut() = Some(handle));
         }

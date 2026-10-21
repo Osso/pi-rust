@@ -18,7 +18,7 @@ impl ExtensionUiTuiBackend for Backend {
         &self,
         _component: Box<dyn ExtensionUiComponent>,
         _options: Option<ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn ExtensionUiOverlayHandle> {
         panic!("shell fixture does not mount nested overlays")
     }
 
@@ -75,7 +75,7 @@ impl ExtensionUiContext for Ui {
                     theme: self.theme(),
                     keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
                 },
-                ExtensionUiDone::new(Arc::new(move |v| {
+                ExtensionUiDone::new(Rc::new(move |v| {
                     *result.lock().unwrap() = v.clone();
                     trace.lock().unwrap().push(json!(["done", v]));
                 })),

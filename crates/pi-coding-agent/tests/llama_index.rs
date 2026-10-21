@@ -62,7 +62,7 @@ impl pi_coding_agent::core::extensions::types::ExtensionUiTuiBackend for TestBac
         &self,
         _component: Box<dyn ExtensionUiComponent>,
         _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
         panic!("this fixture does not mount nested overlays")
     }
     fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
@@ -134,7 +134,7 @@ impl Default for FakeUi {
                     match request {
                         FixtureRequest::Custom(factory, sender) => {
                             let sender = std::cell::RefCell::new(Some(sender));
-                            let done = ExtensionUiDone::new(Arc::new(move |_| {
+                            let done = ExtensionUiDone::new(Rc::new(move |_| {
                                 if let Some(sender) = sender.borrow_mut().take() {
                                     let _ = sender.send(());
                                 }

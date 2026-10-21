@@ -2460,6 +2460,14 @@ impl ExtensionUiContext for InteractiveUiContext {
     }
 }
 
+// Factories delivered through UiRequest stay Send + Sync; direct UI-thread factories need not.
+type LocalExtensionUiCustomFactory = Rc<
+    dyn Fn(
+        crate::core::extensions::ExtensionUiFactoryContext,
+        ExtensionUiDone,
+    ) -> Result<Box<dyn ExtensionUiComponent>, String>,
+>;
+
 /// Thread-safe TUI handle passed to extension component factories.
 struct InteractiveUiTuiBackend {
     mode_id: usize,
@@ -2479,12 +2487,12 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
         &self,
         inner: Box<dyn ExtensionUiComponent>,
         options: Option<crate::core::extensions::ExtensionUiOverlayOptions>,
-    ) -> Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle> {
+    ) -> Rc<dyn crate::core::extensions::ExtensionUiOverlayHandle> {
         with_mode(self.mode_id, |mode| {
             let component = component(ExtensionComponentAdapter { inner: inner.into() });
-            Arc::new(InteractiveOverlayHandle(
+            Rc::new(InteractiveOverlayHandle(
                 mode.ui.show_overlay(component, options.map(Into::into)),
-            )) as Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle>
+            )) as Rc<dyn crate::core::extensions::ExtensionUiOverlayHandle>
         })
         .expect("extension overlays must be created on the owning live UI thread")
     }
@@ -10620,7 +10628,7 @@ impl InteractiveMode {
                 factory,
                 options,
                 respond,
-            } => self.show_extension_custom(factory, options, respond),
+            } => self.show_extension_custom(Rc::new(move |context, done| factory(context, done)), options, respond),
             UiRequest::AddTerminalInput { handler, respond } => {
                 let handler = Arc::new(handler);
                 let registered: TerminalInputHandler = Arc::clone(&handler);
@@ -10867,12 +10875,7 @@ impl InteractiveMode {
 
     fn show_extension_custom(
         &self,
-        factory: Arc<
-            dyn Fn(
-                crate::core::extensions::ExtensionUiFactoryContext,
-                ExtensionUiDone,
-            ) -> Result<Box<dyn ExtensionUiComponent>, String>,
-        >,
+        factory: LocalExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
         respond: tokio::sync::oneshot::Sender<Result<Option<Value>, String>>,
     ) {
@@ -10883,7 +10886,7 @@ impl InteractiveMode {
         let done_component = Rc::clone(&component_slot);
         let mode = self.ui_id.get();
         let overlay = options.as_ref().and_then(|options| options.overlay).unwrap_or(false);
-        let done = ExtensionUiDone::new(Arc::new(move |value| {
+        let done = ExtensionUiDone::new(Rc::new(move |value| {
             let respond = done_respond
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -10944,10 +10947,10 @@ impl InteractiveMode {
             inner: Rc::clone(&inner),
         });
         if overlay {
-            let handle: Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle> = Arc::new(
-                InteractiveOverlayHandle(self.ui.show_overlay(component_ref, overlay_options)),
-            );
-            inner.on_overlay_handle(Arc::clone(&handle));
+            let handle: Rc<dyn crate::core::extensions::ExtensionUiOverlayHandle> = Rc::new(InteractiveOverlayHandle(
+                self.ui.show_overlay(component_ref, overlay_options),
+            ));
+            inner.on_overlay_handle(Rc::clone(&handle));
             if let Some(on_handle) = options.and_then(|options| options.on_handle) {
                 on_handle(handle);
             }
@@ -14350,7 +14353,7 @@ mod ui_tests {
                     let captured = inputs.clone();
                     let (send, _receive) = tokio::sync::oneshot::channel();
                     mode.show_extension_custom(
-                        Arc::new(move |_, _| {
+                        Rc::new(move |_, _| {
                             Ok(Box::new(ReleaseInput {
                                 opted_in,
                                 inputs: captured.clone(),
@@ -14490,7 +14493,7 @@ mod ui_tests {
     }
 
     struct RetainedOverlay {
-        handle: Rc<RefCell<Option<Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle>>>>,
+        handle: Rc<RefCell<Option<Rc<dyn crate::core::extensions::ExtensionUiOverlayHandle>>>>,
         events: Arc<std::sync::Mutex<Vec<&'static str>>>,
         done: ExtensionUiDone,
     }
@@ -14498,7 +14501,7 @@ mod ui_tests {
         fn render(&self, _: usize) -> Vec<String> {
             vec!["toggle".into()]
         }
-        fn on_overlay_handle(&self, handle: Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle>) {
+        fn on_overlay_handle(&self, handle: Rc<dyn crate::core::extensions::ExtensionUiOverlayHandle>) {
             assert!(handle.is_focused());
             self.events.lock().unwrap().push("hook");
             *self.handle.borrow_mut() = Some(handle);
@@ -14536,7 +14539,7 @@ mod ui_tests {
                 let option_events = events.clone();
                 let (send, receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
-                    Arc::new(move |_, done| {
+                    Rc::new(move |_, done| {
                         Ok(Box::new(RetainedOverlay {
                             handle: Rc::new(RefCell::new(None)),
                             events: captured.clone(),
@@ -14641,7 +14644,7 @@ mod ui_tests {
                 let callback = observed.clone();
                 let (send, receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
-                    Arc::new(|context, done| {
+                    Rc::new(|context, done| {
                         let nested = context.tui.show_overlay(Box::new(StaticWidget), None);
                         assert!(nested.is_focused());
                         nested.set_hidden(true);
@@ -14743,12 +14746,12 @@ mod ui_tests {
                 mode.ui.set_show_hardware_cursor(true);
                 let width = Arc::new(std::sync::atomic::AtomicUsize::new(0));
                 let disposed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-                let done = Arc::new(std::sync::Mutex::new(None::<ExtensionUiDone>));
+                let done = Rc::new(RefCell::new(None::<ExtensionUiDone>));
                 let (w, d, callback) = (width.clone(), disposed.clone(), done.clone());
                 let (send, receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
-                    Arc::new(move |_, done| {
-                        *callback.lock().unwrap() = Some(done.clone());
+                    Rc::new(move |_, done| {
+                        *callback.borrow_mut() = Some(done.clone());
                         Ok(Box::new(SizedExtensionInput {
                             done,
                             focus: std::sync::atomic::AtomicBool::new(false),
@@ -14773,7 +14776,7 @@ mod ui_tests {
                     !terminal.borrow().writes.concat().contains(pi_tui::tui::CURSOR_MARKER),
                     "renderer must consume cursor markers"
                 );
-                let done = done.lock().unwrap().clone().unwrap();
+                let done = done.borrow().clone().unwrap();
                 terminal.borrow_mut().send_input("\r");
                 mode.ui.process_events();
                 assert_eq!(
@@ -14803,12 +14806,12 @@ mod ui_tests {
                 let _events = start(&mode).await;
                 let width = Arc::new(std::sync::atomic::AtomicUsize::new(0));
                 let captured = width.clone();
-                let done = Arc::new(std::sync::Mutex::new(None::<ExtensionUiDone>));
+                let done = Rc::new(RefCell::new(None::<ExtensionUiDone>));
                 let callback = done.clone();
                 let (send, receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
-                    Arc::new(move |_, done| {
-                        *callback.lock().unwrap() = Some(done.clone());
+                    Rc::new(move |_, done| {
+                        *callback.borrow_mut() = Some(done.clone());
                         Ok(Box::new(SizedExtensionInput {
                             done,
                             focus: std::sync::atomic::AtomicBool::new(false),
@@ -14828,12 +14831,12 @@ mod ui_tests {
                 );
                 mode.ui.render_now();
                 assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 47);
-                done.lock().unwrap().clone().unwrap().call(None);
+                done.borrow().clone().unwrap().call(None);
                 assert_eq!(receive.await.unwrap().unwrap(), None);
                 assert!(!mode.ui.has_overlay_entries());
                 let (send, receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
-                    Arc::new(|_, done| {
+                    Rc::new(|_, done| {
                         done.call(Some(serde_json::json!("immediate")));
                         Ok(Box::new(StaticWidget))
                     }),
@@ -14849,11 +14852,11 @@ mod ui_tests {
                     "factory completed synchronously: do not mount"
                 );
                 let (send, receive) = tokio::sync::oneshot::channel();
-                let callback = Arc::new(std::sync::Mutex::new(None::<ExtensionUiDone>));
+                let callback = Rc::new(RefCell::new(None::<ExtensionUiDone>));
                 let captured = callback.clone();
                 mode.show_extension_custom(
-                    Arc::new(move |_, done| {
-                        *captured.lock().unwrap() = Some(done);
+                    Rc::new(move |_, done| {
+                        *captured.borrow_mut() = Some(done);
                         Ok(Box::new(StaticWidget))
                     }),
                     Some(ExtensionUiCustomOptions {
@@ -14863,7 +14866,7 @@ mod ui_tests {
                     }),
                     send,
                 );
-                callback.lock().unwrap().clone().unwrap().call(None);
+                callback.borrow().clone().unwrap().call(None);
                 assert_eq!(receive.await.unwrap().unwrap(), None);
             })
             .await;
@@ -14879,7 +14882,7 @@ mod ui_tests {
                 let state = focused.clone();
                 let (send, _receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
-                    Arc::new(move |_, _| Ok(Box::new(FocusedExtensionInput(state.clone())))),
+                    Rc::new(move |_, _| Ok(Box::new(FocusedExtensionInput(state.clone())))),
                     Some(ExtensionUiCustomOptions {
                         overlay: Some(true),
                         ..Default::default()
