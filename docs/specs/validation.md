@@ -24,6 +24,21 @@ Trace: [validation](../porting/traceability/validation.md).
 - Validation errors retain source ordering, paths, messages, and original received
   arguments. Caller-owned arguments remain unchanged on success and failure.
 
+## Lossless value boundary
+
+- `validate_arguments(&JsValue schema, &JsValue arguments, bool typebox_kind,
+  &str tool_name)` is the validation/coercion authority and returns `JsValue`.
+  Arguments, object keys, schema string literals, issue paths and error messages
+  retain UTF-16 units. No serde value round-trip or replacement decoding occurs.
+- Tool entrypoints return `JsValue`; checkpoint `ToolCall` still has scalar JSON
+  storage and adapts losslessly into this authority. The content lane replaces that
+  input construction once `ToolCall.arguments` becomes `JsObject`.
+- `schema_error_lines(&JsValue, &JsValue)` returns `Vec<JsString>`.
+  `ValidationError::message()` returns exact `&JsString`; `Display` shows scalar
+  messages directly and JSON-escapes messages containing unmatched surrogates.
+- RegExp uses ECMAScript non-Unicode UTF-16-unit semantics. Length checks retain
+  the frozen TypeBox grapheme algorithm, not Rust scalar or byte length.
+
 ## Current proof boundary
 
 This re-pin repairs optional-null normalization and declared union-arm coercion

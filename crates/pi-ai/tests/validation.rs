@@ -37,13 +37,19 @@ fn value_args(value: Value) -> ToolCall {
 }
 
 fn validate(tool: &Tool, tool_call: &ToolCall) -> Value {
-    validate_tool_arguments(tool, tool_call).expect("arguments must validate")
+    validate_tool_arguments(tool, tool_call).expect("arguments must validate").to_serde().expect("scalar fixture")
 }
 
 fn validation_message(tool: &Tool, tool_call: &ToolCall) -> String {
     validate_tool_arguments(tool, tool_call)
         .expect_err("arguments must fail validation")
         .to_string()
+}
+
+#[test]
+fn patterns_match_javascript_utf16_units() {
+    let tool = plain_value_schema(json!({"type":"string", "pattern":"^..$"}));
+    assert_eq!(validate(&tool, &value_args(json!("😀"))), json!({"value":"😀"}));
 }
 
 #[test]
@@ -369,7 +375,7 @@ fn validate_tool_call_validates_matching_tools() {
         "properties": { "count": { "type": "number" } }
     }))];
     let call = tool_call(object([("count", json!("7"))]));
-    assert_eq!(validate_tool_call(&tools, &call).unwrap(), json!({ "count": 7 }));
+    assert_eq!(validate_tool_call(&tools, &call).unwrap(), json!({ "count": 7 }).into());
 }
 
 #[test]
@@ -378,7 +384,7 @@ fn validation_error_exposes_its_message() {
     let error: ValidationError = validate_tool_arguments(&tool, &tool_call(object([]))).unwrap_err();
     assert!(error.message().starts_with("Validation failed for tool \"echo\":"));
     let dynamic: &dyn std::error::Error = &error;
-    assert_eq!(dynamic.to_string(), error.message());
+    assert_eq!(error.message(), &dynamic.to_string());
 }
 
 #[test]

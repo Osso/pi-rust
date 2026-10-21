@@ -18,3 +18,4 @@ pub mod text;
 pub mod typebox_helpers;
 pub mod uuid;
 pub mod validation;
+mod validation_regex;

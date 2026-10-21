@@ -12,11 +12,13 @@
 
 use std::fmt;
 
-use regex::Regex;
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, stringify_lossless_pretty};
+use pi_js_compat::js_json as json;
+use serde_json::Value as Schema;
+use super::validation_regex::JsRegex as Regex;
 
 use crate::types::{Tool, ToolCall};
-use pi_js_compat::number::{js_number_to_string, js_number_value};
+use pi_js_compat::number::{js_number_to_string};
 
 /// TypeBox's default `Settings.maxErrors`.
 const MAX_ERRORS: usize = 8;
@@ -24,18 +26,21 @@ const MAX_ERRORS: usize = 8;
 /// Failure of [`validate_tool_arguments`] or [`validate_tool_call`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationError {
-    message: String,
+    message: JsString,
 }
 
 impl ValidationError {
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         &self.message
     }
 }
 
 impl fmt::Display for ValidationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        match self.message.to_utf8() {
+            Ok(text) => formatter.write_str(&text),
+            Err(_) => formatter.write_str(&pi_js_compat::js_json::stringify_lossless(&Value::String(self.message.clone()))),
+        }
     }
 }
 
@@ -47,66 +52,44 @@ pub fn validate_tool_call(tools: &[Tool], tool_call: &ToolCall) -> Result<Value,
         .iter()
         .find(|tool| tool.name == tool_call.name)
         .ok_or_else(|| ValidationError {
-            message: format!("Tool \"{}\" not found", tool_call.name),
+            message: format!("Tool \"{}\" not found", tool_call.name).into(),
         })?;
     validate_tool_arguments(tool, tool_call)
 }
 
 /// Validates tool call arguments against the tool's schema.
 pub fn validate_tool_arguments(tool: &Tool, tool_call: &ToolCall) -> Result<Value, ValidationError> {
-    let mut args = Value::Object(tool_call.arguments.clone());
-    if tool.typebox_kind {
-        let _ = convert(&tool.parameters, &mut args, &Map::new());
-    }
+    validate_arguments(&Value::from(&tool.parameters), &Value::from(Schema::Object(tool_call.arguments.clone())), tool.typebox_kind, &tool_call.name)
+}
 
-    // `validation.ts` always runs this pass for the pinned TypeBox release.
-    let coerced = coerce(&tool.parameters, args.clone());
+/// Lossless authority. Clones arguments without crossing a Unicode-scalar boundary.
+pub fn validate_arguments(schema: &Value, arguments: &Value, typebox_kind: bool, tool_name: &str) -> Result<Value, ValidationError> {
+    let mut args = arguments.clone();
+    if typebox_kind { let _ = convert(schema, &mut args, &JsObject::new()); }
+    let coerced = coerce(schema, args.clone());
     if coerced != args {
-        if args.is_object() && coerced.is_object() {
-            args = coerced;
-        } else {
-            return Ok(if check(&tool.parameters, &coerced) {
-                coerced
-            } else {
-                args
-            });
-        }
+        if args.is_object() && coerced.is_object() { args = coerced; }
+        else { return Ok(if check(schema, &coerced) { coerced } else { args }); }
     }
-
-    let issues = collect_issues(&tool.parameters, &args);
-    if issues.is_empty() {
-        return Ok(args);
-    }
-
-    let errors = issues
-        .items
-        .iter()
-        .map(|issue| format!("  - {}: {}", issue.path(), issue.message))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let errors = if errors.is_empty() {
-        "Unknown validation error".to_owned()
-    } else {
-        errors
-    };
-    let received = json_stringify_pretty(&Value::Object(tool_call.arguments.clone()));
-    Err(ValidationError {
-        message: format!(
-            "Validation failed for tool \"{}\":\n{}\n\nReceived arguments:\n{}",
-            tool_call.name, errors, received
-        ),
-    })
+    let issues = collect_issues(schema, &args);
+    if issues.is_empty() { return Ok(args); }
+    let errors = JsString::join(issues.items.iter().map(Issue::line), "\n");
+    let message = JsString::join([
+        JsString::from(format!("Validation failed for tool \"{tool_name}\":\n")), errors,
+        JsString::from("\n\nReceived arguments:\n"), JsString::from(stringify_lossless_pretty(arguments)),
+    ], "");
+    Err(ValidationError { message })
 }
 
 // ---------------------------------------------------------------------------
 // Schema accessors
 // ---------------------------------------------------------------------------
 
-fn string_field<'a>(schema: &'a Value, key: &str) -> Option<&'a str> {
-    schema.get(key).and_then(Value::as_str)
+fn string_field(schema: &Value, key: &str) -> Option<String> {
+    schema.get(key).and_then(schema_text)
 }
 
-fn object_field<'a>(schema: &'a Value, key: &str) -> Option<&'a Map<String, Value>> {
+fn object_field<'a>(schema: &'a Value, key: &str) -> Option<&'a JsObject> {
     schema.get(key).and_then(Value::as_object)
 }
 
@@ -114,20 +97,20 @@ fn array_field<'a>(schema: &'a Value, key: &str) -> Option<&'a Vec<Value>> {
     schema.get(key).and_then(Value::as_array)
 }
 
-fn object_string<'a>(object: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
-    object.get(key).and_then(Value::as_str)
+fn object_string<'a>(object: &'a JsObject, key: &str) -> Option<&'a JsString> {
+    object.get(key).and_then(Value::as_string)
 }
 
-fn object_array<'a>(object: &'a Map<String, Value>, key: &str) -> Option<&'a Vec<Value>> {
+fn object_array<'a>(object: &'a JsObject, key: &str) -> Option<&'a Vec<Value>> {
     object.get(key).and_then(Value::as_array)
 }
 
-fn object_number(object: &Map<String, Value>, key: &str) -> Option<f64> {
+fn object_number(object: &JsObject, key: &str) -> Option<f64> {
     object.get(key).and_then(Value::as_f64)
 }
 
 fn is_schema(value: &Value) -> bool {
-    value.is_object() || value.is_boolean()
+    value.is_object() || value.as_bool().is_some()
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +120,7 @@ fn is_schema(value: &Value) -> bool {
 /// JavaScript `===` for JSON values, with `JSON.stringify`-compatible numbers.
 fn js_equal(left: &Value, right: &Value) -> bool {
     match (left, right) {
-        (Value::Number(left), Value::Number(right)) => left.as_f64() == right.as_f64(),
+        (Value::Number(left), Value::Number(right)) => left == right,
         (Value::Array(_) | Value::Object(_), _) | (_, Value::Array(_) | Value::Object(_)) => deep_equal(left, right),
         _ => left == right,
     }
@@ -155,7 +138,7 @@ fn deep_equal(left: &Value, right: &Value) -> bool {
                     .iter()
                     .all(|(key, left)| right.get(key).is_some_and(|right| js_equal(left, right)))
         }
-        (Value::Number(left), Value::Number(right)) => left.as_f64() == right.as_f64(),
+        (Value::Number(left), Value::Number(right)) => left == right,
         _ => false,
     }
 }
@@ -175,7 +158,7 @@ fn apply_conversion(value: &mut Value, conversion: Conversion) {
     }
 }
 
-fn convert_in_place(value: &mut Value, schema: &Value, context: &Map<String, Value>) {
+fn convert_in_place(value: &mut Value, schema: &Value, context: &JsObject) {
     let conversion = convert(schema, value, context);
     apply_conversion(value, conversion);
 }
@@ -185,7 +168,7 @@ fn convert_literal_in_place(value: &mut Value, constant: &Value) {
     apply_conversion(value, conversion);
 }
 
-fn convert(schema: &Value, value: &mut Value, context: &Map<String, Value>) -> Conversion {
+fn convert(schema: &Value, value: &mut Value, context: &JsObject) -> Conversion {
     let Some(object) = schema.as_object() else {
         return Conversion::InPlace;
     };
@@ -212,9 +195,9 @@ fn convert(schema: &Value, value: &mut Value, context: &Map<String, Value>) -> C
 
 fn convert_reference(
     schema: &Value,
-    object: &Map<String, Value>,
+    object: &JsObject,
     value: &mut Value,
-    context: &Map<String, Value>,
+    context: &JsObject,
 ) -> Option<Conversion> {
     if object.contains_key("$defs")
         && let Some(reference) = string_field(schema, "$ref")
@@ -225,13 +208,13 @@ fn convert_reference(
                 merged.insert(key.clone(), definition.clone());
             }
         }
-        return Some(match merged.get(reference) {
+        return Some(match merged.get(&reference) {
             Some(target) => convert(target, value, &merged),
             None => Conversion::InPlace,
         });
     }
     if let Some(reference) = string_field(schema, "$ref") {
-        return Some(match context.get(reference) {
+        return Some(match context.get(&reference) {
             Some(target) => convert(target, value, context),
             None => Conversion::InPlace,
         });
@@ -241,11 +224,11 @@ fn convert_reference(
 
 fn convert_typed(
     schema: &Value,
-    object: &Map<String, Value>,
+    object: &JsObject,
     value: &mut Value,
-    context: &Map<String, Value>,
+    context: &JsObject,
 ) -> Conversion {
-    match string_field(schema, "type") {
+    match string_field(schema, "type").as_deref() {
         Some("array") => convert_array(schema.get("items"), value, context),
         Some("object") => {
             if object.contains_key("patternProperties") {
@@ -304,7 +287,7 @@ fn convert_union(
     members: &[Value],
     union_schema: &Value,
     value: &mut Value,
-    context: &Map<String, Value>,
+    context: &JsObject,
 ) -> Conversion {
     if members.iter().any(|member| check(member, value)) {
         return Conversion::InPlace;
@@ -319,7 +302,7 @@ fn convert_union(
     Conversion::InPlace
 }
 
-fn convert_array(items: Option<&Value>, value: &mut Value, context: &Map<String, Value>) -> Conversion {
+fn convert_array(items: Option<&Value>, value: &mut Value, context: &JsObject) -> Conversion {
     match items {
         Some(Value::Array(item_schemas)) => convert_tuple(item_schemas, value, context),
         Some(item_schema) if item_schema.is_object() => convert_array_items(item_schema, value, context),
@@ -327,7 +310,7 @@ fn convert_array(items: Option<&Value>, value: &mut Value, context: &Map<String,
     }
 }
 
-fn convert_tuple(item_schemas: &[Value], value: &mut Value, context: &Map<String, Value>) -> Conversion {
+fn convert_tuple(item_schemas: &[Value], value: &mut Value, context: &JsObject) -> Conversion {
     if let Value::Array(values) = value {
         for (index, item) in values.iter_mut().enumerate() {
             if let Some(item_schema) = item_schemas.get(index) {
@@ -338,7 +321,7 @@ fn convert_tuple(item_schemas: &[Value], value: &mut Value, context: &Map<String
     Conversion::InPlace
 }
 
-fn convert_array_items(item_schema: &Value, value: &mut Value, context: &Map<String, Value>) -> Conversion {
+fn convert_array_items(item_schema: &Value, value: &mut Value, context: &JsObject) -> Conversion {
     if let Value::Array(values) = value {
         for item in values.iter_mut() {
             convert_in_place(item, item_schema, context);
@@ -351,7 +334,7 @@ fn convert_array_items(item_schema: &Value, value: &mut Value, context: &Map<Str
     Conversion::Replaced(Value::Array(vec![wrapped]))
 }
 
-fn convert_object(schema: &Map<String, Value>, value: &mut Value, context: &Map<String, Value>) -> Conversion {
+fn convert_object(schema: &JsObject, value: &mut Value, context: &JsObject) -> Conversion {
     let Some(map) = value.as_object_mut() else {
         return Conversion::InPlace;
     };
@@ -360,7 +343,7 @@ fn convert_object(schema: &Map<String, Value>, value: &mut Value, context: &Map<
     Conversion::InPlace
 }
 
-fn convert_object_properties(schema: &Map<String, Value>, map: &mut Map<String, Value>, context: &Map<String, Value>) {
+fn convert_object_properties(schema: &JsObject, map: &mut JsObject, context: &JsObject) {
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return;
     };
@@ -371,16 +354,16 @@ fn convert_object_properties(schema: &Map<String, Value>, map: &mut Map<String, 
     }
 }
 
-fn convert_object_additional(schema: &Map<String, Value>, map: &mut Map<String, Value>, context: &Map<String, Value>) {
+fn convert_object_additional(schema: &JsObject, map: &mut JsObject, context: &JsObject) {
     let Some(additional) = schema.get("additionalProperties").filter(|value| value.is_object()) else {
         return;
     };
-    let patterns: Vec<String> = schema
+    let patterns: Vec<JsString> = schema
         .get("properties")
         .and_then(Value::as_object)
-        .map(|properties| properties.keys().map(|key| format!("^{key}$")).collect())
+        .map(|properties| properties.keys().map(|key| JsString::join([JsString::from("^"),key.clone(),JsString::from("$")], "")).collect())
         .unwrap_or_default();
-    let keys: Vec<String> = map.keys().cloned().collect();
+    let keys: Vec<JsString> = map.keys().cloned().collect();
     for pattern in patterns {
         let regex = Regex::new(&pattern).ok();
         for key in &keys {
@@ -394,7 +377,7 @@ fn convert_object_additional(schema: &Map<String, Value>, map: &mut Map<String, 
     }
 }
 
-fn convert_record(schema: &Map<String, Value>, value: &mut Value, context: &Map<String, Value>) -> Conversion {
+fn convert_record(schema: &JsObject, value: &mut Value, context: &JsObject) -> Conversion {
     let Some(map) = value.as_object_mut() else {
         return Conversion::InPlace;
     };
@@ -406,10 +389,10 @@ fn convert_record(schema: &Map<String, Value>, value: &mut Value, context: &Map<
     Conversion::InPlace
 }
 
-fn convert_record_patterns(patterns: &Map<String, Value>, map: &mut Map<String, Value>, context: &Map<String, Value>) {
+fn convert_record_patterns(patterns: &JsObject, map: &mut JsObject, context: &JsObject) {
     for (pattern, property_schema) in patterns {
         let regex = Regex::new(pattern).ok();
-        let keys: Vec<String> = map.keys().cloned().collect();
+        let keys: Vec<JsString> = map.keys().cloned().collect();
         for key in keys {
             if regex.as_ref().is_some_and(|regex| regex.is_match(&key))
                 && let Some(property) = map.get_mut(&key)
@@ -421,15 +404,15 @@ fn convert_record_patterns(patterns: &Map<String, Value>, map: &mut Map<String, 
 }
 
 fn convert_record_additional(
-    patterns: &Map<String, Value>,
-    schema: &Map<String, Value>,
-    map: &mut Map<String, Value>,
-    context: &Map<String, Value>,
+    patterns: &JsObject,
+    schema: &JsObject,
+    map: &mut JsObject,
+    context: &JsObject,
 ) {
     let Some(additional) = schema.get("additionalProperties").filter(|value| value.is_object()) else {
         return;
     };
-    let keys: Vec<String> = map.keys().cloned().collect();
+    let keys: Vec<JsString> = map.keys().cloned().collect();
     for pattern in patterns.keys() {
         let regex = Regex::new(pattern).ok();
         for key in &keys {
@@ -453,9 +436,10 @@ fn try_number(value: &Value) -> Option<Value> {
     }
 }
 
-fn number_from_string(text: &str) -> Option<Value> {
-    if let Some(parsed) = Some(pi_js_compat::number::parse_number(text)).filter(|parsed| parsed.is_finite()) {
-        return Some(js_number_value(parsed));
+fn number_from_string(text: &JsString) -> Option<Value> {
+    let text = text.to_utf8().ok()?;
+    if let Some(parsed) = Some(pi_js_compat::number::parse_number(&text)).filter(|parsed| parsed.is_finite()) {
+        return Some(Value::Number(parsed));
     }
     let lowercase = text.to_lowercase();
     if lowercase == "false" {
@@ -471,7 +455,7 @@ fn number_from_string(text: &str) -> Option<Value> {
     }
     let value: i64 = digits.parse().ok()?;
     // TypeBox converts bigint-like strings only within `Number.MAX_SAFE_INTEGER`.
-    (value.unsigned_abs() <= 9_007_199_254_740_991).then(|| js_number_value(value as f64))
+    (value.unsigned_abs() <= 9_007_199_254_740_991).then(|| Value::Number(value as f64))
 }
 
 /// TypeBox `TryBigInt` integer pattern: `0` or a non-zero digit followed by digits.
@@ -483,21 +467,21 @@ fn is_canonical_integer(digits: &str) -> bool {
 fn try_integer(value: &Value) -> Option<Value> {
     try_number(value).map(|number| {
         let parsed = number.as_f64().unwrap_or(0.0);
-        js_number_value(parsed.trunc())
+        Value::Number(parsed.trunc())
     })
 }
 
 fn try_boolean(value: &Value) -> Option<Value> {
     match value {
         Value::Bool(boolean) => Some(json!(*boolean)),
-        Value::Number(number) => match number.as_f64() {
-            Some(0.0) => Some(json!(false)),
-            Some(1.0) => Some(json!(true)),
+        Value::Number(number) => match *number {
+            0.0 => Some(json!(false)),
+            1.0 => Some(json!(true)),
             _ => None,
         },
         Value::Null => Some(json!(false)),
         Value::String(text) => {
-            let lowercase = text.to_lowercase();
+            let lowercase = text.to_utf8().ok()?.to_lowercase();
             if lowercase == "false" || text == "0" {
                 Some(json!(false))
             } else if lowercase == "true" || text == "1" {
@@ -513,8 +497,8 @@ fn try_boolean(value: &Value) -> Option<Value> {
 fn try_string(value: &Value) -> Option<Value> {
     match value {
         Value::String(text) => Some(Value::String(text.clone())),
-        Value::Bool(boolean) => Some(Value::String(boolean.to_string())),
-        Value::Number(number) => Some(Value::String(js_number_to_string(number.as_f64().unwrap_or(f64::NAN)))),
+        Value::Bool(boolean) => Some(Value::String(boolean.to_string().into())),
+        Value::Number(number) => Some(Value::String(js_number_to_string(*number).into())),
         Value::Null => Some(json!("null")),
         _ => None,
     }
@@ -524,9 +508,9 @@ fn try_null(value: &Value) -> Option<Value> {
     match value {
         Value::Null => Some(Value::Null),
         Value::Bool(false) => Some(Value::Null),
-        Value::Number(number) if number.as_f64() == Some(0.0) => Some(Value::Null),
+        Value::Number(number) if *number == 0.0 => Some(Value::Null),
         Value::String(text) => {
-            let lowercase = text.to_lowercase();
+            let lowercase = text.to_utf8().ok()?.to_lowercase();
             if lowercase == "undefined" || lowercase == "null" || text.is_empty() || text == "0" {
                 Some(Value::Null)
             } else {
@@ -576,7 +560,7 @@ fn coerce_composition_keywords(schema: &Value, value: &mut Value) {
     }
 }
 
-fn coerce_typed(schema: &Map<String, Value>, value: &mut Value) {
+fn coerce_typed(schema: &JsObject, value: &mut Value) {
     let types = schema_types(schema);
     let matches_union_member = types.len() > 1 && types.iter().any(|schema_type| matches_json_type(value, schema_type));
     if !types.is_empty() && !matches_union_member {
@@ -610,21 +594,21 @@ fn coerce_union(schemas: &[Value], value: &mut Value) -> Conversion {
     Conversion::InPlace
 }
 
-fn schema_types(object: &Map<String, Value>) -> Vec<String> {
+fn schema_types(object: &JsObject) -> Vec<String> {
     match object.get("type") {
-        Some(Value::String(schema_type)) => vec![schema_type.clone()],
-        Some(Value::Array(types)) => types.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
+        Some(Value::String(schema_type)) => schema_type.to_utf8().ok().into_iter().collect(),
+        Some(Value::Array(types)) => types.iter().filter_map(schema_text).collect(),
         _ => Vec::new(),
     }
 }
 
 fn matches_json_type(value: &Value, schema_type: &str) -> bool {
     match schema_type {
-        "number" => value.is_number(),
+        "number" => value.as_f64().is_some(),
         "integer" => value
             .as_f64()
             .is_some_and(|number| number.is_finite() && number.fract() == 0.0),
-        "boolean" => value.is_boolean(),
+        "boolean" => value.as_bool().is_some(),
         "string" => value.is_string(),
         "null" => value.is_null(),
         "array" => value.is_array(),
@@ -641,19 +625,19 @@ fn coerce_primitive_by_type(value: &Value, schema_type: &str) -> Option<Value> {
             Value::Null => Some(json!(false)),
             Value::String(text) if text == "true" => Some(json!(true)),
             Value::String(text) if text == "false" => Some(json!(false)),
-            Value::Number(number) if number.as_f64() == Some(1.0) => Some(json!(true)),
-            Value::Number(number) if number.as_f64() == Some(0.0) => Some(json!(false)),
+            Value::Number(number) if *number == 1.0 => Some(json!(true)),
+            Value::Number(number) if *number == 0.0 => Some(json!(false)),
             _ => None,
         },
         "string" => match value {
             Value::Null => Some(json!("")),
-            Value::Number(number) => Some(Value::String(js_number_to_string(number.as_f64().unwrap_or(f64::NAN)))),
-            Value::Bool(boolean) => Some(Value::String(boolean.to_string())),
+            Value::Number(number) => Some(Value::String(js_number_to_string(*number).into())),
+            Value::Bool(boolean) => Some(Value::String(boolean.to_string().into())),
             _ => None,
         },
         "null" => match value {
             Value::String(text) if text.is_empty() => Some(Value::Null),
-            Value::Number(number) if number.as_f64() == Some(0.0) => Some(Value::Null),
+            Value::Number(number) if *number == 0.0 => Some(Value::Null),
             Value::Bool(false) => Some(Value::Null),
             _ => None,
         },
@@ -665,18 +649,18 @@ fn coerce_number(value: &Value, integer: bool) -> Option<Value> {
     match value {
         Value::Null => Some(json!(0)),
         Value::String(text) if !text.trim().is_empty() => {
-            let parsed = Some(pi_js_compat::number::parse_number(text)).filter(|parsed| parsed.is_finite())?;
+            let parsed = Some(parse_number(text)).filter(|parsed| parsed.is_finite())?;
             if integer && parsed.fract() != 0.0 {
                 return None;
             }
-            Some(js_number_value(parsed))
+            Some(Value::Number(parsed))
         }
         Value::Bool(boolean) => Some(json!(if *boolean { 1 } else { 0 })),
         _ => None,
     }
 }
 
-fn apply_object_coercion(value: &mut Value, schema: &Map<String, Value>) {
+fn apply_object_coercion(value: &mut Value, schema: &JsObject) {
     let Some(map) = value.as_object_mut() else {
         return;
     };
@@ -691,10 +675,10 @@ fn apply_object_coercion(value: &mut Value, schema: &Map<String, Value>) {
     let Some(additional) = schema.get("additionalProperties").filter(|value| value.is_object()) else {
         return;
     };
-    let defined: Vec<&String> = properties
+    let defined: Vec<&JsString> = properties
         .map(|properties| properties.keys().collect())
         .unwrap_or_default();
-    let keys: Vec<String> = map.keys().cloned().collect();
+    let keys: Vec<JsString> = map.keys().cloned().collect();
     for key in keys {
         if defined.iter().any(|defined| **defined == key) {
             continue;
@@ -705,7 +689,7 @@ fn apply_object_coercion(value: &mut Value, schema: &Map<String, Value>) {
     }
 }
 
-fn apply_array_coercion(value: &mut Value, schema: &Map<String, Value>) {
+fn apply_array_coercion(value: &mut Value, schema: &JsObject) {
     let Some(values) = value.as_array_mut() else {
         return;
     };
@@ -731,35 +715,33 @@ fn apply_array_coercion(value: &mut Value, schema: &Map<String, Value>) {
 // ---------------------------------------------------------------------------
 
 struct Issue {
-    instance_path: String,
-    message: String,
-    required_first: Option<String>,
+    instance_path: JsString,
+    message: JsString,
+    required_first: Option<JsString>,
 }
 
 impl Issue {
-    fn new(instance_path: &str, message: String) -> Self {
+    fn new(instance_path: &JsString, message: impl Into<JsString>) -> Self {
         Self {
-            instance_path: instance_path.to_owned(),
-            message,
+            instance_path: instance_path.clone(),
+            message: message.into(),
             required_first: None,
         }
     }
 
-    fn path(&self) -> String {
-        let base = self
-            .instance_path
-            .strip_prefix('/')
-            .unwrap_or(&self.instance_path)
-            .replace('/', ".");
+    fn path(&self) -> JsString {
+        let units = self.instance_path.units();
+        let units = units.strip_prefix(&[u16::from(b'/')]).unwrap_or(units);
+        let base = JsString::from_utf16(units.iter().map(|unit| if *unit == u16::from(b'/') { u16::from(b'.') } else { *unit }).collect());
         if let Some(required) = &self.required_first {
-            return if base.is_empty() {
-                required.clone()
-            } else {
-                format!("{base}.{required}")
-            };
+            return if base.is_empty() { required.clone() } else { JsString::join([base, JsString::from("."), required.clone()], "") };
         }
-        if base.is_empty() { "root".to_owned() } else { base }
+        if base.is_empty() { "root".into() } else { base }
     }
+    fn line(&self) -> JsString {
+        JsString::join([JsString::from("  - "), self.path(), JsString::from(": "), self.message.clone()], "")
+    }
+
 }
 
 struct Issues {
@@ -788,7 +770,7 @@ impl Issues {
         }
     }
 
-    fn message(&mut self, instance_path: &str, message: String) {
+    fn message(&mut self, instance_path: &JsString, message: impl Into<JsString>) {
         self.add(Issue::new(instance_path, message));
     }
 
@@ -805,16 +787,16 @@ impl Issues {
 
 fn collect_issues(schema: &Value, value: &Value) -> Issues {
     let mut issues = Issues::root();
-    collect_schema(schema, schema, schema, "", value, &mut issues);
+    collect_schema(schema, schema, schema, &JsString::default(), value, &mut issues);
     issues
 }
 
 /// TypeBox-style validation lines (`  - path: message`) for a schema compiled by `Compile(...).Errors`.
-pub fn schema_error_lines(schema: &Value, value: &Value) -> Vec<String> {
+pub fn schema_error_lines(schema: &Value, value: &Value) -> Vec<JsString> {
     collect_issues(schema, value)
         .items
         .iter()
-        .map(|issue| format!("  - {}: {}", issue.path(), issue.message))
+        .map(Issue::line)
         .collect()
 }
 
@@ -824,20 +806,20 @@ fn check(schema: &Value, value: &Value) -> bool {
 
 /// Validity check that keeps the caller's schema stack for `$ref` resolution.
 fn check_with(root: &Value, base: &Value, schema: &Value, value: &Value) -> bool {
-    scratch_issues(root, base, schema, "", value).is_empty()
+    scratch_issues(root, base, schema, &JsString::default(), value).is_empty()
 }
 
-fn scratch_issues(root: &Value, base: &Value, schema: &Value, instance_path: &str, value: &Value) -> Issues {
+fn scratch_issues(root: &Value, base: &Value, schema: &Value, instance_path: &JsString, value: &Value) -> Issues {
     let mut issues = Issues::scratch();
     collect_schema(root, base, schema, instance_path, value, &mut issues);
     issues
 }
 
-fn child_path(instance_path: &str, key: &str) -> String {
-    format!("{instance_path}/{key}")
+fn child_path(instance_path: &JsString, key: impl Into<JsString>) -> JsString {
+    JsString::join([instance_path.clone(), JsString::from("/"), key.into()], "")
 }
 
-fn collect_schema(root: &Value, base: &Value, schema: &Value, instance_path: &str, value: &Value, issues: &mut Issues) {
+fn collect_schema(root: &Value, base: &Value, schema: &Value, instance_path: &JsString, value: &Value, issues: &mut Issues) {
     let base = if schema.get("$id").is_some() { schema } else { base };
     if schema.as_bool() == Some(false) {
         issues.message(instance_path, "schema is false".to_owned());
@@ -854,8 +836,8 @@ fn collect_schema(root: &Value, base: &Value, schema: &Value, instance_path: &st
 fn collect_value_keywords(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
+    schema: &JsObject,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -865,7 +847,7 @@ fn collect_value_keywords(
     if value.is_array() {
         collect_array_keywords(root, base, schema, instance_path, value, issues);
     }
-    if let Some(text) = value.as_str() {
+    if let Some(text) = value.as_string() {
         collect_string_keywords(schema, instance_path, text, issues);
     }
     if let Some(number) = value.as_f64() {
@@ -877,8 +859,8 @@ fn collect_composition_keywords(
     root: &Value,
     base: &Value,
     schema: &Value,
-    object: &Map<String, Value>,
-    instance_path: &str,
+    object: &JsObject,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -894,21 +876,21 @@ fn collect_composition_keywords(
 fn collect_ref(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
+    schema: &JsObject,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
-    let Some(reference) = schema.get("$ref").and_then(Value::as_str) else {
+    let Some(reference) = schema.get("$ref").and_then(schema_text) else {
         return;
     };
-    match resolve_ref(root, base, reference) {
+    match resolve_ref(root, base, &reference) {
         Some(target) => collect_schema(root, base, target, instance_path, value, issues),
         None => issues.message(instance_path, "schema is false".to_owned()),
     }
 }
 
-fn collect_const_and_enum(schema: &Map<String, Value>, instance_path: &str, value: &Value, issues: &mut Issues) {
+fn collect_const_and_enum(schema: &JsObject, instance_path: &JsString, value: &Value, issues: &mut Issues) {
     if let Some(constant) = schema.get("const")
         && !js_equal(constant, value)
     {
@@ -924,8 +906,8 @@ fn collect_const_and_enum(schema: &Map<String, Value>, instance_path: &str, valu
 fn collect_if_keyword(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
+    schema: &JsObject,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -938,8 +920,8 @@ fn collect_if_keyword(
 fn collect_not_keyword(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
+    schema: &JsObject,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -951,7 +933,7 @@ fn collect_not_keyword(
     }
 }
 
-fn collect_all_of(root: &Value, base: &Value, schema: &Value, instance_path: &str, value: &Value, issues: &mut Issues) {
+fn collect_all_of(root: &Value, base: &Value, schema: &Value, instance_path: &JsString, value: &Value, issues: &mut Issues) {
     let Some(members) = array_field(schema, "allOf") else {
         return;
     };
@@ -968,7 +950,7 @@ fn collect_any_of_keyword(
     root: &Value,
     base: &Value,
     schema: &Value,
-    instance_path: &str,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -985,7 +967,7 @@ fn collect_one_of_keyword(
     root: &Value,
     base: &Value,
     schema: &Value,
-    instance_path: &str,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -998,7 +980,7 @@ fn collect_one_of_keyword(
     collect_one_of(root, base, members, instance_path, value, issues);
 }
 
-fn collect_type(schema: &Map<String, Value>, instance_path: &str, value: &Value, issues: &mut Issues) {
+fn collect_type(schema: &JsObject, instance_path: &JsString, value: &Value, issues: &mut Issues) {
     let Some(type_spec) = schema.get("type") else {
         return;
     };
@@ -1014,11 +996,11 @@ fn collect_type(schema: &Map<String, Value>, instance_path: &str, value: &Value,
 
 fn check_type(type_spec: &Value, value: &Value) -> bool {
     match type_spec {
-        Value::String(schema_type) => check_type_name(schema_type, value),
+        Value::String(schema_type) => schema_type.to_utf8().is_ok_and(|name| check_type_name(&name, value)),
         Value::Array(types) => types
             .iter()
-            .filter_map(Value::as_str)
-            .any(|schema_type| check_type_name(schema_type, value)),
+            .filter_map(schema_text)
+            .any(|schema_type| check_type_name(&schema_type, value)),
         _ => true,
     }
 }
@@ -1027,33 +1009,33 @@ fn check_type_name(schema_type: &str, value: &Value) -> bool {
     match schema_type {
         "object" => value.is_object(),
         "array" => value.is_array(),
-        "boolean" => value.is_boolean(),
+        "boolean" => value.as_bool().is_some(),
         "integer" => value
             .as_f64()
             .is_some_and(|number| number.is_finite() && number.fract() == 0.0),
-        "number" => value.is_number(),
+        "number" => value.as_f64().is_some(),
         "null" => value.is_null(),
         "string" => value.is_string(),
         _ => true,
     }
 }
 
-fn type_message(type_spec: &Value) -> String {
+fn type_message(type_spec: &Value) -> JsString {
     match type_spec {
-        Value::String(schema_type) => format!("must be {schema_type}"),
+        Value::String(schema_type) => JsString::join([JsString::from("must be "), schema_type.clone()], ""),
         Value::Array(types) => {
-            let names: Vec<&str> = types.iter().filter_map(Value::as_str).collect();
-            format!("must be either {}", names.join(" or "))
+            let names = types.iter().filter_map(Value::as_string);
+            JsString::join([JsString::from("must be either "), JsString::join(names," or ")], "")
         }
-        _ => String::new(),
+        _ => JsString::default(),
     }
 }
 
 fn collect_object_keywords(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
+    schema: &JsObject,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -1073,25 +1055,25 @@ fn collect_object_keywords(
     collect_property_counts(schema, instance_path, map, issues);
 }
 
-fn collect_required(schema: &Map<String, Value>, instance_path: &str, map: &Map<String, Value>, issues: &mut Issues) {
+fn collect_required(schema: &JsObject, instance_path: &JsString, map: &JsObject, issues: &mut Issues) {
     let Some(required) = object_array(schema, "required") else {
         return;
     };
     if !required.iter().all(Value::is_string) {
         return;
     }
-    let missing: Vec<String> = required
+    let missing: Vec<JsString> = required
         .iter()
-        .filter_map(Value::as_str)
+        .filter_map(Value::as_string)
         .filter(|key| !map.contains_key(*key))
-        .map(str::to_owned)
+        .cloned()
         .collect();
     if missing.is_empty() {
         return;
     }
     let mut issue = Issue::new(
         instance_path,
-        format!("must have required properties {}", missing.join(", ")),
+        JsString::join([JsString::from("must have required properties "), JsString::join(&missing, ", ")], ""),
     );
     issue.required_first = missing.first().cloned();
     issues.add(issue);
@@ -1100,10 +1082,10 @@ fn collect_required(schema: &Map<String, Value>, instance_path: &str, map: &Map<
 fn collect_dependencies_keyword(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
+    schema: &JsObject,
+    instance_path: &JsString,
     value: &Value,
-    map: &Map<String, Value>,
+    map: &JsObject,
     issues: &mut Issues,
 ) {
     let Some(dependencies) = schema.get("dependencies").and_then(Value::as_object) else {
@@ -1123,9 +1105,9 @@ fn is_dependency(dependency: &Value) -> bool {
 }
 
 fn collect_dependent_required_keyword(
-    schema: &Map<String, Value>,
-    instance_path: &str,
-    map: &Map<String, Value>,
+    schema: &JsObject,
+    instance_path: &JsString,
+    map: &JsObject,
     issues: &mut Issues,
 ) {
     let Some(dependencies) = schema.get("dependentRequired").and_then(Value::as_object) else {
@@ -1145,10 +1127,10 @@ fn collect_dependent_required_keyword(
 fn collect_dependent_schemas(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
+    schema: &JsObject,
+    instance_path: &JsString,
     value: &Value,
-    map: &Map<String, Value>,
+    map: &JsObject,
     issues: &mut Issues,
 ) {
     let Some(dependencies) = schema.get("dependentSchemas").and_then(Value::as_object) else {
@@ -1167,9 +1149,9 @@ fn collect_dependent_schemas(
 fn collect_pattern_properties(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
-    map: &Map<String, Value>,
+    schema: &JsObject,
+    instance_path: &JsString,
+    map: &JsObject,
     issues: &mut Issues,
 ) {
     let Some(patterns) = schema.get("patternProperties").and_then(Value::as_object) else {
@@ -1198,9 +1180,9 @@ fn collect_pattern_properties(
 fn collect_properties(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
-    map: &Map<String, Value>,
+    schema: &JsObject,
+    instance_path: &JsString,
+    map: &JsObject,
     issues: &mut Issues,
 ) {
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
@@ -1226,9 +1208,9 @@ fn collect_properties(
 fn collect_property_names(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
-    map: &Map<String, Value>,
+    schema: &JsObject,
+    instance_path: &JsString,
+    map: &JsObject,
     issues: &mut Issues,
 ) {
     let Some(property_names) = schema.get("propertyNames").filter(|value| is_schema(value)) else {
@@ -1244,15 +1226,15 @@ fn collect_property_names(
     if !invalid.is_empty() {
         issues.message(
             instance_path,
-            format!("property names {} are invalid", invalid.join(", ")),
+            JsString::join([JsString::from("property names "), JsString::join(&invalid, ", "), JsString::from(" are invalid")], ""),
         );
     }
 }
 
 fn collect_property_counts(
-    schema: &Map<String, Value>,
-    instance_path: &str,
-    map: &Map<String, Value>,
+    schema: &JsObject,
+    instance_path: &JsString,
+    map: &JsObject,
     issues: &mut Issues,
 ) {
     if let Some(minimum) = object_number(schema, "minProperties")
@@ -1276,10 +1258,10 @@ fn collect_property_counts(
 fn collect_additional_properties(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
+    schema: &JsObject,
     additional: &Value,
-    instance_path: &str,
-    map: &Map<String, Value>,
+    instance_path: &JsString,
+    map: &JsObject,
     issues: &mut Issues,
 ) {
     let regex = additional_properties_regex(schema);
@@ -1300,38 +1282,36 @@ fn collect_additional_properties(
 
 /// TypeBox `GetPropertiesPattern`: `patternProperties` keys plus anchored
 /// `properties` keys. A schema without either never matches.
-fn additional_properties_regex(schema: &Map<String, Value>) -> Option<Regex> {
-    let mut patterns: Vec<String> = Vec::new();
+fn additional_properties_regex(schema: &JsObject) -> Option<Regex> {
+    let mut patterns: Vec<JsString> = Vec::new();
     if let Some(patterns_object) = schema.get("patternProperties").and_then(Value::as_object) {
         patterns.extend(patterns_object.keys().cloned());
     }
     if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
-        patterns.extend(properties.keys().map(|key| format!("^{}$", escape_js_regex(key))));
+        patterns.extend(properties.keys().map(|key| JsString::join([JsString::from("^"), escape_js_regex(key), JsString::from("$")], "")));
     }
     if patterns.is_empty() {
         return None;
     }
-    Regex::new(&format!("({})", patterns.join("|"))).ok()
+    Regex::new(JsString::join([JsString::from("("), JsString::join(patterns, "|"), JsString::from(")")], "")).ok()
 }
 
 /// JavaScript `key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')`.
-fn escape_js_regex(key: &str) -> String {
-    const SPECIAL: &[char] = &['.', '*', '+', '?', '^', '$', '{', '}', '(', ')', '|', '[', ']', '\\'];
-    let mut escaped = String::with_capacity(key.len());
-    for character in key.chars() {
-        if SPECIAL.contains(&character) {
-            escaped.push('\\');
-        }
-        escaped.push(character);
+fn escape_js_regex(key: &JsString) -> JsString {
+    const SPECIAL: &[u16] = &[46,42,43,63,94,36,123,125,40,41,124,91,93,92];
+    let mut escaped = Vec::new();
+    for unit in key.units() {
+        if SPECIAL.contains(unit) { escaped.push(u16::from(b'\\')); }
+        escaped.push(*unit);
     }
-    escaped
+    JsString::from_utf16(escaped)
 }
 
 fn collect_dependencies(
     root: &Value,
     base: &Value,
-    dependencies: &Map<String, Value>,
-    instance_path: &str,
+    dependencies: &JsObject,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -1343,16 +1323,12 @@ fn collect_dependencies(
             continue;
         }
         if let Some(names) = dependency.as_array() {
-            let names: Vec<&str> = names.iter().filter_map(Value::as_str).collect();
+            let names: Vec<&JsString> = names.iter().filter_map(Value::as_string).collect();
             // `Array.prototype.every` stops at the first missing dependency.
             if names.iter().any(|name| !map.contains_key(*name)) {
                 issues.message(
                     instance_path,
-                    format!(
-                        "must have properties {} when property {} is present",
-                        names.join(", "),
-                        key
-                    ),
+                    JsString::join([JsString::from("must have properties "), JsString::join(names.iter().copied(), ", "), JsString::from(" when property "), key.clone(), JsString::from(" is present")], ""),
                 );
             }
         } else if is_schema(dependency) {
@@ -1362,9 +1338,9 @@ fn collect_dependencies(
 }
 
 fn collect_dependent_required(
-    dependencies: &Map<String, Value>,
-    instance_path: &str,
-    map: &Map<String, Value>,
+    dependencies: &JsObject,
+    instance_path: &JsString,
+    map: &JsObject,
     issues: &mut Issues,
 ) {
     for (key, dependency) in dependencies {
@@ -1374,16 +1350,12 @@ fn collect_dependent_required(
         let Some(names) = dependency.as_array() else {
             continue;
         };
-        let names: Vec<&str> = names.iter().filter_map(Value::as_str).collect();
+        let names: Vec<&JsString> = names.iter().filter_map(Value::as_string).collect();
         for name in &names {
             if !map.contains_key(*name) {
                 issues.message(
                     instance_path,
-                    format!(
-                        "must have properties {} when property {} is present",
-                        names.join(", "),
-                        key
-                    ),
+                    JsString::join([JsString::from("must have properties "), JsString::join(names.iter().copied(), ", "), JsString::from(" when property "), key.clone(), JsString::from(" is present")], ""),
                 );
             }
         }
@@ -1393,8 +1365,8 @@ fn collect_dependent_required(
 fn collect_array_keywords(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
+    schema: &JsObject,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -1414,9 +1386,9 @@ fn collect_array_keywords(
 fn collect_additional_items(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
+    schema: &JsObject,
     items: Option<&Value>,
-    instance_path: &str,
+    instance_path: &JsString,
     values: &[Value],
     issues: &mut Issues,
 ) {
@@ -1441,8 +1413,8 @@ fn collect_additional_items(
 fn collect_contains(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
+    schema: &JsObject,
+    instance_path: &JsString,
     values: &[Value],
     issues: &mut Issues,
 ) {
@@ -1461,9 +1433,9 @@ fn collect_contains(
 fn collect_items(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
+    schema: &JsObject,
     items: Option<&Value>,
-    instance_path: &str,
+    instance_path: &JsString,
     values: &[Value],
     issues: &mut Issues,
 ) {
@@ -1494,7 +1466,7 @@ fn collect_sized_items(
     root: &Value,
     base: &Value,
     item_schemas: &[Value],
-    instance_path: &str,
+    instance_path: &JsString,
     values: &[Value],
     issues: &mut Issues,
 ) {
@@ -1516,8 +1488,8 @@ fn collect_sized_items(
 fn collect_contains_counts(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
+    schema: &JsObject,
+    instance_path: &JsString,
     values: &[Value],
     issues: &mut Issues,
 ) {
@@ -1542,7 +1514,7 @@ fn collect_contains_counts(
     }
 }
 
-fn collect_item_counts(schema: &Map<String, Value>, instance_path: &str, values: &[Value], issues: &mut Issues) {
+fn collect_item_counts(schema: &JsObject, instance_path: &JsString, values: &[Value], issues: &mut Issues) {
     if let Some(maximum) = object_number(schema, "maxItems")
         && (values.len() as f64) > maximum
     {
@@ -1564,8 +1536,8 @@ fn collect_item_counts(schema: &Map<String, Value>, instance_path: &str, values:
 fn collect_prefix_items(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
-    instance_path: &str,
+    schema: &JsObject,
+    instance_path: &JsString,
     values: &[Value],
     issues: &mut Issues,
 ) {
@@ -1590,7 +1562,7 @@ fn collect_prefix_items(
     }
 }
 
-fn collect_unique_items(schema: &Map<String, Value>, instance_path: &str, values: &[Value], issues: &mut Issues) {
+fn collect_unique_items(schema: &JsObject, instance_path: &JsString, values: &[Value], issues: &mut Issues) {
     if schema.get("uniqueItems").and_then(Value::as_bool) != Some(true) {
         return;
     }
@@ -1603,10 +1575,10 @@ fn collect_unique_items(schema: &Map<String, Value>, instance_path: &str, values
     }
 }
 
-fn collect_string_keywords(schema: &Map<String, Value>, instance_path: &str, text: &str, issues: &mut Issues) {
-    let units: Vec<u16> = text.encode_utf16().collect();
+fn collect_string_keywords(schema: &JsObject, instance_path: &JsString, text: &JsString, issues: &mut Issues) {
+    let units = text.units();
     if let Some(maximum) = object_number(schema, "maxLength")
-        && !is_max_length_fast(&units, maximum)
+        && !is_max_length_fast(units, maximum)
     {
         issues.message(
             instance_path,
@@ -1614,7 +1586,7 @@ fn collect_string_keywords(schema: &Map<String, Value>, instance_path: &str, tex
         );
     }
     if let Some(minimum) = object_number(schema, "minLength")
-        && !is_min_length_fast(&units, minimum)
+        && !is_min_length_fast(units, minimum)
     {
         issues.message(
             instance_path,
@@ -1626,12 +1598,12 @@ fn collect_string_keywords(schema: &Map<String, Value>, instance_path: &str, tex
     if let Some(pattern) = object_string(schema, "pattern") {
         let matched = Regex::new(pattern).is_ok_and(|regex| regex.is_match(text));
         if !matched {
-            issues.message(instance_path, format!("must match pattern \"{pattern}\""));
+            issues.message(instance_path, JsString::join([JsString::from("must match pattern \""), pattern.clone(), JsString::from("\"")], ""));
         }
     }
 }
 
-fn collect_number_keywords(schema: &Map<String, Value>, instance_path: &str, number: f64, issues: &mut Issues) {
+fn collect_number_keywords(schema: &JsObject, instance_path: &JsString, number: f64, issues: &mut Issues) {
     if let Some(limit) = object_number(schema, "exclusiveMaximum")
         && number >= limit
     {
@@ -1678,9 +1650,9 @@ fn is_multiple_of(dividend: f64, divisor: f64) -> bool {
 fn collect_if(
     root: &Value,
     base: &Value,
-    schema: &Map<String, Value>,
+    schema: &JsObject,
     if_schema: &Value,
-    instance_path: &str,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -1708,7 +1680,7 @@ fn collect_any_of(
     root: &Value,
     base: &Value,
     members: &[Value],
-    instance_path: &str,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -1735,7 +1707,7 @@ fn collect_one_of(
     root: &Value,
     base: &Value,
     members: &[Value],
-    instance_path: &str,
+    instance_path: &JsString,
     value: &Value,
     issues: &mut Issues,
 ) {
@@ -1778,7 +1750,7 @@ fn resolve_ref<'a>(root: &'a Value, base: &'a Value, reference: &str) -> Option<
 }
 
 fn find_id<'a>(schema: &'a Value, reference: &str) -> Option<&'a Value> {
-    if string_field(schema, "$id") == Some(reference) {
+    if string_field(schema, "$id").as_deref() == Some(reference) {
         return Some(schema);
     }
     match schema {
@@ -1789,7 +1761,7 @@ fn find_id<'a>(schema: &'a Value, reference: &str) -> Option<&'a Value> {
 }
 
 fn find_anchor<'a>(schema: &'a Value, anchor: &str) -> Option<&'a Value> {
-    if string_field(schema, "$anchor") == Some(anchor) || string_field(schema, "$dynamicAnchor") == Some(anchor) {
+    if string_field(schema, "$anchor").as_deref() == Some(anchor) || string_field(schema, "$dynamicAnchor").as_deref() == Some(anchor) {
         return Some(schema);
     }
     match schema {
@@ -1973,87 +1945,6 @@ fn is_max_length_fast(units: &[u16], maximum: f64) -> bool {
     true
 }
 
-// ---------------------------------------------------------------------------
-// `JSON.stringify(value, null, 2)`
-// ---------------------------------------------------------------------------
 
-fn json_stringify_pretty(value: &Value) -> String {
-    let mut output = String::new();
-    write_json(&mut output, value, 0);
-    output
-}
-
-fn write_json(output: &mut String, value: &Value, indent: usize) {
-    match value {
-        Value::Null => output.push_str("null"),
-        Value::Bool(boolean) => output.push_str(if *boolean { "true" } else { "false" }),
-        Value::Number(number) => output.push_str(&js_number_to_string(number.as_f64().unwrap_or(f64::NAN))),
-        Value::String(text) => write_json_string(output, text),
-        Value::Array(items) => write_json_array(output, items, indent),
-        Value::Object(map) => write_json_object(output, map, indent),
-    }
-}
-
-fn write_json_array(output: &mut String, items: &[Value], indent: usize) {
-    if items.is_empty() {
-        output.push_str("[]");
-        return;
-    }
-    output.push_str("[\n");
-    for (index, item) in items.iter().enumerate() {
-        if index > 0 {
-            output.push_str(",\n");
-        }
-        push_indent(output, indent + 1);
-        write_json(output, item, indent + 1);
-    }
-    output.push('\n');
-    push_indent(output, indent);
-    output.push(']');
-}
-
-fn write_json_object(output: &mut String, map: &Map<String, Value>, indent: usize) {
-    if map.is_empty() {
-        output.push_str("{}");
-        return;
-    }
-    output.push_str("{\n");
-    for (index, (key, item)) in map.iter().enumerate() {
-        if index > 0 {
-            output.push_str(",\n");
-        }
-        push_indent(output, indent + 1);
-        write_json_string(output, key);
-        output.push_str(": ");
-        write_json(output, item, indent + 1);
-    }
-    output.push('\n');
-    push_indent(output, indent);
-    output.push('}');
-}
-
-fn push_indent(output: &mut String, indent: usize) {
-    for _ in 0..indent {
-        output.push_str("  ");
-    }
-}
-
-fn write_json_string(output: &mut String, text: &str) {
-    output.push('"');
-    for character in text.chars() {
-        match character {
-            '"' => output.push_str("\\\""),
-            '\\' => output.push_str("\\\\"),
-            '\u{8}' => output.push_str("\\b"),
-            '\u{c}' => output.push_str("\\f"),
-            '\n' => output.push_str("\\n"),
-            '\r' => output.push_str("\\r"),
-            '\t' => output.push_str("\\t"),
-            character if (character as u32) < 0x20 => {
-                output.push_str(&format!("\\u{:04x}", character as u32));
-            }
-            character => output.push(character),
-        }
-    }
-    output.push('"');
-}
+fn schema_text(value: &Value) -> Option<String> { value.as_string()?.to_utf8().ok() }
+fn parse_number(text: &JsString) -> f64 { text.to_utf8().map(|text| pi_js_compat::number::parse_number(&text)).unwrap_or(f64::NAN) }
