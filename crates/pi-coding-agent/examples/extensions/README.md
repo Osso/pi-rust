@@ -251,3 +251,19 @@ registration. `/invaders` uses Kitty release opt-in for held movement/fire,
 a 50ms timer, owned saved state, and native custom UI. No default loading.
 `example_space_invaders` compares complete frames/state with the pinned game
 through real native/TS TUI input filters. [API and proof](../../../../docs/porting/traceability/core-ui-input.md).
+
+
+## Doom overlay (batch Q)
+
+Embed `doom_overlay/index.rs` via `#[path]`, keeping its component, engine and
+key modules beside it. Explicitly register a factory calling
+`doom_overlay_extension(api, ensure_wad, load_engine)` using the registry
+pattern above. Nothing loads by default.
+
+`EnsureWad` composes `wad_finder.rs::WadFinder::ensure_wad_file` with the host's
+Fetch and explicit module/cwd/HOME locations. `LoadEngine` supplies an initialized
+`DoomEngine` backed by the host's `DoomModule`; initialization errors retain their
+Error message. The generated Emscripten JavaScript/WASM loader remains waived,
+not replaced with a bundled fixture or a default runtime. Factories run on the
+host UI LocalSet; `/doom-overlay` pauses on Q and reuses the engine for the same
+WAD. [Proof and boundary details](../../../../docs/porting/traceability/extension-examples-q.md).
