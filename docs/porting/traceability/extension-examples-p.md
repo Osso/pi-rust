@@ -11,7 +11,7 @@ All rows use `tests/example_overlay_qa_tests.rs::thirteen_commands_match_pinned_
 | 31–40, 764–855, 856–876: `overlay-animation`, `AnimationDemoComponent`, `hslToRgb` | `Model::{start_timer,tick,input,cleanup}`, `render::{animation,hsl_to_rgb}` | Initial/1100ms frames, FPS, sine bar, spinner, RGB bytes, narrow/wide render, Ctrl+C and stopped timer; full ANSI + render-request differential. Saturation-zero HSL branch is private/unreachable from this example and has no independent fixture. |
 | 43–78, 336–374: `overlay-anchors`, `AnchorTestComponent` | `overlay_options`, command loop, `Model::input`, `render::render` | Nine positions plus wraparound; Space/Right; confirm notification, Escape; narrow frames. Other cancel alias shares tested Ctrl+C matcher. |
 | 81–112, 375–414: `overlay-margins`, `MarginTestComponent` | Same loop/options/render | All five configurations, scalar margins projected to four equal edges, signed offsets, wrap, narrow frames and close. |
-| 115–156, 415–459: `overlay-stack`, `StackOverlayComponent`, `sleep` | `stack`, `render::stack` | Three delayed overlapping calls; Enter/Escape/Ctrl+C; exact registration-order results and notifications, colored 12-line frames; out-of-order completions. Separate `stack_mounts_later_layers_at_absolute_four_hundred_ms_deadlines` reproduces early completion and asserts the 400ms/800ms mounting schedule. Widths ≤3: `stack_renders_clamped_fill_rows_at_width_three` asserts the post-pin fixed-TS frame (below). |
+| 115–156, 415–459: `overlay-stack`, `StackOverlayComponent`, `sleep` | `stack`, `render::stack` | Three delayed overlapping calls; Enter/Escape/Ctrl+C; exact registration-order results and notifications, colored 12-line frames; out-of-order completions. Separate paused-clock `stack_mounts_later_layers_at_absolute_four_hundred_ms_deadlines` constructs/closes each actual component and records mount times 0/400/800ms relative to command start despite early 200ms/100ms completions. Relative-sleep mutation yields 0/600/1100ms and fails; no wall-clock upper bound includes registry/thread setup. Widths ≤3: `stack_renders_clamped_fill_rows_at_width_three` asserts the post-pin fixed-TS frame (below). |
 | 159–167, 460–592: `overlay-overflow`, `StreamingOverflowComponent` | `overflow::Process`, `overflow::read`, unchanged decoded shell template `overflow.sh.txt` | Real private subprocess, explicit process.env forwarding, stdout chunk splitting including trailing partial chunks, empty filtering, ANSI/OSC8/CJK/emoji truncation, trimmed/styled stderr, auto-scroll and bounded Up/Down, close/Done status, SIGTERM/dispose, actual PID reaping, late output ignored after dispose. Full frames/request counts compare with source callbacks receiving the same chunks. Launch/read/wait/permission failures are not independently exercised; see proof limitations. |
 | 170–178, 593–627: `overlay-edge`, `EdgeTestComponent` | `overlay_options`, `render::render` | Exact right-center, width 40, right margin zero, frame and close. |
 | 181–214, 628–667: `overlay-percent`, `PercentTestComponent` | `PERCENT`, loop/options/render | Five row/column percentage cases plus wrap; next/close; narrow frames. |
@@ -22,6 +22,17 @@ All rows use `tests/example_overlay_qa_tests.rs::thirteen_commands_match_pinned_
 | 276–285, 1034–1250: `overlay-focus`, configs/controllers/panels | `panels::{mount,Panel}`, `Model::{focus_first,focus_next,dismiss,close}` | Three exact positions, nonCapturing; initial focus; real Input Unicode, arrows, backspace, key-history tail, cursor markers; forward/reverse wrap; per-panel dismissal, final close, Ctrl+C, dim/focused borders and current-label query. `focus_dispose_then_ctrl_c_does_not_complete` and the thirteen-command lifecycle audit compare Done call counts, disposal then Ctrl+C, and repeated controller Ctrl+C. Focus alone guards close; disposal marks it closed without Done. Private invalid-index/not-open panic paths are implemented but not separately invoked by valid command scripts. |
 | 288–300, 1251–1451: `overlay-streaming`, controller/input panels | panel mount/input/render, `Model::{cycle_streaming,tick,close}`, `render::streaming` | Controller → A → B → C → controller; BMP typing, astral rejection, backspace, per-panel close; 500ms lines, eight-line retention, stopped timer, label `?` after clearing active panels; full frames/request counts. |
 | 305–334: `BaseOverlay` | `render::{boxed,row}` | Every command's ANSI border/title/truncation/padding output; widths 1, 3, 7, 9, 12 and 60 across applicable fixtures. Width 3 stack compares with the post-pin fixed source, not the pinned oracle. |
+
+## Fidelity follow-up
+
+`/tmp/pi-rust-ui-fidelity/ledger.md` records exact revisions, command diffs and logs.
+F1: original disposal and repeated-close tests fail Done counts; U1: original
+wait-only completion publishes Done before stdio EOF. P1: broad padding collapse
+fails exact-padding and missing-padding tests. `overlay-mutations.log` rejects
+all four regressions plus fifth-item saturation and relative stack sleeps (seven
+failing behavioral tests). All mutations restored before GREEN. The all-command
+lifecycle audit compares both sequences for all thirteen commands; no additional
+close/dispose mismatch found.
 
 ## Proof ledger
 

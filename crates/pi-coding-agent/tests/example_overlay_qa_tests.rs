@@ -214,6 +214,7 @@ fn frames(component: &dyn ExtensionUiComponent, width: usize) -> Value {
 struct Ui {
     scripts: Mutex<VecDeque<Value>>,
     calls: Arc<Mutex<Vec<Value>>>,
+    mount_clock: Option<tokio::time::Instant>,
 }
 impl ExtensionUiContext for Ui {
     fn set_editor_text(&self, text: &str) {
@@ -230,6 +231,30 @@ impl ExtensionUiContext for Ui {
         let script = self.scripts.lock().unwrap().pop_front().unwrap_or(json!({}));
         let delay = script["delay"].as_u64().unwrap_or(0);
         let calls = self.calls.clone();
+        if let Some(started) = self.mount_clock {
+            calls
+                .lock()
+                .unwrap()
+                .push(json!(["mount", started.elapsed().as_millis()]));
+            let value = Rc::new(RefCell::new(None));
+            let saved = value.clone();
+            let component = factory(
+                ExtensionUiFactoryContext {
+                    tui: ExtensionUiTui::new(Arc::new(Terminal)),
+                    theme: theme(),
+                    keybindings: KeybindingsManager::new(Vec::new(), None),
+                },
+                ExtensionUiDone::new(Rc::new(move |result| *saved.borrow_mut() = result)),
+            )
+            .unwrap();
+            component.handle_input("\r");
+            component.dispose();
+            let value = value.borrow().clone();
+            return Box::pin(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                Ok(value)
+            });
+        }
         let work = ui_thread::run(move || {
             Box::pin(async move {
                 PANELS.with(|ps| ps.borrow_mut().clear());
@@ -410,6 +435,7 @@ async fn native(request: &Value) -> Value {
     let ui = Arc::new(Ui {
         scripts: Mutex::new(request["scripts"].as_array().unwrap().iter().cloned().collect()),
         calls: Arc::new(Mutex::new(Vec::new())),
+        mount_clock: (request["mountClock"] == true).then(tokio::time::Instant::now),
     });
     runner.set_ui_context(Some(ui.clone()), ExtensionMode::Tui);
     let command = runner.get_command(request["command"].as_str().unwrap()).unwrap();
@@ -737,19 +763,24 @@ fn normalize_timestamps(value: &mut Value) {
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn stack_mounts_later_layers_at_absolute_four_hundred_ms_deadlines() {
-    let request = json!({"command":"overlay-stack","scripts":[{"delay":200,"steps":[{"key":"\r"}]},{"delay":100,"steps":[{"key":"\r"}]},{"steps":[{"key":"\r"}]}]});
-    let started = std::time::Instant::now();
+    let request = json!({"command":"overlay-stack","mountClock":true,"scripts":[{"delay":200},{"delay":100},{}]});
     let result = native(&request).await;
-    let elapsed = started.elapsed();
+    let mounts = result["calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|call| call[0] == "mount")
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        mounts,
+        vec![json!(["mount", 0]), json!(["mount", 400]), json!(["mount", 800])]
+    );
     assert_eq!(
         result["calls"].as_array().unwrap().last().unwrap(),
         &json!(["notify", "Closed in order: Overlay 1, Overlay 2, Overlay 3", "info"])
-    );
-    assert!(
-        elapsed >= std::time::Duration::from_millis(790) && elapsed < std::time::Duration::from_millis(1050),
-        "stack elapsed {elapsed:?}"
     );
 }
 
