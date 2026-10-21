@@ -47,7 +47,7 @@ is still a known failing comparison.
 | `getSubSchemaValidator`: compile success/failure | successful arm checks exercised | exception branch not independently exercised |
 | `formatValidationPath`: required and root/nested paths | existing unit/path/error fixtures | targeted proof |
 | `hasTypeBoxMetadata`: absent symbol | current TypeBox builders; actual conversion outcomes in matrix | symbol-present branch not represented by Rust API |
-| root replacement result / invalid primitive fallback | source root-string probe returns `"1"` for argument `1` | non-object Rust arguments not representable; not newly excluded |
+| root replacement result / invalid primitive fallback | source root-string probe returns `"1"` for argument `1` | direct core input violates frozen `ToolCall.arguments: Record<string, any>`; standing typed-core exclusion |
 
 ## Reproduced wider boundaries (no new approval)
 
@@ -69,13 +69,13 @@ worktree. Raw observations: `/tmp/pi-rust-repin-validation/boundary-source.jsonl
 - Pattern `^(a)\\1$`, input `{value:"aa"}`: TS accepts; Rust rejects the pattern.
   Source validation delegates to `Compile` (`validation.ts:246–254`). Regex engine
   work is outside this bounded repair; no unsupported-pattern waiver is assumed.
-- Root string schema with argument `1`: TS returns `"1"`; Rust `ToolCall.arguments`
-  is `JsonObject` (`types.rs:382`), so that input is not representable. A raw-value
-  validation entry point could expose the source function's runtime domain without
-  replacing every typed caller; main must decide whether it belongs in the domain.
-- Root `parameters:false`: TS `TypeError: Invalid value used as weak map key`;
-  Rust returns formatted `schema is false` error. Runtime error classification is
-  unresolved; no new exclusion or source-bug choice.
+- Direct core argument `1` and schema `false` probes are outside the standing
+  typed-core invalid-JavaScript-input policy, not required API-widening gaps.
+  Frozen `types.ts:378` requires `ToolCall.arguments: Record<string, any>`;
+  `types.ts:478–481` requires `Tool.parameters` to extend `TSchema`. Observed TS
+  outcomes remain `"1"` and `TypeError: Invalid value used as weak map key`.
+  This classification does not exclude external persistence decoding, valid nested
+  nulls, schema kinds, regular-expression strings, or escaped UTF-16 JSON values.
 
 ## Behavioral mutation proof
 

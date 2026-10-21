@@ -28,6 +28,9 @@ Trace: [validation](../porting/traceability/validation.md).
 
 This re-pin repairs optional-null normalization and declared union-arm coercion
 order. It does not establish whole-module parity. The current-pin nullable-array
-compiler throw, nested TypeBox metadata representation, non-object runtime input,
-JavaScript regular expressions, and other engine limitations remain explicit
-unresolved boundaries in the traceability document; none is newly waived here.
+compiler throw, nested TypeBox metadata representation, JavaScript regular
+expressions, and other engine limitations remain unresolved in the traceability
+document. Direct core calls with non-object arguments or primitive schemas are
+outside the standing typed-core input policy: frozen `ToolCall.arguments` is
+`Record<string, any>` and `Tool.parameters` extends `TSchema` (`types.ts:378,478–481`).
+This does not exclude raw persisted JSON or valid nested JSON values.
