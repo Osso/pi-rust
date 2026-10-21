@@ -345,6 +345,18 @@ async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
     for request in fixtures {
         let expected = oracle.request(&request);
         let actual = native(&request).await;
-        assert_eq!(actual, expected, "{}", request);
+        if actual != expected {
+            std::fs::write(
+                "/tmp/overlay-qa-actual.json",
+                serde_json::to_vec_pretty(&actual).unwrap(),
+            )
+            .unwrap();
+            std::fs::write(
+                "/tmp/overlay-qa-expected.json",
+                serde_json::to_vec_pretty(&expected).unwrap(),
+            )
+            .unwrap();
+            panic!("differential mismatch: {request}; /tmp/overlay-qa-{{actual,expected}}.json");
+        }
     }
 }
