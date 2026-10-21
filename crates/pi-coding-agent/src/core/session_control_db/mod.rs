@@ -1068,20 +1068,6 @@ pub(crate) fn write_canonical_mailbox_payload(
     Ok(())
 }
 
-pub(crate) fn compare_and_write_canonical_mailbox_payload(
-    db: &Connection,
-    row: &RuntimeMailboxRow,
-    message: &Map<String, Value>,
-    updated_at: &str,
-) -> Result<bool, ControlDbError> {
-    compare_and_write_serialized_canonical_mailbox_payload(
-        db,
-        row,
-        &js_json::stringify(&Value::Object(message.clone())),
-        updated_at,
-    )
-}
-
 pub(crate) fn compare_and_write_serialized_canonical_mailbox_payload(
     db: &Connection,
     row: &RuntimeMailboxRow,

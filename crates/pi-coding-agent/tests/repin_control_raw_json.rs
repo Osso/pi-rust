@@ -175,6 +175,29 @@ fn idempotent_enqueue_does_not_alias_raw_surrogate_body_with_replacement() {
 }
 
 #[test]
+fn raw_writer_multi_agent_failure_preserves_source_payload() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("control.sqlite").display().to_string();
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let wire = format!(
+        r#"[{},"/fixture/s","m",{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","unknown":{{"\ud800":"high","�":"replacement"}}}}]"#,
+        serde_json::to_string(&path).unwrap()
+    );
+    source_call(&mut source, "upsertMultiAgentMailboxMessage", &wire);
+    let original = persisted_raw(&mut source, &path);
+    assert!(mark_multi_agent_mailbox_message_failed(&path, "/fixture/s", "m", "failure").unwrap());
+    let failed = persisted_raw(&mut source, &path);
+    for key in ["body", "unknown"] {
+        let key = js_json::JsString::from(key);
+        assert_eq!(failed.get(&key), original.get(&key));
+    }
+    assert_eq!(
+        failed.get(&js_json::JsString::from("status")),
+        Some(&JsValue::String(js_json::JsString::from("failed")))
+    );
+}
+
+#[test]
 fn source_sql_bind_keys_and_raw_receipts_have_distinct_utf16_identity_on_recovery() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("control.sqlite").display().to_string();
