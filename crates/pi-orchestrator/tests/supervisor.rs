@@ -430,3 +430,57 @@ async fn frozen_serve_malformed_child_json_exits_one_and_cleans_up() {
     assert!(!config.socket_path().exists());
     assert!(Storage(config.dir).load_instances().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn shared_stream_callback_identity_and_close_match_frozen_sets() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
+    let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+    let dir = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let output = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
+        .arg("--tsconfig")
+        .arg(source.join("tsconfig.json"))
+        .arg(root.join("oracle/orchestrator-supervisor-oracle.mjs"))
+        .arg(source)
+        .arg(root.join("oracle/orchestrator-rpc-fake.mjs"))
+        .arg(dir.path())
+        .arg("listener_identity")
+        .env("PI_ORCHESTRATOR_DIR", state.path())
+        .output()
+        .await
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let supervisor = create(Storage(dir.path().join("state")));
+    supervisor
+        .spawn_instance(dir.path().to_str().unwrap().into(), None)
+        .await
+        .unwrap();
+    let events = Arc::new(AtomicUsize::new(0));
+    let ui = Arc::new(AtomicUsize::new(0));
+    let e = events.clone();
+    let callback: pi_orchestrator::rpc_process::Listener = Arc::new(move |_| {
+        e.fetch_add(1, Ordering::SeqCst);
+    });
+    let u = ui.clone();
+    let on_ui: pi_orchestrator::rpc_process::Listener = Arc::new(move |_| {
+        u.fetch_add(1, Ordering::SeqCst);
+    });
+    let first = supervisor
+        .open_rpc_stream("instance", callback.clone(), on_ui.clone())
+        .unwrap();
+    let second = supervisor.open_rpc_stream("instance", callback, on_ui).unwrap();
+    first.handle_rpc(json!({"type":"get_state","id":"one"})).await.unwrap();
+    let before = json!({"events":events.load(Ordering::SeqCst),"ui":ui.load(Ordering::SeqCst)});
+    first.close();
+    second.handle_rpc(json!({"type":"get_state","id":"two"})).await.unwrap();
+    second.close();
+    supervisor.shutdown().await.unwrap();
+    assert_eq!(
+        json!({"before":before,"after":{"events":events.load(Ordering::SeqCst),"ui":ui.load(Ordering::SeqCst)}}),
+        expected
+    );
+}

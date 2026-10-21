@@ -210,3 +210,55 @@ async fn child_jsonl_eof_and_utf8_decoding_match_frozen_node_streams() {
     }
     assert_eq!(actual, expected);
 }
+
+#[tokio::test]
+async fn repeated_callback_identity_matches_frozen_set_subscriptions() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
+    let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+    let fake = root.join("oracle/orchestrator-rpc-fake.mjs");
+    let output = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
+        .arg("--tsconfig")
+        .arg(source.join("tsconfig.json"))
+        .arg(root.join("oracle/orchestrator-rpc-oracle.mjs"))
+        .arg(source)
+        .arg(&fake)
+        .arg("listener_identity")
+        .output()
+        .await
+        .unwrap();
+    assert!(output.status.success());
+    let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let mut command = tokio::process::Command::new("node");
+    command.arg(fake);
+    let rpc = RpcProcessInstance::spawn_command(&mut command, dir.path()).unwrap();
+    let events = Arc::new(AtomicUsize::new(0));
+    let exits = Arc::new(AtomicUsize::new(0));
+    let e = events.clone();
+    let callback: pi_orchestrator::rpc_process::Listener = Arc::new(move |_| {
+        e.fetch_add(1, Ordering::SeqCst);
+    });
+    let x = exits.clone();
+    let exit: pi_orchestrator::rpc_process::ExitListener = Arc::new(move |_| {
+        x.fetch_add(1, Ordering::SeqCst);
+    });
+    let token = rpc.on_event(callback.clone());
+    rpc.on_event(callback);
+    rpc.on_exit(exit.clone());
+    rpc.on_exit(exit);
+    rpc.send(json!({"type":"get_state","id":"one"})).await.unwrap();
+    let first = events.load(Ordering::SeqCst);
+    rpc.remove_event_listener(token);
+    rpc.send(json!({"type":"get_state","id":"two"})).await.unwrap();
+    rpc.dispose().await.unwrap();
+    assert_eq!(
+        json!({"first":first,"events":events.load(Ordering::SeqCst),"exits":exits.load(Ordering::SeqCst)}),
+        expected
+    );
+}

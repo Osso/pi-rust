@@ -154,16 +154,32 @@ impl RpcProcessInstance {
         self.0.state.lock().unwrap().ui = listener;
     }
     pub fn on_event(&self, listener: Listener) -> usize {
+        let mut state = self.0.state.lock().unwrap();
+        if let Some((id, _)) = state
+            .events
+            .iter()
+            .find(|(_, existing)| Arc::ptr_eq(existing, &listener))
+        {
+            return *id;
+        }
         let id = self.0.ids.fetch_add(1, Ordering::Relaxed);
-        self.0.state.lock().unwrap().events.insert(id, listener);
+        state.events.insert(id, listener);
         id
     }
     pub fn remove_event_listener(&self, id: usize) {
         self.0.state.lock().unwrap().events.shift_remove(&id);
     }
     pub fn on_exit(&self, listener: ExitListener) -> usize {
+        let mut state = self.0.state.lock().unwrap();
+        if let Some((id, _)) = state
+            .exits
+            .iter()
+            .find(|(_, existing)| Arc::ptr_eq(existing, &listener))
+        {
+            return *id;
+        }
         let id = self.0.ids.fetch_add(1, Ordering::Relaxed);
-        self.0.state.lock().unwrap().exits.insert(id, listener);
+        state.exits.insert(id, listener);
         id
     }
     pub fn remove_exit_listener(&self, id: usize) {

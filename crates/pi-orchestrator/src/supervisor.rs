@@ -36,7 +36,7 @@ struct LiveInstance {
     radius_id: Option<String>,
     session_id: Option<String>,
     subscribers: IndexMap<usize, Listener>,
-    ui: Option<(usize, Listener)>,
+    ui: Option<Listener>,
     event_subscription: Option<usize>,
     exit_subscription: Option<usize>,
 }
@@ -336,17 +336,24 @@ impl OrchestratorSupervisor {
     ) -> Option<Arc<SupervisorStream>> {
         let live = self.find_live(id)?;
         let process = live.lock().unwrap().process.clone()?;
-        let token = self.ids.fetch_add(1, Ordering::Relaxed);
-        {
+        let token = {
             let mut live = live.lock().unwrap();
-            live.subscribers.insert(token, on_event);
-            live.ui = Some((token, on_ui));
-        }
+            let token = live
+                .subscribers
+                .iter()
+                .find(|(_, existing)| Arc::ptr_eq(existing, &on_event))
+                .map(|(id, _)| *id)
+                .unwrap_or_else(|| self.ids.fetch_add(1, Ordering::Relaxed));
+            live.subscribers.entry(token).or_insert(on_event);
+            live.ui = Some(on_ui.clone());
+            token
+        };
         Some(Arc::new(SupervisorStream {
             supervisor: self.clone(),
             live,
             process,
             token,
+            on_ui,
         }))
     }
     pub async fn shutdown(&self) -> Result<(), String> {
@@ -383,9 +390,7 @@ fn event_listener(live: &Live) -> Listener {
 fn ui_listener(live: &Live) -> Listener {
     let live = Arc::downgrade(live);
     Arc::new(move |request| {
-        let handler = live
-            .upgrade()
-            .and_then(|live| live.lock().unwrap().ui.as_ref().map(|(_, callback)| callback.clone()));
+        let handler = live.upgrade().and_then(|live| live.lock().unwrap().ui.clone());
         if let Some(handler) = handler {
             handler(request);
         }
@@ -403,6 +408,7 @@ pub struct SupervisorStream {
     live: Live,
     process: RpcProcessInstance,
     token: usize,
+    on_ui: Listener,
 }
 impl SupervisorStream {
     pub async fn handle_rpc(&self, command: Value) -> Result<Value, String> {
@@ -417,7 +423,11 @@ impl SupervisorStream {
     }
     pub fn close(&self) {
         let mut live = self.live.lock().unwrap();
-        if live.ui.as_ref().is_some_and(|(id, _)| *id == self.token) {
+        if live
+            .ui
+            .as_ref()
+            .is_some_and(|callback| Arc::ptr_eq(callback, &self.on_ui))
+        {
             live.ui = None;
         }
         live.subscribers.shift_remove(&self.token);

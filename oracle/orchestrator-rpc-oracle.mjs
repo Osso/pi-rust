@@ -22,6 +22,14 @@ if (["unterminated","invalid_utf8","stderr_utf8"].includes(process.argv[4])) {
     process.stdout.write(`${JSON.stringify(output)}\n`);
     process.exit(0);
 }
+if (process.argv[4] === "listener_identity") {
+    let events = 0, exits = 0;
+    const event = () => events++, exit = () => exits++;
+    const unsubscribe = rpc.onEvent(event);rpc.onEvent(event);rpc.onExit(exit);rpc.onExit(exit);
+    await rpc.send({type:"get_state",id:"one"});const first = events;
+    unsubscribe();await rpc.send({type:"get_state",id:"two"});await rpc.dispose();
+    process.stdout.write(`${JSON.stringify({first,events,exits})}\n`);process.exit(0);
+}
 const events = [], ui = [];
 rpc.onEvent((v) => events.push(v));
 rpc.setUiRequestHandler((v) => ui.push(v));
