@@ -138,6 +138,7 @@ async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
         json!({"agent":"scout","task":"ZERO"}),
         json!({"agent":"fixed","task":"fixed-model"}),
         json!({"agent":"scout","task":"FAIL"}),
+        json!({"chain":[{"agent":"scout","task":"DOLLARS"},{"agent":"scout","task":"pre {previous} middle {previous} post"}]}),
         json!({"chain":[{"agent":"scout","task":"one"},{"agent":"scout","task":"two {previous}"}]}),
         json!({"chain":[{"agent":"scout","task":"FAIL"},{"agent":"scout","task":"not run"}]}),
         json!({"tasks":[{"agent":"scout","task":"alpha"},{"agent":"missing","task":"beta"}]}),
@@ -259,6 +260,17 @@ async fn project_refusal_spawn_error_and_abort_use_private_children() {
 
 #[tokio::test]
 async fn call_and_result_renderers_match_single_chain_parallel_and_tools() {
+    check_renderers(false, false).await;
+}
+#[tokio::test]
+async fn running_parallel_renderer_matches_pinned() {
+    check_renderers(true, false).await;
+}
+#[tokio::test]
+async fn usage_decimal_ties_match_pinned() {
+    check_renderers(false, true).await;
+}
+async fn check_renderers(running: bool, ties: bool) {
     let temp = tempfile::tempdir().unwrap();
     let (agent, script) = fixture(temp.path());
     let runner = runner(
@@ -292,7 +304,12 @@ async fn call_and_result_renderers_match_single_chain_parallel_and_tools() {
         content.push(json!({"type":"toolCall","name":name,"arguments":args}));
     }
     content.push(json!({"type":"text","text":"final\nsecond\nthird\nfourth"}));
-    let row = json!({"agent":"scout","agentSource":"user","task":"the task","exitCode":0,"messages":[{"role":"assistant","content":content}],"usage":{"input":1234,"output":12000,"cacheRead":3,"cacheWrite":1,"cost":0.125,"turns":2,"contextTokens":20000},"model":"fixture/model","step":1});
+    let mut row = json!({"agent":"scout","agentSource":"user","task":"the task","exitCode":0,"messages":[{"role":"assistant","content":content}],"usage":{"input":1234,"output":12000,"cacheRead":3,"cacheWrite":1,"cost":0.125,"turns":2,"contextTokens":20000},"model":"fixture/model","step":1});
+    if ties {
+        row["usage"]["input"] = json!(1250);
+        row["usage"]["output"] = json!(1250000);
+        row["usage"]["cost"] = json!(0.03125);
+    }
     let mut renders = vec![
         json!({"args":{}}),
         json!({"args":{"agent":"scout","task":"long ".repeat(20)}}),
@@ -303,6 +320,12 @@ async fn call_and_result_renderers_match_single_chain_parallel_and_tools() {
         for expanded in [false, true] {
             renders.push(json!({"result":{"content":[{"type":"text","text":"fallback"}],"details":{"mode":mode,"results":[row.clone()]}},"expanded":expanded}));
         }
+    }
+    if running {
+        let mut partial = row.clone();
+        partial["exitCode"] = json!(-1);
+        partial["messages"] = json!([]);
+        renders.push(json!({"result":{"content":[],"details":{"mode":"parallel","results":[partial]}},"expanded":true,"partial":true}));
     }
     let mut error = row.clone();
     error["exitCode"] = json!(2);
@@ -350,7 +373,7 @@ async fn call_and_result_renderers_match_single_chain_parallel_and_tools() {
             cwd: temp.path().display().to_string(),
             execution_started: true,
             args_complete: true,
-            is_partial: false,
+            is_partial: r["partial"].as_bool().unwrap_or(false),
             expanded: r["expanded"].as_bool().unwrap_or(false),
             show_images: false,
             is_error: false,
@@ -360,7 +383,7 @@ async fn call_and_result_renderers_match_single_chain_parallel_and_tools() {
                 &serde_json::from_value(value.clone()).unwrap(),
                 &ToolRenderResultOptions {
                     expanded: context.expanded,
-                    is_partial: false,
+                    is_partial: r["partial"].as_bool().unwrap_or(false),
                 },
                 &theme,
                 &context,

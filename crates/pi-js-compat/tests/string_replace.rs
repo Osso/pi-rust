@@ -1,4 +1,4 @@
-use pi_js_compat::string::replace;
+use pi_js_compat::string::{replace, replace_global};
 
 #[test]
 fn replaces_only_the_first_occurrence() {
@@ -18,6 +18,16 @@ fn expands_dollar_escapes_in_the_replacement() {
 #[test]
 fn replaces_at_the_start_for_an_empty_search() {
     assert_eq!(replace("abc", "", "x"), "xabc");
+}
+
+#[test]
+fn globally_expands_against_each_original_match() {
+    assert_eq!(
+        replace_global("aXaXz", "X", "[$$|$&|$`|$'|$1]"),
+        "a[$|X|a|aXz|$1]a[$|X|aXa|z|$1]z"
+    );
+    assert_eq!(replace_global("XX", "X", "X"), "XX");
+    assert_eq!(replace_global("abc", "z", "x"), "abc");
 }
 
 #[test]

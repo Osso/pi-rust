@@ -41,6 +41,27 @@ parallel dispatch uses four permits and an eight-task cap; max-task and mixed
 success results have differential evidence. Typed frontmatter strings/native
 scope input exclude invalid JavaScript runtime types, not valid string values.
 
+## Batch N fidelity corrections (F1–F4, U3)
+
+| Pinned behavior | Native correction | Behavioral proof |
+|---|---|---|
+| subagent index.ts:549–551 global replacement expands `$$`, `$&`, prefix/suffix per original match; capture references stay literal | `run_chain` calls `pi_js_compat::string::replace_global` | `example_subagent::modes_dispatch_and_streaming_match_pinned_real_extension_runtime`: first child emits all four escapes plus `$1`; second task has two placeholders; complete results and streaming snapshots compare to pinned TS |
+| subagent index.ts:1008–1014 running parallel row uses warning hourglass before failure check | `render::result` running icon branch | `running_parallel_renderer_matches_pinned`: running partial result with exitCode -1, empty messages; pinned rendered lines compare |
+| subagent index.ts:38–42,63 decimal ties use `toFixed` at all three sites | token k/M and cost call existing `number::to_fixed` | `usage_decimal_ties_match_pinned`: input 1250 → ↑1.3k, output 1250000 → ↓1.3M, cost 0.03125 → $0.0313; expanded/collapsed single/chain/parallel corpus |
+| RPC idle Escape stops UI, sends SIGTERM, returns without waiting; child exit ends client independently of descendant pipe EOF | `run` selects child status and reads stderr incrementally; no pipe-reader task or EOF join | native `idle_escape_returns_without_waiting_for_sigterm_ignoring_child` and `child_exit_returns_while_grandchild_keeps_both_pipes_open`: two-second bound; fixture children/grandchild killed, reaped and PID absence asserted, including failure cleanup |
+| RPC readline decodes invalid UTF-8; non-JSON lines ignored | byte-line reader with `String::from_utf8_lossy` | `invalid_utf8_stdout_line_does_not_hide_following_notification`: [255,10] then notification; pinned whole-program oracle now uses real Node readline over private PassThrough bytes; native real process renders notification |
+
+F1 preserves surprising source replacement-string behavior; it is not silently
+changed to literal substitution. All three subagent `toFixed` sites audited;
+GitLab Duo and RPC batch-N examples contain none. Existing native factory
+signatures and `ctx.ui.custom` call sites are unchanged.
+
+RED, GREEN and revert-mutation logs: `/tmp/pi-rust-batch-n-fixes/ledger.md`.
+`subagent-RED.log` / `subagent-mutation.log` each report the three distinct
+F1/F2/F3 behavioral failures; `rpc-RED.log` / `rpc-mutation.log` each report
+both lifecycle timeouts plus U3 UTF-8 error. Restored final tests: subagent
+5/5, RPC 7/7. Coverage rows remain done; no new dependencies or deviations.
+
 ## Proof ledger
 
 `/tmp/pi-rust-ext-examples-n/ledger.md`; numbered logs in the same directory.

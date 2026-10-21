@@ -84,6 +84,27 @@ pub fn replace(input: &str, search: &str, replacement: &str) -> String {
     output
 }
 
+/// Global literal-pattern replacement with ECMAScript replacement expansion.
+/// The search must be nonempty (no regex captures or empty UTF-16 matches).
+pub fn replace_global(input: &str, search: &str, replacement: &str) -> String {
+    assert!(!search.is_empty(), "global replacement requires a nonempty search");
+    let mut output = String::with_capacity(input.len());
+    let mut previous_end = 0;
+    for (index, matched) in input.match_indices(search) {
+        let end = index + matched.len();
+        output.push_str(&input[previous_end..index]);
+        output.push_str(&expand_replacement(
+            replacement,
+            matched,
+            &input[..index],
+            &input[end..],
+        ));
+        previous_end = end;
+    }
+    output.push_str(&input[previous_end..]);
+    output
+}
+
 fn expand_replacement(replacement: &str, matched: &str, prefix: &str, suffix: &str) -> String {
     let mut output = String::with_capacity(replacement.len());
     let mut characters = replacement.chars();

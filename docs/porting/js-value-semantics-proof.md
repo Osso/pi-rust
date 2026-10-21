@@ -62,6 +62,17 @@ Exact before/after grep: `pattern-inventory.txt`, `remaining-inventory.txt` in t
 
 Typed-schema property insertion order remains a separate existing caveat: adding `details` after `timestamp` in a caller-built file differs from Rust's schema order. The HTML fixture changes existing details fields, isolating this task's numeric-key/number defect rather than claiming that caveat fixed. Remote differential compares complete JS-visible bytes, not serde's internal integer/float variants; no fields are dropped.
 
+## C3 follow-up: shared text-budget order
+
+The original count-only traversal audit did not cover neighboring
+`truncate_reducible_text`, which spends a shared budget. It now enumerates records
+with `js_json::object_entries`. The new full-output pinned differential inserts
+numeric property `2` (B×300000) before `1` (A×300000), distinguishing retained
+content, not just serialized key order. Other object traversals were audited:
+[remote-compaction matrix](traceability/openai-remote-compact.md#numeric-key-budget-traversal).
+Follow-up RED/GREEN/mutation evidence: `/tmp/pi-rust-core-c-fixes/ledger.md`.
+Original log counts below describe the original slice only.
+
 ## Preservation and limits
 
 57 executed targets, 552 passing test functions across the retained scoped logs. Six ignored entrypoints are child-process probes exercised through their parent tests. `proof-targets.json` maps exact targets/counts/logs; it combines the ten passing session-tool cases from 31 with the resume case in 32. The latter required only the documented local v15 reference setup, not a product change.

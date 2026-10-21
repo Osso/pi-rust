@@ -1181,6 +1181,8 @@ async fn provider_request_scenario(temp_dir: &str) -> Value {
             Ok(Some(payload))
         }))
         .unwrap();
+        // The oracle mutates payload.b in place without returning; native handlers must return the
+        // replacement (approved return-only deviation, compatibility.md).
         api.on_before_provider_request(h!(BeforeProviderRequestEvent, |e, _c| {
             let mut payload = e.payload;
             payload["b"] = json!(2);

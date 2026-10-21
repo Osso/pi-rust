@@ -8,7 +8,7 @@ Rust: `pi_coding_agent::core::tools::ls`.
 |---|---|---|
 | `ls.ts:14-30` | Schema and prompt contribution | `ls_schema`; differential requests. |
 | `ls.ts:32-64` | `LsOperations` (`exists`, `stat.isDirectory`, `readdir`) and local defaults | `LsOperations` + `LocalLsOperations`. |
-| `ls.ts:128-168,225-227` | Fallible exists rejects unchanged before stat/readdir; abort wins over pending/rejecting exists | [Operation-error differential and mutation proof](core-ssh-errors.md#fallible-lsfind-operations). |
+| `ls.ts:128-168,225-227` | Fallible exists rejects unchanged before stat/readdir; abort wins over pending/rejecting exists | [Operation-error differential and mutation proof](core-ssh-errors.md#fallible-lsfind-operations). Post-abort continuation (TS still runs stat/readdir) is the approved cancel-on-abort deviation ([compatibility](../../specs/compatibility.md#out-of-scope)). |
 | `ls.ts:66-101` | Render helpers | `format_ls_call`, `format_ls_result`; renderer differential `ls` cases. |
 | `ls.ts:103-121` | `canUseRtk` only for default operations; description limits | `can_use_rtk`; differential uses the filesystem path because `rtk` is absent. |
 | `ls.ts:123-199` | `rtk ls` fast path, missing-binary fallback, stderr/stdout error text, entry limit, byte truncation | `execute_rtk_ls`, `run_rtk_ls`, `format_rtk_ls_output`; `ls_rtk.rs` exercises success, limit, failure, and PATH-without-rtk fallback through a child process. |

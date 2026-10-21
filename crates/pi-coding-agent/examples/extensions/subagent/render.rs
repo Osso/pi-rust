@@ -28,11 +28,11 @@ fn tokens(n: f64) -> String {
     if n < 1000.0 {
         number(n)
     } else if n < 10000.0 {
-        format!("{:.1}k", n / 1000.0)
+        format!("{}k", pi_js_compat::number::to_fixed(n / 1000.0, 1))
     } else if n < 1000000.0 {
         format!("{}k", number((n / 1000.0 + 0.5).floor()))
     } else {
-        format!("{:.1}M", n / 1000000.0)
+        format!("{}M", pi_js_compat::number::to_fixed(n / 1000000.0, 1))
     }
 }
 fn usage(v: &Value, model: Option<&str>) -> String {
@@ -49,7 +49,7 @@ fn usage(v: &Value, model: Option<&str>) -> String {
     }
     let cost = v["cost"].as_f64().unwrap_or(0.0);
     if cost != 0.0 {
-        parts.push(format!("${cost:.4}"));
+        parts.push(format!("${}", pi_js_compat::number::to_fixed(cost, 4)));
     }
     let context = v["contextTokens"].as_f64().unwrap_or(0.0);
     if context > 0.0 {
@@ -378,7 +378,11 @@ pub fn result(
     let mut s = header;
     for r in rs {
         let ok = if chain { r["exitCode"] == 0 } else { !failed(r) };
-        let icon = th.fg(if ok { C::Success } else { C::Error }, if ok { "✓" } else { "✗" });
+        let icon = if !chain && r["exitCode"] == -1 {
+            th.fg(C::Warning, "⏳")
+        } else {
+            th.fg(if ok { C::Success } else { C::Error }, if ok { "✓" } else { "✗" })
+        };
         let prefix = if chain {
             format!("─── Step {}: ", r["step"])
         } else {
