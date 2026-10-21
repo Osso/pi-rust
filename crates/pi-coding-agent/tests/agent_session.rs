@@ -326,20 +326,10 @@ async fn repin_settings_retry_delay_grows_with_attempt() {
 async fn repin_settings_invalid_compaction_threshold_rejects_before_next_request() {
     let settings = serde_json::from_value(json!({"compaction": {"thresholdPercent": 101}})).unwrap();
     let fixture = fixture_with(settings, Vec::new(), None, Some(Vec::new())).await;
-    let tool_turn = faux_assistant_message(
-        vec![pi_ai::providers::faux::faux_tool_call(
-            "not_registered",
-            serde_json::Map::new(),
-            Some("validation-boundary".to_owned()),
-        )],
-        FauxAssistantMessageOptions {
-            stop_reason: Some(pi_ai::types::StopReason::ToolUse),
-            ..Default::default()
-        },
-    );
+    let first_answer = faux_assistant_message("first answer without end_turn", FauxAssistantMessageOptions::default());
     fixture
         .faux
-        .set_responses(vec![tool_turn.into(), retry_completion_response().into()]);
+        .set_responses(vec![first_answer.into(), retry_completion_response().into()]);
     let error = fixture
         .session
         .prompt("invalid settings", PromptOptions::default())
