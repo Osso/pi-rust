@@ -1,6 +1,6 @@
-//! Rust port of `packages/agent`.
+//! Rust port of `packages/agent-core`.
 //!
-//! The crate root mirrors `packages/agent/src/index.ts`. See
+//! The crate root mirrors `packages/agent-core/src/index.ts`. See
 //! `docs/porting/traceability/agent-index.md` for the export map.
 
 pub mod agent;

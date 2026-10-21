@@ -1,4 +1,4 @@
-//! Port of the core of `packages/agent`.
+//! Port of the core of `packages/agent-core`.
 
 pub mod agent_loop;
 pub mod proxy;

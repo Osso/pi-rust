@@ -1,4 +1,4 @@
-//! Port of `packages/agent/src/proxy.ts`.
+//! Port of `packages/agent-core/src/proxy.ts`.
 //!
 //! The TypeScript module uses the global `fetch`. Rust takes an explicit
 //! [`Fetch`] implementation (defaulting to the shared reqwest client), which

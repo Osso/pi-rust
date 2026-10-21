@@ -1,4 +1,4 @@
-//! Port of `packages/agent/src/types.ts`.
+//! Port of `packages/agent-core/src/types.ts`.
 //!
 //! TypeScript declaration-merging extension of `AgentMessage` maps to
 //! [`AgentMessage::Custom`], which keeps the full JSON object (including its

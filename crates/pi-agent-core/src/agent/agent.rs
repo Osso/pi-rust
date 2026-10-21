@@ -1,4 +1,4 @@
-//! Port of `packages/agent/src/agent.ts`.
+//! Port of `packages/agent-core/src/agent.ts`.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};

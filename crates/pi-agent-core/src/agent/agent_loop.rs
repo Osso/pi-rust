@@ -1,4 +1,4 @@
-//! Port of `packages/agent/src/agent-loop.ts`.
+//! Port of `packages/agent-core/src/agent-loop.ts`.
 
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};

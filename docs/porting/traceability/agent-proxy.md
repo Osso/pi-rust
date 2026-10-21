@@ -1,30 +1,19 @@
-# Traceability: `packages/agent/src/proxy.ts`
+# Traceability: `packages/agent-core/src/proxy.ts`
 
-Rust: `crates/pi-agent-core/src/agent/proxy.rs`. Tests: `crates/pi-agent-core/tests/proxy.rs`.
+Reference: immutable `4f9e6f8a4`. Rust: `crates/pi-agent-core/src/agent/proxy.rs`.
+Proof/exclusions: [slice-1 ledger](agent-core-api-repin.md). Status todo; no whole-module differential or object-identity parity claimed.
 
-| TypeScript export | Rust item | Tests |
+| Frozen export/function | Rust | Evidence |
 |---|---|---|
-| `ProxyAssistantMessageEvent` | `agent::ProxyAssistantMessageEvent` | `proxy.rs` (serde via fixtures) |
-| `ProxyStreamOptions` | `agent::ProxyStreamOptions` | `preserves_tool_call_metadata_received_only_on_toolcall_end` |
-| `streamProxy` | `agent::stream_proxy` | all four proxy tests |
+| ProxyAssistantMessageEvent | tagged enum; toolcall_end has content_index only | reconstruction test accepts/ignores extra end metadata |
+| ProxyStreamOptions | nested stream options + signal/auth/proxy URL + injectable Fetch | exact request model/context/auth/method/URL and whitelist assertions |
+| ProxyMessageEventStream | AssistantMessageEventStream | done/error terminal result tests |
+| buildProxyRequestOptions | build_proxy_request_options | excludes samplingParams; frozen keys forwarded explicitly |
+| streamProxy | stream_proxy, run_proxy, proxy_events, read_proxy_chunk | request/auth, errors, local abort; pending body read cancellation regression |
+| processProxyEvent start/text/thinking | process_proxy_event and typed per-block helpers | implementation compared; text invalid-content error tested; full thinking/text event matrix not independently differential-tested |
+| processProxyEvent toolcall start/delta/end | process_toolcall_* with side-map partial JSON | parsed arguments in both terminal event and result; retain start identity, ignore extra end object |
+| processProxyEvent done/error | process_done/process_error | toolUse/error/aborted fixtures; usage carried |
+| non-2xx error body/status handling | proxy_error_message | error text and empty-error status default tests |
+| SSE chunk/line processing | drain_lines | existing reconstruction fixtures; malformed/unterminated/chunk-boundary exhaustive matrix remains unproven |
 
-## Branches
-
-| TS branch | Rust handling | Tests |
-|---|---|---|
-| POST `${proxyUrl}/api/stream` with bearer auth and serialized model/context/options | `HttpRequest` built identically; option keys inserted in TS order | `preserves_tool_call_metadata_received_only_on_toolcall_end` |
-| `!response.ok` with JSON `error` | `proxy_error_message` prefers `Proxy error: {error}` | `reports_proxy_error_body_message` |
-| `!response.ok` without parseable error | `Proxy error: {status} {statusText}` (requires `HttpResponse::status_text`, added to `pi-ai`) | gap: not separately asserted |
-| abort handler / `signal.aborted` checks | `CancellationToken` passed to `Fetch`, re-checked after each chunk; reason `aborted` | `reports_aborted_when_the_local_signal_is_cancelled` |
-| text/thinking start/delta/end | typed slot mutation and partial snapshot events | `preserves_tool_call_metadata_received_only_on_toolcall_end` (tool path); delta/end branches exercised by oracle fixture |
-| `toolcall_start`/`delta`/`end`, `partialJson` parsing | partial JSON kept in a side map because `ToolCall` has no `partialJson` field; arguments parsed with `parse_streaming_json` | `preserves_tool_call_metadata_received_only_on_toolcall_end` |
-| `toolcall_end` for non-toolCall content | no event | gap: not separately asserted |
-| `done` / `error` | maps `DoneReason`/`ErrorReason` to `StopReason` and carries usage | toolUse and error fixtures |
-| unknown event type | `#[serde(other)] Unknown` → no event (TS logs a warning; Rust has no logger in this crate) | gap: warning not reproduced |
-| `partial` object identity across events | Rust snapshots `partial` per event (owned values); JSON shape is identical | differential proxy fixture |
-
-## Exclusions / discrepancies
-
-- The TS `fetch` global becomes an injectable `Fetch` (defaults to `pi_ai::http::default_fetch`). This is a testability adaptation, not a behavior change.
-- Sparse `contentIndex` values beyond `content.len()` are rejected with `Sparse proxy content index`; TypeScript would create a sparse array. Proxy servers emit dense indices; the typed Rust `AssistantMessage.content` cannot represent holes. Recorded as an explicit typed exclusion.
-- `statusText` comes from the server response; `pi-ai`'s reqwest `Fetch` fills it from the canonical reason phrase because reqwest does not expose the raw phrase.
+Owned partial snapshots differ from TS shared object identity; sparse indices are rejected rather than materialized as holes. Unknown event warnings are not reproduced. Shared ToolCall requires object arguments; arbitrary JSON tool argument runtime shapes are excluded. These remain explicit gaps pending classification, not new approved deviations.
