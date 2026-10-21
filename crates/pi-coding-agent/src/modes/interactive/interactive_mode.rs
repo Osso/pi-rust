@@ -15433,6 +15433,7 @@ mod ui_tests {
                 let entries = vec![
                     SessionEntry::Known(KnownSessionEntry::Message(
                         crate::core::session_manager::SessionMessageEntry {
+                            mailbox_store_refs: None,
                             id: "m1".to_owned(),
                             parent_id: None,
                             timestamp: "2026-06-27T00:00:00.000Z".to_owned(),
@@ -15441,6 +15442,7 @@ mod ui_tests {
                     )),
                     SessionEntry::Known(KnownSessionEntry::Message(
                         crate::core::session_manager::SessionMessageEntry {
+                            mailbox_store_refs: None,
                             id: "m2".to_owned(),
                             parent_id: Some("m1".to_owned()),
                             timestamp: "2026-06-27T00:00:01.000Z".to_owned(),

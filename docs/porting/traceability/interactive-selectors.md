@@ -139,3 +139,5 @@ Sources (all under `packages/coding-agent/src/modes/interactive/`):
   model runtime, settings mutation surface, and session tree APIs. Tracked as `todo` in `coverage.md`.
 - `updateModels`/`setRefreshStatus` on the scoped-models selector and `showAuth` on the login dialog are
   implemented but not covered by the differential harness.
+
+Frozen4f9e6f8a4 search text: id/name/firstMessage/cwd, never subsequent messages. differential_session_search fixture now supplies firstMessage to actual pinned module and covers exclusion of obsolete later-message text (RED before production).

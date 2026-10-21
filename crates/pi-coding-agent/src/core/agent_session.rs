@@ -402,12 +402,6 @@ fn add_usage(mut total: SessionUsageTotals, usage: &Usage) -> SessionUsageTotals
 }
 
 fn add_session_entry(mut total: SessionStatsTotals, entry: &SessionEntry) -> SessionStatsTotals {
-    if entry.entry_type() == "branch_summary"
-        && let Some(usage) = branch_summary_usage(entry)
-    {
-        total.usage = add_usage(total.usage, &usage);
-        return total;
-    }
     if entry.entry_type() != "message" {
         return total;
     }
@@ -435,13 +429,6 @@ fn add_session_entry(mut total: SessionStatsTotals, entry: &SessionEntry) -> Ses
         AgentMessage::Custom(_) => {}
     }
     total
-}
-
-fn branch_summary_usage(entry: &SessionEntry) -> Option<Usage> {
-    let SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::BranchSummary(summary)) = entry else {
-        return None;
-    };
-    summary.usage.as_deref().cloned()
 }
 
 /// `AgentSessionEvent`.
@@ -5836,7 +5823,6 @@ impl AgentSession {
         duration_ms: f64,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let source = compact_result.source.clone();
-        let usage = compact_result.usage.clone();
         let details = compact_result.details.clone();
         let compacted_result_tokens = compact_result.compacted_result_tokens;
         let provider_native = compact_result.provider_native.clone();
@@ -5850,7 +5836,6 @@ impl AgentSession {
                     crate::core::session_manager::CompactionAppendOptions {
                         details,
                         from_hook,
-                        usage,
                         duration_ms: Some(duration_ms),
                         provider_native,
                     },
@@ -6661,7 +6646,6 @@ impl AgentSession {
 
         let mut summary_text: Option<String> = None;
         let mut summary_details = None;
-        let mut summary_usage = None;
         let mut from_extension = false;
         if options.summarize == Some(true) && !entries_to_summarize.is_empty() && extension_summary.is_none() {
             let model = self.inner.agent.model();
@@ -6700,7 +6684,6 @@ impl AgentSession {
                 return Err(error(summary_error));
             }
             summary_text = result.summary;
-            summary_usage = result.usage;
             summary_details = Some(serde_json::json!({
                 "readFiles": result.read_files.unwrap_or_default(),
                 "modifiedFiles": result.modified_files.unwrap_or_default(),
@@ -6708,7 +6691,6 @@ impl AgentSession {
         } else if let Some(summary) = extension_summary {
             summary_text = Some(summary.summary);
             summary_details = summary.details;
-            summary_usage = summary.usage;
             from_extension = true;
         }
 
@@ -6748,7 +6730,6 @@ impl AgentSession {
                     &text,
                     summary_details,
                     Some(from_extension),
-                    summary_usage,
                 )?;
                 summary_entry = manager.get_entry(&summary_id).cloned();
                 if let Some(label) = &label {

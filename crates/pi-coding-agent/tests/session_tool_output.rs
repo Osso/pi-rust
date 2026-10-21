@@ -34,6 +34,7 @@ fn tool_result(text: &str) -> AgentMessage {
 
 fn tool_result_entry(text: &str) -> SessionEntry {
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: "tool-1".to_owned(),
         parent_id: None,
         timestamp: "2025-01-01T00:00:00.000Z".to_owned(),
@@ -76,6 +77,7 @@ fn assistant_message(text: &str) -> AgentMessage {
 fn write_session(path: &Path, message: AgentMessage) {
     let assistant =
         pi_coding_agent::core::session_manager::SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+            mailbox_store_refs: None,
             id: "assistant-1".to_owned(),
             parent_id: None,
             timestamp: "2025-01-01T00:00:00.000Z".to_owned(),
@@ -83,6 +85,7 @@ fn write_session(path: &Path, message: AgentMessage) {
         }));
     let tool =
         pi_coding_agent::core::session_manager::SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+            mailbox_store_refs: None,
             id: "tool-1".to_owned(),
             parent_id: Some("assistant-1".to_owned()),
             timestamp: "2025-01-01T00:00:00.000Z".to_owned(),
@@ -146,6 +149,7 @@ fn persisted_details_use_javascript_key_order_and_numbers() {
     };
     result.details = Some(serde_json::from_str(r#"{"2":2.0,"1":1.0,"x":3.0}"#).unwrap());
     let entry = SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: "tool-1".into(),
         parent_id: None,
         timestamp: "2025-01-01T00:00:00.000Z".into(),

@@ -34,3 +34,5 @@ Renderers ported: `render_call` (title + `JSON.stringify(query ?? "")`), `render
 ## JS-value boundary regression (2026-10-20)
 
 Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).
+
+Frozen storage edge: tool now consumes session_history iterator (order restored for existing search pipeline). `repin_session_storage::persisted_history_tool_recovers_source_compacted_ancestor` initially RED totalMatches0 instead1. Broader population/filtering repin not part of this edge.

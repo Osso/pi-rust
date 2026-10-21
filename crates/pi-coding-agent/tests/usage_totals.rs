@@ -10,6 +10,7 @@ use pi_coding_agent::core::usage_totals::{
 
 fn message_entry(message: AgentMessage) -> SessionEntry {
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: "x".to_owned(),
         parent_id: None,
         timestamp: String::new(),

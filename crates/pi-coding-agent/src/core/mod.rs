@@ -46,6 +46,7 @@ pub mod provider_display_names;
 pub mod radius;
 pub mod remote_catalog_provider;
 pub mod resident_console_transport;
+pub mod resident_session;
 pub mod resource_loader;
 pub mod retry_delay;
 pub mod rule_store;
@@ -127,3 +128,8 @@ pub use resource_loader::{
 };
 pub use source_info::{create_source_info, create_synthetic_source_info};
 pub use system_prompt::BuildSystemPromptOptions;
+
+pub mod session_archive_storage;
+pub mod session_history;
+pub mod session_transcript;
+pub mod session_transcript_spool;

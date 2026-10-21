@@ -303,8 +303,10 @@ fn generate_html(session_data: &SessionData, theme_name: Option<&str>) -> Result
         .info_bg
         .unwrap_or_else(|| derived_export_colors.info_bg.clone());
 
-    let session_value = serde_json::to_value(session_data).map_err(|error| ExportError::Message(error.to_string()))?;
-    let session_json = pi_js_compat::js_json::stringify(&session_value);
+    let session_json = serde_json::to_string(session_data).map_err(|error| ExportError::Message(error.to_string()))?;
+    let session_value = pi_js_compat::js_json::parse_lossless(&session_json)
+        .map_err(|error| ExportError::Message(error.to_string()))?;
+    let session_json = pi_js_compat::js_json::stringify_lossless(&session_value);
     let session_data_base64 = btoa(session_json.as_bytes());
 
     let css = replace(TEMPLATE_CSS, "{{THEME_VARS}}", &theme_vars);
@@ -462,13 +464,17 @@ pub async fn export_from_file(input_path: &str, options: Option<ExportOptions>) 
     let cwd = std::env::current_dir()
         .map(|path| path.display().to_string())
         .unwrap_or_default();
-    let resolved_input_path = resolve_path(input_path, &cwd, &PathInputOptions::default())?;
+    let resolved_input_path = crate::core::session_transcript::read_session_transcript_path(&resolve_path(
+        input_path,
+        &cwd,
+        &PathInputOptions::default(),
+    )?);
 
     if !Path::new(&resolved_input_path).exists() {
         return Err(ExportError::Message(format!("File not found: {resolved_input_path}")));
     }
 
-    let sm = SessionManager::open(&resolved_input_path, None, None)?;
+    let sm = SessionManager::open_read_only(&resolved_input_path, None)?;
 
     let session_data = SessionData {
         header: sm.get_header().cloned(),

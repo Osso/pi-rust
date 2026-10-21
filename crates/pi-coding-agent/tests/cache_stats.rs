@@ -66,6 +66,7 @@ fn assistant(options: Options) -> AgentMessage {
 
 fn entry(message: AgentMessage) -> SessionEntry {
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: "x".to_owned(),
         parent_id: None,
         timestamp: String::new(),
@@ -135,7 +136,7 @@ fn skips_the_turn_after_a_compaction_reset() {
             summary: String::new(),
             first_kept_entry_id: String::new(),
             tokens_before: 0.0,
-            usage: None,
+            extra: Default::default(),
             duration_ms: None,
             details: None,
             provider_native: None,

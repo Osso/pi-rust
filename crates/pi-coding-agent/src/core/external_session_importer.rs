@@ -363,6 +363,7 @@ fn write_imported_session(path: &str, session_id: &str, source: &SourceSession) 
         entries.push(FileEntry::Entry(crate::core::session_manager::SessionEntry::Known(
             crate::core::session_manager::KnownSessionEntry::Message(
                 crate::core::session_manager::SessionMessageEntry {
+                    mailbox_store_refs: None,
                     id: id.clone(),
                     parent_id: parent_id.clone(),
                     timestamp,
