@@ -31,6 +31,7 @@ type KeybindingsApi = {
 		userBindings?: Record<string, string[]>,
 	) => {
 		getKeys(id: string): string[];
+		setUserBindings(bindings: Record<string, string[]>): void;
 		getConflicts(): Array<{ key: string; keybindings: string[] }>;
 		getResolvedBindings(): Record<string, string | string[]>;
 	};
@@ -61,6 +62,32 @@ async function keybindingsOperation(request: Request, sourceDirectory: string): 
 	}
 	return { keys, resolved: resolvedArrays, conflicts: manager.getConflicts() };
 }
+
+async function captureGlobalKeybindings(sourceDirectory: string): Promise<unknown> {
+	type Manager = InstanceType<KeybindingsApi["KeybindingsManager"]>;
+	const api = await loadApi(sourceDirectory, "keybindings.ts") as KeybindingsApi & {
+		getKeybindings(): Manager;
+		setKeybindings(manager: Manager): void;
+	};
+	const installed = new api.KeybindingsManager(api.TUI_KEYBINDINGS);
+	api.setKeybindings(installed);
+	const first = api.getKeybindings();
+	const second = api.getKeybindings();
+	first.setUserBindings({ "tui.input.submit": ["ctrl+x"] });
+	const shared = [first, second, installed].map((manager) => manager.getKeys("tui.input.submit"));
+	installed.setUserBindings({});
+	const reset = first.getKeys("tui.input.submit");
+	api.setKeybindings(new api.KeybindingsManager(api.TUI_KEYBINDINGS, { "tui.input.submit": ["ctrl+y"] }));
+	return { shared, reset, fresh: api.getKeybindings().getKeys("tui.input.submit"), old: first.getKeys("tui.input.submit") };
+}
+
+type DebugTui = {
+	addChild(component: { render(width: number): string[]; invalidate(): void }): void;
+	start(): void;
+	stop(): void;
+	requestRender(): void;
+	doRender(): void;
+};
 
 type TerminalApi = {
 	normalizeAppleTerminalInput(data: string, apple: boolean, shift: boolean): string;
@@ -389,60 +416,60 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 }
 
 async function captureTerminalWriteLog(sourceDirectory: string): Promise<unknown> {
-    const api = await loadApi(sourceDirectory, "terminal.ts") as { ProcessTerminal: new () => { write(data: string): void } };
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "write-log-"));
-    const write = process.stdout.write;
-    process.env.PI_TUI_WRITE_LOG = directory;
-    try {
-        process.stdout.write = (() => true) as typeof write;
-        new api.ProcessTerminal().write("payload\n");
-        const filename = fs.readdirSync(directory)[0];
-        const normalized = filename.replace(/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/, "TIME").replace(`-${process.pid}.log`, "-PID.log");
-        const contents = fs.readFileSync(path.join(directory, filename), "utf8");
-        const missing = path.join(directory, "absent", "log.txt");
-        process.env.PI_TUI_WRITE_LOG = missing;
-        new api.ProcessTerminal().write("ignored log error");
-        return { normalized, contents, createdMissingParent: fs.existsSync(path.dirname(missing)) };
-    } finally {
-        process.stdout.write = write;
-        delete process.env.PI_TUI_WRITE_LOG;
-    }
+	const api = await loadApi(sourceDirectory, "terminal.ts") as { ProcessTerminal: new () => { write(data: string): void } };
+	const directory = fs.mkdtempSync(path.join(os.tmpdir(), "write-log-"));
+	const write = process.stdout.write;
+	process.env.PI_TUI_WRITE_LOG = directory;
+	try {
+		process.stdout.write = (() => true) as typeof write;
+		new api.ProcessTerminal().write("payload\n");
+		const filename = fs.readdirSync(directory)[0];
+		const normalized = filename.replace(/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/, "TIME").replace(`-${process.pid}.log`, "-PID.log");
+		const contents = fs.readFileSync(path.join(directory, filename), "utf8");
+		const missing = path.join(directory, "absent", "log.txt");
+		process.env.PI_TUI_WRITE_LOG = missing;
+		new api.ProcessTerminal().write("ignored log error");
+		return { normalized, contents, createdMissingParent: fs.existsSync(path.dirname(missing)) };
+	} finally {
+		process.stdout.write = write;
+		delete process.env.PI_TUI_WRITE_LOG;
+	}
 }
 
 async function captureTuiDebugFailure(request: Request, sourceDirectory: string): Promise<unknown> {
-    const { TUI } = await loadApi(sourceDirectory, "tui.ts") as { TUI: new (terminal: CaptureTerminal) => any };
-    process.env.HOME = request.home as string;
-    process.env.PI_DEBUG_REDRAW = "1";
-    const tui = new TUI(new CaptureTerminal(20, 5));
-    tui.addChild({ render: () => ["first"], invalidate: () => {} });
-    try {
-        tui.doRender();
-        return { failed: false };
-    } catch {
-        return { failed: true };
-    }
+	const { TUI } = await loadApi(sourceDirectory, "tui.ts") as { TUI: new (terminal: CaptureTerminal) => DebugTui };
+	process.env.HOME = request.home as string;
+	process.env.PI_DEBUG_REDRAW = "1";
+	const tui = new TUI(new CaptureTerminal(20, 5));
+	tui.addChild({ render: () => ["first"], invalidate: () => {} });
+	try {
+		tui.doRender();
+		return { failed: false };
+	} catch {
+		return { failed: true };
+	}
 }
 
 async function captureTuiDebug(sourceDirectory: string): Promise<unknown> {
-    const { TUI } = await loadApi(sourceDirectory, "tui.ts") as { TUI: new (terminal: CaptureTerminal) => any };
-    const logDirectory = path.join(os.homedir(), ".pi", "agent");
-    fs.mkdirSync(logDirectory, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = path.join(os.homedir(), "wrong-agent-dir");
-    let lines = ["first"];
-    const terminal = new CaptureTerminal(20, 5);
-    const tui = new TUI(terminal);
-    process.env.PI_DEBUG_REDRAW = "1";
-    process.env.PI_TUI_DEBUG = "1";
-    tui.addChild({ render: () => lines, invalidate: () => {} });
-    tui.start();
-    await settle();
-    lines = ["changed"];
-    tui.requestRender();
-    await settle();
-    tui.stop();
-    const debug = fs.readFileSync(path.join(logDirectory, "pi-debug.log"), "utf8").replace(/\[[^\]]+\]/g, "[TIME]");
-    const dumps = fs.readdirSync("/tmp/tui").map((name) => fs.readFileSync(path.join("/tmp/tui", name), "utf8")).sort();
-    return { debug, dumps };
+	const { TUI } = await loadApi(sourceDirectory, "tui.ts") as { TUI: new (terminal: CaptureTerminal) => DebugTui };
+	const logDirectory = path.join(os.homedir(), ".pi", "agent");
+	fs.mkdirSync(logDirectory, { recursive: true });
+	process.env.PI_CODING_AGENT_DIR = path.join(os.homedir(), "wrong-agent-dir");
+	let lines = ["first"];
+	const terminal = new CaptureTerminal(20, 5);
+	const tui = new TUI(terminal);
+	process.env.PI_DEBUG_REDRAW = "1";
+	process.env.PI_TUI_DEBUG = "1";
+	tui.addChild({ render: () => lines, invalidate: () => {} });
+	tui.start();
+	await settle();
+	lines = ["changed"];
+	tui.requestRender();
+	await settle();
+	tui.stop();
+	const debug = fs.readFileSync(path.join(logDirectory, "pi-debug.log"), "utf8").replace(/\[[^\]]+\]/g, "[TIME]");
+	const dumps = fs.readdirSync("/tmp/tui").map((name) => fs.readFileSync(path.join("/tmp/tui", name), "utf8")).sort();
+	return { debug, dumps };
 }
 
 async function captureTerminalNumericDomains(request: Request, sourceDirectory: string): Promise<unknown> {
@@ -470,6 +497,8 @@ async function captureTerminalNumericDomains(request: Request, sourceDirectory: 
 
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
 	switch (request.operation) {
+		case "keybinding_global":
+			return captureGlobalKeybindings(sourceDirectory);
 		case "terminal_write_log":
 			return captureTerminalWriteLog(sourceDirectory);
 		case "tui_debug_failure":
