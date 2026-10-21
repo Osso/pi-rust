@@ -832,7 +832,7 @@ fn to_assistant_chat_message(assistant: &AssistantMessage, result: &mut Vec<Valu
                     "type": "function",
                     "function": {
                         "name": tool_call.name,
-                        "arguments": serde_json::to_string(&tool_call.arguments).unwrap_or_else(|_| "{}".to_owned()),
+                        "arguments": pi_js_compat::js_json::stringify_lossless(&JsValue::Object(tool_call.arguments.clone())),
                     },
                     "index": 0,
                 }));
@@ -1207,9 +1207,11 @@ fn consume_tool_call_delta(
                 .and_then(|function| function.get("name"))
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            output
-                .content
-                .push(AssistantContent::ToolCall(ToolCall::new(call_id, name, Map::new())));
+            output.content.push(AssistantContent::ToolCall(ToolCall::new(
+                call_id,
+                name,
+                Default::default(),
+            )));
             let index = output.content.len() - 1;
             state.tool_blocks.push((key.clone(), index));
             state.partial_args.insert(index, String::new());
@@ -1240,10 +1242,10 @@ fn consume_tool_call_delta(
     });
 }
 
-fn arguments_object(value: Value) -> Map<String, Value> {
+fn arguments_object(value: JsValue) -> pi_js_compat::js_json::JsObject {
     match value {
-        Value::Object(object) => object,
-        _ => Map::new(),
+        JsValue::Object(object) => object,
+        _ => Default::default(),
     }
 }
 

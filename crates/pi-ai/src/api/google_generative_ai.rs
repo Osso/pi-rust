@@ -1,6 +1,6 @@
 //! Port of `packages/ai/src/api/google-generative-ai.ts`.
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsObject, JsValue};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
@@ -221,9 +221,7 @@ fn resolve_client(model: &Model, options: &GoogleOptions) -> Result<GoogleClient
 }
 
 async fn prepare_params(model: &Model, context: &Context, options: &GoogleOptions) -> Result<JsValue, String> {
-    let params = JsValue::from(Value::Object(
-        build_params(model, context, options).map_err(|error| error.message)?,
-    ));
+    let params = JsValue::Object(build_params(model, context, options).map_err(|error| error.message)?);
     let Some(on_payload) = &options.stream.request.on_payload else {
         return Ok(params);
     };
@@ -233,11 +231,7 @@ async fn prepare_params(model: &Model, context: &Context, options: &GoogleOption
         .map(|replacement| replacement.unwrap_or(params))
 }
 
-fn build_params(
-    model: &Model,
-    context: &Context,
-    options: &GoogleOptions,
-) -> Result<Map<String, Value>, GoogleRequestError> {
+fn build_params(model: &Model, context: &Context, options: &GoogleOptions) -> Result<JsObject, GoogleRequestError> {
     let request_aborted = options
         .stream
         .request

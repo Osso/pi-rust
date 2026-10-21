@@ -1,6 +1,7 @@
 use std::fmt;
 
 use indexmap::IndexMap;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -85,20 +86,20 @@ pub struct GrammarConstrainedSampling {
 /// Append-only grammar tool input JSON buffer.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GrammarToolInputJsonBuffer {
-    pub input: String,
+    pub input: JsString,
     pub started: bool,
     pub closed: bool,
 }
 
 pub fn get_grammar_tool_input(
     tool_name: &str,
-    arguments: &Map<String, Value>,
+    arguments: &JsObject,
     input_property: &str,
-) -> Result<String, ConstrainedSamplingError> {
+) -> Result<JsString, ConstrainedSamplingError> {
     arguments
         .get(input_property)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
+        .and_then(JsValue::as_string)
+        .cloned()
         .ok_or_else(|| {
             error(format!(
                 "Grammar tool call \"{tool_name}\" requires argument \"{input_property}\" to be a string."
@@ -109,9 +110,10 @@ pub fn get_grammar_tool_input(
 pub fn append_grammar_tool_input_json_delta(
     buffer: &mut GrammarToolInputJsonBuffer,
     input_property: &str,
-    next_input: &str,
+    next_input: impl Into<JsString>,
     close: bool,
 ) -> Result<Option<String>, ConstrainedSamplingError> {
+    let next_input = next_input.into();
     if buffer.closed {
         if close && next_input == buffer.input {
             return Ok(None);
@@ -120,7 +122,7 @@ pub fn append_grammar_tool_input_json_delta(
             "grammar tool input for property \"{input_property}\" changed after it was closed"
         )));
     }
-    let Some(input_delta) = next_input.strip_prefix(buffer.input.as_str()) else {
+    let Some(input_delta) = next_input.strip_prefix(&buffer.input) else {
         return Err(error(format!(
             "grammar tool input for property \"{input_property}\" changed non-monotonically"
         )));
@@ -136,8 +138,8 @@ pub fn append_grammar_tool_input_json_delta(
         delta.push_str(":\"");
         buffer.started = true;
     }
-    delta.push_str(&json_string_inner(input_delta));
-    buffer.input = next_input.to_owned();
+    delta.push_str(&json_string_inner(&input_delta));
+    buffer.input = next_input;
     if close {
         delta.push_str("\"}");
         buffer.closed = true;
@@ -453,11 +455,11 @@ fn is_blank(value: &str) -> bool {
         .is_empty()
 }
 
-fn json_string(value: &str) -> String {
-    serde_json::to_string(value).expect("strings always serialize")
+fn json_string(value: impl Into<JsString>) -> String {
+    pi_js_compat::js_json::stringify_lossless(&JsValue::String(value.into()))
 }
 
-fn json_string_inner(value: &str) -> String {
+fn json_string_inner(value: &JsString) -> String {
     let quoted = json_string(value);
     quoted[1..quoted.len() - 1].to_owned()
 }

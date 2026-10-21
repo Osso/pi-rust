@@ -772,7 +772,7 @@ impl EventConverter {
             } => {
                 self.set_block(
                     content_index,
-                    AssistantContent::ToolCall(ToolCall::new(id, tool_name, Map::new())),
+                    AssistantContent::ToolCall(ToolCall::new(id, tool_name, Default::default())),
                 )?;
                 self.tool_json.insert(content_index, String::new());
                 Ok(AssistantMessageEvent::ToolCallStart {
@@ -881,7 +881,7 @@ impl EventConverter {
         }
     }
 
-    fn set_tool_arguments(&mut self, index: usize, parsed: Value) -> Result<(), PiMessagesError> {
+    fn set_tool_arguments(&mut self, index: usize, parsed: JsValue) -> Result<(), PiMessagesError> {
         match self.partial.content.get_mut(index) {
             Some(AssistantContent::ToolCall(tool_call)) => {
                 tool_call.arguments = arguments_object(parsed);
@@ -908,10 +908,10 @@ impl EventConverter {
     }
 }
 
-fn arguments_object(value: Value) -> Map<String, Value> {
+fn arguments_object(value: JsValue) -> pi_js_compat::js_json::JsObject {
     match value {
-        Value::Object(object) => object,
-        _ => Map::new(),
+        JsValue::Object(object) => object,
+        _ => Default::default(),
     }
 }
 

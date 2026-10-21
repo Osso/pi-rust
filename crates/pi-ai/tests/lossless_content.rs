@@ -36,6 +36,15 @@ fn tool_message_round_trip_keeps_text_details_and_null_presence() {
     }
 }
 
+#[test]
+fn tool_arguments_round_trip_arbitrary_utf16_keys_and_values() {
+    let source =
+        r#"{"type":"toolCall","id":"call","name":"probe","arguments":{"\ud800":["\udfff",{"name":"\ud800"}]}}"#;
+    let call: pi_ai::types::ToolCall = serde_json::from_str(source).unwrap();
+    let output = serde_json::to_string(&call).unwrap();
+    assert_eq!(parse_lossless(&output).unwrap(), parse_lossless(source).unwrap());
+}
+
 #[derive(Default)]
 struct CaptureRequest(std::sync::Mutex<Vec<pi_ai::request::HttpRequest>>);
 impl pi_ai::request::Fetch for CaptureRequest {
@@ -151,4 +160,107 @@ async fn openai_reasoning_signature_keeps_unsanitized_utf16_in_http_json() {
     );
     let reference = oracle.request(&serde_json::json!({"wire":body}));
     assert_eq!(reference["wire"], body);
+}
+
+fn has_arguments(value: &pi_js_compat::js_json::JsValue, expected: &pi_js_compat::js_json::JsValue) -> bool {
+    use pi_js_compat::js_json::JsValue;
+    if value == expected {
+        return true;
+    }
+    match value {
+        JsValue::Array(items) => items.iter().any(|item| has_arguments(item, expected)),
+        JsValue::Object(object) => object.values().any(|item| has_arguments(item, expected)),
+        JsValue::String(text) => text
+            .to_utf8()
+            .ok()
+            .and_then(|text| parse_lossless(&text).ok())
+            .is_some_and(|inner| &inner == expected),
+        _ => false,
+    }
+}
+
+#[tokio::test]
+async fn five_provider_argument_bodies_keep_utf16_and_match_node_json() {
+    use pi_ai::types::{AssistantContent, AssistantMessage, Context, Message, Model, StopReason};
+    let expected = parse_lossless(r#"{"\ud800":"\udfff"}"#).unwrap();
+    for (api, provider) in [
+        ("anthropic-messages", "anthropic"),
+        ("google-generative-ai", "google"),
+        ("openai-completions", "openai"),
+        ("openai-responses", "openai"),
+        ("mistral-conversations", "mistral"),
+    ] {
+        let model: Model = serde_json::from_value(serde_json::json!({
+            "id":"probe", "name":"probe", "api":api, "provider":provider, "baseUrl":"https://provider.invalid/v1", "reasoning":false, "input":["text"],
+            "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":10000, "maxTokens":1000
+        })).unwrap();
+        let call: pi_ai::types::ToolCall =
+            serde_json::from_str(r#"{"type":"toolCall","id":"call","name":"probe","arguments":{"\ud800":"\udfff"}}"#)
+                .unwrap();
+        let mut assistant = AssistantMessage::empty(api, provider, "probe", 1);
+        assistant.content.push(AssistantContent::ToolCall(call));
+        assistant.stop_reason = StopReason::ToolUse;
+        let fetch = std::sync::Arc::new(CaptureRequest::default());
+        let mut options = pi_ai::request::StreamOptions::default();
+        options.request.fetch = Some(fetch.clone());
+        options.request.api_key = Some("test".into());
+        options.request.max_retries = Some(0.0);
+        let context = Context {
+            system_prompt: None,
+            messages: vec![Message::Assistant(Box::new(assistant))],
+            tools: None,
+        };
+        let mut stream = match api {
+            "anthropic-messages" => pi_ai::api::anthropic_messages::stream(model, context, options),
+            "google-generative-ai" => pi_ai::api::google_generative_ai::stream(model, context, options),
+            "openai-completions" => pi_ai::api::openai_completions::stream(model, context, options),
+            "openai-responses" => pi_ai::api::openai_responses::stream(model, context, options),
+            "mistral-conversations" => pi_ai::api::mistral_conversations::stream(
+                model,
+                context,
+                pi_ai::MistralOptions {
+                    stream: options,
+                    ..Default::default()
+                },
+            ),
+            _ => unreachable!(),
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while stream.next().await.is_some() {}
+        })
+        .await
+        .unwrap_or_else(|_| panic!("{api} did not terminate after captured request"));
+        let requests = fetch.0.lock().unwrap();
+        assert_eq!(requests.len(), 1, "{api}");
+        let body = std::str::from_utf8(requests[0].body.as_ref().unwrap()).unwrap();
+        assert!(
+            has_arguments(&parse_lossless(body).unwrap(), &expected),
+            "{api}: {body}"
+        );
+        let mut oracle = oracle::TsOracle::spawn(
+            "lossless-content-oracle.ts",
+            "packages/ai/src/utils/sanitize-unicode.ts",
+        );
+        let reference = oracle.request(&serde_json::json!({"wire":body}));
+        assert_eq!(reference["wire"], body, "{api}");
+    }
+}
+
+#[test]
+fn complete_and_partial_argument_json_retains_utf16_like_frozen_parser() {
+    let mut oracle = oracle::TsOracle::spawn("lossless-arguments-oracle.ts", "packages/ai/src/utils/json-parse.ts");
+    for input in [
+        r#"{"name":"\ud800"}"#,
+        r#"{"\ud800":["\udfff",{"text":"x"}]}"#,
+        r#"{"name":"\ud800"#,
+        r#"{"name":"x\udfff","next":[1,"last"#,
+    ] {
+        let result = pi_ai::utils::json_parse::parse_streaming_json(Some(input));
+        let expected = oracle.request(&serde_json::json!({"input":input}));
+        assert_eq!(
+            pi_js_compat::js_json::stringify_lossless(&result),
+            expected["wire"].as_str().unwrap(),
+            "{input}"
+        );
+    }
 }

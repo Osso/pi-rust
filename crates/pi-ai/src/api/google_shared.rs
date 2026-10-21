@@ -5,6 +5,7 @@
 
 use std::future::Future;
 
+use pi_js_compat::js_json::{JsObject, JsValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -46,7 +47,7 @@ pub enum FunctionCallingConfigMode {
 /// One `Content` in the Gemini request body.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GoogleContent {
-    pub parts: Vec<Value>,
+    pub parts: Vec<JsValue>,
     pub role: String,
 }
 
@@ -126,17 +127,17 @@ pub fn convert_messages(model: &Model, context: &Context, now: i64) -> Vec<Googl
 fn convert_user_message(content: &UserContent, contents: &mut Vec<GoogleContent>) {
     match content {
         UserContent::Text(text) => contents.push(GoogleContent {
-            parts: vec![json!({"text": sanitize_surrogates(text)})],
-            role: "user".to_owned(),
+            parts: vec![pi_js_compat::js_json!({"text": sanitize_surrogates(text)})],
+            role: "user".into(),
         }),
         UserContent::Blocks(blocks) => {
-            let parts: Vec<Value> = blocks
+            let parts: Vec<JsValue> = blocks
                 .iter()
                 .map(|block| match block {
                     crate::types::TextOrImageContent::Text(text) => {
-                        json!({"text": sanitize_surrogates(&text.text)})
+                        pi_js_compat::js_json!({"text": sanitize_surrogates(&text.text)})
                     }
-                    crate::types::TextOrImageContent::Image(image) => json!({
+                    crate::types::TextOrImageContent::Image(image) => pi_js_compat::js_json!({
                         "inlineData": {"mimeType": image.mime_type, "data": image.data}
                     }),
                 })
@@ -144,7 +145,7 @@ fn convert_user_message(content: &UserContent, contents: &mut Vec<GoogleContent>
             if !parts.is_empty() {
                 contents.push(GoogleContent {
                     parts,
-                    role: "user".to_owned(),
+                    role: "user".into(),
                 });
             }
         }
@@ -153,7 +154,7 @@ fn convert_user_message(content: &UserContent, contents: &mut Vec<GoogleContent>
 
 fn convert_assistant_message(model: &Model, assistant: &AssistantMessage, contents: &mut Vec<GoogleContent>) {
     let same_provider_and_model = assistant.provider == model.provider && assistant.model == model.id;
-    let parts: Vec<Value> = assistant
+    let parts: Vec<JsValue> = assistant
         .content
         .iter()
         .filter_map(|block| convert_assistant_block(model, same_provider_and_model, block))
@@ -163,11 +164,11 @@ fn convert_assistant_message(model: &Model, assistant: &AssistantMessage, conten
     }
     contents.push(GoogleContent {
         parts,
-        role: "model".to_owned(),
+        role: "model".into(),
     });
 }
 
-fn convert_assistant_block(model: &Model, same_provider_and_model: bool, block: &AssistantContent) -> Option<Value> {
+fn convert_assistant_block(model: &Model, same_provider_and_model: bool, block: &AssistantContent) -> Option<JsValue> {
     match block {
         AssistantContent::Text(text) => convert_text_block(same_provider_and_model, text),
         AssistantContent::Thinking(thinking) => convert_thinking_block(same_provider_and_model, thinking),
@@ -175,53 +176,50 @@ fn convert_assistant_block(model: &Model, same_provider_and_model: bool, block: 
     }
 }
 
-fn convert_text_block(same_provider_and_model: bool, text: &crate::types::TextContent) -> Option<Value> {
+fn convert_text_block(same_provider_and_model: bool, text: &crate::types::TextContent) -> Option<JsValue> {
     let signature = resolve_thought_signature(same_provider_and_model, text.text_signature.as_deref());
     if text.text.trim().is_empty() && signature.is_none() {
         return None;
     }
-    let mut part = Map::new();
-    part.insert(
-        "text".to_owned(),
-        Value::String(sanitize_surrogates(&text.text).to_owned()),
-    );
+    let mut part = JsObject::new();
+    part.insert("text".into(), JsValue::String(sanitize_surrogates(&text.text).into()));
     insert_signature(&mut part, signature);
-    Some(Value::Object(part))
+    Some(JsValue::Object(part))
 }
 
-fn convert_thinking_block(same_provider_and_model: bool, thinking: &crate::types::ThinkingContent) -> Option<Value> {
+fn convert_thinking_block(same_provider_and_model: bool, thinking: &crate::types::ThinkingContent) -> Option<JsValue> {
     if !same_provider_and_model {
         if thinking.thinking.trim().is_empty() {
             return None;
         }
-        return Some(json!({"text": sanitize_surrogates(&thinking.thinking)}));
+        return Some(pi_js_compat::js_json!({"text": sanitize_surrogates(&thinking.thinking)}));
     }
     let signature = resolve_thought_signature(same_provider_and_model, thinking.thinking_signature.as_deref());
     if thinking.thinking.trim().is_empty() && signature.is_none() {
         return None;
     }
-    let mut part = Map::new();
-    part.insert("thought".to_owned(), Value::Bool(true));
+    let mut part = JsObject::new();
+    part.insert("thought".into(), JsValue::Bool(true));
     part.insert(
-        "text".to_owned(),
-        Value::String(sanitize_surrogates(&thinking.thinking).to_owned()),
+        "text".into(),
+        JsValue::String(sanitize_surrogates(&thinking.thinking).into()),
     );
     insert_signature(&mut part, signature);
-    Some(Value::Object(part))
+    Some(JsValue::Object(part))
 }
 
-fn convert_tool_call_block(model: &Model, same_provider_and_model: bool, call: &crate::types::ToolCall) -> Value {
+fn convert_tool_call_block(model: &Model, same_provider_and_model: bool, call: &crate::types::ToolCall) -> JsValue {
     let signature = resolve_thought_signature(same_provider_and_model, call.thought_signature.as_deref());
-    let mut function_call = Map::new();
-    function_call.insert("name".to_owned(), Value::String(call.name.clone()));
-    function_call.insert("args".to_owned(), Value::Object(call.arguments.clone()));
+    let mut function_call = JsObject::new();
+    function_call.insert("name".into(), JsValue::String(call.name.clone().into()));
+    function_call.insert("args".into(), JsValue::Object(call.arguments.clone()));
     if requires_tool_call_id(&model.id) {
-        function_call.insert("id".to_owned(), Value::String(call.id.clone()));
+        function_call.insert("id".into(), JsValue::String(call.id.clone().into()));
     }
-    let mut part = Map::new();
-    part.insert("functionCall".to_owned(), Value::Object(function_call));
+    let mut part = JsObject::new();
+    part.insert("functionCall".into(), JsValue::Object(function_call));
     insert_signature(&mut part, signature);
-    Value::Object(part)
+    JsValue::Object(part)
 }
 
 fn convert_tool_result(model: &Model, result: &ToolResultMessage, contents: &mut Vec<GoogleContent>) {
@@ -234,11 +232,11 @@ fn convert_tool_result(model: &Model, result: &ToolResultMessage, contents: &mut
     append_function_response(contents, part);
 
     if has_images && !multimodal {
-        let mut parts = vec![json!({"text": "Tool result image:"})];
+        let mut parts = vec![pi_js_compat::js_json!({"text": "Tool result image:"})];
         parts.extend(image_parts(&image_content));
         contents.push(GoogleContent {
             parts,
-            role: "user".to_owned(),
+            role: "user".into(),
         });
     }
 }
@@ -274,51 +272,54 @@ fn function_response_part(
     result: &ToolResultMessage,
     text_result: &str,
     image_content: &[&crate::types::ImageContent],
-) -> Value {
+) -> JsValue {
     let has_text = !text_result.is_empty();
     let response_value = if has_text {
-        sanitize_surrogates(text_result).to_owned()
+        sanitize_surrogates(text_result).into()
     } else if image_content.is_empty() {
         String::new()
     } else {
-        "(see attached image)".to_owned()
+        "(see attached image)".into()
     };
 
-    let mut function_response = Map::new();
-    function_response.insert("name".to_owned(), Value::String(result.tool_name.clone()));
+    let mut function_response = JsObject::new();
+    function_response.insert("name".into(), JsValue::String(result.tool_name.clone().into()));
     let response_key = if result.is_error { "error" } else { "output" };
-    function_response.insert("response".to_owned(), json!({response_key: response_value}));
+    function_response.insert(
+        "response".into(),
+        pi_js_compat::js_json!({response_key: response_value}),
+    );
     if !image_content.is_empty() && supports_multimodal_function_response(&model.id) {
-        function_response.insert("parts".to_owned(), Value::Array(image_parts(image_content)));
+        function_response.insert("parts".into(), JsValue::Array(image_parts(image_content)));
     }
     if requires_tool_call_id(&model.id) {
-        function_response.insert("id".to_owned(), Value::String(result.tool_call_id.clone()));
+        function_response.insert("id".into(), JsValue::String(result.tool_call_id.clone().into()));
     }
-    json!({"functionResponse": function_response})
+    JsValue::object([("functionResponse", JsValue::Object(function_response))])
 }
 
-fn image_parts(image_content: &[&crate::types::ImageContent]) -> Vec<Value> {
+fn image_parts(image_content: &[&crate::types::ImageContent]) -> Vec<JsValue> {
     image_content
         .iter()
-        .map(|image| json!({"inlineData": {"mimeType": image.mime_type, "data": image.data}}))
+        .map(|image| pi_js_compat::js_json!({"inlineData": {"mimeType": image.mime_type, "data": image.data}}))
         .collect()
 }
 
-fn append_function_response(contents: &mut Vec<GoogleContent>, part: Value) {
+fn append_function_response(contents: &mut Vec<GoogleContent>, part: JsValue) {
     match contents.last_mut() {
         Some(last) if last.role == "user" && last.parts.iter().any(|part| part.get("functionResponse").is_some()) => {
             last.parts.push(part);
         }
         _ => contents.push(GoogleContent {
             parts: vec![part],
-            role: "user".to_owned(),
+            role: "user".into(),
         }),
     }
 }
 
-fn insert_signature(part: &mut Map<String, Value>, signature: Option<String>) {
+fn insert_signature(part: &mut JsObject, signature: Option<String>) {
     if let Some(signature) = signature {
-        part.insert("thoughtSignature".to_owned(), Value::String(signature));
+        part.insert("thoughtSignature".into(), JsValue::String(signature.into()));
     }
 }
 
@@ -544,7 +545,7 @@ pub(crate) struct GenerateContentParamsInput<'a> {
 
 pub(crate) fn build_generate_content_params(
     input: GenerateContentParamsInput<'_>,
-) -> Result<Map<String, Value>, GoogleRequestError> {
+) -> Result<JsObject, GoogleRequestError> {
     let GenerateContentParamsInput {
         model,
         context,
@@ -597,18 +598,15 @@ pub(crate) fn build_generate_content_params(
         return Err(GoogleRequestError::new("Request aborted", None));
     }
 
-    let mut params = Map::new();
-    params.insert("model".to_owned(), Value::String(model.id.clone()));
-    params.insert(
-        "contents".to_owned(),
-        Value::Array(
-            contents
-                .into_iter()
-                .map(|content| serde_json::to_value(content).unwrap_or(Value::Null))
-                .collect(),
-        ),
-    );
-    params.insert("config".to_owned(), Value::Object(config));
+    let mut params = JsObject::new();
+    params.insert("model".into(), JsValue::String(model.id.clone().into()));
+    let contents = contents
+        .iter()
+        .map(pi_js_compat::js_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| GoogleRequestError::new(error.to_string(), None))?;
+    params.insert("contents".into(), JsValue::Array(contents));
+    params.insert("config".into(), JsValue::from(Value::Object(config)));
     Ok(params)
 }
 

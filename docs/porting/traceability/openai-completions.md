@@ -51,3 +51,5 @@ Tests: module unit tests, `crates/pi-ai/tests/openai_completions.rs` (9 behavior
 
 ## Discrepancies
 - None. `mapStopReason(null)` is represented by an absent/`null` finish reason and maps to `stop`.
+
+Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary/proof matrix](lossless-content.md). Checkpoint evidence does not establish unchanged consumer-fixture compatibility or full workspace parity.

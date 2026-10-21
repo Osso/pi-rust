@@ -91,3 +91,5 @@ auth.
   follow Smithy: `x-amz-retry-after` uses `Number`, and `retry-after` uses the
   numeric pattern, the `" GMT, <seconds>"` suffix, an HTTP date, or
   `Date.parse` (V8 legacy formats and pre-1970 HTTP dates are not reproduced).
+
+Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary/proof matrix](lossless-content.md). Checkpoint evidence does not establish unchanged consumer-fixture compatibility or full workspace parity.

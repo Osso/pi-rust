@@ -1,6 +1,6 @@
 use std::fmt;
 
-use serde_json::{Map, Value};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 
 const VALID_JSON_ESCAPES: [char; 9] = ['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'];
 const JSON_WHITESPACE: &str = " \n\r\t";
@@ -114,7 +114,7 @@ fn escape_control_character(character: char) -> String {
     }
 }
 
-pub fn parse_json_with_repair(json: &str) -> Result<Value, JsonParseError> {
+pub fn parse_json_with_repair(json: &str) -> Result<JsValue, JsonParseError> {
     match parse_strict_json(json) {
         Ok(value) => Ok(value),
         Err(error) => {
@@ -127,12 +127,12 @@ pub fn parse_json_with_repair(json: &str) -> Result<Value, JsonParseError> {
     }
 }
 
-pub fn parse_streaming_json(partial_json: Option<&str>) -> Value {
+pub fn parse_streaming_json(partial_json: Option<&str>) -> JsValue {
     let Some(partial_json) = partial_json else {
-        return Value::Object(Map::new());
+        return JsValue::Object(JsObject::new());
     };
     if partial_json.trim().is_empty() {
-        return Value::Object(Map::new());
+        return JsValue::Object(JsObject::new());
     }
 
     if let Ok(value) = parse_json_with_repair(partial_json) {
@@ -147,12 +147,12 @@ pub fn parse_streaming_json(partial_json: Option<&str>) -> Value {
         return convert_nullish_result(partial_json, value);
     }
 
-    Value::Object(Map::new())
+    JsValue::Object(JsObject::new())
 }
 
-fn convert_nullish_result(original: &str, value: Value) -> Value {
+fn convert_nullish_result(original: &str, value: JsValue) -> JsValue {
     if value.is_null() && !is_non_finite_literal(original) {
-        Value::Object(Map::new())
+        JsValue::Object(JsObject::new())
     } else {
         value
     }
@@ -163,12 +163,12 @@ fn is_non_finite_literal(text: &str) -> bool {
     trimmed.starts_with("Inf") || trimmed.starts_with("-Inf") || trimmed.starts_with("NaN")
 }
 
-fn parse_strict_json(text: &str) -> Result<Value, JsonParseError> {
-    match pi_js_compat::js_json::parse(text) {
+fn parse_strict_json(text: &str) -> Result<JsValue, JsonParseError> {
+    match pi_js_compat::js_json::parse_lossless(text) {
         Ok(value) => Ok(value),
         Err(error) => {
             if is_non_finite_json_number(text) {
-                Ok(Value::Null)
+                Ok(JsValue::Null)
             } else {
                 Err(JsonParseError {
                     message: error.to_string(),
@@ -178,10 +178,10 @@ fn parse_strict_json(text: &str) -> Result<Value, JsonParseError> {
     }
 }
 
-fn parse_json_value(text: &str) -> Option<Value> {
-    match pi_js_compat::js_json::parse(text) {
+fn parse_json_value(text: &str) -> Option<JsValue> {
+    match pi_js_compat::js_json::parse_lossless(text) {
         Ok(value) => Some(value),
-        Err(_) if is_non_finite_json_number(text) => Some(Value::Null),
+        Err(_) if is_non_finite_json_number(text) => Some(JsValue::Null),
         Err(_) => None,
     }
 }
@@ -200,11 +200,11 @@ fn is_non_finite_json_number(text: &str) -> bool {
     looks_numeric && trimmed.parse::<f64>().is_ok_and(|value| !value.is_finite())
 }
 
-fn parse_json_string(text: &str) -> Option<String> {
+fn parse_json_string(text: &str) -> Option<JsString> {
     serde_json::from_str(text).ok()
 }
 
-fn partial_parse(text: &str) -> Result<Value, PartialJsonError> {
+fn partial_parse(text: &str) -> Result<JsValue, PartialJsonError> {
     let characters: Vec<char> = text.trim().chars().collect();
     if characters.is_empty() {
         return Err(PartialJsonError::Partial("input is empty"));
@@ -235,7 +235,7 @@ impl PartialParser<'_> {
         }
     }
 
-    fn parse_any(&mut self) -> Result<Value, PartialJsonError> {
+    fn parse_any(&mut self) -> Result<JsValue, PartialJsonError> {
         self.skip_blank();
         match self.current() {
             None => Err(PartialJsonError::Partial("unexpected end of input")),
@@ -246,14 +246,14 @@ impl PartialParser<'_> {
         }
     }
 
-    fn parse_literal_or_number(&mut self) -> Result<Value, PartialJsonError> {
+    fn parse_literal_or_number(&mut self) -> Result<JsValue, PartialJsonError> {
         let literals = [
-            ("null", Value::Null, 1),
-            ("true", Value::Bool(true), 1),
-            ("false", Value::Bool(false), 1),
-            ("Infinity", Value::Null, 1),
-            ("-Infinity", Value::Null, 2),
-            ("NaN", Value::Null, 1),
+            ("null", JsValue::Null, 1),
+            ("true", JsValue::Bool(true), 1),
+            ("false", JsValue::Bool(false), 1),
+            ("Infinity", JsValue::Null, 1),
+            ("-Infinity", JsValue::Null, 2),
+            ("NaN", JsValue::Null, 1),
         ];
         for (literal, value, minimum_remaining) in literals {
             if let Some(value) = self.take_literal(literal, value, minimum_remaining) {
@@ -263,7 +263,7 @@ impl PartialParser<'_> {
         self.parse_number()
     }
 
-    fn take_literal(&mut self, literal: &str, value: Value, minimum_remaining: usize) -> Option<Value> {
+    fn take_literal(&mut self, literal: &str, value: JsValue, minimum_remaining: usize) -> Option<JsValue> {
         let remaining: String = self.characters[self.index..].iter().collect();
         let exact = remaining == literal;
         let partial = remaining.chars().count() >= minimum_remaining
@@ -276,7 +276,7 @@ impl PartialParser<'_> {
         None
     }
 
-    fn parse_string(&mut self) -> Result<Value, PartialJsonError> {
+    fn parse_string(&mut self) -> Result<JsValue, PartialJsonError> {
         let start = self.index;
         let mut escape = false;
         self.index += 1;
@@ -298,19 +298,19 @@ impl PartialParser<'_> {
             let fragment: String = self.characters[start..end].iter().collect();
             self.index = next_index;
             return parse_json_string(&fragment)
-                .map(Value::String)
+                .map(JsValue::String)
                 .ok_or(PartialJsonError::Malformed("invalid string literal"));
         }
 
         self.parse_unterminated_string(start, escape)
     }
 
-    fn parse_unterminated_string(&mut self, start: usize, escape: bool) -> Result<Value, PartialJsonError> {
+    fn parse_unterminated_string(&mut self, start: usize, escape: bool) -> Result<JsValue, PartialJsonError> {
         let end = self.index - usize::from(escape);
         let mut fragment: String = self.characters[start..end].iter().collect();
         fragment.push('"');
         if let Some(value) = parse_json_string(&fragment) {
-            return Ok(Value::String(value));
+            return Ok(JsValue::String(value));
         }
 
         let last_backslash = self
@@ -321,27 +321,27 @@ impl PartialParser<'_> {
         let mut fallback = js_substring(self.characters, start as isize, last_backslash);
         fallback.push('"');
         parse_json_string(&fallback)
-            .map(Value::String)
+            .map(JsValue::String)
             .ok_or(PartialJsonError::Malformed("unterminated string literal"))
     }
 
-    fn parse_object(&mut self) -> Result<Value, PartialJsonError> {
+    fn parse_object(&mut self) -> Result<JsValue, PartialJsonError> {
         self.index += 1;
         self.skip_blank();
-        let mut object = Map::new();
+        let mut object = JsObject::new();
 
         loop {
             if self.current() == Some('}') {
                 self.index += 1;
-                return Ok(Value::Object(object));
+                return Ok(JsValue::Object(object));
             }
             self.skip_blank();
             if self.index >= self.characters.len() {
-                return Ok(Value::Object(object));
+                return Ok(JsValue::Object(object));
             }
 
-            let Ok(Value::String(key)) = self.parse_string() else {
-                return Ok(Value::Object(object));
+            let Ok(JsValue::String(key)) = self.parse_string() else {
+                return Ok(JsValue::Object(object));
             };
             self.skip_blank();
             self.index += 1;
@@ -349,7 +349,7 @@ impl PartialParser<'_> {
                 Ok(value) => {
                     object.insert(key, value);
                 }
-                Err(_) => return Ok(Value::Object(object)),
+                Err(_) => return Ok(JsValue::Object(object)),
             }
             self.skip_blank();
             if self.current() == Some(',') {
@@ -358,18 +358,18 @@ impl PartialParser<'_> {
         }
     }
 
-    fn parse_array(&mut self) -> Result<Value, PartialJsonError> {
+    fn parse_array(&mut self) -> Result<JsValue, PartialJsonError> {
         self.index += 1;
         let mut array = Vec::new();
 
         loop {
             if self.current() == Some(']') {
                 self.index += 1;
-                return Ok(Value::Array(array));
+                return Ok(JsValue::Array(array));
             }
             match self.parse_any() {
                 Ok(value) => array.push(value),
-                Err(_) => return Ok(Value::Array(array)),
+                Err(_) => return Ok(JsValue::Array(array)),
             }
             self.skip_blank();
             if self.current() == Some(',') {
@@ -378,7 +378,7 @@ impl PartialParser<'_> {
         }
     }
 
-    fn parse_number(&mut self) -> Result<Value, PartialJsonError> {
+    fn parse_number(&mut self) -> Result<JsValue, PartialJsonError> {
         if self.index == 0 {
             return self.parse_whole_input_number();
         }
@@ -411,7 +411,7 @@ impl PartialParser<'_> {
         parse_json_value(&retry).ok_or(PartialJsonError::Malformed("invalid number literal"))
     }
 
-    fn parse_whole_input_number(&mut self) -> Result<Value, PartialJsonError> {
+    fn parse_whole_input_number(&mut self) -> Result<JsValue, PartialJsonError> {
         let whole: String = self.characters.iter().collect();
         if whole == "-" {
             return Err(PartialJsonError::Malformed("not sure what '-' is"));

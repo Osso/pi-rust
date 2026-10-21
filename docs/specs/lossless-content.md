@@ -11,7 +11,8 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 - [x] Shared Node UTF-8 boundary replaces unmatched units with U+FFFD only when encoding to streams, filesystem paths, process arguments or environment values.
 - [x] User and thinking text use the same UTF-16 authority.
 - [ ] Custom-message text uses the same UTF-16 authority.
-- [ ] Tool-call arguments and execution/hook parameters use lossless object/value authorities.
+- [x] Tool-call arguments and complete/partial JSON argument parsing use lossless object/value authorities.
+- [ ] Execution/hook parameters use those same authorities.
 - [ ] Agent result text/details survive agent loop, JSONL append/reload and TS reread in both directions.
 - [ ] Question relay, ask-questions, mailbox and session-name tools preserve arbitrary UTF-16.
 

@@ -6,7 +6,7 @@
 //! differential oracle.
 
 use indexmap::IndexMap;
-use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -426,40 +426,40 @@ fn build_command_input(
     supports_strict_mode: bool,
     inference_max_tokens: Option<f64>,
     now: i64,
-) -> Result<Value, BedrockError> {
+) -> Result<JsValue, BedrockError> {
     let env = options.stream.request.env.as_ref();
-    let mut inference_config = Map::new();
+    let mut inference_config = JsObject::new();
     if let Some(max_tokens) = inference_max_tokens {
-        inference_config.insert("maxTokens".to_owned(), js_number_value(max_tokens));
+        inference_config.insert("maxTokens".into(), js_number_value(max_tokens).into());
     }
     if let Some(temperature) = options.stream.temperature {
-        inference_config.insert("temperature".to_owned(), js_number_value(temperature));
+        inference_config.insert("temperature".into(), js_number_value(temperature).into());
     }
 
-    let mut input = Map::new();
-    input.insert("modelId".to_owned(), json!(model.id));
+    let mut input = JsObject::new();
+    input.insert("modelId".into(), pi_js_compat::js_json!(model.id));
     input.insert(
-        "messages".to_owned(),
-        Value::Array(convert_messages(context, model, cache_retention, env, now)),
+        "messages".into(),
+        JsValue::Array(convert_messages(context, model, cache_retention, env, now)),
     );
     if let Some(system) = build_system_prompt(context.system_prompt.as_deref(), model, cache_retention, env) {
-        input.insert("system".to_owned(), Value::Array(system));
+        input.insert("system".into(), JsValue::Array(system));
     }
-    input.insert("inferenceConfig".to_owned(), Value::Object(inference_config));
+    input.insert("inferenceConfig".into(), JsValue::Object(inference_config));
     if let Some(tool_config) = convert_tool_config(
         context.tools.as_deref(),
         options.tool_choice.as_ref(),
         supports_strict_mode,
     )? {
-        input.insert("toolConfig".to_owned(), tool_config);
+        input.insert("toolConfig".into(), tool_config);
     }
     if let Some(fields) = build_additional_model_request_fields(model, options) {
-        input.insert("additionalModelRequestFields".to_owned(), fields);
+        input.insert("additionalModelRequestFields".into(), fields.into());
     }
     if let Some(metadata) = &options.request_metadata {
-        input.insert("requestMetadata".to_owned(), Value::Object(metadata.clone()));
+        input.insert("requestMetadata".into(), JsValue::from(Value::Object(metadata.clone())));
     }
-    Ok(Value::Object(input))
+    Ok(JsValue::Object(input))
 }
 
 fn convert_messages(
@@ -468,7 +468,7 @@ fn convert_messages(
     cache_retention: CacheRetention,
     env: Option<&ProviderEnv>,
     now: i64,
-) -> Vec<Value> {
+) -> Vec<JsValue> {
     let normalize = |id: &str, _model: &Model, _source: &AssistantMessage| normalize_tool_call_id(id);
     let transformed = transform_messages_with(&context.messages, model, Some(&normalize), now);
     let mut result = Vec::new();
@@ -493,8 +493,8 @@ fn convert_messages(
                 }
                 index = next - 1;
                 result.push(object(vec![
-                    ("role", json!("user")),
-                    ("content", Value::Array(tool_results)),
+                    ("role", pi_js_compat::js_json!("user")),
+                    ("content", JsValue::Array(tool_results)),
                 ]));
             }
         }
@@ -503,16 +503,16 @@ fn convert_messages(
 
     if cache_retention != CacheRetention::None
         && supports_prompt_caching(model, env)
-        && let Some(Value::Object(last)) = result.last_mut()
-        && last.get("role") == Some(&json!("user"))
-        && let Some(Value::Array(content)) = last.get_mut("content")
+        && let Some(JsValue::Object(last)) = result.last_mut()
+        && last.get("role") == Some(&pi_js_compat::js_json!("user"))
+        && let Some(JsValue::Array(content)) = last.get_mut("content")
     {
         content.push(cache_point(cache_retention));
     }
     result
 }
 
-fn convert_user_message(message: &crate::types::UserMessage) -> Value {
+fn convert_user_message(message: &crate::types::UserMessage) -> JsValue {
     let content = match &message.content {
         crate::types::UserContent::Text(text) => vec![required_text_block(text)],
         crate::types::UserContent::Blocks(blocks) => {
@@ -537,10 +537,13 @@ fn convert_user_message(message: &crate::types::UserMessage) -> Value {
             content
         }
     };
-    object(vec![("role", json!("user")), ("content", Value::Array(content))])
+    object(vec![
+        ("role", pi_js_compat::js_json!("user")),
+        ("content", JsValue::Array(content)),
+    ])
 }
 
-fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Option<Value> {
+fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Option<JsValue> {
     if message.content.is_empty() {
         return None;
     }
@@ -556,11 +559,11 @@ fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Optio
                 content.push(object(vec![(
                     "toolUse",
                     object(vec![
-                        ("toolUseId", json!(tool_call.id)),
-                        ("name", json!(tool_call.name)),
+                        ("toolUseId", pi_js_compat::js_json!(tool_call.id)),
+                        ("name", pi_js_compat::js_json!(tool_call.name)),
                         (
                             "input",
-                            sanitize_bedrock_document(&Value::Object(tool_call.arguments.clone())),
+                            sanitize_bedrock_document(&JsValue::Object(tool_call.arguments.clone())),
                         ),
                     ]),
                 )]));
@@ -580,15 +583,21 @@ fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Optio
                             "reasoningContent",
                             object(vec![(
                                 "reasoningText",
-                                object(vec![("text", json!(text)), ("signature", json!(signature))]),
+                                object(vec![
+                                    ("text", pi_js_compat::js_json!(text)),
+                                    ("signature", pi_js_compat::js_json!(signature)),
+                                ]),
                             )]),
                         )])),
-                        None => content.push(object(vec![("text", json!(text))])),
+                        None => content.push(object(vec![("text", pi_js_compat::js_json!(text))])),
                     }
                 } else {
                     content.push(object(vec![(
                         "reasoningContent",
-                        object(vec![("reasoningText", object(vec![("text", json!(text))]))]),
+                        object(vec![(
+                            "reasoningText",
+                            object(vec![("text", pi_js_compat::js_json!(text))]),
+                        )]),
                     )]));
                 }
             }
@@ -598,23 +607,26 @@ fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Optio
         return None;
     }
     Some(object(vec![
-        ("role", json!("assistant")),
-        ("content", Value::Array(content)),
+        ("role", pi_js_compat::js_json!("assistant")),
+        ("content", JsValue::Array(content)),
     ]))
 }
 
-fn convert_tool_result(message: &ToolResultMessage) -> Value {
+fn convert_tool_result(message: &ToolResultMessage) -> JsValue {
     object(vec![(
         "toolResult",
         object(vec![
-            ("toolUseId", json!(message.tool_call_id)),
-            ("content", Value::Array(convert_tool_result_content(&message.content))),
-            ("status", json!(if message.is_error { "error" } else { "success" })),
+            ("toolUseId", pi_js_compat::js_json!(message.tool_call_id)),
+            ("content", JsValue::Array(convert_tool_result_content(&message.content))),
+            (
+                "status",
+                pi_js_compat::js_json!(if message.is_error { "error" } else { "success" }),
+            ),
         ]),
     )])
 }
 
-fn convert_tool_result_content(content: &[ToolResultContent]) -> Vec<Value> {
+fn convert_tool_result_content(content: &[ToolResultContent]) -> Vec<JsValue> {
     let mut result = Vec::new();
     for block in content {
         match block {
@@ -641,39 +653,42 @@ fn build_system_prompt(
     model: &Model,
     cache_retention: CacheRetention,
     env: Option<&ProviderEnv>,
-) -> Option<Vec<Value>> {
+) -> Option<Vec<JsValue>> {
     let system_prompt = system_prompt.filter(|prompt| !prompt.is_empty())?;
-    let mut blocks = vec![object(vec![("text", json!(sanitize_surrogates(system_prompt)))])];
+    let mut blocks = vec![object(vec![(
+        "text",
+        pi_js_compat::js_json!(sanitize_surrogates(system_prompt)),
+    )])];
     if cache_retention != CacheRetention::None && supports_prompt_caching(model, env) {
         blocks.push(cache_point(cache_retention));
     }
     Some(blocks)
 }
 
-fn cache_point(cache_retention: CacheRetention) -> Value {
-    let mut point = Map::new();
-    point.insert("type".to_owned(), json!("default"));
+fn cache_point(cache_retention: CacheRetention) -> JsValue {
+    let mut point = JsObject::new();
+    point.insert("type".into(), pi_js_compat::js_json!("default"));
     if cache_retention == CacheRetention::Long {
-        point.insert("ttl".to_owned(), json!("1h"));
+        point.insert("ttl".into(), pi_js_compat::js_json!("1h"));
     }
-    object(vec![("cachePoint", Value::Object(point))])
+    object(vec![("cachePoint", JsValue::Object(point))])
 }
 
-fn non_blank_text_block(text: impl Into<JsString>) -> Option<Value> {
+fn non_blank_text_block(text: impl Into<JsString>) -> Option<JsValue> {
     let sanitized = sanitize_surrogates(text);
     if sanitized.trim().is_empty() {
         None
     } else {
-        Some(object(vec![("text", json!(sanitized))]))
+        Some(object(vec![("text", pi_js_compat::js_json!(sanitized))]))
     }
 }
 
-fn required_text_block(text: impl Into<JsString>) -> Value {
+fn required_text_block(text: impl Into<JsString>) -> JsValue {
     non_blank_text_block(text).unwrap_or_else(placeholder_text_block)
 }
 
-fn placeholder_text_block() -> Value {
-    object(vec![("text", json!(EMPTY_TEXT_PLACEHOLDER))])
+fn placeholder_text_block() -> JsValue {
+    object(vec![("text", pi_js_compat::js_json!(EMPTY_TEXT_PLACEHOLDER))])
 }
 
 fn normalize_tool_call_id(id: &str) -> String {
@@ -691,10 +706,10 @@ fn normalize_tool_call_id(id: &str) -> String {
     sanitized
 }
 
-fn sanitize_bedrock_document(value: &Value) -> Value {
+fn sanitize_bedrock_document(value: &JsValue) -> JsValue {
     match value {
-        Value::Array(items) => Value::Array(items.iter().map(sanitize_bedrock_document).collect()),
-        Value::Object(object) => Value::Object(
+        JsValue::Array(items) => JsValue::Array(items.iter().map(sanitize_bedrock_document).collect()),
+        JsValue::Object(object) => JsValue::Object(
             object
                 .iter()
                 .filter(|(key, _)| !key.is_empty())
@@ -709,7 +724,7 @@ fn convert_tool_config(
     tools: Option<&[Tool]>,
     tool_choice: Option<&BedrockToolChoice>,
     supports_strict_mode: bool,
-) -> Result<Option<Value>, BedrockError> {
+) -> Result<Option<JsValue>, BedrockError> {
     let Some(tools) = tools.filter(|tools| !tools.is_empty()) else {
         return Ok(None);
     };
@@ -723,32 +738,35 @@ fn convert_tool_config(
             .map_err(|error| BedrockError::other(error.message))?;
         let parameters =
             get_json_schema_tool_parameters(tool, strict).map_err(|error| BedrockError::other(error.message))?;
-        let mut spec = Map::new();
-        spec.insert("name".to_owned(), json!(tool.name));
-        spec.insert("inputSchema".to_owned(), object(vec![("json", parameters)]));
-        spec.insert("description".to_owned(), json!(tool.description));
+        let mut spec = JsObject::new();
+        spec.insert("name".into(), pi_js_compat::js_json!(tool.name));
+        spec.insert("inputSchema".into(), object(vec![("json", parameters.into())]));
+        spec.insert("description".into(), pi_js_compat::js_json!(tool.description));
         if strict == Some(true) {
-            spec.insert("strict".to_owned(), json!(true));
+            spec.insert("strict".into(), pi_js_compat::js_json!(true));
         }
-        bedrock_tools.push(object(vec![("toolSpec", Value::Object(spec))]));
+        bedrock_tools.push(object(vec![("toolSpec", JsValue::Object(spec))]));
     }
 
     let bedrock_tool_choice = match tool_choice {
-        Some(BedrockToolChoice::Auto) => Some(object(vec![("auto", json!({}))])),
-        Some(BedrockToolChoice::Any) => Some(object(vec![("any", json!({}))])),
-        Some(BedrockToolChoice::Tool { name }) => Some(object(vec![("tool", object(vec![("name", json!(name))]))])),
+        Some(BedrockToolChoice::Auto) => Some(object(vec![("auto", pi_js_compat::js_json!({}))])),
+        Some(BedrockToolChoice::Any) => Some(object(vec![("any", pi_js_compat::js_json!({}))])),
+        Some(BedrockToolChoice::Tool { name }) => Some(object(vec![(
+            "tool",
+            object(vec![("name", pi_js_compat::js_json!(name))]),
+        )])),
         Some(BedrockToolChoice::None) | None => None,
     };
 
-    let mut config = Map::new();
-    config.insert("tools".to_owned(), Value::Array(bedrock_tools));
+    let mut config = JsObject::new();
+    config.insert("tools".into(), JsValue::Array(bedrock_tools));
     if let Some(choice) = bedrock_tool_choice {
-        config.insert("toolChoice".to_owned(), choice);
+        config.insert("toolChoice".into(), choice);
     }
-    Ok(Some(Value::Object(config)))
+    Ok(Some(JsValue::Object(config)))
 }
 
-fn create_image_block(mime_type: &str, data: &str) -> Result<Value, BedrockError> {
+fn create_image_block(mime_type: &str, data: &str) -> Result<JsValue, BedrockError> {
     let format = match mime_type {
         "image/jpeg" | "image/jpg" => "jpeg",
         "image/png" => "png",
@@ -760,18 +778,21 @@ fn create_image_block(mime_type: &str, data: &str) -> Result<Value, BedrockError
     Ok(object(vec![(
         "image",
         object(vec![
-            ("format", json!(format)),
-            ("source", object(vec![("bytes", json!(base64::btoa(&bytes)))])),
+            ("format", pi_js_compat::js_json!(format)),
+            (
+                "source",
+                object(vec![("bytes", pi_js_compat::js_json!(base64::btoa(&bytes)))]),
+            ),
         ]),
     )]))
 }
 
-fn object(entries: Vec<(&str, Value)>) -> Value {
-    let mut map = Map::new();
+fn object(entries: Vec<(&str, JsValue)>) -> JsValue {
+    let mut map = JsObject::new();
     for (key, value) in entries {
-        map.insert(key.to_owned(), value);
+        map.insert(key.into(), value);
     }
-    Value::Object(map)
+    JsValue::Object(map)
 }
 
 fn is_anthropic_claude_model(model: &Model) -> bool {
@@ -841,7 +862,7 @@ fn supports_native_xhigh_effort(model: &Model) -> bool {
 
 fn map_thinking_level_to_effort(model: &Model, level: Option<ThinkingLevel>) -> String {
     if level == Some(ThinkingLevel::Xhigh) && supports_native_xhigh_effort(model) {
-        return "xhigh".to_owned();
+        return "xhigh".into();
     }
     if let Some(level) = level
         && let Some(map) = &model.thinking_level_map
@@ -850,10 +871,10 @@ fn map_thinking_level_to_effort(model: &Model, level: Option<ThinkingLevel>) -> 
         return mapped.clone();
     }
     match level {
-        Some(ThinkingLevel::Minimal | ThinkingLevel::Low) => "low".to_owned(),
-        Some(ThinkingLevel::Medium) => "medium".to_owned(),
-        Some(ThinkingLevel::High) => "high".to_owned(),
-        _ => "high".to_owned(),
+        Some(ThinkingLevel::Minimal | ThinkingLevel::Low) => "low".into(),
+        Some(ThinkingLevel::Medium) => "medium".into(),
+        Some(ThinkingLevel::High) => "high".into(),
+        _ => "high".into(),
     }
 }
 
@@ -903,10 +924,7 @@ fn build_additional_model_request_fields(model: &Model, options: &BedrockOptions
         fields.insert("thinking".to_owned(), Value::Object(thinking));
         fields.insert(
             "output_config".to_owned(),
-            object(vec![(
-                "effort",
-                json!(map_thinking_level_to_effort(model, Some(reasoning))),
-            )]),
+            json!({"effort": map_thinking_level_to_effort(model, Some(reasoning))}),
         );
     } else {
         let level = match reasoning {
@@ -1032,7 +1050,7 @@ fn handle_message(
                     content: AssistantContent::ToolCall(ToolCall::new(
                         tool_use.get("toolUseId").and_then(Value::as_str).unwrap_or(""),
                         tool_use.get("name").and_then(Value::as_str).unwrap_or(""),
-                        JsonObject::new(),
+                        JsObject::new(),
                     )),
                     index: Some(index),
                     partial_json: Some(String::new()),

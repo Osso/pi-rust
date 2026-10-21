@@ -6,7 +6,7 @@
 //! [`AnthropicOptions`]. A caller-supplied `client` is not representable in the
 //! typed Rust contract.
 
-use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -429,7 +429,7 @@ fn normalize_tool_call_id_value(id: &str) -> String {
     normalized.chars().take(64).collect()
 }
 
-fn convert_content_blocks(content: &[TextOrImageContent]) -> Value {
+fn convert_content_blocks(content: &[TextOrImageContent]) -> JsValue {
     let has_images = content
         .iter()
         .any(|block| matches!(block, TextOrImageContent::Image(_)));
@@ -442,41 +442,40 @@ fn convert_content_blocks(content: &[TextOrImageContent]) -> Value {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        return Value::String(sanitize_surrogates(&joined).to_owned());
+        return JsValue::String(sanitize_surrogates(&joined).into());
     }
 
-    let mut blocks: Vec<Value> = content
+    let mut blocks: Vec<JsValue> = content
         .iter()
         .map(|block| match block {
             TextOrImageContent::Text(text) => {
-                let mut object = Map::new();
-                object.insert("type".to_owned(), Value::String("text".to_owned()));
-                object.insert(
-                    "text".to_owned(),
-                    Value::String(sanitize_surrogates(&text.text).to_owned()),
-                );
-                Value::Object(object)
+                let mut object = JsObject::new();
+                object.insert("type".into(), JsValue::String("text".into()));
+                object.insert("text".into(), JsValue::String(sanitize_surrogates(&text.text).into()));
+                JsValue::Object(object)
             }
             TextOrImageContent::Image(image) => {
-                let mut source = Map::new();
-                source.insert("type".to_owned(), Value::String("base64".to_owned()));
-                source.insert("media_type".to_owned(), Value::String(image.mime_type.clone()));
-                source.insert("data".to_owned(), Value::String(image.data.clone()));
-                let mut object = Map::new();
-                object.insert("type".to_owned(), Value::String("image".to_owned()));
-                object.insert("source".to_owned(), Value::Object(source));
-                Value::Object(object)
+                let mut source = JsObject::new();
+                source.insert("type".into(), JsValue::String("base64".into()));
+                source.insert("media_type".into(), JsValue::String(image.mime_type.clone().into()));
+                source.insert("data".into(), JsValue::String(image.data.clone().into()));
+                let mut object = JsObject::new();
+                object.insert("type".into(), JsValue::String("image".into()));
+                object.insert("source".into(), JsValue::Object(source));
+                JsValue::Object(object)
             }
         })
         .collect();
-    let has_text = blocks.iter().any(|block| block["type"].as_str() == Some("text"));
+    let has_text = blocks
+        .iter()
+        .any(|block| block["type"].as_string().is_some_and(|kind| kind == "text"));
     if !has_text {
-        let mut placeholder = Map::new();
-        placeholder.insert("type".to_owned(), Value::String("text".to_owned()));
-        placeholder.insert("text".to_owned(), Value::String("(see attached image)".to_owned()));
-        blocks.insert(0, Value::Object(placeholder));
+        let mut placeholder = JsObject::new();
+        placeholder.insert("type".into(), JsValue::String("text".into()));
+        placeholder.insert("text".into(), JsValue::String("(see attached image)".into()));
+        blocks.insert(0, JsValue::Object(placeholder));
     }
-    Value::Array(blocks)
+    JsValue::Array(blocks)
 }
 
 fn collect_deferred_tool_references(
@@ -485,7 +484,7 @@ fn collect_deferred_tool_references(
     deferred_tool_names: &BTreeSet<String>,
     loaded_tool_names: &mut BTreeSet<String>,
     normalize_tool_name: fn(&str) -> String,
-) -> Vec<Value> {
+) -> Vec<JsValue> {
     let mut references = Vec::new();
     for name in message.added_tool_names.iter().flatten() {
         let normalized = normalize_tool_name(name);
@@ -493,17 +492,17 @@ fn collect_deferred_tool_references(
             continue;
         }
         loaded_tool_names.insert(normalized);
-        let mut reference = Map::new();
-        reference.insert("type".to_owned(), Value::String("tool_reference".to_owned()));
+        let mut reference = JsObject::new();
+        reference.insert("type".into(), JsValue::String("tool_reference".into()));
         reference.insert(
-            "tool_name".to_owned(),
-            Value::String(if is_oauth {
-                to_claude_code_name(name)
+            "tool_name".into(),
+            JsValue::String(if is_oauth {
+                to_claude_code_name(name).into()
             } else {
-                name.clone()
+                name.clone().into()
             }),
         );
-        references.push(Value::Object(reference));
+        references.push(JsValue::Object(reference));
     }
     references
 }
@@ -514,7 +513,7 @@ fn convert_tool_result(
     deferred_tool_names: &BTreeSet<String>,
     loaded_tool_names: &mut BTreeSet<String>,
     normalize_tool_name: fn(&str) -> String,
-) -> (Value, Vec<Value>) {
+) -> (JsValue, Vec<JsValue>) {
     let references = collect_deferred_tool_references(
         message,
         is_oauth,
@@ -526,44 +525,44 @@ fn convert_tool_result(
     let has_references = !references.is_empty();
     let sibling = if has_references {
         match &converted {
-            Value::String(text) => {
-                let mut block = Map::new();
-                block.insert("type".to_owned(), Value::String("text".to_owned()));
-                block.insert("text".to_owned(), Value::String(text.clone()));
-                vec![Value::Object(block)]
+            JsValue::String(text) => {
+                let mut block = JsObject::new();
+                block.insert("type".into(), JsValue::String("text".into()));
+                block.insert("text".into(), JsValue::String(text.clone()));
+                vec![JsValue::Object(block)]
             }
-            Value::Array(blocks) => blocks.clone(),
+            JsValue::Array(blocks) => blocks.clone(),
             _ => Vec::new(),
         }
     } else {
         Vec::new()
     };
-    let mut tool_result = Map::new();
-    tool_result.insert("type".to_owned(), Value::String("tool_result".to_owned()));
+    let mut tool_result = JsObject::new();
+    tool_result.insert("type".into(), JsValue::String("tool_result".into()));
     tool_result.insert(
-        "tool_use_id".to_owned(),
-        Value::String(normalize_tool_call_id_value(&message.tool_call_id)),
+        "tool_use_id".into(),
+        JsValue::String(normalize_tool_call_id_value(&message.tool_call_id).into()),
     );
     tool_result.insert(
-        "content".to_owned(),
+        "content".into(),
         if has_references {
-            Value::Array(references)
+            JsValue::Array(references)
         } else {
             converted
         },
     );
-    tool_result.insert("is_error".to_owned(), Value::Bool(message.is_error));
-    (Value::Object(tool_result), sibling)
+    tool_result.insert("is_error".into(), JsValue::Bool(message.is_error));
+    (JsValue::Object(tool_result), sibling)
 }
 
 fn convert_messages(
     messages: &[Message],
     is_oauth: bool,
-    cache_control: Option<&Value>,
+    cache_control: Option<&JsValue>,
     allow_empty_signature: bool,
     deferred_tool_names: &BTreeSet<String>,
     normalize_tool_name: fn(&str) -> String,
-) -> Vec<Value> {
+) -> Vec<JsValue> {
     let mut params = Vec::new();
     let mut loaded_tool_names = BTreeSet::new();
     let mut index = 0;
@@ -574,10 +573,10 @@ fn convert_messages(
             }
             Message::Assistant(message) => {
                 if let Some(content) = convert_assistant_content(message, is_oauth, allow_empty_signature) {
-                    let mut object = Map::new();
-                    object.insert("role".to_owned(), Value::String("assistant".to_owned()));
-                    object.insert("content".to_owned(), content);
-                    params.push(Value::Object(object));
+                    let mut object = JsObject::new();
+                    object.insert("role".into(), JsValue::String("assistant".into()));
+                    object.insert("content".into(), content);
+                    params.push(JsValue::Object(object));
                 }
             }
             Message::ToolResult(_) => {
@@ -600,10 +599,10 @@ fn convert_messages(
                 }
                 let mut content = tool_results;
                 content.extend(sibling_content);
-                let mut object = Map::new();
-                object.insert("role".to_owned(), Value::String("user".to_owned()));
-                object.insert("content".to_owned(), Value::Array(content));
-                params.push(Value::Object(object));
+                let mut object = JsObject::new();
+                object.insert("role".into(), JsValue::String("user".into()));
+                object.insert("content".into(), JsValue::Array(content));
+                params.push(JsValue::Object(object));
                 continue;
             }
         }
@@ -612,24 +611,26 @@ fn convert_messages(
 
     if let Some(cache_control) = cache_control
         && let Some(last_message) = params.last_mut()
-        && last_message["role"].as_str() == Some("user")
+        && last_message["role"].as_string().is_some_and(|role| role == "user")
     {
         let content = &mut last_message["content"];
         match content {
-            Value::Array(blocks) => {
+            JsValue::Array(blocks) => {
                 if let Some(last_block) = blocks.last_mut()
-                    && matches!(last_block["type"].as_str(), Some("text" | "image" | "tool_result"))
+                    && last_block["type"]
+                        .as_string()
+                        .is_some_and(|kind| kind == "text" || kind == "image" || kind == "tool_result")
                 {
                     last_block["cache_control"] = cache_control.clone();
                 }
             }
-            Value::String(text) => {
+            JsValue::String(text) => {
                 let text = std::mem::take(text);
-                let mut block = Map::new();
-                block.insert("type".to_owned(), Value::String("text".to_owned()));
-                block.insert("text".to_owned(), Value::String(text));
-                block.insert("cache_control".to_owned(), cache_control.clone());
-                *content = Value::Array(vec![Value::Object(block)]);
+                let mut block = JsObject::new();
+                block.insert("type".into(), JsValue::String("text".into()));
+                block.insert("text".into(), JsValue::String(text));
+                block.insert("cache_control".into(), cache_control.clone());
+                *content = JsValue::Array(vec![JsValue::Object(block)]);
             }
             _ => {}
         }
@@ -637,57 +638,55 @@ fn convert_messages(
     params
 }
 
-fn push_user_message(params: &mut Vec<Value>, message: &crate::types::UserMessage) {
-    let mut object = Map::new();
-    object.insert("role".to_owned(), Value::String("user".to_owned()));
+fn push_user_message(params: &mut Vec<JsValue>, message: &crate::types::UserMessage) {
+    let mut object = JsObject::new();
+    object.insert("role".into(), JsValue::String("user".into()));
     match &message.content {
         UserContent::Text(text) => {
             if js_trimmed_is_empty(text) {
                 return;
             }
-            object.insert(
-                "content".to_owned(),
-                Value::String(sanitize_surrogates(text).to_owned()),
-            );
+            object.insert("content".into(), JsValue::String(sanitize_surrogates(text).into()));
         }
         UserContent::Blocks(blocks) => {
-            let blocks: Vec<Value> = blocks
+            let blocks: Vec<JsValue> = blocks
                 .iter()
                 .filter_map(|block| match block {
                     TextOrImageContent::Text(text) => {
                         if js_trimmed_is_empty(&text.text) {
                             return None;
                         }
-                        let mut block = Map::new();
-                        block.insert("type".to_owned(), Value::String("text".to_owned()));
-                        block.insert(
-                            "text".to_owned(),
-                            Value::String(sanitize_surrogates(&text.text).to_owned()),
-                        );
-                        Some(Value::Object(block))
+                        let mut block = JsObject::new();
+                        block.insert("type".into(), JsValue::String("text".into()));
+                        block.insert("text".into(), JsValue::String(sanitize_surrogates(&text.text).into()));
+                        Some(JsValue::Object(block))
                     }
                     TextOrImageContent::Image(image) => {
-                        let mut source = Map::new();
-                        source.insert("type".to_owned(), Value::String("base64".to_owned()));
-                        source.insert("media_type".to_owned(), Value::String(image.mime_type.clone()));
-                        source.insert("data".to_owned(), Value::String(image.data.clone()));
-                        let mut block = Map::new();
-                        block.insert("type".to_owned(), Value::String("image".to_owned()));
-                        block.insert("source".to_owned(), Value::Object(source));
-                        Some(Value::Object(block))
+                        let mut source = JsObject::new();
+                        source.insert("type".into(), JsValue::String("base64".into()));
+                        source.insert("media_type".into(), JsValue::String(image.mime_type.clone().into()));
+                        source.insert("data".into(), JsValue::String(image.data.clone().into()));
+                        let mut block = JsObject::new();
+                        block.insert("type".into(), JsValue::String("image".into()));
+                        block.insert("source".into(), JsValue::Object(source));
+                        Some(JsValue::Object(block))
                     }
                 })
                 .collect();
             if blocks.is_empty() {
                 return;
             }
-            object.insert("content".to_owned(), Value::Array(blocks));
+            object.insert("content".into(), JsValue::Array(blocks));
         }
     }
-    params.push(Value::Object(object));
+    params.push(JsValue::Object(object));
 }
 
-fn convert_assistant_content(message: &AssistantMessage, is_oauth: bool, allow_empty_signature: bool) -> Option<Value> {
+fn convert_assistant_content(
+    message: &AssistantMessage,
+    is_oauth: bool,
+    allow_empty_signature: bool,
+) -> Option<JsValue> {
     let mut blocks = Vec::new();
     for block in &message.content {
         match block {
@@ -695,22 +694,19 @@ fn convert_assistant_content(message: &AssistantMessage, is_oauth: bool, allow_e
                 if js_trimmed_is_empty(&text.text) {
                     continue;
                 }
-                let mut object = Map::new();
-                object.insert("type".to_owned(), Value::String("text".to_owned()));
-                object.insert(
-                    "text".to_owned(),
-                    Value::String(sanitize_surrogates(&text.text).to_owned()),
-                );
-                blocks.push(Value::Object(object));
+                let mut object = JsObject::new();
+                object.insert("type".into(), JsValue::String("text".into()));
+                object.insert("text".into(), JsValue::String(sanitize_surrogates(&text.text).into()));
+                blocks.push(JsValue::Object(object));
             }
             AssistantContent::Thinking(thinking) => {
                 if thinking.redacted == Some(true) {
-                    let mut object = Map::new();
-                    object.insert("type".to_owned(), Value::String("redacted_thinking".to_owned()));
+                    let mut object = JsObject::new();
+                    object.insert("type".into(), JsValue::String("redacted_thinking".into()));
                     if let Some(signature) = &thinking.thinking_signature {
-                        object.insert("data".to_owned(), Value::String(signature.clone()));
+                        object.insert("data".into(), JsValue::String(signature.clone().into()));
                     }
-                    blocks.push(Value::Object(object));
+                    blocks.push(JsValue::Object(object));
                     continue;
                 }
                 let signature = thinking.thinking_signature.as_deref();
@@ -719,55 +715,55 @@ fn convert_assistant_content(message: &AssistantMessage, is_oauth: bool, allow_e
                 }
                 if signature.is_none_or(js_trimmed_is_empty) {
                     if allow_empty_signature {
-                        let mut object = Map::new();
-                        object.insert("type".to_owned(), Value::String("thinking".to_owned()));
+                        let mut object = JsObject::new();
+                        object.insert("type".into(), JsValue::String("thinking".into()));
                         object.insert(
-                            "thinking".to_owned(),
-                            Value::String(sanitize_surrogates(&thinking.thinking).to_owned()),
+                            "thinking".into(),
+                            JsValue::String(sanitize_surrogates(&thinking.thinking).into()),
                         );
-                        object.insert("signature".to_owned(), Value::String(String::new()));
-                        blocks.push(Value::Object(object));
+                        object.insert("signature".into(), JsValue::String(String::new().into()));
+                        blocks.push(JsValue::Object(object));
                     } else {
-                        let mut object = Map::new();
-                        object.insert("type".to_owned(), Value::String("text".to_owned()));
+                        let mut object = JsObject::new();
+                        object.insert("type".into(), JsValue::String("text".into()));
                         object.insert(
-                            "text".to_owned(),
-                            Value::String(sanitize_surrogates(&thinking.thinking).to_owned()),
+                            "text".into(),
+                            JsValue::String(sanitize_surrogates(&thinking.thinking).into()),
                         );
-                        blocks.push(Value::Object(object));
+                        blocks.push(JsValue::Object(object));
                     }
                 } else {
-                    let mut object = Map::new();
-                    object.insert("type".to_owned(), Value::String("thinking".to_owned()));
+                    let mut object = JsObject::new();
+                    object.insert("type".into(), JsValue::String("thinking".into()));
                     object.insert(
-                        "thinking".to_owned(),
-                        Value::String(sanitize_surrogates(&thinking.thinking).to_owned()),
+                        "thinking".into(),
+                        JsValue::String(sanitize_surrogates(&thinking.thinking).into()),
                     );
                     object.insert(
-                        "signature".to_owned(),
-                        Value::String(signature.unwrap_or_default().to_owned()),
+                        "signature".into(),
+                        JsValue::String(signature.unwrap_or_default().into()),
                     );
-                    blocks.push(Value::Object(object));
+                    blocks.push(JsValue::Object(object));
                 }
             }
             AssistantContent::ToolCall(call) => {
-                let mut object = Map::new();
-                object.insert("type".to_owned(), Value::String("tool_use".to_owned()));
-                object.insert("id".to_owned(), Value::String(call.id.clone()));
+                let mut object = JsObject::new();
+                object.insert("type".into(), JsValue::String("tool_use".into()));
+                object.insert("id".into(), JsValue::String(call.id.clone().into()));
                 object.insert(
-                    "name".to_owned(),
-                    Value::String(if is_oauth {
-                        to_claude_code_name(&call.name)
+                    "name".into(),
+                    JsValue::String(if is_oauth {
+                        to_claude_code_name(&call.name).into()
                     } else {
-                        call.name.clone()
+                        call.name.clone().into()
                     }),
                 );
-                object.insert("input".to_owned(), Value::Object(call.arguments.clone()));
-                blocks.push(Value::Object(object));
+                object.insert("input".into(), JsValue::Object(call.arguments.clone()));
+                blocks.push(JsValue::Object(object));
             }
         }
     }
-    (!blocks.is_empty()).then(|| Value::Array(blocks))
+    (!blocks.is_empty()).then(|| JsValue::Array(blocks))
 }
 
 fn convert_tools(
@@ -775,62 +771,63 @@ fn convert_tools(
     is_oauth: bool,
     supports_eager_tool_input_streaming: bool,
     supports_strict_tools: bool,
-    cache_control: Option<&Value>,
+    cache_control: Option<&JsValue>,
     defer_loading: bool,
-) -> Result<Vec<Value>, String> {
+) -> Result<Vec<JsValue>, String> {
     let mut converted = Vec::new();
     for (index, tool) in tools.iter().enumerate() {
         let strict =
             resolve_json_schema_strict_sampling(tool, supports_strict_tools).map_err(|error| error.message.clone())?;
-        let parameters = get_json_schema_tool_parameters(tool, strict).map_err(|error| error.message.clone())?;
+        let parameters =
+            JsValue::from(get_json_schema_tool_parameters(tool, strict).map_err(|error| error.message.clone())?);
         let properties = parameters
             .get("properties")
             .cloned()
-            .unwrap_or_else(|| Value::Object(Map::new()));
+            .unwrap_or_else(|| JsValue::Object(JsObject::new()));
         let required = parameters
             .get("required")
             .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new()));
+            .unwrap_or_else(|| JsValue::Array(Vec::new()));
         let input_schema = if strict == Some(true) {
             let mut schema = parameters.as_object().cloned().unwrap_or_default();
-            schema.insert("type".to_owned(), Value::String("object".to_owned()));
-            schema.insert("properties".to_owned(), properties);
-            schema.insert("required".to_owned(), required);
-            Value::Object(schema)
+            schema.insert("type".into(), JsValue::String("object".into()));
+            schema.insert("properties".into(), properties);
+            schema.insert("required".into(), required);
+            JsValue::Object(schema)
         } else {
-            let mut schema = Map::new();
-            schema.insert("type".to_owned(), Value::String("object".to_owned()));
-            schema.insert("properties".to_owned(), properties);
-            schema.insert("required".to_owned(), required);
-            Value::Object(schema)
+            let mut schema = JsObject::new();
+            schema.insert("type".into(), JsValue::String("object".into()));
+            schema.insert("properties".into(), properties.into());
+            schema.insert("required".into(), required.into());
+            JsValue::Object(schema)
         };
 
-        let mut object = Map::new();
+        let mut object = JsObject::new();
         object.insert(
-            "name".to_owned(),
-            Value::String(if is_oauth {
-                to_claude_code_name(&tool.name)
+            "name".into(),
+            JsValue::String(if is_oauth {
+                to_claude_code_name(&tool.name).into()
             } else {
-                tool.name.clone()
+                tool.name.clone().into()
             }),
         );
-        object.insert("description".to_owned(), Value::String(tool.description.clone()));
+        object.insert("description".into(), JsValue::String(tool.description.clone().into()));
         if supports_eager_tool_input_streaming {
-            object.insert("eager_input_streaming".to_owned(), Value::Bool(true));
+            object.insert("eager_input_streaming".into(), JsValue::Bool(true));
         }
         if strict == Some(true) {
-            object.insert("strict".to_owned(), Value::Bool(true));
+            object.insert("strict".into(), JsValue::Bool(true));
         }
-        object.insert("input_schema".to_owned(), input_schema);
+        object.insert("input_schema".into(), input_schema);
         if defer_loading {
-            object.insert("defer_loading".to_owned(), Value::Bool(true));
+            object.insert("defer_loading".into(), JsValue::Bool(true));
         }
         if let Some(cache_control) = cache_control
             && index == tools.len() - 1
         {
-            object.insert("cache_control".to_owned(), cache_control.clone());
+            object.insert("cache_control".into(), cache_control.clone());
         }
-        converted.push(Value::Object(object));
+        converted.push(JsValue::Object(object));
     }
     Ok(converted)
 }
@@ -861,14 +858,15 @@ fn build_params(
     is_oauth: bool,
     anthropic: &AnthropicOptions,
     options: &StreamOptions,
-) -> Result<Value, String> {
-    let cache_control = get_cache_control(model, options.cache_retention, options.request.env.as_ref());
+) -> Result<JsValue, String> {
+    let cache_control =
+        get_cache_control(model, options.cache_retention, options.request.env.as_ref()).map(JsValue::from);
     let compat = anthropic_compat(model);
     let transformed = transform_messages_with(&context.messages, model, Some(&normalize_tool_call_id), now_millis());
     let normalize_tool_name: fn(&str) -> String = if is_oauth {
         to_claude_code_name
     } else {
-        |name: &str| name.to_owned()
+        |name: &str| name.into()
     };
     let (immediate, deferred_tools, deferred_tool_names) = split_tools(
         context,
@@ -877,11 +875,11 @@ fn build_params(
         normalize_tool_name,
     );
 
-    let mut params = Map::new();
-    params.insert("model".to_owned(), Value::String(model.id.clone()));
+    let mut params = JsObject::new();
+    params.insert("model".into(), JsValue::String(model.id.clone().into()));
     params.insert(
-        "messages".to_owned(),
-        Value::Array(convert_messages(
+        "messages".into(),
+        JsValue::Array(convert_messages(
             &transformed,
             is_oauth,
             cache_control.as_ref(),
@@ -891,10 +889,10 @@ fn build_params(
         )),
     );
     params.insert(
-        "max_tokens".to_owned(),
-        js_number_value(options.max_tokens.unwrap_or(model.max_tokens)),
+        "max_tokens".into(),
+        js_number_value(options.max_tokens.unwrap_or(model.max_tokens)).into(),
     );
-    params.insert("stream".to_owned(), Value::Bool(true));
+    params.insert("stream".into(), JsValue::Bool(true));
 
     insert_system_param(&mut params, context, is_oauth, cache_control.as_ref());
     insert_temperature_param(&mut params, options, anthropic, compat.supports_temperature);
@@ -910,7 +908,7 @@ fn build_params(
     insert_metadata_param(&mut params, options);
     insert_tool_choice_param(&mut params, anthropic);
 
-    Ok(Value::Object(params))
+    Ok(JsValue::Object(params))
 }
 
 fn split_tools(
@@ -939,12 +937,7 @@ fn split_tools(
     (immediate, deferred_tools, deferred_tool_names)
 }
 
-fn insert_system_param(
-    params: &mut Map<String, Value>,
-    context: &Context,
-    is_oauth: bool,
-    cache_control: Option<&Value>,
-) {
+fn insert_system_param(params: &mut JsObject, context: &Context, is_oauth: bool, cache_control: Option<&JsValue>) {
     let mut system = Vec::new();
     if is_oauth {
         system.push(text_block(CLAUDE_CODE_IDENTITY, cache_control));
@@ -953,22 +946,22 @@ fn insert_system_param(
         system.push(text_block(&sanitize_surrogates(prompt), cache_control));
     }
     if !system.is_empty() {
-        params.insert("system".to_owned(), Value::Array(system));
+        params.insert("system".into(), JsValue::Array(system));
     }
 }
 
-fn text_block(text: &str, cache_control: Option<&Value>) -> Value {
-    let mut block = Map::new();
-    block.insert("type".to_owned(), Value::String("text".to_owned()));
-    block.insert("text".to_owned(), Value::String(text.to_owned()));
+fn text_block(text: &str, cache_control: Option<&JsValue>) -> JsValue {
+    let mut block = JsObject::new();
+    block.insert("type".into(), JsValue::String("text".into()));
+    block.insert("text".into(), JsValue::String(text.into()));
     if let Some(cache_control) = cache_control {
-        block.insert("cache_control".to_owned(), cache_control.clone());
+        block.insert("cache_control".into(), cache_control.clone());
     }
-    Value::Object(block)
+    JsValue::Object(block)
 }
 
 fn insert_temperature_param(
-    params: &mut Map<String, Value>,
+    params: &mut JsObject,
     options: &StreamOptions,
     anthropic: &AnthropicOptions,
     supports_temperature: bool,
@@ -977,17 +970,17 @@ fn insert_temperature_param(
         && anthropic.thinking_enabled != Some(true)
         && supports_temperature
     {
-        params.insert("temperature".to_owned(), js_number_value(temperature));
+        params.insert("temperature".into(), js_number_value(temperature).into());
     }
 }
 
 fn insert_tools_param(
-    params: &mut Map<String, Value>,
+    params: &mut JsObject,
     immediate: &[Tool],
     deferred: &[Tool],
     is_oauth: bool,
     compat: AnthropicCompat,
-    cache_control: Option<&Value>,
+    cache_control: Option<&JsValue>,
 ) -> Result<(), String> {
     if immediate.is_empty() && deferred.is_empty() {
         return Ok(());
@@ -1012,55 +1005,49 @@ fn insert_tools_param(
         None,
         true,
     )?);
-    params.insert("tools".to_owned(), Value::Array(tools));
+    params.insert("tools".into(), JsValue::Array(tools));
     Ok(())
 }
 
-fn insert_thinking_param(params: &mut Map<String, Value>, model: &Model, anthropic: &AnthropicOptions) {
+fn insert_thinking_param(params: &mut JsObject, model: &Model, anthropic: &AnthropicOptions) {
     if !model.reasoning {
         return;
     }
     match anthropic.thinking_enabled {
         Some(true) => insert_enabled_thinking(params, model, anthropic),
         Some(false) if !thinking_off_is_null(model) => {
-            let mut thinking = Map::new();
-            thinking.insert("type".to_owned(), Value::String("disabled".to_owned()));
-            params.insert("thinking".to_owned(), Value::Object(thinking));
+            let mut thinking = JsObject::new();
+            thinking.insert("type".into(), JsValue::String("disabled".into()));
+            params.insert("thinking".into(), JsValue::Object(thinking));
         }
         _ => {}
     }
 }
 
-fn insert_enabled_thinking(params: &mut Map<String, Value>, model: &Model, anthropic: &AnthropicOptions) {
+fn insert_enabled_thinking(params: &mut JsObject, model: &Model, anthropic: &AnthropicOptions) {
     let display = anthropic
         .thinking_display
         .unwrap_or(AnthropicThinkingDisplay::Summarized);
-    let mut thinking = Map::new();
+    let mut thinking = JsObject::new();
     if raw_compat(model).force_adaptive_thinking == Some(true) {
-        thinking.insert("type".to_owned(), Value::String("adaptive".to_owned()));
-        thinking.insert(
-            "display".to_owned(),
-            serde_json::to_value(display).unwrap_or(Value::Null),
-        );
-        params.insert("thinking".to_owned(), Value::Object(thinking));
+        thinking.insert("type".into(), JsValue::String("adaptive".into()));
+        thinking.insert("display".into(), pi_js_compat::js_json!(display));
+        params.insert("thinking".into(), JsValue::Object(thinking));
         if let Some(effort) = anthropic.effort {
-            let mut output_config = Map::new();
-            output_config.insert("effort".to_owned(), serde_json::to_value(effort).unwrap_or(Value::Null));
-            params.insert("output_config".to_owned(), Value::Object(output_config));
+            let mut output_config = JsObject::new();
+            output_config.insert("effort".into(), pi_js_compat::js_json!(effort));
+            params.insert("output_config".into(), JsValue::Object(output_config));
         }
         return;
     }
-    thinking.insert("type".to_owned(), Value::String("enabled".to_owned()));
+    thinking.insert("type".into(), JsValue::String("enabled".into()));
     let budget = anthropic
         .thinking_budget_tokens
         .filter(|budget| *budget != 0.0 && budget.is_finite())
         .unwrap_or(1024.0);
-    thinking.insert("budget_tokens".to_owned(), js_number_value(budget));
-    thinking.insert(
-        "display".to_owned(),
-        serde_json::to_value(display).unwrap_or(Value::Null),
-    );
-    params.insert("thinking".to_owned(), Value::Object(thinking));
+    thinking.insert("budget_tokens".into(), js_number_value(budget).into());
+    thinking.insert("display".into(), pi_js_compat::js_json!(display));
+    params.insert("thinking".into(), JsValue::Object(thinking));
 }
 
 fn thinking_off_is_null(model: &Model) -> bool {
@@ -1073,29 +1060,29 @@ fn thinking_off_is_null(model: &Model) -> bool {
     )
 }
 
-fn insert_metadata_param(params: &mut Map<String, Value>, options: &StreamOptions) {
+fn insert_metadata_param(params: &mut JsObject, options: &StreamOptions) {
     if let Some(metadata) = &options.metadata
         && let Some(user_id) = metadata.get("user_id").and_then(Value::as_str)
     {
-        let mut object = Map::new();
-        object.insert("user_id".to_owned(), Value::String(user_id.to_owned()));
-        params.insert("metadata".to_owned(), Value::Object(object));
+        let mut object = JsObject::new();
+        object.insert("user_id".into(), JsValue::String(user_id.into()));
+        params.insert("metadata".into(), JsValue::Object(object));
     }
 }
 
-fn insert_tool_choice_param(params: &mut Map<String, Value>, anthropic: &AnthropicOptions) {
+fn insert_tool_choice_param(params: &mut JsObject, anthropic: &AnthropicOptions) {
     let Some(tool_choice) = &anthropic.tool_choice else {
         return;
     };
     let value = match tool_choice {
         AnthropicToolChoice::Builtin(builtin) => {
-            let mut object = Map::new();
-            object.insert("type".to_owned(), serde_json::to_value(builtin).unwrap_or(Value::Null));
-            Value::Object(object)
+            let mut object = JsObject::new();
+            object.insert("type".into(), pi_js_compat::js_json!(builtin));
+            JsValue::Object(object)
         }
-        AnthropicToolChoice::Named(named) => serde_json::to_value(named).unwrap_or(Value::Null),
+        AnthropicToolChoice::Named(named) => pi_js_compat::js_json!(named),
     };
-    params.insert("tool_choice".to_owned(), value);
+    params.insert("tool_choice".into(), value);
 }
 
 fn find_block(output: &AssistantMessage, index: f64) -> Option<usize> {
@@ -1319,7 +1306,12 @@ fn apply_content_block_start(
             } else {
                 name.to_owned()
             };
-            let arguments = content_block["input"].as_object().cloned().unwrap_or_default();
+            let arguments = content_block["input"]
+                .as_object()
+                .into_iter()
+                .flat_map(|args| args.iter())
+                .map(|(key, value)| (key.into(), JsValue::from(value)))
+                .collect();
             let id = content_block["id"].as_str().unwrap_or_default();
             let mut block = ToolCall::new(id, name, arguments);
             block.index = Some(index);
@@ -1608,6 +1600,10 @@ impl AnthropicEventReader {
                 sse.raw.join("\\n")
             )
         })?;
+        // TODO(ingress lane): replace this checked checkpoint bridge before merge.
+        let event = event
+            .to_serde()
+            .map_err(|error| format!("Lossless Anthropic ingress pending ingress lane: {error}"))?;
         match event["type"].as_str() {
             Some("message_start") => self.saw_message_start = true,
             Some("message_stop") => self.saw_message_stop = true,

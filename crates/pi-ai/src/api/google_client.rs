@@ -6,7 +6,7 @@
 //! `ApiError`-shaped HTTP failures, and ADC service-account/authorized-user
 //! access-token exchange.
 
-use pi_js_compat::js_json::{JsObject, JsValue};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -73,7 +73,7 @@ pub struct GoogleResponseContent {
 #[serde(rename_all = "camelCase")]
 pub struct GooglePart {
     #[serde(default)]
-    pub text: Option<String>,
+    pub text: Option<JsString>,
     #[serde(default)]
     pub thought: Option<bool>,
     #[serde(default)]
@@ -90,7 +90,7 @@ pub struct GoogleFunctionCall {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
-    pub args: Option<Value>,
+    pub args: Option<JsValue>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -518,10 +518,10 @@ fn parse_sse_event(event: &str) -> Option<Result<GoogleChunk, GoogleRequestError
     let trimmed = event.trim();
     let payload = trimmed.strip_prefix("data:")?.trim();
     Some(
-        pi_js_compat::js_json::parse(payload)
+        pi_js_compat::js_json::parse_lossless(payload)
             .map_err(|error| GoogleRequestError::new(error.to_string(), None))
             .and_then(|value| {
-                serde_json::from_value(value).map_err(|error| {
+                pi_js_compat::js_json::from_value(&value).map_err(|error| {
                     GoogleRequestError::new(format!("exception parsing stream chunk {payload}. {error}"), None)
                 })
             }),
@@ -1114,7 +1114,7 @@ fn apply_text_part(
     sender: &AssistantMessageEventSender,
     output: &mut AssistantMessage,
     part: &GooglePart,
-    text: &str,
+    text: &JsString,
     current: &mut Option<(BlockKind, usize)>,
 ) {
     let thinking = is_thinking_part(part.thought);
@@ -1181,10 +1181,10 @@ fn resolve_tool_call_id(output: &AssistantMessage, function_call: &GoogleFunctio
     }
 }
 
-fn tool_call_arguments(function_call: &GoogleFunctionCall) -> Map<String, Value> {
+fn tool_call_arguments(function_call: &GoogleFunctionCall) -> JsObject {
     match &function_call.args {
-        Some(Value::Object(args)) => args.clone(),
-        _ => Map::new(),
+        Some(JsValue::Object(args)) => args.clone(),
+        _ => JsObject::new(),
     }
 }
 
@@ -1197,7 +1197,7 @@ fn emit_tool_call(sender: &AssistantMessageEventSender, output: &mut AssistantMe
     });
     sender.push(AssistantMessageEvent::ToolCallDelta {
         content_index: index,
-        delta: js_json(&Value::Object(tool_call.arguments.clone())),
+        delta: pi_js_compat::js_json::stringify_lossless(&JsValue::Object(tool_call.arguments.clone())),
         partial: output.clone(),
     });
     sender.push(AssistantMessageEvent::ToolCallEnd {
@@ -1293,7 +1293,7 @@ fn close_block(sender: &AssistantMessageEventSender, output: &AssistantMessage, 
     }
 }
 
-fn append_text(output: &mut AssistantMessage, kind: BlockKind, index: usize, text: &str, signature: Option<&str>) {
+fn append_text(output: &mut AssistantMessage, kind: BlockKind, index: usize, text: &JsString, signature: Option<&str>) {
     match (kind, output.content.get_mut(index)) {
         (BlockKind::Text, Some(AssistantContent::Text(block))) => {
             block.text.push_str(text);

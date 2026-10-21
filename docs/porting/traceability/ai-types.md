@@ -81,3 +81,5 @@ Changed direct sites:
 - `providers/faux.rs`: ordinary streaming, deferred fetch, and deferred cancellation response callbacks construct empty ordered records. `tests/support/anthropic.rs::requests_json` updates its explicit type annotation.
 
 The SDK forwards headers unchanged; its source needs no conversion. `tests/sdk.rs` covers the real registered custom-provider path and serialized `ExtensionEvent`. Targeted proof: SDK 11/11; AI headers 2/2, differential headers 2/2, OpenRouter images 13/13. This is not a broad provider-suite or RPC process test.
+
+Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary/proof matrix](lossless-content.md). Checkpoint evidence does not establish unchanged consumer-fixture compatibility or full workspace parity.

@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 
 use indexmap::IndexMap;
+use pi_js_compat::js_json::{JsObject, JsValue};
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
@@ -644,7 +645,9 @@ pub fn convert_responses_messages(
                                     ("name", Value::String(tool_call.name.clone())),
                                     (
                                         "arguments",
-                                        Value::String(serde_json::to_string(&tool_call.arguments).unwrap_or_default()),
+                                        Value::String(pi_js_compat::js_json::stringify_lossless(
+                                            &pi_js_compat::js_json::JsValue::Object(tool_call.arguments.clone()),
+                                        )),
                                     ),
                                 ]
                             };
@@ -852,33 +855,39 @@ fn get_slot(slots: &BTreeMap<Option<u64>, Slot>, output_index: Option<u64>, kind
     })
 }
 
-fn custom_tool_call_input(block: &ToolCall, custom_input: &Option<CustomInput>) -> String {
+fn custom_tool_call_input(block: &ToolCall, custom_input: &Option<CustomInput>) -> pi_js_compat::js_json::JsString {
     let Some(custom_input) = custom_input else {
-        return String::new();
+        return Default::default();
     };
     block
         .arguments
         .get(&custom_input.property)
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_owned()
+        .and_then(pi_js_compat::js_json::JsValue::as_string)
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn append_custom_tool_call_input(
     block: &mut ToolCall,
     custom_input: &mut Option<CustomInput>,
-    next_input: &str,
+    next_input: impl Into<pi_js_compat::js_json::JsString>,
     close: bool,
 ) -> Result<Option<String>, String> {
+    let next_input = next_input.into();
     let Some(custom_input) = custom_input.as_mut() else {
         return Ok(None);
     };
-    let delta =
-        append_grammar_tool_input_json_delta(&mut custom_input.json_buffer, &custom_input.property, next_input, close)
-            .map_err(|error| error.message)?;
-    block
-        .arguments
-        .insert(custom_input.property.clone(), Value::String(next_input.to_owned()));
+    let delta = append_grammar_tool_input_json_delta(
+        &mut custom_input.json_buffer,
+        &custom_input.property,
+        &next_input,
+        close,
+    )
+    .map_err(|error| error.message)?;
+    block.arguments.insert(
+        custom_input.property.clone().into(),
+        pi_js_compat::js_json::JsValue::String(next_input),
+    );
     Ok(delta)
 }
 
@@ -898,10 +907,10 @@ fn push_tool_call_delta(
     });
 }
 
-fn parse_arguments(partial_json: Option<&str>) -> Map<String, Value> {
+fn parse_arguments(partial_json: Option<&str>) -> pi_js_compat::js_json::JsObject {
     match parse_streaming_json(partial_json) {
-        Value::Object(map) => map,
-        _ => Map::new(),
+        pi_js_compat::js_json::JsValue::Object(map) => map,
+        _ => Default::default(),
     }
 }
 
@@ -957,7 +966,7 @@ fn create_slot(
             let mut block = ToolCall::new(
                 format!("{call_id}|{item_id}"),
                 item.get("name").and_then(Value::as_str).unwrap_or(""),
-                Map::new(),
+                Default::default(),
             );
             if let Some(namespace) = item.get("namespace").and_then(Value::as_str) {
                 block.namespace = Some(namespace.to_owned());
@@ -1000,8 +1009,8 @@ fn create_slot(
                 .unwrap_or("")
                 .to_owned();
             let mut block = ToolCall::new(format!("{call_id}|{item_id}"), name, {
-                let mut arguments = Map::new();
-                arguments.insert(input_property.clone(), Value::String(input));
+                let mut arguments = JsObject::new();
+                arguments.insert(input_property.clone().into(), JsValue::String(input.into()));
                 arguments
             });
             if let Some(namespace) = item.get("namespace").and_then(Value::as_str) {
@@ -1441,7 +1450,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                     continue;
                 };
                 let next_input = input
-                    .map(str::to_owned)
+                    .map(pi_js_compat::js_json::JsString::from)
                     .unwrap_or_else(|| custom_tool_call_input(block, custom_input));
                 let appended = append_custom_tool_call_input(block, custom_input, &next_input, true);
                 match appended {
@@ -1598,7 +1607,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                             continue;
                         };
                         let next_input = input
-                            .map(str::to_owned)
+                            .map(pi_js_compat::js_json::JsString::from)
                             .unwrap_or_else(|| custom_tool_call_input(block, &next_custom_input));
                         let appended = append_custom_tool_call_input(block, &mut next_custom_input, &next_input, true);
                         let delta = match appended {

@@ -599,7 +599,12 @@ pub fn convert_messages(
                                         (
                                             "arguments",
                                             JsValue::String(
-                                                serde_json::to_string(&tool_call.arguments).unwrap_or_default().into(),
+                                                pi_js_compat::js_json::stringify_lossless(
+                                                    &pi_js_compat::js_json::JsValue::Object(
+                                                        tool_call.arguments.clone(),
+                                                    ),
+                                                )
+                                                .into(),
                                             ),
                                         ),
                                     ]),
@@ -1418,39 +1423,40 @@ fn finish_block(
     }
 }
 
-fn custom_tool_call_input(tool_call: &ToolCall, state: &ToolState) -> String {
+fn custom_tool_call_input(tool_call: &ToolCall, state: &ToolState) -> pi_js_compat::js_json::JsString {
     let Some(property) = &state.custom_property else {
-        return String::new();
+        return Default::default();
     };
     tool_call
         .arguments
         .get(property)
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_owned()
+        .and_then(JsValue::as_string)
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn append_custom_tool_call_input(
     tool_call: &mut ToolCall,
     state: &mut ToolState,
-    next_input: &str,
+    next_input: impl Into<pi_js_compat::js_json::JsString>,
     close: bool,
 ) -> Result<Option<String>, String> {
+    let next_input = next_input.into();
     let Some(property) = state.custom_property.clone() else {
         return Ok(None);
     };
-    let delta = append_grammar_tool_input_json_delta(&mut state.json_buffer, &property, next_input, close)
+    let delta = append_grammar_tool_input_json_delta(&mut state.json_buffer, &property, &next_input, close)
         .map_err(|error| error.message)?;
     tool_call
         .arguments
-        .insert(property, Value::String(next_input.to_owned()));
+        .insert(property.into(), pi_js_compat::js_json::JsValue::String(next_input));
     Ok(delta)
 }
 
-fn parse_arguments(partial_args: Option<&str>) -> Map<String, Value> {
+fn parse_arguments(partial_args: Option<&str>) -> JsObject {
     match parse_streaming_json(partial_args) {
-        Value::Object(map) => map,
-        _ => Map::new(),
+        JsValue::Object(map) => map,
+        _ => JsObject::new(),
     }
 }
 
@@ -1498,9 +1504,9 @@ fn ensure_tool_call_block(
             None
         };
         let has_custom_input = custom_input_property.is_some();
-        let mut arguments = Map::new();
+        let mut arguments = JsObject::new();
         if let Some(property) = &custom_input_property {
-            arguments.insert(property.clone(), Value::String(String::new()));
+            arguments.insert(property.clone().into(), JsValue::String(Default::default()));
         }
         let mut block = ToolCall::new(id.to_owned(), name, arguments);
         let _ = &mut block;
@@ -1556,7 +1562,7 @@ fn ensure_tool_call_block(
             .unwrap_or_else(|| "input".to_owned());
         tool_call_block
             .arguments
-            .insert(property.clone(), Value::String(String::new()));
+            .insert(property.clone().into(), Value::String(String::new()).into());
         if let Some(state) = tool_states.get_mut(&index) {
             state.custom_property = Some(property);
             state.partial_args = None;

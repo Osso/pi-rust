@@ -50,6 +50,11 @@ impl JsString {
         self.0.ends_with(text.into().units())
     }
 
+    pub fn strip_prefix(&self, prefix: impl Into<Self>) -> Option<Self> {
+        let prefix = prefix.into();
+        self.0.strip_prefix(prefix.units()).map(|tail| Self(tail.to_vec()))
+    }
+
     pub fn encode_utf16(&self) -> impl Iterator<Item = u16> + '_ {
         self.0.iter().copied()
     }
@@ -138,6 +143,14 @@ impl indexmap::Equivalent<JsString> for str {
 impl indexmap::Equivalent<JsString> for String {
     fn equivalent(&self, key: &JsString) -> bool {
         key == self
+    }
+}
+
+impl<T: Into<JsString>> std::ops::Add<T> for JsString {
+    type Output = JsString;
+    fn add(mut self, tail: T) -> JsString {
+        self.push_str(tail);
+        self
     }
 }
 
@@ -369,6 +382,12 @@ impl JsValue {
             }
         }
     }
+}
+
+/// Decode a typed record directly from the lossless authority. Its own field
+/// deserializers define which UTF-16 strings are accepted; no replacement occurs.
+pub fn from_value<T: serde::de::DeserializeOwned>(value: &JsValue) -> Result<T, serde_json::Error> {
+    serde_json::from_str(&stringify_lossless(value))
 }
 
 /// Convert a serializable record directly to the lossless authority, without an

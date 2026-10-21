@@ -17,3 +17,5 @@ Pinned source: `packages/ai/src/utils/json-parse.ts` at commit `532f7d12cd192350
 - `parseStreamingJson` result ordering follows TypeScript insertion order because `serde_json` is built with `preserve_order`.
 - `is_non_finite_json_number` uses `parse::<f64>` only on text already restricted to JSON number characters, and only to detect overflow (`1e400`), matching the `Infinity` that JavaScript's `JSON.parse` produces for the same literal. It does not emulate a JS numeric conversion.
 - No source bug found.
+
+Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary/proof matrix](lossless-content.md). Checkpoint evidence does not establish unchanged consumer-fixture compatibility or full workspace parity.

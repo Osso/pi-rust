@@ -12,6 +12,7 @@
 
 use std::fmt;
 
+use pi_js_compat::js_json::JsValue;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 
@@ -42,7 +43,7 @@ impl fmt::Display for ValidationError {
 impl std::error::Error for ValidationError {}
 
 /// Finds a tool by name and validates the tool call arguments against its schema.
-pub fn validate_tool_call(tools: &[Tool], tool_call: &ToolCall) -> Result<Value, ValidationError> {
+pub fn validate_tool_call(tools: &[Tool], tool_call: &ToolCall) -> Result<JsValue, ValidationError> {
     let tool = tools
         .iter()
         .find(|tool| tool.name == tool_call.name)
@@ -53,8 +54,15 @@ pub fn validate_tool_call(tools: &[Tool], tool_call: &ToolCall) -> Result<Value,
 }
 
 /// Validates tool call arguments against the tool's schema.
-pub fn validate_tool_arguments(tool: &Tool, tool_call: &ToolCall) -> Result<Value, ValidationError> {
-    let mut args = Value::Object(tool_call.arguments.clone());
+pub fn validate_tool_arguments(tool: &Tool, tool_call: &ToolCall) -> Result<JsValue, ValidationError> {
+    // TODO(validator lane): remove this checked checkpoint bridge before merge.
+    // Parent-approved 2026-10-21: never replace unsupported UTF-16 units.
+    let original_args = JsValue::Object(tool_call.arguments.clone())
+        .to_serde()
+        .map_err(|error| ValidationError {
+            message: format!("Lossless UTF-16 validation is pending the validator lane: {error}"),
+        })?;
+    let mut args = original_args.clone();
     if tool.typebox_kind {
         let _ = convert(&tool.parameters, &mut args, &Map::new());
     }
@@ -65,17 +73,17 @@ pub fn validate_tool_arguments(tool: &Tool, tool_call: &ToolCall) -> Result<Valu
         if args.is_object() && coerced.is_object() {
             args = coerced;
         } else {
-            return Ok(if check(&tool.parameters, &coerced) {
+            return Ok(JsValue::from(if check(&tool.parameters, &coerced) {
                 coerced
             } else {
                 args
-            });
+            }));
         }
     }
 
     let issues = collect_issues(&tool.parameters, &args);
     if issues.is_empty() {
-        return Ok(args);
+        return Ok(JsValue::from(args));
     }
 
     let errors = issues
@@ -89,7 +97,7 @@ pub fn validate_tool_arguments(tool: &Tool, tool_call: &ToolCall) -> Result<Valu
     } else {
         errors
     };
-    let received = json_stringify_pretty(&Value::Object(tool_call.arguments.clone()));
+    let received = json_stringify_pretty(&original_args);
     Err(ValidationError {
         message: format!(
             "Validation failed for tool \"{}\":\n{}\n\nReceived arguments:\n{}",

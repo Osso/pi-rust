@@ -67,7 +67,12 @@ pub fn estimate_assistant_message_tokens(message: &AssistantMessage) -> f64 {
         .map(|block| match block {
             AssistantContent::Text(text) => text.text.len(),
             AssistantContent::Thinking(thinking) => thinking.thinking.len(),
-            AssistantContent::ToolCall(call) => js_len(&call.name) + js_len(&safe_json_stringify(&call.arguments)),
+            AssistantContent::ToolCall(call) => {
+                js_len(&call.name)
+                    + js_len(&pi_js_compat::js_json::stringify_lossless(
+                        &pi_js_compat::js_json::JsValue::Object(call.arguments.clone()),
+                    ))
+            }
         })
         .sum();
     (chars as f64 / CHARS_PER_TOKEN).ceil()

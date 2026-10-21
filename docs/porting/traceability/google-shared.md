@@ -48,3 +48,5 @@ Tests: `crates/pi-ai/tests/google_shared.rs` (30 behavioral, ported from `google
 
 ## Discrepancies
 - None.
+
+Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary/proof matrix](lossless-content.md). Checkpoint evidence does not establish unchanged consumer-fixture compatibility or full workspace parity.

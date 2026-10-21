@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
 use crate::utils::diagnostics::AssistantMessageDiagnostic;
-use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_js_compat::number as js_number;
 
 /// `Api`: a known API literal or any custom string.
@@ -385,7 +385,11 @@ pub struct ToolCall {
     pub r#type: ToolCallTag,
     pub id: String,
     pub name: String,
-    pub arguments: JsonObject,
+    #[serde(
+        serialize_with = "pi_js_compat::js_json::serialize_object",
+        deserialize_with = "pi_js_compat::js_json::deserialize_object"
+    )]
+    pub arguments: JsObject,
     /// Application-owned execution metadata; provider adapters ignore it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution: Option<ToolCallExecution>,
@@ -405,7 +409,7 @@ pub struct ToolCall {
 }
 
 impl ToolCall {
-    pub fn new(id: impl Into<String>, name: impl Into<String>, arguments: JsonObject) -> Self {
+    pub fn new(id: impl Into<String>, name: impl Into<String>, arguments: JsObject) -> Self {
         Self {
             r#type: ToolCallTag::Tag,
             id: id.into(),

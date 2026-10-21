@@ -19,7 +19,7 @@ use crate::request::{
 };
 use crate::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, DeferredHandle, DoneReason,
-    ErrorReason, JsonObject, Message, Modality, Model, ModelCostRates, ProviderResponse, StopReason, TextContent,
+    ErrorReason, Message, Modality, Model, ModelCostRates, ProviderResponse, StopReason, TextContent,
     TextOrImageContent, ThinkingContent, ToolCall, Usage, UsageCost, UserContent,
 };
 use crate::utils::event_stream::{
@@ -111,7 +111,11 @@ pub fn faux_thinking(thinking: impl Into<JsString>) -> AssistantContent {
     AssistantContent::Thinking(ThinkingContent::new(thinking))
 }
 
-pub fn faux_tool_call(name: impl Into<String>, arguments: JsonObject, id: Option<String>) -> AssistantContent {
+pub fn faux_tool_call(
+    name: impl Into<String>,
+    arguments: pi_js_compat::js_json::JsObject,
+    id: Option<String>,
+) -> AssistantContent {
     AssistantContent::ToolCall(ToolCall::new(id.unwrap_or_else(|| random_id("tool")), name, arguments))
 }
 
@@ -941,13 +945,15 @@ async fn stream_with_deltas(
                 partial.content.push(AssistantContent::ToolCall(ToolCall::new(
                     block.id.clone(),
                     block.name.clone(),
-                    JsonObject::new(),
+                    pi_js_compat::js_json::JsObject::new(),
                 )));
                 sender.push(AssistantMessageEvent::ToolCallStart {
                     content_index: index,
                     partial: partial.clone(),
                 });
-                let arguments = serde_json::to_string(&block.arguments).unwrap_or_default();
+                let arguments = pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::Object(
+                    block.arguments.clone(),
+                ));
                 let chunks = split_string_by_token_size(&arguments, min_token_size, max_token_size);
                 let last_chunk = chunks.len().saturating_sub(1);
                 for (chunk_index, chunk) in chunks.iter().enumerate() {
@@ -1156,7 +1162,9 @@ fn assistant_content_to_text(content: &[AssistantContent]) -> JsString {
             AssistantContent::ToolCall(block) => format!(
                 "{}:{}",
                 block.name,
-                serde_json::to_string(&block.arguments).unwrap_or_default()
+                pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::Object(
+                    block.arguments.clone()
+                ))
             )
             .into(),
         }),

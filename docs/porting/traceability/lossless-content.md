@@ -26,3 +26,18 @@ Artifacts under `/tmp/pi-rust-repin-lossless-content/`:
 Checkpoint proof is bounded. It does not establish workspace compilation, unchanged provider test fixtures, all-source parity, or JSONL integration.
 
 User/thinking checkpoint: `UserContent::Text`, `ThinkingContent.thinking`, thinking delta/end events use JsString. OpenAI Completions conversion/cache/request builders now use JsValue, preserving the source-unsanitized reasoning-signature field. `user-thinking-red.log` reproduces rejection of a user lone surrogate; `user-thinking-green-2.log`: four pi-ai sandbox tests PASS, including captured OpenAI HTTP reasoning escapes. Initial thinking-only HTTP fixture was dropped by the existing no-visible-content rule; adding visible text reproduces the actual source boundary. Custom text, argument API and downstream consumers remain pending.
+
+## Argument/outbound checkpoint
+
+`ToolCall.arguments` is a JsObject field using shared object serde. Complete/partial/repair JSON parsers return JsValue; grammar input extraction/buffering retains JsString. Native Anthropic/Google/Bedrock request trees use JsValue; OpenAI/Mistral argument JSON text uses the lossless writer rather than serializing bare map keys. Google raw SSE decoding selects typed records from lossless JSON, including JsValue arguments and JsString text.
+
+Proof: `arguments-red.log` reproduces the old ToolCall argument-key rejection. `arguments-checkpoint-green.log`: seven focused tests PASS, zero warnings. One test captures real HTTP bodies from five direct providers (Anthropic, Google, OpenAI completions/responses, Mistral), confirms exact argument units and byte equality to Node JSON.stringify. Another differential loads frozen `utils/json-parse.ts` for complete and partial unmatched-unit cases. Bedrock request migration has compilation evidence only at this checkpoint.
+
+A generic dispatcher fixture hung after a Google provider task panicked on a bare JsObject macro leaf. The Cargo group was terminated and all children verified exited; partial proof is `arguments-provider-green-2.log` (five prior cases passed, new case unproven). Bounded direct-provider reproduction (`arguments-provider-direct.log`) identified the key-serialization panic; construction now wraps the object in JsValue, with no guard/fallback. `arguments-provider-direct-green.log` passes.
+
+### Temporary checked adapters — must be removed before merge
+
+1. `pi-ai/src/utils/validation.rs::validate_tool_arguments`: TODO(validator lane), explicit UTF-16 rejection via checked `to_serde`; parent approved branch-only bridge 2026-10-21. Public validation return values already use JsValue. A separate validator lane owns its replacement.
+2. `pi-ai/src/api/anthropic_messages.rs::AnthropicEventReader::decode_event`: TODO(ingress lane), explicit UTF-16 rejection via checked `to_serde`; parent approved branch-only bridge 2026-10-21. No claim of arbitrary UTF-16 Anthropic event ingestion.
+
+Neither adapter replaces unsupported units or stores parallel message representations. Workspace compilation, consumer fixtures and end-to-end agent/JSONL/question/mailbox/name proof remain pending.

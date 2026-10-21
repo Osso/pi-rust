@@ -130,3 +130,5 @@ Normalizations:
    contract has no telemetry field yet.
 9. **Non-integer `maxRetries`.** TS decrements a fractional counter; Rust floors
    it to an integer (typed exclusion).
+
+Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary/proof matrix](lossless-content.md). Checkpoint evidence does not establish unchanged consumer-fixture compatibility or full workspace parity.
