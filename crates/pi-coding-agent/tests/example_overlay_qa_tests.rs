@@ -425,3 +425,19 @@ fn normalize_timestamps(value: &mut Value) {
         _ => {}
     }
 }
+
+#[tokio::test]
+async fn stack_mounts_later_layers_at_absolute_four_hundred_ms_deadlines() {
+    let request = json!({"command":"overlay-stack","scripts":[{"delay":200,"steps":[{"key":"\r"}]},{"delay":100,"steps":[{"key":"\r"}]},{"steps":[{"key":"\r"}]}]});
+    let started = std::time::Instant::now();
+    let result = native(&request).await;
+    let elapsed = started.elapsed();
+    assert_eq!(
+        result["calls"].as_array().unwrap().last().unwrap(),
+        &json!(["notify", "Closed in order: Overlay 1, Overlay 2, Overlay 3", "info"])
+    );
+    assert!(
+        elapsed >= std::time::Duration::from_millis(790) && elapsed < std::time::Duration::from_millis(1050),
+        "stack elapsed {elapsed:?}"
+    );
+}
