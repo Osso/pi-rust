@@ -46,7 +46,10 @@ try:
         if pty:
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 7+cycle, 30+cycle, 0, 0))
             time.sleep(.04)
-        send(b'q'); time.sleep(.02); send(b'\x1b[?0u')
+        send(b'q')
+        draining = line()
+        if draining != 'DRAINING': raise RuntimeError('drain handshake missing: ' + draining)
+        time.sleep(.05); send(b'\x1b[?0u')
         result = line()
         if not result.startswith('RESULT '): raise RuntimeError('unexpected fixture result: ' + result)
         results.append(json.loads(result[7:]))
@@ -103,8 +106,9 @@ fn run_child() {
         let kitty = terminal.kitty_protocol_active();
         let modify = terminal.modify_other_keys_active();
         let drain_start = Instant::now();
-        terminal.drain_input(100, 30);
-        let waited_for_late_data = drain_start.elapsed() >= Duration::from_millis(40);
+        eprintln!("DRAINING");
+        terminal.drain_input(1000, 300);
+        let waited_for_late_data = drain_start.elapsed() >= Duration::from_millis(325);
         terminal.stop();
         eprintln!(
             "RESULT {}",

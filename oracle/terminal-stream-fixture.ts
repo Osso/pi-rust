@@ -22,8 +22,10 @@ async function main(): Promise<void> {
 		const kitty = terminal.kittyProtocolActive;
 		const modify = terminal.modifyOtherKeysActive;
 		const drainStart = Date.now();
-		await terminal.drainInput(100, 30);
-		const waitedForLateData = Date.now() - drainStart >= 40;
+		const draining = terminal.drainInput(1000, 300);
+		process.stderr.write("DRAINING\n");
+		await draining;
+		const waitedForLateData = Date.now() - drainStart >= 325;
 		terminal.stop();
 		process.stderr.write(`RESULT ${JSON.stringify({ inputs, sizes, kitty, modify, waitedForLateData })}\n`);
 		await new Promise((resolve) => setTimeout(resolve, 40));
