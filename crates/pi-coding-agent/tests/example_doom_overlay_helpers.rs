@@ -130,17 +130,17 @@ impl doom_engine::DoomModule for Module {
         self.trace.lock().unwrap().push(json!(["free", ptr]));
         Ok(())
     }
-    fn frame_buffer(&self) -> u32 {
-        1024
+    fn frame_buffer(&self) -> Result<u32, String> {
+        Ok(1024)
     }
-    fn width(&self) -> usize {
-        2
+    fn width(&self) -> Result<usize, String> {
+        Ok(2)
     }
-    fn height(&self) -> usize {
-        1
+    fn height(&self) -> Result<usize, String> {
+        Ok(1)
     }
-    fn get_i32(&self, ptr: u32) -> i32 {
-        if ptr == 1024 { 0x12345678 } else { 0xffabcdefu32 as i32 }
+    fn get_i32(&self, ptr: u32) -> Result<i32, String> {
+        Ok(if ptr == 1024 { 0x12345678 } else { 0xffabcdefu32 as i32 })
     }
     fn tick(&mut self) -> Result<(), String> {
         self.trace.lock().unwrap().push(json!(["tick"]));
@@ -167,7 +167,7 @@ fn engine_wrapper_matches_pinned_memory_frame_and_input_lifecycle() {
         let mut engine = doom_engine::DoomEngine::new(wad.clone());
         assert!(!engine.is_initialized());
         assert_eq!((engine.width(), engine.height()), (640, 400));
-        assert_eq!(engine.get_frame_rgba(), vec![0; 640 * 400 * 4]);
+        assert_eq!(engine.get_frame_rgba().unwrap(), vec![0; 640 * 400 * 4]);
         engine.tick().unwrap();
         engine.push_key(true, 173).unwrap();
         assert!(trace.lock().unwrap().is_empty());
@@ -183,11 +183,11 @@ fn engine_wrapper_matches_pinned_memory_frame_and_input_lifecycle() {
         engine.tick().unwrap();
         engine.push_key(true, 173).unwrap();
         engine.push_key(false, 173).unwrap();
-        let actual = json!({"trace":trace.lock().unwrap().clone(), "error":error, "initialized":engine.is_initialized(), "width":engine.width(), "height":engine.height(), "frame":engine.get_frame_rgba()});
+        let actual = json!({"trace":trace.lock().unwrap().clone(), "error":error, "initialized":engine.is_initialized(), "width":engine.width(), "height":engine.height(), "frame":engine.get_frame_rgba().unwrap()});
         assert_eq!(actual, expected);
         if !fail {
             assert_eq!(
-                engine.get_frame_rgba(),
+                engine.get_frame_rgba().unwrap(),
                 vec![0x34, 0x56, 0x78, 255, 0xab, 0xcd, 0xef, 255]
             );
         }

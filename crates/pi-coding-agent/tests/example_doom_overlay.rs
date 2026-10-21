@@ -21,7 +21,6 @@ type Trace = Arc<Mutex<Vec<Value>>>;
 struct Module {
     trace: Trace,
     current: Arc<Mutex<Value>>,
-    key_calls: usize,
 }
 impl example::doom_engine::DoomModule for Module {
     fn create_path(&mut self, _: &str, _: &str) -> Result<(), String> {
@@ -42,17 +41,28 @@ impl example::doom_engine::DoomModule for Module {
     fn free(&mut self, _: u32) -> Result<(), String> {
         Ok(())
     }
-    fn frame_buffer(&self) -> u32 {
-        1024
+    fn frame_buffer(&self) -> Result<u32, String> {
+        Ok(1024)
     }
-    fn width(&self) -> usize {
-        2
+    fn width(&self) -> Result<usize, String> {
+        Ok(if self.current.lock().unwrap()["emptyFrame"] == true {
+            0
+        } else {
+            2
+        })
     }
-    fn height(&self) -> usize {
-        2
+    fn height(&self) -> Result<usize, String> {
+        Ok(if self.current.lock().unwrap()["emptyFrame"] == true {
+            0
+        } else {
+            2
+        })
     }
-    fn get_i32(&self, ptr: u32) -> i32 {
-        [0x00ff0000, 0x0000ff00, 0x000000ff, 0x00ffffff][((ptr - 1024) / 4) as usize]
+    fn get_i32(&self, ptr: u32) -> Result<i32, String> {
+        if self.current.lock().unwrap()["frameError"] == true {
+            return Err("fixture frame failed".into());
+        }
+        Ok([0x00ff0000, 0x0000ff00, 0x000000ff, 0x00ffffff][((ptr - 1024) / 4) as usize])
     }
     fn tick(&mut self) -> Result<(), String> {
         self.trace.lock().unwrap().push(json!(["tick"]));
@@ -64,7 +74,6 @@ impl example::doom_engine::DoomModule for Module {
     }
     fn push_key(&mut self, pressed: bool, key: u32) -> Result<(), String> {
         self.trace.lock().unwrap().push(json!(["key", u32::from(pressed), key]));
-        self.key_calls += 1;
         let mut current = self.current.lock().unwrap();
         let count = current["keyCalls"].as_u64().unwrap_or(0) + 1;
         current["keyCalls"] = json!(count);
@@ -294,13 +303,7 @@ impl ExtensionUiContext for Ui {
 }
 fn engine(path: &str, trace: Trace, current: Arc<Mutex<Value>>) -> example::doom_engine::DoomEngine {
     let mut engine = example::doom_engine::DoomEngine::new(path.into());
-    engine
-        .init_with_module(Box::new(Module {
-            trace,
-            current,
-            key_calls: 0,
-        }))
-        .unwrap();
+    engine.init_with_module(Box::new(Module { trace, current })).unwrap();
     assert!(engine.is_initialized());
     engine
 }

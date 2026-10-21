@@ -122,8 +122,12 @@ impl ExtensionUiComponent for DoomOverlayComponent {
 
     fn render(&self, width: usize) -> Vec<String> {
         let height = 10.max((width as f64 / 3.2).floor() as usize);
-        let engine = self.engine.lock().unwrap();
-        let mut lines = render_half_block(&engine.get_frame_rgba(), engine.width(), engine.height(), width, height);
+        let (rgba, source_width, source_height) = {
+            let engine = self.engine.lock().unwrap();
+            (engine.get_frame_rgba(), engine.width(), engine.height())
+        };
+        let rgba = rgba.unwrap_or_else(|error| throw_uncaught(ERROR, error));
+        let mut lines = render_half_block(&rgba, source_width, source_height, width, height);
         lines.push(format!("\x1b[2m{}\x1b[0m", &FOOTER[..width.min(FOOTER.len())]));
         lines
     }

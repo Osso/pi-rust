@@ -34,10 +34,10 @@ pub trait DoomModule: Send {
     fn set_value(&mut self, ptr: u32, value: u32, kind: &str) -> Result<(), String>;
     fn create(&mut self, argc: u32, argv: u32) -> Result<(), String>;
     fn free(&mut self, ptr: u32) -> Result<(), String>;
-    fn frame_buffer(&self) -> u32;
-    fn width(&self) -> usize;
-    fn height(&self) -> usize;
-    fn get_i32(&self, ptr: u32) -> i32;
+    fn frame_buffer(&self) -> Result<u32, String>;
+    fn width(&self) -> Result<usize, String>;
+    fn height(&self) -> Result<usize, String>;
+    fn get_i32(&self, ptr: u32) -> Result<i32, String>;
     fn tick(&mut self) -> Result<(), String>;
     fn push_key(&mut self, pressed: bool, key: u32) -> Result<(), String>;
 }
@@ -88,9 +88,9 @@ impl DoomEngine {
         self.module = Some(module);
         let module = self.module.as_mut().unwrap();
         init_doom(module.as_mut())?;
-        self.frame_buffer_ptr = module.frame_buffer();
-        self.width = module.width();
-        self.height = module.height();
+        self.frame_buffer_ptr = module.frame_buffer()?;
+        self.width = module.width()?;
+        self.height = module.height()?;
         self.initialized = true;
         Ok(())
     }
@@ -105,13 +105,13 @@ impl DoomEngine {
         Ok(())
     }
 
-    pub fn get_frame_rgba(&self) -> Vec<u8> {
+    pub fn get_frame_rgba(&self) -> Result<Vec<u8>, String> {
         let mut buffer = vec![0; self.width * self.height * 4];
         let Some(module) = self.module.as_ref().filter(|_| self.initialized) else {
-            return buffer;
+            return Ok(buffer);
         };
         for (i, pixel) in buffer.chunks_exact_mut(4).enumerate() {
-            let argb = module.get_i32(self.frame_buffer_ptr + (i as u32) * 4);
+            let argb = module.get_i32(self.frame_buffer_ptr + (i as u32) * 4)?;
             pixel.copy_from_slice(&[
                 ((argb >> 16) & 0xff) as u8,
                 ((argb >> 8) & 0xff) as u8,
@@ -119,7 +119,7 @@ impl DoomEngine {
                 255,
             ]);
         }
-        buffer
+        Ok(buffer)
     }
 
     pub fn push_key(&mut self, pressed: bool, key: u32) -> Result<(), String> {
