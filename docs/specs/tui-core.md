@@ -10,9 +10,9 @@ Reference: [source lock](../porting/source-lock.json), `4f9e6f8a4`.
 
 Internal later-only component/interactive helpers remain pending Q2/Q13; they are not frozen package-root exports.
 
-## Explicit unresolved boundaries
+## Approved boundaries
 
-Non-finite RGB channels/Kitty flags and negative/fractional/non-finite terminal dimensions are pending user classification, not approved semantic deviations. Native Darwin modifiers and Windows VT-console helper remain approved platform gaps. Existing Rust driver-owned scheduling/event queues, byte-offset text APIs and valid-Unicode Strings remain representation adaptations; unrestricted JS number/surrogate behavior is not claimed.
+User-approved numeric-domain deviations (2026-10-21): byte RGB rejects non-finite channels; flags reject non-finite values; usize dimensions exclude negative/fractional/non-finite environment values; u32 cell sizes reject >u32 reports and forward them as input. Retain these behaviors without API widening. Native Darwin modifiers and Windows VT-console helper remain approved platform gaps. Existing Rust driver-owned scheduling/event queues, byte-offset text APIs and valid-Unicode Strings remain representation adaptations; unrestricted JS number/surrogate behavior is not claimed.
 
 ## Stateful and process boundaries
 
@@ -20,7 +20,7 @@ The global keybinding manager preserves shared mutation identity across returned
 
 Real terminal lifetimes preserve partial UTF8 across OS reads, reclaim the old stdin worker before restart, skip unavailable raw-mode operations for redirected stdin and extend drain idle time on raw data even if consumed as a protocol response. These contracts are proved against frozen using private sandbox PTYs/pipes, not a live terminal.
 
-[Current proof and pending numeric domains](../porting/q1-tui-core-proof.md).
+[Current proof and approved numeric domains](../porting/q1-tui-core-proof.md).
 
 ## Core identity and failure contracts
 

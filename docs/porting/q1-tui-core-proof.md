@@ -1,6 +1,6 @@
 # Q1 frozen TUI core re-pin proof
 
-Verified 2026-10-21 against immutable `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, selected by [source-lock.json](source-lock.json). Worktree: `/home/osso/.worktrees/pi-rust-repin-tui-core`, branch `repin/tui-core`. No frozen source edits, push, merge, delegation, clippy or broad workspace tests.
+Verified 2026-10-21 against immutable `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, selected by [source-lock.json](source-lock.json). Worktree: `/home/osso/.worktrees/pi-rust-repin-tui-core`, branch `repin/tui-core`. Original proof below predates the verifier closures; current follow-up evidence is recorded in the report. No frozen source edits, push, canonical merge or delegation.
 
 ## Module coverage
 
@@ -10,9 +10,9 @@ Verified 2026-10-21 against immutable `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`
 | `src/keybindings.ts` | all manager methods/defaults/global registry; seven-config differential plus direct shared mutation/reset/replacement identity; Arc-backed state; [trace](traceability/keybindings.md) | done within typed API |
 | `src/stdin-buffer.ts` | complete sequence, paste, dedup, flush/clear/destroy and one 10ms default/custom timeout; [trace](traceability/stdin-buffer.md) | done within documented String/event/timer representation |
 | `src/utils.ts` | measurement, ANSI, normalization, tracker, wrap/truncate/slice/segments predicates and edge matrices; approximately 11k width samples; [trace](traceability/utils.md) | done within documented host-object/byte-offset representation |
-| `src/terminal-colors.ts` | strict framing, one scheme report, finite long-channel arithmetic; [trace](traceability/terminal-colors.md) | partial: NaN RGB pending classification |
-| `src/terminal.ts` | finite flag parsing; Apple input/error helpers; write-log filename/local date/error side effects; actual PTY/pipe start/drain/stop/restart/resize/UTF8/paste and termios proof; [trace](traceability/terminal.md) | partial: non-finite flags and non-usize env dimensions pending classification |
-| `src/tui.ts` | current frozen renderer byte streams, overlays/focus/fixed/render/flow regions, visible-window shrink, deferred force reset, expired query ordering, exact debug paths/payloads/failure; [trace](traceability/tui.md) | partial: >u32 cell reports require Q2 image API classification |
+| `src/terminal-colors.ts` | strict framing, one scheme report, finite long-channel arithmetic; [trace](traceability/terminal-colors.md) | done with approved NaN RGB restriction (2026-10-21) |
+| `src/terminal.ts` | finite flag parsing; Apple input/error helpers; write-log filename/local date/error side effects; actual PTY/pipe start/drain/stop/restart/resize/UTF8/paste and termios proof; [trace](traceability/terminal.md) | done with approved non-finite flags/non-usize dimensions (2026-10-21) |
+| `src/tui.ts` | current frozen renderer byte streams, overlays/focus/fixed/render/flow regions, visible-window shrink, deferred force reset, expired query ordering, exact debug paths/payloads/failure; [trace](traceability/tui.md) | done with approved >u32 cell-report restriction (2026-10-21); F1–F5 regression proof |
 | `src/native-modifiers.ts` | direct frozen Linux false-result comparison; Darwin-only loader audited | gap: native Darwin addon, not Linux behavior |
 | `native/win32/src/win32-console-mode.c` | exact frozen export is ONLY enableVirtualTerminalInput; inspected symbol resolution, console-mode failure/success and registration | gap: Windows/N-API cannot execute on Linux; no native parity claimed |
 
@@ -44,16 +44,16 @@ Evidence directory: `/tmp/pi-rust-repin-tui-core/`. Exact command/environment/re
 
 The first short-delay stream fixture could inject after frozen restored raw mode under concurrent compilation. It now synchronizes on DRAINING before late input and uses a wider bounded idle window. Production behavior was not changed to hide that fixture failure.
 
-## Pending decisions, not approved deviations
+## User-approved numeric-domain deviations (2026-10-21)
 
 | Frozen source/evidence | Frozen observation | Current Rust boundary |
 |---|---|---|
 | terminal-colors.ts:21/25; `nonfinite-rgb.log` | 256-digit f/8/0 channels produce RGB NaN/0/0 (JSON null/0/0) | byte RGB cannot represent NaN; None |
 | terminal.ts:28; `numeric-domains.log` | 400 decimal flag digits parse as Infinity (JSON null) | non-finite flag rejected |
 | terminal.ts:501-506; `numeric-domains.log` | -1, 1.5, Infinity and -Infinity pass through env dimension getters | usize cannot represent them |
-| tui.ts:1154-1170; `wide-cell-frozen.log`, `wide-cell-rust.log` | ESC[6;4294967296;20t consumed, no component input | u32 CellDimensions rejects it, so it is forwarded; parent assigned widening to Q2 |
+| tui.ts:1154-1170; `wide-cell-frozen.log`, `wide-cell-rust.log` | ESC[6;4294967296;20t consumed, no component input | u32 CellDimensions rejects it, so it is forwarded; retained by user approval |
 
-No numeric-domain widening/deviation was silently approved. Affected rows remain partial.
+User explicitly approved all four listed numeric-domain gaps on 2026-10-21. No API widening required; affected rows are done within those approved restrictions. Native platform gaps are unchanged.
 
 ## Unrelated consumer fixture failure
 

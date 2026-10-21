@@ -25,9 +25,9 @@ TuiBase/TuiExt/RendererApi composition is Rust scaffolding; it is not asserted t
 
 Debug dump filenames contain current epoch milliseconds and a nondeterministic base-36 suffix; exact time/random bytes are not compared across processes. File directory, diagnostic fields, pretty/compact JSON payload and terminal bytes are compared. No live host HOME or terminal is used by proofs.
 
-## Pending numeric classification
+## Approved numeric-domain deviation (2026-10-21)
 
-Frozen lines 1154-1170 parse positive CSI cell-size numbers without a u32 bound. `ESC[6;4294967296;20t` is consumed in frozen (`inputs: []`); Rust currently forwards it because Q2's CellDimensions is u32. Parent explicitly deferred widening that public image API to Q2/user numeric-domain classification. Exact frozen/Rust observations: `/tmp/pi-rust-repin-tui-core/wide-cell-{frozen,rust}.log`. Coverage remains **partial**, not done.
+Frozen lines 1154-1170 parse positive CSI cell-size numbers without a u32 bound. `ESC[6;4294967296;20t` is consumed in frozen (`inputs: []`); Rust currently forwards it because Q2's CellDimensions is u32. User approved retaining this numeric-domain gap on 2026-10-21; no public image API widening. Exact frozen/Rust observations: `/tmp/pi-rust-repin-tui-core/wide-cell-{frozen,rust}.log`. Coverage is done within this approved restriction and the F1–F5 closures below.
 
 ## Verifier closures (2026-10-21)
 

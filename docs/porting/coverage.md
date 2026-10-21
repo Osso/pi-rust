@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 306, `gap` 14, `partial` 46, `todo` 320.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 309, `gap` 14, `partial` 43, `todo` 320.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -709,12 +709,12 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `tui/src/native-modifiers.ts` | 59 | 0 | gap | `crates/pi-tui/src/native_modifiers.rs` | Q1 direct frozen Linux differential passes; frozen loader is Darwin-only, native Darwin helper remains gap; [trace](traceability/native-modifiers.md). |
 | `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests; re-run vs 4f9e6f8a4 pending |
 | `tui/src/stdin-buffer.ts` | 434 | 0 | done | `crates/pi-tui/src/stdin_buffer.rs` | Q1 frozen one-timeout/default-10ms behavior, chunk/paste/dedup/flush matrix and real timer differential; typed String/event representation explicit; [proof](q1-tui-core-proof.md). |
-| `tui/src/terminal-colors.ts` | 73 | 0 | partial | `crates/pi-tui/src/terminal_colors.rs` | Q1 strict framing/report and finite long-channel proof pass; NaN RGB is pending numeric-domain classification, not done; [proof](q1-tui-core-proof.md). |
+| `tui/src/terminal-colors.ts` | 73 | 0 | done | `crates/pi-tui/src/terminal_colors.rs` | Q1 strict framing/report and finite long-channel proof pass; NaN RGB restriction user-approved 2026-10-21; [proof](q1-tui-core-proof.md). |
 | `tui/src/terminal-image.ts` | 488 | 0 | todo | `crates/pi-tui/src/terminal_image.rs` + `pi-js-compat` Base64 | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/terminal_image.rs` + `pi-js-compat` Base64; differential encode/detect/render/placement/dimensions; WebP <30 source bug preserved |
-| `tui/src/terminal.ts` | 567 | 1 | partial | `crates/pi-tui/src/terminal.rs` | Q1 helper/log-date and real PTY/pipe lifecycle proof pass; non-finite flags and negative/fractional/non-finite env dimensions pending classification; [proof](q1-tui-core-proof.md). |
-| `tui/src/tui.ts` | 2388 | — | partial | `crates/pi-tui/src/tui.rs` | Q1 frozen concrete renderer, byte-stream/overlay/focus/fixed/render/flow/debug proof pass; >u32 cell-size domain awaits Q2 numeric classification; [proof](q1-tui-core-proof.md). |
+| `tui/src/terminal.ts` | 567 | 1 | done | `crates/pi-tui/src/terminal.rs` | Q1 helper/log-date and real PTY/pipe lifecycle proof pass; non-finite flags and negative/fractional/non-finite env dimension restrictions user-approved 2026-10-21; [proof](q1-tui-core-proof.md). |
+| `tui/src/tui.ts` | 2388 | — | done | `crates/pi-tui/src/tui.rs` | Q1 frozen renderer plus F1–F5 cleanup/try-render/first-child/live callback Set/dynamic Termux regression proof; >u32 cell-size restriction user-approved 2026-10-21; [proof](q1-tui-core-proof.md). |
 | `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone); re-run vs 4f9e6f8a4 pending |
-| `tui/src/utils.ts` | 1188 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Q1 frozen width/tab/CR/OSC8 behavior, 10 differential groups and approximately 11k width samples; host-object/byte-offset representation explicit; [proof](q1-tui-core-proof.md). |
+| `tui/src/utils.ts` | 1188 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Q1 frozen width/tab/CR/OSC8 behavior, 10 differential groups and approximately 11k width samples; F6 nested CSI SGR carry regression; host-object/byte-offset representation explicit; [proof](q1-tui-core-proof.md). |
 | `tui/src/word-navigation.ts` | 117 | 1 | done | `crates/pi-tui/src/word_navigation.rs` | TS tests + boundary differential; ICU4X dictionary-word mismatches pinned as approved deviation; re-run vs 4f9e6f8a4 pending |
 | `tui/vitest.config.ts` | 7 | — | todo | — | new on master |
 

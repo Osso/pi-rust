@@ -29,8 +29,8 @@ The real-stream `terminal_stream` target runs frozen ProcessTerminal and Rust as
 
 The driver waits for DRAINING before injecting late data (300ms idle, 1000ms max). The old 20ms wall-clock injection could run after frozen restored raw mode under concurrent compilation; the handshake fixes the test, not production state.
 
-## Representation and pending classification
+## Representation and approved numeric domains
 
 Callbacks/Promise timers become event queues and synchronous polling. Resize and progress are polled; original termios is restored. Stream I/O failures use `TerminalIoError`/`take_errors`; the Rust crash-restore handle is a native runtime detail, not a frozen package-root export.
 
-Frozen lines 501-506 return negative/fractional/±Infinity env dimensions; Rust usize cannot. Frozen line 28 permits Infinity flags from 400 decimal digits; Rust currently rejects non-finite flags. Parent deferred these numeric domains to user classification; coverage remains **partial**, not done. Exact captures: `/tmp/pi-rust-repin-tui-core/numeric-domains.log`.
+Frozen lines 501-506 return negative/fractional/±Infinity env dimensions; Rust usize cannot. Frozen line 28 permits Infinity flags from 400 decimal digits; Rust currently rejects non-finite flags. User approved retaining both numeric-domain gaps on 2026-10-21; no flag/dimension API widening. Coverage is done within these approved restrictions. Exact captures: `/tmp/pi-rust-repin-tui-core/numeric-domains.log`.

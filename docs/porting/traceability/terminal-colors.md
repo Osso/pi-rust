@@ -15,6 +15,6 @@ Rust: `crates/pi-tui/src/terminal_colors.rs`. [Q1 proof](../q1-tui-core-proof.md
 
 Frozen color-scheme regex accepts exactly one report. The later repeated-report/last-capture behavior was removed after differential RED. Long finite hex channels use floating arithmetic instead of overflowing u64 exponentiation.
 
-## Pending numeric classification
+## Approved numeric-domain deviation (2026-10-21)
 
-Frozen source lines 21/25 can produce NaN: `rgb:` with 256 `f` digits, 256 `8` digits and 256 `0` digits yields `{r:NaN,g:0,b:0}` (JSON `{r:null,g:0,b:0}`). The byte RGB API cannot represent NaN; Rust returns None. Parent explicitly deferred public non-finite API widening to user classification. This row remains **partial**, not done. Exact frozen capture: `/tmp/pi-rust-repin-tui-core/nonfinite-rgb.log`.
+Frozen source lines 21/25 can produce NaN: `rgb:` with 256 `f` digits, 256 `8` digits and 256 `0` digits yields `{r:NaN,g:0,b:0}` (JSON `{r:null,g:0,b:0}`). The byte RGB API cannot represent NaN; Rust returns None. User approved retaining this numeric-domain gap on 2026-10-21. No RGB API widening; the module is done within this approved restriction. Exact frozen capture: `/tmp/pi-rust-repin-tui-core/nonfinite-rgb.log`.
