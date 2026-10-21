@@ -66,3 +66,5 @@ None.
 ## Q16 partial frozen revalidation
 
 Frozen objective-authority prompt matrix: `differential_supervisor_service` (five request kinds). Empty-content structured response branch: `q16_runtime_repin::empty_content_does_not_hide_a_structured_supervisor_response`. Remaining service/client/main exports still pending; prior proofs above are historical.
+
+Q16 cancellation tests: `cancelled_requests_abort_evaluation_without_completing_or_requeueing`, `evaluator_errors_propagate_without_completing_the_request` both failed before changes. Service cancellation now waits for evaluator settlement, replacing the old forced JoinHandle abort deviation.

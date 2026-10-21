@@ -265,6 +265,61 @@ async fn completes_a_request_with_the_parsed_response() {
 }
 
 #[tokio::test]
+async fn cancelled_requests_abort_evaluation_without_completing_or_requeueing() {
+    use pi_coding_agent::core::session_control_db::cancel_supervisor_request;
+    let (_temp, path) = fixture();
+    let id = post_request(&path, SupervisorRequestKind::GoalIdleReview);
+    let request = claim_next_supervisor_request(&path, "runtime").unwrap().unwrap();
+    let cancel_path = path.clone();
+    let evaluate = Arc::new(move |_prompt: String, signal: tokio_util::sync::CancellationToken| {
+        let path = cancel_path.clone();
+        Box::pin(async move {
+            assert!(cancel_supervisor_request(&path, id, "main", "user cancelled").unwrap());
+            tokio::select! {
+                () = signal.cancelled() => Err("cancelled".to_owned()),
+                () = tokio::time::sleep(std::time::Duration::from_millis(50)) => Ok(json!({"kind":"complete","reason":"late"})),
+            }
+        }) as BoxFuture<'static, Result<Value, String>>
+    });
+    let outcome = run_supervisor_request(RunSupervisorRequestInput {
+        control_db_path: path.clone(),
+        evaluate,
+        request,
+        poll_interval_ms: Some(1),
+    })
+    .await;
+    assert!(outcome.is_ok(), "{outcome:?}");
+    assert_eq!(format!("{:?}", outcome.unwrap()), "Cancelled");
+    let stored = read_supervisor_request(&path, id).unwrap().unwrap();
+    assert_eq!(stored.status, SupervisorRequestStatus::Cancelled);
+    assert_eq!(
+        stored.response,
+        Some(SupervisorResponse::Error {
+            reason: "user cancelled".into()
+        })
+    );
+}
+
+#[tokio::test]
+async fn evaluator_errors_propagate_without_completing_the_request() {
+    let (_temp, path) = fixture();
+    let id = post_request(&path, SupervisorRequestKind::ApprovalReview);
+    let request = claim_next_supervisor_request(&path, "runtime").unwrap().unwrap();
+    let outcome = run_supervisor_request(RunSupervisorRequestInput {
+        control_db_path: path.clone(),
+        request,
+        poll_interval_ms: Some(1),
+        evaluate: Arc::new(|_, _| Box::pin(async { Err("provider failure".into()) })),
+    })
+    .await;
+    assert!(outcome.is_err());
+    assert_eq!(
+        read_supervisor_request(&path, id).unwrap().unwrap().status,
+        SupervisorRequestStatus::Claimed
+    );
+}
+
+#[tokio::test]
 async fn expired_requests_complete_with_the_deadline_error() {
     let (_temp, control_db_path) = fixture();
     let request_id = post_request(&control_db_path, SupervisorRequestKind::GoalIdleReview);
