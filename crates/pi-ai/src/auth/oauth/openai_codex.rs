@@ -228,10 +228,9 @@ fn credentials_from_token(token: OAuthToken, now: f64) -> Result<OAuthCredential
         .and_then(get_account_id)
         .ok_or_else(|| CallbackError::new("Failed to extract accountId from token"))?;
     let mut credential = OAuthCredential::new(token.refresh, token.access, now + token.expires);
-    credential.extra.insert(
-        "accountId".into(),
-        pi_js_compat::js_json::JsValue::String(account_id.into()),
-    );
+    credential
+        .extra
+        .insert("accountId".into(), pi_js_compat::js_json::JsValue::String(account_id));
     Ok(credential)
 }
 
@@ -251,7 +250,7 @@ fn get_account_id(access_token: &str) -> Option<pi_js_compat::js_json::JsString>
 }
 
 async fn start_device_auth(runtime: &OAuthRuntime, signal: CancellationToken) -> Result<DeviceAuthInfo, CallbackError> {
-    let request = json_request(DEVICE_USER_CODE_URL, &json!({"client_id": CLIENT_ID}), false);
+    let request = json_request(DEVICE_USER_CODE_URL, json!({"client_id": CLIENT_ID}), false);
     let response = fetch_with_login_cancellation(runtime, request, signal).await?;
     if !response.ok() {
         if response.status == 404 {
