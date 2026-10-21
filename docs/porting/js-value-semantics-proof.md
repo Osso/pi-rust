@@ -48,3 +48,5 @@ Initial inventory: `/tmp/pi-rust-js-value-semantics/pattern-inventory.txt`.
 ## Proof status
 
 RED complete for the rows above. GREEN, mutation and preservation results are recorded after implementation. Unfiltered library RED was aborted for unrelated hanging UI tests; its partial run is not acceptance evidence. Subsequent library runs use `js_value_tests` filters. No check, clippy, workspace suite or delegation.
+
+Pyrun formatting also has a pinned eval-module differential (`differential_js_value_pyrun`), covering numeric key order, nested binary64 values, -0, exponents and unsafe integers. Native remote tests isolate argument encoding and numeric dedup so an earlier failed differential case cannot hide their mutation sensitivity.

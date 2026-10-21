@@ -472,6 +472,21 @@ mod js_value_tests {
     }
 
     #[test]
+    fn tool_arguments_use_javascript_json() {
+        let call =
+            pi_ai::types::ToolCall::new("call", "unknown", serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap());
+        let items = convert_assistant_message(&[AssistantContent::ToolCall(call)]);
+        assert_eq!(items[0]["arguments"], r#"{"1":1,"2":2}"#);
+    }
+
+    #[test]
+    fn message_dedup_ignores_integer_float_storage() {
+        let first = serde_json::from_str(r#"{"type":"message","id":"first","content":{"score":2.0}}"#).unwrap();
+        let last = json!({"type":"message","id":"last","content":{"score":2}});
+        assert_eq!(deduplicate_openai_message_items(vec![first, last.clone()]), vec![last]);
+    }
+
+    #[test]
     fn error_fallback_uses_javascript_json() {
         let body = serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap();
         assert_eq!(format_openai_error(&body), r#"{"1":1,"2":2}"#);
