@@ -46,6 +46,7 @@ fn run_scenario(oracle: &mut oracle::TsOracle, index: usize, scenario: &Scenario
     let mut snapshots = Vec::new();
     for step in &scenario.steps {
         let threw = apply_step(&mut manager, step, &rust_agent_dir, &rust_project_dir);
+        manager.flush();
         snapshots.push(json!({
             "threw": threw,
             "snapshot": snapshot(&manager),

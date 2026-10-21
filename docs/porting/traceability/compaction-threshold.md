@@ -13,4 +13,4 @@ Rust: `crates/pi-coding-agent/src/core/compaction_threshold.rs`.
 
 Manager delegates validation; missing threshold omits `thresholdPercent` from public oracle observations. Retry/percentage scheduling is not implemented by this helper. See [settings contract](../../specs/settings-manager.md) and [manager traceability](settings-manager.md).
 
-Proof status: targeted GREEN pending main-owned module export/caller integration. RED manager differential rejected old acceptance of zero percentage in `/tmp/pi-rust-repin-settings/red-validation.txt`.
+Proof status: targeted GREEN at 2acf3e82 + per-step harness flush correction: direct frozen helper differential (14 inputs), native helper/error tests, manager validation snapshots. RED manager differential rejected old acceptance of zero percentage in `/tmp/pi-rust-repin-settings/red-validation.txt`. Non-finite native inputs remain outside JSON representation; no direct NaN/infinity runtime parity claim.
