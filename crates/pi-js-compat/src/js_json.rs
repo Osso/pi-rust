@@ -35,6 +35,12 @@ impl JsString {
     }
 }
 
+impl From<&JsString> for JsString {
+    fn from(text: &JsString) -> Self {
+        text.clone()
+    }
+}
+
 impl From<String> for JsString {
     fn from(text: String) -> Self {
         Self::from(text.as_str())

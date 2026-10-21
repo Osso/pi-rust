@@ -214,26 +214,30 @@ async fn exchange_authorization_code(
             ))
         })?;
 
-    let token_data: Value = pi_js_compat::js_json::parse(&response_body).map_err(|error| {
-        CallbackError::new(format!(
-            "Token exchange returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=Error: {error}"
-        ))
-    })?;
+    let token_data: pi_js_compat::js_json::JsValue =
+        pi_js_compat::js_json::parse_lossless(&response_body).map_err(|error| {
+            CallbackError::new(format!(
+                "Token exchange returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=Error: {error}"
+            ))
+        })?;
     credential_from_token(&token_data, runtime.now())
 }
 
-fn credential_from_token(token_data: &Value, now: f64) -> Result<OAuthCredential, CallbackError> {
+fn credential_from_token(
+    token_data: &pi_js_compat::js_json::JsValue,
+    now: f64,
+) -> Result<OAuthCredential, CallbackError> {
     let access = token_data
         .get("access_token")
-        .and_then(Value::as_str)
+        .and_then(pi_js_compat::js_json::JsValue::as_string)
         .ok_or_else(|| CallbackError::new("Token exchange response missing access_token"))?;
     let refresh = token_data
         .get("refresh_token")
-        .and_then(Value::as_str)
+        .and_then(pi_js_compat::js_json::JsValue::as_string)
         .ok_or_else(|| CallbackError::new("Token exchange response missing refresh_token"))?;
     let expires_in = token_data
         .get("expires_in")
-        .and_then(Value::as_f64)
+        .and_then(pi_js_compat::js_json::JsValue::as_f64)
         .ok_or_else(|| CallbackError::new("Token exchange response missing expires_in"))?;
     Ok(OAuthCredential::new(
         refresh,
@@ -380,22 +384,22 @@ async fn refresh_anthropic(
             format_error_details(&error)
         ))
     })?;
-    let data: Value = pi_js_compat::js_json::parse(&response_body).map_err(|error| {
+    let data: pi_js_compat::js_json::JsValue = pi_js_compat::js_json::parse_lossless(&response_body).map_err(|error| {
         CallbackError::new(format!(
             "Anthropic token refresh returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=Error: {error}"
         ))
     })?;
     let access = data
         .get("access_token")
-        .and_then(Value::as_str)
+        .and_then(pi_js_compat::js_json::JsValue::as_string)
         .ok_or_else(|| CallbackError::new("Anthropic token refresh response missing access_token"))?;
     let refresh = data
         .get("refresh_token")
-        .and_then(Value::as_str)
+        .and_then(pi_js_compat::js_json::JsValue::as_string)
         .ok_or_else(|| CallbackError::new("Anthropic token refresh response missing refresh_token"))?;
     let expires_in = data
         .get("expires_in")
-        .and_then(Value::as_f64)
+        .and_then(pi_js_compat::js_json::JsValue::as_f64)
         .ok_or_else(|| CallbackError::new("Anthropic token refresh response missing expires_in"))?;
     Ok(OAuthCredential::new(
         refresh,

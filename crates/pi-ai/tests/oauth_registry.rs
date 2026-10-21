@@ -85,3 +85,22 @@ async fn registry_helpers_preserve_result_provenance_and_builtin_order() {
             .contains("Unknown OAuth provider: phase1-fake")
     );
 }
+
+#[path = "support/oauth.rs"]
+mod support;
+#[tokio::test]
+async fn builtin_response_handoff_preserves_utf16_tokens() {
+    use pi_ai::auth::{OAuthAuth, oauth::anthropic::AnthropicOAuth};
+    use support::recording_fetch::{RecordingFetch, ScriptedResponse};
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::json(
+        200,
+        r#"{"access_token":"a\ud800","refresh_token":"r\udfff","expires_in":3600}"#,
+    )]);
+    let provider = AnthropicOAuth::with_runtime(support::runtime(fetch, 0.0));
+    let credential = provider
+        .refresh(OAuthCredential::new("A", "old", 0.0), Default::default())
+        .await
+        .unwrap();
+    assert_eq!(credential.refresh.units(), [114, 0xdfff]);
+    assert_eq!(credential.access.units(), [97, 0xd800]);
+}

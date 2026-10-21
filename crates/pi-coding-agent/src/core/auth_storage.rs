@@ -837,8 +837,13 @@ impl CredentialStore for AuthStorage {
                         Box::pin(async move {
                             let mut data = parse_auth_data(current.as_deref())?;
                             let old = data.get(&JsString::from(&id)).map(to_credential).transpose()?;
-                            let next = modifier(old).await.map_err(|e| StorageError::new(e.to_string()))?;
-                            let Some(next) = next else { return Ok(None) };
+                            let next = modifier(old.clone())
+                                .await
+                                .map_err(|e| StorageError::new(e.to_string()))?;
+                            let Some(next) = next else {
+                                *lock(&captured) = old;
+                                return Ok(None);
+                            };
                             data.insert(id.into(), credential_value(next.clone())?);
                             let content = js_json::stringify_lossless_pretty(&JsValue::Object(data.clone()));
                             lock(&source).data = data;
@@ -878,13 +883,43 @@ fn credential_infos(data: &AuthStorageData) -> Result<Vec<CredentialInfo>, Stora
         .collect()
 }
 pub struct ReadOnlyAuthStorage {
-    store: AuthStorage,
+    auth_path: String,
+    data: Mutex<Option<AuthStorageData>>,
 }
 impl ReadOnlyAuthStorage {
     pub fn new(path: Option<&str>) -> Self {
+        let path = path
+            .map(str::to_owned)
+            .unwrap_or_else(|| default_auth_path().display().to_string());
         Self {
-            store: AuthStorage::create(path),
+            auth_path: normalize_path(&path, &Default::default()).unwrap_or(path),
+            data: Mutex::new(None),
         }
+    }
+    fn load(&self) -> Result<AuthStorageData, StorageError> {
+        let mut cached = lock(&self.data);
+        if let Some(data) = cached.as_ref() {
+            return Ok(data.clone());
+        }
+        let parsed = match std::fs::read_to_string(&self.auth_path) {
+            Ok(content) => js_json::parse_lossless(&content)
+                .map_err(|error| StorageError::new(format!("Failed to read auth.json: {error}")))?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => JsValue::Object(JsObject::new()),
+            Err(error) => return Err(StorageError::new(format!("Failed to read auth.json: {error}"))),
+        };
+        let JsValue::Object(data) = parsed else {
+            return Err(StorageError::new("Invalid auth.json: expected an object"));
+        };
+        for (id, value) in &data {
+            to_credential(value).map_err(|_| {
+                StorageError::new(format!(
+                    "Invalid auth.json credential for provider {}",
+                    js_json::stringify_lossless(&JsValue::String(id.clone()))
+                ))
+            })?;
+        }
+        *cached = Some(data.clone());
+        Ok(data)
     }
 }
 impl CredentialStore for ReadOnlyAuthStorage {
@@ -892,9 +927,9 @@ impl CredentialStore for ReadOnlyAuthStorage {
         let id = id.to_owned();
         Box::pin(async move {
             check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            self.store
-                .get(id)
-                .as_ref()
+            self.load()
+                .map_err(StorageError::into_auth_error)?
+                .get(&JsString::from(id))
                 .map(to_credential)
                 .transpose()
                 .map(|c| c.map(|c| resolved_credential(c, false)))
@@ -904,7 +939,8 @@ impl CredentialStore for ReadOnlyAuthStorage {
     fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>> {
         Box::pin(async move {
             check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            credential_infos(&self.store.get_all()).map_err(StorageError::into_auth_error)
+            credential_infos(&self.load().map_err(StorageError::into_auth_error)?)
+                .map_err(StorageError::into_auth_error)
         })
     }
     fn modify(
@@ -913,10 +949,18 @@ impl CredentialStore for ReadOnlyAuthStorage {
         _: CredentialModifier,
         _: AuthOperationOptions,
     ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        Box::pin(async { Err(AuthError::failed("Auth storage is read-only")) })
+        Box::pin(async {
+            Err(AuthError::failed(
+                "Read-only credential storage cannot modify auth.json",
+            ))
+        })
     }
     fn delete(&self, _: &str, _: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
-        Box::pin(async { Err(AuthError::failed("Auth storage is read-only")) })
+        Box::pin(async {
+            Err(AuthError::failed(
+                "Read-only credential storage cannot modify auth.json",
+            ))
+        })
     }
 }
 pub fn read_stored_credential(id: &str, path: Option<&str>) -> Option<Credential> {

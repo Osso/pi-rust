@@ -390,10 +390,17 @@ async fn refresh_access_token(
     ];
     headers.extend(copilot_header_pairs());
     let request = json_request(&urls.copilot_token, "GET", headers, None);
-    let raw = fetch_json(runtime, request, signal).await?;
-
-    let token = raw.get("token").and_then(Value::as_str);
-    let expires_at = raw.get("expires_at").and_then(Value::as_f64);
+    let response = send(&runtime.fetch, request, Some(signal.clone())).await?;
+    if !response.ok() {
+        return Err(CallbackError::new(format!(
+            "{} {}: {}",
+            response.status, response.status_text, response.body
+        )));
+    }
+    let raw =
+        pi_js_compat::js_json::parse_lossless(&response.body).map_err(|error| CallbackError::new(error.to_string()))?;
+    let token = raw.get("token").and_then(pi_js_compat::js_json::JsValue::as_string);
+    let expires_at = raw.get("expires_at").and_then(pi_js_compat::js_json::JsValue::as_f64);
     let (Some(token), Some(expires_at)) = (token, expires_at) else {
         return Err(CallbackError::new("Invalid Copilot token response fields"));
     };

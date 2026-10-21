@@ -12,8 +12,8 @@ use crate::auth::oauth::device_code::{
 use crate::auth::oauth::oauth_page::{oauth_error_html, oauth_success_html};
 use crate::auth::oauth::pkce::generate_pkce_with;
 use crate::auth::oauth::support::{
-    AuthorizationInput, CallbackReply, CallbackRequest, CallbackServer, OAuthHttpResponse, OAuthRuntime,
-    decode_jwt_payload, form_request, json_request, parse_authorization_input, random_hex, send, start_callback_server,
+    AuthorizationInput, CallbackReply, CallbackRequest, CallbackServer, OAuthHttpResponse, OAuthRuntime, form_request,
+    json_request, parse_authorization_input, random_hex, send, start_callback_server,
 };
 use crate::auth::{
     AuthError, AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, AuthSelectOption, ModelAuth, OAuthAuth,
@@ -107,8 +107,8 @@ impl OAuthAuth for OpenAICodexOAuth {
 
 #[derive(Debug, Clone, PartialEq)]
 struct OAuthToken {
-    access: String,
-    refresh: String,
+    access: pi_js_compat::js_json::JsString,
+    refresh: pi_js_compat::js_json::JsString,
     expires: f64,
 }
 
@@ -156,14 +156,15 @@ fn read_token_response(response: OAuthHttpResponse, operation: &str) -> Result<O
             response.status
         )));
     }
-    let json = response.json.unwrap_or(Value::Null);
-    let access = json.get("access_token").and_then(Value::as_str);
-    let refresh = json.get("refresh_token").and_then(Value::as_str);
-    let expires_in = json.get("expires_in").and_then(Value::as_f64);
+    use pi_js_compat::js_json::{self, JsValue};
+    let json = js_json::parse_lossless(&response.body).map_err(|error| CallbackError::new(error.to_string()))?;
+    let access = json.get("access_token").and_then(JsValue::as_string);
+    let refresh = json.get("refresh_token").and_then(JsValue::as_string);
+    let expires_in = json.get("expires_in").and_then(JsValue::as_f64);
     let (Some(access), Some(refresh), Some(expires_in)) = (access, refresh, expires_in) else {
         return Err(CallbackError::new(format!(
             "OpenAI Codex token {operation} response missing fields: {}",
-            crate::utils::error_body::safe_json_stringify(&json)
+            js_json::stringify_lossless(&json)
         )));
     };
     Ok(OAuthToken {
@@ -215,8 +216,13 @@ async fn refresh_access_token(
 }
 
 fn credentials_from_token(token: OAuthToken, now: f64) -> Result<OAuthCredential, CallbackError> {
-    let account_id =
-        get_account_id(&token.access).ok_or_else(|| CallbackError::new("Failed to extract accountId from token"))?;
+    let account_id = token
+        .access
+        .to_utf8()
+        .ok()
+        .as_deref()
+        .and_then(get_account_id)
+        .ok_or_else(|| CallbackError::new("Failed to extract accountId from token"))?;
     let mut credential = OAuthCredential::new(token.refresh, token.access, now + token.expires);
     credential.extra.insert(
         "accountId".into(),
@@ -225,10 +231,19 @@ fn credentials_from_token(token: OAuthToken, now: f64) -> Result<OAuthCredential
     Ok(credential)
 }
 
-fn get_account_id(access_token: &str) -> Option<String> {
-    let payload = decode_jwt_payload(access_token)?;
-    let account_id = payload.get(JWT_CLAIM_PATH)?.get("chatgpt_account_id")?.as_str()?;
-    (!account_id.is_empty()).then(|| account_id.to_owned())
+fn get_account_id(access_token: &str) -> Option<pi_js_compat::js_json::JsString> {
+    let mut parts = access_token.split('.');
+    parts.next()?;
+    let encoded = parts.next()?;
+    parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    let bytes = pi_js_compat::base64::atob(encoded).ok()?;
+    let text = String::from_utf8(bytes).ok()?;
+    let payload = pi_js_compat::js_json::parse_lossless(&text).ok()?;
+    let account_id = payload.get(JWT_CLAIM_PATH)?.get("chatgpt_account_id")?.as_string()?;
+    (!account_id.units().is_empty()).then(|| account_id.clone())
 }
 
 async fn start_device_auth(runtime: &OAuthRuntime, signal: CancellationToken) -> Result<DeviceAuthInfo, CallbackError> {

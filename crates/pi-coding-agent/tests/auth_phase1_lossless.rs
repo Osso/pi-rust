@@ -1,13 +1,135 @@
-use pi_coding_agent::core::auth_storage::{AuthStorage, InMemoryAuthStorageBackend};
+use pi_ai::{
+    auth::{AuthError, OAuthCredential},
+    oauth::*,
+    request::BoxFuture,
+};
+use pi_coding_agent::core::auth_storage::{AuthStorage, GetApiKeyOptions, InMemoryAuthStorageBackend};
+use pi_js_compat::js_json::{self, JsString, JsValue};
+use serde_json::json;
 use std::sync::Arc;
+#[path = "support/oracle.rs"]
+mod oracle;
+
+const RAW: &str = r#"{"fake":{"type":"oauth","access":"a\ud800","refresh":"r\udfff","expires":0,"\ud800":{"nested":"\udfff"}},"\ud800":{},"�":{}}"#;
 #[test]
 fn public_getter_preserves_surrogate_values_and_distinct_keys() {
     let backend = Arc::new(InMemoryAuthStorageBackend::new());
-    backend.set_value(Some(r#"{"fake":{"type":"oauth","access":"a\ud800","refresh":"r\udfff","expires":0,"\ud800":{"nested":"\udfff"}},"\ud800":{},"�":{}}"#.into()));
+    backend.set_value(Some(RAW.into()));
     let storage = AuthStorage::from_storage(backend);
     let value = storage.get("fake").unwrap();
     assert_eq!(
-        pi_js_compat::js_json::stringify_lossless(&value),
+        js_json::stringify_lossless(&value),
         r#"{"type":"oauth","access":"a\ud800","refresh":"r\udfff","expires":0,"\ud800":{"nested":"\udfff"}}"#
     );
+    assert_eq!(
+        storage.list_providers(),
+        ["fake".into(), JsString::from_utf16(vec![0xd800]), "�".into()]
+    );
+    let credential = OAuthCredential::from_js_value(&value).unwrap();
+    assert_eq!(credential.refresh.units(), [114, 0xdfff]);
+    assert_eq!(credential.access.units(), [97, 0xd800]);
+    assert_eq!(credential.to_js_value(), value);
+    storage.set("fake", credential.to_js_value()).unwrap();
+    assert_eq!(storage.get("fake").unwrap(), value);
+}
+
+struct LosslessProvider;
+impl OAuthProviderInterface for LosslessProvider {
+    fn id(&self) -> &str {
+        "fake"
+    }
+    fn name(&self) -> &str {
+        "Synthetic UTF16"
+    }
+    fn login(&self, _: Arc<dyn OAuthLoginCallbacks>) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
+        Box::pin(async { unreachable!() })
+    }
+    fn refresh_token(
+        &self,
+        mut credential: OAuthCredentials,
+    ) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
+        Box::pin(async move {
+            assert_eq!(credential.refresh.units(), [114, 0xdfff]);
+            assert_eq!(credential.access.units(), [97, 0xd800]);
+            assert_eq!(
+                credential
+                    .extra
+                    .get(&JsString::from_utf16(vec![0xd800]))
+                    .unwrap()
+                    .get("nested")
+                    .unwrap()
+                    .as_string()
+                    .unwrap()
+                    .units(),
+                [0xdfff]
+            );
+            credential.refresh = JsString::from_utf16(vec![66, 0xdfff]);
+            credential.access = "new".into();
+            credential.expires = 4_000_000_000_000.0;
+            Ok(credential)
+        })
+    }
+    fn get_api_key(&self, credential: &OAuthCredentials) -> JsString {
+        credential.access.clone()
+    }
+}
+#[tokio::test]
+async fn touched_refresh_and_public_roundtrip_match_ts_without_surrogate_replacement() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("auth.json");
+    std::fs::write(&path, RAW).unwrap();
+    let storage = AuthStorage::create(Some(path.to_str().unwrap()));
+    register_oauth_provider(Arc::new(LosslessProvider));
+    let key = storage.get_api_key("fake", GetApiKeyOptions::default()).await.unwrap();
+    assert_eq!(key.as_deref(), Some("new"));
+    let value = storage.get("fake").unwrap();
+    let expected =
+        r#"{"type":"oauth","refresh":"B\udfff","access":"new","expires":4000000000000,"\ud800":{"nested":"\udfff"}}"#;
+    assert_eq!(js_json::stringify_lossless(&value), expected);
+    let mut source = oracle::TsOracle::spawn(
+        "auth-storage-oracle.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
+    );
+    let snapshot = source.request(&json!({"id":1,"op":"lossless","authPath":path,"provider":"fake"}));
+    assert_eq!(snapshot["ok"], true, "{snapshot}");
+    assert_eq!(snapshot["output"]["credential"], expected);
+    assert_eq!(
+        snapshot["output"]["all"],
+        js_json::stringify_lossless(&JsValue::Object(storage.get_all()))
+    );
+    let entries = JsValue::Array(storage.list_providers().into_iter().map(JsValue::String).collect());
+    assert_eq!(snapshot["output"]["entries"], js_json::stringify_lossless(&entries));
+    let lone_key = JsString::from_utf16(vec![0xd800]);
+    let updated =
+        r#"{"type":"oauth","refresh":"\udfff","access":"\ud800","expires":4000000000000,"env":{"\ud800":"\udfff"}}"#;
+    let snapshot = source.request(
+        &json!({"id":2,"op":"lossless","authPath":path,"providerJson":r#""\ud800""#,"credentialJson":updated}),
+    );
+    assert_eq!(snapshot["ok"], true, "{snapshot}");
+    storage.reload();
+    assert_eq!(
+        js_json::stringify_lossless(&storage.get(lone_key.clone()).unwrap()),
+        updated
+    );
+    storage
+        .set(lone_key.clone(), storage.get(lone_key.clone()).unwrap())
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        snapshot["output"]["file"].as_str().unwrap()
+    );
+    storage.remove(lone_key).unwrap();
+    assert!(storage.has("�"));
+    storage.set("fake", js_json::parse_lossless(updated).unwrap()).unwrap();
+    let error = storage
+        .get_api_key("fake", GetApiKeyOptions::default())
+        .await
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Cannot hand OAuth API key to request provider")
+    );
+    assert_eq!(js_json::stringify_lossless(&storage.get("fake").unwrap()), updated);
+    unregister_oauth_provider("fake");
 }

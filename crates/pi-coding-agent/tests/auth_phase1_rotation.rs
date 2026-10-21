@@ -239,12 +239,13 @@ fn failed_rotation_persistence_and_reload_never_succeed_from_memory() {
             count: Arc::new(AtomicUsize::new(0)),
             fail: false,
         }));
-        let storage = AuthStorage::from_storage(Arc::new(BoundaryBackend {
+        let backend = Arc::new(BoundaryBackend {
             inner: FileAuthStorageBackend::new(file.to_str().unwrap()),
             signal: CancellationToken::new(),
             fault: "all-sync-fails",
             syncs: AtomicUsize::new(0),
-        }));
+        });
+        let storage = AuthStorage::from_storage(backend.clone());
         let result = rt().block_on(storage.get_api_key(
             "phase1-rotation",
             GetApiKeyOptions {
@@ -252,15 +253,42 @@ fn failed_rotation_persistence_and_reload_never_succeed_from_memory() {
                 ..Default::default()
             },
         ));
-        if throws {
-            let error = result.unwrap_err();
-            assert_eq!(
-                error.to_string(),
-                "Authentication failed for \"phase1-rotation\": rescue denied. Run '/login phase1-rotation' to re-authenticate."
-            );
-        } else {
-            assert_eq!(result.unwrap(), None);
-        }
+        let (key, error, cause) = match result {
+            Ok(key) => (key, None, None),
+            Err(error) => {
+                let cause = std::error::Error::source(&error).map(ToString::to_string);
+                (None, Some(error.to_string()), cause)
+            }
+        };
+        let expected_error = "Authentication failed for \"phase1-rotation\": rescue denied. Run '/login phase1-rotation' to re-authenticate.";
+        assert_eq!(key, None);
+        assert_eq!(error.as_deref(), throws.then_some(expected_error));
+        assert_eq!(cause.as_deref(), throws.then_some("rescue denied"));
+        assert_eq!(backend.syncs.load(Ordering::SeqCst), 3);
+        let native = json!({"result":key,"error":error,"cause":cause,
+            "calls":["sync 1","async callback","refresh A->B","after callback: write denied","sync 2","sync 3"],
+            "errors":storage.drain_errors().iter().map(ToString::to_string).collect::<Vec<_>>(),
+            "memory":pi_js_compat::js_json::JsValue::Object(storage.get_all()).to_serde().unwrap(),
+            "disk":serde_json::from_str::<Value>(&fs::read_to_string(&file).unwrap()).unwrap()});
+        let request = json!({"id":1,"authPath":file,"throws":throws});
+        let mut delta = oracle::TsOracle::spawn("auth-refresh-oracle.ts", &locked_auth_delta());
+        let output = delta.request(&request);
+        assert_eq!(output["ok"], true, "{output}");
+        assert_eq!(output["output"], native, "approved delta must have zero discrepancies");
+        let mut frozen = oracle::TsOracle::spawn(
+            "auth-refresh-oracle.ts",
+            "packages/coding-agent/src/core/auth-storage.ts",
+        );
+        let baseline = frozen.request(&request);
+        assert_eq!(baseline["ok"], true, "{baseline}");
+        let mut expected_frozen = native.clone();
+        expected_frozen["result"] = json!("new");
+        expected_frozen["error"] = Value::Null;
+        expected_frozen["cause"] = Value::Null;
+        assert_eq!(
+            baseline["output"], expected_frozen,
+            "only approved memory-only-success discrepancy is allowed"
+        );
         assert_eq!(
             storage.get("phase1-rotation").unwrap().to_serde().unwrap()["refresh"],
             "B"
@@ -268,13 +296,43 @@ fn failed_rotation_persistence_and_reload_never_succeed_from_memory() {
         let disk: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
         assert_eq!(disk["phase1-rotation"]["refresh"], "A");
         assert_eq!(
-            storage
-                .drain_errors()
+            native["errors"]
+                .as_array()
+                .unwrap()
                 .iter()
-                .map(ToString::to_string)
+                .map(|v| v.as_str().unwrap())
                 .collect::<Vec<_>>(),
             ["locked write denied", "rescue denied", "rescue denied", "rescue denied"]
         );
     }
     unregister_oauth_provider("phase1-rotation");
+}
+
+fn locked_auth_delta() -> String {
+    use sha2::{Digest, Sha256};
+    let lock: Value = serde_json::from_str(include_str!("../../../docs/porting/delta-lock.json")).unwrap();
+    let module = "packages/coding-agent/src/core/auth-storage.ts";
+    let entry = lock["deltas"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["modules"][module].is_string())
+        .expect("auth delta must be locked");
+    let checkout = entry["checkout"].as_str().unwrap();
+    let head = std::process::Command::new("git")
+        .args(["-C", checkout, "rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(head.status.success());
+    assert_eq!(
+        String::from_utf8(head.stdout).unwrap().trim(),
+        entry["commit"].as_str().unwrap()
+    );
+    let path = std::path::Path::new(checkout).join(module);
+    let bytes = fs::read(&path).unwrap();
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&bytes)),
+        entry["modules"][module].as_str().unwrap()
+    );
+    path.to_str().unwrap().to_owned()
 }
