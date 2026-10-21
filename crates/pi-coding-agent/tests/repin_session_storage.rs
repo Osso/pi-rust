@@ -789,7 +789,10 @@ fn frozen_transcript_exports_match_stream_frame_and_utf8_error_boundaries() {
                 .unwrap()
                 .read_to_end(&mut streamed)
                 .unwrap();
-            assert_eq!(String::from_utf8_lossy(&streamed), source["streamed"]);
+            assert_eq!(
+                String::from_utf8_lossy(&streamed).as_ref(),
+                source["streamed"].as_str().unwrap()
+            );
         }
     }
     // Existing plain wins even over the last corrupt compressed sibling; replacement UTF8 follows Node.
