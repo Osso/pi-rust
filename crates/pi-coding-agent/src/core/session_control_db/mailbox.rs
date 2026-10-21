@@ -209,6 +209,34 @@ pub fn enqueue_stored_runtime_mailbox_message_in_transaction(
 ) -> Result<i64, ControlDbError> {
     Ok(persist_stored_runtime_mailbox_message(db, input, &prepare_stored_runtime_mailbox_message(input)?)?.id)
 }
+/// Lossless relay boundary; reuse canonical validation, collision checks and insertion.
+pub(crate) fn enqueue_lossless_stored_runtime_mailbox_message_in_transaction(
+    db: &Connection,
+    input: &EnqueueStoredRuntimeMailboxMessageInput,
+    message: &JsValue,
+) -> Result<i64, ControlDbError> {
+    let mut prepared = prepare_stored_runtime_mailbox_message(input)?;
+    let mut object = message
+        .as_object()
+        .cloned()
+        .ok_or_else(|| ControlDbError::new("Invalid relay mailbox data"))?;
+    for key in [
+        "createdAt",
+        "recipientSessionId",
+        "recipientAgentId",
+        "senderSessionId",
+        "senderAgentId",
+    ] {
+        if !object.contains_key(&JsString::from(key)) {
+            if let Some(value) = prepared.routed.get(key) {
+                object.insert(key.into(), JsValue::from(value));
+            }
+        }
+    }
+    prepared.serialized = js_json::stringify_lossless(&JsValue::Object(object));
+    Ok(persist_stored_runtime_mailbox_message(db, input, &prepared)?.id)
+}
+
 pub fn notify_runtime_mailbox_recipient(
     control_db_path: &str,
     recipient: &RuntimeMailboxAddress,

@@ -126,6 +126,7 @@ pub struct Args {
     pub mode: Option<Mode>,
     pub name: Option<String>,
     pub no_session: Option<bool>,
+    pub no_supervisor: Option<bool>,
     pub session: Option<String>,
     pub session_id: Option<String>,
     pub fork: Option<String>,
@@ -234,6 +235,7 @@ pub fn parse_args(args: &[String]) -> Args {
                 None => result.diagnostics.push(error("--name requires a value")),
             },
             "--no-session" => result.no_session = Some(true),
+            "--no-supervisor" => result.no_supervisor = Some(true),
             "--session" if next.is_some() => {
                 result.session = next.map(str::to_owned);
                 index += 1;
@@ -380,6 +382,39 @@ pub fn parse_args(args: &[String]) -> Args {
     }
 
     result
+        .diagnostics
+        .extend(collect_standalone_worker_diagnostics(&result));
+    result
+}
+
+fn collect_standalone_worker_diagnostics(parsed: &Args) -> Vec<Diagnostic> {
+    if parsed.no_supervisor != Some(true) {
+        return Vec::new();
+    }
+    let mut diagnostics = Vec::new();
+    if parsed.no_session != Some(true) {
+        diagnostics.push(error("--no-supervisor requires --no-session"));
+    }
+    let incompatible: Vec<&str> = [
+        (parsed.session.is_some(), "--session"),
+        (parsed.session_id.is_some(), "--session-id"),
+        (parsed.session_dir.is_some(), "--session-dir"),
+        (parsed.fork.is_some(), "--fork"),
+        (parsed.resume == Some(true), "--resume"),
+        (parsed.continue_session == Some(true), "--continue"),
+        (parsed.name.is_some(), "--name"),
+        (parsed.export.is_some(), "--export"),
+    ]
+    .into_iter()
+    .filter_map(|(present, flag)| present.then_some(flag))
+    .collect();
+    if !incompatible.is_empty() {
+        diagnostics.push(error(format!(
+            "--no-supervisor cannot be combined with {}",
+            incompatible.join(", ")
+        )));
+    }
+    diagnostics
 }
 
 fn parse_approval_preset(args: &[String], index: &mut usize, result: &mut Args) {
@@ -575,6 +610,7 @@ fn render_help(extension_flags: &[ExtensionFlag], chalk: &Chalk) -> String {
   --session-dir <dir>            Directory for session storage and lookup
   --worktree, -w <name>          Create or reuse a sibling git worktree before startup
   --no-session                   Don't save session (ephemeral)
+  --no-supervisor                Standalone worker; requires --no-session; no orchestration or Supervisor
   --name, -n <name>              Set session display name
   --models <patterns>            Comma-separated model patterns for Ctrl+P cycling
                                  Supports globs (anthropic/*, *sonnet*) and fuzzy matching

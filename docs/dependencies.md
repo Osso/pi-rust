@@ -23,6 +23,8 @@ All direct dependencies are exact-pinned.
 
 ### `pi-coding-agent`
 
+- Host relay reuses exact pinned `tokio`/`tokio-util`, `getrandom`, `gethostname`, `rustix`, `rusqlite` and `pi-js-compat`; no new crate dependencies. Runtime executables: `ssh` for the frozen stdio transport and Linux `setsid` (util-linux) for Node-compatible detached session launch without forbidden unsafe pre-exec code. Tests replace only `ssh` with a sandbox-private executable fake. [Relay contract](specs/host-relay.md).
+
 - `zstd = 0.14.3` (exact `=0.14.3`) — compresses archived session transcripts and supplies frame decoding for transcript reads, validation, restore and the native seekable-spool worker; completed-frame handling follows the [transcript trace](porting/traceability/session-transcript.md).
 
 - `flate2 = 1.0.34` (exact; already locked transitively) — opt-in Doom WAD helper uses `MultiGzDecoder` for Node `gunzipSync`, including concatenated gzip members.
