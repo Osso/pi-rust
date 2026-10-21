@@ -2,6 +2,10 @@
 
 Frozen authority: `packages/ai/src/utils/retry.ts`, commit `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` ([lock](../source-lock.json)); Rust `crates/pi-ai/src/utils/retry.rs`; [contract](../../specs/retry.md).
 
+## Integration provenance and verification handoff
+
+Slice `ca785e2c2fcc21f35ceb8ce07497adcd5df7bb5c` merged as `999496ceff17f2302ba187d6ce7112e85efaf567`; bounded docs audit base is `b85d01795f614ca85893371c0aef2081c4b43f23`. Evidence below is retained slice development proof, not a fresh integrated gate. Independent verifier 68 was pending at handoff (`/tmp/pi-rust-repin-ai-utilities-verify`); artifacts there are not adopted as acceptance by this audit. Module remains TODO.
+
 ## Source capability → focused proof
 
 | Source region / branch | Rust / test |
@@ -25,7 +29,7 @@ Frozen authority: `packages/ai/src/utils/retry.ts`, commit `4f9e6f8a4c0065d81b10
 
 ## Development proof
 
-Before production edits: actual-source differential failed request 7 (`ResourceExhausted`: Rust true / TS false); focused native tests failed concrete WebSocket-101, cybersecurity precedence, supplementary separator and ResourceExhausted classifiers. Direct protected source probes confirmed the regex/anchored cases. At `28e5d63f047dc9e42c4d816be9865eb1ba84e65d`, focused source differential passes 508 requests × both exports (1,016 boolean comparisons). Unchanged retry/public-index targets passed at `44fbc129` (13 + 2 tests: four native classifier tests, nine historical loop regressions, two public-index tests). All 31 temporary semantic mutants failed concrete classifier assertions against the unchanged source oracle: all ten terminal exclusions individually, cybersecurity/API/stop/prefix gates, retry stop gate, legacy ResourceExhausted acceptance, ASCII folding, UTF-16 dot, JS whitespace, separator cardinality, WebSocket scheme/quotes/anchors/whitespace cardinality, Daybreak punctuation/anchors/request ID. Mutations were restored; no mutant survives in committed code. Exact commands, full revisions, scope hashes, mutation patches and logs: `/tmp/pi-rust-repin-ai-retry/{REPORT.md,ledger.md}`. Cargo tests used the mandatory runner; direct source probes used `python3 scripts/test-sandbox.py`. Development proof only: no check/clippy/readability/broad-suite/final-acceptance claim.
+Before production edits: actual-source differential failed request 7 (`ResourceExhausted`: Rust true / TS false); focused native tests failed concrete WebSocket-101, cybersecurity precedence, supplementary separator and ResourceExhausted classifiers. Direct protected source probes confirmed the regex/anchored cases. At `28e5d63f047dc9e42c4d816be9865eb1ba84e65d`, focused source differential passes 508 requests × both exports (1,016 boolean comparisons). Unchanged retry/public-index targets passed at `44fbc129` (13 + 2 tests: four native classifier tests, nine historical loop regressions, two public-index tests). All 31 saved temporary semantic mutants failed concrete classifier assertions against the unchanged source oracle: all ten terminal exclusions individually, cybersecurity/API/stop/prefix gates, retry stop gate, legacy ResourceExhausted acceptance, ASCII folding, UTF-16 dot, JS whitespace, separator cardinality, WebSocket scheme/quotes/anchors/whitespace cardinality, Daybreak punctuation/anchors/request ID. Mutations were restored; no mutant survives in committed code. Exact commands, full revisions, scope hashes, mutation patches and logs: `/tmp/pi-rust-repin-ai-retry/{REPORT.md,ledger.md}`. Cargo tests used the mandatory runner; direct source probes used `python3 scripts/test-sandbox.py`. Development proof only: no check/clippy/readability/broad-suite/final-acceptance claim.
 
 ## Source-absent native surface: staged removal BLOCKED
 

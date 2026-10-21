@@ -7,6 +7,10 @@ Authority: read-only `packages/ai/src/utils/retry.ts` at [source lock](../portin
 - ResourceExhausted, getaddrinfo, ENOTFOUND and EAI_AGAIN alone are not retryable. No retry policy, callbacks, sleeps or retry loop are exported by this source module.
 - Inputs use existing typed `AssistantMessage`; invalid JavaScript runtime input types remain outside the approved typed boundary. No new type exclusions or semantic deviations.
 
+## Integrated bounded status
+
+Classifier slice `ca785e2c` is integrated by `999496ce`; this docs audit starts from `b85d0179`. Whole-module status remains TODO. Retained development proof and the pending independent-verification handoff are linked in [traceability](../porting/traceability/retry.md); this audit makes no fresh gate claim.
+
 ## Staged-removal blocker
 
 Historical Rust `RetryPolicy`, `RetryCallbacks`, `retry_assistant_call` and private loop helpers remain unchanged solely because coupled harness/compaction consumers require them to compile. Their removal is authorized by the overall re-pin, but consumer conversion is outside this slice. This is not compatibility, fallback, waiver or whole-module completion. Existing native loop tests are historical regression checks, not evidence for this pin. Dependencies and exact proof are tracked in [retry traceability](../porting/traceability/retry.md).
