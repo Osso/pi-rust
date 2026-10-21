@@ -6,7 +6,7 @@ Frozen source: `packages/ai/src/utils/error-body.ts` (127 lines), `4f9e6f8a4c006
 
 ## Integration provenance and verification handoff
 
-Slice `5b3b7962e061a48213ecc4eef4c93e6a74778393` merged as `b85d01795f614ca85893371c0aef2081c4b43f23`, this bounded docs audit's base. Retained proof is composite: 21 units at `5901f205`, six source functions (including 108 direct-format comparisons) at `87ef0165`, then the changed baseline group alone at `5b3b7962`; unchanged scopes retain their earlier proof. Exact scope/invalidation accounting lives in the development ledger linked below. Independent verifier 68 was pending at handoff (`/tmp/pi-rust-repin-ai-utilities-verify`); artifacts there are not adopted as acceptance by this audit. No fresh integrated gate or whole-module parity claim.
+Slice `5b3b7962e061a48213ecc4eef4c93e6a74778393` merged as `b85d01795f614ca85893371c0aef2081c4b43f23`, this bounded docs audit's base. Retained proof is composite: 21 units at `5901f205`, six source functions (including 108 direct-format comparisons) at `87ef0165`, then the changed baseline group alone at `5b3b7962`; unchanged scopes retain their earlier proof. Exact scope/invalidation accounting lives in the development ledger linked below. Independent verifier 68 completed bounded verification at `b85d0179` (`/tmp/pi-rust-repin-ai-utilities-verify`): 43 focused tests, focused clippy `-D warnings` and fmt passed. This is not a fresh whole-module gate. No fresh integrated gate or whole-module parity claim.
 
 | Export / source branches | Native mapping | Behavioral proof |
 |---|---|---|

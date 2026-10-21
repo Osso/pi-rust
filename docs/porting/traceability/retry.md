@@ -4,7 +4,7 @@ Frozen authority: `packages/ai/src/utils/retry.ts`, commit `4f9e6f8a4c0065d81b10
 
 ## Integration provenance and verification handoff
 
-Slice `ca785e2c2fcc21f35ceb8ce07497adcd5df7bb5c` merged as `999496ceff17f2302ba187d6ce7112e85efaf567`; bounded docs audit base is `b85d01795f614ca85893371c0aef2081c4b43f23`. Evidence below is retained slice development proof, not a fresh integrated gate. Independent verifier 68 was pending at handoff (`/tmp/pi-rust-repin-ai-utilities-verify`); artifacts there are not adopted as acceptance by this audit. Module remains TODO.
+Slice `ca785e2c2fcc21f35ceb8ce07497adcd5df7bb5c` merged as `999496ceff17f2302ba187d6ce7112e85efaf567`; bounded docs audit base is `b85d01795f614ca85893371c0aef2081c4b43f23`. Evidence below is retained slice development proof, not a fresh integrated gate. Independent verifier 68 completed bounded verification at `b85d0179` (`/tmp/pi-rust-repin-ai-utilities-verify`): 43 focused tests, focused clippy `-D warnings` and fmt passed. This is not a fresh whole-module gate. Module remains TODO.
 
 ## Source capability → focused proof
 

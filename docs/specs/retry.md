@@ -9,7 +9,7 @@ Authority: read-only `packages/ai/src/utils/retry.ts` at [source lock](../portin
 
 ## Integrated bounded status
 
-Classifier slice `ca785e2c` is integrated by `999496ce`; this docs audit starts from `b85d0179`. Whole-module status remains TODO. Retained development proof and the pending independent-verification handoff are linked in [traceability](../porting/traceability/retry.md); this audit makes no fresh gate claim.
+Classifier slice `ca785e2c` is integrated by `999496ce`; this docs audit starts from `b85d0179`. Whole-module status remains TODO. Retained development proof and the completed bounded independent verification are linked in [traceability](../porting/traceability/retry.md); this audit makes no fresh gate claim.
 
 ## Staged-removal blocker
 

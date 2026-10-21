@@ -14,7 +14,7 @@ Source: `packages/ai/src/utils/error-body.ts` at `4f9e6f8a4c0065d81b10e7177b28d5
 
 ## Integrated bounded status
 
-Representable fixes in `5b3b7962` are integrated by `b85d0179`. Whole-module status remains TODO. [Traceability](../porting/traceability/error-body.md) links revision-scoped development evidence and the pending independent-verification handoff; this docs audit makes no fresh gate claim.
+Representable fixes in `5b3b7962` are integrated by `b85d0179`. Whole-module status remains TODO. [Traceability](../porting/traceability/error-body.md) links revision-scoped development evidence and the completed bounded independent verification; this docs audit makes no fresh gate claim.
 
 ## Existing API boundary — module remains TODO
 
