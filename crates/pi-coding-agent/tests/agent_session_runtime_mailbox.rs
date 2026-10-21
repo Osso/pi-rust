@@ -467,8 +467,6 @@ async fn question_tool_result_persists_receipt_before_consuming_answer() {
                 details: Some(
                     json!({"runtimeMailboxDelivery":{"controlDbPath":db,"messages":[{"id":claims[0].id,"storeRef":claims[0].store_ref}]}}),
                 ),
-                usage: None,
-                added_tool_names: None,
                 is_error: None,
                 terminate: None,
             })
