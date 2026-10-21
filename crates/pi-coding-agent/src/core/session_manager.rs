@@ -70,8 +70,10 @@ fn control_db_error(cause: impl std::fmt::Display) -> SessionManagerError {
 }
 
 fn assert_unarchived_session_file(path: &str) -> Result<(), SessionManagerError> {
-    if path.ends_with(".jsonl.zst") {
-        return Err(error(format!("Session is archived; restore before opening: {path}")));
+    if super::session_archive_storage::is_archived_session_file(path) {
+        return Err(error(format!(
+            "Archived session requires a control database restore before opening: {path}"
+        )));
     }
     Ok(())
 }

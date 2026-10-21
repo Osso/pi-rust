@@ -510,3 +510,37 @@ fn unknown_legacy_summary_usage_survives_without_a_typed_accounting_contract() {
     assert_eq!(entry["usage"], "legacy raw payload");
     assert_eq!(entry["summary"], "new summary");
 }
+
+#[test]
+fn source_escaped_surrogate_receipt_remains_a_persisted_message() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"splitSurrogate":true}),
+    );
+    let path = created["path"].as_str().unwrap();
+    assert_eq!(
+        call(&mut ts, json!({"op":"receiptTokens","path":path})),
+        json!(r#"[{"sessionPath":"\ud800","messageId":"surrogate"}]"#)
+    );
+    assert_eq!(
+        load_entries_from_file(path).unwrap().len(),
+        2,
+        "source-valid escaped receipt must not drop the message"
+    );
+}
+
+#[test]
+fn mutable_open_rejects_all_archived_suffixes_before_allocating_missing_identity() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("arbitrary.zst");
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let source = ts.request(&json!({"id":1,"op":"mutable","path":path}));
+    assert_eq!(source["ok"], false);
+    assert!(SessionManager::open(path.to_str().unwrap(), None, None).is_err());
+    assert!(!path.exists());
+}

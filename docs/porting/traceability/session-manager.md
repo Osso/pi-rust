@@ -102,3 +102,7 @@ Full loader is now fallible (`Result<Vec<FileEntry>,SessionManagerError>`), miss
 Pin-only summary accounting removed: CompactionEntry/BranchSummaryEntry now preserve unknown incoming properties through generic flattened extra map; no typed usage field or append option/branch argument. `unknown_legacy_summary_usage_survives_without_a_typed_accounting_contract` source persists string-valued unknown usage; prior typed parse made compaction unknown and rewrite rejected it (RED). Authorized minimal AgentSession coupling removal drops branch-summary stats special case and summary usage propagation; tool-result/other stats remain unmodified and not claimed parity.
 
 Mechanical source-absent read adaptation: footer add_entry_usage no longer reads typed compaction/branch-summary usage (two arms removed); frozen footer115–124 assistant-only loop is evidence. Existing tool-result accounting arm intentionally remains pending owning accounting lane.
+
+Mutable suffix guard now uses source archive predicate `.zst` (not only `.jsonl.zst`); actual source mutable open of missing arbitrary.zst rejects, prior Rust allocated identity (RED). Read-only generic-zst recursion not classified or duplicated.
+
+Open raw-wire regression: source-generated escaped lone-surrogate mailbox path remains a message in TS; current Value decoding drops it (source_escaped_surrogate_receipt_remains_a_persisted_message RED). Not covered by session-name waiver; narrow lossless representation pending.

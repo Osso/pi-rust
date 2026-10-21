@@ -21,10 +21,15 @@ async function handle(r: any) {
    m.appendCompaction("summary",kept,123);
    m.appendMessage({role:"user",content:"newest",timestamp:4});
   }
+  if(r.splitSurrogate)for(const entry of m.getEntries())if(entry.type==="message")entry.mailboxStoreRefs=[{sessionPath:String.fromCharCode(0xd800),messageId:"surrogate"}];
   if("legacyUsage" in r) for(const entry of m.getEntries())if(entry.type==="compaction")entry.usage=r.legacyUsage;
   if ("rawRefs" in r) for(const entry of m.getEntries()) if(entry.type==="message") entry.mailboxStoreRefs=r.rawRefs;
   m.persistForRecovery();
   return {path:m.getSessionFile(), id:m.getSessionId()};
+ }
+ if(r.op === "receiptTokens") {
+  const acceptance=await import(pathToFileURL(join(root,"runtime-mailbox-transcript.ts")).href);
+  return JSON.stringify(acceptance.readAcceptedRuntimeMailboxStoreRefs(r.path));
  }
  if(r.op === "scan") {
   const acceptance=await import(pathToFileURL(join(root,"runtime-mailbox-transcript.ts")).href);
@@ -41,6 +46,7 @@ async function handle(r: any) {
   const db=await import(pathToFileURL(join(root,"session-control-db.ts")).href);
   return db.readSessionMetadata(r.db,r.path)??null;
  }
+ if(r.op === "mutable")return manager.SessionManager.open(r.path).getSessionId();
  if(r.op === "context")return manager.loadSessionContextEntries(r.path);
  if(r.op === "load")return manager.loadEntriesFromFile(r.path);
  if(r.op === "header")return manager.readSessionHeader(r.path);
