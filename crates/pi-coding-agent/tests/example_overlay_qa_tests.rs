@@ -24,6 +24,7 @@ struct Panel {
     hidden: Cell<bool>,
     focused: Cell<bool>,
 }
+thread_local! {static REQUESTS:Cell<usize>=const {Cell::new(0)};}
 thread_local! {static PANELS:RefCell<Vec<Rc<Panel>>>=const {RefCell::new(Vec::new())};}
 struct Handle(Rc<Panel>);
 impl ExtensionUiOverlayHandle for Handle {
@@ -78,7 +79,9 @@ impl ExtensionUiTuiBackend for Terminal {
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("no editors")
     }
-    fn request_render(&self) {}
+    fn request_render(&self) {
+        REQUESTS.with(|count| count.set(count.get() + 1));
+    }
     fn request_render_force(&self) {
         panic!("no forced redraw")
     }
@@ -230,6 +233,7 @@ impl ExtensionUiContext for Ui {
         let work = ui_thread::run(move || {
             Box::pin(async move {
                 PANELS.with(|ps| ps.borrow_mut().clear());
+                REQUESTS.with(|count| count.set(0));
                 let result = Rc::new(RefCell::new(None));
                 let saved = result.clone();
                 let done = ExtensionUiDone::new(Arc::new(move |v| {
@@ -297,6 +301,10 @@ impl ExtensionUiContext for Ui {
                 if let Some(cloned) = cloned {
                     cloned.dispose();
                 }
+                calls
+                    .lock()
+                    .unwrap()
+                    .push(json!(["requests", REQUESTS.with(Cell::get)]));
                 let result = result.borrow().clone();
                 calls
                     .lock()

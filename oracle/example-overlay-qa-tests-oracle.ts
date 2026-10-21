@@ -42,9 +42,9 @@ async function run(request:any) {
  let invocation=0;
  const ui={setEditorText:(text:string)=>calls.push(['editorText',text]),notify:(message:string,level:string)=>calls.push(['notify',message,level]),custom:async(factory:any,options:any)=>{
   const script=request.scripts?.[invocation++]??{};
-  const panels:any[]=[];let focus=-1;
+  const panels:any[]=[];let focus=-1,requests=0;
   const handle=(index:number)=>({hide(){panels[index].hidden=true;if(focus===index){focus=-1;panels[index].component.focused=false;}},setHidden(value:boolean){panels[index].hidden=value;},isHidden:()=>panels[index].hidden,focus(){focus=index;panels.forEach((p,i)=>p.component.focused=i===index);},unfocus(){if(focus===index)focus=-1;panels[index].component.focused=false;},isFocused:()=>focus===index});
-  const host={requestRender(){},showOverlay(component:any,options:any){const index=panels.length;panels.push({component,options,hidden:false});return handle(index);}};
+  const host={requestRender(){requests++;},showOverlay(component:any,options:any){const index=panels.length;panels.push({component,options,hidden:false});return handle(index);}};
   let completed=false,value:any=null;
   const component=factory(host,theme,{},(v:any)=>{completed=true;value=v??null;});
   component.focused=true;
@@ -58,6 +58,7 @@ async function run(request:any) {
   snapshot(script.width??60);
   for(const step of script.steps??[]){if(step.ms)advance(step.ms);if(step.key!==undefined||step.units){const target=step.panel===undefined?component:panels[step.panel].component;target.handleInput((step.key??String.fromCharCode(...step.units)).toWellFormed());}snapshot(step.width??script.width??60);}
   component.invalidate();component.dispose?.();cloned?.dispose?.();
+  calls.push(['requests',requests]);
   calls.push(['done',completed,value]);
   if(script.delay)await new Promise<void>(resolve=>schedule(resolve,script.delay));
   return value;
