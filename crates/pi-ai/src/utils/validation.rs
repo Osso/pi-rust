@@ -918,11 +918,10 @@ fn collect_ref(
     let Some(reference) = schema.get("$ref").and_then(Value::as_string) else {
         return;
     };
-    // Frozen URL-based resolution does not resolve unmatched-surrogate fragments.
-    let target = reference
-        .to_utf8()
-        .ok()
-        .and_then(|reference| resolve_ref(root, base, &reference));
+    // URL takes USVString. This temporary projection is frozen resolution behavior;
+    // argument/schema strings themselves remain lossless (anchors can alias).
+    let reference = pi_js_compat::js_json::encode_node_utf8(reference);
+    let target = resolve_ref(root, base, &reference);
     match target {
         Some(target) => collect_schema(root, base, target, instance_path, value, issues),
         None => issues.message(instance_path, "schema is false".to_owned()),
@@ -1850,7 +1849,7 @@ fn resolve_ref<'a>(root: &'a Value, base: &'a Value, reference: &str) -> Option<
 }
 
 fn find_id<'a>(schema: &'a Value, reference: &str) -> Option<&'a Value> {
-    if string_field(schema, "$id").as_deref() == Some(reference) {
+    if url_field(schema, "$id").as_deref() == Some(reference) {
         return Some(schema);
     }
     match schema {
@@ -1861,8 +1860,8 @@ fn find_id<'a>(schema: &'a Value, reference: &str) -> Option<&'a Value> {
 }
 
 fn find_anchor<'a>(schema: &'a Value, anchor: &str) -> Option<&'a Value> {
-    if string_field(schema, "$anchor").as_deref() == Some(anchor)
-        || string_field(schema, "$dynamicAnchor").as_deref() == Some(anchor)
+    if url_field(schema, "$anchor").as_deref() == Some(anchor)
+        || url_field(schema, "$dynamicAnchor").as_deref() == Some(anchor)
     {
         return Some(schema);
     }
@@ -2045,6 +2044,13 @@ fn is_max_length_fast(units: &[u16], maximum: f64) -> bool {
         }
     }
     true
+}
+
+fn url_field(schema: &Value, key: &str) -> Option<String> {
+    schema
+        .get(key)?
+        .as_string()
+        .map(pi_js_compat::js_json::encode_node_utf8)
 }
 
 fn schema_text(value: &Value) -> Option<String> {
