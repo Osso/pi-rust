@@ -92,6 +92,27 @@ The test also feeds the propagated read error through the real interactive
 terminal must contain the actual remote error, not an EIO wrapper.
 No `ExtensionUiComponent`/`ExtensionUiTuiBackend` trait changed.
 
+## SSH timer normalization
+
+`ssh.ts:88-106` multiplies truthy timeout seconds by 1000 and schedules a Node
+timer. `wait_for_remote` uses shared `pi_js_compat::node_timers` normalization:
+non-finite, below-1ms and above-2147483647ms delays schedule 1ms; valid fractions
+are retained. Zero/NaN seconds create no timer, matching JavaScript truthiness.
+Original seconds remain in the `timeout:<value>` error, using JS number spelling.
+
+`example_ssh` exercises the real custom `BashOperations` returned by `user_bash`,
+including `1e100` and `2147483.648` seconds. Each must reject promptly without
+panic, with exact `timeout:1e+100` / `timeout:2147483.648`, and complete results
+are compared with the pinned TS example. Fake SSH only; three-second test guard.
+Node delay proof and limits: [JS compatibility](js-compat.md#node-timers).
+RED/GREEN/mutation commands: `/tmp/pi-rust-core-c-fixes/ledger.md`.
+C1 RED and production-reversion mutation hit the three-second guard; GREEN
+passes the complete nine-scenario differential (1 test). Timer unit tests pass
+2/2 and pinned-runtime delay differential passes 1/1. Mutation restoration is
+byte-identical to the tested implementation. Required formatting and two-crate
+all-target Clippy (`-D warnings`) pass. Manual changed-line Rust/TS readability
+review found no new suppression, fallback, or control-flow complexity issue.
+
 ## Isolation and source quirks
 
 All binaries/oracles run beneath Cargo's sandbox runner. The SSH fixture child

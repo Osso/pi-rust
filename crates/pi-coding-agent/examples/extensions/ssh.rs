@@ -195,8 +195,11 @@ async fn wait_for_remote(
         }
     };
     let timer = async {
-        match timeout.filter(|seconds| *seconds != 0.0) {
-            Some(seconds) => tokio::time::sleep(std::time::Duration::from_secs_f64(seconds.max(0.001))).await,
+        match timeout.filter(|seconds| *seconds != 0.0 && !seconds.is_nan()) {
+            Some(seconds) => {
+                let delay_ms = pi_js_compat::node_timers::normalize_timeout_delay(seconds * 1000.0);
+                tokio::time::sleep(std::time::Duration::from_secs_f64(delay_ms / 1000.0)).await;
+            }
             None => std::future::pending().await,
         }
     };

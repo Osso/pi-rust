@@ -49,6 +49,8 @@ async function executeTools(tools: Tool[], calls: Call[]): Promise<unknown[]> {
 
 function bashCommand(mode: string): string {
     switch (mode) {
+        case "overflow":
+        case "huge":
         case "timeout": return "exec sleep 30";
         case "abort": return "exec python3 -c 'import signal,sys,time; signal.signal(signal.SIGTERM,lambda *_:(print(\"terminated\",flush=True),sys.exit(0))); print(\"ready\",flush=True); time.sleep(30)'";
         case "exit": return "printf code; exit 7";
@@ -59,12 +61,13 @@ function bashCommand(mode: string): string {
 async function runUserOperations(ops: Operations | undefined, cwd: string): Promise<unknown[]> {
     if (!ops) return [];
     const results: unknown[] = [];
-    for (const mode of ["success", "exit", "timeout", "abort", "preabort"]) {
+    for (const mode of ["success", "exit", "timeout", "overflow", "huge", "abort", "preabort"]) {
         let output = "";
         const controller = new AbortController();
         if (mode === "preabort") controller.abort();
+        const timeouts: Record<string, number> = { timeout: 1, overflow: 2147483.648, huge: 1e100 };
         const options = {
-            timeout: mode === "timeout" ? 1 : undefined,
+            timeout: timeouts[mode],
             signal: controller.signal,
             onData(bytes: Buffer) {
                 output += bytes.toString();

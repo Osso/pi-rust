@@ -166,7 +166,7 @@ async fn run_user_operations(ops: Option<UserBashEventResult>, cwd: &str) -> Vec
         return Vec::new();
     };
     let mut user = Vec::new();
-    for mode in ["success", "exit", "timeout", "abort", "preabort"] {
+    for mode in ["success", "exit", "timeout", "overflow", "huge", "abort", "preabort"] {
         let output = Arc::new(Mutex::new(Vec::new()));
         let data = output.clone();
         let token = CancellationToken::new();
@@ -175,31 +175,45 @@ async fn run_user_operations(ops: Option<UserBashEventResult>, cwd: &str) -> Vec
             token.cancel();
         }
         let command = match mode {
-            "timeout" => "exec sleep 30",
+            "timeout" | "overflow" | "huge" => "exec sleep 30",
             "abort" => {
                 "exec python3 -c 'import signal,sys,time; signal.signal(signal.SIGTERM,lambda *_:(print(\"terminated\",flush=True),sys.exit(0))); print(\"ready\",flush=True); time.sleep(30)'"
             }
             "exit" => "printf code; exit 7",
             _ => "printf 'user output'",
         };
-        let result = ops
-            .exec(
-                command,
-                cwd,
-                BashExecOptions {
-                    on_data: Arc::new(move |bytes| {
-                        data.lock().unwrap().extend_from_slice(bytes);
-                        if mode == "abort" {
-                            cancel.cancel();
-                        }
-                    }),
-                    signal: Some(token),
-                    timeout: (mode == "timeout").then_some(1.0),
-                    env: BTreeMap::new(),
-                    detach: None,
+        let execution = ops.exec(
+            command,
+            cwd,
+            BashExecOptions {
+                on_data: Arc::new(move |bytes| {
+                    data.lock().unwrap().extend_from_slice(bytes);
+                    if mode == "abort" {
+                        cancel.cancel();
+                    }
+                }),
+                signal: Some(token),
+                timeout: match mode {
+                    "timeout" => Some(1.0),
+                    "overflow" => Some(2147483.648),
+                    "huge" => Some(1e100),
+                    _ => None,
                 },
-            )
-            .await;
+                env: BTreeMap::new(),
+                detach: None,
+            },
+        );
+        let result = tokio::time::timeout(std::time::Duration::from_secs(3), execution)
+            .await
+            .expect("custom SSH operation must finish promptly");
+        if mode == "overflow" || mode == "huge" {
+            let expected = if mode == "huge" {
+                "timeout:1e+100"
+            } else {
+                "timeout:2147483.648"
+            };
+            assert_eq!(result.as_ref().unwrap_err().message, expected);
+        }
         let output = String::from_utf8_lossy(&output.lock().unwrap()).into_owned();
         user.push(match result {
             Ok(r) => json!({"mode":mode,"output":output,"result":{"exitCode":r.exit_code}}),

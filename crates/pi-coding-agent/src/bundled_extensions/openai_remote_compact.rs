@@ -1035,7 +1035,7 @@ fn truncate_reducible_text(value: &Value, budget: &mut usize) -> Value {
     match value {
         Value::Object(object) => {
             let mut truncated = Map::new();
-            for (key, item) in object {
+            for (key, item) in pi_js_compat::js_json::object_entries(object) {
                 truncated.insert(key.clone(), truncate_reducible_text(item, budget));
             }
             Value::Object(truncated)

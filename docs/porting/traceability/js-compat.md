@@ -98,6 +98,21 @@ untested zones remain unproven. No fallback parsers remain.
 
 Independent number/date/JSON/coercion/collation/filesystem tests, check/Clippy and unresolved source-faithful Date readability debt: [Batch A proof ledger](../batch-a-proof.md). This is not exhaustive grammar/platform or whole-port proof.
 
+## Node timers
+
+`src/node_timers.rs::normalize_timeout_delay(f64)` models Node's numeric timer
+constructor delay after caller-side ToNumber: outside inclusive
+`1..=2147483647` (including NaN/infinity) becomes 1ms; otherwise unchanged,
+including fractions. No JavaScript invalid-type coercion API or warning emission
+is introduced. `tests/node_timers.rs` covers both branches and endpoint/fraction
+cases; `tests/differential_node_timers.rs` observes the pinned runtime's actual
+scheduled `Timeout._idleTimeout`, clearing timers immediately. This deterministic
+runtime-field observation is parent-approved; callback timing/sub-ms scheduling
+precision is not claimed. SSH provides the public behavioral timeout proof:
+[SSH traceability](core-ssh-errors.md#ssh-timer-normalization).
+
+Evidence: `/tmp/pi-rust-core-c-fixes/ledger.md`.
+
 ## Base64 (`src/base64.rs`)
 
 | Source behaviour | Rust item | Proof |
