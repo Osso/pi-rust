@@ -88,7 +88,10 @@ impl OAuthAuth for RadiusOAuth {
                 &[
                     ("grant_type", "refresh_token"),
                     ("client_id", OAUTH_CLIENT_ID),
-                    ("refresh_token", credential.refresh.as_str()),
+                    (
+                        "refresh_token",
+                        &crate::auth::oauth::support::to_form_usv_string(&credential.refresh),
+                    ),
                 ],
                 signal,
             )
@@ -100,7 +103,7 @@ impl OAuthAuth for RadiusOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access),
+                api_key: Some(credential.access_utf8()?),
                 ..ModelAuth::default()
             })
         })
@@ -200,7 +203,7 @@ async fn request_oauth_token(
     if let Some(scope) = data.get("scope").and_then(Value::as_str) {
         credential
             .extra
-            .insert("scope".to_owned(), Value::String(scope.to_owned()));
+            .insert("scope".into(), pi_js_compat::js_json::JsValue::String(scope.into()));
     }
     Ok(credential)
 }

@@ -147,7 +147,10 @@ async fn live_fixture_with_persistence(persistence: Option<(&mut oracle::TsOracl
     });
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(
-            serde_json::from_value(json!({"faux": {"type":"api_key", "key":"fixture"}})).unwrap(),
+            serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(
+                json!({"faux": {"type":"api_key", "key":"fixture"}}),
+            )
+            .unwrap(),
         ))),
         models_path: Some(None),
         refresh_on_create: Some(false),

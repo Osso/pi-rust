@@ -111,7 +111,7 @@ impl OAuthAuth for TestOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<pi_ai::auth::ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(pi_ai::auth::ModelAuth {
-                api_key: Some(credential.access),
+                api_key: Some(credential.access_utf8()?),
                 headers: None,
                 base_url: None,
             })
@@ -153,10 +153,13 @@ fn credential_round_trips_and_preserves_extra_oauth_keys() {
     });
     let credential: Credential = serde_json::from_value(value.clone()).unwrap();
     let oauth = credential.as_oauth().unwrap();
-    assert_eq!(oauth.refresh, "r1");
-    assert_eq!(oauth.access, "a1");
+    assert_eq!(oauth.refresh.to_utf8().unwrap(), "r1");
+    assert_eq!(oauth.access.to_utf8().unwrap(), "a1");
     assert_eq!(oauth.expires, 1234.0);
-    assert_eq!(oauth.extra.get("accountId"), Some(&json!("acct")));
+    assert_eq!(
+        oauth.extra.get(&pi_js_compat::js_json::JsString::from("accountId")),
+        Some(&pi_js_compat::js_json::JsValue::from(&json!("acct")))
+    );
     assert_eq!(serde_json::to_value(&credential).unwrap(), value);
 
     let api_key: Credential = serde_json::from_value(json!({"type": "api_key", "key": "k"})).unwrap();
@@ -465,7 +468,10 @@ async fn expired_oauth_refreshes_once_and_persists_rotated_credential() {
     assert_eq!(right.unwrap().unwrap().auth.api_key.as_deref(), Some("new-1"));
     assert_eq!(refreshes.load(Ordering::SeqCst), 1);
     let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
-    assert_eq!(stored.unwrap().as_oauth().unwrap().refresh, "rotated");
+    assert_eq!(
+        stored.unwrap().as_oauth().unwrap().refresh.to_utf8().unwrap(),
+        "rotated"
+    );
 }
 
 #[tokio::test]
@@ -500,7 +506,7 @@ async fn oauth_refresh_failure_keeps_stored_credential_and_reports_oauth_code() 
         "OAuth refresh failed for p1: token refresh failed (400): invalid_grant"
     );
     let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
-    assert_eq!(stored.unwrap().as_oauth().unwrap().access, "old");
+    assert_eq!(stored.unwrap().as_oauth().unwrap().access.to_utf8().unwrap(), "old");
 }
 
 #[tokio::test]
@@ -543,7 +549,7 @@ async fn oauth_refresh_aborts_without_writing() {
     assert_eq!(handle.await.unwrap(), Err(ResolveError::Aborted));
     tokio::task::yield_now().await;
     let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
-    assert_eq!(stored.unwrap().as_oauth().unwrap().access, "old");
+    assert_eq!(stored.unwrap().as_oauth().unwrap().access.to_utf8().unwrap(), "old");
 }
 
 #[tokio::test]

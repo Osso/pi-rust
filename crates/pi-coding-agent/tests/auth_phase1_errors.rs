@@ -8,7 +8,10 @@ fn auth_file_utf8_decoder_replaces_invalid_bytes_like_node() {
     let file = std::env::temp_dir().join(format!("auth-invalid-utf8-{}.json", std::process::id()));
     std::fs::write(&file, b"{\"synthetic\":{\"type\":\"api_key\",\"key\":\"bad-\xff\"}}").unwrap();
     let storage = AuthStorage::create(Some(file.to_str().unwrap()));
-    assert_eq!(storage.get("synthetic").unwrap()["key"], "bad-\u{fffd}");
+    assert_eq!(
+        storage.get("synthetic").unwrap().to_serde().unwrap()["key"],
+        "bad-\u{fffd}"
+    );
     assert!(storage.drain_errors().is_empty());
 }
 #[test]

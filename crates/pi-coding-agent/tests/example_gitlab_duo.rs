@@ -231,7 +231,7 @@ async fn registration_login_refresh_and_errors_match_pinned_example() {
         let actual = match result {
             Ok(c) => {
                 let access = oauth.to_auth(c.clone()).await.unwrap().api_key;
-                json!({"credential":{"access":c.access,"refresh":c.refresh,"expires":pi_js_compat::number::js_number_value(c.expires)},"auth":access,"calls":*calls.lock().unwrap()})
+                json!({"credential":{"access":c.access.to_utf8().unwrap(),"refresh":c.refresh.to_utf8().unwrap(),"expires":pi_js_compat::number::js_number_value(c.expires)},"auth":access,"calls":*calls.lock().unwrap()})
             }
             Err(e) => json!({"error":e.to_string(),"calls":*calls.lock().unwrap()}),
         };

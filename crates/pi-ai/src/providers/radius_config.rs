@@ -86,7 +86,13 @@ pub fn normalize_radius_gateway_url(value: &str) -> String {
 
 /// Reads and sanitizes `credential.gatewayConfig`.
 pub fn get_radius_credential_config(credential: Option<&OAuthCredential>) -> Option<RadiusGatewayConfig> {
-    sanitize_radius_gateway_config(credential?.extra.get("gatewayConfig")?)
+    sanitize_radius_gateway_config(
+        &credential?
+            .extra
+            .get(&pi_js_compat::js_json::JsString::from("gatewayConfig"))?
+            .to_serde()
+            .ok()?,
+    )
 }
 
 /// Converts gateway model entries into full `pi-messages` models.

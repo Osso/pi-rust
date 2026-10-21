@@ -255,7 +255,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     }
     let models = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-            Default::default(),
+            pi_js_compat::js_json::JsObject::new(),
         ))),
         models_path: Some(None),
         allow_model_network: false,

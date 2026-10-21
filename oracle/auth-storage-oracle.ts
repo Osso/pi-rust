@@ -17,7 +17,7 @@ async function main(): Promise<void> {
 	const api = await import(sourceUrl.href);
 	const oauth = await import(new URL("../../../ai/src/utils/oauth/index.ts", sourceUrl).href);
 	serve(async (raw) => {
-		const request = raw as { op: string; authPath: string; provider: string; credential: unknown };
+		const request = raw as { op: string; authPath: string; provider: string; credential: unknown; credentialJson?: string; providerJson?: string }; 
 		if (request.op === "rotation-all-sync-fail") {
 			const calls: string[] = [];
 			let syncs = 0;
@@ -43,6 +43,11 @@ async function main(): Promise<void> {
 			return { result, calls, errors: storage.drainErrors().map((error: Error) => error.message), memory: storage.getAll(), file: readFileSync(request.authPath, "utf8") };
 		}
 		const storage: Storage = api.AuthStorage.create(request.authPath);
+		if (request.op === "lossless") {
+			const provider = request.providerJson ? JSON.parse(request.providerJson) : request.provider;
+			if (request.credentialJson) storage.set(provider, JSON.parse(request.credentialJson));
+			return {credential:JSON.stringify(storage.get(provider)),all:JSON.stringify(storage.getAll()),entries:JSON.stringify(storage.list()),file:readFileSync(request.authPath,"utf8")};
+		}
 		if (request.op === "errors") return {errors: storage.drainErrors().map(error => error.message)};
 		if (request.op === "read") return { credential: storage.get(request.provider) ?? null };
 		if (request.op === "modify" || request.op === "modify-file") storage.set(request.provider, request.credential);

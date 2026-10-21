@@ -192,7 +192,10 @@ impl OAuthAuth for GitlabOAuth {
                     &[
                         ("client_id", CLIENT_ID),
                         ("grant_type", "refresh_token"),
-                        ("refresh_token", &c.refresh),
+                        (
+                            "refresh_token",
+                            &pi_ai::auth::oauth::support::to_form_usv_string(&c.refresh),
+                        ),
                     ],
                     Some(signal),
                     "Token refresh failed",
@@ -204,7 +207,7 @@ impl OAuthAuth for GitlabOAuth {
     fn to_auth(&self, c: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(c.access),
+                api_key: Some(c.access_utf8()?),
                 ..Default::default()
             })
         })
