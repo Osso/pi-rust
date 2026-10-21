@@ -1,24 +1,24 @@
 # Orchestrator handler
-Port frozen `packages/orchestrator/src/handler.ts`.
+
+Port of frozen `packages/orchestrator/src/handler.ts`. Native boundary decisions and proof scope: [Q3 proof](../porting/orchestrator-proof.md).
 
 ## What it must do
-- [x] Preserve spawn, list, status, RPC and stop handler envelopes.
-- [x] Persist session identity and remove stopped live records.
-- [x] Forward stream responses/events/UI and preserve raw event-only subscription.
-- [x] Recover online/starting persisted entries as stopped.
-- [ ] Prove complete failure/recovery/subscription ordering matrix.
+- [x] handleIpcRequest list/status/stop/rpc + unknown instance branches: frozen full child lifecycle differential; unknown status/stop/rpc/rpc_stream fixtures: supervisor.
+- [x] toInstanceSummary; openRpcStream: optional session fields, response/event/UI forwarding, no response leakage into event subscribers: supervisor.
+- [ ] Direct successful handleIpcRequest spawn and rpc_stream-ready dispatch branches lack dedicated frozen assertions.
 
 ## How it works
-- [Traceability](../porting/traceability/orchestrator-handler.md)
+- [Module traceability](../porting/traceability/orchestrator-handler.md)
 
 ## Implementation inventory
-- `crates/pi-orchestrator/src/handler.rs`: source module port.
+- `crates/pi-orchestrator/src/handler.rs`: native module.
 
 ## Tests asserting this spec
 - `crates/pi-orchestrator/tests/supervisor.rs`
+- `crates/pi-orchestrator/tests/ipc.rs`
 
 ## Known gaps (current cycle)
-- [ ] Complete remaining branch proof.
+- [ ] Direct successful handleIpcRequest spawn and rpc_stream-ready dispatch branches lack dedicated frozen assertions.
 
 ## Out of scope
-Live provider and Radius calls.
+Live services, user state and real Radius network calls; native packaging follows the approved library boundary.

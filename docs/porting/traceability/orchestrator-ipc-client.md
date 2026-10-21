@@ -1,14 +1,12 @@
 # Orchestrator ipc-client
-Frozen `packages/orchestrator/src/ipc/client.ts`; [source lock](../source-lock.json).
 
-| Exports/branches | Proof |
+Source: `packages/orchestrator/src/ipc/client.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/ipc/client.rs`.
+Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
+
+| Export/branch | Behavioral proof |
 | --- | --- |
-| sendIpcRequest / startIpcServer | `tests/ipc.rs`: TS client → Rust server; Rust client → TS server |
-| partial JSONL, ordinary request and rpc_stream, sequential coalesced commands | `fragmented_jsonl_and_live_socket_rejection` |
-| live socket rejected, stale socket removed | `fragmented_jsonl_and_live_socket_rejection`, `rust_client_to_frozen_ts_server_and_coalesced_stream_boundary` |
-| initial coalesced stream command waits for new data | last test pins frozen discrepancy, pending user classification |
-| parser/handler exception, EOF client failure, UI/event callbacks | implemented; additional behavioral fixtures pending |
+| sendIpcRequest | TS client→Rust server and Rust client→frozen TS server; first JSONL response and fragment buffering: ipc.rs |
+| connect/read/EOF failure | ENOENT/ECONNREFUSED/EACCES/read ECONNRESET exact Node text and EOF message: errors.rs/ipc.rs |
+| response parse and socket write diagnostics | shared JS parser and Node stream error helpers; malformed request/pipe-write fixtures cover common helpers |
 
-Rust: `crates/pi-orchestrator/src/ipc/client.rs`. Coverage remains todo until final branch matrix. No live services used; all sockets under sandbox temp directories.
-
-Additional `tests/errors.rs` Unix pipe differentials: ENOENT/ECONNREFUSED/EACCES connect, libuv missing-parent bind→EACCES, bind permission, stale-file unlink permission, read ECONNRESET; normal Server.close unlinks listening socket but preserves established stream requests. Native draft failed these boundaries before shared Node diagnostics and explicit stop-accepting lifecycle corrections.
+Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.

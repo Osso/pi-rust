@@ -1,23 +1,23 @@
 # Orchestrator types
 
-Port of frozen `packages/orchestrator/src/types.ts`.
+Port of frozen `packages/orchestrator/src/types.ts`. Native boundary decisions and proof scope: [Q3 proof](../porting/orchestrator-proof.md).
 
 ## What it must do
-- [x] Preserve tested JSON/path/record contract against frozen source.
-- [ ] Complete all source branches and exported-symbol proof.
+- [x] InstanceStatus: all five concrete serde wire values in foundation.
+- [x] MachineRecord, InstanceRecord, RadiusRegistration: required/optional camelCase fields and omitted options: foundation; serialized records compared to TS storage fixtures.
 
 ## How it works
-- [Traceability](../porting/traceability/orchestrator-types.md)
+- [Module traceability](../porting/traceability/orchestrator-types.md)
 
 ## Implementation inventory
-- `crates/pi-orchestrator/src/types.rs`: module port.
+- `crates/pi-orchestrator/src/types.rs`: native module.
 
 ## Tests asserting this spec
 - `crates/pi-orchestrator/tests/foundation.rs`
 - `crates/pi-orchestrator/tests/differential.rs`
 
 ## Known gaps (current cycle)
-- [ ] Typed invalid JS input exclusions apply; optional record fields omitted, not null.
+No additional in-slice gap beyond the proof boundary above.
 
 ## Out of scope
-Live host state and network.
+Live services, user state and real Radius network calls; native packaging follows the approved library boundary.

@@ -1,9 +1,11 @@
 # Orchestrator index
-Frozen `packages/orchestrator/src/index.ts` at [common pin](../source-lock.json).
 
-| Exports/branches | Proof |
+Source: `packages/orchestrator/src/index.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/index.rs`.
+Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
+
+| Export/branch | Behavioral proof |
 | --- | --- |
-| Whole module | public module re-exports compile and are exercised through native CLI/runtime tests; no independent logic |
-| cli rpc-stream / serve Radius-enabled logs and failure signals | implemented; remaining focused fixtures pending |
+| all export-star modules | native index.rs reexports config/handler/IPC/process/serve/storage/supervisor/types; root imports exercised by errors and process-boundary fixtures |
+| no Radius export-star and no runtime logic | Radius remains a module dependency, not part of native index reexports; no standalone executable behavior to differentiate |
 
-Parent-approved native boundary: library-only package (no frozen bin entry), async serve returns Result after signal cleanup, CLI run returns exit code (signal shutdown 0, propagated errors 1). JS uncaughtException/unhandledRejection map to propagated native errors → embedding exit 1; no process-global panic hooks. Child packaging uses sibling pi --mode rpc. Frozen source remains immutable.
+Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.

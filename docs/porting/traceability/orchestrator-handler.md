@@ -1,12 +1,13 @@
 # Orchestrator handler
-Frozen `packages/orchestrator/src/handler.ts` at [common pin](../source-lock.json).
 
-| Surface/branches | Proof |
+Source: `packages/orchestrator/src/handler.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/handler.rs`.
+Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
+
+| Export/branch | Behavioral proof |
 | --- | --- |
-| OrchestratorSupervisor, singleton-equivalent instance per runtime, handler dispatch | `tests/supervisor.rs` |
-| spawn/list/status/RPC/stop; persisted session metadata; summary optional keys | `supervisor_handler_stream_lifecycle_matches_frozen` differential with real fake child |
-| openRpcStream command/response/event/UI forwarding and close | same frozen differential; raw supervisor response not sent to event subscribers behavioral regression |
-| recoverAfterRestart online/starting→stopped, error unchanged; unknown instance four dispatch branches | `restart_recovery_and_handler_unknown_instance_contract` |
-| unexpected exit/failSpawn/shutdown/metadata refresh command set/multiple subscribers | implemented; additional failure fixtures pending |
+| handleIpcRequest list/status/stop/rpc + unknown instance branches | frozen full child lifecycle differential; unknown status/stop/rpc/rpc_stream fixtures: supervisor |
+| toInstanceSummary; openRpcStream | optional session fields, response/event/UI forwarding, no response leakage into event subscribers: supervisor |
+| spawn success / successful rpc_stream ready dispatch | implemented using tested supervisor/summary code; explicit combined handler-success fixture not yet added |
 
-Native runtime creates one shared supervisor and Radius coordinator, with weak coordinator binding to avoid an ownership cycle. Source maps use insertion-ordered IndexMap. Initial-ID/time injection is boundary-only; frozen differential normalizes generated instance UUID and fixes clock without modifying source bytes.
+## Explicit proof gaps
+- Direct successful handleIpcRequest spawn and rpc_stream-ready dispatch branches lack dedicated frozen assertions.

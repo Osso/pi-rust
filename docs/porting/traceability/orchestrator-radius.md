@@ -1,16 +1,14 @@
-# Orchestrator Radius
-Frozen `packages/orchestrator/src/radius.ts` at [common pin](../source-lock.json).
+# Orchestrator radius
 
-| Export/branch | Proof |
+Source: `packages/orchestrator/src/radius.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/radius.rs`.
+Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
+
+| Export/branch | Behavioral proof |
 | --- | --- |
-| getRadiusUrl/getRadiusOrchestratorBaseUrl/getRadiusAccessToken/isRadiusEnabled | `credentials_urls_and_bounded_jitter_match_frozen_semantics` |
-| RadiusPresence.start/registerPi/disconnectPi/stop | `radius_registration_matches_frozen_fake_fetch`: frozen TS differential with fake fetch and fake timers; registration OS metadata normalized only |
-| machine record and registration capabilities | `fake_http_registration_persistence_and_disconnect` |
-| three 404 machine heartbeats re-register machine and live Pis | paused Tokio timer behavioral test, RED reproduced self-cancelling callback, corrected pending GREEN |
-| machine/Pi backoff, heartbeat success/reset, third 404 recovery, coordinator removal, disconnect 404 | implemented; additional differential failure fixtures pending |
+| getRadiusUrl/getRadiusOrchestratorBaseUrl/getRadiusAccessToken/isRadiusEnabled | URL/credential precedence native tests; actual fake-fetch frozen registration differential; coding-agent AuthStorage reused |
+| RadiusPresence start/stop/registerPi/disconnectPi; registerMachine | frozen HTTP path/body and machine persistence; cached machine short-circuit; timers canceled on stop/disconnect |
+| machine/Pi heartbeats; backoff; reRegisterMachineAndPis/reRegisterPi | frozen fake-fetch and paused-time matrices: transient 500 backoff/reset, third 404 recovery, live-Pi coordinator update; no request before exact deadline |
+| re-registration failure, coordinator disappearance, ignored disconnect 404 | implemented from source, additional failure-matrix assertions remain unproven |
 
-All HTTP uses shared `pi-ai::request::Fetch`; no network in tests. Native credentials reuse coding-agent AuthStorage; injected credential/environment/clock/randomness only provide deterministic boundary values. Timers are single-shot and cleared before callbacks, matching JS clearTimeout on an already-running callback. Unknown/error branch proof remains open; no coverage promotion.
-
-`frozen_radius_machine_and_pi_retry_recovery_matrices`: fake fetch and paused-time native timers versus frozen private heartbeat callbacks; machine transient 500→500→success→404×3→machine+live-Pi recovery, Pi transient500→success→404×3→Pi re-registration. Asserts no request before exact frozen deadline, frozen HTTP body/path sequence, coordinator IDs and queue exhaustion. OS metadata and temp heartbeat paths normalized explicitly, no production data/network.
-
-`cached_machine_identity_does_not_read_replaced_disk_record`: after registration, malformed on-disk machine.json must not be read while in-memory machine exists. RED exposed eager Option::or evaluation; both Pi registration and machine re-registration now share the frozen short-circuit lookup.
+## Explicit proof gaps
+- Re-registration failure, coordinator disappearance and disconnect-404 branches lack complete frozen failure matrices.

@@ -1,23 +1,15 @@
-# Orchestrator RPC process
-Frozen `packages/orchestrator/src/rpc-process.ts` at [common pin](../source-lock.json).
+# Orchestrator rpc-process
 
-| Export/branch | Proof |
+Source: `packages/orchestrator/src/rpc-process.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/rpc_process.rs`.
+Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
+
+| Export/branch | Behavioral proof |
 | --- | --- |
-| RpcProcessInstance / createRpcProcessInstance | `tests/rpc_process.rs` real fake child |
-| send / correlated response / event / UI dispatch | `routing_matches_frozen_process_and_disposal_rejects_pending` TS differential |
-| onEvent, onExit, UI handler, unsubscribes | routing tested; unsubscribe/exit-listener fixtures pending |
-| child exit rejects requests; send after exit | `child_response_correlation_events_exit_and_disposal` |
-| dispose rejects pending and waits SIGTERM | `routing_matches_frozen_process_and_disposal_rejects_pending` |
-| generated IDs, blank lines, partial frames, stderr, malformed JSON | implemented; fixtures pending |
+| RpcProcessInstance/createRpcProcessInstance | native spawn method; sibling pi --mode rpc and cwd proved by copied embedding test with sandbox fake sibling |
+| send; handleLine; handleUiResponse; pending requests | concurrent IDs, events/UI routing, duplicate ID orphan lifetime, exit/disposal errors, EOF-tail and Node UTF-8 decoding: rpc_process |
+| setUiRequestHandler/onEvent/onExit and unsubscribes | frozen Set identity, repeated callback deduplication and unsubscribe counts: rpc_process; raw supervisor stream tests |
+| spawn/stdin/exit/dispose | six real spawn failure messages, closed stdin EPIPE, SIGKILL/code errors, disposal pending rejection and fatal→serve cleanup: errors/rpc_process/supervisor |
 
-Packaging: parent approved native sibling `pi --mode rpc`, injectable command only for sandbox fakes. Shared coding-agent RPC envelopes re-exported by protocol. No source checkout changes. Frozen process spawn command is replaced on its prototype only inside oracle fixture; routing/lifetime code is unmodified.
+Duplicate in-flight IDs intentionally keep the overwritten original resolver pending through disposal; orphan senders release only with instance lifetime. Malformed child JSON propagates to serve fatal cleanup without an invented immediate rejection. Both preserve parent-approved frozen behavior.
 
-Approved frozen discrepancies (parent 2026-10-21): duplicate in-flight ID retains the original pending resolver even after disposal; Rust orphan sender list releases only with instance lifetime. Malformed child JSON propagates through native fatal channel to serve Err/CLI exit 1, with ordinary server/supervisor/Radius/socket cleanup, not a new immediate send rejection. Real-child RED/GREEN and frozen subprocess differential fixtures cover both.
-
-Signal error formatting reuses coding-agent child-process helper. Real child SIGKILL regression fails with numeric 9 before correction; expected frozen signal=SIGKILL.
-
-`tests/errors.rs` differentials reproduce native diagnostic mismatches first: directory read, invalid parent, mkdir-through-file, rm-directory, missing/non-executable/directory executable, absent/file/NUL cwd, and closed child stdin. Shared pi-js-compat Node FS/spawn/pipe-write formatters now retain originating syscall/errno; no JS stacks fabricated. Stdin pipe errors also reach the approved fatal cleanup channel.
-
-`child_jsonl_eof_and_utf8_decoding_match_frozen_node_streams` reproduces draft EOF-tail resolution, invalid UTF-8 rejection and split-stderr codepoint corruption. Reuses coding-agent JsonlLineDecoder for newline-only stdout with Node replacement decoding; drops unterminated EOF tail like frozen. Stderr retains bytes and decodes once for error text, preserving split characters.
-
-Frozen Set identity is preserved for reused callback objects: `repeated_callback_identity_matches_frozen_set_subscriptions` and `shared_stream_callback_identity_and_close_match_frozen_sets` fail the draft token-per-registration behavior first, then compare event/exit/UI counts and close behavior to actual frozen processes. Arc callback identity deduplicates registrations; closing a stream clears the same UI callback even if reused by another stream, matching frozen equality semantics.
+Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.

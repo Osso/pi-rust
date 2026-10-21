@@ -1,11 +1,13 @@
 # Orchestrator serve
-Frozen `packages/orchestrator/src/serve.ts` at [common pin](../source-lock.json).
 
-| Exports/branches | Proof |
+Source: `packages/orchestrator/src/serve.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/serve.rs`.
+Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
+
+| Export/branch | Behavioral proof |
 | --- | --- |
-| Whole module | tests/supervisor.rs: startup logs and frozen SIGTERM cleanup; native idempotent shutdown and startup-failure socket cleanup |
-| cli rpc-stream / serve Radius-enabled logs and failure signals | implemented; remaining focused fixtures pending |
+| serve startup; server/recovery/Radius setup | native start startup-failure cleanup, frozen startup logs and source SIGTERM exit-0 socket cleanup: supervisor |
+| shutdown promise/idempotence; uncaughtException/unhandledRejection mapping | native idempotent cleanup; frozen malformed-child exit 1 and native fatal-channel Err, disposed pending send, removed instances/socket: supervisor |
+| signal/Radius-enabled boundary | native signal handler and enabled logs implemented; direct embedding-process normal signal and Radius-enabled full serve matrices unproven |
 
-Parent-approved native boundary: library-only package (no frozen bin entry), async serve returns Result after signal cleanup, CLI run returns exit code (signal shutdown 0, propagated errors 1). JS uncaughtException/unhandledRejection map to propagated native errors → embedding exit 1; no process-global panic hooks. Child packaging uses sibling pi --mode rpc. Frozen source remains immutable.
-
-Approved frozen discrepancies (parent 2026-10-21): duplicate in-flight ID retains the original pending resolver even after disposal; Rust orphan sender list releases only with instance lifetime. Malformed child JSON propagates through native fatal channel to serve Err/CLI exit 1, with ordinary server/supervisor/Radius/socket cleanup, not a new immediate send rejection. Real-child RED/GREEN and frozen subprocess differential fixtures cover both.
+## Explicit proof gaps
+- Direct native embedding-process SIGINT/SIGTERM and Radius-enabled full serve startup/shutdown matrices remain unproven.

@@ -1,11 +1,12 @@
 # Orchestrator ipc-protocol
 
-Frozen: `packages/orchestrator/src/ipc/protocol.ts` at [common pin](../source-lock.json).
+Source: `packages/orchestrator/src/ipc/protocol.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/ipc/protocol.rs`.
+Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
 
-| Surface | Rust | Proof |
-| --- | --- | --- |
-| Whole module | `crates/pi-orchestrator/src/ipc/protocol.rs` | `foundation::protocol_uses_js_numbers_key_order_and_newline; differential::frozen_protocol_storage_bidirectional_file_bytes` |
+| Export/branch | Behavioral proof |
+| --- | --- |
+| encodeMessage; parseRequestLine/parseResponseLine | JS number and integer-key order, LF framing, cast-only success and SyntaxError messages: foundation/differential + IPC errors |
+| request interfaces/RequestMap/OrchestratorRequest | native OrchestratorRequest enum; six request discriminators; raw parser stays JSON-cast compatible |
+| response interfaces/ResponseMap/ResponseFor; RpcClientMessage/RpcServerMessage/ProtocolMessage | native JSON response/event envelopes; shared coding-agent RpcCommand/RpcResponse/UI types reused, not copied; handler/stream fixtures exercise wire values |
 
-Parsers cast JSON without schema validation as frozen TS; shared coding-agent RPC types are re-exported.
-
-Status: initial focused proof; complete branch matrix pending. Coverage remains todo until final evidence.
+Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.

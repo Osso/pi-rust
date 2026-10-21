@@ -1,23 +1,23 @@
 # Orchestrator config
 
-Port of frozen `packages/orchestrator/src/config.ts`.
+Port of frozen `packages/orchestrator/src/config.ts`. Native boundary decisions and proof scope: [Q3 proof](../porting/orchestrator-proof.md).
 
 ## What it must do
-- [x] Preserve tested JSON/path/record contract against frozen source.
-- [ ] Complete all source branches and exported-symbol proof.
+- [x] isBunBinary, VERSION: native flag and frozen package version in differential config matrix.
+- [x] getOrchestratorDir; getAuthPath/getMachinePath/getInstancesPath/getSocketPath: default/empty/explicit precedence, relative dot-segment normalization and HOME-absent OS lookup: foundation + differential.
 
 ## How it works
-- [Traceability](../porting/traceability/orchestrator-config.md)
+- [Module traceability](../porting/traceability/orchestrator-config.md)
 
 ## Implementation inventory
-- `crates/pi-orchestrator/src/config.rs`: module port.
+- `crates/pi-orchestrator/src/config.rs`: native module.
 
 ## Tests asserting this spec
 - `crates/pi-orchestrator/tests/foundation.rs`
 - `crates/pi-orchestrator/tests/differential.rs`
 
 ## Known gaps (current cycle)
-- [ ] Bun virtual filesystem detection is false in the native port; package metadata uses frozen package version.
+No additional in-slice gap beyond the proof boundary above.
 
 ## Out of scope
-Live host state and network.
+Live services, user state and real Radius network calls; native packaging follows the approved library boundary.

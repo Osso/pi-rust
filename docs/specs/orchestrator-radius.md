@@ -1,23 +1,24 @@
-# Orchestrator Radius
-Port frozen Radius HTTP registration, credential lookup and timed presence recovery.
+# Orchestrator radius
+
+Port of frozen `packages/orchestrator/src/radius.ts`. Native boundary decisions and proof scope: [Q3 proof](../porting/orchestrator-proof.md).
 
 ## What it must do
-- [x] Register machine/Pi with frozen request bodies and persistent machine record.
-- [x] Resolve URLs and credential precedence and bound jitter/backoff.
-- [x] Disconnect Pi and machine, cancel pending timers.
-- [ ] Reset retry counters on success; re-register after three 404s; retry transient failures with frozen delays.
+- [x] getRadiusUrl/getRadiusOrchestratorBaseUrl/getRadiusAccessToken/isRadiusEnabled: URL/credential precedence native tests; actual fake-fetch frozen registration differential; coding-agent AuthStorage reused.
+- [x] RadiusPresence start/stop/registerPi/disconnectPi; registerMachine: frozen HTTP path/body and machine persistence; cached machine short-circuit; timers canceled on stop/disconnect.
+- [x] machine/Pi heartbeats; backoff; reRegisterMachineAndPis/reRegisterPi: frozen fake-fetch and paused-time matrices: transient 500 backoff/reset, third 404 recovery, live-Pi coordinator update; no request before exact deadline.
+- [ ] Re-registration failure, coordinator disappearance and disconnect-404 branches lack complete frozen failure matrices.
 
 ## How it works
-- [Traceability](../porting/traceability/orchestrator-radius.md)
+- [Module traceability](../porting/traceability/orchestrator-radius.md)
 
 ## Implementation inventory
-- `crates/pi-orchestrator/src/radius.rs`: injectable Fetch/timer state.
+- `crates/pi-orchestrator/src/radius.rs`: native module.
 
 ## Tests asserting this spec
 - `crates/pi-orchestrator/tests/radius.rs`
 
 ## Known gaps (current cycle)
-- [ ] Complete failure and heartbeat branch differential matrix.
+- [ ] Re-registration failure, coordinator disappearance and disconnect-404 branches lack complete frozen failure matrices.
 
 ## Out of scope
-Live Radius requests and user credentials.
+Live services, user state and real Radius network calls; native packaging follows the approved library boundary.

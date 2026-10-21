@@ -1,15 +1,12 @@
 # Orchestrator storage
 
-Frozen: `packages/orchestrator/src/storage.ts` at [common pin](../source-lock.json).
+Source: `packages/orchestrator/src/storage.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/storage.rs`.
+Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
 
-| Surface | Rust | Proof |
-| --- | --- | --- |
-| Whole module | `crates/pi-orchestrator/src/storage.rs` | `differential::frozen_protocol_storage_bidirectional_file_bytes` |
+| Export/branch | Behavioral proof |
+| --- | --- |
+| loadMachine/saveMachine/deleteMachine | absent, present, delete idempotence, corrupt JSON, TS→Rust→TS bytes: foundation/differential |
+| loadInstances/saveInstances/getInstance/upsertInstance/removeInstance | empty/default, insert/update order, replace/remove and unknown fields: foundation/differential |
+| read/open/mkdir/rm/write failures | errors.rs compares nine real FS failure messages to frozen, including private EACCES fixtures and /dev/full ENOSPC |
 
-Malformed file and I/O failures propagate; additional failure fixtures pending.
-
-Status: initial focused proof; complete branch matrix pending. Coverage remains todo until final evidence.
-
-`tests/errors.rs` differentials reproduce native diagnostic mismatches first: directory read, invalid parent, mkdir-through-file, rm-directory, missing/non-executable/directory executable, absent/file/NUL cwd, and closed child stdin. Shared pi-js-compat Node FS/spawn/pipe-write formatters now retain originating syscall/errno; no JS stacks fabricated. Stdin pipe errors also reach the approved fatal cleanup channel.
-
-Additional real-filesystem differentials cover EACCES read/open/rm and ENOSPC via sandbox /dev/full. RED distinguishes write from open and fs.rmSync permission diagnostics; File::create/write_all now preserve the observed failure boundary. Only private sandbox permissions/dev-full error sink are used.
+Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.

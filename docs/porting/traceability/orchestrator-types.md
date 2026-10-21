@@ -1,11 +1,11 @@
 # Orchestrator types
 
-Frozen: `packages/orchestrator/src/types.ts` at [common pin](../source-lock.json).
+Source: `packages/orchestrator/src/types.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/types.rs`.
+Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
 
-| Surface | Rust | Proof |
-| --- | --- | --- |
-| Whole module | `crates/pi-orchestrator/src/types.rs` | `foundation and differential::frozen_protocol_storage_bidirectional_file_bytes` |
+| Export/branch | Behavioral proof |
+| --- | --- |
+| InstanceStatus | all five concrete serde wire values in foundation |
+| MachineRecord, InstanceRecord, RadiusRegistration | required/optional camelCase fields and omitted options: foundation; serialized records compared to TS storage fixtures |
 
-Typed invalid JS input exclusions apply; optional record fields omitted, not null.
-
-Status: initial focused proof; complete branch matrix pending. Coverage remains todo until final evidence.
+Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.

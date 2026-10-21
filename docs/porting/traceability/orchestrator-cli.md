@@ -1,11 +1,14 @@
 # Orchestrator cli
-Frozen `packages/orchestrator/src/cli.ts` at [common pin](../source-lock.json).
 
-| Exports/branches | Proof |
+Source: `packages/orchestrator/src/cli.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/cli.rs`.
+Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
+
+| Export/branch | Behavioral proof |
 | --- | --- |
-| Whole module | tests/cli.rs: help/version/usage/unknown exit codes and list/spawn/status/stop/rpc request JSON stdout compared to frozen CLI subprocess |
-| cli rpc-stream / serve Radius-enabled logs and failure signals | implemented; remaining focused fixtures pending |
+| printHelp; package version; no args/help/version/unknown/usage | actual frozen subprocess stdout/stderr/exit codes compared byte-for-byte: cli |
+| getFlagValue; list/spawn/status/stop/rpc; printResponse | first-flag semantics, default cwd and JSON request/pretty response bytes compared to frozen: cli |
+| rpcStream | frozen/native complete JSONL stdin, blank lines, unterminated EOF tail, stdout/stderr and exit 0: cli |
+| main serve and native propagated errors | approved library run entry returns code rather than exiting; complete native serve-CLI embedding matrix remains unproven |
 
-Parent-approved native boundary: library-only package (no frozen bin entry), async serve returns Result after signal cleanup, CLI run returns exit code (signal shutdown 0, propagated errors 1). JS uncaughtException/unhandledRejection map to propagated native errors → embedding exit 1; no process-global panic hooks. Child packaging uses sibling pi --mode rpc. Frozen source remains immutable.
-
-`rpc_stream_only_forwards_complete_jsonl_stdin_lines` runs native and frozen CLI against the same isolated Unix fixture: blank stdin ignored, complete commands forwarded, unterminated EOF tail ignored, byte-identical stdout/stderr and exit 0. RED found BufReader::lines forwarding the unterminated tail; native now reads only newline-terminated JSONL like TS.
+## Explicit proof gaps
+- The native CLI Serve branch is composed from tested runtime helpers, but lacks a direct embedding-process CLI serve/error exit-code differential.
