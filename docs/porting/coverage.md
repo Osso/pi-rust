@@ -1,9 +1,9 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 307, `gap` 12, `partial` 58, `todo` 309.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 314, `gap` 14, `partial` 58, `todo` 300.
 
-Only byte-identical rows retain old labels/mappings; those proofs still require re-run. Modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
+Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
 Level is the old import-graph depth where available, not recomputed for changed modules.
 
@@ -685,7 +685,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
 | `tui/native/darwin/src/darwin-modifiers.c` | 70 | — | gap | — | Existing 2026-10-19 macOS/Windows addon approval; actual exports mapped, not native parity. [Traceability](traceability/native-modifiers.md#native-addon-implementation-rows).; re-run vs 4f9e6f8a4 pending |
-| `tui/native/win32/src/win32-console-mode.c` | 53 | — | todo | — | re-pin delta; old status: gap; old Rust: —; Existing 2026-10-19 macOS/Windows addon approval; actual exports mapped, not native parity. [Traceability](traceability/native-modifiers.md#native-addon-implementation-rows). |
+| `tui/native/win32/src/win32-console-mode.c` | 53 | — | gap | — | Q1 re-inspected 53-line frozen helper: enableVirtualTerminalInput only; Windows/N-API unavailable on Linux, no native parity claimed; [trace](traceability/native-modifiers.md#native-addon-implementation-rows). |
 | `tui/src/autocomplete.ts` | 793 | 1 | done | `crates/pi-tui/src/autocomplete.rs` | TS test port + real-fd differential; async argument-completion callback and locale collation documented as gaps; re-run vs 4f9e6f8a4 pending |
 | `tui/src/components/box.ts` | 137 | 3 | done | `crates/pi-tui/src/components/box.rs` | differential padding/background/cache-sample matrix; re-run vs 4f9e6f8a4 pending |
 | `tui/src/components/cancellable-loader.ts` | 40 | 5 | done | `crates/pi-tui/src/components/cancellable_loader.rs` | differential escape abort + render; AbortSignal mapped to CancellationToken; re-run vs 4f9e6f8a4 pending |
@@ -702,19 +702,19 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `tui/src/components/truncated-text.ts` | 65 | 3 | done | `crates/pi-tui/src/components/truncated_text.rs` | all TS tests ported + differential; re-run vs 4f9e6f8a4 pending |
 | `tui/src/editor-component.ts` | 74 | 3 | done | `crates/pi-tui/src/editor_component.rs` | Optional members mapped to default trait methods; typed callback fields ([traceability](traceability/editor-component.md)).; re-run vs 4f9e6f8a4 pending |
 | `tui/src/fuzzy.ts` | 161 | 0 | done | `crates/pi-tui/src/fuzzy.rs` | exact score-bit differential; re-run vs 4f9e6f8a4 pending |
-| `tui/src/index.ts` | 128 | 7 | todo | `crates/pi-tui/src/lib.rs` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/lib.rs`; Every source export maps to a package-root path; `Key` and `Marked` differential in `tests/index_exports.rs` ([traceability](traceability/tui-index.md)) |
-| `tui/src/keybindings.ts` | 249 | 1 | todo | `crates/pi-tui/src/keybindings.rs` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/keybindings.rs`; differential resolved keys/conflicts; ordered config pairs |
+| `tui/src/index.ts` | 128 | 7 | done | `crates/pi-tui/src/lib.rs` | Q1 frozen root export mapping, concrete TUI constructor/render, removed later exports and migrated consumers; [proof](q1-tui-core-proof.md), [trace](traceability/tui-index.md). |
+| `tui/src/keybindings.ts` | 249 | 1 | done | `crates/pi-tui/src/keybindings.rs` | Q1 frozen 32-action defaults and all manager methods; direct shared-global mutation/replacement differential, Arc state; [proof](q1-tui-core-proof.md). |
 | `tui/src/keys.ts` | 1404 | 0 | done | `crates/pi-tui/src/keys.rs` | differential legacy/Kitty/modifyOther matrix; Key helper gap; re-run vs 4f9e6f8a4 pending |
 | `tui/src/kill-ring.ts` | 46 | 0 | done | `crates/pi-tui/src/kill_ring.rs` | differential ring operations; re-run vs 4f9e6f8a4 pending |
-| `tui/src/native-modifiers.ts` | 59 | 0 | todo | `crates/pi-tui/src/native_modifiers.rs` | re-pin delta; old status: gap; old Rust: `crates/pi-tui/src/native_modifiers.rs`; Linux behavior identical (no native helper → `false`); macOS/Windows N-API modifier addons not ported — user-approved Linux-only parity 2026-10-19. |
+| `tui/src/native-modifiers.ts` | 59 | 0 | gap | `crates/pi-tui/src/native_modifiers.rs` | Q1 direct frozen Linux differential passes; frozen loader is Darwin-only, native Darwin helper remains gap; [trace](traceability/native-modifiers.md). |
 | `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests; re-run vs 4f9e6f8a4 pending |
-| `tui/src/stdin-buffer.ts` | 434 | 0 | todo | `crates/pi-tui/src/stdin_buffer.rs` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/stdin_buffer.rs`; differential chunk/paste matrix; driver-owned timer API |
-| `tui/src/terminal-colors.ts` | 73 | 0 | todo | `crates/pi-tui/src/terminal_colors.rs` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/terminal_colors.rs`; differential parse matrix; TUI query method out of leaf scope |
+| `tui/src/stdin-buffer.ts` | 434 | 0 | done | `crates/pi-tui/src/stdin_buffer.rs` | Q1 frozen one-timeout/default-10ms behavior, chunk/paste/dedup/flush matrix and real timer differential; typed String/event representation explicit; [proof](q1-tui-core-proof.md). |
+| `tui/src/terminal-colors.ts` | 73 | 0 | done | `crates/pi-tui/src/terminal_colors.rs` | Q1 strict framing/report and finite long-channel proof pass; NaN RGB restriction user-approved 2026-10-21; [proof](q1-tui-core-proof.md). |
 | `tui/src/terminal-image.ts` | 488 | 0 | todo | `crates/pi-tui/src/terminal_image.rs` + `pi-js-compat` Base64 | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/terminal_image.rs` + `pi-js-compat` Base64; differential encode/detect/render/placement/dimensions; WebP <30 source bug preserved |
-| `tui/src/terminal.ts` | 567 | 1 | todo | `crates/pi-tui/src/terminal.rs` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/terminal.rs`; differential negotiation/timeout/normalization; ProcessTerminal event-queue seam; resize polling |
-| `tui/src/tui.ts` | 2388 | — | todo | `crates/pi-tui/src/tui.rs` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/tui.rs`; differential byte stream (main+renderer), overlays/focus/fixed cells/render regions, viewport helpers and start/stop hooks; debug/crash logs use the TS `logDirectory` default and ISO timestamps Alternate-screen fixed-cell owner follows TS TuiBase deferred update/dispose semantics. |
+| `tui/src/terminal.ts` | 567 | 1 | done | `crates/pi-tui/src/terminal.rs` | Q1 helper/log-date and real PTY/pipe lifecycle proof pass; non-finite flags and negative/fractional/non-finite env dimension restrictions user-approved 2026-10-21; [proof](q1-tui-core-proof.md). |
+| `tui/src/tui.ts` | 2388 | — | done | `crates/pi-tui/src/tui.rs` | Q1 frozen renderer plus F1–F5 cleanup/try-render/first-child/live callback Set/dynamic Termux proof; F4b old/repeated unsubscribe after re-registration matches frozen in both registries ([trace](traceability/tui.md)); >u32 cell-size restriction user-approved 2026-10-21; [proof](q1-tui-core-proof.md). |
 | `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone); re-run vs 4f9e6f8a4 pending |
-| `tui/src/utils.ts` | 1188 | 0 | todo | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs`; Unicode 17.0 tables; differential corpus + ~11k codepoint samples |
+| `tui/src/utils.ts` | 1188 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Q1 frozen width/tab/CR/OSC8 behavior, 10 differential groups and approximately 11k width samples; F6 nested CSI SGR carry regression; host-object/byte-offset representation explicit; [proof](q1-tui-core-proof.md). |
 | `tui/src/word-navigation.ts` | 117 | 1 | done | `crates/pi-tui/src/word_navigation.rs` | TS tests + boundary differential; ICU4X dictionary-word mismatches pinned as approved deviation; re-run vs 4f9e6f8a4 pending |
 | `tui/vitest.config.ts` | 7 | — | todo | — | new on master |
 

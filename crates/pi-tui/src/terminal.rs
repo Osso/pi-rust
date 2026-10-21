@@ -7,7 +7,7 @@
 //! with [`Terminal::poll_events`].
 
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, channel};
@@ -21,12 +21,10 @@ use crate::stdin_buffer::{StdinBuffer, StdinBufferEvent, StdinBufferOptions};
 
 const TERMINAL_PROGRESS_KEEPALIVE: Duration = Duration::from_millis(1000);
 const TERMINAL_PROGRESS_ACTIVE_SEQUENCE: &str = "\x1b]9;4;3\x07";
-const TERMINAL_PROGRESS_CLEAR_SEQUENCE: &str = "\x1b]9;4;0\x07";
-const NATIVE_SHIFT_ENTER_SEQUENCE: &str = "\x1b[13;2u";
+const TERMINAL_PROGRESS_CLEAR_SEQUENCE: &str = "\x1b]9;4;0;\x07";
+const APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE: &str = "\x1b[13;2u";
 const DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS: u32 = 7;
 const KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT: Duration = Duration::from_millis(150);
-const DEFAULT_ESCAPE_TIMEOUT_MS: f64 = 10.0;
-const DEFAULT_SSH_ESCAPE_TIMEOUT_MS: f64 = 100.0;
 const BRACKETED_PASTE_ENABLE: &str = "\x1b[?2004h";
 const BRACKETED_PASTE_DISABLE: &str = "\x1b[?2004l";
 
@@ -84,9 +82,9 @@ pub struct TerminalIoError {
 }
 
 /// A parsed Kitty keyboard protocol negotiation response.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum KeyboardProtocolNegotiationSequence {
-    KittyFlags { flags: u32 },
+    KittyFlags { flags: f64 },
     DeviceAttributes,
 }
 
@@ -94,10 +92,10 @@ pub enum KeyboardProtocolNegotiationSequence {
 pub fn parse_keyboard_protocol_negotiation_sequence(sequence: &str) -> Option<KeyboardProtocolNegotiationSequence> {
     if let Some(body) = sequence.strip_prefix("\x1b[?").and_then(|rest| rest.strip_suffix('u')) {
         if !body.is_empty() && body.bytes().all(|byte| byte.is_ascii_digit()) {
-            return body
-                .parse()
-                .ok()
-                .map(|flags| KeyboardProtocolNegotiationSequence::KittyFlags { flags });
+            let flags = pi_js_compat::number::parse_number(body);
+            return flags
+                .is_finite()
+                .then_some(KeyboardProtocolNegotiationSequence::KittyFlags { flags });
         }
         return None;
     }
@@ -123,21 +121,12 @@ pub fn is_apple_terminal_session(platform: &str, term_program: Option<&str>) -> 
     platform == "macos" && term_program == Some("Apple_Terminal")
 }
 
-/// Rewrite a bare Return to CSI-u Shift+Enter when native Shift detection applies.
-pub fn normalize_native_shift_enter_input(
-    data: &str,
-    should_detect_native_shift_enter: bool,
-    is_shift_pressed: bool,
-) -> String {
-    if should_detect_native_shift_enter && data == "\r" && is_shift_pressed {
-        return NATIVE_SHIFT_ENTER_SEQUENCE.to_string();
+/// Rewrite bare Return only for Apple Terminal with native Shift pressed.
+pub fn normalize_apple_terminal_input(data: &str, is_apple_terminal: bool, is_shift_pressed: bool) -> String {
+    if is_apple_terminal && data == "\r" && is_shift_pressed {
+        return APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE.to_string();
     }
     data.to_string()
-}
-
-/// Apple Terminal variant of [`normalize_native_shift_enter_input`].
-pub fn normalize_apple_terminal_input(data: &str, is_apple_terminal: bool, is_shift_pressed: bool) -> String {
-    normalize_native_shift_enter_input(data, is_apple_terminal, is_shift_pressed)
 }
 
 /// Raw-mode switch failure with the source message.
@@ -173,20 +162,6 @@ pub fn is_terminal_raw_mode_failure(error: &(dyn std::error::Error + 'static)) -
     let message = error.to_string();
     let lower = message.to_ascii_lowercase();
     lower.starts_with("setrawmode failed with errno:")
-}
-
-/// Resolve the escape reassembly timeout from an environment lookup.
-pub fn resolve_escape_timeout_ms(env: &dyn Fn(&str) -> Option<String>) -> f64 {
-    if let Some(raw) = env("PI_TUI_ESC_TIMEOUT") {
-        let configured = pi_js_compat::number::parse_number(&raw);
-        if configured.is_finite() && configured > 0.0 {
-            return configured;
-        }
-    }
-    if env("SSH_CONNECTION").is_some() || env("SSH_TTY").is_some() {
-        return DEFAULT_SSH_ESCAPE_TIMEOUT_MS;
-    }
-    DEFAULT_ESCAPE_TIMEOUT_MS
 }
 
 fn parse_positive_dimension(value: Option<String>) -> Option<usize> {
@@ -233,13 +208,97 @@ fn write_log_path() -> Option<PathBuf> {
     }
     let path = PathBuf::from(&configured);
     if path.is_dir() {
-        let seconds = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_secs())
-            .unwrap_or(0);
-        return Some(path.join(format!("tui-{seconds}-{}.log", std::process::id())));
+        let millis = pi_js_compat::date::js_now_millis() as i64;
+        let date = pi_js_compat::date::local_date_fields(millis).expect("resolve local write-log date");
+        let seconds = millis.div_euclid(1000).rem_euclid(60);
+        let stamp = format!(
+            "{}-{:02}-{:02}_{:02}-{:02}-{seconds:02}",
+            date.year,
+            date.month + 1,
+            date.day,
+            date.hours,
+            date.minutes
+        );
+        return Some(path.join(format!("tui-{stamp}-{}.log", std::process::id())));
     }
     Some(path)
+}
+
+fn wait_for_stdin(stdin: &std::io::Stdin) -> std::io::Result<bool> {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+    let mut descriptors = [PollFd::new(stdin, PollFlags::IN)];
+    let timeout = Timespec {
+        tv_sec: 0,
+        tv_nsec: 10_000_000,
+    };
+    match poll(&mut descriptors, Some(&timeout)) {
+        Ok(count) => Ok(count > 0),
+        Err(rustix::io::Errno::INTR) => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn send_stdin_chunk(stdin: &std::io::Stdin, sender: &std::sync::mpsc::Sender<Vec<u8>>) -> std::io::Result<bool> {
+    let mut buffer = [0_u8; 4096];
+    match rustix::io::read(stdin, &mut buffer) {
+        Ok(0) => Ok(false),
+        Ok(count) => Ok(sender.send(buffer[..count].to_vec()).is_ok()),
+        Err(rustix::io::Errno::INTR) => Ok(true),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn read_stdin_chunks(
+    sender: std::sync::mpsc::Sender<Vec<u8>>,
+    errors: std::sync::mpsc::Sender<std::io::Error>,
+    stop: Arc<AtomicBool>,
+) {
+    let stdin = std::io::stdin();
+    while !stop.load(Ordering::Relaxed) {
+        match wait_for_stdin(&stdin) {
+            Ok(false) => continue,
+            Err(error) => {
+                let _ = errors.send(error);
+                break;
+            }
+            Ok(true) => {}
+        }
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        match send_stdin_chunk(&stdin, &sender) {
+            Ok(true) => {}
+            Ok(false) => break,
+            Err(error) => {
+                let _ = errors.send(error);
+                break;
+            }
+        }
+    }
+}
+
+fn decode_stdin_chunk(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
+    pending.extend_from_slice(chunk);
+    let mut decoded = String::new();
+    while !pending.is_empty() {
+        match std::str::from_utf8(pending) {
+            Ok(text) => {
+                decoded.push_str(text);
+                pending.clear();
+            }
+            Err(error) => {
+                let valid = error.valid_up_to();
+                decoded.push_str(std::str::from_utf8(&pending[..valid]).expect("validated UTF-8 prefix"));
+                pending.drain(..valid);
+                let Some(invalid) = error.error_len() else {
+                    break;
+                };
+                decoded.push(char::REPLACEMENT_CHARACTER);
+                pending.drain(..invalid);
+            }
+        }
+    }
+    decoded
 }
 
 fn open_stdin_raw() -> Result<Termios, TerminalRawModeError> {
@@ -309,12 +368,14 @@ pub struct ProcessTerminal {
     read_errors: Option<Receiver<std::io::Error>>,
     pending_errors: Vec<TerminalIoError>,
     reader_stop: Option<Arc<AtomicBool>>,
+    reader_thread: Option<std::thread::JoinHandle<()>>,
     kitty_protocol_active: bool,
     modify_other_keys_active: bool,
     keyboard_protocol_pushed: bool,
     keyboard_protocol_negotiation_buffer: String,
     keyboard_protocol_flush_deadline: Option<Instant>,
     stdin_buffer: Option<StdinBuffer>,
+    stdin_utf8_buffer: Vec<u8>,
     pending_events: Vec<TerminalEvent>,
     last_size: Option<(u16, u16)>,
     progress_active: bool,
@@ -338,12 +399,14 @@ impl ProcessTerminal {
             read_errors: None,
             pending_errors: Vec::new(),
             reader_stop: None,
+            reader_thread: None,
             kitty_protocol_active: false,
             modify_other_keys_active: false,
             keyboard_protocol_pushed: false,
             keyboard_protocol_negotiation_buffer: String::new(),
             keyboard_protocol_flush_deadline: None,
             stdin_buffer: None,
+            stdin_utf8_buffer: Vec::new(),
             pending_events: Vec::new(),
             last_size: None,
             progress_active: false,
@@ -430,10 +493,8 @@ impl ProcessTerminal {
     }
 
     fn setup_stdin_buffer(&mut self) {
-        let escape_timeout = resolve_escape_timeout_ms(&environment);
         self.stdin_buffer = Some(StdinBuffer::with_options(StdinBufferOptions {
-            timeout: Duration::from_millis(50),
-            escape_timeout: Duration::from_secs_f64(escape_timeout / 1000.0),
+            timeout: Duration::from_millis(10),
         }));
     }
 
@@ -529,13 +590,12 @@ impl ProcessTerminal {
     }
 
     fn forward_input_sequence(&mut self, sequence: &str) {
-        let should_detect_native_shift_enter = sequence == "\r"
-            && (is_apple_terminal_session(std::env::consts::OS, environment("TERM_PROGRAM").as_deref())
-                || std::env::consts::OS == "windows");
-        let input = normalize_native_shift_enter_input(
+        let is_apple_terminal =
+            sequence == "\r" && is_apple_terminal_session(std::env::consts::OS, environment("TERM_PROGRAM").as_deref());
+        let input = normalize_apple_terminal_input(
             sequence,
-            should_detect_native_shift_enter,
-            should_detect_native_shift_enter && is_native_modifier_pressed(ModifierKey::Shift),
+            is_apple_terminal,
+            is_apple_terminal && is_native_modifier_pressed(ModifierKey::Shift),
         );
         self.pending_events.push(TerminalEvent::Input(input));
     }
@@ -550,7 +610,7 @@ impl ProcessTerminal {
         self.clear_keyboard_protocol_negotiation_buffer();
         match negotiation {
             KeyboardProtocolNegotiationSequence::KittyFlags { flags } => {
-                if flags != 0 {
+                if flags != 0.0 {
                     self.disable_modify_other_keys();
                     if !self.kitty_protocol_active {
                         self.kitty_protocol_active = true;
@@ -593,27 +653,9 @@ impl ProcessTerminal {
         let (error_sender, error_receiver) = channel::<std::io::Error>();
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
-        std::thread::spawn(move || {
-            let mut stdin = std::io::stdin();
-            let mut buffer = [0_u8; 4096];
-            while !thread_stop.load(Ordering::Relaxed) {
-                match stdin.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(count) => {
-                        if sender.send(buffer[..count].to_vec()).is_err() {
-                            break;
-                        }
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(error) => {
-                        // The receiver is gone once the terminal stopped; the
-                        // reader ends either way.
-                        let _ = error_sender.send(error);
-                        break;
-                    }
-                }
-            }
-        });
+        self.reader_thread = Some(std::thread::spawn(move || {
+            read_stdin_chunks(sender, error_sender, thread_stop)
+        }));
         self.input_handler = Some(receiver);
         self.read_errors = Some(error_receiver);
         self.reader_stop = Some(stop);
@@ -628,27 +670,29 @@ impl ProcessTerminal {
         }
     }
 
-    fn drain_stdin_channel(&mut self) {
+    fn drain_stdin_channel(&mut self) -> bool {
         let Some(receiver) = self.input_handler.as_ref() else {
-            return;
+            return false;
         };
         let chunks: Vec<Vec<u8>> = receiver.try_iter().collect();
+        let received = !chunks.is_empty();
         for chunk in chunks {
-            let text = String::from_utf8_lossy(&chunk).into_owned();
+            let text = decode_stdin_chunk(&mut self.stdin_utf8_buffer, &chunk);
+            if text.is_empty() {
+                continue;
+            }
             if let Some(buffer) = self.stdin_buffer.as_mut() {
                 let events = buffer.process(&text);
                 self.dispatch_stdin_events(events);
             }
         }
+        received
     }
 
     fn append_write_log(&self, data: &str) {
         let Some(path) = self.write_log_path.as_deref() else {
             return;
         };
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
             let _ = file.write_all(data.as_bytes());
         }
@@ -689,7 +733,11 @@ enum KeyboardProtocolRead {
 
 impl Terminal for ProcessTerminal {
     fn start(&mut self) -> Result<(), TerminalRawModeError> {
-        self.was_raw = Some(open_stdin_raw()?);
+        self.was_raw = if rustix::termios::isatty(std::io::stdin()) {
+            Some(open_stdin_raw()?)
+        } else {
+            None
+        };
         self.publish_terminal_restore();
         self.write(BRACKETED_PASTE_ENABLE);
         self.last_size = terminal_size();
@@ -714,8 +762,12 @@ impl Terminal for ProcessTerminal {
             buffer.destroy();
         }
         self.stdin_buffer = None;
+        self.stdin_utf8_buffer.clear();
         if let Some(stop) = self.reader_stop.take() {
             stop.store(true, Ordering::Relaxed);
+        }
+        if let Some(thread) = self.reader_thread.take() {
+            thread.join().expect("stdin reader must stop before restart");
         }
         self.input_handler = None;
         self.read_errors = None;
@@ -745,15 +797,13 @@ impl Terminal for ProcessTerminal {
             if now >= end {
                 break;
             }
+            if self.drain_stdin_channel() {
+                last_data = now;
+            }
+            self.poll_at(now);
             if now.duration_since(last_data) >= idle {
                 break;
             }
-            self.drain_stdin_channel();
-            let events = self.poll_at(now);
-            if events.iter().any(|event| matches!(event, TerminalEvent::Input(_))) {
-                last_data = Instant::now();
-            }
-            self.pending_events.clear();
             std::thread::sleep(Duration::from_millis(5));
         }
     }

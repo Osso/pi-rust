@@ -16,7 +16,8 @@ use pi_coding_agent::modes::interactive::components::tool_execution::{
     ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
 };
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, ThemeBg, load_theme_from_path, set_theme_instance};
-use pi_tui::{Component, strip_terminal_sequences};
+use pi_tui::Component;
+use pi_tui::utils::strip_terminal_sequences;
 use serde_json::{Value, json};
 
 fn theme() -> Arc<Theme> {

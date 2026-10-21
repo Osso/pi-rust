@@ -154,10 +154,9 @@ impl RendererApi for TuiMainScreen {
         }
         let cursor_pos = self.base.extract_cursor_position(&mut new_lines, height);
         self.base.apply_line_resets(&mut new_lines);
-        let mut frame = self.frame.borrow_mut();
         commit_rendered_frame(
             &self.base,
-            &mut frame,
+            &self.frame,
             crate::tui::CommitFrame {
                 variant: CommitVariant {
                     check_upward_shrink: false,

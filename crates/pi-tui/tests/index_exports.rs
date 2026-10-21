@@ -6,8 +6,9 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_tui::components::markdown::tokens::Token;
+use pi_tui::components::markdown::{Marked, Tokens};
 use pi_tui::keys::Key;
-use pi_tui::{Marked, Token, Tokens};
 use serde_json::{Value, json};
 
 const SOURCE_DIRECTORY: &str = "packages/tui/src";
@@ -146,4 +147,19 @@ fn marked_facade_exposes_the_ported_lexer() {
     let serialized = serde_json::to_value(&tokens).expect("tokens serialize");
     assert_eq!(serialized[0]["type"], "heading");
     assert_eq!(serialized[0]["depth"], 1);
+}
+
+#[path = "support/virtual_terminal.rs"]
+mod virtual_terminal;
+
+#[test]
+fn frozen_root_tui_constructs_and_renders() {
+    use pi_tui::tui::TuiExt;
+    let (terminal, handle) = virtual_terminal::concrete(20, 5);
+    let tui = pi_tui::TUI::new(handle);
+    tui.add_child(pi_tui::tui::component(pi_tui::Text::new("root", 0, 0)));
+    tui.start().unwrap();
+    tui.flush_pending();
+    assert!(terminal.borrow().viewport().iter().any(|line| line.trim() == "root"));
+    tui.stop();
 }

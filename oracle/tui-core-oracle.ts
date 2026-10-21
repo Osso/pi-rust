@@ -1,6 +1,8 @@
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 import * as path from "node:path";
+import * as fs from "node:fs";
+import * as os from "node:os";
 
 type RequestId = string | number | null;
 
@@ -29,6 +31,7 @@ type KeybindingsApi = {
 		userBindings?: Record<string, string[]>,
 	) => {
 		getKeys(id: string): string[];
+		setUserBindings(bindings: Record<string, string[]>): void;
 		getConflicts(): Array<{ key: string; keybindings: string[] }>;
 		getResolvedBindings(): Record<string, string | string[]>;
 	};
@@ -60,20 +63,44 @@ async function keybindingsOperation(request: Request, sourceDirectory: string): 
 	return { keys, resolved: resolvedArrays, conflicts: manager.getConflicts() };
 }
 
+async function captureGlobalKeybindings(sourceDirectory: string): Promise<unknown> {
+	type Manager = InstanceType<KeybindingsApi["KeybindingsManager"]>;
+	const api = await loadApi(sourceDirectory, "keybindings.ts") as KeybindingsApi & {
+		getKeybindings(): Manager;
+		setKeybindings(manager: Manager): void;
+	};
+	const installed = new api.KeybindingsManager(api.TUI_KEYBINDINGS);
+	api.setKeybindings(installed);
+	const first = api.getKeybindings();
+	const second = api.getKeybindings();
+	first.setUserBindings({ "tui.input.submit": ["ctrl+x"] });
+	const shared = [first, second, installed].map((manager) => manager.getKeys("tui.input.submit"));
+	installed.setUserBindings({});
+	const reset = first.getKeys("tui.input.submit");
+	api.setKeybindings(new api.KeybindingsManager(api.TUI_KEYBINDINGS, { "tui.input.submit": ["ctrl+y"] }));
+	return { shared, reset, fresh: api.getKeybindings().getKeys("tui.input.submit"), old: first.getKeys("tui.input.submit") };
+}
+
+type DebugTui = {
+	addChild(component: { render(width: number): string[]; invalidate(): void }): void;
+	start(): void;
+	stop(): void;
+	requestRender(): void;
+	doRender(): void;
+};
+
 type TerminalApi = {
-	resolveEscapeTimeoutMs(env: Record<string, string>): number;
-	normalizeNativeShiftEnterInput(data: string, detect: boolean, shift: boolean): string;
 	normalizeAppleTerminalInput(data: string, apple: boolean, shift: boolean): string;
 	parseKeyboardProtocolNegotiationSequence(
 		sequence: string,
 	): { type: string; flags?: number } | undefined;
 	isTerminalRawModeFailure(error: Error): boolean;
 	TerminalRawModeError: new (flag: boolean, cause: unknown) => Error;
+	ProcessTerminal: new () => { setProgress(active: boolean): void };
 };
 
 async function terminalOperation(request: Request, sourceDirectory: string): Promise<unknown> {
 	const api = (await loadApi(sourceDirectory, "terminal.ts")) as TerminalApi;
-	const env = (request.env ?? {}) as Record<string, string>;
 	const sequences = (request.sequences ?? []) as string[];
 	const rawModeCases = (request.rawModeErrors ?? []) as Array<{ flag: boolean; message: string }>;
 	const normalizeCases = (request.normalize ?? []) as Array<{
@@ -82,13 +109,21 @@ async function terminalOperation(request: Request, sourceDirectory: string): Pro
 		shift: boolean;
 		kind: "native" | "apple";
 	}>;
+	const terminal = new api.ProcessTerminal();
+	const writes: string[] = [];
+	const write = process.stdout.write;
+	try {
+		process.stdout.write = ((data: string) => { writes.push(data); return true; }) as typeof write;
+		terminal.setProgress(true);
+		terminal.setProgress(false);
+	} finally {
+		process.stdout.write = write;
+	}
 	return {
-		escapeTimeout: api.resolveEscapeTimeoutMs(env),
+		progress: writes.join(""),
 		sequences: sequences.map((sequence) => api.parseKeyboardProtocolNegotiationSequence(sequence) ?? null),
 		normalize: normalizeCases.map((testCase) =>
-			testCase.kind === "native"
-				? api.normalizeNativeShiftEnterInput(testCase.data, testCase.flag, testCase.shift)
-				: api.normalizeAppleTerminalInput(testCase.data, testCase.flag, testCase.shift),
+			api.normalizeAppleTerminalInput(testCase.data, testCase.flag, testCase.shift),
 		),
 		rawMode: rawModeCases.map((testCase) => {
 			const typed = new api.TerminalRawModeError(testCase.flag, new Error(testCase.message));
@@ -261,9 +296,8 @@ function overlayOptions(value: Record<string, unknown>): unknown {
 
 async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): Promise<unknown> {
 	const tuiModule = (await loadApi(sourceDirectory, "tui.ts")) as Record<string, any>;
-	const mainModule = (await loadApi(sourceDirectory, "tui-main-screen.ts")) as Record<string, any>;
 	const terminal = new CaptureTerminal(request.columns, request.rows);
-	const tui = request.kind === "renderer" ? new tuiModule.TUI(terminal) : new mainModule.TuiMainScreen(terminal);
+	const tui = new tuiModule.TUI(terminal);
 	if (request.showHardwareCursor !== undefined) tui.setShowHardwareCursor(request.showHardwareCursor);
 	if (request.clearOnShrink !== undefined) tui.setClearOnShrink(request.clearOnShrink);
 	if (request.termux === true) process.env.TERMUX_VERSION = "1";
@@ -271,6 +305,9 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 	const tuiRef: { current?: { setFocus(component: unknown): void } } = { current: tui };
 	const components: ScenarioComponent[] = [];
 	const overlayHandles: Array<{ hide(): void }> = [];
+	const flowRegions: Array<{ place(layout: unknown): void; requestRender(): boolean }> = [];
+	const flowResults: boolean[] = [];
+	const backgroundQueries: Array<Promise<unknown>> = [];
 	const fixedCells: Array<{ place(row: number, col: number): void; update(value: string): boolean }> = [];
 	let nextComponent = 0;
 
@@ -296,7 +333,8 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 				await settle();
 				break;
 			case "render_now":
-				tui.renderNow(Boolean(step.force));
+				tui.requestRender(Boolean(step.force));
+				await settle();
 				break;
 			case "request_render":
 				tui.requestRender(Boolean(step.force));
@@ -344,6 +382,18 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 			case "stop":
 				tui.stop();
 				break;
+			case "flow_create":
+				flowRegions.push(tui.createFlowRenderRegion(components[step.component ?? 0]));
+				break;
+			case "flow_place":
+				flowRegions[0].place((step as unknown as { layout: unknown }).layout);
+				break;
+			case "flow_request":
+				flowResults.push(flowRegions[0].requestRender());
+				break;
+			case "query_background":
+				backgroundQueries.push(tui.queryTerminalBackgroundColor({ timeoutMs: 0 }));
+				break;
 			case "snapshot":
 				break;
 			default:
@@ -359,12 +409,105 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 			inputs: component.inputs,
 			focused: Boolean((component as unknown as { focused?: boolean }).focused),
 		})),
+		background: await Promise.all(backgroundQueries),
+		flowResults,
 		focus: components.findIndex((component) => Boolean((component as unknown as { focused?: boolean }).focused)),
 	};
 }
 
+async function captureTerminalWriteLog(sourceDirectory: string): Promise<unknown> {
+	const api = await loadApi(sourceDirectory, "terminal.ts") as { ProcessTerminal: new () => { write(data: string): void } };
+	const directory = fs.mkdtempSync(path.join(os.tmpdir(), "write-log-"));
+	const write = process.stdout.write;
+	process.env.PI_TUI_WRITE_LOG = directory;
+	try {
+		process.stdout.write = (() => true) as typeof write;
+		new api.ProcessTerminal().write("payload\n");
+		const filename = fs.readdirSync(directory)[0];
+		if (filename === undefined) throw new Error("terminal did not create a write log");
+		const normalized = filename.replace(/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/, "TIME").replace(`-${process.pid}.log`, "-PID.log");
+		const contents = fs.readFileSync(path.join(directory, filename), "utf8");
+		const missing = path.join(directory, "absent", "log.txt");
+		process.env.PI_TUI_WRITE_LOG = missing;
+		new api.ProcessTerminal().write("ignored log error");
+		return { normalized, contents, createdMissingParent: fs.existsSync(path.dirname(missing)) };
+	} finally {
+		process.stdout.write = write;
+		delete process.env.PI_TUI_WRITE_LOG;
+	}
+}
+
+async function captureTuiDebugFailure(request: Request, sourceDirectory: string): Promise<unknown> {
+	const { TUI } = await loadApi(sourceDirectory, "tui.ts") as { TUI: new (terminal: CaptureTerminal) => DebugTui };
+	process.env.HOME = request.home as string;
+	process.env.PI_DEBUG_REDRAW = "1";
+	const tui = new TUI(new CaptureTerminal(20, 5));
+	tui.addChild({ render: () => ["first"], invalidate: () => {} });
+	try {
+		tui.doRender();
+		return { failed: false };
+	} catch {
+		return { failed: true };
+	}
+}
+
+async function captureTuiDebug(sourceDirectory: string): Promise<unknown> {
+	const { TUI } = await loadApi(sourceDirectory, "tui.ts") as { TUI: new (terminal: CaptureTerminal) => DebugTui };
+	const logDirectory = path.join(os.homedir(), ".pi", "agent");
+	fs.mkdirSync(logDirectory, { recursive: true });
+	process.env.PI_CODING_AGENT_DIR = path.join(os.homedir(), "wrong-agent-dir");
+	let lines = ["first"];
+	const terminal = new CaptureTerminal(20, 5);
+	const tui = new TUI(terminal);
+	process.env.PI_DEBUG_REDRAW = "1";
+	process.env.PI_TUI_DEBUG = "1";
+	tui.addChild({ render: () => lines, invalidate: () => {} });
+	tui.start();
+	await settle();
+	lines = ["changed"];
+	tui.requestRender();
+	await settle();
+	tui.stop();
+	const debug = fs.readFileSync(path.join(logDirectory, "pi-debug.log"), "utf8").replace(/\[[^\]]+\]/g, "[TIME]");
+	const dumps = fs.readdirSync("/tmp/tui").map((name) => fs.readFileSync(path.join("/tmp/tui", name), "utf8")).sort();
+	return { debug, dumps };
+}
+
+async function captureTerminalNumericDomains(request: Request, sourceDirectory: string): Promise<unknown> {
+	const api = await loadApi(sourceDirectory, "terminal.ts") as {
+		ProcessTerminal: new () => { columns: number; rows: number };
+		parseKeyboardProtocolNegotiationSequence(sequence: string): unknown;
+	};
+	const previousColumns = process.env.COLUMNS;
+	const previousLines = process.env.LINES;
+	try {
+		const terminal = new api.ProcessTerminal();
+		const dimensions = (request.values as string[]).map((value) => {
+			process.env.COLUMNS = value;
+			process.env.LINES = value;
+			return { input: value, columns: String(terminal.columns), rows: String(terminal.rows) };
+		});
+		return { dimensions, hugeFlags: api.parseKeyboardProtocolNegotiationSequence("\x1b[?" + "9".repeat(400) + "u") };
+	} finally {
+		if (previousColumns === undefined) delete process.env.COLUMNS;
+		else process.env.COLUMNS = previousColumns;
+		if (previousLines === undefined) delete process.env.LINES;
+		else process.env.LINES = previousLines;
+	}
+}
+
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
 	switch (request.operation) {
+		case "keybinding_global":
+			return captureGlobalKeybindings(sourceDirectory);
+		case "terminal_write_log":
+			return captureTerminalWriteLog(sourceDirectory);
+		case "tui_debug_failure":
+			return captureTuiDebugFailure(request, sourceDirectory);
+		case "tui_debug":
+			return captureTuiDebug(sourceDirectory);
+		case "terminal_numeric_domains":
+			return captureTerminalNumericDomains(request, sourceDirectory);
 		case "keybindings":
 			return keybindingsOperation(request, sourceDirectory);
 		case "terminal":

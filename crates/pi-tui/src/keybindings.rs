@@ -4,7 +4,7 @@
 //! a `Record`. The Rust port keeps both in insertion order (`Vec` pairs) because
 //! conflict order is observable through [`KeybindingsManager::get_conflicts`].
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use crate::keys::matches_key;
 
@@ -56,14 +56,6 @@ pub fn tui_keybindings() -> Vec<(String, KeybindingDefinition)> {
         ("tui.editor.cursorUp", definition(&["up"], "Move cursor up")),
         ("tui.editor.cursorDown", definition(&["down"], "Move cursor down")),
         (
-            "tui.editor.historyPrevious",
-            definition(&[], "Select previous prompt history entry"),
-        ),
-        (
-            "tui.editor.historyNext",
-            definition(&[], "Select next prompt history entry"),
-        ),
-        (
             "tui.editor.cursorLeft",
             definition(&["left", "ctrl+b"], "Move cursor left"),
         ),
@@ -81,11 +73,11 @@ pub fn tui_keybindings() -> Vec<(String, KeybindingDefinition)> {
         ),
         (
             "tui.editor.cursorLineStart",
-            definition(&["home", "ctrl+home", "ctrl+a"], "Move to line start"),
+            definition(&["home", "ctrl+a"], "Move to line start"),
         ),
         (
             "tui.editor.cursorLineEnd",
-            definition(&["end", "ctrl+end", "ctrl+e"], "Move to line end"),
+            definition(&["end", "ctrl+e"], "Move to line end"),
         ),
         (
             "tui.editor.jumpForward",
@@ -95,11 +87,8 @@ pub fn tui_keybindings() -> Vec<(String, KeybindingDefinition)> {
             "tui.editor.jumpBackward",
             definition(&["ctrl+alt+]"], "Jump backward to character"),
         ),
-        ("tui.editor.pageUp", definition(&["pageUp", "ctrl+pageUp"], "Page up")),
-        (
-            "tui.editor.pageDown",
-            definition(&["pageDown", "ctrl+pageDown"], "Page down"),
-        ),
+        ("tui.editor.pageUp", definition(&["pageUp"], "Page up")),
+        ("tui.editor.pageDown", definition(&["pageDown"], "Page down")),
         (
             "tui.editor.deleteCharBackward",
             definition(&["backspace"], "Delete character backward"),
@@ -147,56 +136,6 @@ pub fn tui_keybindings() -> Vec<(String, KeybindingDefinition)> {
             "tui.select.cancel",
             definition(&["escape", "ctrl+c"], "Cancel selection"),
         ),
-        (
-            "tui.altScreen.pageUp",
-            definition(&["pageUp"], "Scroll viewport up one page"),
-        ),
-        (
-            "tui.altScreen.pageDown",
-            definition(&["pageDown"], "Scroll viewport down one page"),
-        ),
-        (
-            "tui.altScreen.halfPageUp",
-            definition(&[], "Scroll viewport up half a page"),
-        ),
-        (
-            "tui.altScreen.halfPageDown",
-            definition(&[], "Scroll viewport down half a page"),
-        ),
-        ("tui.altScreen.lineUp", definition(&[], "Scroll viewport up one line")),
-        (
-            "tui.altScreen.lineDown",
-            definition(&[], "Scroll viewport down one line"),
-        ),
-        (
-            "tui.altScreen.previousPrompt",
-            definition(&["ctrl+shift+up"], "Jump to previous semantic prompt"),
-        ),
-        (
-            "tui.altScreen.nextPrompt",
-            definition(&["ctrl+shift+down"], "Jump to next semantic prompt"),
-        ),
-        (
-            "tui.altScreen.search",
-            definition(&["ctrl+shift+f"], "Search the primary scroll view"),
-        ),
-        (
-            "tui.altScreen.searchNext",
-            definition(&["enter", "ctrl+g"], "Select the next search match"),
-        ),
-        (
-            "tui.altScreen.searchPrevious",
-            definition(&["shift+enter", "ctrl+shift+g"], "Select the previous search match"),
-        ),
-        (
-            "tui.altScreen.searchClose",
-            definition(&["escape"], "Close transcript search"),
-        ),
-        ("tui.altScreen.top", definition(&["home"], "Scroll viewport to top")),
-        (
-            "tui.altScreen.bottom",
-            definition(&["end"], "Scroll viewport to bottom"),
-        ),
     ];
     entries.into_iter().map(|(id, value)| (id.to_string(), value)).collect()
 }
@@ -211,10 +150,15 @@ fn normalize_keys(keys: Option<&Vec<KeyId>>) -> Vec<KeyId> {
     result
 }
 
-/// Resolves keybinding ids against defaults and user overrides.
+/// Shared manager identity; cloning preserves mutations like a JS object reference.
 #[derive(Debug, Clone)]
 pub struct KeybindingsManager {
-    definitions: Vec<(String, KeybindingDefinition)>,
+    definitions: Arc<KeybindingDefinitions>,
+    state: Arc<Mutex<KeybindingState>>,
+}
+
+#[derive(Debug)]
+struct KeybindingState {
     user_bindings: KeybindingsConfig,
     keys_by_id: Vec<(String, Vec<KeyId>)>,
     conflicts: Vec<KeybindingConflict>,
@@ -222,23 +166,31 @@ pub struct KeybindingsManager {
 
 impl KeybindingsManager {
     pub fn new(definitions: Vec<(String, KeybindingDefinition)>, user_bindings: KeybindingsConfig) -> Self {
-        let mut manager = Self {
-            definitions,
-            user_bindings,
-            keys_by_id: Vec::new(),
-            conflicts: Vec::new(),
+        let manager = Self {
+            definitions: Arc::new(definitions),
+            state: Arc::new(Mutex::new(KeybindingState {
+                user_bindings,
+                keys_by_id: Vec::new(),
+                conflicts: Vec::new(),
+            })),
         };
         manager.rebuild();
         manager
     }
 
-    fn rebuild(&mut self) {
-        self.keys_by_id.clear();
-        self.conflicts.clear();
+    fn lock_state(&self) -> MutexGuard<'_, KeybindingState> {
+        self.state.lock().expect("keybinding state lock poisoned")
+    }
+
+    fn rebuild(&self) {
+        let mut guard = self.lock_state();
+        let state = &mut *guard;
+        state.keys_by_id.clear();
+        state.conflicts.clear();
 
         // User claim order follows the config insertion order, matching `Map` order in the source.
         let mut user_claims: Vec<(KeyId, Vec<String>)> = Vec::new();
-        for (keybinding, keys) in &self.user_bindings {
+        for (keybinding, keys) in &state.user_bindings {
             if !self.definitions.iter().any(|(id, _)| id == keybinding) {
                 continue;
             }
@@ -256,12 +208,12 @@ impl KeybindingsManager {
 
         for (key, keybindings) in user_claims {
             if keybindings.len() > 1 {
-                self.conflicts.push(KeybindingConflict { key, keybindings });
+                state.conflicts.push(KeybindingConflict { key, keybindings });
             }
         }
 
-        for (id, definition) in &self.definitions {
-            let keys = match self
+        for (id, definition) in self.definitions.iter() {
+            let keys = match state
                 .user_bindings
                 .iter()
                 .find(|(binding, _)| binding == id)
@@ -270,7 +222,7 @@ impl KeybindingsManager {
                 Some(user_keys) => normalize_keys(Some(user_keys)),
                 None => normalize_keys(Some(&definition.default_keys)),
             };
-            self.keys_by_id.push((id.clone(), keys));
+            state.keys_by_id.push((id.clone(), keys));
         }
     }
 
@@ -279,7 +231,8 @@ impl KeybindingsManager {
     }
 
     pub fn get_keys(&self, keybinding: &str) -> Vec<KeyId> {
-        self.keys_by_id
+        self.lock_state()
+            .keys_by_id
             .iter()
             .find(|(id, _)| id == keybinding)
             .map(|(_, keys)| keys.clone())
@@ -294,21 +247,21 @@ impl KeybindingsManager {
     }
 
     pub fn get_conflicts(&self) -> Vec<KeybindingConflict> {
-        self.conflicts.clone()
+        self.lock_state().conflicts.clone()
     }
 
     pub fn set_user_bindings(&mut self, user_bindings: KeybindingsConfig) {
-        self.user_bindings = user_bindings;
+        self.lock_state().user_bindings = user_bindings;
         self.rebuild();
     }
 
     pub fn get_user_bindings(&self) -> KeybindingsConfig {
-        self.user_bindings.clone()
+        self.lock_state().user_bindings.clone()
     }
 
     /// Resolved keys for every definition, in definition order.
     pub fn get_resolved_bindings(&self) -> Vec<(String, Vec<KeyId>)> {
-        self.keys_by_id.clone()
+        self.lock_state().keys_by_id.clone()
     }
 }
 

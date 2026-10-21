@@ -58,28 +58,28 @@ fn ordinary_combining_marks_are_zero_width() {
 }
 
 #[test]
-fn indic_conjunct_spacing_code_points_count_cells() {
-    assert_eq!(visible_width("र्क"), 2);
-    assert_eq!(visible_width("नेटवर्क"), 5);
-    assert_eq!(visible_width("सर्वाधिकार सुरक्षित। ऑर्डर पर क्लिक करें"), 33);
-    assert_eq!(visible_width("র্ক"), 2);
-    assert_eq!(visible_width("ર્ક"), 2);
-    assert_eq!(visible_width("ର୍କ"), 2);
-    assert_eq!(visible_width("ర్క"), 2);
-    assert_eq!(visible_width("ര്‍ക"), 2);
+fn indic_conjuncts_use_the_frozen_base_width() {
+    assert_eq!(visible_width("र्क"), 1);
+    assert_eq!(visible_width("नेटवर्क"), 4);
+    assert_eq!(visible_width("सर्वाधिकार सुरक्षित। ऑर्डर पर क्लिक करें"), 24);
+    assert_eq!(visible_width("র্ক"), 1);
+    assert_eq!(visible_width("ર્ક"), 1);
+    assert_eq!(visible_width("ର୍କ"), 1);
+    assert_eq!(visible_width("ర్క"), 1);
+    assert_eq!(visible_width("ര്‍ക"), 1);
 }
 
 #[test]
-fn myanmar_marks_that_terminals_allocate_cells_for() {
-    assert_eq!(visible_width("ကာ"), 2);
-    assert_eq!(visible_width("ကေ"), 2);
-    assert_eq!(visible_width("က်"), 2);
-    assert_eq!(visible_width("ကျ"), 2);
-    assert_eq!(visible_width("ကြ"), 2);
-    assert_eq!(visible_width("ကဳ"), 2);
-    assert_eq!(visible_width("ကဴ"), 2);
-    assert_eq!(visible_width("ကဵ"), 2);
-    assert_eq!(visible_width("ကး"), 2);
+fn myanmar_marks_use_the_frozen_base_width() {
+    assert_eq!(visible_width("ကာ"), 1);
+    assert_eq!(visible_width("ကေ"), 1);
+    assert_eq!(visible_width("က်"), 1);
+    assert_eq!(visible_width("ကျ"), 1);
+    assert_eq!(visible_width("ကြ"), 1);
+    assert_eq!(visible_width("ကဳ"), 1);
+    assert_eq!(visible_width("ကဴ"), 1);
+    assert_eq!(visible_width("ကဵ"), 1);
+    assert_eq!(visible_width("ကး"), 1);
     assert_eq!(visible_width("ကို"), 1);
     assert_eq!(visible_width("က္"), 1);
 }
@@ -180,8 +180,8 @@ fn normalize_terminal_output_replaces_thai_and_lao_am_vowels() {
 }
 
 #[test]
-fn normalize_terminal_output_expands_tabs_outside_control_sequences() {
-    assert_eq!(normalize_terminal_output("a\tb"), "a   b");
+fn normalize_terminal_output_preserves_tabs() {
+    assert_eq!(normalize_terminal_output("a\tb"), "a\tb");
     for control in [
         "\x1b]8;;https://example.test/a\tb\x07",
         "\x1b]0;window\ttitle\x1b\\",
@@ -189,7 +189,7 @@ fn normalize_terminal_output_expands_tabs_outside_control_sequences() {
     ] {
         assert_eq!(
             normalize_terminal_output(&format!("{control}label\ttext")),
-            format!("{control}label   text")
+            format!("{control}label\ttext")
         );
     }
 }
@@ -315,7 +315,7 @@ fn whitespace_and_punctuation_helpers_match_javascript_regexes() {
 fn wrapping_handles_line_endings() {
     assert_eq!(
         wrap_text_with_ansi("first\nsecond\r\nthird\rfourth", 80),
-        vec!["first", "second", "third", "fourth"]
+        vec!["first", "second\r", "third\rfourth"]
     );
 }
 
@@ -325,11 +325,7 @@ fn wrapping_preserves_ansi_state_across_line_endings() {
     let reset = "\x1b[0m";
     assert_eq!(
         wrap_text_with_ansi(&format!("{red}first\r\nsecond\rthird{reset}"), 80),
-        vec![
-            format!("{red}first"),
-            format!("{red}second"),
-            format!("{red}third{reset}"),
-        ]
+        vec![format!("{red}first\r"), format!("{red}second\rthird{reset}"),]
     );
 }
 
@@ -504,13 +500,13 @@ fn truncation_preserves_styling_and_resets_around_ellipsis() {
 }
 
 #[test]
-fn truncation_closes_bel_terminated_osc8_link() {
+fn truncation_retains_frozen_unclosed_osc8_link() {
     let open = "\x1b]8;;https://example.com\x07";
     let close = "\x1b]8;;\x07";
     let text = format!("{open}some-longer-label-here{close}");
     assert_eq!(
         truncate_to_width(&text, 15),
-        format!("{open}some-longer-{close}\x1b[0m...\x1b[0m")
+        format!("{open}some-longer-\x1b[0m...\x1b[0m")
     );
 }
 

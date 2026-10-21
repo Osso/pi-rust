@@ -84,7 +84,6 @@ type TerminalColorsApi = {
 
 type UtilsApi = {
 	visibleWidth(value: string): number;
-	stripTerminalSequences(value: string): string;
 	normalizeTerminalOutput(value: string): string;
 	truncateToWidth(text: string, maxWidth: number, ellipsis: string, pad: boolean): string;
 	wrapTextWithAnsi(text: string, width: number): string[];
@@ -96,8 +95,6 @@ type UtilsApi = {
 		afterLen: number,
 		strictAfter: boolean,
 	): { before: string; beforeWidth: number; after: string; afterWidth: number };
-	getGraphemeCellRange(line: string, column: number): { start: number; end: number } | undefined;
-	getOsc8LinkAtColumn(line: string, column: number): string | undefined;
 	extractAnsiCode(value: string, pos: number): { code: string; length: number } | null;
 	applyBackgroundToLine(line: string, width: number, bgFn: (text: string) => string): string;
 	isWhitespaceChar(value: string): boolean;
@@ -131,7 +128,7 @@ type KeysApi = {
 };
 
 type StdinBufferApi = {
-	StdinBuffer: new (options?: { timeout?: number; escapeTimeout?: number }) => {
+	StdinBuffer: new (options?: { timeout?: number }) => {
 		process(data: string | Buffer): void;
 		flush(): string[];
 		getBuffer(): string;
@@ -294,11 +291,6 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 			const cases = requireArray<string>(request, "cases");
 			return { results: cases.map((value) => api.visibleWidth(value)) };
 		}
-		case "utils_strip": {
-			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
-			const cases = requireArray<string>(request, "cases");
-			return { results: cases.map((value) => api.stripTerminalSequences(value)) };
-		}
 		case "utils_normalize": {
 			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
 			const cases = requireArray<string>(request, "cases");
@@ -358,16 +350,6 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 					),
 				),
 			};
-		}
-		case "utils_cell_range": {
-			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
-			const cases = requireArray<{ line: string; column: number }>(request, "cases");
-			return { results: cases.map((testCase) => api.getGraphemeCellRange(testCase.line, testCase.column) ?? null) };
-		}
-		case "utils_osc8_link": {
-			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
-			const cases = requireArray<{ line: string; column: number }>(request, "cases");
-			return { results: cases.map((testCase) => api.getOsc8LinkAtColumn(testCase.line, testCase.column) ?? null) };
 		}
 		case "utils_background": {
 			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
@@ -443,14 +425,18 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 				})),
 			};
 		}
+		case "native_modifiers": {
+			const api = await loadApi(sourceDirectory, "native-modifiers.ts") as { isNativeModifierPressed(key: string): boolean };
+			return ["shift", "command", "control", "option"].map((key) => api.isNativeModifierPressed(key));
+		}
 		case "stdin_buffer": {
 			const api = (await loadApi(sourceDirectory, "stdin-buffer.ts")) as StdinBufferApi;
-			const cases = requireArray<{ chunks: string[] }>(request, "cases");
+			const cases = requireArray<{ chunks: string[]; timeout?: number }>(request, "cases");
 			const results: Array<{ events: unknown[]; bufferAfterProcess: string }> = [];
 			const buffers: Array<InstanceType<StdinBufferApi["StdinBuffer"]>> = [];
 			for (const testCase of cases) {
 				const events: unknown[] = [];
-				const buffer = new api.StdinBuffer({ timeout: 10, escapeTimeout: 10 });
+				const buffer = new api.StdinBuffer({ timeout: testCase.timeout });
 				buffer.on("data", (value) => events.push({ kind: "data", value }));
 				buffer.on("paste", (value) => events.push({ kind: "paste", value }));
 				for (const chunk of testCase.chunks) buffer.process(chunk);

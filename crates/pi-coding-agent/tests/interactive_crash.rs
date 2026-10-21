@@ -374,9 +374,9 @@ fn terminal_stop_child() {
     let restore = terminal.borrow().crash_restore().expect("real terminal restore");
     let ui = InteractiveTuiHandle::new(create_interactive_tui(InteractiveTuiOptions {
         tui_mode: if fullscreen == "true" {
-            pi_tui::TuiMode::Fullscreen
+            pi_tui::tui::TuiMode::Fullscreen
         } else {
-            pi_tui::TuiMode::Regular
+            pi_tui::tui::TuiMode::Regular
         },
         show_hardware_cursor: false,
         log_directory: std::env::var("PI_CODING_AGENT_DIR").expect("agent dir"),
@@ -419,11 +419,11 @@ fn terminal_stop_child() {
 #[test]
 fn rethrown_terminal_errors_use_the_node_stream_message() {
     // Node: `Error: write EPIPE` / `Error: read EBADF` for stream `error` events.
-    let write = pi_tui::TerminalIoError {
+    let write = pi_tui::terminal::TerminalIoError {
         syscall: "write",
         error: io::Error::from_raw_os_error(rustix::io::Errno::PIPE.raw_os_error()),
     };
-    let read = pi_tui::TerminalIoError {
+    let read = pi_tui::terminal::TerminalIoError {
         syscall: "read",
         error: io::Error::from_raw_os_error(rustix::io::Errno::BADF.raw_os_error()),
     };

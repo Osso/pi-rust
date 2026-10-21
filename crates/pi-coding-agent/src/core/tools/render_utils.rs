@@ -46,7 +46,7 @@ pub fn link_path(styled_text: &str, raw_path: &str, cwd: &str) -> String {
     }
     let absolute_path =
         resolve_path(raw_path, cwd, &PathInputOptions::default()).unwrap_or_else(|_| raw_path.to_owned());
-    hyperlink(styled_text, &pi_tui::path_to_file_url(&absolute_path))
+    hyperlink(styled_text, &pi_tui::terminal_image::path_to_file_url(&absolute_path))
 }
 
 /// `getTextOutput`: join text blocks and append image fallbacks when images cannot be shown.
