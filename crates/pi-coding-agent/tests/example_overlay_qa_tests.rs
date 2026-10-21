@@ -265,6 +265,7 @@ impl ExtensionUiContext for Ui {
                             component.handle_input(key);
                         }
                     }
+                    tokio::task::yield_now().await;
                     calls.lock().unwrap().push(frames(
                         component.as_ref(),
                         step["width"].as_u64().unwrap_or(width as u64) as usize,
@@ -347,12 +348,12 @@ async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
         let actual = native(&request).await;
         if actual != expected {
             std::fs::write(
-                "/tmp/overlay-qa-actual.json",
+                std::env::temp_dir().join("overlay-qa-actual.json"),
                 serde_json::to_vec_pretty(&actual).unwrap(),
             )
             .unwrap();
             std::fs::write(
-                "/tmp/overlay-qa-expected.json",
+                std::env::temp_dir().join("overlay-qa-expected.json"),
                 serde_json::to_vec_pretty(&expected).unwrap(),
             )
             .unwrap();
