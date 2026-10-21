@@ -6838,7 +6838,7 @@ impl AgentSession {
             Value::String(crate::utils::iso_time::now_iso_string()),
         );
         header.insert("cwd".to_owned(), Value::String(cwd));
-        let mut lines = vec![Value::Object(header).to_string()];
+        let mut lines = vec![pi_js_compat::js_json::stringify(&Value::Object(header))];
         let mut previous_id: Option<String> = None;
         for entry in branch_entries {
             let mut value = serde_json::to_value(&entry).map_err(|json_error| error(json_error.to_string()))?;
@@ -6849,7 +6849,7 @@ impl AgentSession {
                 );
             }
             previous_id = entry.id().map(str::to_owned);
-            lines.push(value.to_string());
+            lines.push(pi_js_compat::js_json::stringify(&value));
         }
         std::fs::write(&file_path, format!("{}\n", lines.join("\n")))
             .map_err(|io_error| error(format!("Failed to write session export: {io_error}")))?;

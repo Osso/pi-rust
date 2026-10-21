@@ -73,6 +73,24 @@ fn stream_fn(runtime: ModelRuntime) -> pi_agent_core::agent::types::StreamFn {
     })
 }
 
+#[tokio::test]
+async fn jsonl_export_preserves_javascript_value_bytes() {
+    let fixture = fixture().await;
+    let value = serde_json::from_str(r#"{"2":2.0,"1":1.0,"x":9007199254740993}"#).unwrap();
+    fixture
+        .session
+        .session_manager()
+        .append_custom_entry("numeric", Some(value))
+        .unwrap();
+    let path = fixture._temp_dir.path().join("export.jsonl");
+    fixture.session.export_to_jsonl(Some(path.to_str().unwrap())).unwrap();
+    let bytes = std::fs::read_to_string(path).unwrap();
+    assert!(
+        bytes.contains(r#""data":{"1":1,"2":2,"x":9007199254740992}"#),
+        "{bytes}"
+    );
+}
+
 async fn fixture() -> Fixture {
     fixture_with(Default::default(), Vec::new(), None, Some(Vec::new())).await
 }

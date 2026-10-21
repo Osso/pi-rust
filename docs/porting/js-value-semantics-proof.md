@@ -47,6 +47,7 @@ The report contains six uncertain groups, despite the brief's count of five. All
 | Pyrun manifest bytes/checksum | Pinned `differential_pyrun_detached`: RED 15, GREEN 20. Numeric manifests previously failed their own read-back (14) |
 | Persisted Pyrun params equality | Real manifest write/read and terminal artifact restore: RED checksum failure 14, then isolated false collision 18; GREEN 33. Existing collision error retained |
 | Remote HTTP request body | Loopback request capture plus error response: RED 14, GREEN 33, mutation 22 |
+| Session branch JSONL export | Public `AgentSession::export_to_jsonl` persists custom data with numeric keys and 9007199254740993; pinned source lines 5999/6005 use stringify. RED 43; GREEN pending |
 | Shared artifact hash/JSONL | Concrete bytes/digest in `js_value_artifacts`; manifest differential checks shared hash integration: RED 15/17, GREEN 20; mutation 23/22 |
 
 ## Remaining inventory
