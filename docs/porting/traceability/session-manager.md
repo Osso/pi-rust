@@ -1,6 +1,6 @@
 # coding-agent session-manager traceability
 
-Pinned source: `packages/coding-agent/src/core/session-manager.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Historical baseline: `packages/coding-agent/src/core/session-manager.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`. Current target is the [common source lock](../source-lock.json); only the explicitly recorded frozen4f9 deltas below have renewed bounded evidence, not the entire historical matrix.
 
 Rust module: `crates/pi-coding-agent/src/core/session_manager.rs`.
 Focused tests: `crates/pi-coding-agent/tests/session_manager.rs` (39).

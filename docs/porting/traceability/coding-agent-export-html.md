@@ -4,7 +4,7 @@ Rust: `crates/pi-coding-agent/src/core/export_html/index.rs` (templates embedded
 from `src/core/export_html/templates/`). Tests: `tests/export_html.rs`,
 `tests/differential_export_html.rs`.
 
-Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Historical export proof: commit `532f7d12cd19235081bd4d6e425bde185652d86f`. Current target is the [common source lock](../source-lock.json); frozen4f9 storage-edge evidence below does not renew this entire historical export matrix.
 
 ## Exported surface
 
