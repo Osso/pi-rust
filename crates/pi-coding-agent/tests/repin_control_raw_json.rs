@@ -155,6 +155,26 @@ fn routing_identity_does_not_alias_raw_surrogate_with_replacement_character() {
 }
 
 #[test]
+fn idempotent_enqueue_does_not_alias_raw_surrogate_body_with_replacement() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("control.sqlite").display().to_string();
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let wire = format!(
+        r#"[{},{{"recipient":{{"sessionId":"to","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/s","messageId":"m"}},"message":{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after"}}}}]"#,
+        serde_json::to_string(&path).unwrap()
+    );
+    source_call(&mut source, "enqueueStoredRuntimeMailboxMessage", &wire);
+    let original = persisted_raw(&mut source, &path);
+    let input: EnqueueStoredRuntimeMailboxMessageInput = serde_json::from_value(json!({"recipient":{"sessionId":"to","agentId":null},"sender":{"sessionId":"from","agentId":null},"kind":"message","storeRef":{"sessionPath":"/fixture/s","messageId":"m"},"message":{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before�after"}})).unwrap();
+    let peer = source
+        .request(&json!({"id":1,"steps":[{"op":"call","args":["enqueueStoredRuntimeMailboxMessage",[path,input]]}]}));
+    assert_eq!(peer["output"][0]["ok"], false, "{peer}");
+    let error = enqueue_stored_runtime_mailbox_message(&path, &input).unwrap_err();
+    assert_eq!(error.message(), peer["output"][0]["error"]["message"].as_str().unwrap());
+    assert_eq!(persisted_raw(&mut source, &path), original);
+}
+
+#[test]
 fn source_sql_bind_keys_and_raw_receipts_have_distinct_utf16_identity_on_recovery() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("control.sqlite").display().to_string();

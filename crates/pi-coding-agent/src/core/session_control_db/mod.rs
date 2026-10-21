@@ -1026,7 +1026,14 @@ pub(crate) fn parse_canonical_mailbox_payload_lossless(
     row: &RuntimeMailboxRow,
 ) -> Result<js_json::JsObject, ControlDbError> {
     let context = format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
-    let parsed = js_json::parse_lossless(&row.data)
+    parse_stored_json_object_lossless(&row.data, &context)
+}
+
+pub(crate) fn parse_stored_json_object_lossless(
+    value: &str,
+    context: &str,
+) -> Result<js_json::JsObject, ControlDbError> {
+    let parsed = js_json::parse_lossless(value)
         .map_err(|_| ControlDbError::new(format!("Invalid persisted JSON at {context}")))?;
     let js_json::JsValue::Object(message) = parsed else {
         return Err(ControlDbError::new(format!("Invalid persisted object at {context}")));

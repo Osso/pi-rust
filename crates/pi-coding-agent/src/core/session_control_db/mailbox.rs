@@ -322,14 +322,14 @@ fn strip_runtime_mailbox_delivery_state(
     serialized: &str,
     omit_defaulted_birth: bool,
 ) -> Result<String, ControlDbError> {
-    let mut message = parse_stored_json_object(serialized, "runtime_mailbox_identity")?;
+    let mut message = super::parse_stored_json_object_lossless(serialized, "runtime_mailbox_identity")?;
     for key in ["claimedAt", "claimantProcessIdentity", "error", "status", "updatedAt"] {
-        message.remove(key);
+        message.shift_remove(&JsString::from(key));
     }
     if omit_defaulted_birth {
-        message.remove("createdAt");
+        message.shift_remove(&JsString::from("createdAt"));
     }
-    Ok(js_json::stringify(&Value::Object(message)))
+    Ok(js_json::stringify_lossless(&JsValue::Object(message)))
 }
 
 /// `readRuntimeMailboxMessageForDelivery`.
