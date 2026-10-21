@@ -99,16 +99,6 @@ fn add_entry_usage(totals: &mut UsageTotals, entry: &SessionEntry) {
             }
             _ => {}
         },
-        SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => {
-            if let Some(usage) = &entry.usage {
-                add_usage_to_totals(totals, usage);
-            }
-        }
-        SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => {
-            if let Some(usage) = &entry.usage {
-                add_usage_to_totals(totals, usage);
-            }
-        }
         _ => {}
     }
 }
