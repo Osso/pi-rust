@@ -919,6 +919,13 @@ pub fn migrate_to_current_version(entries: &mut [FileEntry]) -> bool {
     if version < 3.0 {
         migrate_v2_to_v3(entries);
     }
+    // Legacy records acquire their required IDs/parent links during migration.
+    // Reify those records before typed context projection, never on disk here.
+    for entry in entries {
+        if let FileEntry::Entry(SessionEntry::Unknown(object)) = entry {
+            *entry = FileEntry::Entry(SessionEntry::from_value(Value::Object(object.clone())));
+        }
+    }
     true
 }
 

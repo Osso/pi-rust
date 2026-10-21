@@ -958,3 +958,22 @@ fn source_tool_result_raw_receipt_survives_storage_truncation_boundary() {
         expected
     );
 }
+
+#[test]
+fn source_legacy_v1_read_only_migrates_context_without_mutating_original() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(&mut ts, json!({"op":"create","dir":dir,"cwd":dir,"legacy1":true}));
+    let path = created["path"].as_str().unwrap();
+    let bytes = std::fs::read(path).unwrap();
+    let expected = call(&mut ts, json!({"op":"read","path":path}));
+    let manager = SessionManager::open_read_only(path, None).unwrap();
+    assert_eq!(
+        serde_json::to_value(manager.build_session_context().messages).unwrap(),
+        expected["context"]
+    );
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
+    assert_eq!(manager.get_header().unwrap().version, Some(3.0));
+}

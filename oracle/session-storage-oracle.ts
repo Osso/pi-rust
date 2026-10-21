@@ -25,6 +25,7 @@ async function handle(r: any) {
   if(r.splitExtra)for(const entry of m.getEntries())if(entry.type==="compaction"){entry[String.fromCharCode(0xd800)]={value:String.fromCharCode(0xdc00)};entry.usage={[String.fromCharCode(0xdc00)]:String.fromCharCode(0xd800)};}
   if("legacyUsage" in r) for(const entry of m.getEntries())if(entry.type==="compaction")entry.usage=r.legacyUsage;
   if ("rawRefs" in r) for(const entry of m.getEntries()) if(entry.type==="message") entry.mailboxStoreRefs=r.rawRefs;
+  if(r.legacy1){m.getHeader().version=1;for(const entry of m.getEntries()){delete entry.id;delete entry.parentId;}}
   m.persistForRecovery();
   return {path:m.getSessionFile(), id:m.getSessionId()};
  }
