@@ -86,6 +86,7 @@ impl ExtensionUiContext for Ui {
             component.set_focused(true);
             for key in keys {
                 component.handle_input(&key);
+                self.seen.lock().unwrap().push(component.render(80).join("\n"));
             }
             let result = result.lock().unwrap().clone();
             Ok(result)
@@ -162,11 +163,28 @@ async fn blocking_panels_match_frozen_answers_for_real_keystrokes() {
             .unwrap_or_else(|error| panic!("{questions}: {script:?}: frozen={expected}: {error:?}"));
         assert_eq!(
             result.details.as_ref().unwrap()["answers"],
-            expected["answers"],
+            expected["result"]["answers"],
             "{questions}"
         );
-        assert_eq!(result.details.as_ref().unwrap()["cancelled"], expected["cancelled"]);
-        assert_eq!(ui.seen.lock().unwrap().len(), 1);
+        assert_eq!(
+            result.details.as_ref().unwrap()["cancelled"],
+            expected["result"]["cancelled"]
+        );
+        let strip = pi_coding_agent::utils::ansi::strip_ansi;
+        let actual = ui
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|text| strip(text))
+            .collect::<Vec<_>>();
+        let renders = expected["renders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|text| strip(text.as_str().unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(actual, renders, "panel rendering for {questions}");
     }
 }
 #[tokio::test]

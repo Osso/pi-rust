@@ -1,4 +1,6 @@
 //! Frozen question-relay-tools behavior over real, isolated SQLite mailboxes.
+#[path = "support/oracle.rs"]
+mod oracle;
 #[path = "support/tool_context.rs"]
 mod tool_context;
 
@@ -340,4 +342,54 @@ async fn mailbox_body_and_remote_host_are_literal_and_unknown_local_sessions_are
         1,
         "invalid routes never create messages"
     );
+}
+
+#[tokio::test]
+async fn relay_requests_validation_and_cancellation_match_frozen_whole_module() {
+    let mut oracle = oracle::TsOracle::spawn("question-relay-tools-oracle.ts", "packages/coding-agent");
+    for (params, agent_id, requires) in [
+        (questions(false), Some("child"), true),
+        (questions(true), Some("child"), true),
+        (
+            json!({"blocking":false,"questions":[{"question":"Free?","header":"Free"},{"question":"Many?","multiSelect":true,"options":[{"label":"A","description":""},{"label":"B"}]}]}),
+            Some("child"),
+            true,
+        ),
+        (json!({"questions":[{"question":"Free?"}]}), Some("child"), true),
+        (
+            json!({"blocking":false,"questions":[{"question":"Free?","multiSelect":true}]}),
+            Some("child"),
+            true,
+        ),
+        (questions(false), None, true),
+    ] {
+        let f = Fixture::new().await;
+        let expected = oracle.request(
+            &json!({"id":"call","params":params,"agentId":agent_id,"requiresId":requires,"db":f.db,"cancelled":true}),
+        );
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let result = (f.ask.execute)(
+            "call".into(),
+            params.clone(),
+            Some(cancel),
+            None,
+            f.context(agent_id, requires).await,
+        )
+        .await;
+        let sent = f
+            .store
+            .list_pending_mailbox_messages_for_agent("main")
+            .unwrap()
+            .into_iter()
+            .map(|message| json!({"message":message.body,"threadId":message.thread_id}))
+            .collect::<Vec<_>>();
+        let actual = match result {
+            Ok(result) => {
+                json!({"result":{"content":result.content,"details":result.details,"isError":result.is_error},"sent":sent})
+            }
+            Err(error) => json!({"error":error.message,"sent":sent}),
+        };
+        assert_eq!(actual, expected, "{params}");
+    }
 }

@@ -9,8 +9,8 @@ Frozen `core/tools/ask-questions.ts`, `ask-questions-panel.ts`, and `extensions/
 - [x] Relay child requests to the direct parent with child-scoped request IDs; nonblocking returns queued, blocking cancellation retains the sent request.
 - [x] Route parent answers only to active direct children in the same persisted control store; blocking claims only its exact child/request and returns durable-acceptance metadata.
 - [x] Persist tool-result mailbox receipts before deleting claimed answers; do not append the tool result twice.
-- [ ] Serialize panels per UI, recover from panel rejection, and enqueue nonblocking answers/cancellation correlated by requestId.
-- [ ] Match frozen tab navigation, free text, Other, multi-select source-order formatting, partial cancellation, submission, and rendering.
+- [x] Serialize panels per UI, recover from panel rejection, and enqueue nonblocking answers/cancellation correlated by requestId.
+- [x] Match frozen tab navigation, free text, Other, multi-select source-order formatting, partial cancellation, submission, and rendering.
 
 ## How it works
 
@@ -37,7 +37,7 @@ Paths above are relative to `crates/pi-coding-agent/`.
 
 ## Known gaps (current cycle)
 
-- [ ] Panel/core expanded differentials and production mutants pending.
+- [ ] Production mutants and remaining malformed/late-reply branches pending.
 - [ ] Exact source malformed-answer branch and late reply/cancellation race need additional proof.
 
 ## Out of scope

@@ -13,4 +13,6 @@ Frozen `packages/coding-agent/extensions/agents-core/src/question-relay-tools.ts
 | parseQuestionAnswer malformed type | type discriminator check | implementation present; malformed payload differential pending |
 | durable tool result acceptance | AgentSession MessageEnd captures descriptor before extensions; accept/finally release | question_tool_result_persists_receipt_before_consuming_answer |
 
+Six whole-module frozen differential requests cover nonblocking request formatting, cancellation, free-text/multi-choice formatting, explicit-blocking and missing-identity validation. Real SQLite tests separately prove answer delivery/correlation.
+
 No eager answer deletion; receipt integration uses the shared frozen mailbox acceptance boundary. Source malformed JSON/type and answer failure cases remain explicit proof gaps, not approved deviations.

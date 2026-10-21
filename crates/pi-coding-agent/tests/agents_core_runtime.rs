@@ -671,6 +671,7 @@ async fn mailbox_delivers_to_child_session_and_records_outbound_message() {
     let store = store_with_persistence(&test);
     seed_child(&store, &test, "child", "child-session");
 
+    pi_coding_agent::core::session_control_db::write_session_metadata(&test.control_db_path, &serde_json::from_value(json!({"sessionPath":format!("{}/child.jsonl",test.cwd),"id":"child-session","cwd":test.cwd,"createdAt":pi_coding_agent::utils::iso_time::now_iso_string(),"modifiedAt":pi_coding_agent::utils::iso_time::now_iso_string(),"messageCount":0,"firstMessage":""})).unwrap()).unwrap();
     let (_runner, ctx) = test_context(&test, None, None, false).await;
     let result = send_agent_message(
         &store,
@@ -842,6 +843,8 @@ async fn registration_exposes_the_source_tools_and_commands() {
         tool_names,
         [
             "agent_viewer",
+            "answer_question",
+            "ask_questions",
             "attach_session_agent",
             "close_agent",
             "contact_parent",
@@ -878,7 +881,7 @@ async fn registration_exposes_the_source_tools_and_commands() {
                         {"type": "string", "const": "inherit"}
                     ]
                 },
-                "displayName": {"type": "string"},
+                "displayName": {"type": "string", "description": "Short task slug shown in the agent status list, e.g. fix-footer-count (max ~24 chars)."},
                 "parentId": {"type": "string"},
                 "prompt": {"type": "string"}
             }
@@ -1180,6 +1183,11 @@ async fn wait_slice_uses_latest_model_request_and_does_not_cancel_active_agents(
     });
     tokio::task::yield_now().await;
     tokio::time::advance(std::time::Duration::from_millis(60_000 + 1)).await;
+    tokio::task::yield_now().await;
+    assert!(
+        waiting.is_finished(),
+        "deadline is measured from latest model request, not from wait start"
+    );
     let result = waiting.await.unwrap();
     assert_eq!(result.details.unwrap(), json!({"timedOut":true}));
     assert_eq!(store.get_agent("child").unwrap().lifecycle, AgentLifecycle::Running);
