@@ -73,3 +73,54 @@ fn initialization_expires_old_channel_rows_created_by_ts() {
             .is_empty()
     );
 }
+
+#[test]
+fn retained_connection_sweeps_channel_on_source_minute_timer() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let id = step(
+        &mut ts,
+        "call",
+        json!(["postSharedChannelMessage",[db,{"sender":{"sessionId":"s","agentId":null},"body":"retained"}]]),
+    );
+    let retained = retain_control_db_connection(&db).unwrap();
+    let old = pi_coding_agent::utils::iso_time::format_iso_millis(
+        pi_js_compat::date::js_now_millis() as i64 - 2 * 86_400_000,
+    );
+    step(
+        &mut ts,
+        "fixtureSql",
+        json!([
+            db,
+            "UPDATE shared_channel_messages SET created_at=? WHERE id=? RETURNING id",
+            [old, id]
+        ]),
+    );
+    assert_eq!(
+        list_shared_channel_messages_after(&db, 0, 20, i64::MAX).unwrap().len(),
+        1,
+        "source list relies on timer, not per-read deletion"
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(64);
+    loop {
+        if list_shared_channel_messages_after(&db, 0, 20, i64::MAX)
+            .unwrap()
+            .is_empty()
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "retained DB must sweep without reopen"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    drop(retained);
+    assert!(
+        step(&mut ts, "call", json!(["listSharedChannelMessagesAfter", [db, 0, 20]]))
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}

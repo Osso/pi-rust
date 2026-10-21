@@ -25,6 +25,10 @@ async function main(): Promise<void> {
 	const transcript = (await import(pathToFileURL(`${sourceRoot}/core/runtime-mailbox-transcript.ts`).href)) as Api;
 
 	const execute = (step: Step): unknown => {
+		if (step.op === "takeAll") {
+			const [path, recipient, limit] = step.args as [string, unknown, number];
+			return api.takeRuntimeMailboxMessagesForDelivery(path, recipient, () => true, limit);
+		}
 		if (step.op === "registerSelf") {
 			const [path, recipient, sessionPath] = step.args as [string, unknown, string];
 			api.registerRuntimeMailboxListener(path, recipient, process.pid, sessionPath);

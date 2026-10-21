@@ -338,6 +338,7 @@ struct RetainedControlDb {
     connection: Mutex<Option<Connection>>,
     active_calls: Mutex<usize>,
     retain_count: Mutex<usize>,
+    retention_thread: OnceLock<std::thread::Thread>,
 }
 
 fn retained_control_dbs() -> &'static Mutex<HashMap<String, Arc<RetainedControlDb>>> {
@@ -404,6 +405,9 @@ fn close_released_control_db(control_db_path: &str, retained: &Arc<RetainedContr
         .expect("retained control db mutex")
         .remove(control_db_path);
     retained.connection.lock().expect("retained connection mutex").take();
+    if let Some(thread) = retained.retention_thread.get() {
+        thread.unpark();
+    }
 }
 
 fn create_writable_control_db(control_db_path: &str) -> Result<Connection, ControlDbError> {
@@ -433,12 +437,41 @@ fn open_retained_control_db(control_db_path: &str) -> Result<Arc<RetainedControl
         connection: Mutex::new(Some(db)),
         active_calls: Mutex::new(0),
         retain_count: Mutex::new(0),
+        retention_thread: OnceLock::new(),
     });
+    start_retention_timer(&retained, control_db_path)?;
     retained_control_dbs()
         .lock()
         .expect("retained control db mutex")
         .insert(control_db_path.to_owned(), retained.clone());
     Ok(retained)
+}
+
+fn start_retention_timer(retained: &Arc<RetainedControlDb>, control_db_path: &str) -> Result<(), ControlDbError> {
+    let weak = Arc::downgrade(retained);
+    let path = control_db_path.to_owned();
+    let worker = std::thread::Builder::new()
+        .name("control-db-retention".into())
+        .spawn(move || {
+            loop {
+                std::thread::park_timeout(std::time::Duration::from_secs(60));
+                let Some(retained) = weak.upgrade() else { break };
+                let guard = match retained.connection.lock() {
+                    Ok(guard) => guard,
+                    Err(error) => {
+                        eprintln!("Message retention cleanup failed for {path}: {error}");
+                        break;
+                    }
+                };
+                let Some(db) = guard.as_ref() else { break };
+                if let Err(error) = retention::cleanup_expired_messages(db) {
+                    eprintln!("Message retention cleanup failed for {path}: {error}");
+                }
+            }
+        })
+        .map_err(|error| ControlDbError::new(format!("Cannot start message retention timer: {error}")))?;
+    retained.retention_thread.get_or_init(|| worker.thread().clone());
+    Ok(())
 }
 
 /// `retainControlDbConnection`; dropping the returned guard releases the connection.
@@ -545,6 +578,9 @@ pub(crate) fn validate_mailbox_payload(data: &Value, context: &str) -> Result<()
         "createdAt",
         "updatedAt",
     ] {
+        if field == "createdAt" && payload.get(field) == Some(&Value::Null) {
+            continue;
+        }
         if payload.get(field).is_some() {
             require_string_field(payload, field, context)?;
         }

@@ -19,7 +19,8 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 - [x] Preserve original mailbox birth through updates, delete terminal outbox acknowledgement rows, and accept identical terminal replay after peer acknowledgement removed the row.
 - [x] Expire in-memory mailbox at exactly24h, evict peer-deleted rows, and consume/remove while returning the original message snapshot.
 - [x] Enforce store terminal-notification suppression; preserve activity `detail` and publish model/current activity under exact DB ownership.
-- [ ] Prove retained-connection cleanup, steering delivery, detached finalization replay/suppression and remaining whole-store branches.
+- [x] Sweep expired retained-connection messages on the source minute timer; default null birth once and project unknown runtime status to failed.
+- [ ] Prove steering delivery, detached finalization replay/suppression and remaining whole-store branches.
 
 ## How it works
 

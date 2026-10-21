@@ -150,3 +150,58 @@ fn dead_owned_ts_claim_with_durable_complete_record_is_deleted_not_requeued() {
         "durably accepted claim must not replay"
     );
 }
+
+#[test]
+fn null_birth_defaults_once_and_unknown_status_projects_failed_not_throw() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut data = input("null");
+    data["message"]["createdAt"] = Value::Null;
+    let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
+        .as_i64()
+        .unwrap();
+    assert_eq!(
+        enqueue_stored_runtime_mailbox_message(&db, &serde_json::from_value(data).unwrap()).unwrap(),
+        id
+    );
+    step(
+        &mut ts,
+        "fixtureSql",
+        json!([
+            db,
+            "UPDATE multi_agent_mailbox_messages SET data=json_set(data,'$.status','delivered','$.senderHost','fixture-peer') WHERE rowid=? RETURNING rowid",
+            [id]
+        ]),
+    );
+    let peer = call(&mut ts, "readRuntimeMailboxMessage", json!([db, id]));
+    assert_eq!(peer["status"], "failed");
+    assert_eq!(
+        serde_json::to_value(read_runtime_mailbox_message(&db, id).unwrap().unwrap()).unwrap(),
+        peer
+    );
+}
+
+#[test]
+fn frozen_source_limit_zero_discrepancy_fixture() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    call(
+        &mut ts,
+        "enqueueStoredRuntimeMailboxMessage",
+        json!([db, input("zero1")]),
+    );
+    call(
+        &mut ts,
+        "enqueueStoredRuntimeMailboxMessage",
+        json!([db, input("zero2")]),
+    );
+    step(&mut ts, "registerSelf", json!([db, address(), null]));
+    let taken = step(&mut ts, "takeAll", json!([db, address(), 0]));
+    assert_eq!(
+        taken.as_array().unwrap().len(),
+        2,
+        "source bug repro, not approved Rust contract"
+    );
+}
