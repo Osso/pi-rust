@@ -180,6 +180,7 @@ pub fn process_baseten_models(provider: &JsValue) -> Result<JsValue, GeneratorEr
         if receiver_types::deprecated(model)? {
             continue;
         }
+        receiver_types::optional_field(model, "reasoning", "models.dev reasoning", "boolean")?;
         let is_glm = ["zai-org/GLM-5.2", "zai-org/GLM-5.2-Fast"]
             .iter()
             .any(|name| id == &JsString::from(*name));
