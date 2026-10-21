@@ -12,3 +12,5 @@ Frozen `packages/orchestrator/src/ipc/server.ts`; [source lock](../source-lock.j
 Rust: `crates/pi-orchestrator/src/ipc/server.rs`. Coverage remains todo until final branch matrix. No live services used; all sockets under sandbox temp directories.
 
 Streaming concurrency: `session_events_are_written_while_rpc_command_is_pending` reproduces the Rust draft buffering regression (RED); independent sequential command worker now permits socket writes during pending RPCs, matching frozen callback behavior. Targeted GREEN pending.
+
+Additional `tests/errors.rs` Unix pipe differentials: ENOENT/ECONNREFUSED/EACCES connect, libuv missing-parent bind→EACCES, bind permission, stale-file unlink permission, read ECONNRESET; normal Server.close unlinks listening socket but preserves established stream requests. Native draft failed these boundaries before shared Node diagnostics and explicit stop-accepting lifecycle corrections.

@@ -95,3 +95,143 @@ async fn closed_child_stdin_error_matches_frozen_write_callback() {
     process.dispose().await.unwrap();
     assert_eq!(json!({"message":error}), expected);
 }
+
+struct Handler;
+impl pi_orchestrator::IpcRequestHandler for Handler {
+    fn handle(&self, _request: Value) -> pi_ai::request::BoxFuture<'_, Result<Value, String>> {
+        Box::pin(async { Ok(json!({"type":"list_result","ok":true,"instances":[]})) })
+    }
+    fn open_rpc_stream(
+        &self,
+        _id: &str,
+        _callback: pi_orchestrator::OnMessage,
+    ) -> Option<Arc<dyn pi_orchestrator::RpcStream>> {
+        None
+    }
+}
+#[tokio::test]
+async fn unix_socket_errors_match_frozen_node_messages() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let regular = root.path().join("regular");
+    std::fs::create_dir(&regular).unwrap();
+    std::fs::write(regular.join("orchestrator.sock"), "not socket").unwrap();
+    let blocked = root.path().join("blocked");
+    std::fs::create_dir(&blocked).unwrap();
+    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0)).unwrap();
+    let readonly = root.path().join("readonly");
+    std::fs::create_dir(&readonly).unwrap();
+    std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let stale = root.path().join("stale");
+    std::fs::create_dir(&stale).unwrap();
+    std::fs::write(stale.join("orchestrator.sock"), "stale").unwrap();
+    std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let cases = [
+        ("client", root.path().join("missing")),
+        ("client", regular),
+        ("client", blocked.clone()),
+        ("server", root.path().join("missing")),
+        ("server", readonly.clone()),
+        ("server", stale.clone()),
+    ];
+    let mut actual = vec![];
+    let mut expected = vec![];
+    for (action, dir) in cases {
+        expected.push(oracle("ipc", json!({"action":action,"dir":dir})).await);
+        let error = if action == "client" {
+            pi_orchestrator::send_ipc_request(&dir.join("orchestrator.sock"), &json!({"type":"list"}))
+                .await
+                .unwrap_err()
+        } else {
+            match pi_orchestrator::start_ipc_server(&dir.join("orchestrator.sock"), Arc::new(Handler)).await {
+                Err(error) => error,
+                Ok(server) => {
+                    server.close().await;
+                    panic!("server unexpectedly started")
+                }
+            }
+        };
+        actual.push(json!({"message":error}));
+    }
+    for dir in [blocked, readonly, stale] {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    assert_eq!(actual, expected);
+}
+#[tokio::test]
+async fn server_close_removes_its_socket_like_frozen_node_server() {
+    let dir = tempfile::tempdir().unwrap();
+    let expected = oracle("ipc", json!({"action":"server","dir":dir.path()})).await;
+    let path = dir.path().join("orchestrator.sock");
+    let server = pi_orchestrator::start_ipc_server(&path, Arc::new(Handler))
+        .await
+        .unwrap();
+    server.close().await;
+    assert_eq!(json!({"existsAfterClose":path.exists()}), expected);
+}
+
+#[tokio::test]
+async fn server_close_keeps_already_open_streams_like_frozen_node() {
+    use pi_orchestrator::{IpcRequestHandler, OnMessage, RpcStream};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    struct ActiveHandler;
+    impl IpcRequestHandler for ActiveHandler {
+        fn handle(&self, _request: Value) -> pi_ai::request::BoxFuture<'_, Result<Value, String>> {
+            Box::pin(async { Ok(json!({"type":"rpc_ready","ok":true,"instance":{"id":"i"}})) })
+        }
+        fn open_rpc_stream(&self, _id: &str, on_message: OnMessage) -> Option<Arc<dyn RpcStream>> {
+            Some(Arc::new(ActiveStream(on_message)))
+        }
+    }
+    struct ActiveStream(OnMessage);
+    impl RpcStream for ActiveStream {
+        fn handle_request(&self, request: Value) -> pi_ai::request::BoxFuture<'_, Result<(), String>> {
+            Box::pin(async move {
+                (self.0)(json!({"type":"response","success":true,"id":request["id"]}));
+                Ok(())
+            })
+        }
+        fn close(&self) {}
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let expected = oracle("ipc", json!({"action":"stream-close","dir":dir.path()})).await;
+    let path = dir.path().join("orchestrator.sock");
+    let server = pi_orchestrator::start_ipc_server(&path, Arc::new(ActiveHandler))
+        .await
+        .unwrap();
+    let socket = tokio::net::UnixStream::connect(&path).await.unwrap();
+    let (read, mut write) = socket.into_split();
+    let mut reader = BufReader::new(read);
+    let mut line = String::new();
+    write
+        .write_all(b"{\"type\":\"rpc_stream\",\"instanceId\":\"i\"}\n")
+        .await
+        .unwrap();
+    reader.read_line(&mut line).await.unwrap();
+    server.close().await;
+    write
+        .write_all(b"{\"type\":\"get_state\",\"id\":\"after-close\"}\n")
+        .await
+        .unwrap();
+    line.clear();
+    reader.read_line(&mut line).await.unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&line).unwrap(), expected);
+}
+
+#[tokio::test]
+async fn socket_read_reset_matches_frozen_node_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let expected = oracle("ipc-reset", json!({"dir":dir.path()})).await;
+    let path = dir.path().join("orchestrator.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let task = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        drop(socket);
+    });
+    let error = pi_orchestrator::send_ipc_request(&path, &json!({"type":"list"}))
+        .await
+        .unwrap_err();
+    task.await.unwrap();
+    assert_eq!(json!({"message":error}), expected);
+}

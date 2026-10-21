@@ -30,6 +30,39 @@ if(mode==="storage"){
  try{rpc=new RpcProcessInstance({cwd:input.cwd});await rpc.send({type:"get_state",id:"probe"});throw new Error("spawn unexpectedly succeeded");}
  catch(error){process.stdout.write(`${JSON.stringify({message:error.message})}\n`);}
  if(rpc)await rpc.dispose();
+}else if(mode==="ipc-reset"){
+ process.env.PI_ORCHESTRATOR_DIR=input.dir;
+ const {createServer}=await import("node:net");
+ const server=createServer({pauseOnConnect:true},socket=>setTimeout(()=>socket.destroy(),20));
+ await new Promise(resolve=>server.listen(`${input.dir}/orchestrator.sock`,resolve));
+ const {sendIpcRequest}=await load("ipc/client");
+ try{await sendIpcRequest({type:"list"});throw new Error("reset request unexpectedly succeeded");}
+ catch(error){process.stdout.write(`${JSON.stringify({message:error.message})}\n`);}
+ await new Promise(resolve=>server.close(resolve));
+}else if(mode==="ipc"){
+ process.env.PI_ORCHESTRATOR_DIR=input.dir;
+ try{
+  if(input.action==="client"){
+   const {sendIpcRequest}=await load("ipc/client");await sendIpcRequest({type:"list"});
+  }else{
+   const {startIpcServer}=await load("ipc/server");
+   const handler=request=>request.type==="rpc_stream"?{type:"rpc_ready",ok:true,instance:{id:"i"}}:{type:"list_result",ok:true,instances:[]};
+   handler.openRpcStream=(_id,respond)=>({handleRequest:async request=>respond({type:"response",success:true,id:request.id}),close(){}});
+   const server=await startIpcServer(handler);
+   if(input.action==="stream-close"){
+    const {createConnection}=await import("node:net");const {createInterface}=await import("node:readline");
+    const socket=createConnection(`${input.dir}/orchestrator.sock`);const lines=createInterface({input:socket})[Symbol.asyncIterator]();
+    await new Promise(resolve=>socket.once("connect",resolve));socket.write('{"type":"rpc_stream","instanceId":"i"}\n');await lines.next();
+    const closed=new Promise(resolve=>server.once("close",resolve));server.close();
+    socket.write('{"type":"get_state","id":"after-close"}\n');const response=JSON.parse((await lines.next()).value);socket.end();await closed;
+    process.stdout.write(`${JSON.stringify(response)}\n`);
+   }else{
+    await new Promise(resolve=>server.close(resolve));process.stdout.write(`${JSON.stringify({existsAfterClose:existsSync(`${input.dir}/orchestrator.sock`)})}\n`);
+   }
+   process.exit(0);
+  }
+  throw new Error("operation unexpectedly succeeded");
+ }catch(error){process.stdout.write(`${JSON.stringify({message:error.message})}\n`);}
 }else{
  const {RpcProcessInstance}=await load("rpc-process");
  RpcProcessInstance.prototype.getSpawnCommand=()=>({command:process.execPath,args:["-e",input.script]});

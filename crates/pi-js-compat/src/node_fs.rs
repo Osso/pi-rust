@@ -209,9 +209,8 @@ pub fn node_fs_error_record(error: &io::Error, syscall: &str, path: &str) -> Nod
     format_fs_error_record(error, syscall, path, NodeReadApi::ReadFileSync)
 }
 
-fn format_fs_error_record(error: &io::Error, syscall: &str, path: &str, api: NodeReadApi) -> NodeFsError {
-    let code = node_error_code(error);
-    let description = match error.kind() {
+fn node_error_description(error: &io::Error, code: &str) -> String {
+    match error.kind() {
         io::ErrorKind::NotFound => "no such file or directory".to_owned(),
         io::ErrorKind::PermissionDenied => "permission denied".to_owned(),
         io::ErrorKind::IsADirectory => "illegal operation on a directory".to_owned(),
@@ -222,7 +221,12 @@ fn format_fs_error_record(error: &io::Error, syscall: &str, path: &str, api: Nod
         _ if code == "ELOOP" => "too many symbolic links encountered".to_owned(),
         _ if code == "ENOSPC" => "no space left on device".to_owned(),
         _ => error.to_string(),
-    };
+    }
+}
+
+fn format_fs_error_record(error: &io::Error, syscall: &str, path: &str, api: NodeReadApi) -> NodeFsError {
+    let code = node_error_code(error);
+    let description = node_error_description(error, code);
     let omit_path = syscall == "uv_cwd"
         || (syscall == "write" && path.is_empty())
         || (api == NodeReadApi::ReadFileSync
@@ -293,6 +297,23 @@ pub fn node_spawn_error_record(error: &io::Error, program: &str) -> NodeFsError 
     }
 }
 
+/// Unix pipe connection errors use Node's path-bearing stream diagnostic.
+pub fn node_unix_connect_error(error: &io::Error, path: &str) -> String {
+    format!("connect {} {path}", node_error_code(error))
+}
+
+/// libuv reports an absent Unix bind parent as EACCES, not the native ENOENT.
+pub fn node_unix_listen_error(error: &io::Error, path: &str) -> String {
+    let missing_parent = io::Error::from_raw_os_error(Errno::ACCESS.raw_os_error());
+    let error = if error.kind() == io::ErrorKind::NotFound {
+        &missing_parent
+    } else {
+        error
+    };
+    let code = node_error_code(error);
+    format!("listen {code}: {} {path}", node_error_description(error, code))
+}
+
 /// A write to an already-open file reports `write` without the open path.
 pub fn node_file_write_error_record(error: &io::Error) -> NodeFsError {
     node_fs_error_record(error, "write", "")
@@ -300,14 +321,19 @@ pub fn node_file_write_error_record(error: &io::Error) -> NodeFsError {
 
 /// Writable pipe callback errors use `write EPIPE`, without a filesystem path.
 pub fn node_pipe_write_error_record(error: &io::Error) -> NodeFsError {
+    node_stream_error_record(error, "write")
+}
+
+/// Pipe/socket stream errors retain the originating read/write syscall.
+pub fn node_stream_error_record(error: &io::Error, syscall: &str) -> NodeFsError {
     let code = node_error_code(error);
     NodeFsError {
         name: "Error",
         errno: error.raw_os_error().and_then(i32::checked_neg),
         code,
-        syscall: "write".into(),
+        syscall: syscall.into(),
         path: None,
-        message: format!("write {code}"),
+        message: format!("{syscall} {code}"),
     }
 }
 

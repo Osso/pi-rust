@@ -6,7 +6,7 @@ use std::{path::Path, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
-    sync::mpsc,
+    sync::{mpsc, oneshot},
     task::{JoinHandle, JoinSet},
 };
 
@@ -22,26 +22,39 @@ pub trait IpcRequestHandler: Send + Sync {
 
 pub struct IpcServer {
     task: JoinHandle<()>,
+    stop: Option<oneshot::Sender<()>>,
 }
 impl IpcServer {
     pub async fn close(mut self) {
-        self.task.abort();
-        let _ = (&mut self.task).await;
+        self.stop_accepting();
+        if let Err(error) = (&mut self.task).await {
+            eprintln!("IPC server close: {error}");
+        }
+    }
+    fn stop_accepting(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
     }
 }
 impl Drop for IpcServer {
     fn drop(&mut self) {
-        self.task.abort();
+        self.stop_accepting();
     }
 }
 
 pub async fn start_ipc_server(path: &Path, handler: Arc<dyn IpcRequestHandler>) -> Result<IpcServer, String> {
     remove_stale_socket(path).await?;
-    let listener = UnixListener::bind(path).map_err(|e| e.to_string())?;
+    let listener = UnixListener::bind(path)
+        .map_err(|error| pi_js_compat::node_fs::node_unix_listen_error(&error, &path.to_string_lossy()))?;
+    let path = path.to_owned();
+    let (stop, mut stopped) = oneshot::channel();
     let task = tokio::spawn(async move {
         let mut clients = JoinSet::new();
         loop {
             tokio::select! {
+                biased;
+                _ = &mut stopped => break,
                 result = listener.accept() => match result {
                     Ok((socket, _)) => {
                         let handler = handler.clone();
@@ -54,8 +67,14 @@ pub async fn start_ipc_server(path: &Path, handler: Arc<dyn IpcRequestHandler>) 
                 _ = clients.join_next(), if !clients.is_empty() => {}
             }
         }
+        drop(listener);
+        if let Err(error) = crate::storage::remove_if_exists(&path) {
+            eprintln!("IPC socket close: {error}");
+        }
+        // Node Server.close stops accepts but leaves established streams alive.
+        clients.detach_all();
     });
-    Ok(IpcServer { task })
+    Ok(IpcServer { task, stop: Some(stop) })
 }
 
 async fn remove_stale_socket(path: &Path) -> Result<(), String> {
@@ -73,9 +92,13 @@ async fn remove_stale_socket(path: &Path) -> Result<(), String> {
                     | std::io::ErrorKind::ConnectionReset
             ) =>
         {
-            std::fs::remove_file(path).map_err(|e| e.to_string())
+            std::fs::remove_file(path)
+                .map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "unlink", &path.to_string_lossy()))
         }
-        Err(e) => Err(e.to_string()),
+        Err(error) => Err(pi_js_compat::node_fs::node_unix_connect_error(
+            &error,
+            &path.to_string_lossy(),
+        )),
     }
 }
 

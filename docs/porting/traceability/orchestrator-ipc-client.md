@@ -10,3 +10,5 @@ Frozen `packages/orchestrator/src/ipc/client.ts`; [source lock](../source-lock.j
 | parser/handler exception, EOF client failure, UI/event callbacks | implemented; additional behavioral fixtures pending |
 
 Rust: `crates/pi-orchestrator/src/ipc/client.rs`. Coverage remains todo until final branch matrix. No live services used; all sockets under sandbox temp directories.
+
+Additional `tests/errors.rs` Unix pipe differentials: ENOENT/ECONNREFUSED/EACCES connect, libuv missing-parent bind→EACCES, bind permission, stale-file unlink permission, read ECONNRESET; normal Server.close unlinks listening socket but preserves established stream requests. Native draft failed these boundaries before shared Node diagnostics and explicit stop-accepting lifecycle corrections.
