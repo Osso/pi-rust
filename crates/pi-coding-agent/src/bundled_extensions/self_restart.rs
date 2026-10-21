@@ -56,8 +56,6 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                             "Restart requested. Current session was reloaded.",
                         ))],
                         details: Some(json!({"restarted": true})),
-                        usage: None,
-                        added_tool_names: None,
                         is_error: None,
                         terminate: None,
                     })

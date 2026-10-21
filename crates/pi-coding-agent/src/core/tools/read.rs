@@ -260,8 +260,6 @@ async fn execute_read(
     Ok(AgentToolResult {
         content,
         details,
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     })

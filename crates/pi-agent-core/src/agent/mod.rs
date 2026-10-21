@@ -4,7 +4,7 @@ pub mod agent_loop;
 pub mod proxy;
 #[path = "agent.rs"]
 pub mod runtime;
-pub mod stream_fn;
+mod stream_fn;
 pub mod types;
 
 pub use agent_loop::{
@@ -15,7 +15,6 @@ pub use proxy::{ProxyAssistantMessageEvent, ProxyStreamOptions, stream_proxy};
 pub use runtime::{
     Agent, AgentInitialState, AgentListener, AgentOptions, ContinueOptions, PrepareNextTurnSignalHook, PromptInput,
 };
-pub use stream_fn::{get_default_stream_fn, set_default_stream_fn};
 pub use types::{
     AfterToolCallContext, AfterToolCallHook, AfterToolCallResult, AgentContext, AgentError, AgentEvent,
     AgentLoopConfig, AgentLoopTurnUpdate, AgentMessage, AgentState, AgentTool, AgentToolCall, AgentToolResult,

@@ -113,8 +113,6 @@ fn actions() -> ExtensionActions {
                 Ok(AgentToolResult {
                     content: Vec::new(),
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 })
@@ -261,8 +259,6 @@ async fn harness(name: &str, default_decision: GoalSupervisorResponse) -> Harnes
             Ok(AgentToolResult {
                 content: vec![TextOrImageContent::Text(TextContent::new("ok"))],
                 details: Some(json!({"activeCount": active, "agents": []})),
-                usage: None,
-                added_tool_names: None,
                 is_error: None,
                 terminate: None,
             })

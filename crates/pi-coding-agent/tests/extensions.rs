@@ -1305,8 +1305,6 @@ fn tool_definition(name: &str, description: &str) -> ToolDefinition {
                 Ok(pi_agent_core::AgentToolResult {
                     content: Vec::new(),
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 })
@@ -1557,7 +1555,7 @@ async fn gates_and_reviewers_patch_tool_input() {
 }
 
 #[tokio::test]
-async fn wrapper_reports_tools_added_during_execution() {
+async fn wrapper_does_not_inject_old_added_tool_names() {
     let runtime = support::runtime();
     let active_tools = Arc::new(Mutex::new(vec!["existing".to_owned()]));
     let tool_active = Arc::clone(&active_tools);
@@ -1569,8 +1567,6 @@ async fn wrapper_reports_tools_added_during_execution() {
             Ok(pi_agent_core::AgentToolResult {
                 content: Vec::new(),
                 details: None,
-                usage: None,
-                added_tool_names: Some(vec!["existing-added".to_owned()]),
                 is_error: None,
                 terminate: None,
             })
@@ -1592,10 +1588,7 @@ async fn wrapper_reports_tools_added_during_execution() {
         .execute("call".to_owned(), json!({}), None, Arc::new(|_| {}), None)
         .await
         .unwrap();
-    assert_eq!(
-        result.added_tool_names,
-        Some(vec!["existing-added".to_owned(), "added".to_owned()])
-    );
+    assert_eq!(serde_json::to_value(result).unwrap().get("addedToolNames"), None);
 }
 
 #[tokio::test]
@@ -2073,8 +2066,6 @@ fn wrapped_text_result(text: String) -> pi_agent_core::agent::AgentToolResult {
     pi_agent_core::agent::AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

@@ -68,8 +68,6 @@ fn result(content: &str, details: Option<Value>, is_error: bool) -> AgentToolRes
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(content.to_owned()))],
         details,
-        usage: None,
-        added_tool_names: None,
         is_error: Some(is_error),
         terminate: None,
     }

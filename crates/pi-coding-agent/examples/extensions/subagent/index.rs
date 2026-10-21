@@ -68,8 +68,6 @@ fn result(content: String, details: Value, error: bool) -> AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(content))],
         details: Some(details),
         is_error: error.then_some(true),
-        usage: None,
-        added_tool_names: None,
         terminate: None,
     }
 }

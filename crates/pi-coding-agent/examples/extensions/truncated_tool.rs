@@ -107,8 +107,6 @@ fn result(text: String, details: Value) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: Some(details),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

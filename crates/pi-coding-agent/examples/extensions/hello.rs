@@ -26,8 +26,6 @@ pub fn hello_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Ok(AgentToolResult {
                 content: vec![TextOrImageContent::Text(TextContent::new(format!("Hello, {name}!")))],
                 details: Some(json!({"greeted":name})),
-                usage: None,
-                added_tool_names: None,
                 is_error: None,
                 terminate: None,
             })

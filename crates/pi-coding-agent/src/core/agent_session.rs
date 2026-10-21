@@ -2295,7 +2295,7 @@ impl AgentSession {
                 input: context.args.as_object().cloned().unwrap_or_default(),
                 content: context.result.content.clone(),
                 is_error: context.is_error,
-                usage: context.result.usage.clone(),
+                usage: None,
                 details: context.result.details.clone(),
             };
             runner.emit_tool_result(event).await
@@ -2324,7 +2324,6 @@ impl AgentSession {
                 .as_ref()
                 .and_then(|result| result.is_error)
                 .or(Some(context.is_error)),
-            usage: hook_result.as_ref().and_then(|result| result.usage.clone()),
             terminate: None,
         })
     }
@@ -7580,7 +7579,6 @@ fn tool_call_result_to_before(result: crate::core::extensions::types::ToolCallEv
     BeforeToolCallResult {
         block: result.block,
         reason: result.reason,
-        terminate: result.terminate,
     }
 }
 

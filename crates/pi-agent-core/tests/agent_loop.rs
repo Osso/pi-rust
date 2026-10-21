@@ -1364,7 +1364,7 @@ async fn stops_after_tool_batch_when_every_result_terminates() {
 }
 
 #[tokio::test]
-async fn stops_after_blocked_tool_call_when_before_hook_terminates() {
+async fn continues_after_blocked_tool_call_without_termination_hint() {
     let executed = Arc::new(AtomicBool::new(false));
     let executed_hook = Arc::clone(&executed);
     let mut tool = TestTool::new("echo", move |_id, _params| {
@@ -1378,7 +1378,6 @@ async fn stops_after_blocked_tool_call_when_before_hook_terminates() {
             Ok(Some(BeforeToolCallResult {
                 block: Some(true),
                 reason: Some("Blocked by policy".to_owned()),
-                terminate: Some(true),
             }))
         })
     }));
@@ -1422,7 +1421,7 @@ async fn stops_after_blocked_tool_call_when_before_hook_terminates() {
         .find_map(|message| message.as_tool_result())
         .expect("tool result");
     assert!(!executed.load(Ordering::SeqCst));
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert!(tool_result.is_error);
     assert_eq!(
         tool_result.content,
@@ -1448,7 +1447,6 @@ async fn continues_after_mixed_batch_with_one_terminating_blocked_call() {
                 Ok(Some(BeforeToolCallResult {
                     block: Some(true),
                     reason: Some("Blocked first".to_owned()),
-                    terminate: Some(true),
                 }))
             } else {
                 Ok(None)
@@ -1827,8 +1825,6 @@ async fn tool_result_for(text: String, details: Option<serde_json::Value>) -> pi
     let tool = TestTool::new("big", move |_id, _params| AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text.clone()))],
         details: details.clone(),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     });

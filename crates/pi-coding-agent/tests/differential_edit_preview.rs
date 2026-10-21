@@ -59,8 +59,6 @@ fn agent_result(value: &Value) -> AgentToolResult {
             .map(|text| TextOrImageContent::Text(TextContent::new(text.to_owned())))
             .collect(),
         details: value.get("details").cloned(),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

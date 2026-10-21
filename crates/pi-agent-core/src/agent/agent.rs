@@ -12,7 +12,7 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent::agent_loop::{AgentEventSink, run_agent_loop, run_agent_loop_continue};
-use crate::agent::stream_fn::get_default_stream_fn;
+use crate::agent::stream_fn::default_stream_fn;
 use crate::agent::types::{
     AfterToolCallHook, AgentContext, AgentError, AgentEvent, AgentLoopConfig, AgentLoopTurnUpdate, AgentMessage,
     AgentState, AgentTool, BeforeToolCallHook, ConvertToLlm, GetApiKey, MessageQueueHook, PrepareNextTurnContext,
@@ -222,10 +222,7 @@ pub struct Agent {
 
 impl Agent {
     pub fn new(options: AgentOptions) -> Result<Self, AgentError> {
-        let stream_function = match options.stream_fn {
-            Some(stream_function) => stream_function,
-            None => get_default_stream_fn()?,
-        };
+        let stream_function = options.stream_fn.unwrap_or_else(default_stream_fn);
         let initial = options.initial_state.unwrap_or_default();
         let state = AgentState {
             system_prompt: initial.system_prompt.unwrap_or_default(),
@@ -535,7 +532,7 @@ impl Agent {
         }
     }
 
-    pub fn reset(&self) -> Result<(), AgentError> {
+    pub fn reset(&self) {
         {
             let mut state = self.state_lock();
             state.messages.clear();
@@ -547,7 +544,6 @@ impl Agent {
         }
         self.clear_follow_up_queue();
         self.clear_steering_queue();
-        Ok(())
     }
 
     pub async fn prompt(&self, input: impl Into<PromptInput>) -> Result<(), AgentError> {

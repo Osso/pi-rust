@@ -132,8 +132,6 @@ impl UpdateThrottle {
         (self.on_update)(AgentToolResult {
             content: Vec::new(),
             details: None,
-            usage: None,
-            added_tool_names: None,
             is_error: None,
             terminate: None,
         });
@@ -172,8 +170,6 @@ fn progress_result(progress: &ShellCaptureProgress) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(progress.output.clone()))],
         details: Some(Value::Object(details)),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }
@@ -206,8 +202,6 @@ async fn execute_bash(
             output_text
         }))],
         details,
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     })
@@ -380,8 +374,6 @@ fn capture_update_result(capture: &ShellCaptureResult) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(capture.output.clone()))],
         details: Some(Value::Object(details)),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

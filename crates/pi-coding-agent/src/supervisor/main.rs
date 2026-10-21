@@ -146,7 +146,6 @@ fn supervisor_file_access_block() -> BeforeToolCallResult {
     BeforeToolCallResult {
         block: Some(true),
         reason: Some("Pi Supervisor may access files only inside the configured KB directory.".to_owned()),
-        terminate: None,
     }
 }
 

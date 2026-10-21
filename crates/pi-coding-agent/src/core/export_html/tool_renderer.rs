@@ -153,8 +153,6 @@ impl ToolHtmlRenderer for ExtensionToolHtmlRenderer {
         let agent_tool_result = AgentToolResult {
             content: result.to_vec(),
             details: details.cloned(),
-            usage: None,
-            added_tool_names: None,
             is_error: Some(is_error),
             terminate: None,
         };

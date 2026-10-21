@@ -140,8 +140,6 @@ fn actions() -> ExtensionActions {
                 Ok(AgentToolResult {
                     content: Vec::new(),
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 })

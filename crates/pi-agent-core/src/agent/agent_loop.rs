@@ -15,7 +15,7 @@ use serde_json::Value;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::agent::stream_fn::get_default_stream_fn;
+use crate::agent::stream_fn::default_stream_fn;
 use crate::agent::types::{
     AfterToolCallContext, AfterToolCallHook, AgentContext, AgentError, AgentEvent, AgentLoopConfig, AgentMessage,
     AgentTool, AgentToolResult, AgentToolUpdateCallback, BeforeToolCallContext, PrepareNextTurnContext,
@@ -130,7 +130,7 @@ pub async fn run_agent_loop(
         .await?;
     }
 
-    let stream_fn = resolve_stream_fn(stream_fn)?;
+    let stream_fn = resolve_stream_fn(stream_fn);
     run_loop(current_context, new_messages, config, signal, &emit, stream_fn).await
 }
 
@@ -166,7 +166,7 @@ pub async fn run_agent_loop_continue(
         return Ok(messages);
     }
 
-    let stream_fn = resolve_stream_fn(stream_fn)?;
+    let stream_fn = resolve_stream_fn(stream_fn);
     run_loop(
         current_context,
         new_messages,
@@ -224,18 +224,19 @@ async fn resume_pending_tool_batch(
         }
         apply_config_update(config, &update);
     }
-    if should_stop_after_turn(config, next_turn_context).await? {
+    let stop_context = ShouldStopAfterTurnContext {
+        context: current_context.clone(),
+        ..next_turn_context
+    };
+    if should_stop_after_turn(config, stop_context).await? {
         let messages = finish_agent(new_messages.clone(), emit).await?;
         return Ok(ResumeOutcome::Stop(messages));
     }
     Ok(ResumeOutcome::Continue)
 }
 
-fn resolve_stream_fn(stream_fn: Option<StreamFn>) -> Result<StreamFn, AgentError> {
-    match stream_fn {
-        Some(stream_fn) => Ok(stream_fn),
-        None => get_default_stream_fn(),
-    }
+fn resolve_stream_fn(stream_fn: Option<StreamFn>) -> StreamFn {
+    stream_fn.unwrap_or_else(default_stream_fn)
 }
 
 /// Returns the trailing assistant batch reduced to calls without a tool result.
@@ -482,7 +483,11 @@ async fn finish_turn(
         new_messages: state.new_messages.clone(),
     };
     apply_next_turn(state, next_turn_context.clone()).await?;
-    if should_stop_after_turn(&state.config, next_turn_context).await? {
+    let stop_context = ShouldStopAfterTurnContext {
+        context: state.current_context.clone(),
+        ..next_turn_context
+    };
+    if should_stop_after_turn(&state.config, stop_context).await? {
         return Ok(Some(finish_agent(state.new_messages.clone(), emit).await?));
     }
     Ok(None)
@@ -747,7 +752,7 @@ async fn prepare_assistant_tool_executions(
             content.push(block.clone());
             continue;
         }
-        let Some(tool) = tools.iter().find(|tool| tool.name() == call.name) else {
+        let Some(tool) = tools.iter().rev().find(|tool| tool.name() == call.name) else {
             content.push(block.clone());
             continue;
         };
@@ -1083,7 +1088,7 @@ async fn prepare_tool_call(
         return immediate_error("Operation aborted", validated_args);
     }
     Preparation::Prepared(PreparedToolCall {
-        tool_call: prepared_tool_call,
+        tool_call: tool_call.clone(),
         tool,
         args: validated_args,
     })
@@ -1125,14 +1130,12 @@ async fn apply_before_tool_call(
     if before_result.block != Some(true) {
         return Ok(validated_args);
     }
-    let mut tool_result = create_error_tool_result(
+    let tool_result = create_error_tool_result(
         before_result
             .reason
+            .filter(|reason| !reason.is_empty())
             .unwrap_or_else(|| "Tool execution was blocked".to_owned()),
     );
-    if before_result.terminate == Some(true) {
-        tool_result.terminate = Some(true);
-    }
     Err(Box::new(Preparation::Immediate {
         result: tool_result,
         is_error: true,
@@ -1313,9 +1316,6 @@ fn apply_after_tool_call_result(
     if let Some(details) = after_result.details {
         result.details = Some(details);
     }
-    if let Some(usage) = after_result.usage {
-        result.usage = Some(usage);
-    }
     if let Some(terminate) = after_result.terminate {
         result.terminate = Some(terminate);
     }
@@ -1450,8 +1450,8 @@ fn create_tool_result_message(finalized: &FinalizedToolCallOutcome) -> ToolResul
         tool_name: finalized.tool_call.name.clone(),
         content: finalized.result.content.clone(),
         details: finalized.result.details.clone(),
-        usage: finalized.result.usage.clone(),
-        added_tool_names: finalized.result.added_tool_names.clone(),
+        usage: None,
+        added_tool_names: None,
         is_error: finalized.is_error,
         timestamp: pi_ai::request::now_millis(),
     }

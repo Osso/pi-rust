@@ -12,7 +12,7 @@ use indexmap::IndexSet;
 use pi_ai::request::{BoxFuture, SimpleStreamOptions};
 use pi_ai::types::{
     AssistantMessage, AssistantMessageEvent, ConstrainedSampling, Context, JsonObject, Message, Model,
-    TextOrImageContent, ToolCall, ToolCallExecution, ToolResultMessage, Usage, UserMessage,
+    TextOrImageContent, ToolCall, ToolCallExecution, ToolResultMessage, UserMessage,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -51,10 +51,6 @@ impl AgentError {
         &self.message
     }
 
-    pub fn default_stream_fn_missing() -> Self {
-        Self::new("No default stream function configured. Pass streamFn explicitly or call setDefaultStreamFn().")
-    }
-
     pub fn already_processing_prompt() -> Self {
         Self::new(
             "Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
@@ -63,10 +59,6 @@ impl AgentError {
 
     pub fn already_processing_continue() -> Self {
         Self::new("Agent is already processing. Wait for completion before continuing.")
-    }
-
-    pub fn already_processing_reset() -> Self {
-        Self::new("Agent is already processing. Wait for completion before resetting.")
     }
 
     pub fn already_processing() -> Self {
@@ -220,10 +212,6 @@ pub struct AgentToolResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub added_tool_names: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     /// Hint that the agent should stop after the current tool batch.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -236,8 +224,6 @@ impl AgentToolResult {
         Self {
             content: vec![TextOrImageContent::Text(pi_ai::types::TextContent::new(text))],
             details: Some(Value::Object(JsonObject::new())),
-            usage: None,
-            added_tool_names: None,
             is_error: None,
             terminate: None,
         }
@@ -386,8 +372,6 @@ pub struct AfterToolCallResult {
     pub details: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminate: Option<bool>,
 }

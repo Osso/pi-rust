@@ -427,8 +427,6 @@ fn actions() -> ExtensionActions {
                 Ok(AgentToolResult {
                     content: vec![TextOrImageContent::Text(TextContent::new(name))],
                     details: Some(params),
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 })
@@ -555,8 +553,6 @@ async fn harness() -> Harness {
             Ok(AgentToolResult {
                 content: vec![TextOrImageContent::Text(TextContent::new("tool-output"))],
                 details: Some(json!({"tool": name})),
-                usage: None,
-                added_tool_names: None,
                 is_error: None,
                 terminate: None,
             })
@@ -758,8 +754,6 @@ fn tool_definition_prepares_a_uuidv7_agent_id() {
             Ok(AgentToolResult {
                 content: Vec::new(),
                 details: None,
-                usage: None,
-                added_tool_names: None,
                 is_error: None,
                 terminate: None,
             })

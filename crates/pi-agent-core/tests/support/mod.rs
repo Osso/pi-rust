@@ -317,8 +317,6 @@ pub fn text_result(text: &str) -> AgentToolResult {
     AgentToolResult {
         content: vec![pi_ai::types::TextOrImageContent::Text(TextContent::new(text))],
         details: Some(serde_json::json!({"value": text})),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

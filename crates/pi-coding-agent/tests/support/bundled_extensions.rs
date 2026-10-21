@@ -281,8 +281,6 @@ pub fn empty_tool_result() -> pi_agent_core::agent::types::AgentToolResult {
     pi_agent_core::agent::types::AgentToolResult {
         content: Vec::new(),
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

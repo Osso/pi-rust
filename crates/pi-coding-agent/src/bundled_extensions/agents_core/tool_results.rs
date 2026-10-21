@@ -8,8 +8,6 @@ pub fn tool_result(text: impl Into<String>, details: Value) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: Some(details),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }
@@ -23,8 +21,6 @@ pub fn empty_tool_result() -> AgentToolResult {
     AgentToolResult {
         content: Vec::new(),
         details: Some(json!({})),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

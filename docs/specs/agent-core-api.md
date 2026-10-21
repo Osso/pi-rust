@@ -7,4 +7,11 @@ Reference: immutable `4f9e6f8a4`, `packages/agent-core/src/{agent-loop,agent,typ
 - Reset clears transcript, queues and runtime state even during an active run; it does not abort or release that run.
 - Proxy `toolcall_end` carries only `contentIndex`; finalize the tool call reconstructed from start/delta events, ignoring extra end-event fields.
 
+- The default stream uses `pi-ai/compat.streamSimple`; no process-global stream registration API exists.
+- Stop hooks observe context replaced by `prepareNextTurn`, including restored tool batches.
+- Argument preparation affects validated execution arguments, not the raw tool call passed to hooks.
+- Execution metadata preparation uses the last tool definition for duplicate names; execution lookup retains first-match behavior.
+- Before-tool results expose only block/reason. Blocking never terminates a batch; an empty reason uses the default blocked message.
+- Agent tool results expose content/details/isError/terminate only. No usage or added-tool-name metadata injection; coding-agent wrappers return the tool's value without active-tool diffing.
+
 Scope excludes shared content/details losslessness. Other old-only harness/session/telemetry/tools/search exports await their owning slices. Proof status and remaining differences: [slice-1 traceability](../porting/traceability/agent-core-api-repin.md).

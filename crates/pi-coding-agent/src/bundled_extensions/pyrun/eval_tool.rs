@@ -334,8 +334,6 @@ pub fn format_canonical_pyrun_eval_result(
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: Some(serde_json::to_value(&bounded_result).unwrap_or(Value::Null)),
-        usage: None,
-        added_tool_names: None,
         is_error: Some(is_error),
         terminate: None,
     }
@@ -375,8 +373,6 @@ pub fn create_pyrun_progress_reporter(
             on_update(AgentToolResult {
                 content: vec![TextOrImageContent::Text(TextContent::new(progress_text))],
                 details: Some(bounded_update.raw),
-                usage: None,
-                added_tool_names: None,
                 is_error: None,
                 terminate: None,
             });

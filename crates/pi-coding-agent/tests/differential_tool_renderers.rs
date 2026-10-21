@@ -50,8 +50,6 @@ fn result(content: &[&str], details: Option<Value>) -> AgentToolResult {
             .map(|text| TextOrImageContent::Text(TextContent::new(*text)))
             .collect(),
         details,
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

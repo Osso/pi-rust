@@ -124,8 +124,6 @@ fn agent_tool_result_omits_undefined_fields() {
     let result = AgentToolResult {
         content: Vec::new(),
         details: Some(json!({"a": 1})),
-        usage: None,
-        added_tool_names: Some(vec!["new_tool".to_owned()]),
         is_error: Some(true),
         terminate: Some(false),
     };
@@ -134,7 +132,6 @@ fn agent_tool_result_omits_undefined_fields() {
         json!({
             "content": [],
             "details": {"a": 1},
-            "addedToolNames": ["new_tool"],
             "isError": true,
             "terminate": false
         })
@@ -142,11 +139,19 @@ fn agent_tool_result_omits_undefined_fields() {
 }
 
 #[test]
-fn agent_error_messages_match_typescript() {
+fn frozen_tool_result_does_not_expose_old_metadata_fields() {
+    let result: AgentToolResult = serde_json::from_value(json!({
+        "content": [], "details": {}, "addedToolNames": ["old-only"]
+    }))
+    .unwrap();
     assert_eq!(
-        AgentError::default_stream_fn_missing().to_string(),
-        "No default stream function configured. Pass streamFn explicitly or call setDefaultStreamFn()."
+        serde_json::to_value(result).unwrap(),
+        json!({"content": [], "details": {}})
     );
+}
+
+#[test]
+fn agent_error_messages_match_typescript() {
     assert_eq!(
         AgentError::already_processing_prompt().to_string(),
         "Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion."
@@ -154,10 +159,6 @@ fn agent_error_messages_match_typescript() {
     assert_eq!(
         AgentError::already_processing_continue().to_string(),
         "Agent is already processing. Wait for completion before continuing."
-    );
-    assert_eq!(
-        AgentError::already_processing_reset().to_string(),
-        "Agent is already processing. Wait for completion before resetting."
     );
     assert_eq!(
         AgentError::no_messages_to_continue().to_string(),

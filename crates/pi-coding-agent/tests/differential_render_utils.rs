@@ -73,8 +73,6 @@ fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
                 .map(|text| TextOrImageContent::Text(TextContent::new(*text)))
                 .collect(),
             details: None,
-            usage: None,
-            added_tool_names: None,
             is_error: None,
             terminate: None,
         };

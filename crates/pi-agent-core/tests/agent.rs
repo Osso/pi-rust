@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::{
     Agent, AgentEvent, AgentListener, AgentMessage, AgentOptions, AgentTool, AgentToolResult, ContinueOptions,
-    PromptInput, get_default_stream_fn, set_default_stream_fn,
+    PromptInput,
 };
 use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{AssistantContent, AssistantMessage, AssistantMessageEvent, StopReason, UserContent};
@@ -29,32 +29,6 @@ fn user_message(text: &str) -> AgentMessage {
 
 fn user_block_message(text: &str) -> AgentMessage {
     AgentMessage::User(user_block(text))
-}
-
-#[tokio::test]
-async fn uses_configured_default_when_stream_fn_is_omitted() {
-    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _guard = LOCK.lock().await;
-    let calls = Arc::new(AtomicUsize::new(0));
-    let calls_hook = Arc::clone(&calls);
-    set_default_stream_fn(Some(Arc::new(move |_model, _context, _options| {
-        let calls_hook = Arc::clone(&calls_hook);
-        Box::pin(async move {
-            calls_hook.fetch_add(1, Ordering::SeqCst);
-            let (sender, stream) = create_assistant_message_event_stream();
-            sender.push(AssistantMessageEvent::Done {
-                reason: pi_ai::types::DoneReason::Stop,
-                message: text_assistant("fallback"),
-            });
-            stream
-        })
-    })));
-    let agent = Agent::new(AgentOptions::default()).unwrap();
-    let result = agent.prompt("Hello").await;
-    set_default_stream_fn(None);
-    result.unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert!(get_default_stream_fn().is_err());
 }
 
 #[tokio::test]
@@ -120,7 +94,7 @@ async fn reset_clears_state_during_active_run_without_aborting_it() {
     agent.subscribe(Arc::new(move |event, _| {
         if matches!(event, AgentEvent::ModelRequestStart) {
             reset_agent.follow_up(user_message("later"));
-            reset_agent.reset().unwrap();
+            reset_agent.reset();
             assert!(reset_agent.messages().is_empty());
             assert!(!reset_agent.is_streaming());
             assert!(!reset_agent.has_queued_messages());
@@ -130,6 +104,21 @@ async fn reset_clears_state_during_active_run_without_aborting_it() {
     }));
     agent.prompt("start").await.unwrap();
     assert_eq!(agent.messages().len(), 1);
+}
+
+#[tokio::test]
+async fn defaults_to_compat_stream_without_registration() {
+    let agent = Agent::new(AgentOptions::default()).expect("frozen constructor has a built-in default");
+    agent.prompt("hello").await.unwrap();
+    let messages = agent.messages();
+    let failure = messages.last().unwrap().as_assistant().unwrap();
+    assert_eq!(failure.stop_reason, StopReason::Error);
+    assert!(
+        failure
+            .error_message
+            .as_ref()
+            .is_some_and(|message| message.contains("unknown"))
+    );
 }
 
 #[tokio::test]
@@ -581,7 +570,7 @@ async fn abort_is_a_noop_without_an_active_run() {
 }
 
 #[tokio::test]
-async fn rejects_reset_while_processing_without_corrupting_transcript() {
+async fn reset_during_pending_response_keeps_run_reserved_and_completes() {
     let release_response = Arc::new(tokio::sync::Notify::new());
     let release_hook = Arc::clone(&release_response);
     let stream_fn: pi_agent_core::agent::StreamFn = Arc::new(move |_model, _context, _options| {
@@ -619,20 +608,10 @@ async fn rejects_reset_while_processing_without_corrupting_transcript() {
             .collect::<Vec<_>>(),
         vec!["user"]
     );
-    let error = agent.reset().unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "Agent is already processing. Wait for completion before resetting."
-    );
-    assert!(agent.is_streaming());
-    assert_eq!(
-        agent
-            .messages()
-            .iter()
-            .map(|message| message.role())
-            .collect::<Vec<_>>(),
-        vec!["user"]
-    );
+    agent.reset();
+    assert!(!agent.is_streaming());
+    assert!(agent.signal().is_some());
+    assert!(agent.messages().is_empty());
     release_response.notify_waiters();
     prompt.await.unwrap();
     assert!(!agent.is_streaming());
@@ -642,7 +621,7 @@ async fn rejects_reset_while_processing_without_corrupting_transcript() {
             .iter()
             .map(|message| message.role())
             .collect::<Vec<_>>(),
-        vec!["user", "assistant"]
+        vec!["assistant"]
     );
 }
 

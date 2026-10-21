@@ -81,8 +81,6 @@ pub fn create_supervisor_response_tool() -> ToolDefinition {
                 Ok(AgentToolResult {
                     content: vec![TextOrImageContent::Text(pi_ai::types::TextContent::new(text))],
                     details: Some(params),
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: Some(true),
                 })

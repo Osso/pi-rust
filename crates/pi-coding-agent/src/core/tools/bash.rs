@@ -797,8 +797,6 @@ async fn execute_bash(
             Ok(AgentToolResult {
                 content: vec![TextOrImageContent::Text(TextContent::new(text))],
                 details,
-                usage: None,
-                added_tool_names: None,
                 is_error: None,
                 terminate: None,
             })
@@ -1179,8 +1177,6 @@ fn format_detached_output(
             ),
         )))],
         details: Some(Value::Object(details)),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }
@@ -1213,8 +1209,6 @@ impl UpdateThrottle {
         (self.on_update)(AgentToolResult {
             content: Vec::new(),
             details: None,
-            usage: None,
-            added_tool_names: None,
             is_error: None,
             terminate: None,
         });
@@ -1277,8 +1271,6 @@ impl UpdateThrottle {
         (self.on_update)(AgentToolResult {
             content: vec![TextOrImageContent::Text(TextContent::new(snapshot.content.clone()))],
             details: Some(Value::Object(details)),
-            usage: None,
-            added_tool_names: None,
             is_error: None,
             terminate: None,
         });
