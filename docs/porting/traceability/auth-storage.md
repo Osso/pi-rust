@@ -25,7 +25,7 @@ Current commands, revisions, exact counts, mutations, and remaining failures: `/
 | Successful expired OAuth rotation, rescue after callback/write failure | refresh_oauth_token_with_lock/get_api_key | auth_phase1_rotation: callback-return cancellation, locked write error, actual lock compromise, concurrent unrelated changes, fresh TS sees B, next refresh consumes B→C |
 | Failed provider refresh / failed rescue with successful reload | get_api_key | auth_phase1_rotation: disk remains A, error surfaced, no fabricated rotation |
 | All writes and reload fail | Approved delta: failed reload never certifies memory-only rotation | Both throw modes compare with zero delta differences; frozen baseline asserts exactly successful `new` versus failure/error/cause. Both retain memory B/disk A and exact errors |
-| Key handoff to scalar-string request providers | Checked UTF-8 conversion only at handoff | Cached surrogate access remains in storage; handoff errors explicitly, never replaces |
+| Public get_api_key UTF-16 return | Result<Option<JsString>>; no encoding/validation | auth_phase1_lossless compares frozen getApiKey U+D800 result and units [55296], preserving stored credential |
 | Builtin response/token handoff | Anthropic, Codex token response/account ID, Copilot access response parse losslessly | Anthropic surrogate token response RED/GREEN; ordinary provider test targets compile and pass; complete protocol proof remains separate |
 | Login/getOAuthProviders | Registry interface | Existing fake registry/native pure mapping evidence; full login/callback/protocol parity remains pending |
 

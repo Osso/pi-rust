@@ -53,6 +53,7 @@ fn public_ts_rust_ts_and_reverse_preserve_oauth_extras_and_unrelated_providers()
     assert_eq!(
         rt.block_on(storage.get_api_key("api", GetApiKeyOptions::default()))
             .unwrap()
+            .map(|key| key.to_utf8().unwrap())
             .as_deref(),
         Some("synthetic-key")
     );
@@ -119,6 +120,7 @@ fn source_runtime_precedence_status_errors_and_reload_recovery() {
     assert_eq!(
         rt.block_on(storage.get_api_key("synthetic", GetApiKeyOptions::default()))
             .unwrap()
+            .map(|key| key.to_utf8().unwrap())
             .as_deref(),
         Some("runtime")
     );
@@ -126,6 +128,7 @@ fn source_runtime_precedence_status_errors_and_reload_recovery() {
     assert_eq!(
         rt.block_on(storage.get_api_key("synthetic", GetApiKeyOptions::default()))
             .unwrap()
+            .map(|key| key.to_utf8().unwrap())
             .as_deref(),
         Some("stored")
     );

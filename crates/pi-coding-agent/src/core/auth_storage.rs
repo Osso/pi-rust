@@ -705,15 +705,15 @@ impl AuthStorage {
             }
         }
     }
-    /// Resolved key handoff to request providers: checked UTF-8, never replacement.
+    /// Public key lookup preserves the provider's UTF-16 result unchanged.
     pub async fn get_api_key(
         &self,
         provider_id: &str,
         options: GetApiKeyOptions,
-    ) -> Result<Option<String>, StorageError> {
+    ) -> Result<Option<JsString>, StorageError> {
         let runtime = lock(&self.source_state).runtime_overrides.get(provider_id).cloned();
         if runtime.as_deref().is_some_and(|k| !k.is_empty()) {
-            return Ok(runtime);
+            return Ok(runtime.map(JsString::from));
         }
         if let Some(value) = self.get(provider_id) {
             match credential_type(&value).as_deref() {
@@ -732,7 +732,9 @@ impl AuthStorage {
                         .map(serde_json::from_value::<std::collections::HashMap<String, String>>)
                         .transpose()
                         .map_err(|e| StorageError::new(e.to_string()))?;
-                    return Ok(key.and_then(|key| resolve_config_value(&key, env.as_ref())));
+                    return Ok(key
+                        .and_then(|key| resolve_config_value(&key, env.as_ref()))
+                        .map(JsString::from));
                 }
                 Some("oauth") => {
                     let Some(provider) = pi_ai::oauth::get_oauth_provider(provider_id) else {
@@ -740,10 +742,10 @@ impl AuthStorage {
                     };
                     let credential = to_credential(&value)?.into_oauth().expect("checked OAuth");
                     if source_now_millis() < credential.expires {
-                        return handoff_key(provider.get_api_key(&credential));
+                        return Ok(Some(provider.get_api_key(&credential)));
                     }
                     match self.refresh_oauth_token_with_lock(provider_id, &options).await {
-                        Ok(Some(result)) => return handoff_key(result.api_key),
+                        Ok(Some(result)) => return Ok(Some(result.api_key)),
                         Ok(None) => {}
                         Err(error) => {
                             self.record_error(error.clone());
@@ -753,7 +755,7 @@ impl AuthStorage {
                                 if credential_type(&updated).as_deref() == Some("oauth") {
                                     let updated = to_credential(&updated)?.into_oauth().expect("checked OAuth");
                                     if source_now_millis() < updated.expires {
-                                        return handoff_key(provider.get_api_key(&updated));
+                                        return Ok(Some(provider.get_api_key(&updated)));
                                     }
                                 }
                             }
@@ -774,13 +776,8 @@ impl AuthStorage {
         if !options.include_fallback {
             return Ok(None);
         }
-        Ok(pi_ai::env_api_keys::get_env_api_key(provider_id, None))
+        Ok(pi_ai::env_api_keys::get_env_api_key(provider_id, None).map(JsString::from))
     }
-}
-fn handoff_key(key: JsString) -> Result<Option<String>, StorageError> {
-    key.to_utf8()
-        .map(Some)
-        .map_err(|e| StorageError::new(format!("Cannot hand OAuth API key to request provider: {e}")))
 }
 
 // Legacy resolver adapters retained until its consumers move to the frozen public API.

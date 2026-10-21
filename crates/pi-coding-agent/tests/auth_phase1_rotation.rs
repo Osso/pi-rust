@@ -151,7 +151,7 @@ fn successful_rotation_callback_then_cancel_or_write_failure_rescues_exact_resul
                 },
             ))
             .unwrap();
-        assert_eq!(result.as_deref(), Some("new"));
+        assert_eq!(result, Some(pi_js_compat::js_json::JsString::from("new")));
         assert_eq!(count.load(Ordering::SeqCst), 1);
         let fresh: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
         assert_eq!(fresh["phase1-rotation"]["refresh"], "B");
@@ -180,6 +180,7 @@ fn successful_rotation_callback_then_cancel_or_write_failure_rescues_exact_resul
         assert_eq!(
             rt().block_on(fresh_store.get_api_key("phase1-rotation", GetApiKeyOptions::default()))
                 .unwrap()
+                .map(|key| key.to_utf8().unwrap())
                 .as_deref(),
             Some("new")
         );
@@ -265,7 +266,7 @@ fn failed_rotation_persistence_and_reload_never_succeed_from_memory() {
         assert_eq!(error.as_deref(), throws.then_some(expected_error));
         assert_eq!(cause.as_deref(), throws.then_some("rescue denied"));
         assert_eq!(backend.syncs.load(Ordering::SeqCst), 3);
-        let native = json!({"result":key,"error":error,"cause":cause,
+        let native = json!({"result":key.map(|key| key.to_utf8().unwrap()),"error":error,"cause":cause,
             "calls":["sync 1","async callback","refresh A->B","after callback: write denied","sync 2","sync 3"],
             "errors":storage.drain_errors().iter().map(ToString::to_string).collect::<Vec<_>>(),
             "memory":pi_js_compat::js_json::JsValue::Object(storage.get_all()).to_serde().unwrap(),

@@ -81,7 +81,7 @@ async fn touched_refresh_and_public_roundtrip_match_ts_without_surrogate_replace
     let storage = AuthStorage::create(Some(path.to_str().unwrap()));
     register_oauth_provider(Arc::new(LosslessProvider));
     let key = storage.get_api_key("fake", GetApiKeyOptions::default()).await.unwrap();
-    assert_eq!(key.as_deref(), Some("new"));
+    assert_eq!(key, Some(JsString::from("new")));
     let value = storage.get("fake").unwrap();
     let expected =
         r#"{"type":"oauth","refresh":"B\udfff","access":"new","expires":4000000000000,"\ud800":{"nested":"\udfff"}}"#;
@@ -121,14 +121,22 @@ async fn touched_refresh_and_public_roundtrip_match_ts_without_surrogate_replace
     storage.remove(lone_key).unwrap();
     assert!(storage.has("�"));
     storage.set("fake", js_json::parse_lossless(updated).unwrap()).unwrap();
-    let error = storage
+    let mut boundary = oracle::TsOracle::spawn(
+        "auth-refresh-boundaries-oracle.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
+    );
+    let frozen = boundary.request(&json!({"id":1,"op":"surrogate"}));
+    assert_eq!(frozen["ok"], true, "{frozen}");
+    assert_eq!(frozen["output"]["units"], json!([55296]));
+    let key = storage
         .get_api_key("fake", GetApiKeyOptions::default())
         .await
-        .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("Cannot hand OAuth API key to request provider")
+        .unwrap()
+        .unwrap();
+    assert_eq!(json!(key.units()), frozen["output"]["units"]);
+    assert_eq!(
+        js_json::stringify_lossless(&JsValue::String(key)),
+        frozen["output"]["resultJson"]
     );
     assert_eq!(js_json::stringify_lossless(&storage.get("fake").unwrap()), updated);
     unregister_oauth_provider("fake");
