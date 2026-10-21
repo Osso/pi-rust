@@ -323,22 +323,39 @@ async fn repin_settings_retry_delay_grows_with_attempt() {
 }
 
 #[tokio::test]
-async fn repin_settings_invalid_compaction_threshold_rejects_before_request() {
+async fn repin_settings_invalid_compaction_threshold_rejects_before_next_request() {
     let settings = serde_json::from_value(json!({"compaction": {"thresholdPercent": 101}})).unwrap();
     let fixture = fixture_with(settings, Vec::new(), None, Some(Vec::new())).await;
-    fixture.faux.set_responses(vec![retry_completion_response().into()]);
+    let tool_turn = faux_assistant_message(
+        vec![pi_ai::providers::faux::faux_tool_call(
+            "not_registered",
+            serde_json::Map::new(),
+            Some("validation-boundary".to_owned()),
+        )],
+        FauxAssistantMessageOptions {
+            stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+            ..Default::default()
+        },
+    );
+    fixture
+        .faux
+        .set_responses(vec![tool_turn.into(), retry_completion_response().into()]);
     let error = fixture
         .session
         .prompt("invalid settings", PromptOptions::default())
         .await
-        .expect_err("invalid compaction setting must fail before a provider request");
+        .expect_err("invalid compaction setting must fail before the next provider request");
     assert!(
         error
             .to_string()
             .contains("Invalid compaction.thresholdPercent setting"),
         "{error}"
     );
-    assert_eq!(fixture.faux.get_pending_response_count(), 1, "provider was not called");
+    assert_eq!(
+        fixture.faux.get_pending_response_count(),
+        1,
+        "second provider response was not consumed"
+    );
 }
 
 #[tokio::test]
