@@ -4,6 +4,71 @@ mod oracle;
 use pi_coding_agent::core::session_control_db::*;
 use pi_js_compat::js_json::{self, JsValue};
 use serde_json::json;
+
+fn source_call(source: &mut oracle::TsOracle, name: &str, arguments: &str) -> serde_json::Value {
+    let response = source.request(&json!({"id":1,"steps":[{"op":"callWire","args":[name,arguments]}]}));
+    assert_eq!(response["output"][0]["ok"], true, "{response}");
+    response["output"][0]["value"].clone()
+}
+
+fn persisted_raw(source: &mut oracle::TsOracle, path: &str) -> js_json::JsObject {
+    let response = source.request(
+        &json!({"id":1,"steps":[{"op":"fixtureSql","args":[path,"SELECT data FROM multi_agent_mailbox_messages",[]]}]}),
+    );
+    assert_eq!(response["output"][0]["ok"], true, "{response}");
+    let JsValue::Object(value) =
+        js_json::parse_lossless(response["output"][0]["value"][0]["data"].as_str().unwrap()).unwrap()
+    else {
+        panic!("canonical object")
+    };
+    value
+}
+
+#[test]
+fn canonical_status_mutations_preserve_source_utf16_body_and_distinct_unknown_keys() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("control.sqlite").display().to_string();
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let wire = format!(
+        r#"[{},{{"recipient":{{"sessionId":"to","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/s","messageId":"m"}},"message":{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","unknown":{{"\ud800":"high","\udfff":"low","�":"replacement","array":["\ud800",{{"\udfff":"\ud800"}}]}}}}}}]"#,
+        serde_json::to_string(&path).unwrap()
+    );
+    let id = source_call(&mut source, "enqueueStoredRuntimeMailboxMessage", &wire)
+        .as_str()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap();
+    let original = persisted_raw(&mut source, &path);
+    let address = RuntimeMailboxAddress {
+        session_id: "to".into(),
+        agent_id: None,
+    };
+    register_runtime_mailbox_listener(&path, &address, std::process::id(), None, Default::default()).unwrap();
+    for transition in ["claim", "release", "claim", "fail"] {
+        match transition {
+            "claim" => {
+                assert_eq!(claim_runtime_mailbox_messages(&path, &address, 1).unwrap().len(), 1);
+            }
+            "release" => {
+                release_runtime_mailbox_message_claim(&path, id).unwrap();
+            }
+            "fail" => {
+                fail_runtime_mailbox_message(&path, id, "fixture failure").unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let updated = persisted_raw(&mut source, &path);
+        for key in ["body", "unknown"] {
+            let key = js_json::JsString::from(key);
+            assert_eq!(
+                updated.get(&key),
+                original.get(&key),
+                "{transition} must preserve exact raw field {key:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim() {
     let t = tempfile::tempdir().unwrap();

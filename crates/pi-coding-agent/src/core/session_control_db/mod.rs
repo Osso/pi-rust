@@ -1022,6 +1022,22 @@ pub(crate) fn parse_canonical_mailbox_payload(row: &RuntimeMailboxRow) -> Result
     Ok(message)
 }
 
+/// Mutate the original canonical UTF-16 payload, never a typed/public projection.
+/// The public mailbox projection migration is separate from this persistence boundary.
+pub(crate) fn serialize_canonical_mailbox_mutation(
+    row: &RuntimeMailboxRow,
+    mutate: impl FnOnce(&mut js_json::JsObject),
+) -> Result<String, ControlDbError> {
+    let context = format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
+    let parsed = js_json::parse_lossless(&row.data)
+        .map_err(|_| ControlDbError::new(format!("Invalid persisted JSON at {context}")))?;
+    let js_json::JsValue::Object(mut message) = parsed else {
+        return Err(ControlDbError::new(format!("Invalid persisted object at {context}")));
+    };
+    mutate(&mut message);
+    Ok(js_json::stringify_lossless(&js_json::JsValue::Object(message)))
+}
+
 pub(crate) fn write_canonical_mailbox_payload(
     db: &Connection,
     id: i64,

@@ -4,6 +4,8 @@
 
 `repin_control_raw_json::canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim` is RED. A real frozen TS enqueue writes body `before\ud800after`; native runtime projection replaces U+D800 with U+FFFD, and native claim rewrites the canonical stored body to U+FFFD. The same TS process reads that changed row. `canonical-raw-json-red.log` records both code-unit changes.
 
+Partial internal authority step: `canonical_status_mutations_preserve_source_utf16_body_and_distinct_unknown_keys` RED→GREEN preserves source U+D800 body, distinct U+D800/U+DFFF/U+FFFD unknown keys, and nested arrays through native claim/release/reclaim/fail. These mutations now parse/mutate/stringify the original lossless row and CAS its original serialized bytes. Public projection remains lossy and the combined public-read regression remains OPEN; routing/steering/store/migration writers still require the full lossless authority migration. This is not raw-regression or group acceptance.
+
 Root: canonical `parse_stored_json_object` / `parse_json_object` still use legacy lossy serde `Value` maps, and runtime body is `String`. Lossless receipt scanning is fixed separately; it does not fix canonical payload authority or runtime payload egress. No typed-input exclusion or waiver applies to this source-created persisted JSON. Lossless public payload/egress interfaces require integration-owner coordination; no dual-authority fallback is added. Positive proofs below remain bounded, not whole-group/shared-state acceptance.
 
 ## Frozen 4f9e6f8a4 repin — bounded proof

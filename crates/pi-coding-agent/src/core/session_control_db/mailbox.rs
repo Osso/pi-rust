@@ -21,7 +21,7 @@ use super::{
 };
 use crate::core::runtime_process::{is_verified_pi_runtime_process, read_process_identity};
 use crate::core::session_health::{SessionHealthRecord, empty_session_health, end_session_health};
-use pi_js_compat::js_json;
+use pi_js_compat::js_json::{self, JsString, JsValue};
 
 const UPSERT_RUNTIME_MAILBOX_LISTENER_SQL: &str = "
 	INSERT INTO runtime_mailbox_listeners (
@@ -387,21 +387,28 @@ fn update_claimed_canonical_mailbox_message(
             return Ok(false);
         }
         let now = crate::utils::iso_time::now_iso_string();
-        let mut updated = message.clone();
-        updated.insert("status".to_owned(), Value::String(status_name(status).to_owned()));
-        updated.insert("updatedAt".to_owned(), Value::String(now.clone()));
-        updated.remove("claimedAt");
-        updated.remove("claimantProcessIdentity");
-        if status == RuntimeMailboxMessageStatus::Failed {
+        let serialized = super::serialize_canonical_mailbox_mutation(&row, |updated| {
             updated.insert(
-                "error".to_owned(),
-                error
-                    .map(|error| Value::String(error.to_owned()))
-                    .unwrap_or(Value::Null),
+                JsString::from("status"),
+                JsValue::String(JsString::from(status_name(status))),
             );
-        }
+            updated.insert(
+                JsString::from("updatedAt"),
+                JsValue::String(JsString::from(now.as_str())),
+            );
+            updated.shift_remove(&JsString::from("claimedAt"));
+            updated.shift_remove(&JsString::from("claimantProcessIdentity"));
+            if status == RuntimeMailboxMessageStatus::Failed {
+                updated.insert(
+                    JsString::from("error"),
+                    error
+                        .map(|text| JsValue::String(JsString::from(text)))
+                        .unwrap_or(JsValue::Null),
+                );
+            }
+        })?;
         with_immediate_transaction(db, |db| {
-            compare_and_write_canonical_mailbox_payload(db, &row, &updated, &now)
+            compare_and_write_serialized_canonical_mailbox_payload(db, &row, &serialized, &now)
         })
     })
 }
@@ -753,15 +760,25 @@ fn claim_runtime_mailbox_candidate(
     candidate: &RuntimeMailboxCandidate,
     now_iso: &str,
 ) -> Result<Option<RuntimeMailboxMessage>, ControlDbError> {
+    let process_identity = get_runtime_process_instance_id()?;
     let mut claimed = candidate.data.clone();
     claimed.insert("claimedAt".to_owned(), Value::String(now_iso.to_owned()));
     claimed.insert(
         "claimantProcessIdentity".to_owned(),
-        Value::String(get_runtime_process_instance_id()?.to_owned()),
+        Value::String(process_identity.to_owned()),
     );
     claimed.insert("status".to_owned(), Value::String("claimed".to_owned()));
     claimed.insert("updatedAt".to_owned(), Value::String(now_iso.to_owned()));
-    let serialized = js_json::stringify(&Value::Object(claimed.clone()));
+    let serialized = super::serialize_canonical_mailbox_mutation(&candidate.row, |message| {
+        for key in ["claimedAt", "updatedAt"] {
+            message.insert(JsString::from(key), JsValue::String(JsString::from(now_iso)));
+        }
+        message.insert(
+            JsString::from("claimantProcessIdentity"),
+            JsValue::String(JsString::from(process_identity)),
+        );
+        message.insert(JsString::from("status"), JsValue::String(JsString::from("claimed")));
+    })?;
     let updated = with_immediate_transaction(db, |db| {
         let current_authority = read_runtime_mailbox_authority_snapshot(db, recipient, &candidate.row.session_path)?;
         if !runtime_mailbox_authority_snapshots_equal(&candidate.authority, &current_authority) {
