@@ -1,6 +1,15 @@
 # auth-storage traceability
 
-Pinned source: `packages/coding-agent/src/core/auth-storage.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Current source: `packages/coding-agent/src/core/auth-storage.ts` at frozen `4f9e6f8a4`.
+
+## Phase1 revalidation
+
+- `auth_phase1::sync_auth_contender_cannot_steal_three_second_live_async_lock`: actual healthy async holder; sync auth caller must use 30s stale, not global default.
+- `auth_phase1::compromised_callback_cannot_write_under_lost_lock`: remove owned fixture lock during callback, allow 15s heartbeat to detect loss, then return write; write must be rejected.
+- Async acquisition matches frozen retry count/min/max/factor; cancellation is a Rust-only boundary.
+- Frozen public API and rotation rescue pending. Existing CredentialStore/read-only/shared-revision code is obsolete compilation scaffolding, not current-pin parity evidence. Historical proof inventory below must not be read as revalidated.
+
+## Historical pre-repin inventory (not current-pin proof)
 Rust: `crates/pi-coding-agent/src/core/auth_storage.rs`.
 
 Cross-implementation proof (`tests/auth_storage_cross_process.rs`, `oracle/auth-storage-oracle.ts`):

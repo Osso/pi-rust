@@ -24,8 +24,7 @@ use pi_js_compat::js_json;
 const AUTH_FILE_MODE: u32 = 0o600;
 const SYNC_LOCK_ATTEMPTS: usize = 10;
 const SYNC_LOCK_DELAY: Duration = Duration::from_millis(20);
-const ASYNC_LOCK_STALE_MS: u64 = 30_000;
-const ASYNC_LOCK_MAX_DELAY_MS: u64 = 2_000;
+const AUTH_LOCK_STALE_MS: u64 = 30_000;
 
 /// Failure of a storage backend or of parsing `auth.json`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,12 +102,6 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_millis() as u64)
-}
-
 /// `FileAuthStorageBackend`: JSON file plus `proper-lockfile`.
 pub struct FileAuthStorageBackend {
     auth_path: String,
@@ -165,6 +158,7 @@ impl FileAuthStorageBackend {
     fn acquire_sync_with_retry(&self) -> Result<crate::utils::lockfile::LockGuard, StorageError> {
         let options = LockOptions {
             realpath: false,
+            stale_ms: AUTH_LOCK_STALE_MS,
             ..LockOptions::default()
         };
         let mut last_error = None;
@@ -184,17 +178,16 @@ impl FileAuthStorageBackend {
         )))
     }
 
-    /// `acquireLockAsync`: bounded retries with exponential backoff until the stale deadline.
+    /// Frozen `proper-lockfile` options: ten retries, randomized 100ms–10s exponential delays.
     async fn acquire_async(
         &self,
         signal: Option<CancellationToken>,
-    ) -> Result<crate::utils::lockfile::LockGuard, StorageError> {
-        let deadline = now_millis() + ASYNC_LOCK_STALE_MS;
+    ) -> Result<(crate::utils::lockfile::LockGuard, Arc<Mutex<Option<String>>>), StorageError> {
         let compromised: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let options = LockOptions {
             realpath: false,
             retries: 0,
-            stale_ms: ASYNC_LOCK_STALE_MS,
+            stale_ms: AUTH_LOCK_STALE_MS,
             on_compromised: Some({
                 let compromised = Arc::clone(&compromised);
                 Arc::new(move |error| {
@@ -215,16 +208,12 @@ impl FileAuthStorageBackend {
                     if let Some(message) = compromised.lock().unwrap().clone() {
                         return Err(StorageError::new(message));
                     }
-                    return Ok(guard);
+                    return Ok((guard, compromised));
                 }
-                Err(error) if error.code == LockErrorCode::Locked => {
-                    let remaining = deadline.saturating_sub(now_millis());
-                    if remaining == 0 {
-                        return Err(StorageError::new(error.to_string()));
-                    }
-                    let base_delay = (10u64.saturating_mul(1u64 << retry.min(8))).min(ASYNC_LOCK_MAX_DELAY_MS / 2);
+                Err(error) if error.code == LockErrorCode::Locked && retry < 10 => {
+                    let base_delay = 100u64.saturating_mul(1u64 << retry);
                     retry += 1;
-                    let delay = jittered_delay(base_delay).min(remaining);
+                    let delay = jittered_delay(base_delay).min(10_000);
                     if let Some(signal) = &signal {
                         tokio::select! {
                             () = tokio::time::sleep(Duration::from_millis(delay)) => {}
@@ -245,12 +234,12 @@ impl FileAuthStorageBackend {
     }
 }
 
-/// `baseDelay * (1 + Math.random())`, bounded by the caller's remaining time.
+/// `Math.round(baseDelay * (1 + Math.random()))`; caller applies the retry cap.
 fn jittered_delay(base_ms: u64) -> u64 {
     let entropy = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.subsec_nanos() as u64);
-    base_ms.saturating_add((base_ms as f64 * (entropy % 1_000) as f64 / 1_000.0) as u64)
+    (base_ms as f64 * (1.0 + (entropy % 1_000_000) as f64 / 1_000_000.0)).round() as u64
 }
 
 impl AuthStorageBackend for FileAuthStorageBackend {
@@ -261,8 +250,7 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         let current = self.read_current()?;
         let next = operation(current.as_deref())?;
         self.write_next(next)?;
-        let _ = guard.release();
-        Ok(())
+        guard.release().map_err(|error| StorageError::new(error.to_string()))
     }
 
     fn with_lock_async(
@@ -275,13 +263,20 @@ impl AuthStorageBackend for FileAuthStorageBackend {
             check_aborted(signal.as_ref())?;
             self.ensure_parent_dir()?;
             self.ensure_file_exists()?;
-            let guard = self.acquire_async(signal.clone()).await?;
+            let (guard, compromised) = self.acquire_async(signal.clone()).await?;
+            let check_compromised = || match lock(&compromised).clone() {
+                Some(message) => Err(StorageError::new(message)),
+                None => Ok(()),
+            };
             let outcome = async {
                 check_aborted(signal.as_ref())?;
+                check_compromised()?;
                 let current = self.read_current()?;
                 let next = operation(current).await?;
+                check_compromised()?;
                 check_aborted(signal.as_ref())?;
-                self.write_next(next)
+                self.write_next(next)?;
+                check_compromised()
             }
             .await;
             let _ = guard.release();
