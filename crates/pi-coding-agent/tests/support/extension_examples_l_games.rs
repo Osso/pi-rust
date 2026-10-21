@@ -11,6 +11,7 @@ use pi_coding_agent::core::{
     session_manager::SessionManager,
 };
 use serde_json::{Value, json};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 type Trace = Arc<Mutex<Vec<Value>>>;

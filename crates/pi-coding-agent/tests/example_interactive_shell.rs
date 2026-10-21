@@ -10,6 +10,7 @@ use pi_coding_agent::core::{
     model_runtime::{CreateModelRuntimeOptions, ModelRuntime},
 };
 use serde_json::{Value, json};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 type Trace = Arc<Mutex<Vec<Value>>>;
 struct Backend(Trace);

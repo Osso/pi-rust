@@ -1,4 +1,5 @@
 //! Batch A's real-runtime transcript fixture. No provider calls or live session files.
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::types::CredentialStore;

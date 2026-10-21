@@ -4,6 +4,7 @@ use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor};
 use pi_tui::tui::{OverlayAnchor as Anchor, OverlayMargin, SizeValue};
 use pi_tui::{matches_key, visible_width};
 use serde_json::{Value, json};
+use std::rc::Rc;
 use std::{
     cell::{Cell, RefCell},
     rc::{Rc, Weak},

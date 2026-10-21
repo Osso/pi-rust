@@ -5,6 +5,7 @@ mod llama_fetch;
 #[path = "support/tool_context.rs"]
 mod tool_context;
 
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 

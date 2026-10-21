@@ -7,6 +7,7 @@ use pi_coding_agent::core::{
 };
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path};
 use serde_json::{Map, Value, json};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 #[path = "oracle.rs"]
 mod oracle;

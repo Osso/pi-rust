@@ -18,6 +18,7 @@ use pi_coding_agent::core::{
 };
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path, set_theme_instance};
 use serde_json::{Map, Value, json};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 type Trace = Arc<Mutex<Vec<Value>>>;
 struct Backend;

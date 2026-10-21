@@ -6,6 +6,7 @@ mod extensions;
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use pi_coding_agent::core::extensions::loader::{ExtensionFactory, ExtensionRegistry, load_extension_from_factory};

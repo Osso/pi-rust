@@ -1,5 +1,6 @@
 //! Behavioral tests for the llama.cpp manager component (`extensions/llama/ui.ts`).
 
+use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 

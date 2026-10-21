@@ -4,6 +4,7 @@ use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use serde_json::{Map, Value, json};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 #[path = "oracle.rs"]
 mod oracle;

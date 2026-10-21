@@ -5,6 +5,7 @@ mod bundled;
 #[path = "support/extensions.rs"]
 mod support;
 
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use bundled::{Harness, HarnessOptions, test_model};
