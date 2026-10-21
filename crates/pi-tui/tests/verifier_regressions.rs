@@ -1,5 +1,14 @@
+#[path = "support/oracle.rs"]
+mod oracle;
 #[path = "support/virtual_terminal.rs"]
 mod virtual_terminal;
+
+use serde_json::{Value, json};
+
+fn frozen(scenario: &str) -> Value {
+    oracle::TsOracle::spawn("tui-verifier-oracle.mjs", "packages/tui/src/tui.ts")
+        .request(&json!({"scenario": scenario}))
+}
 
 use pi_tui::tui::{Component, Container, TuiExt, TuiInputListener, TuiInputListenerResult, component};
 use std::cell::{Cell, RefCell};
@@ -37,7 +46,10 @@ fn overwidth_stops_terminal_before_descriptive_panic() {
         message.starts_with("Rendered line 0 exceeds terminal width (9 > 4)."),
         "{message}"
     );
-    assert_eq!(terminal.borrow().writes(), "\x1b[?1004l\x1b[1B\r\n\x1b[?25h\x1b[?2004l");
+    assert_eq!(
+        json!([message.lines().next().unwrap(), terminal.borrow().writes()]),
+        frozen("crash")
+    );
     terminal.borrow_mut().clear_writes();
     tui.render_now(false);
     assert_eq!(terminal.borrow().writes(), "");
@@ -60,10 +72,18 @@ fn removing_duplicate_child_keeps_second_reference() {
     tui.remove_child(&child);
     assert_eq!(tui.base().children().len(), 2);
     assert!(Rc::ptr_eq(&tui.base().children()[1], &child));
+    let root_lines: Vec<_> = tui
+        .base()
+        .children()
+        .iter()
+        .flat_map(|child| child.borrow_mut().render(80))
+        .collect();
+    assert_eq!(json!([container.render_children(80), root_lines]), frozen("children"));
 }
 
 #[test]
 fn callback_identity_deduplicates_registration_and_unsubscribe() {
+    let mut counts = Vec::new();
     let (terminal, handle) = concrete(80, 24);
     let tui = pi_tui::TUI::new(handle);
     let calls = Rc::new(Cell::new(0));
@@ -76,20 +96,25 @@ fn callback_identity_deduplicates_registration_and_unsubscribe() {
     let second = tui.add_input_listener(listener.clone());
     terminal.borrow_mut().send_input("a");
     tui.process_events();
+    counts.push(calls.get());
     assert_eq!(calls.get(), 1);
     tui.remove_input_listener(second);
     terminal.borrow_mut().send_input("b");
     tui.process_events();
+    counts.push(calls.get());
     assert_eq!(calls.get(), 1);
     tui.remove_input_listener(first);
     tui.add_input_listener(listener);
     terminal.borrow_mut().send_input("c");
     tui.process_events();
+    counts.push(calls.get());
     assert_eq!(calls.get(), 2);
+    assert_eq!(json!(counts), frozen("input"));
 }
 
 #[test]
 fn color_callback_identity_deduplicates_registration_and_unsubscribe() {
+    let mut counts = Vec::new();
     let (terminal, handle) = concrete(80, 24);
     let tui = pi_tui::TUI::new(handle);
     let calls = Rc::new(Cell::new(0));
@@ -99,20 +124,25 @@ fn color_callback_identity_deduplicates_registration_and_unsubscribe() {
     let second = tui.on_terminal_color_scheme_change(listener.clone());
     terminal.borrow_mut().send_input("\x1b[?997;1n");
     tui.process_events();
+    counts.push(calls.get());
     assert_eq!(calls.get(), 1);
     tui.base().remove_terminal_color_scheme_listener(second);
     terminal.borrow_mut().send_input("\x1b[?997;2n");
     tui.process_events();
+    counts.push(calls.get());
     assert_eq!(calls.get(), 1);
     tui.base().remove_terminal_color_scheme_listener(first);
     tui.on_terminal_color_scheme_change(listener);
     terminal.borrow_mut().send_input("\x1b[?997;2n");
     tui.process_events();
+    counts.push(calls.get());
     assert_eq!(calls.get(), 2);
+    assert_eq!(json!(counts), frozen("color"));
 }
 
 #[test]
 fn termux_environment_is_nonempty_and_read_at_render_time() {
+    let mut redraws = Vec::new();
     for late in [false, true] {
         pi_js_compat::process_env::remove("TERMUX_VERSION");
         if !late {
@@ -128,17 +158,19 @@ fn termux_environment_is_nonempty_and_read_at_render_time() {
         }
         terminal.borrow_mut().resize(8, 9);
         tui.render_now(false);
+        redraws.push(tui.full_redraws());
         assert_eq!(tui.full_redraws(), if late { 1 } else { 2 }, "late={late}");
         tui.stop();
     }
     pi_js_compat::process_env::remove("TERMUX_VERSION");
+    assert_eq!(json!(redraws), frozen("termux"));
 }
 
 #[test]
 fn nested_csi_keeps_sgr_on_wrapped_line() {
     assert_eq!(
         pi_tui::wrap_text_with_ansi("\x1b[x\x1b[31mabcdef", 3),
-        ["\x1b[x\x1b[31mabc", "\x1b[31mdef"]
+        serde_json::from_value::<Vec<String>>(frozen("sgr")).unwrap()
     );
 }
 
@@ -170,7 +202,7 @@ fn input_listener_changes_during_dispatch_follow_live_set_order() {
     })));
     terminal.borrow_mut().send_input("a");
     tui.process_events();
-    assert_eq!(*calls.borrow(), ["first", "added"]);
+    assert_eq!(json!(*calls.borrow()), frozen("live-input"));
 }
 
 #[test]
@@ -194,5 +226,5 @@ fn color_listener_changes_during_dispatch_follow_live_set_order() {
     removed_id.set(tui.on_terminal_color_scheme_change(Rc::new(move |_| removed_calls.borrow_mut().push("removed"))));
     terminal.borrow_mut().send_input("\x1b[?997;1n");
     tui.process_events();
-    assert_eq!(*calls.borrow(), ["first", "added"]);
+    assert_eq!(json!(*calls.borrow()), frozen("live-color"));
 }

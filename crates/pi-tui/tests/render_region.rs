@@ -1,5 +1,7 @@
 #[path = "support/components.rs"]
 mod components;
+#[path = "support/oracle.rs"]
+mod oracle;
 #[path = "support/virtual_terminal.rs"]
 mod virtual_terminal;
 
@@ -678,6 +680,9 @@ fn try_render_failure_does_not_schedule_root_render() {
     assert!(!f.region.request_render());
     wait(&f.tui, &f.terminal);
     assert!(render_count(&f.unrelated) > before);
+    let expected = oracle::TsOracle::spawn("tui-verifier-oracle.mjs", "packages/tui/src/tui.ts")
+        .request(&serde_json::json!({"scenario": "region"}));
+    assert_eq!(serde_json::json!([false, false, false, true]), expected);
     stop_fixture(&f);
 }
 
