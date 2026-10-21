@@ -443,6 +443,10 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 				})),
 			};
 		}
+		case "native_modifiers": {
+			const api = await loadApi(sourceDirectory, "native-modifiers.ts") as { isNativeModifierPressed(key: string): boolean };
+			return ["shift", "command", "control", "option"].map((key) => api.isNativeModifierPressed(key));
+		}
 		case "stdin_buffer": {
 			const api = (await loadApi(sourceDirectory, "stdin-buffer.ts")) as StdinBufferApi;
 			const cases = requireArray<{ chunks: string[]; timeout?: number }>(request, "cases");

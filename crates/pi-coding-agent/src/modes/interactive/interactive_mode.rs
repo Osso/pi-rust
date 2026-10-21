@@ -39,7 +39,10 @@ use pi_tui::tui::{
     Component, ComponentRef, Container, FlowRenderRegion, Focusable, OverlayHandle, OverlayOptions, RenderRegion,
     TuiExt, TuiInputListenerResult, TuiMode, ViewportTui, component,
 };
-use pi_tui::{ProcessTerminal, TerminalRawModeError, TuiAltScreen, TuiAltScreenOptions, TuiMainScreen};
+use pi_tui::tui_alt_screen::TuiAltScreen;
+use pi_tui::tui_alt_screen::TuiAltScreenOptions;
+use pi_tui::tui_main_screen::TuiMainScreen;
+use pi_tui::{ProcessTerminal, TerminalRawModeError};
 use regex::Regex;
 
 use crate::core::agent_session::{AgentSession, AgentSessionEvent, CycleDirection, PromptOptions, StreamingBehavior};
@@ -7640,7 +7643,7 @@ impl InteractiveMode {
                 }
             ),
             on_fullscreen_scrollbar_change: callback!(
-                |mode: Rc<InteractiveMode>, scrollbar: pi_tui::ScrollViewScrollbar| {
+                |mode: Rc<InteractiveMode>, scrollbar: pi_tui::components::scroll_view::ScrollViewScrollbar| {
                     mode.settings_mut(|settings| settings.set_fullscreen_scrollbar(scrollbar));
                     mode.apply_fullscreen_scrollbar_setting();
                 }

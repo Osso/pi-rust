@@ -13,7 +13,8 @@ use pi_coding_agent::modes::interactive::components::skill_invocation_message::S
 use pi_coding_agent::modes::interactive::theme::{
     ColorMode, ColorValue, REQUIRED_COLORS, Theme, ThemeBg, ThemeColor, set_theme_instance,
 };
-use pi_tui::{Component, MarkdownTheme, strip_terminal_sequences};
+use pi_tui::utils::strip_terminal_sequences;
+use pi_tui::{Component, MarkdownTheme};
 
 fn install_theme() -> Arc<Theme> {
     let colors: Vec<(String, ColorValue)> = REQUIRED_COLORS

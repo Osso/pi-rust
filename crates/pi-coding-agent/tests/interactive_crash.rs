@@ -374,9 +374,9 @@ fn terminal_stop_child() {
     let restore = terminal.borrow().crash_restore().expect("real terminal restore");
     let ui = InteractiveTuiHandle::new(create_interactive_tui(InteractiveTuiOptions {
         tui_mode: if fullscreen == "true" {
-            pi_tui::TuiMode::Fullscreen
+            pi_tui::tui::TuiMode::Fullscreen
         } else {
-            pi_tui::TuiMode::Regular
+            pi_tui::tui::TuiMode::Regular
         },
         show_hardware_cursor: false,
         log_directory: std::env::var("PI_CODING_AGENT_DIR").expect("agent dir"),

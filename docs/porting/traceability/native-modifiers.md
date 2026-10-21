@@ -1,47 +1,22 @@
-# native-modifiers.ts traceability
+# native-modifiers.ts frozen traceability
 
-Source: `packages/tui/src/native-modifiers.ts` (66 lines). Rust: `crates/pi-tui/src/native_modifiers.rs`.
+Reference: immutable `4f9e6f8a4`, `packages/tui/src/native-modifiers.ts` (59 lines).
+Rust: `crates/pi-tui/src/native_modifiers.rs`.
 
-## Exported symbols
-
-| TypeScript export | Rust item | Tests |
-|---|---|---|
-| `type ModifierKey` | `enum ModifierKey { Shift, Command, Control, Option }` | `tests/native_modifiers.rs` |
-| `isNativeModifierPressed(key)` | `is_native_modifier_pressed(key: ModifierKey) -> bool` | `tests/native_modifiers.rs` |
-
-## Branches
-
-| TypeScript branch | Rust branch | Coverage |
-|---|---|---|
-| cached helper already resolved | none | gap: no native helper exists |
-| `arch !== "x64" && arch !== "arm64"` → no helper | none | gap |
-| platform `darwin` / `win32` candidate paths | none | gap |
-| require succeeds and exports `isModifierPressed` | none | gap |
-| require throws / invalid export → try next | none | gap |
-| helper absent → `false` | `false` | `no_native_helper_is_available_in_the_rust_port` |
-| helper throws → `false` | `false` | same |
-| helper returns `true` | not reachable | gap |
-
-## Gaps
-
-- The TypeScript module's only non-`false` path is a Node N-API addon shipped as a platform prebuild (`native/darwin/prebuilds/...`, `native/win32/prebuilds/...`). The Rust port does not load Node addons, so `is_native_modifier_pressed` always returns `false`.
-- This matches TypeScript behavior on Linux and on any platform where the addon fails to load. On macOS/Windows with a working addon the Rust result would differ. A future Rust-native platform layer must supply this state; no consumer exists in the ported slices yet, so no injection API was added (minimal scope).
-
-## Differential testing
-
-Not applicable: the function depends on Node's `process.platform`, `process.arch`, `process.execPath`, and the presence of platform-specific `.node` files. The observable Linux behavior (`false`) is covered by the unit test.
-
-## Discrepancies
-
-None in the ported behavior. The unported addon path is classified as an explicit gap, not a source bug.
+| Export/branch | Rust/proof |
+|---|---|
+| `ModifierKey` shift/command/control/option | `ModifierKey` enum; `native_modifiers` test |
+| `isNativeModifierPressed`, non-darwin platform | false; Linux differential `differential_native_modifiers` |
+| Darwin helper cache, x64/arm64 guard, three candidate locations, valid function check | approved macOS addon gap, no native implementation |
+| Missing/throwing helper, strict `=== true` result | gap outside Linux; no false claim of native parity |
 
 ## Native addon implementation rows
 
-The existing [AGENTS.md approval](../../../AGENTS.md) says: “macOS/Windows addons are a gap (2026-10-19).” These are the actual implementations of those addons, not new exclusions inferred from their filenames. Both inventory rows change from `todo` to that existing approved `gap`; addon build scripts remain outside this reconciliation.
+Existing approval: [AGENTS.md](../../../AGENTS.md), macOS/Windows addons remain gaps. Re-inspected frozen files, no execution claim on Linux.
 
-| Original pinned source | Exports and implementation branches inspected | Rust/proof boundary |
+| Frozen native file | Inspected exports/branches | Classification |
 |---|---|---|
-| `packages/tui/native/darwin/src/darwin-modifiers.c` | N-API registration exports `isModifierPressed`; shift/command/control/option map to CoreGraphics masks; recognized masks query `CGEventSourceFlagsState`; unknown names/missing symbols/invalid arguments return false. | No native implementation; false-only function cannot query macOS modifier state. |
-| `packages/tui/native/win32/src/win32-console-mode.c` | N-API registration exports `isModifierPressed` and `enableVirtualTerminalInput`; modifier aliases query `GetAsyncKeyState` via user32; missing symbol/unknown name returns false. VT branch obtains stdin, reads console mode, sets `ENABLE_VIRTUAL_TERMINAL_INPUT`, returns success/failure. | Neither actual Windows modifier queries nor console-mode mutation is proven ported. VT-input export is part of this same approved Windows addon, not evidence of parity from Linux terminal behavior. |
+| `native/darwin/src/darwin-modifiers.c` | `isModifierPressed`, CoreGraphics modifier masks, `CGEventSourceFlagsState`, invalid/missing symbols | gap: needs macOS native platform proof |
+| `native/win32/src/win32-console-mode.c` (53 lines) | `node_symbol` searches main module then node.dll; N-API registration exports ONLY `enableVirtualTerminalInput`; invalid stdin/GetConsoleMode/SetConsoleMode failure returns false, success ORs `0x0200` | gap: Windows API + N-API unavailable on this Linux target; no `isModifierPressed` export in frozen Windows addon |
 
-The existing `no_native_helper_is_available_in_the_rust_port` pass proves only false-only behavior. Exact current log location/revision: [proof ledger](../proven-assets-proof.md). No macOS/Windows execution, N-API parity or new approval claimed.
+Frozen modifier helper loads Darwin ONLY; Windows VT input loading belongs to `terminal.ts`. The prior traceability incorrectly described later Windows modifier exports. Loading native addons is not ported; do not promote native implementation rows to done.
