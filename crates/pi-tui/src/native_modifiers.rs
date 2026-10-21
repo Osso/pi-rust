@@ -1,7 +1,7 @@
 //! Native modifier-key queries.
 //!
 //! The TypeScript module loads a platform-specific Node N-API addon on macOS
-//! and Windows (`darwin-modifiers.node`, `win32-console-mode.node`) and returns
+//! (`darwin-modifiers.node`) and returns
 //! `false` everywhere else. The Rust port has no Node addon boundary, so it
 //! reports `false`; see `docs/porting/traceability/native-modifiers.md`.
 

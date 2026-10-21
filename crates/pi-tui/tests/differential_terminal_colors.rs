@@ -84,3 +84,24 @@ fn rgb_color_is_byte_sized() {
     let color = RgbColor { r: 0, g: 128, b: 255 };
     assert_eq!((color.r, color.g, color.b), (0, 128, 255));
 }
+
+#[test]
+fn finite_long_hex_channels_match_frozen_source() {
+    let cases: Vec<String> = [16, 17, 32, 100, 255]
+        .into_iter()
+        .map(|length| {
+            format!(
+                "\x1b]11;rgb:{}/{}/{}\x07",
+                "f".repeat(length),
+                "8".repeat(length),
+                "0".repeat(length)
+            )
+        })
+        .collect();
+    let mut oracle = oracle::TsOracle::spawn("tui-leaves-oracle.ts", SOURCE_DIRECTORY);
+    let response = oracle.request(&json!({"id":"long-colors", "operation":"terminal_colors", "cases":cases}));
+    assert_eq!(response["ok"], true, "{response}");
+    for (case, expected) in cases.iter().zip(response["output"]["results"].as_array().unwrap()) {
+        assert_eq!(rust_result(case), *expected, "{case:?}");
+    }
+}

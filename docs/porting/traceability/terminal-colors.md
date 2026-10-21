@@ -1,46 +1,20 @@
-# terminal-colors.ts traceability
+# terminal-colors.ts frozen traceability
 
-Source: `packages/tui/src/terminal-colors.ts` (73 lines). Rust: `crates/pi-tui/src/terminal_colors.rs`.
+Reference: immutable `4f9e6f8a4`, `packages/tui/src/terminal-colors.ts` (73 lines).
+Rust: `crates/pi-tui/src/terminal_colors.rs`. [Q1 proof](../q1-tui-core-proof.md).
 
-## Exported symbols
-
-| TypeScript export | Rust item | Tests |
+| Export/function/branch | Rust mapping | Proof |
 |---|---|---|
-| `interface RgbColor` | `struct RgbColor { r, g, b }` | `tests/terminal_colors.rs`, `tests/differential_terminal_colors.rs` |
-| `type TerminalColorScheme` | `enum TerminalColorScheme { Dark, Light }` | `parses_color_scheme_reports` |
-| `isOsc11BackgroundColorResponse(data)` | `is_osc11_background_color_response(data: &str) -> bool` | `recognizes_the_osc11_response_envelope`, differential |
-| `parseOsc11BackgroundColor(data)` | `parse_osc11_background_color(data: &str) -> Option<RgbColor>` | all parse tests, differential |
-| `parseTerminalColorSchemeReport(data)` | `parse_terminal_color_scheme_report(data: &str) -> Option<TerminalColorScheme>` | color-scheme tests, differential |
+| `RgbColor` | byte RGB struct | unit and differential |
+| `TerminalColorScheme` | Dark/Light enum | unit and differential |
+| `hexToRgb` | validated 6-digit conversion | black/white/mixed-case fixtures |
+| `parseOscHexChannel` | validated hex, floating exponent/parse/round | 1/2/3/4/16/17/32/100/255-digit channel cases |
+| OSC11 strict envelope | `osc11_value`, `is_osc11_background_color_response` | prefix/suffix contamination, embedded BEL/ESC, BEL/ST endings |
+| `parseOsc11BackgroundColor` | same-name parser | JS trimming; 6/12-digit hash colors; rgb/rgba case-insensitive prefixes; missing/invalid channels; ignored extra channel |
+| `parseTerminalColorSchemeReport` | one exact dark/light frame | repeated, empty, contaminated and unknown reports rejected |
 
-## Branches
+Frozen color-scheme regex accepts exactly one report. The later repeated-report/last-capture behavior was removed after differential RED. Long finite hex channels use floating arithmetic instead of overflowing u64 exponentiation.
 
-| TypeScript branch | Rust branch | Tests |
-|---|---|---|
-| OSC 11 pattern anchored, `[^\x07\x1b]*`, BEL or ST | `osc11_value` strip/prefix + inner terminator check | `rejects_non_strict_osc11_responses`, differential |
-| `value.trim()` | `js_trim` (ECMAScript whitespace set) | `trims_surrounding_whitespace_in_osc11_values` |
-| `#` + 6 hex digits | `hex.len() == 6` | `parses_osc11_hex_responses` |
-| `#` + 12 hex digits → three 4-digit channels | `hex.len() == 12` | `parses_12_digit_hex_channels` |
-| other `#` lengths | `return None` | `rejects_unsupported_hex_lengths` |
-| `rgba?:` prefix strip (case-insensitive) | `strip_rgb_prefix` | `accepts_rgba_prefix_and_ignores_extra_channels`, differential `RGB:` |
-| split on `/`, require 3 channels | `split('/')` + `next()?` | `rejects_incomplete_or_invalid_rgb_channels` |
-| extra channels ignored | `next()` called three times only | `accepts_rgba_prefix_and_ignores_extra_channels` |
-| channel regex `^[0-9a-f]+$` | `bytes().all(is_ascii_hexdigit)` | `rejects_incomplete_or_invalid_rgb_channels` |
-| `max = 16^len - 1`, `max <= 0` guard | `checked_sub`, `max == 0` guard | `parses_short_and_long_rgb_channels` |
-| `Math.round(value / max * 255)` | `(value as f64 / max as f64 * 255.0).round()` | differential exact values |
-| repeated `(?:\x1b\[\?997;(1|2)n)+` | `while !rest.is_empty()` loop | `parses_color_scheme_reports` |
-| last repeated capture wins | `last` variable | `parses_color_scheme_reports` |
-| scheme `2` → light, else dark | `match last` | `parses_color_scheme_reports` |
+## Approved numeric-domain deviation (2026-10-21)
 
-## Behavioral notes
-
-- `parseInt` on validated hex digits cannot produce `NaN`, so the Rust parser converts with `u8::from_str_radix`/`u64::from_str_radix` after validation.
-- The source's 12-digit path calls `hexToRgb(value)` for 6-digit input; `hex_to_rgb` strips `#` itself.
-- The TUI integration tests in `packages/tui/test/terminal-colors.test.ts` exercise `TUI.queryTerminalBackgroundColor`; that method belongs to the `tui` module, not this leaf. Only the parsing functions are in scope.
-
-## Gaps / exclusions
-
-- JavaScript callers passing non-string `data` are excluded by the typed Rust API (decision 2026-08-12).
-
-## Discrepancies
-
-None.
+Frozen source lines 21/25 can produce NaN: `rgb:` with 256 `f` digits, 256 `8` digits and 256 `0` digits yields `{r:NaN,g:0,b:0}` (JSON `{r:null,g:0,b:0}`). The byte RGB API cannot represent NaN; Rust returns None. User approved retaining this numeric-domain gap on 2026-10-21. No RGB API widening; the module is done within this approved restriction. Exact frozen capture: `/tmp/pi-rust-repin-tui-core/nonfinite-rgb.log`.
