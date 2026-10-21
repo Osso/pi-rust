@@ -462,6 +462,9 @@ impl Model {
             Demo::Overflow => {
                 if let Some(p) = self.overflow.borrow().as_ref() {
                     p.input(data);
+                    if matches_key(data, "up") || matches_key(data, "down") {
+                        self.tui.request_render();
+                    }
                 }
             }
             _ => {}
