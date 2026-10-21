@@ -194,7 +194,11 @@ async fn run_chain(
     let mut previous = String::new();
     for (i, item) in chain.iter().enumerate() {
         let mut item = item.clone();
-        item["task"] = json!(text(&item["task"]).replace("{previous}", &previous));
+        item["task"] = json!(pi_js_compat::string::replace_global(
+            text(&item["task"]),
+            "{previous}",
+            &previous
+        ));
         let prior = results.clone();
         let d = base.clone();
         let callback = update.as_ref().map(|u| {

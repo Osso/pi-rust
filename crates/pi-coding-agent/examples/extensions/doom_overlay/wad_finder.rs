@@ -3,7 +3,7 @@
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
-use flate2::read::MultiGzDecoder;
+use flate2::bufread::GzDecoder;
 use pi_ai::request::{Fetch, HttpRequest};
 
 const WAD_URL: &str = "https://www.gamers.org/pub/idgames/idstuff/doom/doom-1.8.wad.gz";
@@ -68,9 +68,16 @@ impl WadFinder {
             compressed.extend(chunk.map_err(|error| error.to_string())?);
         }
         let mut wad = Vec::new();
-        MultiGzDecoder::new(compressed.as_slice())
-            .read_to_end(&mut wad)
-            .map_err(|error| error.to_string())?;
+        let mut remaining = compressed.as_slice();
+        loop {
+            let mut member = GzDecoder::new(remaining);
+            member.read_to_end(&mut wad).map_err(|error| error.to_string())?;
+            remaining = member.into_inner();
+            // Node gunzip stops at zero padding after a complete gzip member.
+            if remaining.is_empty() || remaining[0] == 0 {
+                break;
+            }
+        }
         // Node Buffer.toString("ascii") clears the high bit, unlike UTF-8.
         if !wad.iter().take(4).map(|byte| byte & 0x7f).eq(b"IWAD".iter().copied()) {
             return Err("Downloaded file is not a valid IWAD".into());
