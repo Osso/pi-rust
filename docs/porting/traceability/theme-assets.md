@@ -6,7 +6,7 @@ Source paths are relative to `packages/coding-agent/src/modes/interactive/theme/
 |---|---:|---|---|
 | `dark.json` | 2189 | `113bc1fd556727b165804c18b5d377c14d421b3fdff3909a63736f421d0a3b00` | done |
 | `light.json` | 2209 | `893f0d7e8513dbd5e5112982fd6eb65ceb03ae18ed04854ac57803b9c8908fa0` | done |
-| `theme-schema.json` | 9528 | `afe8f61c9ef248a71d0abe0abe27df545d5cb49aef773bf7e1ec8a4f8936e477` | todo |
+| `theme-schema.json` | 9528 | `afe8f61c9ef248a71d0abe0abe27df545d5cb49aef773bf7e1ec8a4f8936e477` | gap (waived) |
 
 ## Dark/light inclusion and behavior
 
@@ -14,6 +14,6 @@ Source paths are relative to `packages/coding-agent/src/modes/interactive/theme/
 
 Complete byte identity proves the raw JSON data contract. Existing `loads_color_modes_and_global_theme_state` and `theme_loading_matches_typescript` exercise the theme-loading behavior through fixture packages, not an independent binary-embedding probe. Exact pass evidence and limits: [proof ledger](../proven-assets-proof.md). API/branch mapping: [theme.ts](theme.md).
 
-## Schema unresolved
+## Schema waived
 
-The local schema's complete bytes match, but no runtime `include_str!`, local-schema reader, deployment script, or explicit distribution wiring was located in the base checkout. Dark/light `$schema` values point to a remote upstream URL, not this local file. A tracked file alone does not establish shipped inclusion. `validates_theme_json_and_names` tests Rust validation logic, not this schema's use/distribution. Therefore schema remains `todo`, with no new waiver and no claim that Rust executes a JSON-schema engine. Closing it requires concrete shipped editor-facing artifact evidence; source edits/distribution work are outside this docs-only slice.
+User-approved gap October 20, 2026 (“Waive as editor metadata”). The schema is editor-facing JSON Schema metadata; nothing at runtime reads it, and dark/light `$schema` values point to a remote upstream URL. The tracked Rust copy is byte-identical, but no packaging step ships it, and none is required. `validates_theme_json_and_names` tests Rust validation logic, not this schema; Rust does not run a JSON-schema engine.
