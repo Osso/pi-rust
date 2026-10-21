@@ -16,10 +16,6 @@ default-run = "pi"
 pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 # Supplies the shared HTTP `Fetch` contract and default client.
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
-# Protocol snapshots/transcripts projected by `client::transcript` and `client::remote_session`.
-pi-protocol = { version = "=0.0.0", path = "../pi-protocol" }
-# Transport-neutral client used by `client::remote_session`.
-pi-client = { version = "=0.0.0", path = "../pi-client" }
 # Shared JS semantics: Date.parse, localeCompare, Base64, numbers, minimatch.
 pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
 # Insertion-ordered registries matching TypeScript `Map` iteration in extensions
@@ -79,7 +75,7 @@ futures-util = "=0.3.34"
 flate2 = "=1.0.34"
 # Frozen coding-agent archived session transcripts.
 zstd = "=0.14.3"
-# Shared control.sqlite access; same pinned rusqlite release as pi-session-sqlite.
+# Shared control.sqlite access.
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 # `mkdtempSync`-style private directory for the external editor prompt.
 tempfile = "=3.27.0"

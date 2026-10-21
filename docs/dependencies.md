@@ -4,7 +4,7 @@ All direct dependencies are exact-pinned.
 
 ## Test infrastructure
 
-- `rustix = 1.1.5` (`process`; development dependency of `pi-ai`, `pi-client`, `pi-evals`, `pi-js-compat`, `pi-protocol`, `pi-server`, `pi-session-sqlite`, `pi-telemetry`, and `pi-tui`) — `process::kill_process_group` tears down the tsx oracle process group in `tests/support/oracle.rs`; oracle children are spawned with `process_group(0)` so a dead test process cannot leave Node/esbuild descendants behind. Crates that already depend on `rustix` at runtime reuse the same pinned release.
+- `rustix = 1.1.5` (`process`; development dependency of `pi-ai`, `pi-js-compat`, `pi-telemetry`, and `pi-tui`) — `process::kill_process_group` tears down the tsx oracle process group in `tests/support/oracle.rs`; oracle children are spawned with `process_group(0)` so a dead test process cannot leave Node/esbuild descendants behind. Crates that already depend on `rustix` at runtime reuse the same pinned release.
 
 ## Runtime
 
@@ -59,20 +59,6 @@ All direct dependencies are exact-pinned.
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 - `core::package_manager` adds `pi-js-compat` (path, `=0.0.0`) for `minimatch` 10.2.5 pattern matching in package resource filters, `semver = 1.0.28` for npm version validation/range matching (exact, caret, tilde, wildcard, comparator ranges), `globset = 0.4.20` for `glob`-style manifest-entry expansion (dot entries skipped, filesystem order preserved), `ignore = 0.4.23` for `.gitignore`/`.ignore`/`.fdignore` handling with the same matcher as the skill loader, `sha2 = 0.10.9` for the `createHash("sha256")` temporary-directory name, and `futures-util = 0.3.34` for bounded-concurrency update checks, git updates, and the `Shared` dispatch future that mirrors a TypeScript `Promise` observed by waiters. `serde_json` gains the `preserve_order` feature so settings/auth/keybindings files and package-filter objects keep TypeScript insertion order. `utils::paths::relative_path` is now `pub` so package sources reuse the ported path-relative implementation instead of duplicating it.
 
-### `pi-evals`
-
-- `pi-coding-agent` (path) — drives the real `AgentSession` through `create_agent_session_services`/`create_agent_session_from_services`, reuses `SessionManager`, `SettingsManager`, `ModelRuntime`, `ResourceLoader`, extension types, `NoTools`, and the JavaScript-compatible `js_json::stringify` for `runs.jsonl` and canonical eval keys.
-- `pi-ai` (path) — model/usage/message types, `contentText`, faux-provider support in tests, and `crypto.randomUUID` (`utils::uuid::random_uuid`).
-- `pi-agent-core` (path) — `AgentMessage`/`ThinkingLevel` types used by the transcript adapter and session creation.
-- `pi-js-compat` (path, `=0.0.0`) — `String.prototype.trim`, `localeCompare` ordering, JavaScript number serialization, and the `process.env` model used for `PI_PROVIDER`/`PI_MODEL`/`PI_EVAL_ARTIFACT_DIR`/color detection.
-- `serde = 1.0.229` / `serde_json = 1.0.151` (`preserve_order`, `float_roundtrip`) — wire records with TypeScript field order and JavaScript number serialization.
-- `indexmap = 2.14.2` — insertion-ordered observation groups and result lookup, matching TypeScript `Map` iteration.
-- `sha2 = 0.10.9` — `createHash("sha256")` for eval group keys and artifact directories.
-- `tempfile = 3.27.0` — `mkdtemp(join(tmpdir(), "pi-eval-"))` isolated eval workspaces.
-- `regex = 1.13.1` — extension-import scanning in the extension-authoring judge.
-- `tokio = 1.53.3` (`rt`, `macros`, `sync`, `time`, `fs`) — async session runs, file I/O, and cancellation waits.
-- `tokio-util = 0.7.20` — `CancellationToken` as the `AbortSignal` mapping.
-
 ### `pi-ai`
 
 - `pi-js-compat` (path, `=0.0.0`) — `Number`/`parseInt`/`parseFloat`/`Date.parse` and Base64 (`atob`/`btoa`) helpers shared with the rest of the workspace.
@@ -116,21 +102,6 @@ All direct dependencies are exact-pinned.
 
 The harness events, messages, reducer, and orchestration-type slices add no runtime or development dependency beyond the shared `pi-ai`/`tokio-util`/`serde` contracts. The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices add no runtime or development dependency; `ThinkingLevel` does not depend on the distinct protocol schema. Existing public-index typeproofs use the pinned TypeScript toolchain. The harness tools/env slice adds `rustix` for process-group kill and `icu_normalizer` for NFC/NFD/NFKC/NFKD, both exact-pinned; `tempfile` is test-only. Typed filesystem/execution, compaction and branch-summary errors, `QueueMode`, `ToolExecutionMode`, and `ThinkingLevel` enum/literal mappings, `CompactionSettings`/`should_compact`, module-local `SUMMARIZATION_SYSTEM_PROMPT` (not exported from the harness root or package index), module-local `CutPointResult`/`ContextUsageEstimate` (not exported from the harness root or package index), `Skill`/`PromptTemplate`/`PromptTemplateDiagnostic`/`AgentHarnessResources` values, prompt-template argument helpers, Skill system-prompt/invocation formatting, summary marker constants and value-only `BashExecutionMessage`/`BranchSummaryMessage` records, compaction file-operation formatting, image MIME/Base64 helpers, edit line-ending/BOM helpers, `FileKind`/`FileInfo` metadata values, output truncation, binary-output sanitization, and the jsdiff line-diff/unified-patch port use only the Rust standard library beyond these dependencies.
 
-### `pi-session-sqlite`
-
-- `pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }` — shared `Date.now()` and `Date.prototype.toISOString()` semantics for SQLite timestamps, including expanded years (`sqlite::time`; introduced in `8098313`).
-- `pi-agent-core` (path, `=0.0.0`) — reuses the ported `SessionStorage`/`SessionSearch` contracts, `Session` facade, `FileSystem` execution env, `SessionError`, and UUIDv7 id generator; no session type is redefined.
-- `pi-ai` (path, `=0.0.0`) — `BoxFuture`, `js_number` float formatting for durable payloads, `uuidv7` for writer-lease owners and branch-cache ids, and the message/usage wire types.
-- `rusqlite = 0.37.0` (exact, `bundled`) — the SQLite driver for session storage and the shared `control.sqlite` (`core/sqlite.ts`, `core/session-control-db.ts`). `bundled` compiles SQLite from source so the schema, PRAGMAs (`WAL`, `synchronous=NORMAL`/`FULL`, `busy_timeout=5000`), FTS5 virtual table with the `trigram` tokenizer, and `bm25()` ranking are available without depending on the host SQLite build; `node:sqlite`/`bun:sqlite` are the TypeScript equivalents.
-- `pi-ai` (path, `=0.0.0`) — `BoxFuture`, `uuidv7` for writer-lease owners and branch-cache ids, and the message/usage wire types.
-- `rusqlite = 0.37.0` (exact, `bundled`) — the SQLite driver. `bundled` compiles SQLite from source so the schema, PRAGMAs (`WAL`, `synchronous=FULL`, `busy_timeout=5000`), FTS5 virtual table with the `trigram` tokenizer, and `bm25()` ranking are available without depending on the host SQLite build; `node:sqlite` is the TypeScript equivalent.
-- `serde = 1.0.229` / `serde_json = 1.0.151` (`preserve_order`) — durable entry/record payloads, session metadata, and error-shaped values with TypeScript key order.
-- `tokio = 1.53.3` (`macros`, `rt`, `sync`, `time`) — repository operation queue (`tokio::sync::Mutex`), writer-lease heartbeat task, and lease timers.
-- `tokio-util = 0.7.20` (`rt`) — `CancellationToken` carried by `SessionSearchOptions`.
-- `tempfile = 3.27.0` (development) — isolated database directories for behavior and cross-implementation tests.
-
-The SQLite slice also relies on the pinned TypeScript toolchain (`tsx`) through `oracle/session-sqlite-oracle.ts`; that is test-only and adds no Rust dependency.
-
 ### `pi-tui`
 
 - `unicode-segmentation = 1.13.3` (exact) — Unicode 17.0 grapheme cluster segmentation for `utils`, `components::input`, and the editor; matches the Unicode tables used by Node 26 `Intl.Segmenter`.
@@ -146,20 +117,6 @@ The SQLite slice also relies on the pinned TypeScript toolchain (`tsx`) through 
 - `src/unicode_tables.rs` is generated data, not a dependency: Unicode 17.0 emoji sequences, character-property ranges, and `get-east-asian-width` 1.6.0 width ranges (see `docs/porting/traceability/utils.md`).
 - The editor adds no dependency: it reuses `unicode-segmentation`, `regex`, `tokio`, and `tokio-util`.
 
-### `pi-protocol`
-
-- `serde_json = 1.0.151` (`preserve_order`) — `JsonValue::from_serde_json` converts execution-boundary JSON (tool-call arguments in `client::transcript`) into the protocol subset while preserving object key order. CBOR encoding and decoding are hand-written against the pinned TypeScript subset so encoded bytes match the source byte-for-byte; a general-purpose CBOR crate would not guarantee that parity.
-
-### `pi-server`
-
-- `pi-protocol` (path, `=0.0.0`) — typed protocol messages, CBOR codec, framing, and schema validation are reused unchanged.
-- `pi-ai` (path, `=0.0.0`) — bridge input types (`Model`, messages, usage, tool calls) and the shared `uuidv7` generator for server, connection, and server-assigned session IDs.
-- `serde_json = 1.0.151` (`preserve_order`) — carries `pi-ai` tool arguments/details and JSON-shaped error details without reordering object keys.
-- `tokio = 1.53.3` (`io-util`, `macros`, `net`, `rt`, `sync`, `time`) — async server tasks, Unix-domain sockets, write serialization, timers, and handshake cancellation.
-- `sha2 = 0.10.9` — derives the private Unix bind path from the SHA-256 prefix, matching the TypeScript transport.
-- No `tokio-util` dependency: the server package contains no `AbortSignal`, so there is no `CancellationToken` mapping to perform.
-- Development: `tempfile = 3.27.0` for isolated socket paths; `tokio` adds `rt-multi-thread` and `test-util` for integration tests and the cross-implementation client run.
-
 ### `pi-telemetry`
 
 - `indexmap = 2.14.2` (`serde`) — `TelemetryMap`, the insertion-ordered map behind schema span/attribute/event maps and `SpanAttributes`, matching TypeScript object key order (already in the lock via `serde_json` `preserve_order`). Also backs extension handler/tool/command/flag/shortcut registries, whose iteration order is the TypeScript `Map` load order.
@@ -168,18 +125,6 @@ The SQLite slice also relies on the pinned TypeScript toolchain (`tsx`) through 
 ### `pi-agent-core`
 
 - `indexmap = 2.14.2` (`serde`) — `AgentHarnessStreamOptions` headers and the per-request header/metadata patches preserve TypeScript object key order when merged into provider requests.
-
-### `pi-coding-agent` client modules
-
-- `pi-protocol` / `pi-client` (path, `=0.0.0`) — `client::transcript` projects protocol snapshots/transcripts and `client::remote_session` wraps the transport-neutral client lease.
-- `indexmap = 2.14.2` (`serde`) — `TranscriptState` progress items and tool-call buffers preserve TypeScript `Map` insertion order.
-
-### `pi-client`
-
-- `pi-protocol = { version = "=0.0.0", path = "../pi-protocol" }` — framing, CBOR message codecs, typed commands/results, snapshots, and protocol validation errors.
-- `tokio = 1.53.3` (`io-util`, `net`, `rt`, `sync`) — one-shot request/handshake resolvers, spawned transport/read/write tasks, `UnixStream`, and async I/O. Dev targets add `macros` and `rt-multi-thread` for `#[tokio::test]`.
-- `tokio-util = 0.7.20` — `CancellationToken` stops the Unix read loop on local close. The source package has no `AbortSignal`; the dependency is not an `AbortSignal` mapping.
-- Dev-only `serde_json = 1.0.151` — compares Rust client frames, state transitions, and snapshots with the TypeScript differential oracle.
 
 ## Development
 

@@ -83,7 +83,7 @@ def repin_rows(old, expected, changes):
     return rows, removed
 
 
-def render(rows, removed):
+def render(rows, removed, removed_rust_sources=()):
     total = sum(int(row[1]) for row in rows)
     counts = Counter(row[3] for row in rows)
     text = ["# Port coverage matrix", "",
@@ -96,9 +96,13 @@ def render(rows, removed):
         text += ["", f"## {package} ({len(group)} files, {sum(int(row[1]) for row in group)} lines)", "",
                  "| Source | Lines | Level | Status | Rust | Notes |", "|---|---:|---:|---|---|---|"]
         text += ["| `" + row[0] + "` | " + " | ".join(row[1:]) + " |" for row in group]
-    text += ["", REMOVED, "", f"{len(removed)} old rows; not part of active totals. Rust deletion is deferred to product slices.", "",
+    text += ["", REMOVED, "", f"{len(removed)} old rows; not part of active totals. Removed Rust slices are recorded in [removed-rust-sources.json](removed-rust-sources.json); other deletions remain deferred.", "",
              "| Old source | Old status | Rust crate/module to delete |", "|---|---|---|"]
-    text += [f"| `{row[0]}` | {row[3]} | {row[4]} |" for row in removed]
+    for row in removed:
+        rust = row[4]
+        if any(row[0].startswith(prefix) for prefix in removed_rust_sources):
+            rust = "Removed: no frozen counterpart (2026-10-21)"
+        text.append(f"| `{row[0]}` | {row[3]} | {rust} |")
     return "\n".join(text) + "\n"
 
 
@@ -146,7 +150,8 @@ def main():
         old_text = git(root, "show", "8035c95a:docs/porting/coverage.md").decode()
         old = {row[0]: row for row in parse_rows(old_text)}
         changes = json.loads((root / "docs/porting/repin-classification.json").read_text())
-        matrix.write_text(render(*repin_rows(old, expected, changes)))
+        removed_rust_sources = json.loads((root / "docs/porting/removed-rust-sources.json").read_text())
+        matrix.write_text(render(*repin_rows(old, expected, changes), removed_rust_sources))
     counts = validate(matrix.read_text(), expected)
     print(f"PASS: {len(expected)} unique rows, {sum(expected.values())} lines; zero missing/extra/duplicate/count mismatches")
     print("Statuses:", dict(sorted(counts.items())))

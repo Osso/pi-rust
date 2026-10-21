@@ -1,16 +1,11 @@
 [workspace]
 members = [
-    "crates/pi-protocol",
     "crates/pi-telemetry",
     "crates/pi-ai",
     "crates/pi-agent-core",
     "crates/pi-tui",
     "crates/pi-coding-agent",
-    "crates/pi-client",
-    "crates/pi-server",
-    "crates/pi-session-sqlite",
     "crates/pi-js-compat",
-    "crates/pi-evals",
 ]
 # `cargo run` at the workspace root builds the `pi` executable.
 default-members = ["crates/pi-coding-agent"]

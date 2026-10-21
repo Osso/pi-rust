@@ -11,9 +11,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Refuse differential proof when the source worktree is not at the pinned commit.
 - [x] Execute the real pinned TypeScript functions through the worktree-local `tsx` runtime.
 - [x] Send identical fixtures to TypeScript and Rust and compare normalized values and errors.
-- [x] Execute ordered `push` and `end` steps against one TypeScript and Rust decoder, comparing every success and error without replacing the instance.
 - [x] Map each ported TypeScript statement and branch to behavioral proof or an explicit gap.
-- [x] Represent protocol numbers with schema-specific Rust types instead of preserving JavaScript or CBOR numeric categories.
 - [ ] Classify discrepancies as a Rust bug, TypeScript bug, approved deviation, or underspecified behavior before changing semantics.
 - [x] Stop and ask Alessio when Rust cannot reproduce TypeScript behavior within the approved typed-core boundary.
 - [x] Classify the RPC JSON serializer as semantic JSON rather than byte-identical `JSON.stringify`, approved August 12, 2026.
@@ -54,7 +52,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve module-local mutable `CompactionDetails` fields from `compaction.ts:30-35`; the package index omits the interface, so Rust remains module-only; compare final source-shaped records through eight direct differential groups (`13156..=13163`) and prove exact direct-module shape/mutation without extraction or orchestration claims.
 - [x] Preserve the closed `QueueMode` value from `types.ts:44-50`, exact `all`/`one-at-a-time` literals, and harness-root export through focused behavioral tests; compare both final source-shaped literals through exactly one persistent differential request group (`13164`) and prove the exact package-index union with strict valid/invalid assignments. Runtime constructors, parsing, validation, and queue behavior remain excluded.
 - [x] Preserve the closed `ToolExecutionMode` value from `types.ts:34-42`, exact `sequential`/`parallel` literals, and harness-root export through focused behavioral tests; compare both final source-shaped literals through exactly one persistent differential request group (`13165`) and prove the exact package-index union with strict valid/invalid assignments. Unsuppressed targeted Clippy RED/GREEN, workspace, static, readability, documentation, clean-pin, and inherited verification pass. Runtime constructors, parsing, validation, invalid runtime inputs, scheduling, execution, and event ordering remain excluded.
-- [x] Preserve the agent-harness `ThinkingLevel` value from `types.ts:293-298`, exact eight literals including `ultra`, and harness-root export through focused behavioral tests. Compare one source-shaped plain-value differential group (`13166`) after ToolExecutionMode (`13165`), and prove the exact agent-package public-index union with all eight valid assignments plus rejected empty/`extreme` literals. Focused/differential Clippy, workspace, static, readability, documentation, dependency, clean-pin, and inherited verification pass. The distinct protocol schema omits `ultra`; this slice does not alter or depend on `pi_protocol::ThinkingLevel`. Parsing, validation, provider/model behavior, defaults, and protocol integration remain excluded.
+- [x] Preserve the agent-harness `ThinkingLevel` value from `types.ts:293-298`, exact eight literals including `ultra`, and harness-root export through focused behavioral tests. Compare one source-shaped plain-value differential group (`13166`) after ToolExecutionMode (`13165`), and prove the exact agent-package public-index union with all eight valid assignments plus rejected empty/`extreme` literals. Focused/differential Clippy, workspace, static, readability, documentation, dependency, clean-pin, and inherited verification pass. Parsing, validation, provider/model behavior, defaults, and protocol integration remain excluded.
 - [x] Preserve `AgentToolExecutionContext` from `types.ts:387-393` as a public mutable `started_at: f64`/`agent_id: Option<String>` record with `Debug` only and harness-root export. Focused production GREEN is 5/0; exactly eight source-shaped differential groups (`13168..=13175`) and strict public-index interface proof pass. Workspace 271/0/2, static, oracle/Node, formatting/diff, readability, documentation, dependency/lock, clean-pin, and inherited verification gates pass. Producers, lifecycle/timing validation, tool callbacks/results, external content, provider usage, orchestration, sessions, providers, models, constructors, parser/serde, defaults, fallbacks, invalid runtime inputs, protocol behavior, coding-agent behavior, and dependencies remain excluded.
 - [x] Preserve package-exported `BeforeToolCallResult` from `packages/agent/src/types.ts:55-69` (`61-69` declaration; `index.ts:145`) as a `Debug`-only public mutable `block: Option<bool>`, `reason: Option<String>`, `terminate: Option<bool>` record through `pi_agent_core::harness::types` and the harness root. Exactly one source-shaped differential request (`13180`) with eleven independent state-tag fixtures, structured RED/GREEN, and real-index optional/mutable/undefined/excess-property proof pass. Workspace `286/0/2`, check, all-feature Clippy, aggregate oracle/typeproof, Node syntax, formatting/diff, readability, documentation, dependency/lock, clean-pin, and inherited verification gates pass through proof-readability HEAD `2bb4d86`. Blocking/error/default-message behavior, batch termination, callbacks, tool execution, orchestration, JavaScript object identity, arbitrary runtime values, and omission-versus-`undefined` identity remain excluded.
 - [x] Preserve direct-module `Edit` and `AppliedEditsResult` from `packages/agent/src/harness/tools/edit-diff.ts:187-195` as `Debug`-only public mutable `old_text: String`/`new_text: String` and `base_content: String`/`new_content: String` records through `pi_agent_core::harness::tools::edit_diff`, with no tools/harness/crate-root re-export. Requests `13181` and `13183` compare four independent raw records each; the shared direct-module proof verifies required mutable strings and four exact unsuppressed invalid diagnostics for each record. Production/proof commits are `7085ae5`/`4b5fa7b` and `39bb794`/`27ac88c`. Workspace `296/0/2`, check, all-feature Clippy, aggregate oracle/typeproof, Node syntax, formatting/diff, readability, dependency/lock, and clean-pin gates pass at `b27569b`; inherited verification passes at docs-only HEAD `76d759f` (`OVERALL: PASS`). Edit application, fuzzy matching, normalization, matching/validation, offsets, ordering, filesystem/tool behavior, and extra traits remain excluded.
@@ -114,26 +112,6 @@ This slice does not claim all `Intl` options, arbitrary calendar ranges, or exha
 - `crates/pi-js-compat/tests/date.rs`
 - `crates/pi-js-compat/tests/differential_date_parse.rs`
 
-- `crates/pi-protocol/tests/differential_protocol.rs`
-- `crates/pi-protocol/tests/model_cost.rs`
-- `crates/pi-protocol/tests/model_metadata.rs`
-- `crates/pi-protocol/tests/schema_leaves.rs`
-- `crates/pi-protocol/tests/usage.rs`
-- `crates/pi-protocol/tests/content_leaves.rs`
-- `crates/pi-protocol/tests/session_metadata.rs`
-- `crates/pi-protocol/tests/protocol_error_code.rs`
-- `crates/pi-protocol/tests/commands.rs`
-- `crates/pi-protocol/tests/client_hello.rs`
-- `crates/pi-protocol/tests/message_envelopes.rs`
-- `crates/pi-protocol/tests/differential_protocol/commands.rs`
-- `crates/pi-protocol/tests/differential_protocol/client_hello.rs`
-- `crates/pi-protocol/tests/differential_protocol/message_envelopes.rs`
-- `crates/pi-protocol/tests/differential_protocol/content_leaves.rs`
-- `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
-- `crates/pi-protocol/tests/differential_protocol/protocol_error_code.rs`
-- `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
-- `crates/pi-protocol/tests/differential_protocol/session_metadata.rs`
-- `crates/pi-protocol/tests/differential_protocol/usage.rs`
 - `crates/pi-coding-agent/tests/rpc_jsonl.rs`
 - `crates/pi-coding-agent/tests/differential_rpc_jsonl.rs`
 - `crates/pi-coding-agent/tests/auth_command.rs`
