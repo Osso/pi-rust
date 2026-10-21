@@ -55,7 +55,7 @@ async fn execute(params: Value, ctx: ExtensionContext) -> Result<AgentToolResult
         .ui()?
         .custom(
             Arc::new(move |context, done| {
-                Ok(Box::new(Questionnaire {
+                pi_coding_agent::core::extensions::ready_custom_component(Box::new(Questionnaire {
                     theme: context.theme.clone(),
                     tui: context.tui.clone(),
                     done,

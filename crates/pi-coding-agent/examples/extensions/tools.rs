@@ -57,7 +57,7 @@ pub fn tools_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 ctx.ui()?
                     .custom(
                         Arc::new(move |context, done| {
-                            Ok(Box::new(ToolSelector {
+                            pi_coding_agent::core::extensions::ready_custom_component(Box::new(ToolSelector {
                                 names: names.clone(),
                                 enabled: enabled.clone(),
                                 api: api.clone(),

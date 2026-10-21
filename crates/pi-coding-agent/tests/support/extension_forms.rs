@@ -1,3 +1,4 @@
+use futures_util::FutureExt;
 #[path = "extensions.rs"]
 mod extensions;
 #[path = "oracle.rs"]
@@ -94,6 +95,9 @@ impl ExtensionUiContext for Ui {
             },
             ExtensionUiDone::new(Rc::new(move |value| *captured.borrow_mut() = Some(value))),
         )
+        .expect("custom component fixture factory")
+        .now_or_never()
+        .expect("fixture factory must resolve immediately")
         .expect("custom component fixture factory");
         let record = || {
             json!(

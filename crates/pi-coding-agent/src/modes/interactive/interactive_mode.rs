@@ -2465,7 +2465,7 @@ type LocalExtensionUiCustomFactory = Rc<
     dyn Fn(
         crate::core::extensions::ExtensionUiFactoryContext,
         ExtensionUiDone,
-    ) -> Result<Box<dyn ExtensionUiComponent>, String>,
+    ) -> crate::core::extensions::ExtensionUiCustomResult,
 >;
 
 /// Thread-safe TUI handle passed to extension component factories.
@@ -2563,6 +2563,9 @@ impl crate::core::extensions::ExtensionUiOverlayHandle for InteractiveOverlayHan
     }
     fn unfocus(&self) {
         self.0.unfocus();
+    }
+    fn unfocus_to(&self, target: Option<ComponentRef>) {
+        self.0.unfocus_to(target);
     }
     fn is_focused(&self) -> bool {
         self.0.is_focused()
@@ -10886,29 +10889,36 @@ impl InteractiveMode {
         let done_component = Rc::clone(&component_slot);
         let mode = self.ui_id.get();
         let overlay = options.as_ref().and_then(|options| options.overlay).unwrap_or(false);
+        let saved_text = self.editor().borrow().get_text();
+        let done_text = saved_text.clone();
+        let closed = Rc::new(Cell::new(false));
+        let done_closed = closed.clone();
         let done = ExtensionUiDone::new(Rc::new(move |value| {
+            if done_closed.replace(true) {
+                return;
+            }
             let respond = done_respond
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .take();
-            let Some(respond) = respond else {
-                return;
-            };
             let component = done_component.borrow().as_ref().and_then(std::rc::Weak::upgrade);
             with_mode(mode, |mode| {
                 if overlay {
                     mode.ui.hide_overlay();
                 } else {
                     mode.restore_editor();
+                    mode.editor().borrow_mut().set_text(&done_text);
                 }
             });
-            let _ = respond.send(Ok(value));
+            if let Some(respond) = respond {
+                let _ = respond.send(Ok(value));
+            }
             if let Some(component) = component {
                 component.dispose();
             }
         }));
-        let inner: Rc<dyn ExtensionUiComponent> = match factory(context, done) {
-            Ok(component) => component.into(),
+        let pending = match factory(context, done) {
+            Ok(pending) => pending,
             Err(error) => {
                 // A synchronous TS factory throw rejects before the chained
                 // async catch: no mounting, restoration, or disposal occurs.
@@ -10918,13 +10928,39 @@ impl InteractiveMode {
                 return;
             }
         };
-        if respond
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .is_none()
-        {
-            return;
-        }
+        tokio::task::spawn_local(async move {
+            let result = pending.await;
+            if closed.get() {
+                return;
+            }
+            match result {
+                Ok(inner) => {
+                    with_mode(mode, |mode| {
+                        mode.mount_extension_custom(inner.into(), options, component_slot)
+                    });
+                }
+                Err(error) => {
+                    with_mode(mode, |mode| {
+                        if !overlay {
+                            mode.restore_editor();
+                            mode.editor().borrow_mut().set_text(&saved_text);
+                        }
+                    });
+                    if let Some(respond) = respond.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
+                        let _ = respond.send(Err(error));
+                    }
+                }
+            }
+        });
+    }
+
+    fn mount_extension_custom(
+        &self,
+        inner: Rc<dyn ExtensionUiComponent>,
+        options: Option<ExtensionUiCustomOptions>,
+        component_slot: Rc<RefCell<Option<std::rc::Weak<dyn ExtensionUiComponent>>>>,
+    ) {
+        let overlay = options.as_ref().and_then(|options| options.overlay).unwrap_or(false);
         *component_slot.borrow_mut() = Some(Rc::downgrade(&inner));
         let overlay_options = if overlay {
             options
@@ -14354,7 +14390,7 @@ mod ui_tests {
                     let (send, _receive) = tokio::sync::oneshot::channel();
                     mode.show_extension_custom(
                         Rc::new(move |_, _| {
-                            Ok(Box::new(ReleaseInput {
+                            crate::core::extensions::ready_custom_component(Box::new(ReleaseInput {
                                 opted_in,
                                 inputs: captured.clone(),
                             }))
@@ -14362,6 +14398,7 @@ mod ui_tests {
                         None,
                         send,
                     );
+                    tokio::task::yield_now().await;
                     terminal.borrow_mut().send_input("a");
                     terminal.borrow_mut().send_input("\x1b[97;1:3u");
                     mode.ui.process_events();
@@ -14540,7 +14577,7 @@ mod ui_tests {
                 let (send, receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
                     Rc::new(move |_, done| {
-                        Ok(Box::new(RetainedOverlay {
+                        crate::core::extensions::ready_custom_component(Box::new(RetainedOverlay {
                             handle: Rc::new(RefCell::new(None)),
                             events: captured.clone(),
                             done,
@@ -14553,6 +14590,7 @@ mod ui_tests {
                     }),
                     send,
                 );
+                tokio::task::yield_now().await;
                 assert_eq!(*events.lock().unwrap(), vec!["hook", "option"]);
                 assert_eq!(
                     tokio::time::timeout(std::time::Duration::from_secs(2), receive)
@@ -14656,7 +14694,7 @@ mod ui_tests {
                         nested.unfocus();
                         assert!(!nested.is_focused());
                         nested.hide();
-                        Ok(Box::new(LocalEditorForm {
+                        crate::core::extensions::ready_custom_component(Box::new(LocalEditorForm {
                             editor: RefCell::new(pi_tui::components::editor::Editor::new(
                                 Rc::new(context.tui),
                                 crate::modes::interactive::theme::get_editor_theme(),
@@ -14677,6 +14715,7 @@ mod ui_tests {
                     }),
                     send,
                 );
+                tokio::task::yield_now().await;
                 assert_eq!(*observed.lock().unwrap(), vec![true, true]);
                 terminal.borrow_mut().send_input("typed 🚀");
                 mode.ui.process_events();
@@ -14684,6 +14723,274 @@ mod ui_tests {
                 mode.ui.process_events();
                 assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("typed 🚀")));
                 assert!(!mode.ui.has_overlay_entries());
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_custom_restores_text_saved_before_construction_only_without_overlay() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                for overlay in [false, true] {
+                    mode.editor().borrow_mut().set_text("before");
+                    let editor = mode.editor();
+                    let (send, receive) = tokio::sync::oneshot::channel();
+                    mode.show_extension_custom(
+                        Rc::new(move |context, done| {
+                            editor.borrow_mut().set_text("factory");
+                            crate::core::extensions::ready_custom_component(Box::new(LocalEditorForm {
+                                editor: RefCell::new(pi_tui::components::editor::Editor::new(
+                                    Rc::new(context.tui),
+                                    crate::modes::interactive::theme::get_editor_theme(),
+                                    pi_tui::components::editor::EditorOptions::default(),
+                                )),
+                                done,
+                            }))
+                        }),
+                        Some(ExtensionUiCustomOptions {
+                            overlay: Some(overlay),
+                            ..Default::default()
+                        }),
+                        send,
+                    );
+                    tokio::task::yield_now().await;
+                    let ui = mode.ui_context();
+                    ui.set_editor_text("during");
+                    mode.handle_ui_requests().await;
+                    assert_eq!(mode.editor().borrow().get_text(), "during");
+                    terminal.borrow_mut().send_input("\r");
+                    mode.ui.process_events();
+                    assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("")));
+                    assert_eq!(
+                        mode.editor().borrow().get_text(),
+                        if overlay { "during" } else { "before" }
+                    );
+                }
+            })
+            .await;
+    }
+
+    struct AsyncEditorForm {
+        form: LocalEditorForm,
+        disposed: Arc<std::sync::atomic::AtomicUsize>,
+    }
+    impl ExtensionUiComponent for AsyncEditorForm {
+        fn render(&self, width: usize) -> Vec<String> {
+            self.form.render(width)
+        }
+        fn handle_input(&self, data: &str) {
+            self.form.handle_input(data);
+        }
+        fn dispose(&self) {
+            self.disposed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_async_factory_settlement_orders_mount_restore_and_early_done() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                for overlay in [false, true] {
+                    for (early, reject) in [(false, false), (false, true), (true, false), (true, true)] {
+                        mode.editor().borrow_mut().set_text("before");
+                        let editor = mode.ui.get_focused_component().unwrap();
+                        let (release, pending) = tokio::sync::oneshot::channel::<Result<(), String>>();
+                        let pending = Arc::new(std::sync::Mutex::new(Some(pending)));
+                        let handles = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                        let counted = handles.clone();
+                        let disposed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                        let counted_disposal = disposed.clone();
+                        let ui = mode.ui_context();
+                        let mut result = Some(ui.custom(
+                            Arc::new(move |context, done| {
+                                let pending = pending.lock().unwrap().take().unwrap();
+                                let disposed = counted_disposal.clone();
+                                if early {
+                                    done.call(Some(serde_json::json!("early")));
+                                }
+                                Ok(Box::pin(async move {
+                                    pending.await.unwrap()?;
+                                    let component: Box<dyn ExtensionUiComponent> = Box::new(AsyncEditorForm {
+                                        form: LocalEditorForm {
+                                            editor: RefCell::new(pi_tui::components::editor::Editor::new(
+                                                Rc::new(context.tui),
+                                                crate::modes::interactive::theme::get_editor_theme(),
+                                                pi_tui::components::editor::EditorOptions::default(),
+                                            )),
+                                            done,
+                                        },
+                                        disposed,
+                                    });
+                                    Ok(component)
+                                }))
+                            }),
+                            Some(ExtensionUiCustomOptions {
+                                overlay: Some(overlay),
+                                on_handle: Some(Arc::new(move |_| {
+                                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                })),
+                                ..Default::default()
+                            }),
+                        ));
+                        mode.handle_ui_requests().await;
+                        tokio::task::yield_now().await;
+                        assert!(!mode.ui.has_overlay_entries(), "pending factory must not mount");
+                        assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
+                        ui.set_editor_text("during");
+                        mode.handle_ui_requests().await;
+                        terminal.borrow_mut().writes.clear();
+                        mode.ui.request_render_force();
+                        mode.ui.render_now();
+                        assert!(
+                            terminal.borrow().writes.concat().contains("during"),
+                            "pending factory leaves editor visible"
+                        );
+                        let early_result = if early {
+                            Some(result.take().unwrap().await)
+                        } else {
+                            None
+                        };
+                        release
+                            .send(if reject {
+                                Err("async failure".to_owned())
+                            } else {
+                                Ok(())
+                            })
+                            .unwrap();
+                        tokio::task::yield_now().await;
+                        tokio::task::yield_now().await;
+                        if early {
+                            assert_eq!(early_result.unwrap().unwrap(), Some(serde_json::json!("early")));
+                            assert!(!mode.ui.has_overlay_entries());
+                            assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
+                            assert_eq!(
+                                mode.editor().borrow().get_text(),
+                                "during",
+                                "late settlement must not restore twice"
+                            );
+                        } else if reject {
+                            assert_eq!(result.take().unwrap().await, Err("async failure".to_owned()));
+                            assert!(!mode.ui.has_overlay_entries());
+                            assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
+                            assert_eq!(
+                                mode.editor().borrow().get_text(),
+                                if overlay { "during" } else { "before" }
+                            );
+                        } else {
+                            assert_eq!(mode.ui.has_overlay_entries(), overlay);
+                            assert!(!Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
+                            terminal.borrow_mut().writes.clear();
+                            mode.ui.render_now();
+                            terminal.borrow_mut().send_input("\r");
+                            mode.ui.process_events();
+                            assert_eq!(result.take().unwrap().await.unwrap(), Some(serde_json::json!("")));
+                            assert_eq!(
+                                mode.editor().borrow().get_text(),
+                                if overlay { "during" } else { "before" }
+                            );
+                        }
+                        assert_eq!(
+                            disposed.load(std::sync::atomic::Ordering::SeqCst),
+                            usize::from(!early && !reject),
+                            "unmounted components must not receive dispose"
+                        );
+                        assert_eq!(
+                            handles.load(std::sync::atomic::Ordering::SeqCst),
+                            usize::from(overlay && !early && !reject)
+                        );
+                        assert!(!mode.ui.has_overlay_entries());
+                    }
+                }
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_retained_done_after_rejection_still_closes_once() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                for overlay in [false, true] {
+                    for synchronous in [false, true] {
+                        mode.editor().borrow_mut().set_text("before");
+                        let retained = Rc::new(RefCell::new(None::<ExtensionUiDone>));
+                        let saved = retained.clone();
+                        let (send, receive) = tokio::sync::oneshot::channel();
+                        mode.show_extension_custom(
+                            Rc::new(move |_, done| {
+                                *saved.borrow_mut() = Some(done);
+                                if synchronous {
+                                    Err("rejected".to_owned())
+                                } else {
+                                    Ok(Box::pin(async { Err("rejected".to_owned()) }))
+                                }
+                            }),
+                            Some(ExtensionUiCustomOptions {
+                                overlay: Some(overlay),
+                                ..Default::default()
+                            }),
+                            send,
+                        );
+                        tokio::task::yield_now().await;
+                        assert_eq!(receive.await.unwrap(), Err("rejected".to_owned()));
+                        mode.editor().borrow_mut().set_text("after rejection");
+                        if overlay {
+                            mode.extension_factory_context()
+                                .tui
+                                .show_overlay(Box::new(StaticWidget), None);
+                        }
+                        let done = retained.borrow().clone().unwrap();
+                        done.call(None);
+                        assert!(
+                            !mode.ui.has_overlay_entries(),
+                            "Done after rejection still hides the top overlay"
+                        );
+                        assert_eq!(
+                            mode.editor().borrow().get_text(),
+                            if overlay { "after rejection" } else { "before" }
+                        );
+                        mode.editor().borrow_mut().set_text("after close");
+                        done.call(None);
+                        assert_eq!(
+                            mode.editor().borrow().get_text(),
+                            "after close",
+                            "only the first Done closes"
+                        );
+                    }
+                }
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_unfocus_distinguishes_omitted_explicit_target_and_null() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let editor = mode.ui.get_focused_component().unwrap();
+                let tui = mode.extension_factory_context().tui;
+                let first = tui.show_overlay(Box::new(StaticWidget), None);
+                let second = tui.show_overlay(Box::new(StaticWidget), None);
+                assert!(second.is_focused());
+                second.unfocus();
+                assert!(first.is_focused(), "omitted target restores previous focus");
+                second.focus();
+                second.unfocus_to(Some(editor.clone()));
+                assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
+                second.focus();
+                second.unfocus_to(None);
+                assert!(mode.ui.get_focused_component().is_none(), "explicit null clears focus");
+                first.focus();
+                second.unfocus_to(None);
+                assert!(first.is_focused(), "unfocused handle must not change focus");
+                first.hide();
+                second.hide();
             })
             .await;
     }
@@ -14752,7 +15059,7 @@ mod ui_tests {
                 mode.show_extension_custom(
                     Rc::new(move |_, done| {
                         *callback.borrow_mut() = Some(done.clone());
-                        Ok(Box::new(SizedExtensionInput {
+                        crate::core::extensions::ready_custom_component(Box::new(SizedExtensionInput {
                             done,
                             focus: std::sync::atomic::AtomicBool::new(false),
                             rendered_width: w.clone(),
@@ -14765,6 +15072,7 @@ mod ui_tests {
                     }),
                     send,
                 );
+                tokio::task::yield_now().await;
                 terminal.borrow_mut().writes.clear();
                 mode.ui.render_now();
                 assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 70);
@@ -14812,7 +15120,7 @@ mod ui_tests {
                 mode.show_extension_custom(
                     Rc::new(move |_, done| {
                         *callback.borrow_mut() = Some(done.clone());
-                        Ok(Box::new(SizedExtensionInput {
+                        crate::core::extensions::ready_custom_component(Box::new(SizedExtensionInput {
                             done,
                             focus: std::sync::atomic::AtomicBool::new(false),
                             rendered_width: captured.clone(),
@@ -14829,6 +15137,7 @@ mod ui_tests {
                     }),
                     send,
                 );
+                tokio::task::yield_now().await;
                 mode.ui.render_now();
                 assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 47);
                 done.borrow().clone().unwrap().call(None);
@@ -14838,7 +15147,7 @@ mod ui_tests {
                 mode.show_extension_custom(
                     Rc::new(|_, done| {
                         done.call(Some(serde_json::json!("immediate")));
-                        Ok(Box::new(StaticWidget))
+                        crate::core::extensions::ready_custom_component(Box::new(StaticWidget))
                     }),
                     Some(ExtensionUiCustomOptions {
                         overlay: Some(true),
@@ -14846,6 +15155,7 @@ mod ui_tests {
                     }),
                     send,
                 );
+                tokio::task::yield_now().await;
                 assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("immediate")));
                 assert!(
                     !mode.ui.has_overlay_entries(),
@@ -14857,7 +15167,7 @@ mod ui_tests {
                 mode.show_extension_custom(
                     Rc::new(move |_, done| {
                         *captured.borrow_mut() = Some(done);
-                        Ok(Box::new(StaticWidget))
+                        crate::core::extensions::ready_custom_component(Box::new(StaticWidget))
                     }),
                     Some(ExtensionUiCustomOptions {
                         overlay: Some(false),
@@ -14866,6 +15176,7 @@ mod ui_tests {
                     }),
                     send,
                 );
+                tokio::task::yield_now().await;
                 callback.borrow().clone().unwrap().call(None);
                 assert_eq!(receive.await.unwrap().unwrap(), None);
             })
@@ -14882,13 +15193,16 @@ mod ui_tests {
                 let state = focused.clone();
                 let (send, _receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
-                    Rc::new(move |_, _| Ok(Box::new(FocusedExtensionInput(state.clone())))),
+                    Rc::new(move |_, _| {
+                        crate::core::extensions::ready_custom_component(Box::new(FocusedExtensionInput(state.clone())))
+                    }),
                     Some(ExtensionUiCustomOptions {
                         overlay: Some(true),
                         ..Default::default()
                     }),
                     send,
                 );
+                tokio::task::yield_now().await;
                 assert!(focused.load(std::sync::atomic::Ordering::SeqCst));
                 let component = mode.ui.get_focused_component().unwrap();
                 assert_eq!(

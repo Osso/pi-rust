@@ -529,7 +529,7 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                                 cached_lines: vec![],
                             }));
                             game.lock().unwrap().component = Some(data.clone());
-                            Ok(Box::new(GameComponent {
+                            pi_coding_agent::core::extensions::ready_custom_component(Box::new(GameComponent {
                                 data,
                                 game: game.clone(),
                                 api: api.clone(),

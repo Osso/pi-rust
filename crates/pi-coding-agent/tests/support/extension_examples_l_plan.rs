@@ -1,4 +1,5 @@
 //! Modes extend A/B's registry + real-runner pattern; shared base actions live in extensions.rs.
+use futures_util::FutureExt;
 use pi_coding_agent::core::{
     extensions::*,
     model_registry::ModelRegistry,
@@ -97,6 +98,9 @@ impl ExtensionUiContext for Ui {
             context,
             ExtensionUiDone::new(Rc::new(move |value| *captured.lock().unwrap() = value)),
         )
+        .expect("custom component fixture factory")
+        .now_or_never()
+        .expect("fixture factory must resolve immediately")
         .expect("custom component fixture factory");
         self.trace.lock().unwrap().push(json!(["custom", component.render(80)]));
         let keys = self.step["keys"]

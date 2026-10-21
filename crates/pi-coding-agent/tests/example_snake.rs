@@ -17,6 +17,16 @@ fn factory(random: &Value) -> ExtensionFactory {
         Box::pin(async move { result })
     })
 }
+#[tokio::test(start_paused = true)]
+async fn dispose_running_game_stops_ticks_on_its_own_runtime_without_quit() {
+    let random = json!([0.1, 0.1]);
+    support::compare(
+        "snake",
+        factory(&random),
+        json!({"random":random,"commands":[{"widths":[44],"disposeRunning":true,"steps":[{"op":"ticks","count":1,"ms":100}]}]}),
+    ).await;
+}
+
 fn command(steps: Value) -> Value {
     json!({"widths":[12,44,100],"steps":steps})
 }

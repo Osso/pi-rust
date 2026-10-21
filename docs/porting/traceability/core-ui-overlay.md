@@ -7,6 +7,7 @@ Source pin: `532f7d12`; working base: `04f51ba`. Native contract: [spec](../../s
 | Exact source contract | Rust representation | Behavioral proof |
 |---|---|---|
 | `question.ts:73–89,115,193`; `questionnaire.ts:110–130,199,342`: factory creates/owns real Editor | `ExtensionUiComponent` has no Send/Sync bound; adapter owns `Rc<dyn ExtensionUiComponent>`. Factory closures remain Send/Sync; outputs do not cross the request channel. | `extension_ui_local_editor_nested_overlay_and_handle_callback` owns `RefCell<Editor>`, types Unicode through the real interactive adapter and receives the submitted value. Ownership mutation fails compilation. |
+| `interactive-mode.ts:3471–3479`: save editor text before factory construction; restore on non-overlay completion only | `show_extension_custom` captures text before invoking the factory; Done restores editor then saved text. Synchronous factory failure still preserves its existing rejection ordering. | `extension_ui_custom_restores_text_saved_before_construction_only_without_overlay`: real capture-terminal host, factory writes `factory`, UI request writes `during`, Enter completion restores `before`; overlay retains `during`. |
 | `interactive-mode.ts:3486–3505`: done closes/resolves/disposes once | `ExtensionUiDone` callback is UI-local; its weak component slot uses `Rc`/`RefCell`. Existing `with_mode` dispatch is reused, not replaced by a component registry. | Existing `extension_ui_overlay_uses_component_width_and_closes_once`, explicit-options/synchronous-close and focus-restoration tests remain passing. |
 | `tui.ts:439,770–862`: `showOverlay(component, options)`; QA calls `957,1057,1278` | `ExtensionUiTui::show_overlay`, matching required `ExtensionUiTuiBackend::show_overlay`; native handle adapter delegates directly to pi-tui. | `extension_ui_nested_overlay_options_input_and_passive_focus`: width 23, keyboard delivery, non-capturing overlay, explicit focus/unfocus, hidden/visible focus, removal of only the addressed entry. Dropped-options mutation killed. |
 | `tui.ts:861`: `isFocused`; QA `1107,1419` | `ExtensionUiOverlayHandle::is_focused` queries native handle. Handle is UI-local, not Send/Sync. | Both nested-overlay tests; constant-false mutation killed. |
@@ -93,21 +94,60 @@ state and calls after dropping the original wrapper. Existing overlay tests
 cover focus, nested handles, disposal, and first settlement without changed
 assertions. Follow-up proof: `/tmp/pi-rust-clippy-final/`.
 
+## Async/target fidelity proof
+
+`/tmp/pi-rust-ui-fidelity/ledger.md` retains command, exact revision/diff and
+RED/GREEN/mutation logs. API RED (`async-unfocus-api-red.log`) proves the old
+signature cannot express future factories or explicit unfocus targets; it is a
+compile rejection, not a runtime failure. `retained-done-red.log` is behavioral
+RED for rejection/closure separation. `restored-core-green.log`: **17 passed**.
+`async-unfocus-mutations.log`, `async-rejection-null-mutations.log` and
+`retained-done-mutation.log` reject missing early-Done guard, ignored explicit
+target, null-as-omitted, lost rejection text restoration and response-as-closed.
+All mutations were restored byte-for-byte.
+
+Fifteen example factories and the bundled llama factory use
+`ready_custom_component`; fixture hosts consume that same future. Immediate-only
+fixture seams explicitly require readiness; the production host awaits arbitrary
+UI-local futures. After merging master, `migrated-targets-{1,2,3}.log` cover all
+**30 affected targets, 77 tests**, with unchanged behavior assertions. Expected
+invalid-regex/missing-path stderr belongs to `example_truncated_tool`'s passing
+error fixtures. `package-clippy-fixed.log` passes package `--all-targets -- -D
+warnings`; subsequent changes are oracle readability/docs only. No workspace
+suite, new dependency, spawned agent, model CLI or unsandboxed oracle ran.
+
 ## Synchronous custom-factory rejection (batch Q prerequisite)
 
 Pinned `interactive-mode.ts:3483–3505` evaluates `factory(...)` inside the
 Promise executor. A synchronous throw rejects directly: the later chained
-`.catch` at `:3533–3537` is never attached. No overlay hide, editor/focus
+`.catch` at `:3529–3533` is never attached. No overlay hide, editor/focus
 restoration, component mount, options/handle callback, or disposal occurs.
 `close` at `:3487–3503` settles first when called before that throw.
 
-`ExtensionUiCustomFactory` now returns `Result<Box<dyn ExtensionUiComponent>,
-String>`, retaining `custom`'s existing error domain. The interactive request
-and response carry that result; factory errors send `Err` only while the response
-is unsettled. Existing successful callers wrap their components in `Ok`;
-fixtures explicitly unwrap that previously infallible path without changing
-behavior assertions. This models synchronous factories; asynchronous factory
-promises remain outside the existing native factory signature.
+`ExtensionUiCustomFactory` returns `ExtensionUiCustomResult`: an outer `Result`
+for synchronous throws, containing a UI-local future whose `Result` models
+fulfillment/rejection. `ready_custom_component` migrates synchronous callers
+onto that same future path. Factories remain Send/Sync; futures and components
+stay on the owning LocalSet. `show_extension_custom` saves text before calling
+the factory and awaits settlement before the common mount helper.
+
+`extension_ui_async_factory_settlement_orders_mount_restore_and_early_done`
+drives actual UI requests through the capture-terminal mode for eight cases:
+fulfill/reject/Done-before-fulfill/Done-before-reject, each with/without overlay.
+Pending factories keep the editor visible/focused; non-overlay rejection and
+Done restore saved text, overlay paths retain edits; late settlement cannot
+mount, invoke onHandle or restore twice. A fulfilled component closes through
+real terminal Enter input; captures prove pending editor visibility and that only mounted components receive dispose. Existing synchronous-throw tests retain their ordering.
+
+Pinned `.catch` rejects without setting `closed`. `extension_ui_retained_done_after_rejection_still_closes_once` retains Done across both synchronous/asynchronous rejection, then checks non-overlay saved-text restoration or overlay hide, and guards the second close. Separate `Cell<bool>` tracks Done closure state; consuming the response sender is not treated as closing the component.
+No loadable whole-interactive-mode TS oracle exists; these are native host
+proofs against exact pinned `interactive-mode.ts:3471–3534` statements.
+
+`ExtensionUiOverlayHandle::unfocus_to(Option<pi_tui::tui::ComponentRef>)`
+bridges directly to native pi-tui, without a new component registry.
+`extension_ui_unfocus_distinguishes_omitted_explicit_target_and_null` checks
+previous-overlay restoration, explicit editor target, null focus, and no-op on
+an unfocused handle (`tui.ts:257–276,828–858`).
 
 Behavioral proof through the real `InteractiveUiContext` request adapter:
 `extension_ui_factory_error_rejects_custom_without_changing_focus_or_overlay`

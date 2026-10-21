@@ -116,7 +116,7 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                                 done.call(Some(value));
                             });
                             context.tui.request_render();
-                            Ok(Box::new(loader))
+                            pi_coding_agent::core::extensions::ready_custom_component(Box::new(loader))
                         }),
                         None,
                     )

@@ -4,6 +4,7 @@ mod example;
 mod oracle;
 #[path = "support/extensions.rs"]
 mod support;
+use futures_util::FutureExt;
 use pi_coding_agent::core::{
     extensions::*,
     model_registry::ModelRegistry,
@@ -81,7 +82,10 @@ impl ExtensionUiContext for Ui {
                     trace.lock().unwrap().push(json!(["done", v]));
                 })),
             )
-            .expect("custom component fixture factory");
+            .expect("custom component fixture factory")
+            .now_or_never()
+            .expect("shell fixture factory resolves immediately")
+            .expect("custom component fixture continuation");
             assert_eq!(component.render(80), Vec::<String>::new());
             component.invalidate();
             component.dispose();

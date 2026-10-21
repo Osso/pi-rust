@@ -456,7 +456,7 @@ async fn select(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> R
         .ui()?
         .custom(
             Arc::new(move |context, done| {
-                Ok(Box::new(Selector {
+                pi_coding_agent::core::extensions::ready_custom_component(Box::new(Selector {
                     items: items.clone(),
                     selected: Mutex::new(0),
                     context,

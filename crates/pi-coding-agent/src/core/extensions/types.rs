@@ -442,10 +442,19 @@ impl ExtensionUiDone {
     }
 }
 
-/// Custom-UI factory. An error rejects `custom`, like a synchronous TS factory throw.
-pub type ExtensionUiCustomFactory = Arc<
-    dyn Fn(ExtensionUiFactoryContext, ExtensionUiDone) -> Result<Box<dyn ExtensionUiComponent>, String> + Send + Sync,
->;
+/// UI-local factory continuation; only its factory closure crosses threads.
+/// Outer errors model synchronous throws; future errors model Promise rejection.
+pub type ExtensionUiCustomResult =
+    Result<futures_util::future::LocalBoxFuture<'static, Result<Box<dyn ExtensionUiComponent>, String>>, String>;
+
+/// Custom-UI factories may finish immediately or await UI-local work.
+pub type ExtensionUiCustomFactory =
+    Arc<dyn Fn(ExtensionUiFactoryContext, ExtensionUiDone) -> ExtensionUiCustomResult + Send + Sync>;
+
+/// Return an already constructed component through the common future path.
+pub fn ready_custom_component(component: Box<dyn ExtensionUiComponent>) -> ExtensionUiCustomResult {
+    Ok(Box::pin(std::future::ready(Ok(component))))
+}
 
 /// UI-thread overlay handle passed to `custom`'s `onHandle` callback.
 pub trait ExtensionUiOverlayHandle {
@@ -454,6 +463,8 @@ pub trait ExtensionUiOverlayHandle {
     fn is_hidden(&self) -> bool;
     fn focus(&self);
     fn unfocus(&self);
+    /// Source `tui.ts:828–858`: explicit target; `None` clears focus.
+    fn unfocus_to(&self, target: Option<pi_tui::tui::ComponentRef>);
     /// Source `tui.ts:861`: whether this overlay's component currently owns focus.
     fn is_focused(&self) -> bool;
 }

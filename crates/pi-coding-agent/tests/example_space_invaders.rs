@@ -20,6 +20,15 @@ fn factory(random: &Value) -> ExtensionFactory {
 fn command(steps: Value) -> Value {
     json!({"widths":[24,64,90,90],"steps":steps})
 }
+#[tokio::test(start_paused = true)]
+async fn dispose_running_game_stops_ticks_on_its_own_runtime_without_quit() {
+    support::compare(
+        "space-invaders",
+        factory(&json!([0.5])),
+        json!({"random":[0.5],"commands":[{"widths":[90],"disposeRunning":true,"steps":[{"op":"key","key":"a"},{"op":"ticks","count":2,"ms":50}]}]}),
+    ).await;
+}
+
 fn state() -> Value {
     json!({"player":{"x":30,"lives":3},"aliens":[{"x":4,"y":2,"type":2,"alive":true}],"alienDirection":1,"alienMoveCounter":0,"alienMoveDelay":18,"alienDropping":false,"bullets":[],"shields":[],"score":0,"highScore":40,"level":1,"gameOver":false,"victory":false,"alienShootCounter":0})
 }
