@@ -191,7 +191,7 @@ fn agent(id: &str, agent_type: &str, lifecycle: AgentLifecycle) -> AgentSnapshot
 fn store_with(agents: &[AgentSnapshot]) -> Arc<MultiAgentStore> {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     for agent in agents {
-        store.publish_lifecycle_coordinator_snapshot(agent);
+        store.publish_lifecycle_coordinator_snapshot(agent).expect("seed agent");
     }
     store
 }

@@ -694,6 +694,38 @@ async fn schema_argument_admission_matches_source_validation() {
 }
 
 #[tokio::test]
+async fn parent_default_set_model_path_retains_model_and_effort_defaults() {
+    let fixture = live_fixture().await;
+    let cwd = fixture._dir.path().display().to_string();
+    let parent = create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(cwd.clone()),
+        agent_dir: Some(cwd.clone()),
+        model_runtime: Some(fixture.child.model_runtime().clone()),
+        model: fixture.faux.get_model(Some("old")),
+        thinking_level: Some(ThinkingLevel::Low),
+        resource_loader: Some(StaticResourceLoader::new()),
+        session_manager: Some(SessionManager::in_memory(Some(&cwd), None).unwrap()),
+        settings_manager: Some(fixture.settings.clone()),
+        control_db_path: Some(fixture._dir.path().join("parent-control.db").display().to_string()),
+        ..Default::default()
+    })
+    .await
+    .unwrap()
+    .session;
+    parent.set_thinking_level(ThinkingLevel::High).unwrap();
+    parent
+        .set_model(fixture.faux.get_model(Some("plain")).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(parent.model().id, "plain");
+    assert_eq!(parent.thinking_level(), ThinkingLevel::Off);
+    let settings = fixture.settings.lock().unwrap();
+    assert_eq!(settings.get_default_provider(), Some("faux"));
+    assert_eq!(settings.get_default_model(), Some("plain"));
+    assert_eq!(settings.get_default_thinking_level(), Some(ThinkingLevel::High));
+}
+
+#[tokio::test]
 async fn live_effective_results_and_effort_literals_match_frozen_session() {
     let mut oracle = oracle::TsOracle::spawn(
         "agent-model-tool-oracle.ts",
