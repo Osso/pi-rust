@@ -1,7 +1,11 @@
 #[path = "../examples/extensions/github_issue_autocomplete.rs"]
 mod example;
+#[path = "support/extensions.rs"]
+mod extension_support;
 #[path = "support/extension_examples_b.rs"]
 mod harness;
+#[path = "support/oracle.rs"]
+mod oracle;
 use serde_json::json;
 use std::{os::unix::fs::PermissionsExt, sync::Arc};
 

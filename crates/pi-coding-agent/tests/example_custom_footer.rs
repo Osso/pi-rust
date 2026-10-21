@@ -1,7 +1,11 @@
 #[path = "../examples/extensions/custom_footer.rs"]
 mod example;
+#[path = "support/extensions.rs"]
+mod extension_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
+#[path = "support/oracle.rs"]
+mod oracle;
 use serde_json::{Value, json};
 fn assistant(input: f64, output: f64, cost: f64) -> Value {
     json!({"role":"assistant","content":[],"api":"faux","provider":"faux","model":"faux-1","usage":{"input":input,"output":output,"cacheRead":99,"cacheWrite":88,"totalTokens":input+output+187.0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":cost}},"stopReason":"stop","timestamp":0})

@@ -1,7 +1,11 @@
 #[path = "../examples/extensions/notify.rs"]
 mod example;
+#[path = "support/extensions.rs"]
+mod extension_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
+#[path = "support/oracle.rs"]
+mod oracle;
 use pi_coding_agent::core::extensions::ExtensionFactory;
 use serde_json::json;
 use std::os::unix::fs::PermissionsExt;

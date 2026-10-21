@@ -1,3 +1,4 @@
+use crate::{extension_support as fixture, oracle};
 use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
@@ -6,10 +7,6 @@ use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRunti
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-#[path = "oracle.rs"]
-mod oracle;
-#[path = "extensions.rs"]
-mod support;
 #[path = "ui_thread.rs"]
 mod ui_thread;
 
@@ -194,7 +191,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     let extension = load_extension_from_factory(
         registry.get(name).unwrap().clone(),
         cwd,
-        support::event_bus(),
+        fixture::event_bus(),
         runtime.clone(),
         name,
     )
@@ -229,14 +226,14 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     } else {
         None
     };
-    let mut runner = support::runner_for(
+    let mut runner = fixture::runner_for(
         vec![extension],
         cwd,
         runtime,
         Arc::new(ModelRegistry::new(model_runtime)),
     );
     let effects = Arc::new(Mutex::new(Vec::<Value>::new()));
-    let mut actions = support::actions();
+    let mut actions = fixture::actions();
     if let Some(tools) = request["allTools"].as_array() {
         let infos:Vec<ToolInfo>=tools.iter().map(|name|serde_json::from_value(json!({"name":name,"description":"fixture tool","parameters":{},"sourceInfo":{"path":"/fixture","source":"fixture","scope":"temporary","origin":"top-level"}})).unwrap()).collect();
         actions.get_all_tools = Arc::new(move || Ok(infos.clone()));
@@ -273,7 +270,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
             Ok(())
         });
     }
-    let mut context = support::context_actions();
+    let mut context = fixture::context_actions();
     if request["hasModel"].as_bool().unwrap_or(true) {
         context.get_model = Arc::new(move || model.clone().flatten());
     }

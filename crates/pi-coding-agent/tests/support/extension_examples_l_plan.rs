@@ -9,10 +9,10 @@ use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_fr
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+#[path = "extensions.rs"]
+mod fixture;
 #[path = "oracle.rs"]
 mod oracle;
-#[path = "extensions.rs"]
-mod support;
 pub type Trace = Arc<Mutex<Vec<Value>>>;
 struct Ui {
     trace: Trace,
@@ -136,7 +136,7 @@ pub async fn compare(
     let extension = load_extension_from_factory(
         factories.get(name).unwrap().clone(),
         cwd,
-        support::event_bus(),
+        fixture::event_bus(),
         runtime.clone(),
         "<example:g>",
     )
@@ -194,8 +194,8 @@ pub async fn compare(
     let model = Arc::new(Mutex::new(
         serde_json::from_value(request.get("initialModel").cloned().unwrap_or(Value::Null)).unwrap(),
     ));
-    let mut actions = support::actions();
-    let mut context = support::context_actions();
+    let mut actions = fixture::actions();
+    let mut context = fixture::context_actions();
     let state = tools.clone();
     actions.get_active_tools = Arc::new(move || Ok(state.lock().unwrap().clone()));
     let state = tools.clone();
