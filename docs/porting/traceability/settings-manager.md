@@ -1,79 +1,182 @@
 # settings-manager.ts traceability
 
-## Phase1 repin in progress (4f9e6f8a4)
+Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, `packages/coding-agent/src/core/settings-manager.ts`.
+Rust: `crates/pi-coding-agent/src/core/settings_manager.rs`. Governing [contract](../../specs/settings-manager.md); [percentage helper](compaction-threshold.md).
 
-Governing contract: [settings-manager](../../specs/settings-manager.md). One-level overlay, literal shellPath, steering all, validated retry base/cap, percentage helper, idle and visibility APIs replace old behavior. RED evidence: `/tmp/pi-rust-repin-settings/red-settings.txt`, `red-differential.txt`, `red-validation.txt`. GREEN pending caller integration.
+## Current status
 
-Main explicitly stages old-only UI APIs (`tuiMode`, fullscreen exit/scrollbar, cache-miss notices, markdown mermaid) unchanged until coupled Phase3 consumer deletion. Do not count those as frozen parity. Retry runtime, percentage/idle compaction consumers, display hiding and relay runtime remain TODO. Historical proof below predates repin and is not new-pin proof.
+**TODO, not whole-module parity.** Phase1 has source-aligned settings contracts and new isolated proofs. Targeted GREEN: 27 native tests and 4 differential tests (15 manager scenarios, bidirectional stale/concurrent writer fixture, three queued-ordering cases, 14 direct helper inputs). Four independent production mutants killed: recursive overlay, zero percentage, fractional retry milliseconds, and synchronous global save. Each was restored before final formatting; see proof ledger for commands/artifacts. Main caller/export integration imported as e2d89154; automatic save pumping remains pending. Old-pin proof is not repin evidence.
 
+Main explicitly stages these unchanged old-only APIs until coupled consumer deletion: `get/set_tui_mode`, `get/set_fullscreen_exit_output`, `get/set_fullscreen_scrollbar`, `get/set_show_cache_miss_notices`, `get/set_mermaid_rendering_mode`, `FullscreenExitOutput`, `MermaidRenderingMode`, `MarkdownSettings.mermaid`, `PackageFilter.autoload`. No new alternate behavior is introduced; existing extra behavior is not counted as parity.
 
-Source: `packages/coding-agent/src/core/settings-manager.ts` (1442 lines, pinned revision in
-`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent/src/core/settings_manager.rs`.
+## Exported types / lifecycle
 
-## Exported symbols
-
-| TS symbol | Rust item | Tests |
+| Frozen export | Literal Rust representation | Proof / explicit boundary |
 | --- | --- | --- |
-| `Settings`, settings interfaces | `Settings = Map<String, Value>`; typed `CompactionSettings`, `BranchSummarySettings`, `RetrySettings`, `TerminalSettings`, `ImageSettings`, `ThinkingBudgetsSettings`, `MarkdownSettings`, `WarningSettings`, `AgentProfileSettings`, `PackageSource`/`PackageFilter` | differential raw snapshots; focused `packages_migration_*`, `agent_profiles_*` |
-| `SettingsScope` | `SettingsScope` | all tests |
-| `SettingsStorage` | `SettingsStorage` trait (`with_lock`) | `FileSettingsStorage` exercised by every file test; `InMemorySettingsStorage` by `project_enabled_models_override_global` |
-| `FileSettingsStorage` | `FileSettingsStorage` (proper-lockfile via `utils::lockfile`, 10 × 20 ms retry, `realpath:false`) | every workspace test; lock protocol shared with `rule_store`/`trust_manager` |
-| `InMemorySettingsStorage` | `InMemorySettingsStorage` | `project_enabled_models_override_global` |
-| `SettingsManager` | `SettingsManager` | 23 focused tests + 10 differential scenarios |
-| `create` / `fromStorage` / `inMemory` | `create` / `from_storage` / `in_memory` | focused + differential |
-| `migrateSettings` | `migrate_settings` | differential `migrations`; focused `legacy_llm_approved_*` |
-| `getGlobalSettings`/`getProjectSettings`/`getMergedSettings` | same | every differential snapshot |
-| `getAgentProfile` | `get_agent_profile` | focused `agent_profiles_*`; differential |
-| `getPermissionPromptTool` | `get_permission_prompt_tool` | differential `invalid-stored-values` |
-| approval policy/preset get/set | `get_approval_policy`, `get_approval_preset`, `set_approval_policy`, `set_approval_preset` | focused + differential `approval-sandbox` |
-| sandbox profile get/set (configured/explicit/session/merged) | same | focused `sandbox_profile_*`; differential |
-| `isProjectTrusted`/`setProjectTrusted` | same | focused `untrusted_*`; differential `project-trust` |
-| `reload` | `reload` | focused `reload_*`; differential |
-| `applyOverrides` | `apply_overrides` | differential |
-| `flush` | `flush` (no-op; writes are synchronous) | differential flushes before file comparison |
-| `drainErrors` | `drain_errors` | focused `drains_load_errors_once`; differential error scopes |
-| every typed getter/setter listed in the source | same-name snake_case methods | differential snapshots after every step + focused tests |
-| `randomUUID` for `trackingId` | `pi_ai::utils::uuid::random_uuid` | focused `analytics_generates_*` |
-| `parseTimeoutSetting` | `parse_timeout_setting` | focused `http_idle_timeout_*`; differential |
+| `Settings` | ordered raw JSON object `Settings = Map<String,Value>` | every snapshot; unknown root/nested and relay preserved by bidirectional fixture |
+| `CompactionSettings`, `BranchSummarySettings`, `RetrySettings`, `ProviderRetrySettings` | matching option-bearing structs; required effective view structs | leaf getters/views; defaults and numeric validation differential |
+| `TerminalSettings`, `ImageSettings`, `ThinkingBudgetsSettings`, `WarningSettings` | matching option-bearing structs | snapshots and numeric/media setters |
+| `MarkdownSettings` | struct; old-only mermaid field still staged | code indent observed; field removal pending |
+| `AgentProfileThinkingLevel`, `AgentProfileSettings` | corresponding Rust enum/struct; native context enum | default profiles, project agent object replacement, null fallback |
+| `PermissionRulesSettings` | raw `Settings["permissionRules"]` object, not a separate Rust named type | concrete allow-map overlay assertions |
+| `DefaultProjectTrust`, `TransportSetting` | native trust enum and `pi_ai::types::Transport` | trust/scoped read/write and transport migrations |
+| `PackageSource` | native enum/name/filter struct | known resource arrays; autoload removal still pending package consumers |
+| `SettingsScope`, `SettingsManagerCreateOptions`, `SettingsError` | native enum/options/error record | scope observations, trusted/untrusted reads and drained error scopes |
+| `SettingsStorage`, `FileSettingsStorage`, `InMemorySettingsStorage` | native trait, file and memory backends | isolated file tests plus native in-memory/from-storage tests; lock retry policy source-inspected, not new timing proof |
+| `SettingsManager.create/fromStorage/inMemory` | corresponding native constructors | file and memory tests |
+| `reload`, `applyOverrides`, `flush`, `drainErrors` | corresponding native methods | differential reload/error recovery, overrides, post-flush files; FIFO queued snapshot, same-turn setter/external-write ordering regression |
 
-## Branches covered
+## Getter/setter observations
 
-- `queueMode`→`steeringMode`, `websockets`→`transport`, skills-object migration,
-  `llm-approved`→`llm-approved-deny`, `retry.maxDelayMs`→`retry.provider.maxRetryDelayMs`.
-- Only explicitly modified fields (and nested keys) overwrite the current file; external edits to other
-  fields survive. Nested merges keep unmodified sibling keys.
-- Project settings are skipped when untrusted, reloaded when trust turns on, and writes throw
-  `Project is not trusted; refusing to write project settings`.
-- A project settings load error blocks project writes; a global load error blocks global writes.
-- Reading never creates `.pi`; writing creates it.
-- Invalid stored values: unknown enum values fall back exactly as the source (`regular`, `transcript`,
-  `auto`, `default`, `streaming`, `ask`, `workspace-write`), invalid timeout values throw.
-- Numeric setters clamp/floor like `Math.max`/`Math.min` (including `NaN` → JSON `null`).
-- File output uses `JSON.stringify(value, null, 2)` ordering/indentation with a trailing newline added by
-  the file write path, byte-identical in differential scenarios.
+All 70 frozen getters/is methods are observed in `snapshot`; all 53 setters have oracle dispatch. Scalar leaf getters are observed separately even when a composite getter errors. Scenarios exercise source setters; analytics-generated UUID is covered natively rather than equating random UUID bytes across runtimes. Fixture-only producer writes are explicitly separate from product setters.
 
-## Discrepancies / deviations
+| Frozen method | Rust method | Behavioral observation |
+| --- | --- | --- |
+| `getGlobalSettings` | `get_global_settings` | effective getter snapshot |
+| `getProjectSettings` | `get_project_settings` | effective getter snapshot |
+| `getMergedSettings` | `get_merged_settings` | effective getter snapshot |
+| `getAgentProfile` | `get_agent_profile` | effective getter snapshot |
+| `getPermissionPromptTool` | `get_permission_prompt_tool` | effective getter snapshot |
+| `getApprovalPolicy` | `get_approval_policy` | effective getter snapshot |
+| `getApprovalPreset` | `get_approval_preset` | effective getter snapshot |
+| `setApprovalPolicy` | `set_approval_policy` | API mutation then effective snapshot and persisted file comparison |
+| `setApprovalPreset` | `set_approval_preset` | API mutation then effective snapshot and persisted file comparison |
+| `getSandboxProfile` | `get_sandbox_profile` | effective getter snapshot |
+| `getConfiguredSandboxProfile` | `get_configured_sandbox_profile` | effective getter snapshot |
+| `getExplicitSandboxProfile` | `get_explicit_sandbox_profile` | effective getter snapshot |
+| `getSessionSandboxProfile` | `get_session_sandbox_profile` | effective getter snapshot |
+| `setSessionSandboxProfile` | `set_session_sandbox_profile` | API mutation then effective snapshot and persisted file comparison |
+| `setSandboxProfile` | `set_sandbox_profile` | API mutation then effective snapshot and persisted file comparison |
+| `isProjectTrusted` | `is_project_trusted` | effective getter snapshot |
+| `setProjectTrusted` | `set_project_trusted` | API mutation then effective snapshot and persisted file comparison |
+| `getLastChangelogVersion` | `get_last_changelog_version` | effective getter snapshot |
+| `setLastChangelogVersion` | `set_last_changelog_version` | API mutation then effective snapshot and persisted file comparison |
+| `getSessionDir` | `get_session_dir` | effective getter snapshot |
+| `getDefaultProvider` | `get_default_provider` | effective getter snapshot |
+| `getDefaultModel` | `get_default_model` | effective getter snapshot |
+| `setDefaultProvider` | `set_default_provider` | API mutation then effective snapshot and persisted file comparison |
+| `setDefaultModel` | `set_default_model` | API mutation then effective snapshot and persisted file comparison |
+| `setDefaultModelAndProvider` | `set_default_model_and_provider` | API mutation then effective snapshot and persisted file comparison |
+| `getSteeringMode` | `get_steering_mode` | effective getter snapshot |
+| `setSteeringMode` | `set_steering_mode` | API mutation then effective snapshot and persisted file comparison |
+| `getFollowUpMode` | `get_follow_up_mode` | effective getter snapshot |
+| `setFollowUpMode` | `set_follow_up_mode` | API mutation then effective snapshot and persisted file comparison |
+| `getThemeSetting` | `get_theme_setting` | effective getter snapshot |
+| `getTheme` | `get_theme` | effective getter snapshot |
+| `setTheme` | `set_theme` | API mutation then effective snapshot and persisted file comparison |
+| `getDefaultThinkingLevel` | `get_default_thinking_level` | effective getter snapshot |
+| `setDefaultThinkingLevel` | `set_default_thinking_level` | API mutation then effective snapshot and persisted file comparison |
+| `getTransport` | `get_transport` | effective getter snapshot |
+| `setTransport` | `set_transport` | API mutation then effective snapshot and persisted file comparison |
+| `getCompactionEnabled` | `get_compaction_enabled` | effective getter snapshot |
+| `getIdleCompactionEnabled` | `get_idle_compaction_enabled` | effective getter snapshot |
+| `setCompactionEnabled` | `set_compaction_enabled` | API mutation then effective snapshot and persisted file comparison |
+| `getCompactionReserveTokens` | `get_compaction_reserve_tokens` | effective getter snapshot |
+| `getCompactionKeepRecentTokens` | `get_compaction_keep_recent_tokens` | effective getter snapshot |
+| `getCompactionSettings` | `get_compaction_settings` | effective getter snapshot |
+| `getBranchSummarySettings` | `get_branch_summary_settings` | effective getter snapshot |
+| `getBranchSummarySkipPrompt` | `get_branch_summary_skip_prompt` | effective getter snapshot |
+| `getRetryEnabled` | `get_retry_enabled` | effective getter snapshot |
+| `setRetryEnabled` | `set_retry_enabled` | API mutation then effective snapshot and persisted file comparison |
+| `getRetrySettings` | `get_retry_settings` | effective getter snapshot |
+| `getHttpIdleTimeoutMs` | `get_http_idle_timeout_ms` | effective getter snapshot |
+| `setHttpIdleTimeoutMs` | `set_http_idle_timeout_ms` | API mutation then effective snapshot and persisted file comparison |
+| `getProviderRetrySettings` | `get_provider_retry_settings` | effective getter snapshot |
+| `getWebSocketConnectTimeoutMs` | `get_websocket_connect_timeout_ms` | effective getter snapshot |
+| `getHideThinkingBlock` | `get_hide_thinking_block` | effective getter snapshot |
+| `getHideToolOutput` | `get_hide_tool_output` | effective getter snapshot |
+| `setHideToolOutput` | `set_hide_tool_output` | API mutation then effective snapshot and persisted file comparison |
+| `getHideCoordinationMessages` | `get_hide_coordination_messages` | effective getter snapshot |
+| `setHideCoordinationMessages` | `set_hide_coordination_messages` | API mutation then effective snapshot and persisted file comparison |
+| `getExternalEditorCommand` | `get_external_editor_command` | effective getter snapshot |
+| `setHideThinkingBlock` | `set_hide_thinking_block` | API mutation then effective snapshot and persisted file comparison |
+| `getShellPath` | `get_shell_path` | effective getter snapshot |
+| `setShellPath` | `set_shell_path` | API mutation then effective snapshot and persisted file comparison |
+| `getQuietStartup` | `get_quiet_startup` | effective getter snapshot |
+| `setQuietStartup` | `set_quiet_startup` | API mutation then effective snapshot and persisted file comparison |
+| `getDefaultProjectTrust` | `get_default_project_trust` | effective getter snapshot |
+| `setDefaultProjectTrust` | `set_default_project_trust` | API mutation then effective snapshot and persisted file comparison |
+| `getShellCommandPrefix` | `get_shell_command_prefix` | effective getter snapshot |
+| `setShellCommandPrefix` | `set_shell_command_prefix` | API mutation then effective snapshot and persisted file comparison |
+| `getNpmCommand` | `get_npm_command` | effective getter snapshot |
+| `setNpmCommand` | `set_npm_command` | API mutation then effective snapshot and persisted file comparison |
+| `getCollapseChangelog` | `get_collapse_changelog` | effective getter snapshot |
+| `setCollapseChangelog` | `set_collapse_changelog` | API mutation then effective snapshot and persisted file comparison |
+| `getEnableInstallTelemetry` | `get_enable_install_telemetry` | effective getter snapshot |
+| `setEnableInstallTelemetry` | `set_enable_install_telemetry` | API mutation then effective snapshot and persisted file comparison |
+| `getEnableAnalytics` | `get_enable_analytics` | effective getter snapshot |
+| `getTrackingId` | `get_tracking_id` | effective getter snapshot |
+| `setEnableAnalytics` | `set_enable_analytics` | API mutation then effective snapshot and persisted file comparison |
+| `getPackages` | `get_packages` | effective getter snapshot |
+| `setPackages` | `set_packages` | API mutation then effective snapshot and persisted file comparison |
+| `setProjectPackages` | `set_project_packages` | API mutation then effective snapshot and persisted file comparison |
+| `getExtensionPaths` | `get_extension_paths` | effective getter snapshot |
+| `getDisabledExtensions` | `get_disabled_extensions` | effective getter snapshot |
+| `setExtensionPaths` | `set_extension_paths` | API mutation then effective snapshot and persisted file comparison |
+| `setProjectExtensionPaths` | `set_project_extension_paths` | API mutation then effective snapshot and persisted file comparison |
+| `getSkillPaths` | `get_skill_paths` | effective getter snapshot |
+| `setSkillPaths` | `set_skill_paths` | API mutation then effective snapshot and persisted file comparison |
+| `setProjectSkillPaths` | `set_project_skill_paths` | API mutation then effective snapshot and persisted file comparison |
+| `getPromptTemplatePaths` | `get_prompt_template_paths` | effective getter snapshot |
+| `setPromptTemplatePaths` | `set_prompt_template_paths` | API mutation then effective snapshot and persisted file comparison |
+| `setProjectPromptTemplatePaths` | `set_project_prompt_template_paths` | API mutation then effective snapshot and persisted file comparison |
+| `getThemePaths` | `get_theme_paths` | effective getter snapshot |
+| `setThemePaths` | `set_theme_paths` | API mutation then effective snapshot and persisted file comparison |
+| `setProjectThemePaths` | `set_project_theme_paths` | API mutation then effective snapshot and persisted file comparison |
+| `getEnableSkillCommands` | `get_enable_skill_commands` | effective getter snapshot |
+| `setEnableSkillCommands` | `set_enable_skill_commands` | API mutation then effective snapshot and persisted file comparison |
+| `getThinkingBudgets` | `get_thinking_budgets` | effective getter snapshot |
+| `getShowImages` | `get_show_images` | effective getter snapshot |
+| `setShowImages` | `set_show_images` | API mutation then effective snapshot and persisted file comparison |
+| `getImageWidthCells` | `get_image_width_cells` | effective getter snapshot |
+| `setImageWidthCells` | `set_image_width_cells` | API mutation then effective snapshot and persisted file comparison |
+| `getClearOnShrink` | `get_clear_on_shrink` | effective getter snapshot |
+| `setClearOnShrink` | `set_clear_on_shrink` | API mutation then effective snapshot and persisted file comparison |
+| `getShowTerminalProgress` | `get_show_terminal_progress` | effective getter snapshot |
+| `setShowTerminalProgress` | `set_show_terminal_progress` | API mutation then effective snapshot and persisted file comparison |
+| `getImageAutoResize` | `get_image_auto_resize` | effective getter snapshot |
+| `setImageAutoResize` | `set_image_auto_resize` | API mutation then effective snapshot and persisted file comparison |
+| `getBlockImages` | `get_block_images` | effective getter snapshot |
+| `setBlockImages` | `set_block_images` | API mutation then effective snapshot and persisted file comparison |
+| `getEnabledModels` | `get_enabled_models` | effective getter snapshot |
+| `setEnabledModels` | `set_enabled_models` | API mutation then effective snapshot and persisted file comparison |
+| `getDoubleEscapeAction` | `get_double_escape_action` | effective getter snapshot |
+| `setDoubleEscapeAction` | `set_double_escape_action` | API mutation then effective snapshot and persisted file comparison |
+| `getTreeFilterMode` | `get_tree_filter_mode` | effective getter snapshot |
+| `setTreeFilterMode` | `set_tree_filter_mode` | API mutation then effective snapshot and persisted file comparison |
+| `getShowHardwareCursor` | `get_show_hardware_cursor` | effective getter snapshot |
+| `setShowHardwareCursor` | `set_show_hardware_cursor` | API mutation then effective snapshot and persisted file comparison |
+| `getEditorPaddingX` | `get_editor_padding_x` | effective getter snapshot |
+| `setEditorPaddingX` | `set_editor_padding_x` | API mutation then effective snapshot and persisted file comparison |
+| `getOutputPad` | `get_output_pad` | effective getter snapshot |
+| `setOutputPad` | `set_output_pad` | API mutation then effective snapshot and persisted file comparison |
+| `getAutocompleteMaxVisible` | `get_autocomplete_max_visible` | effective getter snapshot |
+| `setAutocompleteMaxVisible` | `set_autocomplete_max_visible` | API mutation then effective snapshot and persisted file comparison |
+| `getCodeBlockIndent` | `get_code_block_indent` | effective getter snapshot |
+| `getWarnings` | `get_warnings` | effective getter snapshot |
+| `setWarnings` | `set_warnings` | API mutation then effective snapshot and persisted file comparison |
 
-- **Synchronous writes.** The TypeScript manager queues writes on a promise; Rust writes during the
-  setter. Observable contract (file after `flush`) is identical and the differential flushes before
-  reading files. `flush` is a no-op.
-- **Typed JSON boundary.** `Settings` must be a JSON object; the source would accept arrays/primitives in
-  `migrateSettings` and later fail. Non-string/non-array values are excluded by typed getters; the source
-  sometimes returns them raw (e.g. `getTransport`, `getSteeringMode`, `getWarnings`).
-- **`getPackages` returns `Result`.** A malformed package entry is reported instead of being returned raw.
-- **Error text.** `Invalid <setting> setting: <value>` uses JSON serialization for objects instead of
-  JavaScript `String(value)`; the prefix and throw behavior match.
-- **Environment branches.** `getExternalEditorCommand`'s `VISUAL`/`EDITOR` lookup and
-  `getShowHardwareCursor`/`getClearOnShrink` env fallbacks are implemented, but tests cannot set process
-  environment (`std::env::set_var` is unsafe and forbidden by the workspace lint). Configured-value paths
-  are tested.
-- **`retry.provider` spread.** A non-object provider (array) is treated as absent instead of spreading
-  numeric keys; invalid input excluded by the typed boundary.
+## Branch matrix
 
-## Proof
+| Contract | Test / exact evidence | Remaining boundary |
+| --- | --- | --- |
+| One-level object overlay | `nested_scope_overlay_replaces_grandchildren`; differential `one-level-overlay` | source misleading recursive comment recorded; no recursive semantic deviation |
+| agents/retry.provider/permissionRules.allow | global/project concrete grandchildren; arrays/null/session overrides | invalid non-object JS runtime values outside declared types not universally modeled |
+| Unknown properties + competing writes | `settings_manager_bidirectional_stale_writers_preserve_unknown_fields`: persistent TS/Rust managers, raw producer, both directions; overlapping process writes to distinct terminal children | after-flush observations do not prove automatic native event-loop drain |
+| Unchanged migrations | differential `migrations`; native legacy preset/package cases | malformed JS-only values not exhaustive |
+| Scope precedence/trust/errors | differential `project-trust`, `approval-sandbox`, `reload-errors-and-recovery`; native blocked writes | execution-time trust recheck and failed-task draining covered by queued-ordering scenarios |
+| Defaults/new validation | differential `repin-validation-and-catalog`, native exact error tests | retry runtime policy not settings parity |
+| Literal shellPath | native `shell_path_is_literal`, differential paths | no shell consumer claim |
+| Idle/hide flags | new getters/setters, defaults and bidirectional effective flags | scheduler/transcript consumers TODO |
 
-- Focused: `cargo test -p pi-coding-agent --test settings_manager` (23 passed).
-- Differential: `cargo test -p pi-coding-agent --test differential_settings_manager` (1 passed) via
-  `oracle/coding-agent-settings-manager-oracle.ts`; 10 scenarios, each comparing every getter, global and
-  project settings, merged settings, both file bodies, thrown steps, and drained error scopes after every
-  step.
+## Explicit boundaries / consumers TODO
+
+- Settings module has no retry scheduling, percentage-triggered compaction, idle scheduling, transcript suppression, or relay startup. B2/B3/relay proof remains TODO.
+- Rust JSON boundary cannot represent `NaN`/infinities; direct JS-invalid runtime types and non-object root documents are not claimed equivalent. Typed core exclusion is tracked in project rules.
+- Error scope/throw behavior is compared. New retry/percentage errors use JavaScript string conversion; existing timeout errors still use JSON serialization for object values.
+- RED same-turn setter/external-write/flush mismatch reproduced at e2d89154 + fixture correction (`red-queued-ordering.txt`). Setters now queue scoped snapshots; mutable `flush` drains FIFO and `reload` first flushes. Automatic native task-completion pumping is still required from main-owned consumers; no automatic persistence parity claim yet.
+- Configured external editor is observed. Environment defaults are sandbox-isolated; broader host-locale/environment branches are not established by these fixtures.
+
+## Proof ledger
+
+`/tmp/pi-rust-repin-settings/ledger.md`; RED artifacts `red-settings.txt`, `red-differential.txt`, `red-validation.txt`. Focused development tests only; no check/clippy/readability/final acceptance gate executed by this slice.

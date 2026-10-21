@@ -46,6 +46,7 @@ fn run_scenario(oracle: &mut oracle::TsOracle, index: usize, scenario: &Scenario
     let mut snapshots = Vec::new();
     for step in &scenario.steps {
         let threw = apply_step(&mut manager, step, &rust_agent_dir, &rust_project_dir);
+        manager.flush();
         snapshots.push(json!({
             "threw": threw,
             "snapshot": snapshot(&manager),
@@ -156,6 +157,8 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         });
 
     match op {
+        "set_last_changelog_version" => manager.set_last_changelog_version(value.as_str().unwrap()),
+        "set_enable_analytics" => manager.set_enable_analytics(value.as_bool().unwrap()),
         "set_theme" => manager.set_theme(value.as_str().unwrap()),
         "set_default_provider" => manager.set_default_provider(value.as_str().unwrap()),
         "set_default_model" => manager.set_default_model(value.as_str().unwrap()),
@@ -268,6 +271,16 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         "apply_overrides" => manager.apply_overrides(value.as_object().expect("overrides object")),
         "reload" => manager.reload(),
         "flush" => manager.flush(),
+        "project_write_then_revoke_same_turn" => {
+            manager.set_project_extension_paths(&parse_strings(value)).unwrap();
+            manager.set_project_trusted(false);
+            manager.flush();
+        }
+        "setter_external_write_same_turn" => {
+            manager.set_theme(value.as_str().unwrap());
+            fs::write(agent_dir.join("settings.json"), step["content"].as_str().unwrap()).unwrap();
+            manager.flush();
+        }
         "external_edit" => {
             let path = if step["scope"].as_str() == Some("project") {
                 project_dir.join(".pi").join("settings.json")
@@ -330,6 +343,8 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "projectSettings": Value::Object(manager.get_project_settings()),
         "mergedSettings": Value::Object(manager.get_merged_settings()),
         "projectTrusted": manager.is_project_trusted(),
+        "lastChangelogVersion": option_str(manager.get_last_changelog_version()),
+        "externalEditorCommand": manager.get_external_editor_command(),
         "theme": option_str(manager.get_theme()),
         "themeSetting": option_str(manager.get_theme_setting()),
         "defaultProvider": option_str(manager.get_default_provider()),
@@ -349,6 +364,11 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "configuredSandboxProfile": manager.get_configured_sandbox_profile().as_str(),
         "explicitSandboxProfile": manager.get_explicit_sandbox_profile().map(|profile| profile.as_str()),
         "sessionSandboxProfile": manager.get_session_sandbox_profile().map(|profile| profile.as_str()),
+        "compactionEnabled": manager.get_compaction_enabled(),
+        "compactionReserveTokens": number(manager.get_compaction_reserve_tokens()),
+        "compactionKeepRecentTokens": number(manager.get_compaction_keep_recent_tokens()),
+        "branchSummarySkipPrompt": manager.get_branch_summary_skip_prompt(),
+        "retryEnabled": manager.get_retry_enabled(),
         "compaction": manager.get_compaction_settings().map_or(json!("ERROR"), |view| {
             let mut output = json!({"enabled":view.enabled,"reserveTokens":number(view.reserve_tokens),"keepRecentTokens":number(view.keep_recent_tokens)});
             if let Some(percent) = view.threshold_percent { output["thresholdPercent"] = number(percent); }
@@ -472,6 +492,43 @@ fn scenarios() -> Vec<Scenario> {
             ],
         },
         Scenario {
+            name: "remaining-resource-and-identity-setters",
+            global: Some(r#"{"unknown":{"preserve":true},"externalEditor":"configured-editor"}"#),
+            project: Some("{}"),
+            steps: vec![
+                json!({"op":"set_last_changelog_version","value":"0.80.3"}),
+                json!({"op":"set_enable_analytics","value":false}),
+                json!({"op":"set_extension_paths","value":["global-extension"]}),
+                json!({"op":"set_project_extension_paths","value":["project-extension"]}),
+                json!({"op":"set_skill_paths","value":["global-skill"]}),
+                json!({"op":"set_project_skill_paths","value":["project-skill"]}),
+                json!({"op":"set_prompt_template_paths","value":["global-prompt"]}),
+                json!({"op":"set_project_prompt_template_paths","value":["project-prompt"]}),
+                json!({"op":"set_theme_paths","value":["global-theme"]}),
+                json!({"op":"set_project_theme_paths","value":["project-theme"]}),
+                json!({"op":"set_shell_path","value":null}),
+                json!({"op":"set_shell_command_prefix","value":null}),
+                json!({"op":"set_npm_command","value":null}),
+            ],
+        },
+        Scenario {
+            name: "reload-errors-and-recovery",
+            global: Some(r#"{"theme":"global"}"#),
+            project: Some(r#"{"theme":"project"}"#),
+            steps: vec![
+                json!({"op":"external_edit","scope":"global","content":"invalid"}),
+                json!({"op":"external_edit","scope":"project","content":"invalid"}),
+                json!({"op":"reload"}),
+                json!({"op":"set_theme","value":"blocked-global-write"}),
+                json!({"op":"set_project_extension_paths","value":["blocked-project-write"]}),
+                json!({"op":"external_edit","scope":"global","content":"{}"}),
+                json!({"op":"external_edit","scope":"project","content":"{}"}),
+                json!({"op":"reload"}),
+                json!({"op":"set_theme","value":"recovered"}),
+                json!({"op":"set_project_extension_paths","value":["recovered"]}),
+            ],
+        },
+        Scenario {
             name: "defaults-and-global-writes",
             global: None,
             project: None,
@@ -482,6 +539,32 @@ fn scenarios() -> Vec<Scenario> {
                 json!({"op": "set_default_provider", "value": "anthropic"}),
                 json!({"op": "set_show_images", "value": false}),
                 json!({"op": "flush"}),
+            ],
+        },
+        Scenario {
+            name: "frozen-field-catalog",
+            global: Some(
+                r#"{"relay":{"peer":"fixture-only","remoteCommand":"never-run"},"lastChangelogVersion":"0.80.3","defaultProvider":"fake","defaultModel":"fake-model","defaultThinkingLevel":"ultra","defaultCodexFastMode":"priority","transport":"auto","steeringMode":"all","followUpMode":"all","theme":"catalog","compaction":{"thresholdPercent":50,"enabled":true,"reserveTokens":1000,"keepRecentTokens":2000,"idle":false,"unknownChild":9},"branchSummary":{"reserveTokens":123,"skipPrompt":true},"retry":{"enabled":true,"maxRetries":4,"baseDelayMs":10,"maxBackoffMs":100,"provider":{"timeoutMs":5,"maxRetries":6,"maxRetryDelayMs":7}},"hideThinkingBlock":true,"hideToolOutput":true,"hideCoordinationMessages":true,"externalEditor":"fixture-editor","shellPath":"~/literal","quietStartup":true,"defaultProjectTrust":"never","shellCommandPrefix":"never-executed","npmCommand":["never-executed"],"collapseChangelog":true,"enableInstallTelemetry":false,"enableAnalytics":true,"trackingId":"synthetic-tracking-id","packages":["npm:fixture"],"extensions":["fixture.ts"],"disabledExtensions":["disabled"],"skills":["fixture-skill"],"prompts":["fixture-prompt"],"themes":["fixture-theme"],"enableSkillCommands":false,"terminal":{"showImages":false,"imageWidthCells":42,"clearOnShrink":true,"showTerminalProgress":true},"images":{"autoResize":false,"blockImages":true},"enabledModels":["fixture/model"],"doubleEscapeAction":"none","treeFilterMode":"all","thinkingBudgets":{"minimal":1,"low":2,"medium":3,"high":4},"editorPaddingX":2,"outputPad":0,"autocompleteMaxVisible":10,"showHardwareCursor":true,"markdown":{"codeBlockIndent":"    "},"warnings":{"anthropicExtraUsage":false},"agents":{"implement":{"context":"fresh","model":"fake/fixture","thinkingLevel":"high","tools":["read"]}},"sessionDir":"relative-fixture-dir","httpProxy":"http://invalid.invalid:1","httpIdleTimeoutMs":0,"websocketConnectTimeoutMs":0,"permissionPromptTool":"never-called","permissionRules":{"allow":{"read":["fixture"]}},"approvalPolicy":"on-request","approvalPreset":"llm-approved-ask","sandboxProfile":"read-only","unknownRoot":{"keep":[1,2]},"tuiMode":"fullscreen","fullscreenExitOutput":"resume-hint","fullscreenScrollbar":"hidden","showCacheMissNotices":true}"#,
+            ),
+            project: Some("{}"),
+            steps: vec![
+                json!({"op":"flush"}),
+                json!({"op":"set_compaction_enabled","value":false}),
+                json!({"op":"set_theme","value":"persisted-catalog"}),
+            ],
+        },
+        Scenario {
+            name: "migration-precedence",
+            global: Some(
+                r#"{"queueMode":"all","steeringMode":"one-at-a-time","websockets":false,"transport":"auto","skills":{"enableSkillCommands":true,"customDirectories":[]},"enableSkillCommands":false,"retry":{"maxDelayMs":10,"provider":{"maxRetryDelayMs":99,"unknownChild":1}}}"#,
+            ),
+            project: Some(
+                r#"{"retry":{"maxDelayMs":20,"provider":{"maxRetryDelayMs":null}},"skills":{"customDirectories":["project-skill"]}}"#,
+            ),
+            steps: vec![
+                json!({"op":"flush"}),
+                json!({"op":"set_theme","value":"migrated"}),
+                json!({"op":"set_project_theme_paths","value":["migrated"]}),
             ],
         },
         Scenario {
@@ -533,7 +616,9 @@ fn scenarios() -> Vec<Scenario> {
         },
         Scenario {
             name: "invalid-stored-values",
-            global: Some(),
+            global: Some(
+                r#"{"tuiMode":"other","outputPad":2,"markdown":{"mermaid":"sometimes","codeBlockIndent":"\t"},"httpIdleTimeoutMs":-1,"websocketConnectTimeoutMs":"disabled","fullscreenExitOutput":"nothing","fullscreenScrollbar":"sometimes","terminal":{"imageWidthCells":-5,"showImages":false},"editorPaddingX":9,"autocompleteMaxVisible":1,"enabledModels":[],"agents":{"explore":{"model":"faux/explore","thinkingLevel":"minimal"}},"thinkingBudgets":{"low":10},"warnings":{"anthropicExtraUsage":false},"permissionPromptTool":"mcp__x"}"#,
+            ),
             project: None,
             steps: vec![json!({"op": "flush"})],
         },
@@ -594,4 +679,234 @@ fn scenarios() -> Vec<Scenario> {
             ],
         },
     ]
+}
+
+/// TS fixture producer writes fields without product setters (unknowns, agents and provider settings).
+/// Every known mutation below uses the actual manager API, in both runtimes.
+pub(crate) fn bidirectional() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-settings-manager-oracle.ts",
+        "packages/coding-agent/src/core/settings-manager.ts",
+    );
+    let temp = TempDir::new().unwrap();
+    let agent = temp.path().join("agent");
+    let project = temp.path().join("project");
+    fs::create_dir_all(&agent).unwrap();
+    fs::create_dir_all(project.join(".pi")).unwrap();
+    let global = json!({"unknownRoot":{"producer":"TS"},"agents":{"implement":{"model":"global","tools":["read"]}},"retry":{"provider":{"timeoutMs":100,"maxRetries":2},"sentinel":{"ts":true}},"compaction":{"thresholdPercent":70,"idle":false,"unknownChild":{"ts":1}},"terminal":{"unknownChild":{"ts":2}},"permissionRules":{"allow":{"read":["global"]}},"relay":{"peer":"isolated"}});
+    let local = json!({"agents":{"implement":{"thinkingLevel":"low"}},"retry":{"provider":{"maxRetries":3}},"permissionRules":{"allow":{"write":["project"]}},"unknownProject":{"producer":"TS"}});
+    let ask = |oracle: &mut oracle::TsOracle, steps: Vec<Value>| {
+        let response = oracle.request(&json!({"id":"bidirectional","managerKey":"shared-fixture","agentDir":agent,"projectDir":project,"steps":steps}));
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["output"]["errors"], json!([]), "{response}");
+        response["output"]["snapshots"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone()
+    };
+    let ts = ask(
+        &mut oracle,
+        vec![
+            json!({"op":"external_edit","scope":"global","content":global.to_string()}),
+            json!({"op":"external_edit","scope":"project","content":local.to_string()}),
+            json!({"op":"reload"}),
+            json!({"op":"set_theme","value":"TS-created"}),
+            json!({"op":"set_show_images","value":false}),
+            json!({"op":"set_project_skill_paths","value":["TS-skill"]}),
+        ],
+    );
+    let mut rust = SettingsManager::create(
+        &project.to_string_lossy(),
+        Some(&agent),
+        SettingsManagerCreateOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(snapshot(&rust), ts["snapshot"]);
+    assert_eq!(rust.get_provider_retry_settings().timeout_ms, None);
+    assert_eq!(rust.get_compaction_settings().unwrap().threshold_percent, Some(70.0));
+    assert!(!rust.get_idle_compaction_enabled());
+    assert_eq!(
+        rust.get_merged_settings()["permissionRules"]["allow"],
+        json!({"write":["project"]})
+    );
+
+    // Two stale product managers plus a fixture-only independent writer. None may lose siblings.
+    let mut disk: Value = serde_json::from_str(&fs::read_to_string(agent.join("settings.json")).unwrap()).unwrap();
+    disk["outOfBand"] = json!({"producer":"fixture-only"});
+    disk["compaction"]["outOfBand"] = json!(17);
+    disk["terminal"]["outOfBand"] = json!({"keep":true});
+    fs::write(agent.join("settings.json"), disk.to_string()).unwrap();
+    rust.set_compaction_enabled(false);
+    rust.set_hide_tool_output(true);
+    rust.set_hide_coordination_messages(true);
+    rust.set_shell_path(Some("~/literal/../shell"));
+    rust.set_project_extension_paths(&["Rust-extension".to_owned()])
+        .unwrap();
+    rust.flush();
+    let ts = ask(
+        &mut oracle,
+        vec![
+            json!({"op":"set_show_terminal_progress","value":true}),
+            json!({"op":"set_project_prompt_template_paths","value":["TS-prompt"]}),
+            json!({"op":"reload"}),
+        ],
+    );
+    let saved: Value = serde_json::from_str(ts["globalFile"].as_str().unwrap()).unwrap();
+    assert_eq!(saved["unknownRoot"], global["unknownRoot"]);
+    assert_eq!(saved["relay"], global["relay"]);
+    assert_eq!(saved["outOfBand"], json!({"producer":"fixture-only"}));
+    assert_eq!(
+        saved["compaction"],
+        json!({"thresholdPercent":70,"idle":false,"unknownChild":{"ts":1},"outOfBand":17,"enabled":false})
+    );
+    assert_eq!(
+        saved["terminal"],
+        json!({"unknownChild":{"ts":2},"outOfBand":{"keep":true},"showImages":false,"showTerminalProgress":true})
+    );
+    assert_eq!(saved["hideToolOutput"], true);
+    assert_eq!(saved["hideCoordinationMessages"], true);
+    assert_eq!(saved["shellPath"], "~/literal/../shell");
+    assert_eq!(saved["retry"], global["retry"]);
+    let saved_project: Value = serde_json::from_str(ts["projectFile"].as_str().unwrap()).unwrap();
+    assert_eq!(saved_project["unknownProject"], local["unknownProject"]);
+    assert_eq!(saved_project["extensions"], json!(["Rust-extension"]));
+    assert_eq!(saved_project["skills"], json!(["TS-skill"]));
+    assert_eq!(saved_project["prompts"], json!(["TS-prompt"]));
+    rust.reload();
+    assert_eq!(snapshot(&rust), ts["snapshot"]);
+
+    // Reverse: a stale Rust manager writes after the TS product writer; nested siblings survive.
+    let ts = ask(
+        &mut oracle,
+        vec![
+            json!({"op":"set_hide_tool_output","value":false}),
+            json!({"op":"set_theme","value":"TS-reverse"}),
+            json!({"op":"set_block_images","value":true}),
+        ],
+    );
+    assert_eq!(ts["snapshot"]["hideToolOutput"], false);
+    rust.set_show_images(true);
+    rust.set_retry_enabled(false);
+    rust.flush();
+    let ts = ask(&mut oracle, vec![json!({"op":"reload"})]);
+    rust.reload();
+    assert_eq!(snapshot(&rust), ts["snapshot"]);
+    assert_eq!(rust.get_theme(), Some("TS-reverse"));
+    assert!(!rust.get_hide_tool_output());
+    assert!(rust.get_show_images());
+    assert!(rust.get_block_images());
+    assert!(!rust.get_retry_enabled());
+    let final_global: Value = serde_json::from_str(ts["globalFile"].as_str().unwrap()).unwrap();
+    assert_eq!(final_global["retry"]["sentinel"], global["retry"]["sentinel"]);
+    assert_eq!(final_global["compaction"], saved["compaction"]);
+    assert_eq!(final_global["terminal"]["outOfBand"], saved["terminal"]["outOfBand"]);
+
+    // Real process overlap, not only stale sequential handles: independent children of terminal.
+    std::thread::scope(|scope| {
+        let ts_writer = scope.spawn(|| {
+            let mut steps = vec![json!({"op":"fixture_barrier"})];
+            steps.extend((0..40).map(|index| json!({"op":"set_show_terminal_progress","value":index == 39})));
+            ask(&mut oracle, steps)
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !agent.join("barrier-ready").exists() {
+            assert!(std::time::Instant::now() < deadline, "TS writer never reached barrier");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        fs::write(agent.join("barrier-release"), "release").unwrap();
+        for index in 0..40 {
+            rust.set_show_images(index == 39);
+        }
+        ts_writer.join().unwrap();
+    });
+    let ts = ask(&mut oracle, vec![json!({"op":"reload"})]);
+    rust.reload();
+    assert_eq!(snapshot(&rust), ts["snapshot"]);
+    assert!(rust.get_show_images());
+    assert!(rust.get_show_terminal_progress());
+    let concurrent: Value = serde_json::from_str(ts["globalFile"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        concurrent["terminal"]["unknownChild"],
+        saved["terminal"]["unknownChild"]
+    );
+    assert_eq!(concurrent["terminal"]["outOfBand"], saved["terminal"]["outOfBand"]);
+    assert!(rust.drain_errors().is_empty());
+}
+
+pub(crate) fn queued_write_ordering() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-settings-manager-oracle.ts",
+        "packages/coding-agent/src/core/settings-manager.ts",
+    );
+    run_scenario(
+        &mut oracle,
+        0,
+        &Scenario {
+            name: "queued-save-before-external-write-before-flush",
+            global: Some(r#"{"theme":"initial","unmodified":"initial"}"#),
+            project: None,
+            steps: vec![
+                json!({"op":"setter_external_write_same_turn","value":"setter-wins","content":r#"{"theme":"external","unmodified":"competing"}"#}),
+            ],
+        },
+    );
+    run_scenario(
+        &mut oracle,
+        1,
+        &Scenario {
+            name: "queued-project-write-rechecks-trust",
+            global: None,
+            project: Some(r#"{"extensions":["original"]}"#),
+            steps: vec![json!({"op":"project_write_then_revoke_same_turn","value":["must-not-persist"]})],
+        },
+    );
+    run_scenario(
+        &mut oracle,
+        2,
+        &Scenario {
+            name: "queued-write-parse-error-is-drained",
+            global: Some(r#"{"theme":"original"}"#),
+            project: None,
+            steps: vec![json!({"op":"setter_external_write_same_turn","value":"must-not-persist","content":"invalid"})],
+        },
+    );
+}
+
+pub(crate) fn threshold_helper() {
+    use pi_coding_agent::core::compaction_threshold::parse_compaction_threshold_percent;
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-compaction-threshold-oracle.ts",
+        "packages/coding-agent/src/core/compaction-threshold.ts",
+    );
+    let mut values = vec![None];
+    values.extend(
+        [
+            json!(0.00001),
+            json!(100),
+            json!(70),
+            json!(0),
+            json!(-1),
+            json!(100.00001),
+            json!(null),
+            json!("70"),
+            json!(false),
+            json!([]),
+            json!([1, null, 2]),
+            json!({}),
+            json!({"toString":1}),
+        ]
+        .into_iter()
+        .map(Some),
+    );
+    for (index, value) in values.iter().enumerate() {
+        let response = oracle.request(&json!({"id":index,"missing":value.is_none(),"value":value}));
+        assert_eq!(response["ok"], true, "{response}");
+        let actual = match parse_compaction_threshold_percent(value.as_ref()) {
+            Ok(result) => json!({"result":result.map(number)}),
+            Err(error) => json!({"error":error.message()}),
+        };
+        assert_eq!(actual, response["output"], "input {value:?}");
+    }
 }

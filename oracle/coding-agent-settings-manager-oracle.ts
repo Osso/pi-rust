@@ -28,6 +28,8 @@ function normalizeError(error: unknown): { name: string; message: string } {
 async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir: string, projectDir: string): Promise<{ threw: boolean }> {
 	try {
 		switch (step.op) {
+			case "set_last_changelog_version": manager.setLastChangelogVersion(step.value); break;
+			case "set_enable_analytics": manager.setEnableAnalytics(step.value); break;
 			case "set_theme": manager.setTheme(step.value); break;
 			case "set_default_provider": manager.setDefaultProvider(step.value); break;
 			case "set_default_model": manager.setDefaultModel(step.value); break;
@@ -45,8 +47,8 @@ async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir:
 			case "set_retry_enabled": manager.setRetryEnabled(step.value); break;
 			case "set_http_idle_timeout_ms": manager.setHttpIdleTimeoutMs(step.value); break;
 			case "set_hide_tool_output": manager.setHideToolOutput(step.value); break;
-            case "set_hide_coordination_messages": manager.setHideCoordinationMessages(step.value); break;
-            case "set_hide_thinking_block": manager.setHideThinkingBlock(step.value); break;
+			case "set_hide_coordination_messages": manager.setHideCoordinationMessages(step.value); break;
+			case "set_hide_thinking_block": manager.setHideThinkingBlock(step.value); break;
 			case "set_shell_path": manager.setShellPath(step.value ?? undefined); break;
 			case "set_quiet_startup": manager.setQuietStartup(step.value); break;
 			case "set_default_project_trust": manager.setDefaultProjectTrust(step.value); break;
@@ -82,6 +84,27 @@ async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir:
 			case "apply_overrides": manager.applyOverrides(step.value); break;
 			case "reload": await manager.reload(); break;
 			case "flush": await manager.flush(); break;
+			case "project_write_then_revoke_same_turn": {
+				manager.setProjectExtensionPaths(step.value);
+				manager.setProjectTrusted(false);
+				await manager.flush();
+				break;
+			}
+			case "setter_external_write_same_turn": {
+				manager.setTheme(step.value);
+				writeFileSync(join(agentDir, "settings.json"), step.content, "utf-8");
+				await manager.flush();
+				break;
+			}
+			case "fixture_barrier": {
+				writeFileSync(join(agentDir, "barrier-ready"), "ready");
+				const deadline = Date.now() + 5000;
+				while (!existsSync(join(agentDir, "barrier-release"))) {
+					if (Date.now() >= deadline) throw new Error("fixture barrier timed out");
+					await new Promise((resolve) => setTimeout(resolve, 1));
+				}
+				break;
+			}
 			case "external_edit": {
 				const path = step.scope === "project" ? join(projectDir, ".pi", "settings.json") : join(agentDir, "settings.json");
 				writeFileSync(path, step.content, "utf-8");
@@ -110,6 +133,8 @@ function snapshot(manager: SettingsManagerInstance): unknown {
 		projectSettings: manager.getProjectSettings(),
 		mergedSettings: manager.getMergedSettings(),
 		projectTrusted: manager.isProjectTrusted(),
+		lastChangelogVersion: safe(() => manager.getLastChangelogVersion()),
+		externalEditorCommand: safe(() => manager.getExternalEditorCommand()),
 		theme: safe(() => manager.getTheme()),
 		themeSetting: safe(() => manager.getThemeSetting()),
 		defaultProvider: safe(() => manager.getDefaultProvider()),
@@ -124,6 +149,11 @@ function snapshot(manager: SettingsManagerInstance): unknown {
 		configuredSandboxProfile: safe(() => manager.getConfiguredSandboxProfile()),
 		explicitSandboxProfile: safe(() => manager.getExplicitSandboxProfile()),
 		sessionSandboxProfile: safe(() => manager.getSessionSandboxProfile()),
+		compactionEnabled: safe(() => manager.getCompactionEnabled()),
+		compactionReserveTokens: safe(() => manager.getCompactionReserveTokens()),
+		compactionKeepRecentTokens: safe(() => manager.getCompactionKeepRecentTokens()),
+		branchSummarySkipPrompt: safe(() => manager.getBranchSummarySkipPrompt()),
+		retryEnabled: safe(() => manager.getRetryEnabled()),
 		compaction: safe(() => manager.getCompactionSettings()),
 		branchSummary: safe(() => manager.getBranchSummarySettings()),
 		retry: safe(() => manager.getRetrySettings()),
@@ -131,9 +161,9 @@ function snapshot(manager: SettingsManagerInstance): unknown {
 		httpIdleTimeoutMs: safe(() => manager.getHttpIdleTimeoutMs()),
 		websocketConnectTimeoutMs: safe(() => manager.getWebSocketConnectTimeoutMs()),
 		hideThinkingBlock: safe(() => manager.getHideThinkingBlock()),
-        hideToolOutput: safe(() => manager.getHideToolOutput()),
-        hideCoordinationMessages: safe(() => manager.getHideCoordinationMessages()),
-        idleCompaction: safe(() => manager.getIdleCompactionEnabled()),
+		hideToolOutput: safe(() => manager.getHideToolOutput()),
+		hideCoordinationMessages: safe(() => manager.getHideCoordinationMessages()),
+		idleCompaction: safe(() => manager.getIdleCompactionEnabled()),
 		shellPath: safe(() => manager.getShellPath()),
 		sessionDir: safe(() => manager.getSessionDir()),
 		quietStartup: safe(() => manager.getQuietStartup()),
@@ -185,13 +215,19 @@ function readFile(path: string): string | null {
 	return existsSync(path) ? readFileSync(path, "utf-8") : null;
 }
 
+// Optional handles keep stale managers alive across competing Rust writes.
+const managers = new Map<string, SettingsManagerInstance>();
+
 async function execute(request: {
 	id: RequestId;
 	agentDir: string;
 	projectDir: string;
 	steps: Step[];
+	managerKey?: string;
 }, api: SettingsManagerApi): Promise<unknown> {
-	const manager = api.SettingsManager.create(request.projectDir, request.agentDir);
+	const manager = (request.managerKey ? managers.get(request.managerKey) : undefined)
+		?? api.SettingsManager.create(request.projectDir, request.agentDir);
+	if (request.managerKey) managers.set(request.managerKey, manager);
 	const snapshots: unknown[] = [];
 	for (const step of request.steps) {
 		const result = await applyStep(manager, step, request.agentDir, request.projectDir);

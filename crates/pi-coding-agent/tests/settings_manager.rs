@@ -531,3 +531,66 @@ fn shell_path_is_literal() {
     );
     assert_eq!(manager.get_shell_path().as_deref(), Some("~/bin/../shell"));
 }
+
+#[test]
+fn compaction_threshold_helper_matches_json_value_contract() {
+    use pi_coding_agent::core::compaction_threshold::parse_compaction_threshold_percent;
+    assert_eq!(parse_compaction_threshold_percent(None).unwrap(), None);
+    for percent in [0.001, 50.0, 100.0] {
+        assert_eq!(
+            parse_compaction_threshold_percent(Some(&json!(percent))).unwrap(),
+            Some(percent)
+        );
+    }
+    for (value, text) in [
+        (json!(null), "null"),
+        (json!(0), "0"),
+        (json!(-1), "-1"),
+        (json!(100.001), "100.001"),
+        (json!("50"), "50"),
+        (json!(true), "true"),
+        (json!([]), ""),
+        (json!({}), "[object Object]"),
+    ] {
+        assert_eq!(
+            parse_compaction_threshold_percent(Some(&value)).unwrap_err().message(),
+            format!(
+                "Invalid compaction.thresholdPercent setting: {text}. Use a finite number greater than 0 and at most 100, or remove the setting."
+            )
+        );
+    }
+}
+
+#[test]
+fn retry_delay_validation_reports_exact_setting_and_range() {
+    for name in ["baseDelayMs", "maxBackoffMs"] {
+        for (value, text) in [
+            (json!(null), "null"),
+            (json!(-1), "-1"),
+            (json!(1.5), "1.5"),
+            (json!(2147483648_i64), "2147483648"),
+            (json!(9007199254740992_i64), "9007199254740992"),
+            (json!("30"), "30"),
+            (json!(true), "true"),
+        ] {
+            let mut retry = serde_json::Map::new();
+            retry.insert(name.to_owned(), value);
+            let manager = SettingsManager::in_memory(
+                settings(json!({"retry":retry})),
+                SettingsManagerCreateOptions::default(),
+            );
+            assert_eq!(
+                manager.get_retry_settings().unwrap_err().message(),
+                format!("Invalid retry.{name} setting: {text}; expected integer milliseconds between 0 and 2147483647")
+            );
+        }
+    }
+    let manager = SettingsManager::in_memory(
+        settings(json!({"retry":{"baseDelayMs":30,"maxBackoffMs":29}})),
+        SettingsManagerCreateOptions::default(),
+    );
+    assert_eq!(
+        manager.get_retry_settings().unwrap_err().message(),
+        "retry.maxBackoffMs must be at least retry.baseDelayMs"
+    );
+}

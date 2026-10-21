@@ -1,8 +1,7 @@
 //! Settings storage and typed accessors (`core/settings-manager.ts`).
 //!
-//! Writes are synchronous. The TypeScript manager queues writes on a promise; the Rust port writes
-//! immediately and `flush` is a no-op, so ordering is identical while the public contract (file
-//! contents after `flush`) is preserved.
+//! Setters update effective settings immediately and enqueue immutable scoped write snapshots.
+//! `flush` settles earlier writes in FIFO order; native task-completion boundaries must call it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -465,6 +464,13 @@ pub struct ProviderRetrySettingsView {
     pub max_retry_delay_ms: f64,
 }
 
+struct PendingSettingsWrite {
+    scope: SettingsScope,
+    settings: Settings,
+    modified_fields: Vec<String>,
+    modified_nested_fields: Vec<(String, Vec<String>)>,
+}
+
 /// Loaded global and project settings with typed accessors.
 pub struct SettingsManager {
     storage: Box<dyn SettingsStorage>,
@@ -480,6 +486,7 @@ pub struct SettingsManager {
     global_settings_load_error: Option<String>,
     project_settings_load_error: Option<String>,
     errors: Vec<SettingsError>,
+    pending_writes: Vec<PendingSettingsWrite>,
 }
 
 impl std::fmt::Debug for SettingsManager {
@@ -539,6 +546,7 @@ impl SettingsManager {
             global_settings_load_error: global_load.error,
             project_settings_load_error: project_load.error,
             errors,
+            pending_writes: Vec::new(),
         };
         manager.global_settings = global_load.settings;
         manager.project_settings = project_load.settings;
@@ -767,6 +775,7 @@ impl SettingsManager {
     }
 
     pub fn reload(&mut self) {
+        self.flush();
         let global_load = Self::try_load_from_storage(self.storage.as_mut(), SettingsScope::Global, true);
         match global_load.error {
             Some(error) => {
@@ -911,7 +920,6 @@ impl SettingsManager {
             return Err(SettingsFailure::new(error));
         }
         if let Some(error) = storage_error {
-            self.record_error(scope, &error);
             return Err(SettingsFailure::new(error));
         }
         Ok(())
@@ -923,20 +931,12 @@ impl SettingsManager {
             return;
         }
 
-        let snapshot = self.global_settings.clone();
-        let modified_fields = self.modified_fields.clone();
-        let modified_nested_fields = self.modified_nested_fields.clone();
-        if self
-            .persist_scoped_settings(
-                SettingsScope::Global,
-                &snapshot,
-                &modified_fields,
-                &modified_nested_fields,
-            )
-            .is_ok()
-        {
-            self.clear_modified_scope(SettingsScope::Global);
-        }
+        self.pending_writes.push(PendingSettingsWrite {
+            scope: SettingsScope::Global,
+            settings: self.global_settings.clone(),
+            modified_fields: self.modified_fields.clone(),
+            modified_nested_fields: self.modified_nested_fields.clone(),
+        });
     }
 
     fn save_project_settings(&mut self, settings: Settings) -> Result<(), SettingsFailure> {
@@ -947,20 +947,12 @@ impl SettingsManager {
             return Ok(());
         }
 
-        let snapshot = self.project_settings.clone();
-        let modified_fields = self.modified_project_fields.clone();
-        let modified_nested_fields = self.modified_project_nested_fields.clone();
-        if self
-            .persist_scoped_settings(
-                SettingsScope::Project,
-                &snapshot,
-                &modified_fields,
-                &modified_nested_fields,
-            )
-            .is_ok()
-        {
-            self.clear_modified_scope(SettingsScope::Project);
-        }
+        self.pending_writes.push(PendingSettingsWrite {
+            scope: SettingsScope::Project,
+            settings: self.project_settings.clone(),
+            modified_fields: self.modified_project_fields.clone(),
+            modified_nested_fields: self.modified_project_nested_fields.clone(),
+        });
         Ok(())
     }
 
@@ -976,8 +968,25 @@ impl SettingsManager {
         self.save_project_settings(project_settings)
     }
 
-    /// Writes are synchronous; kept for API parity.
-    pub fn flush(&self) {}
+    /// Settles all earlier write snapshots in source order, recording task errors without throwing.
+    pub fn flush(&mut self) {
+        for pending in std::mem::take(&mut self.pending_writes) {
+            let result = if pending.scope == SettingsScope::Project && !self.project_trusted {
+                self.assert_project_trusted_for_write()
+            } else {
+                self.persist_scoped_settings(
+                    pending.scope,
+                    &pending.settings,
+                    &pending.modified_fields,
+                    &pending.modified_nested_fields,
+                )
+            };
+            match result {
+                Ok(()) => self.clear_modified_scope(pending.scope),
+                Err(error) => self.record_error(pending.scope, error.message()),
+            }
+        }
+    }
 
     pub fn drain_errors(&mut self) -> Vec<SettingsError> {
         std::mem::take(&mut self.errors)
