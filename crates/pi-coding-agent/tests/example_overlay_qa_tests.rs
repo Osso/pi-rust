@@ -273,6 +273,32 @@ impl ExtensionUiContext for Ui {
                 calls.lock().unwrap().push(frames(component.as_ref(), width));
                 tokio::task::yield_now().await;
                 for step in script["steps"].as_array().into_iter().flatten() {
+                    if step["ready"] == true {
+                        wait_for_process_ready().await;
+                    }
+                    if let Some(event) = step.get("proc") {
+                        use std::io::Write;
+                        let path = pi_js_compat::process_env::var("OVERLAY_QA_CONTROL").unwrap();
+                        let mut control = std::fs::OpenOptions::new().append(true).open(path).unwrap();
+                        writeln!(control, "{event}").unwrap();
+                    }
+                    if let Some(text) = step["waitFor"].as_str() {
+                        let mut ready = false;
+                        for _ in 0..2000 {
+                            if component.render(width).join("\n").contains(text) {
+                                ready = true;
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(1));
+                            tokio::task::yield_now().await;
+                        }
+                        assert!(ready, "process frame never contained {text}");
+                    }
+                    if step["dispose"] == true {
+                        component.dispose();
+                        wait_for_process_exit().await;
+                    }
+
                     if let Some(ms) = step["ms"].as_u64() {
                         for _ in 0..ms {
                             tokio::time::advance(std::time::Duration::from_millis(1)).await;
@@ -322,6 +348,12 @@ impl ExtensionUiContext for Ui {
     }
 }
 async fn native(request: &Value) -> Value {
+    if request["command"] == "overlay-overflow" {
+        if let Some(control) = pi_js_compat::process_env::var("OVERLAY_QA_CONTROL") {
+            std::fs::write(&control, "").unwrap();
+            let _ = std::fs::remove_file(format!("{control}.pid"));
+        }
+    }
     let runtime = create_extension_runtime();
     let mut registry = ExtensionRegistry::new();
     registry.register(
@@ -361,6 +393,8 @@ async fn native(request: &Value) -> Value {
 }
 #[tokio::test]
 async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
+    let process_fixture = process_fixture();
+    assert!(process_fixture.directory.path().is_dir());
     let mut oracle = oracle::TsOracle::spawn(
         "example-overlay-qa-tests-oracle.ts",
         "packages/coding-agent/examples/extensions/overlay-qa-tests.ts",
@@ -387,7 +421,14 @@ async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
         scripts.push(json!({"steps":[{"key":"\x1b"}]}));
         fixtures.push(json!({"command":command,"scripts":scripts}));
     }
+    let output = format!(
+        "{}{}partial",
+        (0..20).map(|i| format!("line-{i}\n")).collect::<String>(),
+        "\x1b]8;;file:///very-long-path\x07🚀中文".repeat(12)
+    );
     fixtures.extend([
+        json!({"command":"overlay-overflow","scripts":[{"steps":[{"ready":true},{"proc":{"stdout":output},"waitFor":"Streaming Output (21 lines)"},{"proc":{"stdout":"tail\n"},"waitFor":"Streaming Output (22 lines)"},{"proc":{"stderr":"  stderr fixture \n"},"waitFor":"Streaming Output (23 lines)"},{"key":"\x1b[A"},{"key":"\x1b[B"},{"width":9},{"proc":{"close":true},"waitFor":"Done"},{"key":"\x1b"}]}]}),
+        json!({"command":"overlay-overflow","scripts":[{"steps":[{"ready":true},{"proc":{"stdout":"one\n"},"waitFor":"Streaming Output (1 lines)"},{"dispose":true},{"proc":{"stdout":"late-after-dispose\n"}},{"key":"\x1b"}]}]}),
         json!({"command":"overlay-toggle","scripts":[{"clone":true,"steps":[{"key":"t"},{"ms":1000},{"key":"\x1b"}]}]}),
         json!({"command":"overlay-animation","scripts":[{"steps":[{"ms":1100},{"width":1},{"width":7},{"key":"\x03"},{"ms":100}]}]}),
         json!({"command":"overlay-passive","scripts":[{"steps":[{"ms":61000},{"units":[55296]},{"key":"\x7f"},{"key":"\x03"},{"ms":1000}]}]}),
@@ -416,6 +457,74 @@ async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
     }
 }
 
+struct ProcessFixture {
+    directory: tempfile::TempDir,
+    path: String,
+}
+impl Drop for ProcessFixture {
+    fn drop(&mut self) {
+        pi_js_compat::process_env::set("PATH", &self.path);
+        pi_js_compat::process_env::remove("OVERLAY_QA_CONTROL");
+    }
+}
+fn process_fixture() -> ProcessFixture {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let program = directory.path().join("bash");
+    std::fs::write(
+        &program,
+        r#"#!/usr/bin/python3
+import os,sys,time,json,signal
+control=os.environ['OVERLAY_QA_CONTROL']
+def terminate(*_):
+ sys.stdout.write('late-after-dispose\n');sys.stdout.flush();sys.exit(0)
+signal.signal(signal.SIGTERM,terminate)
+open(control+'.pid','w').write(str(os.getpid()))
+position=0
+while True:
+ with open(control) as stream:
+  stream.seek(position)
+  for line in stream:
+   event=json.loads(line)
+   if 'stdout' in event:sys.stdout.write(event['stdout']);sys.stdout.flush()
+   if 'stderr' in event:sys.stderr.write(event['stderr']);sys.stderr.flush()
+   if event.get('close'):sys.exit(0)
+  position=stream.tell()
+ time.sleep(0.001)
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = pi_js_compat::process_env::var("PATH").unwrap();
+    pi_js_compat::process_env::set("PATH", format!("{}:{path}", directory.path().display()));
+    let control = directory.path().join("control");
+    std::fs::write(&control, "").unwrap();
+    pi_js_compat::process_env::set("OVERLAY_QA_CONTROL", control.to_str().unwrap());
+    ProcessFixture { directory, path }
+}
+async fn wait_for_process_ready() {
+    let control = pi_js_compat::process_env::var("OVERLAY_QA_CONTROL").unwrap();
+    for _ in 0..2000 {
+        if std::fs::read_to_string(format!("{control}.pid")).is_ok_and(|s| !s.is_empty()) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        tokio::task::yield_now().await;
+    }
+    panic!("fixture process did not start");
+}
+async fn wait_for_process_exit() {
+    let control = pi_js_compat::process_env::var("OVERLAY_QA_CONTROL").unwrap();
+    let pid = std::fs::read_to_string(format!("{control}.pid")).unwrap();
+    for _ in 0..2000 {
+        if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        tokio::task::yield_now().await;
+    }
+    panic!("fixture process {pid} was not reaped after dispose");
+}
 fn normalize_timestamps(value: &mut Value) {
     match value {
         Value::String(s) => {

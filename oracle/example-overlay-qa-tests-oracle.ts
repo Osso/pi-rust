@@ -23,10 +23,11 @@ async function run(request:any) {
  const timers=new Map<number,{callback:()=>void,at:number,period:number}>();
  const schedule=(callback:()=>void,ms:number,period=0)=>{const id=++nextId;timers.set(id,{callback,at:now+Math.floor(ms),period});return id;};
  const advance=(ms:number)=>{const end=now+ms;while(true){const entry=[...timers].filter(([,t])=>t.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!entry)break;now=entry[1].at;if(entry[1].period)entry[1].at+=entry[1].period;else timers.delete(entry[0]);entry[1].callback();}now=end;};
+ const procHooks:any={};
  const realDate=Date;
  const context=vm.createContext({exports:{},require:(name:string)=>{
   if(name==='@earendil-works/pi-tui')return tui;
-  if(name==='child_process')return {spawn:()=>({stdout:{on(){}},stderr:{on(){}},on(){},kill(){}})};
+  if(name==='child_process')return {spawn:()=>({stdout:{on(_event:string,callback:any){procHooks.stdout=callback;}},stderr:{on(_event:string,callback:any){procHooks.stderr=callback;}},on(_event:string,callback:any){procHooks.close=callback;},kill(){}})};
   throw new Error(`Unexpected import ${name}`);
  },setInterval:(fn:any,ms:number)=>schedule(fn,ms,Math.floor(ms)),clearInterval:(id:number)=>timers.delete(id),setTimeout:(fn:any,ms:number)=>schedule(fn,ms),clearTimeout:(id:number)=>timers.delete(id),Date:class extends realDate {constructor(){super(now);}static now(){return now;}}});
  const javascript=ts.transpileModule(readFileSync(source,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
@@ -56,7 +57,7 @@ async function run(request:any) {
   calls.push(['options',serial(options.overlayOptions)]);
   const snapshot=(width:number)=>calls.push(['frames',component.render(width),panels.map(p=>({options:serial(p.options),hidden:p.hidden,lines:p.component.render(p.options.width??34)}))]);
   snapshot(script.width??60);
-  for(const step of script.steps??[]){if(step.ms)advance(step.ms);if(step.key!==undefined||step.units){const target=step.panel===undefined?component:panels[step.panel].component;target.handleInput((step.key??String.fromCharCode(...step.units)).toWellFormed());}snapshot(step.width??script.width??60);}
+  for(const step of script.steps??[]){if(step.proc){if(step.proc.stdout!==undefined)procHooks.stdout(Buffer.from(step.proc.stdout));if(step.proc.stderr!==undefined)procHooks.stderr(Buffer.from(step.proc.stderr));if(step.proc.close)procHooks.close();}if(step.dispose)component.dispose?.();if(step.ms)advance(step.ms);if(step.key!==undefined||step.units){const target=step.panel===undefined?component:panels[step.panel].component;target.handleInput((step.key??String.fromCharCode(...step.units)).toWellFormed());}snapshot(step.width??script.width??60);}
   component.invalidate();component.dispose?.();cloned?.dispose?.();
   calls.push(['requests',requests]);
   calls.push(['done',completed,value]);
