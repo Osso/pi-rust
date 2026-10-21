@@ -63,3 +63,45 @@ test("RPC oracle exits after child import failure while caller keeps stdin open"
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+test("RPC UI oracle rejects VM startup failure instead of waiting forever for readiness", async () => {
+	const oracle = spawn(
+		join(lock.worktree, "node_modules/.bin/tsx"),
+		[
+			"--tsconfig",
+			join(lock.worktree, "tsconfig.json"),
+			join(root, "oracle/example-rpc-extension-ui-oracle.ts"),
+			join(lock.worktree, "packages/coding-agent/examples/rpc-extension-ui.ts"),
+		],
+		{ detached: true, stdio: ["pipe", "pipe", "pipe"] },
+	);
+	let timedOut = false;
+	let stderr = "";
+	oracle.stderr.setEncoding("utf8");
+	oracle.stderr.on("data", (chunk) => {
+		stderr += chunk;
+	});
+	const deadline = setTimeout(() => {
+		timedOut = true;
+		killOwnedGroup(oracle.pid);
+	}, 20_000);
+	try {
+		oracle.stdin.write(
+			`${JSON.stringify({ ops: [], widths: [80], terminalStartupError: "fixture terminal startup failed" })}\n`,
+		);
+		const [code, signal] = await once(oracle, "exit");
+		assert.equal(
+			timedOut,
+			false,
+			`VM startup failure left readiness pending: ${stderr}`,
+		);
+		assert.equal(signal, null, stderr);
+		assert.equal(code, 1, stderr);
+		assert.match(stderr, /RPC fixture exited before screen start/);
+		assert.match(stderr, /fixture terminal startup failed/);
+	} finally {
+		clearTimeout(deadline);
+		oracle.stdin.destroy();
+		killOwnedGroup(oracle.pid);
+	}
+});
