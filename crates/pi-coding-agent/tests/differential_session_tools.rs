@@ -856,7 +856,7 @@ async fn search_current_session_history_tool_differential() {
     rows.last_mut().unwrap()["message"]["content"] = json!([
         {"type":"text","text":"assistant secret text"},
         {"type":"thinking","thinking":"hidden-thought","thinkingSignature":"hidden-signature"},
-        {"type":"toolCall","id":"call","name":"inspectWidget","arguments":{"propertyNeedle":[true,17,null,{"nested":"argumentNeedle"}]}},
+        {"type":"toolCall","id":"call","name":"inspectWidget","arguments":{"propertyNeedle":[true,17,null,{"nested":"argumentNeedle"}],"scalar":1.0,"small":0.000001}},
         {"type":"toolCall","id":"self","name":"search_current_session_history","arguments":{"query":"self-traffic"}}
     ]);
     let mut parent = "history-session-entry-4".to_owned();
@@ -890,6 +890,11 @@ async fn search_current_session_history_tool_differential() {
         ("argument-value", json!({"query":"argumentNeedle"})),
         ("argument-bool", json!({"query":"true"})),
         ("argument-number", json!({"query":"17"})),
+        ("number-no-decimal-false-positive", json!({"query":"1.0"})),
+        ("number-fixed-false-negative", json!({"query":"0.000001"})),
+        ("number-no-exponent-false-positive", json!({"query":"1e-6"})),
+        ("number-integer", json!({"query":"1"})),
+        ("number-fixed-context", json!({"query":"0.000001","context_entries":1})),
         ("argument-null", json!({"query":"null"})),
         ("tool-result", json!({"query":"resultNeedle"})),
         ("custom", json!({"query":"customNeedle"})),

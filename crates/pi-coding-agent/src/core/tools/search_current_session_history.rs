@@ -124,6 +124,9 @@ fn collect_argument_texts(value: &Value, texts: &mut Vec<String>) {
                 collect_argument_texts(item, texts);
             }
         }
+        Value::Number(number) => texts.push(pi_js_compat::number::js_number_to_string(
+            number.as_f64().expect("JSON number fits binary64"),
+        )),
         _ => texts.push(value.to_string()),
     }
 }
