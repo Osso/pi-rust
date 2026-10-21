@@ -50,12 +50,14 @@ async function run(request:any) {
   component.focused=true;
   const mainHandle={hide(){},setHidden(value:boolean){calls.push(['hidden',value]);},isHidden:()=>false,focus(){},unfocus(){},isFocused:()=>true};
   options.onHandle?.(mainHandle);
+  const cloned=script.clone?factory(host,theme,{},()=>{}):null;
+  if(cloned)options.onHandle?.({...mainHandle,setHidden(value:boolean){calls.push(['hiddenClone',value]);}});
   const serial=(o:any)=>({...o,margin:typeof o.margin==='number'?{top:o.margin,right:o.margin,bottom:o.margin,left:o.margin}:o.margin,visible:o.visible?[o.visible(99,40),o.visible(100,40)]:undefined});
   calls.push(['options',serial(options.overlayOptions)]);
   const snapshot=(width:number)=>calls.push(['frames',component.render(width),panels.map(p=>({options:serial(p.options),hidden:p.hidden,lines:p.component.render(p.options.width??34)}))]);
   snapshot(script.width??60);
   for(const step of script.steps??[]){if(step.ms)advance(step.ms);if(step.key!==undefined||step.units){const target=step.panel===undefined?component:panels[step.panel].component;target.handleInput((step.key??String.fromCharCode(...step.units)).toWellFormed());}snapshot(step.width??script.width??60);}
-  component.invalidate();component.dispose?.();
+  component.invalidate();component.dispose?.();cloned?.dispose?.();
   calls.push(['done',completed,value]);
   if(script.delay)await new Promise<void>(resolve=>schedule(resolve,script.delay));
   return value;

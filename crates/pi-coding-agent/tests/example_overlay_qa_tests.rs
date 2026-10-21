@@ -55,11 +55,14 @@ impl ExtensionUiOverlayHandle for Handle {
         self.0.focused.get()
     }
 }
-struct MainHandle(Arc<Mutex<Vec<Value>>>);
+struct MainHandle(Arc<Mutex<Vec<Value>>>, bool);
 impl ExtensionUiOverlayHandle for MainHandle {
     fn hide(&self) {}
     fn set_hidden(&self, hidden: bool) {
-        self.0.lock().unwrap().push(json!(["hidden", hidden]));
+        self.0
+            .lock()
+            .unwrap()
+            .push(json!([if self.1 { "hiddenClone" } else { "hidden" }, hidden]));
     }
     fn is_hidden(&self) -> bool {
         false
@@ -241,7 +244,19 @@ impl ExtensionUiContext for Ui {
                     done,
                 );
                 component.set_focused(true);
-                component.on_overlay_handle(Arc::new(MainHandle(calls.clone())));
+                component.on_overlay_handle(Arc::new(MainHandle(calls.clone(), false)));
+                let cloned = script["clone"].as_bool().unwrap_or(false).then(|| {
+                    let cloned = factory(
+                        ExtensionUiFactoryContext {
+                            tui: ExtensionUiTui::new(Arc::new(Terminal)),
+                            theme: theme(),
+                            keybindings: KeybindingsManager::new(Vec::new(), None),
+                        },
+                        ExtensionUiDone::new(Arc::new(|_| {})),
+                    );
+                    cloned.on_overlay_handle(Arc::new(MainHandle(calls.clone(), true)));
+                    cloned
+                });
                 let opts = opts.unwrap();
                 assert_eq!(opts.overlay, Some(true));
                 calls
@@ -277,6 +292,9 @@ impl ExtensionUiContext for Ui {
                 }
                 component.invalidate();
                 component.dispose();
+                if let Some(cloned) = cloned {
+                    cloned.dispose();
+                }
                 let result = result.borrow().clone();
                 calls
                     .lock()
@@ -360,6 +378,7 @@ async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
         fixtures.push(json!({"command":command,"scripts":scripts}));
     }
     fixtures.extend([
+        json!({"command":"overlay-toggle","scripts":[{"clone":true,"steps":[{"key":"t"},{"ms":1000},{"key":"\x1b"}]}]}),
         json!({"command":"overlay-animation","scripts":[{"steps":[{"ms":1100},{"width":1},{"width":7},{"key":"\x03"},{"ms":100}]}]}),
         json!({"command":"overlay-passive","scripts":[{"steps":[{"ms":61000},{"units":[55296]},{"key":"\x7f"},{"key":"\x03"},{"ms":1000}]}]}),
         json!({"command":"overlay-streaming","scripts":[{"steps":[{"ms":5000},{"key":"\t"},{"panel":0,"key":"A"},{"panel":0,"key":"é"},{"panel":0,"key":"🚀"},{"panel":0,"key":"\x7f"},{"panel":0,"key":"\x03"},{"ms":500}]}]}),
