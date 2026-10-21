@@ -196,7 +196,6 @@ pub struct AgentToolExecutionContext {
 pub struct BeforeToolCallResult {
     pub block: Option<bool>,
     pub reason: Option<String>,
-    pub terminate: Option<bool>,
 }
 
 /// Kind of filesystem object addressed by a `FileInfo` value.

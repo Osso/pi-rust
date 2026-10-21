@@ -1,5 +1,7 @@
 # extensions/types.ts → `core::extensions::types`
 
+Frozen 4f9e6f8a4 model_request_start/model_request_end payloads and registration/dispatch were added with the foreground wait slice. AgentSession forwards both real AgentEvent variants; focused runner+wait deadline proof is in [wait contract](../../specs/agent-wait-slice.md). Whole extension event/API re-pin coverage remains independent.
+
 Source: `packages/coding-agent/src/core/extensions/types.ts` (2001 lines).
 Rust: `crates/pi-coding-agent/src/core/extensions/types.rs`.
 

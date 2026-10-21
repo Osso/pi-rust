@@ -1270,7 +1270,6 @@ function normalizeBeforeToolCallResultInput(input: BeforeToolCallResultCaseReque
 	const record: MutableBeforeToolCallResultRecord = {};
 	if (input.blockState === "present") record.block = input.block;
 	if (input.reasonState === "present") record.reason = input.reason;
-	if (input.terminateState === "present") record.terminate = input.terminate;
 	return { name: input.name, record };
 }
 

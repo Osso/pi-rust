@@ -1,6 +1,6 @@
-//! Rust port of `packages/agent`.
+//! Rust port of `packages/agent-core`.
 //!
-//! The crate root mirrors `packages/agent/src/index.ts`. See
+//! The crate root mirrors `packages/agent-core/src/index.ts`. See
 //! `docs/porting/traceability/agent-index.md` for the export map.
 
 pub mod agent;
@@ -23,8 +23,8 @@ pub use pi_telemetry::{
 pub use agent::types::*;
 pub use agent::{
     Agent, AgentEventSink, AgentEventStream, AgentInitialState, AgentListener, AgentOptions, ContinueOptions,
-    PrepareNextTurnSignalHook, PromptInput, ProxyAssistantMessageEvent, ProxyStreamOptions, ScriptedAssistantStream,
-    agent_loop, agent_loop_continue, run_agent_loop, run_agent_loop_continue, set_default_stream_fn, stream_proxy,
+    PrepareNextTurnSignalHook, PromptInput, ProxyAssistantMessageEvent, ProxyStreamOptions, agent_loop,
+    agent_loop_continue, restored_pending_tool_message, run_agent_loop, run_agent_loop_continue, stream_proxy,
 };
 pub use harness::agent_harness::*;
 pub use harness::compaction::{

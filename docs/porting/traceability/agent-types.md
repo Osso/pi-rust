@@ -1,37 +1,26 @@
-# Traceability: `packages/agent/src/types.ts`
+# Traceability: `packages/agent-core/src/types.ts`
 
-Rust: `crates/pi-agent-core/src/agent/types.rs`. Tests: `crates/pi-agent-core/tests/agent_types.rs`.
+Reference: immutable `4f9e6f8a4`. Rust: `crates/pi-agent-core/src/agent/types.rs`.
+Evidence/exclusions: [slice-1 ledger](agent-core-api-repin.md). Status todo: shared value/reference fidelity remains unclassified.
 
-## Exports
+| Frozen export | Rust representation | Proof |
+|---|---|---|
+| StreamFn | Arc callback returning boxed assistant stream future | agent/loop stream acquisition and error/abort tests |
+| ToolExecutionMode, QueueMode, ThinkingLevel | enums re-exported from harness/types through agent/types and agent | respective enum tests; queue/tool-mode differentials |
+| AgentToolCall | pi-ai ToolCall alias | tool execution/restoration fixtures |
+| BeforeToolCallResult | block/reason option fields, re-exported harness type | before_tool_call_result.rs; blocked/default-reason loop tests |
+| AfterToolCallResult | content/details/is_error/terminate options | after-hook tests; no old usage field |
+| BeforeToolCallContext, AfterToolCallContext | named structs; before args use Arc<Mutex<Value>> | before argument mutation and raw-call/validated-argument regression |
+| ShouldStopAfterTurnContext, PrepareNextTurnContext | struct and alias | replaced-context prompt/restoration tests |
+| AgentLoopTurnUpdate | optional context/model/thinking_level | prepare_next_turn differential and behavior tests |
+| AgentLoopConfig | named fields + nested SimpleStreamOptions | forwarded request/queue/hook tests; stop hook has context only |
+| CustomAgentMessages, AgentMessage | declaration merging becomes Custom(JsonObject); standard enum variants | agent_types.rs standard/custom round trips |
+| AgentState | owned snapshot, access through Agent methods | state and pending insertion-order tests; reference semantics gap |
+| AgentToolResult | content/details/is_error/terminate | serde result tests; removed usage/added_tool_names; coding consumer migrations |
+| AgentToolUpdateCallback | Arc callback | partial updates, ignore-after-settle, abort tests |
+| AgentToolExecutionContext | started_at/optional agent_id, re-exported harness type | agent_tool_execution_context.rs, prepareExecution fixtures |
+| AgentTool | trait: schema/label, optional argument/execution preparation/mode, execute | mode/preparation/tool error/update tests |
+| AgentContext | system_prompt/messages/tools | request conversion and restored context tests |
+| AgentEvent | tagged enum, camelCase payload fields | agent_types.rs wire fixtures and exact differential event streams |
 
-| TypeScript export | Rust item | Tests | Notes |
-|---|---|---|---|
-| `StreamFn` | `agent::StreamFn` | `stream_fn.rs` | `Arc<dyn Fn(Model, Context, SimpleStreamOptions) -> BoxFuture<'static, AssistantMessageEventStream>>`; the TS `Promise<stream>` return is folded into the future. |
-| `ToolExecutionMode` | `harness::types::ToolExecutionMode` | `tool_execution_mode.rs` | Reused from the harness port; not duplicated. |
-| `QueueMode` | `harness::types::QueueMode` | `queue_mode.rs` | Reused from the harness port. |
-| `AgentToolCall` | `agent::AgentToolCall = pi_ai::types::ToolCall` | `agent_types.rs` | Alias. |
-| `BeforeToolCallResult` | `harness::types::BeforeToolCallResult` | `before_tool_call_result.rs` | Reused; `block`/`reason`/`terminate` are `Option` fields for TS optional properties. |
-| `AfterToolCallResult` | `agent::AfterToolCallResult` | `agent_types.rs` | Field-by-field override record. |
-| `BeforeToolCallContext` | `agent::BeforeToolCallContext` | `agent_types.rs` | |
-| `AfterToolCallContext` | `agent::AfterToolCallContext` | `agent_types.rs` | |
-| `ShouldStopAfterTurnContext` | `agent::ShouldStopAfterTurnContext` | `agent_types.rs` | |
-| `AgentLoopTurnUpdate` | `agent::AgentLoopTurnUpdate` | `agent_loop.rs` | |
-| `PrepareNextTurnContext` | `agent::PrepareNextTurnContext` | `agent_loop.rs` | Alias of `ShouldStopAfterTurnContext`, matching the TS interface extension. |
-| `AgentLoopConfig` | `agent::AgentLoopConfig` | `agent_loop.rs` | `SimpleStreamOptions` is held in `stream_options`; hooks are `Option<Arc<dyn Fn .. -> BoxFuture>>`. |
-| `ThinkingLevel` | `harness::types::ThinkingLevel` | `thinking_level.rs` | Reused; `reasoning_for` maps it onto `pi_ai::types::ThinkingLevel` (`off` → `None`). |
-| `CustomAgentMessages` | n/a (type-level) | `agent_types.rs` | Declaration merging has no Rust equivalent; custom messages are `AgentMessage::Custom(JsonObject)`. |
-| `AgentMessage` | `agent::AgentMessage` | `agent_types.rs` | Untagged enum; `Custom` keeps the full object including `role` and round-trips verbatim. |
-| `AgentState` | `agent::AgentState` | `agent.rs` | Snapshot returned by `Agent::state()`; runtime fields are copied, not live accessors. `pending_tool_calls` is an `IndexSet`, preserving TypeScript `Set` insertion order. |
-| `AgentToolResult` | `agent::AgentToolResult` | `agent_types.rs` | `details` is `Option<Value>` so TS `undefined` is omitted from JSON; `terminate`/`isError` stay optional. |
-| `AgentToolUpdateCallback` | `agent::AgentToolUpdateCallback` | `agent_loop.rs` | Ignored after settlement by the loop's accepting-updates flag. |
-| `AgentToolExecutionContext` | `harness::types::AgentToolExecutionContext` | `agent_tool_execution_context.rs` | Reused; `started_at` stays `f64` per the existing port contract. |
-| `AgentTool` | `agent::AgentTool` | `agent_loop.rs` | Dyn-compatible trait; `parameters()` returns the JSON Schema `Value`; async members return `BoxFuture<'static, _>`. `prepare_arguments` and `prepare_execution` return `Result` (TS throws propagate to the loop's catch / abort). |
-| `AgentContext` | `agent::AgentContext` | `agent_types.rs` | Tools are `Option<Vec<Arc<dyn AgentTool>>>`. |
-| `AgentEvent` | `agent::AgentEvent` | `agent_types.rs`, `agent_loop.rs`, `agent.rs` | Internally tagged with snake_case type names and camelCase fields; `assistant_message_event` is boxed (clippy large-variant). |
-
-## Branches and exclusions
-
-- `AgentMessage` role discrimination: standard roles deserialize into typed variants; everything else falls through to `Custom` (`agent_message_round_trips_custom_objects_verbatim`).
-- Optional result fields serialize only when present, matching `JSON.stringify` dropping `undefined` (`agent_tool_result_omits_undefined_fields`).
-- `AgentState` accessor properties (`set tools`, `set messages` copy on assignment) become explicit `Agent` setters that clone the vector; getters return copies. This is a Rust API shape adaptation, not a behavior change.
-- Typed exclusion: `AgentTool::parameters` requires a JSON Schema `Value`; JavaScript callers passing a non-object are not representable.
+Rust helper aliases express callback types, overloads and structural interfaces; no global stream registry remains. ToolResultMessage is a separate shared pi-ai type: its representation was not changed by this slice. TextContent and Option<Value> details representation remain unchanged; nullish after-hook selection was corrected without a representation change.

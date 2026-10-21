@@ -357,7 +357,6 @@ async fn run_scenario(name: &str) -> Value {
                     Ok(Some(BeforeToolCallResult {
                         block: Some(true),
                         reason: Some("Blocked by policy".to_owned()),
-                        terminate: Some(true),
                     }))
                 })
             }));
@@ -463,7 +462,6 @@ async fn run_scenario(name: &str) -> Value {
                         content: Some(vec![TextOrImageContent::Text(TextContent::new("overridden"))]),
                         details: Some(json!({"overridden": true})),
                         is_error: Some(true),
-                        usage: None,
                         terminate: Some(true),
                     }))
                 })
@@ -655,7 +653,7 @@ async fn run_scenario(name: &str) -> Value {
                     })
                 }))
             };
-            cfg.should_stop_after_turn = Some(Arc::new(|_context, _signal| Box::pin(async { Ok(true) })));
+            cfg.should_stop_after_turn = Some(Arc::new(|_context| Box::pin(async { Ok(true) })));
             let mut output = run_loop(
                 vec![AgentMessage::User(user("work"))],
                 context(Vec::new(), Vec::new(), ""),
@@ -787,8 +785,6 @@ async fn run_scenario(name: &str) -> Value {
                 on_update(AgentToolResult {
                     content: vec![TextOrImageContent::Text(TextContent::new("partial"))],
                     details: Some(json!({"status": "partial"})),
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 });
@@ -1033,8 +1029,6 @@ async fn run_scenario(name: &str) -> Value {
                         on_update(AgentToolResult {
                             content: vec![TextOrImageContent::Text(TextContent::new(text.clone()))],
                             details: Some(json!({"value": "z".repeat(20000)})),
-                            usage: None,
-                            added_tool_names: None,
                             is_error: None,
                             terminate: None,
                         });
@@ -1042,8 +1036,6 @@ async fn run_scenario(name: &str) -> Value {
                     Ok(AgentToolResult {
                         content: vec![TextOrImageContent::Text(TextContent::new(text))],
                         details: Some(big_details(&mode)),
-                        usage: None,
-                        added_tool_names: None,
                         is_error: None,
                         terminate: None,
                     })

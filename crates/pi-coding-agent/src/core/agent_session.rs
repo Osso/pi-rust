@@ -1510,8 +1510,9 @@ impl AgentSession {
     fn install_duplicate_turn_stop(&self) {
         let previous = self.inner.agent.should_stop_after_turn_hook();
         let weak = Arc::downgrade(&self.inner);
-        self.inner.agent.set_should_stop_after_turn(Some(Arc::new(
-            move |turn: ShouldStopAfterTurnContext, signal: Option<CancellationToken>| {
+        self.inner
+            .agent
+            .set_should_stop_after_turn(Some(Arc::new(move |turn: ShouldStopAfterTurnContext| {
                 let weak = weak.clone();
                 let previous = previous.clone();
                 Box::pin(async move {
@@ -1522,12 +1523,11 @@ impl AgentSession {
                         return Ok(true);
                     }
                     match previous {
-                        Some(hook) => hook(turn, signal).await,
+                        Some(hook) => hook(turn).await,
                         None => Ok(false),
                     }
                 })
-            },
-        )));
+            })));
     }
 
     fn build_runtime(
@@ -2295,7 +2295,7 @@ impl AgentSession {
                 input: context.args.as_object().cloned().unwrap_or_default(),
                 content: context.result.content.clone(),
                 is_error: context.is_error,
-                usage: context.result.usage.clone(),
+                usage: None,
                 details: context.result.details.clone(),
             };
             runner.emit_tool_result(event).await
@@ -2324,7 +2324,6 @@ impl AgentSession {
                 .as_ref()
                 .and_then(|result| result.is_error)
                 .or(Some(context.is_error)),
-            usage: hook_result.as_ref().and_then(|result| result.usage.clone()),
             terminate: None,
         })
     }
@@ -3323,6 +3322,12 @@ impl AgentSession {
     }
 
     async fn handle_agent_event(&self, mut event: AgentEvent) -> Result<(), AgentError> {
+        let mailbox_delivery = if let AgentEvent::MessageEnd { message } = &event {
+            crate::core::runtime_mailbox_acceptance::read_runtime_mailbox_tool_delivery(message)
+                .map_err(|error| AgentError::new(error.to_string()))?
+        } else {
+            None
+        };
         let original_tool_call_id = match &event {
             AgentEvent::MessageEnd {
                 message: AgentMessage::ToolResult(result),
@@ -3383,7 +3388,7 @@ impl AgentSession {
         };
         self.emit(listener_event);
         if let AgentEvent::MessageEnd { message } = &event {
-            self.persist_completed_message(message, original_tool_call_id.as_deref());
+            self.persist_completed_message(message, original_tool_call_id.as_deref(), mailbox_delivery.as_ref());
             if let AgentMessage::Assistant(assistant) = message {
                 self.start_background_compaction_during_tool_turn(assistant)
                     .map_err(|failure| AgentError::new(failure.message()))?;
@@ -3953,13 +3958,36 @@ impl AgentSession {
         let _ = crate::core::session_control_db::write_last_message(control_db_path, "assistant", &content);
     }
 
-    fn persist_completed_message(&self, message: &AgentMessage, original_tool_call_id: Option<&str>) {
+    fn persist_completed_message(
+        &self,
+        message: &AgentMessage,
+        original_tool_call_id: Option<&str>,
+        mailbox_delivery: Option<&crate::core::runtime_mailbox_acceptance::RuntimeMailboxToolDelivery>,
+    ) {
         let is_internal = is_duplicate_turn_guard_message(message);
         let mut manager = lock(&self.inner.session_manager);
         let result = match message {
             AgentMessage::Custom(object) => append_custom_agent_message(&mut manager, object),
             AgentMessage::User(_) | AgentMessage::Assistant(_) | AgentMessage::ToolResult(_) => {
-                if is_internal || lock(&self.inner.runtime_mailbox_acceptance).consume_persisted_message(message) {
+                if is_internal {
+                    Ok(None)
+                } else if let Some(delivery) = mailbox_delivery {
+                    let accepted = lock(&self.inner.runtime_mailbox_acceptance).accept_messages(
+                        &mut manager,
+                        &delivery.control_db_path,
+                        &delivery.messages,
+                        Some(message),
+                    );
+                    let released = crate::core::runtime_mailbox_acceptance::release_unaccepted_runtime_mailbox_messages(
+                        &manager,
+                        &delivery.control_db_path,
+                        &delivery.messages,
+                    );
+                    released
+                        .and(accepted)
+                        .map(|()| None)
+                        .map_err(|error| crate::core::session_manager::SessionManagerError::new(error.to_string()))
+                } else if lock(&self.inner.runtime_mailbox_acceptance).consume_persisted_message(message) {
                     Ok(None)
                 } else {
                     manager.append_message(message.clone()).map(Some)
@@ -7464,7 +7492,22 @@ impl AgentSession {
                 runner.emit(&mut extension_event).await;
                 None
             }
-            AgentEvent::ModelRequestStart | AgentEvent::ModelRequestEnd => None,
+            AgentEvent::ModelRequestStart => {
+                runner
+                    .emit(&mut ExtensionEvent::ModelRequestStart(
+                        crate::core::extensions::types::ModelRequestStartEvent {},
+                    ))
+                    .await;
+                None
+            }
+            AgentEvent::ModelRequestEnd => {
+                runner
+                    .emit(&mut ExtensionEvent::ModelRequestEnd(
+                        crate::core::extensions::types::ModelRequestEndEvent {},
+                    ))
+                    .await;
+                None
+            }
         }
     }
 
@@ -7580,7 +7623,6 @@ fn tool_call_result_to_before(result: crate::core::extensions::types::ToolCallEv
     BeforeToolCallResult {
         block: result.block,
         reason: result.reason,
-        terminate: result.terminate,
     }
 }
 

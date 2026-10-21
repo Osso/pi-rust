@@ -214,7 +214,6 @@ pub fn block_architect_global_broadcast(tool_name: &str) -> Option<BeforeToolCal
     Some(BeforeToolCallResult {
         block: Some(true),
         reason: Some(reason.to_owned()),
-        terminate: None,
     })
 }
 
@@ -524,7 +523,7 @@ pub async fn run_architect_service() -> Result<(), String> {
                             block: result.block,
                             input: None,
                             reason: result.reason,
-                            terminate: result.terminate,
+                            terminate: None,
                         }),
                     )
                 }) as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>

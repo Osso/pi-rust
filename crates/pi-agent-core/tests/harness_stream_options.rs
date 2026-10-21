@@ -121,8 +121,6 @@ impl AgentHarnessTool<Value> for EchoTool {
                     context["label"].as_str().unwrap_or_default(),
                 ))],
                 details: None,
-                usage: None,
-                added_tool_names: None,
                 is_error: None,
                 terminate: None,
             })

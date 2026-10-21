@@ -28,7 +28,7 @@ pub fn structured_output_extension(pi: &ExtensionApi) -> Result<(), HandlerError
             Ok(AgentToolResult {
                 content: vec![TextOrImageContent::Text(TextContent::new(format!("Saved structured output: {headline}")))],
                 details: Some(json!({"headline":params["headline"],"summary":params["summary"],"actionItems":params["actionItems"]})),
-                terminate: Some(true), usage: None, added_tool_names: None, is_error: None,
+                terminate: Some(true), is_error: None,
             })
         })),
         render_result: Some(Arc::new(|result, _, theme, _| {

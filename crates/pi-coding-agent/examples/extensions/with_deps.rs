@@ -27,8 +27,6 @@ pub fn with_deps_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Ok(AgentToolResult {
                 content: vec![TextOrImageContent::Text(TextContent::new(format!("{duration} = {} milliseconds", pi_js_compat::number::js_number_to_string(value))))],
                 details: Some(json!({})),
-                usage: None,
-                added_tool_names: None,
                 is_error: None,
                 terminate: None,
             })

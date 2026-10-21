@@ -201,8 +201,6 @@ fn execute_code_index(
         Ok(AgentToolResult {
             content: vec![TextOrImageContent::Text(TextContent::new(text))],
             details: (!details.is_empty()).then_some(Value::Object(details)),
-            usage: None,
-            added_tool_names: None,
             is_error: None,
             terminate: None,
         })

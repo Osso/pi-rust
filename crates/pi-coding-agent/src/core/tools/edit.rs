@@ -301,8 +301,6 @@ async fn execute_edit(
                 edits.len()
             )))],
             details: Some(Value::Object(details)),
-            usage: None,
-            added_tool_names: None,
             is_error: None,
             terminate: None,
         })

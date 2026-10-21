@@ -133,6 +133,7 @@ async function toolContext(src: string, request: Request): Promise<any> {
 		context.hasUI = true;
 		context.mode = "tui";
 		context.ui = {
+            custom: async () => (request.uiScript as any).panelResult,
 			select: async () => selects.shift(),
 			input: async () => inputs.shift(),
 		};

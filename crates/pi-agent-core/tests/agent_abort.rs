@@ -1,11 +1,130 @@
 pub mod support;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use pi_agent_core::agent::{Agent, AgentOptions, AgentToolResult};
-use pi_ai::types::{AssistantContent, ToolCall};
+use pi_agent_core::agent::{Agent, AgentEvent, AgentMessage, AgentOptions, AgentToolResult};
+use pi_ai::types::{AssistantContent, AssistantMessageEvent, StopReason, TextContent, ThinkingContent, ToolCall};
+use pi_ai::utils::event_stream::{StreamFailure, create_assistant_message_event_stream};
 use serde_json::json;
 use support::*;
+
+#[tokio::test]
+async fn streamed_thinking_text_tool_and_usage_survive_each_interruption() {
+    for interruption in ["steer", "abort", "failure"] {
+        let (sender, stream) = create_assistant_message_event_stream();
+        let stream = Arc::new(Mutex::new(Some(stream)));
+        let tool = TestTool::no_args("lookup", || panic!("interrupted tool must not execute"));
+        let agent = Agent::new(AgentOptions {
+            initial_state: Some(pi_agent_core::AgentInitialState {
+                tools: Some(vec![Arc::new(tool)]),
+                ..Default::default()
+            }),
+            stream_fn: Some(Arc::new(move |_, _, _| {
+                let stream = stream.lock().unwrap().take().unwrap();
+                Box::pin(async move { stream })
+            })),
+            ..Default::default()
+        })
+        .unwrap();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let observed = events.clone();
+        let control = agent.clone();
+        let failure_sender = sender.clone();
+        agent.subscribe(Arc::new(move |event, _| {
+            observed.lock().unwrap().push(event.clone());
+            if matches!(event, AgentEvent::MessageUpdate { assistant_message_event, .. } if matches!(*assistant_message_event, AssistantMessageEvent::ToolCallDelta { .. })) {
+                match interruption {
+                    "steer" => control.steer(user("queued steering").into()),
+                    "abort" => control.abort(),
+                    _ => failure_sender.fail(StreamFailure::new("stream connection lost")),
+                }
+            }
+            Box::pin(async { Ok(()) })
+        }));
+        let mut initial = text_assistant("");
+        initial.timestamp = 1234;
+        initial.usage.output = 7.0;
+        initial.usage.total_tokens = 7.0;
+        initial.content.clear();
+        sender.push(AssistantMessageEvent::Start {
+            partial: initial.clone(),
+        });
+        let mut partial = initial;
+        partial
+            .content
+            .push(AssistantContent::Thinking(ThinkingContent::new("concrete reasoning")));
+        sender.push(AssistantMessageEvent::ThinkingDelta {
+            content_index: 0,
+            delta: "concrete reasoning".into(),
+            partial: partial.clone(),
+        });
+        partial
+            .content
+            .push(AssistantContent::Text(TextContent::new("concrete partial reply")));
+        sender.push(AssistantMessageEvent::TextDelta {
+            content_index: 1,
+            delta: "concrete partial reply".into(),
+            partial: partial.clone(),
+        });
+        partial
+            .content
+            .push(AssistantContent::ToolCall(tool_call("pending", "lookup", json!({}))));
+        sender.push(AssistantMessageEvent::ToolCallDelta {
+            content_index: 2,
+            delta: "{}".into(),
+            partial: partial.clone(),
+        });
+        agent.prompt("start").await.unwrap();
+        let messages = agent.messages();
+        let failed = messages.last().unwrap().as_assistant().unwrap();
+        partial.stop_reason = if interruption == "failure" {
+            StopReason::Error
+        } else {
+            StopReason::Aborted
+        };
+        partial.error_message = Some(
+            if interruption == "failure" {
+                "stream connection lost"
+            } else {
+                "Agent run aborted"
+            }
+            .into(),
+        );
+        assert_eq!(failed, &partial);
+        let events = events.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(
+                    event,
+                    AgentEvent::MessageStart {
+                        message: AgentMessage::Assistant(_)
+                    }
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(
+                    event,
+                    AgentEvent::MessageEnd {
+                        message: AgentMessage::Assistant(_)
+                    }
+                ))
+                .count(),
+            1
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, AgentEvent::ToolExecutionStart { .. }))
+        );
+        assert!(!agent.is_streaming());
+        assert!(agent.streaming_message().is_none());
+    }
+}
 
 #[tokio::test]
 async fn settles_when_active_tool_ignores_its_abort_signal() {

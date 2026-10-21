@@ -58,8 +58,6 @@ fn erring_definition() -> ToolDefinition {
                 Ok(AgentToolResult {
                     content: vec![],
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 })

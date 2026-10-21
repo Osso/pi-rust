@@ -134,8 +134,6 @@ async fn execute_browser_cli(
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: Some(json!({"commands": executions})),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     })

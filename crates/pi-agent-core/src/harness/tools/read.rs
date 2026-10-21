@@ -180,8 +180,6 @@ fn read_text_result(
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(output_text))],
         details,
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     })
@@ -301,8 +299,6 @@ async fn process_image_result(
                     TextOrImageContent::Image(ImageContent::new(data, mime_type)),
                 ],
                 details: None,
-                usage: None,
-                added_tool_names: None,
                 is_error: None,
                 terminate: None,
             }
@@ -323,8 +319,6 @@ fn encode_image_result(bytes: &[u8], mime_type: &'static str) -> AgentToolResult
             TextOrImageContent::Image(ImageContent::new(buffer_to_base64(bytes), mime_type)),
         ],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }
@@ -334,8 +328,6 @@ fn text_result(text: String) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

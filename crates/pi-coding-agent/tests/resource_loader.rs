@@ -632,8 +632,6 @@ fn tool_definition(name: &str, description: &str) -> ToolDefinition {
                 Ok(pi_agent_core::AgentToolResult {
                     content: Vec::new(),
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 })

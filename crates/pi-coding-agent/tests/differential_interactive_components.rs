@@ -1598,8 +1598,6 @@ fn custom_tool_definition(call: &'static str, result: &'static str, shell: Rende
                 Ok(AgentToolResult {
                     content: vec![],
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 })
@@ -1833,8 +1831,6 @@ fn tool_renderer_cases() -> Vec<(Value, Value)> {
             let result = AgentToolResult {
                 content: tool_content(case.get("content").unwrap_or(&Value::Null)),
                 details: case.get("details").cloned().filter(|details| !details.is_null()),
-                usage: None,
-                added_tool_names: None,
                 is_error: case.get("isError").and_then(Value::as_bool),
                 terminate: None,
             };

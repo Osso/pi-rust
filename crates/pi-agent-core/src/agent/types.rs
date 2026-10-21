@@ -1,4 +1,4 @@
-//! Port of `packages/agent/src/types.ts`.
+//! Port of `packages/agent-core/src/types.ts`.
 //!
 //! TypeScript declaration-merging extension of `AgentMessage` maps to
 //! [`AgentMessage::Custom`], which keeps the full JSON object (including its
@@ -12,13 +12,15 @@ use indexmap::IndexSet;
 use pi_ai::request::{BoxFuture, SimpleStreamOptions};
 use pi_ai::types::{
     AssistantMessage, AssistantMessageEvent, ConstrainedSampling, Context, JsonObject, Message, Model,
-    TextOrImageContent, ToolCall, ToolCallExecution, ToolResultMessage, Usage, UserMessage,
+    TextOrImageContent, ToolCall, ToolCallExecution, ToolResultMessage, UserMessage,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::harness::types::{AgentToolExecutionContext, BeforeToolCallResult, ThinkingLevel, ToolExecutionMode};
+pub use crate::harness::types::{
+    AgentToolExecutionContext, BeforeToolCallResult, QueueMode, ThinkingLevel, ToolExecutionMode,
+};
 
 /// `StreamFn`: produces an assistant message event stream for one request.
 ///
@@ -51,10 +53,6 @@ impl AgentError {
         &self.message
     }
 
-    pub fn default_stream_fn_missing() -> Self {
-        Self::new("No default stream function configured. Pass streamFn explicitly or call setDefaultStreamFn().")
-    }
-
     pub fn already_processing_prompt() -> Self {
         Self::new(
             "Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
@@ -63,10 +61,6 @@ impl AgentError {
 
     pub fn already_processing_continue() -> Self {
         Self::new("Agent is already processing. Wait for completion before continuing.")
-    }
-
-    pub fn already_processing_reset() -> Self {
-        Self::new("Agent is already processing. Wait for completion before resetting.")
     }
 
     pub fn already_processing() -> Self {
@@ -220,10 +214,6 @@ pub struct AgentToolResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub added_tool_names: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     /// Hint that the agent should stop after the current tool batch.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -236,8 +226,6 @@ impl AgentToolResult {
         Self {
             content: vec![TextOrImageContent::Text(pi_ai::types::TextContent::new(text))],
             details: Some(Value::Object(JsonObject::new())),
-            usage: None,
-            added_tool_names: None,
             is_error: None,
             terminate: None,
         }
@@ -352,6 +340,25 @@ pub enum AgentEvent {
     },
 }
 
+impl AgentEvent {
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Self::AgentStart => "agent_start",
+            Self::AgentEnd { .. } => "agent_end",
+            Self::TurnStart => "turn_start",
+            Self::TurnEnd { .. } => "turn_end",
+            Self::ModelRequestStart => "model_request_start",
+            Self::ModelRequestEnd => "model_request_end",
+            Self::MessageStart { .. } => "message_start",
+            Self::MessageUpdate { .. } => "message_update",
+            Self::MessageEnd { .. } => "message_end",
+            Self::ToolExecutionStart { .. } => "tool_execution_start",
+            Self::ToolExecutionUpdate { .. } => "tool_execution_update",
+            Self::ToolExecutionEnd { .. } => "tool_execution_end",
+        }
+    }
+}
+
 /// Context passed to `beforeToolCall`.
 #[derive(Clone)]
 pub struct BeforeToolCallContext {
@@ -386,8 +393,6 @@ pub struct AfterToolCallResult {
     pub details: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminate: Option<bool>,
 }
@@ -453,11 +458,8 @@ pub type AfterToolCallHook = Arc<
         + Sync,
 >;
 /// `shouldStopAfterTurn` hook.
-pub type ShouldStopAfterTurnHook = Arc<
-    dyn Fn(ShouldStopAfterTurnContext, Option<CancellationToken>) -> BoxFuture<'static, Result<bool, AgentError>>
-        + Send
-        + Sync,
->;
+pub type ShouldStopAfterTurnHook =
+    Arc<dyn Fn(ShouldStopAfterTurnContext) -> BoxFuture<'static, Result<bool, AgentError>> + Send + Sync>;
 /// `prepareNextTurn` hook.
 pub type PrepareNextTurnHook = Arc<
     dyn Fn(PrepareNextTurnContext) -> BoxFuture<'static, Result<Option<AgentLoopTurnUpdate>, AgentError>> + Send + Sync,

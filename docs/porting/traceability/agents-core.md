@@ -1,5 +1,9 @@
 # agents-core traceability
 
+## Foreground wait slice refresh
+
+Frozen runtime.ts:196,2126-2295,3157-3168 maps to shared `latest_model_request_started_at`, model-request-start and agent/session-end hooks, and the captured deadline in native wait_runtime.rs. `wait_slice_uses_latest_model_request_and_does_not_cancel_active_agents` uses a real SQLite active child and paused Tokio timers: timedOut true, child still running, agent_end clears the deadline. Model-request-start/end events now exist in extension types/runner and AgentSession forwarding. [Contract and remaining event-boundary proof](../../specs/agent-wait-slice.md).
+
 ## Frozen 4f9e6f8a4 refresh — 2026-10-21
 
 Historical module inventory below is not renewed source correspondence. Frozen `runtime.ts` now owns private `emptyAgent` (3065), `isInFlightLifecycle` (2526), result helpers (391-412), prompt validators (424-455), `listAgents` (1875) and wait validation (993). The deterministic oracle loads an in-memory transpiled copy and exposes those declarations without editing frozen files; viewer now loads `extensions/agent-viewer/src/runtime.ts:85`.
@@ -8,7 +12,7 @@ Frozen `runtime.ts:402-412` and agent-viewer result constructors omit `isError`;
 
 Retired differential cases: generic `createFailedMailboxMessage` and `appendParentAgentStart` are absent from frozen non-test source; removed `failed-message` and `journal` cases are not new-pin parity evidence. Native legacy helpers/tests remain outside this bounded oracle repair. Registration still invokes real frozen exported registration functions.
 
-Current proof: deterministic helper cases pass; full registration differential remains failing (frozen 12 tools, native 10). Missing `ask_questions`/`answer_question` belong to unported `question-relay-tools.ts`. Other exact drifts: `spawn_agent.displayName` description; `wait_agent` 25-minute timeout description; `agent_viewer.trace` parameter/description; mailbox tools require frozen nonblank `body`, strict properties, remote `toHost`, descriptions/guidelines instead of native `message`. `set_agent_model` registration ordering also differs. Commands match. These remain full-module follow-ups, not waived/masked assertions.
+Current proof (2026-10-21 question lane): deterministic cases and full frozen registration differential pass, including 12/12 exact metadata and set_agent_model ordering. Child-aware ask_questions/answer_question are implemented with durable tool-result receipt acceptance; [relay traceability](question-relay-tools.md) tracks remaining branch proof. toHost canonical routing, historical viewer trace and 25-minute wait slice are now ported with focused proof; actual host-relay transport, shared lossless TextContent/details and whole-runtime gaps remain, so metadata equality is not whole-runtime parity.
 
 Runtime/store/lifecycle old-clock failures were expired canonical rows: frozen `multi-agent-store.ts:939-945` persists the store row before runtime enqueue (`runtime.ts:2954-3040`). Fixtures now use current birth times. Child-disabled capability includes frozen `answer_question`; `set_agent_model` was already registered natively and only missing from the old fixture expectation.
 

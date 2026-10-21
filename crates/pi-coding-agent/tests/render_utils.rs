@@ -13,8 +13,6 @@ fn text_result(texts: &[&str]) -> AgentToolResult {
             .map(|text| TextOrImageContent::Text(TextContent::new(*text)))
             .collect(),
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }
@@ -65,8 +63,6 @@ fn capability_dependent_output_matches_the_source() {
             TextOrImageContent::Image(ImageContent::new(String::new(), "image/unknown")),
         ],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     };
