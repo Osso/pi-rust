@@ -7,11 +7,9 @@ use std::path::Path;
 use pi_coding_agent::core::permissions::policy::ApprovalPolicy;
 use pi_coding_agent::core::permissions::presets::{ApprovalPresetName, SandboxProfileName};
 use pi_coding_agent::core::settings_manager::{
-    DefaultProjectTrust, DoubleEscapeAction, FullscreenExitOutput, MermaidRenderingMode, PackageSource,
-    SettingsManager, SettingsManagerCreateOptions, SettingsScope, TreeFilterMode,
+    DefaultProjectTrust, DoubleEscapeAction, PackageSource, SettingsManager, SettingsManagerCreateOptions,
+    SettingsScope, TreeFilterMode,
 };
-use pi_tui::ScrollViewScrollbar;
-use pi_tui::tui::TuiMode;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -191,8 +189,9 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
             let result = manager.set_http_idle_timeout_ms(value.as_f64().unwrap());
             return result.is_err();
         }
+        "set_hide_tool_output" => manager.set_hide_tool_output(value.as_bool().unwrap()),
+        "set_hide_coordination_messages" => manager.set_hide_coordination_messages(value.as_bool().unwrap()),
         "set_hide_thinking_block" => manager.set_hide_thinking_block(value.as_bool().unwrap()),
-        "set_show_cache_miss_notices" => manager.set_show_cache_miss_notices(value.as_bool().unwrap()),
         "set_shell_path" => manager.set_shell_path(value.as_str()),
         "set_quiet_startup" => manager.set_quiet_startup(value.as_bool().unwrap()),
         "set_default_project_trust" => manager.set_default_project_trust(match value.as_str().unwrap() {
@@ -242,23 +241,6 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         "set_image_width_cells" => manager.set_image_width_cells(value.as_f64().unwrap()),
         "set_clear_on_shrink" => manager.set_clear_on_shrink(value.as_bool().unwrap()),
         "set_show_terminal_progress" => manager.set_show_terminal_progress(value.as_bool().unwrap()),
-        "set_tui_mode" => manager.set_tui_mode(if value.as_str().unwrap() == "fullscreen" {
-            TuiMode::Fullscreen
-        } else {
-            TuiMode::Regular
-        }),
-        "set_fullscreen_exit_output" => {
-            manager.set_fullscreen_exit_output(if value.as_str().unwrap() == "resume-hint" {
-                FullscreenExitOutput::ResumeHint
-            } else {
-                FullscreenExitOutput::Transcript
-            })
-        }
-        "set_fullscreen_scrollbar" => manager.set_fullscreen_scrollbar(match value.as_str().unwrap() {
-            "always" => ScrollViewScrollbar::Always,
-            "hidden" => ScrollViewScrollbar::Hidden,
-            _ => ScrollViewScrollbar::Auto,
-        }),
         "set_image_auto_resize" => manager.set_image_auto_resize(value.as_bool().unwrap()),
         "set_block_images" => manager.set_block_images(value.as_bool().unwrap()),
         "set_enabled_models" => {
@@ -282,11 +264,6 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         "set_editor_padding_x" => manager.set_editor_padding_x(value.as_f64().unwrap()),
         "set_output_pad" => manager.set_output_pad(value.as_u64().unwrap() as u8),
         "set_autocomplete_max_visible" => manager.set_autocomplete_max_visible(value.as_f64().unwrap()),
-        "set_mermaid_rendering_mode" => manager.set_mermaid_rendering_mode(match value.as_str().unwrap() {
-            "off" => MermaidRenderingMode::Off,
-            "final" => MermaidRenderingMode::Final,
-            _ => MermaidRenderingMode::Streaming,
-        }),
         "set_warnings" => manager.set_warnings(value.as_object().expect("warnings object")),
         "apply_overrides" => manager.apply_overrides(value.as_object().expect("overrides object")),
         "reload" => manager.reload(),
@@ -372,25 +349,23 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "configuredSandboxProfile": manager.get_configured_sandbox_profile().as_str(),
         "explicitSandboxProfile": manager.get_explicit_sandbox_profile().map(|profile| profile.as_str()),
         "sessionSandboxProfile": manager.get_session_sandbox_profile().map(|profile| profile.as_str()),
-        "compaction": {
-            "enabled": manager.get_compaction_settings().enabled,
-            "reserveTokens": number(manager.get_compaction_settings().reserve_tokens),
-            "keepRecentTokens": number(manager.get_compaction_settings().keep_recent_tokens),
-        },
+        "compaction": manager.get_compaction_settings().map_or(json!("ERROR"), |view| {
+            let mut output = json!({"enabled":view.enabled,"reserveTokens":number(view.reserve_tokens),"keepRecentTokens":number(view.keep_recent_tokens)});
+            if let Some(percent) = view.threshold_percent { output["thresholdPercent"] = number(percent); }
+            output
+        }),
         "branchSummary": {
             "reserveTokens": number(manager.get_branch_summary_settings().reserve_tokens),
             "skipPrompt": manager.get_branch_summary_settings().skip_prompt,
         },
-        "retry": {
-            "enabled": manager.get_retry_settings().enabled,
-            "maxRetries": number(manager.get_retry_settings().max_retries),
-            "baseDelayMs": number(manager.get_retry_settings().base_delay_ms),
-        },
+        "retry": manager.get_retry_settings().map_or(json!("ERROR"), |view| json!({"enabled":view.enabled,"maxRetries":number(view.max_retries),"baseDelayMs":number(view.base_delay_ms),"maxBackoffMs":number(view.max_backoff_ms)})),
         "providerRetry": provider_retry_snapshot(manager),
         "httpIdleTimeoutMs": manager.get_http_idle_timeout_ms().map_or(Value::String("ERROR".to_owned()), |value| json!(value)),
         "websocketConnectTimeoutMs": manager.get_websocket_connect_timeout_ms().map_or(Value::String("ERROR".to_owned()), |value| json!(value)),
         "hideThinkingBlock": manager.get_hide_thinking_block(),
-        "showCacheMissNotices": manager.get_show_cache_miss_notices(),
+        "hideToolOutput": manager.get_hide_tool_output(),
+        "hideCoordinationMessages": manager.get_hide_coordination_messages(),
+        "idleCompaction": manager.get_idle_compaction_enabled(),
         "shellPath": option_str(manager.get_shell_path().as_deref()),
         "sessionDir": option_str(manager.get_session_dir().as_deref()),
         "quietStartup": manager.get_quiet_startup(),
@@ -417,9 +392,6 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "imageWidthCells": number(manager.get_image_width_cells()),
         "clearOnShrink": manager.get_clear_on_shrink(),
         "showTerminalProgress": manager.get_show_terminal_progress(),
-        "tuiMode": match manager.get_tui_mode() { TuiMode::Fullscreen => "fullscreen", TuiMode::Regular => "regular" },
-        "fullscreenExitOutput": match manager.get_fullscreen_exit_output() { FullscreenExitOutput::ResumeHint => "resume-hint", FullscreenExitOutput::Transcript => "transcript" },
-        "fullscreenScrollbar": match manager.get_fullscreen_scrollbar() { ScrollViewScrollbar::Always => "always", ScrollViewScrollbar::Hidden => "hidden", ScrollViewScrollbar::Auto => "auto" },
         "imageAutoResize": manager.get_image_auto_resize(),
         "blockImages": manager.get_block_images(),
         "enabledModels": manager.get_enabled_models(),
@@ -430,7 +402,6 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "outputPad": manager.get_output_pad(),
         "autocompleteMaxVisible": number(manager.get_autocomplete_max_visible()),
         "codeBlockIndent": manager.get_code_block_indent(),
-        "mermaidRenderingMode": match manager.get_mermaid_rendering_mode() { MermaidRenderingMode::Off => "off", MermaidRenderingMode::Final => "final", MermaidRenderingMode::Streaming => "streaming" },
         "warnings": Value::Object(manager.get_warnings()),
         "permissionPromptTool": manager.get_permission_prompt_tool(),
         "agentProfiles": {
@@ -471,6 +442,36 @@ fn number(value: f64) -> Value {
 fn scenarios() -> Vec<Scenario> {
     vec![
         Scenario {
+            name: "repin-validation-and-catalog",
+            global: None,
+            project: None,
+            steps: vec![
+                json!({"op":"apply_overrides","value":{"retry":{"baseDelayMs":-1},"compaction":{"thresholdPercent":0}}}),
+                json!({"op":"apply_overrides","value":{"retry":{"baseDelayMs":0,"maxBackoffMs":0},"compaction":{"thresholdPercent":100,"idle":false}}}),
+                json!({"op":"apply_overrides","value":{"retry":{"baseDelayMs":1.5,"maxBackoffMs":300000},"compaction":{"thresholdPercent":100.01}}}),
+                json!({"op":"apply_overrides","value":{"retry":{"baseDelayMs":2147483647,"maxBackoffMs":2147483647},"compaction":{"thresholdPercent":0.01}}}),
+                json!({"op":"apply_overrides","value":{"retry":{"baseDelayMs":2147483648_i64},"compaction":{"thresholdPercent":null}}}),
+                json!({"op":"apply_overrides","value":{"retry":{"baseDelayMs":9007199254740992_i64,"maxBackoffMs":-1},"compaction":{"thresholdPercent":"50"}}}),
+                json!({"op":"apply_overrides","value":{"retry":{"baseDelayMs":30,"maxBackoffMs":29}}}),
+                json!({"op":"apply_overrides","value":{"retry":{"baseDelayMs":null,"maxBackoffMs":null}}}),
+                json!({"op":"apply_overrides","value":{"retry":{"baseDelayMs":1,"maxBackoffMs":1.5}}}),
+                json!({"op":"apply_overrides","value":{"retry":{"baseDelayMs":1,"maxBackoffMs":2147483648_i64}}}),
+            ],
+        },
+        Scenario {
+            name: "one-level-overlay",
+            global: Some(
+                r#"{"agents":{"implement":{"model":"global","tools":["read"]}},"retry":{"provider":{"timeoutMs":10,"maxRetries":2}},"permissionRules":{"allow":{"read":["global"]}},"extensions":["global"],"terminal":{"showImages":false}}"#,
+            ),
+            project: Some(
+                r#"{"agents":{"implement":{"thinkingLevel":"low"}},"retry":{"provider":{"maxRetries":3}},"permissionRules":{"allow":{"write":["project"]}},"extensions":[],"terminal":null}"#,
+            ),
+            steps: vec![
+                json!({"op":"flush"}),
+                json!({"op":"apply_overrides","value":{"agents":{"implement":null},"retry":null,"permissionRules":{"allow":[]}}}),
+            ],
+        },
+        Scenario {
             name: "defaults-and-global-writes",
             global: None,
             project: None,
@@ -480,8 +481,6 @@ fn scenarios() -> Vec<Scenario> {
                 json!({"op": "set_default_model", "value": "claude-sonnet"}),
                 json!({"op": "set_default_provider", "value": "anthropic"}),
                 json!({"op": "set_show_images", "value": false}),
-                json!({"op": "set_mermaid_rendering_mode", "value": "final"}),
-                json!({"op": "set_tui_mode", "value": "fullscreen"}),
                 json!({"op": "flush"}),
             ],
         },
@@ -534,9 +533,7 @@ fn scenarios() -> Vec<Scenario> {
         },
         Scenario {
             name: "invalid-stored-values",
-            global: Some(
-                r#"{"tuiMode":"other","outputPad":2,"markdown":{"mermaid":"sometimes","codeBlockIndent":"\t"},"httpIdleTimeoutMs":-1,"websocketConnectTimeoutMs":"disabled","fullscreenExitOutput":"nothing","fullscreenScrollbar":"sometimes","terminal":{"imageWidthCells":-5,"showImages":false},"editorPaddingX":9,"autocompleteMaxVisible":1,"enabledModels":[],"agents":{"explore":{"model":"faux/explore","thinkingLevel":"minimal"}},"thinkingBudgets":{"low":10},"warnings":{"anthropicExtraUsage":false},"permissionPromptTool":"mcp__x"}"#,
-            ),
+            global: Some(),
             project: None,
             steps: vec![json!({"op": "flush"})],
         },
@@ -584,14 +581,13 @@ fn scenarios() -> Vec<Scenario> {
                 json!({"op": "set_compaction_enabled", "value": false}),
                 json!({"op": "set_retry_enabled", "value": false}),
                 json!({"op": "set_hide_thinking_block", "value": true}),
-                json!({"op": "set_show_cache_miss_notices", "value": true}),
+                json!({"op": "set_hide_tool_output", "value": true}),
+                json!({"op": "set_hide_coordination_messages", "value": true}),
                 json!({"op": "set_quiet_startup", "value": true}),
                 json!({"op": "set_default_project_trust", "value": "never"}),
                 json!({"op": "set_collapse_changelog", "value": true}),
                 json!({"op": "set_enable_install_telemetry", "value": false}),
                 json!({"op": "set_enable_skill_commands", "value": false}),
-                json!({"op": "set_fullscreen_exit_output", "value": "resume-hint"}),
-                json!({"op": "set_fullscreen_scrollbar", "value": "hidden"}),
                 json!({"op": "set_double_escape_action", "value": "fork"}),
                 json!({"op": "set_tree_filter_mode", "value": "labeled-only"}),
                 json!({"op": "set_default_model_and_provider", "provider": "openai", "model": "gpt-5.5"}),

@@ -44,8 +44,9 @@ async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir:
 			case "set_compaction_enabled": manager.setCompactionEnabled(step.value); break;
 			case "set_retry_enabled": manager.setRetryEnabled(step.value); break;
 			case "set_http_idle_timeout_ms": manager.setHttpIdleTimeoutMs(step.value); break;
-			case "set_hide_thinking_block": manager.setHideThinkingBlock(step.value); break;
-			case "set_show_cache_miss_notices": manager.setShowCacheMissNotices(step.value); break;
+			case "set_hide_tool_output": manager.setHideToolOutput(step.value); break;
+            case "set_hide_coordination_messages": manager.setHideCoordinationMessages(step.value); break;
+            case "set_hide_thinking_block": manager.setHideThinkingBlock(step.value); break;
 			case "set_shell_path": manager.setShellPath(step.value ?? undefined); break;
 			case "set_quiet_startup": manager.setQuietStartup(step.value); break;
 			case "set_default_project_trust": manager.setDefaultProjectTrust(step.value); break;
@@ -68,9 +69,6 @@ async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir:
 			case "set_image_width_cells": manager.setImageWidthCells(step.value); break;
 			case "set_clear_on_shrink": manager.setClearOnShrink(step.value); break;
 			case "set_show_terminal_progress": manager.setShowTerminalProgress(step.value); break;
-			case "set_tui_mode": manager.setTuiMode(step.value); break;
-			case "set_fullscreen_exit_output": manager.setFullscreenExitOutput(step.value); break;
-			case "set_fullscreen_scrollbar": manager.setFullscreenScrollbar(step.value); break;
 			case "set_image_auto_resize": manager.setImageAutoResize(step.value); break;
 			case "set_block_images": manager.setBlockImages(step.value); break;
 			case "set_enabled_models": manager.setEnabledModels(step.value ?? undefined, step.scope); break;
@@ -80,7 +78,6 @@ async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir:
 			case "set_editor_padding_x": manager.setEditorPaddingX(step.value); break;
 			case "set_output_pad": manager.setOutputPad(step.value); break;
 			case "set_autocomplete_max_visible": manager.setAutocompleteMaxVisible(step.value); break;
-			case "set_mermaid_rendering_mode": manager.setMermaidRenderingMode(step.value); break;
 			case "set_warnings": manager.setWarnings(step.value); break;
 			case "apply_overrides": manager.applyOverrides(step.value); break;
 			case "reload": await manager.reload(); break;
@@ -134,7 +131,9 @@ function snapshot(manager: SettingsManagerInstance): unknown {
 		httpIdleTimeoutMs: safe(() => manager.getHttpIdleTimeoutMs()),
 		websocketConnectTimeoutMs: safe(() => manager.getWebSocketConnectTimeoutMs()),
 		hideThinkingBlock: safe(() => manager.getHideThinkingBlock()),
-		showCacheMissNotices: safe(() => manager.getShowCacheMissNotices()),
+        hideToolOutput: safe(() => manager.getHideToolOutput()),
+        hideCoordinationMessages: safe(() => manager.getHideCoordinationMessages()),
+        idleCompaction: safe(() => manager.getIdleCompactionEnabled()),
 		shellPath: safe(() => manager.getShellPath()),
 		sessionDir: safe(() => manager.getSessionDir()),
 		quietStartup: safe(() => manager.getQuietStartup()),
@@ -157,9 +156,6 @@ function snapshot(manager: SettingsManagerInstance): unknown {
 		imageWidthCells: safe(() => manager.getImageWidthCells()),
 		clearOnShrink: safe(() => manager.getClearOnShrink()),
 		showTerminalProgress: safe(() => manager.getShowTerminalProgress()),
-		tuiMode: safe(() => manager.getTuiMode()),
-		fullscreenExitOutput: safe(() => manager.getFullscreenExitOutput()),
-		fullscreenScrollbar: safe(() => manager.getFullscreenScrollbar()),
 		imageAutoResize: safe(() => manager.getImageAutoResize()),
 		blockImages: safe(() => manager.getBlockImages()),
 		enabledModels: safe(() => manager.getEnabledModels()),
@@ -170,7 +166,6 @@ function snapshot(manager: SettingsManagerInstance): unknown {
 		outputPad: safe(() => manager.getOutputPad()),
 		autocompleteMaxVisible: safe(() => manager.getAutocompleteMaxVisible()),
 		codeBlockIndent: safe(() => manager.getCodeBlockIndent()),
-		mermaidRenderingMode: safe(() => manager.getMermaidRenderingMode()),
 		warnings: safe(() => manager.getWarnings()),
 		permissionPromptTool: safe(() => manager.getPermissionPromptTool()),
 		agentProfiles: {

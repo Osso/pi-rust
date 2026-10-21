@@ -1,5 +1,12 @@
 # settings-manager.ts traceability
 
+## Phase1 repin in progress (4f9e6f8a4)
+
+Governing contract: [settings-manager](../../specs/settings-manager.md). One-level overlay, literal shellPath, steering all, validated retry base/cap, percentage helper, idle and visibility APIs replace old behavior. RED evidence: `/tmp/pi-rust-repin-settings/red-settings.txt`, `red-differential.txt`, `red-validation.txt`. GREEN pending caller integration.
+
+Main explicitly stages old-only UI APIs (`tuiMode`, fullscreen exit/scrollbar, cache-miss notices, markdown mermaid) unchanged until coupled Phase3 consumer deletion. Do not count those as frozen parity. Retry runtime, percentage/idle compaction consumers, display hiding and relay runtime remain TODO. Historical proof below predates repin and is not new-pin proof.
+
+
 Source: `packages/coding-agent/src/core/settings-manager.ts` (1442 lines, pinned revision in
 `docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent/src/core/settings_manager.rs`.
 
