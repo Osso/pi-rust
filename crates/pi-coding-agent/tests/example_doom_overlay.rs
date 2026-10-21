@@ -75,13 +75,16 @@ impl example::doom_engine::DoomModule for Module {
         }
     }
 }
-struct Backend(Trace);
+struct Backend(Trace, bool);
 impl ExtensionUiTuiBackend for Backend {
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("Doom does not create an editor")
     }
     fn request_render(&self) {
         self.0.lock().unwrap().push(json!(["requestRender"]));
+        if self.1 {
+            pi_coding_agent::utils::uncaught::throw_uncaught("Error", "fixture render request failed");
+        }
     }
     fn request_render_force(&self) {
         panic!("no force render")
@@ -204,7 +207,7 @@ impl ExtensionUiContext for Ui {
                 let actions = trace.clone();
                 let component = match factory(
                     ExtensionUiFactoryContext {
-                        tui: ExtensionUiTui::new(Arc::new(Backend(trace.clone()))),
+                        tui: ExtensionUiTui::new(Arc::new(Backend(trace.clone(), current["renderError"] == true))),
                         theme,
                         keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
                     },
@@ -459,6 +462,7 @@ async fn component_frames_input_releases_timer_and_disposal_match_pinned() {
 }
 #[tokio::test]
 async fn component_timer_errors_exit_but_key_errors_remain_uncaught() {
+    compare(json!({"kind":"component","renderError":true,"steps":[{"ms":28},{"ms":28}]})).await;
     compare(json!({"kind":"component","tickError":true,"steps":[{"ms":28},{"ms":28}]})).await;
     for (resume, n, steps) in [
         (true, 1, json!([])),

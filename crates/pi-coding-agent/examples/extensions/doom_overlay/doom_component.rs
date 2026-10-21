@@ -7,7 +7,7 @@ use std::{
 };
 
 use pi_coding_agent::core::extensions::{ExtensionUiComponent, ExtensionUiDone, ExtensionUiTui};
-use pi_coding_agent::utils::uncaught::{ERROR, throw_uncaught};
+use pi_coding_agent::utils::uncaught::{ERROR, swallow_panics, throw_uncaught};
 use pi_js_compat::js_json::JsString;
 use tokio::task::JoinHandle;
 
@@ -83,15 +83,25 @@ fn spawn_game_loop(
             if !running.get() {
                 return;
             }
-            let result = engine.lock().unwrap().tick();
-            if result.is_err() {
+            if !tick_and_render(&engine, &tui) {
                 running.set(false);
                 done.call(None);
                 return;
             }
-            tui.request_render();
         }
     })
+}
+
+fn tick_and_render(engine: &Mutex<DoomEngine>, tui: &ExtensionUiTui) -> bool {
+    if engine.lock().unwrap().tick().is_err() {
+        return false;
+    }
+    let mut rendered = false;
+    swallow_panics(|| {
+        tui.request_render();
+        rendered = true;
+    });
+    rendered
 }
 
 impl ExtensionUiComponent for DoomOverlayComponent {

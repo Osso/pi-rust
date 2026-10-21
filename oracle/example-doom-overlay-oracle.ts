@@ -37,7 +37,7 @@ async function run(r: any) {
   setInterval(callback: ()=>void, ms: number) {if(ms !== 1000/35)throw new Error("wrong timer");timer=callback;nextTick=clock+28;return 1;},
   clearInterval() {timer=null;},
  });
- const context = {requestRender() {trace.push(["requestRender"]);}};
+ const context = {requestRender() {trace.push(["requestRender"]);if(current.renderError)throw new Error("fixture render request failed");}};
  function drive(component: any, steps: any[]) {
   trace.push(["wantsKeyRelease",component.wantsKeyRelease]);
   for (const step of steps) {
