@@ -10,11 +10,12 @@ Rust authority: `crates/pi-ai/src/utils/validation.rs`; helper modules
 `validation_regex.rs`, `validation_formats.rs`, `validation_idna.rs`, and
 `validation_hash.rs` implement frozen dependent-engine semantics.
 
-On `019e13b4`, sandboxed `cargo test -p pi-ai --test validation --test
-differential_validation` passes 28 units and five differential tests. The new
-`lossless_utf16_validation_matches_frozen_typescript` matrix has 224 cases:
-117 text/schema combinations; 14 raw-key/pattern/ref/enum/hash cases; 30 TypeBox
-coercions; 63 format cases (valid, invalid, lone surrogate for each of 21 defaults).
+On production revision `019e13b4`, sandboxed `cargo test -p pi-ai --test validation
+--test differential_validation` passes 28 units and five differential tests. Test-only
+revision `1933a5db` extends and passes the lossless differential without changing
+production code. `lossless_utf16_validation_matches_frozen_typescript` has 227 cases:
+117 text/schema combinations; 16 raw-key/pattern/ref/enum/hash cases; 31 TypeBox
+coercions (including non-Unicode record matching); 63 format cases (valid, invalid, lone surrogate for each of 21 defaults).
 `cargo check -p pi-ai --lib` and package formatting pass without warnings.
 Evidence and code hashes: `/tmp/pi-rust-repin-lossless-validation/proof-ledger.json`
 and `mutants.json`. No downstream build, clippy, broad suite, or independent gate
@@ -72,7 +73,7 @@ worktree. Raw observations: `/tmp/pi-rust-repin-validation/boundary-source.jsonl
   hidden-kind evidence and candidate API are recorded in
   `/tmp/pi-rust-repin-validation/API-PACKET.md`; that proposal is not an approved API.
 - The previous backreference mismatch (`^(a)\\1$` on `aa`) is closed by the
-  lossless ECMAScript engine and covered by a unit plus the 224-case differential.
+  lossless ECMAScript engine and covered by a unit plus the 227-case differential.
 - Direct core argument `1` and schema `false` probes are outside the standing
   typed-core invalid-JavaScript-input policy, not required API-widening gaps.
   Frozen `types.ts:378` requires `ToolCall.arguments: Record<string, any>`;
@@ -124,7 +125,7 @@ restored. Logs and exact source hashes are in
 | TypeScript | Rust | Test |
 |---|---|---|
 | `validateToolCall` | `validate_tool_call` | `validate_tool_call_reports_unknown_tool_names`, `validate_tool_call_validates_matching_tools`, differential `tool_call_lookup_matches_the_pinned_typescript_module` |
-| `validateToolArguments` | `validate_arguments`, `validate_tool_arguments` | 28 units; existing matrices plus 224 lossless cases |
+| `validateToolArguments` | `validate_arguments`, `validate_tool_arguments` | 28 units; existing matrices plus 227 lossless cases |
 | no normalization in current source | removed old `normalize_optional_nulls` | new 50-case null/order matrix; `optional_nulls_are_converted_without_deleting_properties` |
 | `Value.Convert` (`FromType` dispatch) | `convert` + `convert_*` + `try_*` | `typebox-*` differential cases, including `typebox-bigint-like-strings` |
 | `CheckSchema` inside keywords | `check` (standalone sub-schema) / `check_with` (caller schema stack) | `plain-contains-ref`, `plain-not-ref`, `plain-any-of-ref`, `plain-additional-properties-ref` |

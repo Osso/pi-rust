@@ -29,7 +29,9 @@ Trace: [validation](../porting/traceability/validation.md).
 - `validate_arguments(&JsValue schema, &JsValue arguments, bool typebox_kind,
   &str tool_name)` is the validation/coercion authority and returns `JsValue`.
   Arguments, object keys, schema string literals, issue paths and error messages
-  retain UTF-16 units. No serde value round-trip or replacement decoding occurs.
+  retain UTF-16 units. Argument storage, coercion and output never round-trip through
+  serde values or replace unmatched surrogates. Temporary frozen URL/hash encoding
+  behavior is explicit below.
 - Tool entrypoints return `JsValue`; checkpoint `ToolCall` still has scalar JSON
   storage and adapts losslessly into this authority. The content lane replaces that
   input construction once `ToolCall.arguments` becomes `JsObject`.
@@ -43,9 +45,9 @@ Trace: [validation](../porting/traceability/validation.md).
 ## Current proof boundary
 
 This re-pin repairs optional-null normalization and declared union-arm coercion
-order. It does not establish whole-module parity. The current-pin nullable-array
-compiler throw, nested TypeBox metadata representation, and other engine limitations remain unresolved in the traceability
-document. Direct core calls with non-object arguments or primitive schemas are
+order. It does not establish whole-module parity. Nullable-array handling follows
+its approved guarded-source delta. Nested TypeBox metadata representation and other
+engine limitations remain explicit in the traceability document. Direct core calls with non-object arguments or primitive schemas are
 outside the standing typed-core input policy: frozen `ToolCall.arguments` is
 `Record<string, any>` and `Tool.parameters` extends `TSchema` (`types.ts:378,478–481`).
 This does not exclude raw persisted JSON or valid nested JSON values.
@@ -54,8 +56,9 @@ This does not exclude raw persisted JSON or valid nested JSON values.
 
 The default TypeBox format registry is enforced, including unknown-format success,
 Unicode/IDN hostnames, dates/times, IPs, pointers, URI/IRI, and ECMAScript regex formats.
-Unmatched surrogates stay intact through NFC normalization. WHATWG URL checks convert
-their temporary parse input to USVString exactly as the frozen constructor does.
+Unmatched surrogates stay intact through NFC normalization. WHATWG URL checks and
+reference resolution convert temporary parse input to USVString as the frozen
+constructor does; unmatched-surrogate anchors can consequently alias.
 
 `uniqueItems` uses frozen FNV-1a hashing, not structural equality. Its TextEncoder
 step replaces unmatched surrogates: distinct lone-surrogate strings can therefore
