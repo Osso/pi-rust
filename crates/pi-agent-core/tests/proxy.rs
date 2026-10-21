@@ -110,6 +110,74 @@ async fn collect(
 }
 
 #[tokio::test]
+async fn proxy_stream_preserves_utf16_deltas_arguments_and_request_context() {
+    use pi_ai::types::AssistantContent;
+    use pi_js_compat::js_json::{JsValue, parse_lossless};
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let events = [
+        r#"{"type":"start"}"#,
+        r#"{"type":"text_start","contentIndex":0}"#,
+        r#"{"type":"text_delta","contentIndex":0,"delta":"\ud800"}"#,
+        r#"{"type":"text_delta","contentIndex":0,"delta":"😀"}"#,
+        r#"{"type":"text_delta","contentIndex":0,"delta":"\udfff"}"#,
+        r#"{"type":"text_end","contentIndex":0}"#,
+        r#"{"type":"thinking_start","contentIndex":1}"#,
+        r#"{"type":"thinking_delta","contentIndex":1,"delta":"\udfff"}"#,
+        r#"{"type":"thinking_end","contentIndex":1}"#,
+        r#"{"type":"toolcall_start","contentIndex":2,"id":"call","toolName":"probe"}"#,
+        r#"{"type":"toolcall_delta","contentIndex":2,"delta":"{\"\ud800\":\"\udfff\"}"}"#,
+        r#"{"type":"toolcall_end","contentIndex":2}"#,
+    ];
+    let mut wire = events
+        .iter()
+        .map(|event| format!("data: {event}\n\n"))
+        .collect::<String>();
+    wire.push_str(
+        &String::from_utf8(sse(&[
+            json!({"type":"done","reason":"stop","usage":pi_ai::types::Usage::default()}),
+        ]))
+        .unwrap(),
+    );
+    let fetch = Arc::new(ScriptedFetch {
+        status: 200,
+        status_text: "OK".into(),
+        chunks: wire.as_bytes().chunks(1).map(<[u8]>::to_vec).collect(),
+        requests: Arc::clone(&requests),
+        honour_cancel: false,
+    });
+    let user: pi_ai::types::UserMessage =
+        serde_json::from_str(r#"{"role":"user","content":"\ud800","timestamp":0}"#).unwrap();
+    let context = Context {
+        system_prompt: None,
+        messages: vec![pi_ai::types::Message::User(user)],
+        tools: None,
+    };
+    let (_, result) = collect(stream_proxy(model(), context, options(fetch, None))).await;
+    assert_eq!(result.stop_reason, StopReason::Stop, "{:?}", result.error_message);
+    let AssistantContent::Text(text) = &result.content[0] else {
+        panic!("text block");
+    };
+    assert_eq!(text.text.units(), &[0xd800, 0xd83d, 0xde00, 0xdfff]);
+    let AssistantContent::Thinking(thinking) = &result.content[1] else {
+        panic!("thinking block");
+    };
+    assert_eq!(thinking.thinking.units(), &[0xdfff]);
+    let AssistantContent::ToolCall(call) = &result.content[2] else {
+        panic!("tool call");
+    };
+    assert_eq!(
+        JsValue::Object(call.arguments.clone()),
+        parse_lossless(r#"{"\ud800":"\udfff"}"#).unwrap()
+    );
+    let requests = requests.lock().unwrap();
+    let body = parse_lossless(String::from_utf8(requests[0].body.clone().unwrap()).unwrap()).unwrap();
+    assert_eq!(
+        body["context"]["messages"][0]["content"].as_string().unwrap().units(),
+        &[0xd800]
+    );
+}
+
+#[tokio::test]
 async fn reconstructs_tool_call_from_deltas_without_trusting_end_payload() {
     let requests = Arc::new(Mutex::new(Vec::new()));
     let body = sse(&[
@@ -164,7 +232,7 @@ async fn reconstructs_tool_call_from_deltas_without_trusting_end_payload() {
     assert_eq!(tool_call.namespace, None);
     assert_eq!(
         tool_call.arguments,
-        json!({"value": "hello"}).as_object().unwrap().clone()
+        pi_js_compat::js_json!({"value": "hello"}).as_object().unwrap().clone()
     );
     assert_eq!(result.content.len(), 1);
     let pi_ai::types::AssistantContent::ToolCall(tool_call) = &result.content[0] else {

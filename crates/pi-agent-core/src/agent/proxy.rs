@@ -23,8 +23,7 @@ use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 /// Proxy event types: the server strips `partial` to reduce bandwidth.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
+#[derive(Debug, Clone)]
 pub enum ProxyAssistantMessageEvent {
     Start,
     TextStart {
@@ -36,7 +35,6 @@ pub enum ProxyAssistantMessageEvent {
     },
     TextEnd {
         content_index: usize,
-        #[serde(default)]
         content_signature: Option<String>,
     },
     ThinkingStart {
@@ -48,7 +46,6 @@ pub enum ProxyAssistantMessageEvent {
     },
     ThinkingEnd {
         content_index: usize,
-        #[serde(default)]
         content_signature: Option<String>,
     },
     ToolcallStart {
@@ -69,12 +66,90 @@ pub enum ProxyAssistantMessageEvent {
     },
     Error {
         reason: ErrorReason,
-        #[serde(default)]
         error_message: Option<String>,
         usage: Usage,
     },
-    #[serde(other)]
     Unknown,
+}
+
+impl<'de> Deserialize<'de> for ProxyAssistantMessageEvent {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        decode_proxy_event(&value).map_err(serde::de::Error::custom)
+    }
+}
+
+fn proxy_field<T: serde::de::DeserializeOwned>(value: &JsValue, name: &'static str) -> Result<T, serde_json::Error> {
+    let field = value
+        .get(name)
+        .ok_or_else(|| <serde_json::Error as serde::de::Error>::missing_field(name))?;
+    pi_js_compat::js_json::from_value(field)
+}
+
+fn optional_proxy_field<T: serde::de::DeserializeOwned>(
+    value: &JsValue,
+    name: &'static str,
+) -> Result<Option<T>, serde_json::Error> {
+    value
+        .get(name)
+        .map(pi_js_compat::js_json::from_value)
+        .transpose()
+        .map(Option::flatten)
+}
+
+fn decode_proxy_event(value: &JsValue) -> Result<ProxyAssistantMessageEvent, serde_json::Error> {
+    use ProxyAssistantMessageEvent as Event;
+    let kind: JsString = proxy_field(value, "type")?;
+    let index = || proxy_field(value, "contentIndex");
+    let delta = || proxy_field(value, "delta");
+    let signature = || optional_proxy_field(value, "contentSignature");
+    Ok(match kind {
+        kind if kind == "start" => Event::Start,
+        kind if kind == "text_start" => Event::TextStart {
+            content_index: index()?,
+        },
+        kind if kind == "text_delta" => Event::TextDelta {
+            content_index: index()?,
+            delta: delta()?,
+        },
+        kind if kind == "text_end" => Event::TextEnd {
+            content_index: index()?,
+            content_signature: signature()?,
+        },
+        kind if kind == "thinking_start" => Event::ThinkingStart {
+            content_index: index()?,
+        },
+        kind if kind == "thinking_delta" => Event::ThinkingDelta {
+            content_index: index()?,
+            delta: delta()?,
+        },
+        kind if kind == "thinking_end" => Event::ThinkingEnd {
+            content_index: index()?,
+            content_signature: signature()?,
+        },
+        kind if kind == "toolcall_start" => Event::ToolcallStart {
+            content_index: index()?,
+            id: proxy_field(value, "id")?,
+            tool_name: proxy_field(value, "toolName")?,
+        },
+        kind if kind == "toolcall_delta" => Event::ToolcallDelta {
+            content_index: index()?,
+            delta: delta()?,
+        },
+        kind if kind == "toolcall_end" => Event::ToolcallEnd {
+            content_index: index()?,
+        },
+        kind if kind == "done" => Event::Done {
+            reason: proxy_field(value, "reason")?,
+            usage: proxy_field(value, "usage")?,
+        },
+        kind if kind == "error" => Event::Error {
+            reason: proxy_field(value, "reason")?,
+            error_message: optional_proxy_field(value, "errorMessage")?,
+            usage: proxy_field(value, "usage")?,
+        },
+        _ => Event::Unknown,
+    })
 }
 
 /// Options for [`stream_proxy`].
