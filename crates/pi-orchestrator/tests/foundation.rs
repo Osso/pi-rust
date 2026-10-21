@@ -113,3 +113,38 @@ fn storage_absent_delete_corrupt_json_unknown_fields_and_enum_wire_values() {
         serde_json::from_value(json!({"heartbeatIntervalMs":1000,"expiresInMs":2000})).unwrap();
     assert_eq!(registration.heartbeat_interval_ms, 1000);
 }
+
+#[test]
+fn config_no_home_matches_frozen_os_homedir() {
+    if std::env::var_os("ORCHESTRATOR_HOME_PROBE").is_some() {
+        println!(
+            "HOME_PROBE={}",
+            pi_orchestrator::config::Config::from_environment().dir.display()
+        );
+        return;
+    }
+    let result = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "config_no_home_matches_frozen_os_homedir", "--nocapture"])
+        .env("ORCHESTRATOR_HOME_PROBE", "1")
+        .env_remove("HOME")
+        .env_remove("PI_CONFIG_DIR")
+        .env_remove("PI_ORCHESTRATOR_DIR")
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    let text = String::from_utf8(result.stdout).unwrap();
+    let actual = text.lines().find_map(|line| line.strip_prefix("HOME_PROBE=")).unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
+    let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+    let output = std::process::Command::new(source.join("node_modules/.bin/tsx"))
+        .arg("--tsconfig")
+        .arg(source.join("tsconfig.json"))
+        .arg(root.join("oracle/orchestrator-home-oracle.mjs"))
+        .arg(source)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(actual, String::from_utf8(output.stdout).unwrap().trim());
+}

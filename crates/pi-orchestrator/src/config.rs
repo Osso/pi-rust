@@ -42,7 +42,8 @@ pub struct Config {
 impl Config {
     pub fn from_environment() -> Self {
         let env = std::env::vars().collect();
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = std::env::home_dir().expect("OS home directory unavailable");
+        let home = home.to_string_lossy();
         Self {
             dir: orchestrator_dir(&env, &home),
         }
