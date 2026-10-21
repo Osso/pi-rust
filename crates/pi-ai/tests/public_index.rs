@@ -76,6 +76,9 @@ fn crate_root_reexports_are_usable() {
         &pi_ai::AssistantMessage::empty("api", "provider", "model", 0),
         Some(1.0)
     ));
+    assert!(!pi_ai::is_codex_cybersecurity_restriction(
+        &pi_ai::AssistantMessage::empty("api", "provider", "model", 0)
+    ));
     assert!(!pi_ai::is_retryable_assistant_error(&pi_ai::AssistantMessage::empty(
         "api", "provider", "model", 0
     )));

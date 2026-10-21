@@ -106,7 +106,7 @@ fn classifies_provider_retry_errors() {
     assert!(is_retryable_assistant_error(&error(
         "{\"message\":\"The system encountered an unexpected error during processing. Try your request again.\"}"
     )));
-    assert!(is_retryable_assistant_error(&error(
+    assert!(!is_retryable_assistant_error(&error(
         "ResourceExhausted: Worker local total request limit reached (288/48)"
     )));
     assert!(is_retryable_assistant_error(&error(
@@ -115,14 +115,14 @@ fn classifies_provider_retry_errors() {
     assert!(!is_retryable_assistant_error(&error(
         "Error: exceeded request buffer limit while retrying upstream"
     )));
-    assert!(is_retryable_assistant_error(&error(
+    assert!(!is_retryable_assistant_error(&error(
         "The pending stream has been canceled (caused by: getaddrinfo ENOTFOUND bedrock-runtime.us-east-1.amazonaws.com)"
     )));
-    assert!(is_retryable_assistant_error(&error(
+    assert!(!is_retryable_assistant_error(&error(
         "connect ENOTFOUND api.example.com"
     )));
-    assert!(is_retryable_assistant_error(&error("EAI_AGAIN api.example.com")));
-    assert!(is_retryable_assistant_error(&error(
+    assert!(!is_retryable_assistant_error(&error("EAI_AGAIN api.example.com")));
+    assert!(!is_retryable_assistant_error(&error(
         "getaddrinfo failed for api.example.com"
     )));
     assert!(is_retryable_assistant_error(&error(
@@ -361,4 +361,36 @@ async fn aborting_backoff_returns_an_aborted_message_and_reports_failure() {
         recorder_events.lock().unwrap().last().unwrap(),
         "finished:false/1/terminated"
     );
+}
+
+#[test]
+fn frozen_exact_transport_and_access_errors() {
+    for text in [
+        "WebSocket connection to 'wss://example.com' failed: Expected 101 status code",
+        "Codex error: Unable to verify Daybreak Blue access. Please try again.",
+    ] {
+        assert!(is_retryable_assistant_error(&error(text)), "{text}");
+    }
+    let mut blocked = error("This content was flagged for possible cybersecurity risk. 503");
+    blocked.api = "openai-codex-responses".into();
+    assert!(!is_retryable_assistant_error(&blocked));
+}
+
+#[test]
+fn frozen_codex_cybersecurity_wins_over_transient_suffix() {
+    for text in [
+        "This content was flagged for possible cybersecurity risk. 503",
+        "Codex error: This content was flagged for possible cybersecurity risk. timeout",
+    ] {
+        let mut blocked = error(text);
+        blocked.api = "openai-codex-responses".into();
+        assert!(!is_retryable_assistant_error(&blocked), "{text}");
+    }
+}
+
+#[test]
+fn frozen_regex_uses_javascript_characters() {
+    for text in ["rate😀limit", "rate\u{2028}limit", "ſerver error", "socKet hang up"] {
+        assert!(!is_retryable_assistant_error(&error(text)), "{text}");
+    }
 }
