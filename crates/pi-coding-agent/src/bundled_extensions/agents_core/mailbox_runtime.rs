@@ -36,6 +36,7 @@ pub struct SendAgentMessageParams {
     pub thread_id: Option<String>,
     pub to_agent_id: String,
     pub to_session_id: Option<String>,
+    pub to_host: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -156,7 +157,32 @@ pub fn send_agent_message(
     ctx: Option<&ExtensionContext>,
     on_session_message_sent: Option<&OnSessionMessageSent>,
 ) -> Result<AgentToolResult, HandlerError> {
-    if params.to_session_id.is_some() && is_main_runtime_target(&params.to_agent_id) {
+    use super::session_message_route::{is_remote_session_message, session_message_route_error};
+    let sender = current_message_sender_id(ctx)?;
+    let db = ctx.map(ExtensionContext::control_db_path).transpose()?.flatten();
+    if sender.is_some()
+        && let Some(reason) = session_message_route_error(db.as_deref(), params)?
+    {
+        let mut result = tool_result(
+            format!(
+                "Could not send agent message to {}: {reason}",
+                format_sent_message_target(
+                    &empty_direct_message(
+                        sender.as_deref().unwrap_or("unknown_subagent"),
+                        &params.to_agent_id,
+                        &params.message
+                    ),
+                    params.to_session_id.as_deref()
+                )
+            ),
+            json!({"agent":current_message_sender_agent(store, ctx)?,"message":empty_direct_message(sender.as_deref().unwrap_or("unknown_subagent"),&params.to_agent_id,&params.message)}),
+        );
+        result.is_error = Some(true);
+        return Ok(result);
+    }
+    if is_remote_session_message(params)
+        || (params.to_session_id.is_some() && is_main_runtime_target(&params.to_agent_id))
+    {
         return send_main_runtime_session_message(store, params, ctx, on_session_message_sent);
     }
     if let Some(target_error) = validate_explicit_runtime_target(store, params, ctx)? {
@@ -284,6 +310,7 @@ fn deliver_sent_agent_message(
             to_session_id,
             ctx,
             (!is_main_runtime_target(&params.to_agent_id)).then(|| params.to_agent_id.clone()),
+            params.to_host.clone(),
         )?,
         None => enqueue_runtime_mailbox_store_message(store, message, ctx)?,
     };
@@ -348,18 +375,33 @@ fn send_main_runtime_session_message(
             to_agent_id: params.to_agent_id.clone(),
         })
         .map_err(|error| HandlerError::new(error.message))?;
-    if !enqueue_runtime_session_message(store, &message, &to_session_id, ctx, None)? {
+    if !enqueue_runtime_session_message(
+        store,
+        &message,
+        &to_session_id,
+        ctx,
+        (!is_main_runtime_target(&params.to_agent_id)).then(|| params.to_agent_id.clone()),
+        params.to_host.clone(),
+    )? {
         let failed_message = mark_failed_mailbox_transport_message(store, &message)?;
         return Ok(tool_result(
             "Could not send runtime session message: runtime mailbox transport is unavailable.",
             json!({"agent": sender, "message": failed_message}),
         ));
     }
-    if let Some(callback) = on_session_message_sent {
+    let remote = super::session_message_route::is_remote_session_message(params);
+    if !remote && let Some(callback) = on_session_message_sent {
         callback(&message, &to_session_id)?;
     }
     Ok(tool_result(
-        format!("Sent message to session {to_session_id}."),
+        if remote {
+            format!(
+                "Queued message to session {to_session_id} for relay to host {}.",
+                params.to_host.as_deref().unwrap_or("")
+            )
+        } else {
+            format!("Sent message to session {to_session_id}.")
+        },
         json!({"agent": sender, "message": message}),
     ))
 }
@@ -556,6 +598,7 @@ fn enqueue_runtime_session_message(
     to_session_id: &str,
     ctx: Option<&ExtensionContext>,
     recipient_agent_id: Option<String>,
+    recipient_host: Option<String>,
 ) -> Result<bool, HandlerError> {
     let Some(ctx) = ctx else {
         return Ok(false);
@@ -574,7 +617,7 @@ fn enqueue_runtime_session_message(
         .get_session_id()
         .to_owned();
     let input = EnqueueRuntimeMailboxMessageInput {
-        recipient_host: None,
+        recipient_host,
         kind: mailbox_kind(message.kind),
         recipient: RuntimeMailboxAddress {
             agent_id: recipient_agent_id,
@@ -846,6 +889,17 @@ fn empty_direct_message(from_agent_id: &str, to_agent_id: &str, body: &str) -> A
     create_failed_mailbox_message(body, from_agent_id, MailboxMessageKindValue::Message, to_agent_id)
 }
 
+fn model_mailbox_params(mut params: Value) -> Result<Value, HandlerError> {
+    let object = params
+        .as_object_mut()
+        .ok_or_else(|| HandlerError::new("Expected mailbox arguments"))?;
+    let body = object
+        .remove("body")
+        .ok_or_else(|| HandlerError::new("Missing required body"))?;
+    object.insert("message".into(), body);
+    Ok(params)
+}
+
 pub fn register_mailbox_tools(
     pi: &ExtensionApi,
     store: Arc<MultiAgentStore>,
@@ -877,7 +931,7 @@ pub fn register_mailbox_tools(
                 let callback = send_callback.clone();
                 Box::pin(async move {
                     let params: SendAgentMessageParams =
-                        serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                        serde_json::from_value(model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
                     send_agent_message(&store, &params, Some(&ctx), callback.as_ref())
                 })
             },
@@ -909,7 +963,7 @@ pub fn register_mailbox_tools(
                 let store = Arc::clone(&store);
                 Box::pin(async move {
                     let params: ContactParentParams =
-                        serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                        serde_json::from_value(model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
                     contact_parent(&store, &params, Some(&ctx))
                 })
             },

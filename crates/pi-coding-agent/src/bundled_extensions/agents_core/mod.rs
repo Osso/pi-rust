@@ -12,6 +12,7 @@ pub mod registration;
 pub mod runtime;
 pub mod runtime_utils;
 pub mod session_factories;
+pub mod session_message_route;
 pub mod shared;
 pub mod spawn_attach_runtime;
 pub mod tool_results;

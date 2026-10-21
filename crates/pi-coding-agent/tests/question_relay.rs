@@ -32,6 +32,7 @@ struct Fixture {
     session: pi_coding_agent::core::session_manager::SharedSessionManager,
     ask: ToolDefinition,
     answer: ToolDefinition,
+    send: ToolDefinition,
 }
 impl Fixture {
     async fn new() -> Self {
@@ -78,6 +79,13 @@ impl Fixture {
         )
         .await
         .unwrap();
+        let send = extension
+            .read()
+            .tools
+            .get("send_agent_message")
+            .unwrap()
+            .definition
+            .clone();
         let ask = extension
             .read()
             .tools
@@ -99,6 +107,7 @@ impl Fixture {
             session,
             ask,
             answer,
+            send,
         }
     }
     async fn context(&self, agent: Option<&str>, requires: bool) -> ExtensionContext {
@@ -283,4 +292,52 @@ async fn blocking_reply_claims_only_child_and_request_and_returns_acceptance_des
         .collect::<Vec<_>>();
     assert_eq!(claimed.len(), 1, "answer stays claimed until tool result receipt");
     assert_eq!(claimed[0].store_ref.message_id, "ask_questions:child:same");
+}
+
+#[tokio::test]
+async fn mailbox_body_and_remote_host_are_literal_and_unknown_local_sessions_are_rejected() {
+    let f = Fixture::new().await;
+    let context = f.context(None, false).await;
+    let remote=(f.send.execute)("remote".into(),json!({"body":"  exact body\n","toAgentId":"child-on-peer","toSessionId":"remote-session","toHost":"peer-host"}),None,None,context.clone()).await.unwrap();
+    assert_ne!(remote.is_error, Some(true));
+    let messages = list_runtime_mailbox_messages(&f.db).unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].body, "  exact body\n");
+    let db = rusqlite::Connection::open(&f.db).unwrap();
+    let data: String = db
+        .query_row(
+            "SELECT data FROM multi_agent_mailbox_messages WHERE message_id = ?",
+            [&messages[0].store_ref.message_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&data).unwrap()["recipientHost"],
+        "peer-host"
+    );
+    for (params, reason) in [
+        (
+            json!({"body":"x","toAgentId":"main","toHost":"   "}),
+            "toHost must be non-empty.",
+        ),
+        (
+            json!({"body":"x","toAgentId":"main","toHost":"peer-host"}),
+            "toHost requires toSessionId.",
+        ),
+        (
+            json!({"body":"x","toAgentId":"main","toSessionId":"unknown-local"}),
+            "Unknown local session unknown-local; pass toHost for a session on another host.",
+        ),
+    ] {
+        let result = (f.send.execute)("invalid".into(), params, None, None, context.clone())
+            .await
+            .unwrap();
+        assert_eq!(result.is_error, Some(true));
+        assert!(format!("{:?}", result.content).contains(reason));
+    }
+    assert_eq!(
+        list_runtime_mailbox_messages(&f.db).unwrap().len(),
+        1,
+        "invalid routes never create messages"
+    );
 }

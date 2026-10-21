@@ -680,6 +680,7 @@ async fn mailbox_delivers_to_child_session_and_records_outbound_message() {
             thread_id: None,
             to_agent_id: "child".to_owned(),
             to_session_id: Some("child-session".to_owned()),
+            to_host: None,
         },
         Some(&ctx),
         None,
