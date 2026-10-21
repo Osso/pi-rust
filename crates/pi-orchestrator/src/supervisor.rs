@@ -137,16 +137,7 @@ impl OrchestratorSupervisor {
         Self::clear_bindings(live);
         live.lock().unwrap().process = Some(process.clone());
         self.observe_fatal_errors(&process);
-        let events = Arc::downgrade(live);
-        let event_id = process.on_event(Arc::new(move |event| {
-            let subscribers = events
-                .upgrade()
-                .map(|l| l.lock().unwrap().subscribers.values().cloned().collect::<Vec<_>>())
-                .unwrap_or_default();
-            for subscriber in subscribers {
-                subscriber(event.clone());
-            }
-        }));
+        let event_id = process.on_event(event_listener(live));
         let this = Arc::downgrade(self);
         let exited = Arc::downgrade(live);
         let exit_id = process.on_exit(Arc::new(move |_error| {
@@ -158,15 +149,7 @@ impl OrchestratorSupervisor {
                 });
             }
         }));
-        let ui = Arc::downgrade(live);
-        process.set_ui_request_handler(Some(Arc::new(move |request| {
-            let handler = ui
-                .upgrade()
-                .and_then(|l| l.lock().unwrap().ui.as_ref().map(|(_, cb)| cb.clone()));
-            if let Some(handler) = handler {
-                handler(request);
-            }
-        })));
+        process.set_ui_request_handler(Some(ui_listener(live)));
         let mut live = live.lock().unwrap();
         live.event_subscription = Some(event_id);
         live.exit_subscription = Some(exit_id);
@@ -385,6 +368,30 @@ impl RadiusPresenceCoordinator for OrchestratorSupervisor {
         self.update_instance(instance)
     }
 }
+fn event_listener(live: &Live) -> Listener {
+    let live = Arc::downgrade(live);
+    Arc::new(move |event| {
+        let subscribers = live
+            .upgrade()
+            .map(|live| live.lock().unwrap().subscribers.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for subscriber in subscribers {
+            subscriber(event.clone());
+        }
+    })
+}
+fn ui_listener(live: &Live) -> Listener {
+    let live = Arc::downgrade(live);
+    Arc::new(move |request| {
+        let handler = live
+            .upgrade()
+            .and_then(|live| live.lock().unwrap().ui.as_ref().map(|(_, callback)| callback.clone()));
+        if let Some(handler) = handler {
+            handler(request);
+        }
+    })
+}
+
 fn refresh_metadata(command: &Value) -> bool {
     matches!(
         command["type"].as_str(),

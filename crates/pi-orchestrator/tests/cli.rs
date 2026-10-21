@@ -138,3 +138,82 @@ async fn cli_one_shot_request_outputs_match_frozen() {
     }
     server.close().await;
 }
+
+#[tokio::test]
+async fn rpc_stream_only_forwards_complete_jsonl_stdin_lines() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let dir = tempfile::tempdir().unwrap();
+    let config = pi_orchestrator::config::Config { dir: dir.path().into() };
+    let listener = tokio::net::UnixListener::bind(config.socket_path()).unwrap();
+    let task = tokio::spawn(async move {
+        let mut all_requests = vec![];
+        for _ in 0..2 {
+            let (socket, _) = listener.accept().await.unwrap();
+            let (read, mut write) = socket.into_split();
+            let mut read = BufReader::new(read);
+            let mut line = String::new();
+            read.read_line(&mut line).await.unwrap();
+            write
+                .write_all(b"{\"type\":\"rpc_ready\",\"ok\":true,\"instance\":{\"id\":\"i\"}}\n")
+                .await
+                .unwrap();
+            let mut requests = vec![];
+            loop {
+                line.clear();
+                if tokio::time::timeout(std::time::Duration::from_millis(100), read.read_line(&mut line))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                requests.push(request);
+                write
+                    .write_all(b"{\"type\":\"response\",\"success\":true}\n")
+                    .await
+                    .unwrap();
+            }
+            write.shutdown().await.unwrap();
+            all_requests.push(requests);
+        }
+        all_requests
+    });
+    let input = &b"\n{\"type\":\"abort\",\"id\":\"complete\"}\n{\"type\":\"get_state\",\"id\":\"incomplete\"}"[..];
+    let mut stdout = vec![];
+    let mut stderr = vec![];
+    assert_eq!(
+        pi_orchestrator::cli::run_cli(
+            &args(&["rpc-stream", "i"]),
+            "/tmp",
+            config.clone(),
+            input,
+            &mut stdout,
+            &mut stderr
+        )
+        .await,
+        0
+    );
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
+    let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+    let mut child = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
+        .arg("--tsconfig")
+        .arg(source.join("tsconfig.json"))
+        .arg(source.join("packages/orchestrator/src/cli.ts"))
+        .args(["rpc-stream", "i"])
+        .env("PI_ORCHESTRATOR_DIR", &config.dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input).await.unwrap();
+    let output = child.wait_with_output().await.unwrap();
+    assert!(output.status.success());
+    assert_eq!(stdout, output.stdout);
+    assert_eq!(stderr, output.stderr);
+    let expected = vec![json!({"type":"abort","id":"complete"})];
+    assert_eq!(task.await.unwrap(), vec![expected.clone(), expected]);
+}

@@ -130,14 +130,7 @@ async fn execute_cli<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncWrite 
             Ok(0)
         }
         CliAction::Serve => {
-            let runtime = crate::serve::RunningOrchestrator::start_default(config).await?;
-            for line in &runtime.logs {
-                stdout
-                    .write_all(format!("{line}\n").as_bytes())
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
-            runtime.run_until_signal().await?;
+            run_serve(config, stdout).await?;
             Ok(0)
         }
     }
@@ -149,28 +142,67 @@ async fn rpc_stream<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncWrite +
     stdout: &mut W,
     stderr: &mut E,
 ) -> Result<(), String> {
-    let mut socket = tokio::net::UnixStream::connect(path).await.map_err(|e| e.to_string())?;
-    socket
-        .write_all(encode_message(&json!({"type":"rpc_stream","instanceId":id})).as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
-    stderr
-        .write_all(
-            format!("connected to rpc stream {id}; send JSONL RpcCommand or extension_ui_response on stdin\n")
-                .as_bytes(),
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-    let mut stdin = BufReader::new(stdin).lines();
+    let mut socket = connect_rpc_stream(path, id, stderr).await?;
+    let mut stdin = BufReader::new(stdin);
+    let mut input_line = Vec::new();
     let mut ended = false;
     let mut bytes = [0; 8192];
     loop {
         tokio::select! {
-            result=socket.read(&mut bytes)=>{let count=result.map_err(|e|e.to_string())?;if count==0{return Ok(());}stdout.write_all(String::from_utf8_lossy(&bytes[..count]).as_bytes()).await.map_err(|e|e.to_string())?;},
-            result=stdin.next_line(),if !ended=>match result.map_err(|e|e.to_string())?{
-                Some(line) if !line.trim().is_empty()=>{let request=parse_request_line(line.trim())?;socket.write_all(encode_message(&request).as_bytes()).await.map_err(|e|e.to_string())?;},
-                Some(_)=>{},None=>ended=true,
+            result = socket.read(&mut bytes) => {
+                let count = result.map_err(|e| e.to_string())?;
+                if count == 0 { return Ok(()); }
+                let text = String::from_utf8_lossy(&bytes[..count]);
+                stdout.write_all(text.as_bytes()).await.map_err(|e| e.to_string())?;
+            },
+            result = stdin.read_until(b'\n', &mut input_line), if !ended => {
+                result.map_err(|e| e.to_string())?;
+                ended = forward_complete_line(&mut socket, &input_line).await?;
+                input_line.clear();
             }
         }
     }
+}
+
+async fn connect_rpc_stream<E: AsyncWrite + Unpin>(
+    path: &Path,
+    id: &str,
+    stderr: &mut E,
+) -> Result<tokio::net::UnixStream, String> {
+    let mut socket = tokio::net::UnixStream::connect(path).await.map_err(|e| e.to_string())?;
+    let request = json!({"type":"rpc_stream","instanceId":id});
+    socket
+        .write_all(encode_message(&request).as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = format!("connected to rpc stream {id}; send JSONL RpcCommand or extension_ui_response on stdin\n");
+    stderr.write_all(status.as_bytes()).await.map_err(|e| e.to_string())?;
+    Ok(socket)
+}
+
+async fn forward_complete_line(socket: &mut tokio::net::UnixStream, bytes: &[u8]) -> Result<bool, String> {
+    if bytes.last() != Some(&b'\n') {
+        return Ok(true);
+    }
+    let text = String::from_utf8_lossy(bytes);
+    let line = text.trim();
+    if !line.is_empty() {
+        let request = parse_request_line(line)?;
+        socket
+            .write_all(encode_message(&request).as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(false)
+}
+
+async fn run_serve<W: AsyncWrite + Unpin>(config: Config, stdout: &mut W) -> Result<(), String> {
+    let runtime = crate::serve::RunningOrchestrator::start_default(config).await?;
+    for line in &runtime.logs {
+        stdout
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    runtime.run_until_signal().await
 }
