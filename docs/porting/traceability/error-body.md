@@ -4,12 +4,16 @@ Frozen source: `packages/ai/src/utils/error-body.ts` (127 lines), `4f9e6f8a4c006
 
 [Contract and OPEN boundaries](../../specs/error-body.md). This module is **not done**: the old scalar-safe truncation waiver is not renewed; shared public UTF-16/value representation requires user decision.
 
+## Integration provenance and verification handoff
+
+Slice `5b3b7962e061a48213ecc4eef4c93e6a74778393` merged as `b85d01795f614ca85893371c0aef2081c4b43f23`, this bounded docs audit's base. Retained proof is composite: 21 units at `5901f205`, six source functions (including 108 direct-format comparisons) at `87ef0165`, then the changed baseline group alone at `5b3b7962`; unchanged scopes retain their earlier proof. Exact scope/invalidation accounting lives in the development ledger linked below. Independent verifier 68 completed bounded verification at `b85d0179` (`/tmp/pi-rust-repin-ai-utilities-verify`): 43 focused tests, focused clippy `-D warnings` and fmt passed. This is not a fresh whole-module gate. No fresh integrated gate or whole-module parity claim.
+
 | Export / source branches | Native mapping | Behavioral proof |
 |---|---|---|
 | `MAX_PROVIDER_ERROR_BODY_CHARS = 4000` | same constant | `truncates_the_body_at_the_cap`; differential 4000/4001/4050 boundaries |
 | `NormalizedProviderError` fields | same fields, optional numeric status / String body/message | unit formatting cross-product; normalized differential field comparisons |
 | `normalizeProviderError`: non-Error branch | `ProviderErrorInput::Value` | 8 JSON value fixtures, including nested binary64 numbers and indexed object keys; remaining unknown values OPEN below |
-| Error branch; first numeric statusCode → status → metadata → response → absent | `ProviderError` optional f64 fields, `extract_status` | `first_numeric_status_wins_including_zero_and_nonfinite`; baseline 17 fixtures plus `body_and_status_selection_match_source` 4 precedence fixtures; invalid source runtime field types not represented |
+| Error branch; first numeric statusCode → status → metadata → response → absent | `ProviderError` optional f64 fields, `extract_status` | `first_numeric_status_wins_including_zero_and_nonfinite`; baseline 17 fixtures plus `body_and_status_selection_match_source` 4 precedence fixtures; nonnumeric runtime fields not represented; valid Error field shapes are not automatically excluded |
 | `pickBodyText`: top-level string body; nonempty error object; response string/object; none | `pick_body_text`; both enum string encodings select raw text, nonempty JSON arrays and objects qualify | `accepts_nonempty_array_response_bodies`, `body_selection_preserves_first_hit_even_when_empty`, `json_string_bodies_are_raw_text_in_both_sdk_fields`; selection differential 40 body fixtures crosses all JSON kinds and empty candidates |
 | `isNonEmptyObject`: object + non-null + Object.keys length > 0 | nonempty JSON object OR array | corrected source direction: TS accepts `["stream","internals"]`; old native rejected it. Empty arrays/objects rejected; primitives ignored |
 | `extractBody`: undefined; JS trim; empty; cap | existing `pi_js_compat::string::js_trim`; truncation helper | `trims_only_ecmascript_whitespace`; 11 source trim cases include BOM, NEL, NBSP, Unicode spaces/separators and non-whitespace; empty first candidate never falls through |
@@ -21,7 +25,7 @@ Frozen source: `packages/ai/src/utils/error-body.ts` (127 lines), `4f9e6f8a4c006
 
 ## Evidence and discrepancy classification
 
-Baseline targeted actual-source differential, before edits: source body `["stream","internals"]`, native null, status 400. This is a Rust bug, not a TS bug or source class-instance rule. New RED actual-source tests separately reproduce array precedence, BOM/NEL trim and JSON ordering/number mismatches; unit RED also proves JSON-encoded string bodies are ignored incorrectly. Fixes stay in the owned native module using existing compatibility helpers; no dependencies, provider/type/global API changes or fallback paths.
+Baseline targeted actual-source differential, before edits: source body `["stream","internals"]`, native null, status 400. This is a native/source mismatch, not evidence for a source class-instance restriction. New RED actual-source tests separately reproduce array precedence, BOM/NEL trim and JSON ordering/number mismatches; unit RED also proves JSON-encoded string bodies are ignored incorrectly. Fixes stay in the owned native module using existing compatibility helpers; no dependencies, provider/type/global API changes or fallback paths.
 
 The old unit assertion `truncate_error_text("a🙈b", 2) == "a... [truncated 2 chars]"` was removed as false parity evidence. Native implementation remains untouched at this boundary pending authorization. UTF-16 source response uses numeric code units so JSON transport cannot erase/reject lone surrogates.
 
