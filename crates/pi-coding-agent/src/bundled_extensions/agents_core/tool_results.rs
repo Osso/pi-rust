@@ -16,10 +16,7 @@ pub fn tool_result(text: impl Into<String>, details: Value) -> AgentToolResult {
 }
 
 pub fn error_tool_result(text: impl Into<String>, details: Value) -> AgentToolResult {
-    AgentToolResult {
-        is_error: Some(true),
-        ..tool_result(text, details)
-    }
+    tool_result(text, details)
 }
 
 pub fn empty_tool_result() -> AgentToolResult {
