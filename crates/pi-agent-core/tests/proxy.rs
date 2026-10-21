@@ -239,7 +239,7 @@ async fn reconstructs_tool_call_from_deltas_without_trusting_end_payload() {
         panic!("expected tool call content");
     };
     assert_eq!(
-        serde_json::to_value(&tool_call.arguments).unwrap(),
+        serde_json::to_value(pi_js_compat::js_json::JsValue::Object(tool_call.arguments.clone())).unwrap(),
         json!({"value": "hello"})
     );
     assert_eq!(tool_call.namespace, None);
