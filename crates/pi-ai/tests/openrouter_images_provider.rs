@@ -37,9 +37,7 @@ async fn provider_metadata_and_catalog_match_the_generated_catalog() {
     assert_eq!(provider.id(), "openrouter");
     assert_eq!(provider.name(), "OpenRouter");
     let models = provider.get_models();
-    assert_eq!(models.len(), get_image_models("openrouter").len());
-    assert_eq!(models.len(), 42);
-    assert_eq!(models[0].id, get_image_models("openrouter")[0].id);
+    assert_eq!(models, get_image_models("openrouter"));
     assert!(models.iter().all(|model| model.api == "openrouter-images"));
     assert!(provider.auth().api_key.is_some());
     assert!(provider.auth().oauth.is_some());
@@ -96,7 +94,7 @@ async fn builtin_style_collection_exposes_the_openrouter_catalog() {
         .collect();
     assert_eq!(providers, ["openrouter"]);
     let catalog = models.get_models(Some("openrouter"));
-    assert_eq!(catalog.len(), 42);
+    assert_eq!(catalog, get_image_models("openrouter"));
     assert!(catalog.iter().all(|model| model.api == "openrouter-images"));
     let first = catalog[0].clone();
     assert_eq!(

@@ -2,7 +2,7 @@
 
 Source: `packages/ai/src/providers/openrouter-images.ts`.
 Rust: `crates/pi-ai/src/providers/openrouter_images.rs`.
-Tests: `crates/pi-ai/tests/openrouter_images_provider.rs` (4 behavioral).
+Tests: `crates/pi-ai/tests/openrouter_images_provider.rs` (4 behavioral). Whole provider-flow parity at the common pin remains **OPEN**; this slice changes only static catalog expectations, not provider behavior.
 
 ## Representation
 - `openrouterImagesProvider()` → `openrouter_images_provider() -> Arc<dyn ImagesProvider>`.
@@ -15,7 +15,7 @@ Tests: `crates/pi-ai/tests/openrouter_images_provider.rs` (4 behavioral).
 | TS | Rust | Test |
 |---|---|---|
 | `createImagesProvider` metadata | `openrouter_images_provider` | `provider_metadata_and_catalog_match_the_generated_catalog` |
-| `models: Object.values(IMAGE_MODELS.openrouter)` | `get_image_models("openrouter").to_vec()` | same (42 models, order) |
+| `models: Object.values(IMAGE_MODELS.openrouter)` | `get_image_models("openrouter").to_vec()` | full ordered records, not count/first item; [bounded generated-data proof](image-models-generated.md) |
 | `envApiKeyAuth` key + `OPENROUTER_API_KEY` | `env_api_key_auth` | `api_key_auth_resolves_openrouter_api_key` |
 | unconfigured provider → no auth | api-key resolve `None` | `unconfigured_provider_reports_no_auth` |
 | `lazyOAuth` metadata | `lazy_oauth` | `provider_metadata...` (oauth present) |
@@ -27,4 +27,5 @@ Tests: `crates/pi-ai/tests/openrouter_images_provider.rs` (4 behavioral).
 - `providers/all.ts` (`builtinImagesProviders`/`builtinImagesModels`) is a separate module and remains unported; the provider itself and the equivalent collection setup are tested.
 
 ## Discrepancies
-- None.
+- Frozen provider factory has API-key auth only; native OAuth metadata remains from the old pin. No auth-flow classification/fix is made by static generated-data re-pin.
+- Mutable model-result sharing remains unclassified; see [helper open semantics](image-models.md).

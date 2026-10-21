@@ -15,26 +15,22 @@ type ImageModelsApi = {
 };
 
 function normalizeError(error: unknown): { name: string; message: string } {
-	if (error instanceof Error) return { name: error.name, message: error.message };
+	if (error instanceof Error)
+		return { name: error.name, message: error.message };
 	return { name: "UnknownError", message: String(error) };
 }
 
-function execute(request: Request, api: ImageModelsApi) {
+function execute(request: Request, api: ImageModelsApi, catalog: unknown) {
 	try {
 		switch (request.operation) {
-			case "catalog": {
-				const catalog = Object.fromEntries(
-					api.getImageProviders().map((provider) => [
-						provider,
-						Object.fromEntries(
-							api.getImageModels(provider).map((model) => [(model as { id: string }).id, model]),
-						),
-					]),
-				);
+			case "catalog":
 				return { id: request.id, ok: true, output: { catalog } };
-			}
 			case "providers":
-				return { id: request.id, ok: true, output: { providers: api.getImageProviders() } };
+				return {
+					id: request.id,
+					ok: true,
+					output: { providers: api.getImageProviders() },
+				};
 			case "models":
 				return {
 					id: request.id,
@@ -45,7 +41,13 @@ function execute(request: Request, api: ImageModelsApi) {
 				return {
 					id: request.id,
 					ok: true,
-					output: { model: api.getImageModel(request.provider ?? "", request.modelId ?? "") ?? null },
+					output: {
+						model:
+							api.getImageModel(
+								request.provider ?? "",
+								request.modelId ?? "",
+							) ?? null,
+					},
 				};
 		}
 	} catch (error) {
@@ -53,7 +55,7 @@ function execute(request: Request, api: ImageModelsApi) {
 	}
 }
 
-function serve(api: ImageModelsApi): void {
+function serve(api: ImageModelsApi, catalog: unknown): void {
 	const decoder = new StringDecoder("utf8");
 	let buffer = "";
 	process.stdin.on("data", (chunk: string | Buffer) => {
@@ -61,7 +63,9 @@ function serve(api: ImageModelsApi): void {
 		for (;;) {
 			const lineFeed = buffer.indexOf("\n");
 			if (lineFeed === -1) return;
-			process.stdout.write(`${JSON.stringify(execute(JSON.parse(buffer.slice(0, lineFeed)), api))}\n`);
+			process.stdout.write(
+				`${JSON.stringify(execute(JSON.parse(buffer.slice(0, lineFeed)), api, catalog))}\n`,
+			);
 			buffer = buffer.slice(lineFeed + 1);
 		}
 	});
@@ -69,12 +73,18 @@ function serve(api: ImageModelsApi): void {
 
 async function main(): Promise<void> {
 	const modulePath = process.argv[2];
-	if (modulePath === undefined) throw new Error("image models oracle requires a source module path");
+	if (modulePath === undefined)
+		throw new Error("image models oracle requires a source module path");
 	const api = (await import(pathToFileURL(modulePath).href)) as ImageModelsApi;
-	serve(api);
+	const { IMAGE_MODELS } = await import(
+		new URL("./image-models.generated.ts", pathToFileURL(modulePath)).href
+	);
+	serve(api, IMAGE_MODELS);
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`image models oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(
+		`image models oracle startup failed: ${normalizeError(error).message}\n`,
+	);
 	process.exitCode = 1;
 });

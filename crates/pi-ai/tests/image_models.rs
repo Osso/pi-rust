@@ -9,7 +9,6 @@ fn providers_are_listed_in_catalog_order() {
 #[test]
 fn openrouter_catalog_is_present_with_generated_values() {
     let models = get_image_models("openrouter");
-    assert_eq!(models.len(), 42);
     assert!(models.iter().all(|model| model.api == "openrouter-images"));
     assert!(models.iter().all(|model| model.provider == "openrouter"));
     assert!(
@@ -42,10 +41,26 @@ fn model_lookup_returns_generated_model_and_none_for_missing() {
     );
     assert_eq!(priced.cost.rates.cache_write, 0.375);
 
+    let flash = get_image_model("openrouter", "google/gemini-2.5-flash-image").expect("flash image");
+    assert_eq!(flash.cost.rates.cache_write.to_bits(), 0x3fb5_5555_5555_5556);
+    let quality = get_image_model("openrouter", "x-ai/grok-imagine-image-quality").expect("quality image");
+    assert_eq!(quality.name, "xAI: Grok Imagine Image Quality");
+
     let auto = get_image_model("openrouter", "openrouter/auto").expect("auto router");
     assert_eq!(auto.cost.rates.input, -1_000_000.0);
     assert_eq!(auto.cost.rates.output, -1_000_000.0);
 
+    for removed in [
+        "krea/krea-2-large",
+        "krea/krea-2-medium",
+        "krea/krea-2-medium-turbo",
+        "microsoft/mai-image-2.5-pro",
+        "openrouter/auto-beta",
+        "qwen/qwen-image-3",
+        "qwen/qwen-image-3-pro",
+    ] {
+        assert_eq!(get_image_model("openrouter", removed), None, "{removed}");
+    }
     assert_eq!(get_image_model("openrouter", "missing/model"), None);
     assert_eq!(get_image_model("missing-provider", "openrouter/auto"), None);
 }
