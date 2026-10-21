@@ -1025,7 +1025,7 @@ pub(crate) fn add_runtime_mailbox_routing(
         .collect();
     assert_runtime_mailbox_routing(&lossless, input)?;
     let mut routed = message.clone();
-    if let Some(host) = &input.recipient_host {
+    if let Some(host) = input.recipient_host.as_ref().filter(|host| !host.is_empty()) {
         routed.insert("recipientHost".into(), Value::String(host.clone()));
     }
     routed.insert(
@@ -1074,7 +1074,12 @@ pub(crate) fn assert_runtime_mailbox_routing(
         None | Some(JsValue::Null) => &default_host,
         Some(value) => value,
     };
-    let same_host = previous_host == &text(input.recipient_host.as_deref().unwrap_or(&host));
+    let input_host = input
+        .recipient_host
+        .as_deref()
+        .filter(|host| !host.is_empty())
+        .unwrap_or(&host);
+    let same_host = previous_host == &text(input_host);
     if same_recipient && same_sender && same_kind && same_host {
         return Ok(());
     }

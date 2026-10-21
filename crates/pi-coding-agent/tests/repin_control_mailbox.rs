@@ -207,10 +207,32 @@ fn frozen_source_limit_zero_discrepancy_fixture() {
     );
     step(&mut ts, "registerSelf", json!([db, address(), null]));
     let taken = step(&mut ts, "takeAll", json!([db, address(), 0]));
+    let source_claims: Vec<_> = taken
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| json!([row["storeRef"]["messageId"], row["status"]]))
+        .collect();
     assert_eq!(
-        taken.as_array().unwrap().len(),
-        2,
-        "source bug repro, not approved Rust contract"
+        source_claims,
+        vec![json!(["zero1", "claimed"]), json!(["zero2", "claimed"])]
+    );
+    let native_db = t.path().join("native.sqlite").display().to_string();
+    for id in ["zero1", "zero2"] {
+        enqueue_stored_runtime_mailbox_message(&native_db, &serde_json::from_value(input(id)).unwrap()).unwrap();
+    }
+    register(&native_db, None);
+    assert!(
+        take_runtime_mailbox_messages_for_delivery(&native_db, &address(), |_| true, 0)
+            .unwrap()
+            .is_empty()
+    );
+    let native_rows = list_runtime_mailbox_messages(&native_db).unwrap();
+    assert_eq!(native_rows.len(), 2);
+    assert!(
+        native_rows
+            .iter()
+            .all(|row| row.status == RuntimeMailboxMessageStatus::Pending)
     );
 }
 
@@ -262,12 +284,14 @@ fn frozen_source_empty_host_retry_discrepancy_fixture() {
     let response=ts.request(&json!({"id":1,"steps":[{"op":"call","args":["enqueueStoredRuntimeMailboxMessage",[db,data]]},{"op":"call","args":["enqueueStoredRuntimeMailboxMessage",[db,data]]}]}));
     assert_eq!(response["output"][0]["ok"], true);
     assert_eq!(response["output"][1]["ok"], false);
-    assert!(
-        response["output"][1]["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("conflicts with canonical mailbox row")
+    assert_eq!(
+        response["output"][1],
+        json!({"ok":false,"error":{
+            "name":"Error", "message":"Runtime mailbox store reference conflicts with canonical mailbox row: /fixture/source.jsonl#empty-host"
+        }})
     );
+    let native_retry = enqueue_stored_runtime_mailbox_message(&db, &serde_json::from_value(data).unwrap()).unwrap();
+    assert_eq!(json!(native_retry), response["output"][0]["value"]);
     step(&mut ts, "registerSelf", json!([db, address(), null]));
     assert_eq!(
         step(&mut ts, "takeAll", json!([db, address(), 1]))

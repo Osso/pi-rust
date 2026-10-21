@@ -613,11 +613,11 @@ fn deliver_runtime_mailbox_candidates(
 ) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
     let mut delivered_messages = Vec::new();
     for candidate in candidates {
-        if let Some(delivered) = deliver_runtime_mailbox_candidate(db, recipient, &candidate, now_iso)? {
-            delivered_messages.push(delivered);
-        }
         if delivered_messages.len() == limit {
             break;
+        }
+        if let Some(delivered) = deliver_runtime_mailbox_candidate(db, recipient, &candidate, now_iso)? {
+            delivered_messages.push(delivered);
         }
     }
     Ok(delivered_messages)

@@ -1,0 +1,5 @@
+{
+  "delta": "93b7d9af4434424060dd3848f6241ec4ddad3a0f",
+  "frozen": {"ok":false,"error":{"name":"Error","message":"Runtime mailbox store reference conflicts with canonical mailbox row: /fixture/sender.jsonl#retry"}},
+  "approved": {"ok":true,"value":1}
+}

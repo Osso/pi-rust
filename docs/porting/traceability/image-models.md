@@ -28,3 +28,7 @@ Tests: `crates/pi-ai/tests/image_models.rs` (5 behavioral), `crates/pi-ai/tests/
 
 ## Discrepancies
 - The concrete mutable-return counterexample is recorded in `/tmp/pi-rust-repin-image-catalog-verify/REPORT.md`; finite generated-data acceptance does not resolve it. Whole provider flow remains OPEN and unchanged by this slice.
+
+## Approved image getter delta 26c8050f
+
+`approved_image_delta` compares single/list getter mutation effects against the guarded delta. Scalar name, nested input/output vectors and cost mutations leave both registry views unchanged; independent provider/model list mutations also remain isolated. Native getters already expose immutable static references/slices, so callers clone before mutation. No API rewrite needed. Frozen source asserts exactly false isolation for each of four nested/scalar fields through each getter, with independent provider/model arrays still true. Fresh oracles prevent cross-case registry pollution.

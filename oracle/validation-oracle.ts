@@ -1,3 +1,4 @@
+import { selectApprovedModule } from "./approved-delta.mjs";
 import { StringDecoder } from "node:string_decoder";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -216,7 +217,8 @@ async function main(): Promise<void> {
 	if (sourceModulePath === undefined) {
 		throw new Error("validation oracle requires a source module path");
 	}
-	const api = (await import(pathToFileURL(sourceModulePath).href)) as ValidationApi;
+	const module = selectApprovedModule(sourceModulePath, "packages/ai/src/utils/validation.ts");
+	const api = (await import(pathToFileURL(module).href)) as ValidationApi;
 	const require = createRequire(sourceModulePath);
 	const typebox = (await import(pathToFileURL(require.resolve("typebox")).href)) as TypeboxApi;
 	serveRequests(api, typebox);
