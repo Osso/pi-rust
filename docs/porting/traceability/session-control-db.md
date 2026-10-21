@@ -82,6 +82,10 @@ Rust: `crates/pi-coding-agent/src/core/session_control_db/` (`mod.rs`, `schema.r
 
 The shared `control.sqlite` is opened by TypeScript and Rust processes at the same time. The historical inventory below maps intended contracts and earlier tests; it does not establish frozen-pin equivalence of every SQL statement, migration or transaction boundary.
 
+## Frozen persisted DDL refresh (2026-10-21)
+
+`cross_implementation_control_db::schema_text_and_pragmas_match_the_typescript_module` reproduced eight persisted `sqlite_master.sql` differences (50 objects on both sides): creation-age index, parent/empty-session indexes, channel creation/origin indexes, restriction-claim table, terminal-outbox table comment and default-birth trigger. Rust DDL strings now copy frozen bytes, including whitespace/comments (`session-control-db.ts` initialization and `MAILBOX_CREATED_AT_MS_SQL`). Fresh-schema cross-implementation tests pass all four cases, including byte-identical schema/PRAGMAs. A comment-only DDL mutant fails the exact schema assertion; restored. Existing DB definitions are not rewritten, matching source IF NOT EXISTS behavior. This is bounded persisted schema parity, not new SQL behavior or whole-module acceptance. Fresh fixture clocks and deleted-row/outbox assertions in `session_control_db` and `terminal_outbox_delivery` follow frozen creation-age expiry and canonical deletion.
+
 ## Schema and connection
 
 | Contract | Rust | Proof |

@@ -70,7 +70,8 @@ fn create_coordinator_with(
     LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.to_owned(),
         create_agent_id: Arc::new(move || Ok(create_agent_id())),
-        now: Arc::new(|| NOW.to_owned()),
+        // Frozen session-control-db.ts:2331 filters transport against Date.now().
+        now: Arc::new(pi_coding_agent::utils::iso_time::now_iso_string),
         process_identity: identity,
         session_path: session_path.to_owned(),
     })
@@ -320,7 +321,8 @@ fn rejects_finalization_from_a_different_current_process() {
     let foreign = LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: db.clone(),
         create_agent_id: Arc::new(|| Ok("unused".to_owned())),
-        now: Arc::new(|| NOW.to_owned()),
+        // Frozen session-control-db.ts:2331 filters transport against Date.now().
+        now: Arc::new(pi_coding_agent::utils::iso_time::now_iso_string),
         process_identity: test_process_identity("foreign-runtime"),
         session_path: SESSION_PATH.to_owned(),
     });

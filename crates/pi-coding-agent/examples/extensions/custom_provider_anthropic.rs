@@ -98,21 +98,21 @@ impl OAuthAuth for CustomOAuth {
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.0.clone();
         Box::pin(async move {
-            exchange_token(
-                &runtime,
-                json!({"grant_type":"refresh_token", "client_id":CLIENT_ID,
-                "refresh_token":credential.refresh}),
-                Some(signal),
-                "Token refresh failed",
-            )
-            .await
-            .map_err(Into::into)
+            use pi_js_compat::js_json::{JsObject, JsValue};
+            let body = JsValue::Object(JsObject::from_iter([
+                ("grant_type".into(), JsValue::String("refresh_token".into())),
+                ("client_id".into(), JsValue::String(CLIENT_ID.into())),
+                ("refresh_token".into(), JsValue::String(credential.refresh)),
+            ]));
+            exchange_token(&runtime, body, Some(signal), "Token refresh failed")
+                .await
+                .map_err(Into::into)
         })
     }
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access),
+                api_key: Some(credential.access_utf8()?),
                 ..Default::default()
             })
         })
@@ -121,7 +121,7 @@ impl OAuthAuth for CustomOAuth {
 
 async fn exchange_token(
     runtime: &OAuthRuntime,
-    body: Value,
+    body: impl Into<pi_js_compat::js_json::JsValue>,
     signal: Option<CancellationToken>,
     failure: &str,
 ) -> Result<OAuthCredential, CallbackError> {
@@ -132,7 +132,7 @@ async fn exchange_token(
                 method: "POST".into(),
                 url: TOKEN_URL.into(),
                 headers: vec![("Content-Type".into(), "application/json".into())],
-                body: Some(body.to_string().into_bytes()),
+                body: Some(pi_js_compat::js_json::stringify_lossless(&body.into()).into_bytes()),
             },
             signal,
         )

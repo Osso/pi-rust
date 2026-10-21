@@ -54,8 +54,8 @@ async fn device_flow_delays_polling_and_handles_pending_and_slow_down() {
     let interaction = TestInteraction::new(vec![PromptAnswer::Error("unexpected prompt".to_owned())]);
 
     let credential = oauth.login(interaction.clone()).await.expect("credential");
-    assert_eq!(credential.access, "access-token");
-    assert_eq!(credential.refresh, "refresh-token");
+    assert_eq!(credential.access.to_utf8().unwrap(), "access-token");
+    assert_eq!(credential.refresh.to_utf8().unwrap(), "refresh-token");
     assert_eq!(credential.expires, NOW + 21_600_000.0 - 300_000.0);
     assert_eq!(
         interaction.events()[0],
@@ -172,8 +172,8 @@ async fn refresh_preserves_an_unrotated_refresh_token_and_defaults_the_lifetime(
         )
         .await
         .expect("rotated");
-    assert_eq!(rotated.access, "new-access");
-    assert_eq!(rotated.refresh, "new-refresh");
+    assert_eq!(rotated.access.to_utf8().unwrap(), "new-access");
+    assert_eq!(rotated.refresh.to_utf8().unwrap(), "new-refresh");
     assert_eq!(rotated.expires, NOW + 21_600_000.0 - 300_000.0);
 
     let preserved = oauth
@@ -183,8 +183,8 @@ async fn refresh_preserves_an_unrotated_refresh_token_and_defaults_the_lifetime(
         )
         .await
         .expect("preserved");
-    assert_eq!(preserved.access, "newer-access");
-    assert_eq!(preserved.refresh, "keep-refresh");
+    assert_eq!(preserved.access.to_utf8().unwrap(), "newer-access");
+    assert_eq!(preserved.refresh.to_utf8().unwrap(), "keep-refresh");
     assert_eq!(preserved.expires, NOW + 3_600_000.0 - 300_000.0);
 
     let requests = recorded_requests(&fetch);

@@ -5,6 +5,7 @@ use crate::{
     request::{BoxFuture, CallbackError},
     types::Model,
 };
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
@@ -23,7 +24,7 @@ pub trait OAuthProviderInterface: Send + Sync {
     fn login(&self, callbacks: Arc<dyn OAuthLoginCallbacks>)
     -> BoxFuture<'static, Result<OAuthCredentials, AuthError>>;
     fn refresh_token(&self, credentials: OAuthCredentials) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>>;
-    fn get_api_key(&self, credentials: &OAuthCredentials) -> String;
+    fn get_api_key(&self, credentials: &OAuthCredentials) -> JsString;
     fn modify_models(&self, models: Vec<Model>, _credentials: &OAuthCredentials) -> Vec<Model> {
         models
     }
@@ -37,7 +38,7 @@ pub struct OAuthProviderInfo {
 #[derive(Clone, Debug, PartialEq)]
 pub struct OAuthApiKey {
     pub new_credentials: OAuthCredentials,
-    pub api_key: String,
+    pub api_key: JsString,
 }
 
 fn builtins() -> &'static Vec<Arc<dyn OAuthProviderInterface>> {
@@ -172,7 +173,7 @@ impl OAuthProviderInterface for Builtin {
     fn refresh_token(&self, credentials: OAuthCredentials) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
         self.flow.refresh(credentials, CancellationToken::new())
     }
-    fn get_api_key(&self, credentials: &OAuthCredentials) -> String {
+    fn get_api_key(&self, credentials: &OAuthCredentials) -> JsString {
         credentials.access.clone()
     }
     fn modify_models(&self, models: Vec<Model>, credentials: &OAuthCredentials) -> Vec<Model> {
@@ -182,16 +183,23 @@ impl OAuthProviderInterface for Builtin {
         use crate::auth::oauth::github_copilot::{get_base_url_from_token, normalize_domain};
         let domain = credentials
             .extra
-            .get("enterpriseUrl")
-            .and_then(|v| v.as_str())
-            .and_then(normalize_domain);
-        let base_url = get_base_url_from_token(&credentials.access).unwrap_or_else(|| match domain {
-            Some(domain) => format!("https://copilot-api.{domain}"),
-            None => "https://api.individual.githubcopilot.com".to_owned(),
-        });
+            .get(&pi_js_compat::js_json::JsString::from("enterpriseUrl"))
+            .and_then(JsValue::as_string)
+            .and_then(|v| v.to_utf8().ok())
+            .and_then(|v| normalize_domain(&v));
+        let base_url = credentials
+            .access
+            .to_utf8()
+            .ok()
+            .as_deref()
+            .and_then(get_base_url_from_token)
+            .unwrap_or_else(|| match domain {
+                Some(domain) => format!("https://copilot-api.{domain}"),
+                None => "https://api.individual.githubcopilot.com".to_owned(),
+            });
         let available = credentials
             .extra
-            .get("availableModelIds")
+            .get(&pi_js_compat::js_json::JsString::from("availableModelIds"))
             .map(|ids| ids.as_array().expect("availableModelIds must be an array"));
         models
             .into_iter()
@@ -199,7 +207,8 @@ impl OAuthProviderInterface for Builtin {
                 if model.provider != "github-copilot" {
                     return Some(model);
                 }
-                if available.is_some_and(|ids| !ids.iter().any(|id| id.as_str() == Some(&model.id))) {
+                if available.is_some_and(|ids| !ids.iter().any(|id| id.as_string() == Some(&JsString::from(&model.id))))
+                {
                     return None;
                 }
                 model.base_url = base_url.clone();

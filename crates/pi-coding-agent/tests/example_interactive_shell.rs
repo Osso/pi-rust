@@ -119,7 +119,7 @@ async fn native(request: &Value) -> Value {
     .unwrap();
     let models = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-            Default::default(),
+            pi_js_compat::js_json::JsObject::new(),
         ))),
         models_path: Some(None),
         allow_model_network: false,

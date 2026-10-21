@@ -35,8 +35,8 @@ async fn manual_code_login_posts_the_expected_exchange_body_and_cancels_the_prom
     ))]);
 
     let credential = oauth.login(interaction.clone()).await.expect("credential");
-    assert_eq!(credential.access, "access-token");
-    assert_eq!(credential.refresh, "refresh-token");
+    assert_eq!(credential.access.to_utf8().unwrap(), "access-token");
+    assert_eq!(credential.refresh.to_utf8().unwrap(), "refresh-token");
     assert_eq!(credential.expires, NOW + 3_600_000.0 - 300_000.0);
 
     let requests = recorded_requests(&fetch);
@@ -95,7 +95,7 @@ async fn callback_login_uses_the_local_server_and_redirect_uri() {
     assert!(body.contains("Anthropic authentication completed. You can close this window."));
 
     let credential = login.await.expect("login task").expect("credential");
-    assert_eq!(credential.access, "callback-access");
+    assert_eq!(credential.access.to_utf8().unwrap(), "callback-access");
     assert_eq!(credential.expires, NOW + 60_000.0 - 300_000.0);
     let requests = recorded_requests(&fetch);
     assert_eq!(requests.len(), 1);
@@ -118,10 +118,14 @@ async fn refresh_omits_scope_and_applies_the_five_minute_skew() {
         )
         .await
         .expect("refreshed");
-    assert_eq!(refreshed.access, "new-access");
-    assert_eq!(refreshed.refresh, "new-refresh");
+    assert_eq!(refreshed.access.to_utf8().unwrap(), "new-access");
+    assert_eq!(refreshed.refresh.to_utf8().unwrap(), "new-refresh");
     assert_eq!(refreshed.expires, NOW + 3_600_000.0 - 300_000.0);
-    assert!(!refreshed.extra.contains_key("scope"));
+    assert!(
+        !refreshed
+            .extra
+            .contains_key(&pi_js_compat::js_json::JsString::from("scope"))
+    );
     assert_eq!(
         recorded_requests(&fetch)[0].body,
         r#"{"grant_type":"refresh_token","client_id":"9d1c250a-e61b-44d9-88ed-5944d1962f5e","refresh_token":"old-refresh"}"#

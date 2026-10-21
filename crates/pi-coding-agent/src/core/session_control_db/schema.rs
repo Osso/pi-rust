@@ -30,9 +30,9 @@ const CREATE_SCHEMA_SQL: &str = "
 		);
 
 		CREATE TABLE IF NOT EXISTS codex_restriction_recovery_claims (
-            user_request_id TEXT PRIMARY KEY NOT NULL,
-            claimed_at TEXT NOT NULL
-        );
+			user_request_id TEXT PRIMARY KEY NOT NULL,
+			claimed_at TEXT NOT NULL
+		);
 
 		CREATE TABLE IF NOT EXISTS last_message (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -132,6 +132,7 @@ const CREATE_SCHEMA_SQL: &str = "
 			status TEXT NOT NULL,
 			claim_id TEXT,
 			claimed_at TEXT,
+			-- Unused since delivery deletes rows; dropping it needs a quiescent schema migration.
 			delivered_at TEXT,
 			attempt_count INTEGER NOT NULL DEFAULT 0,
 			last_error TEXT,
@@ -240,25 +241,32 @@ pub fn initialize_schema(db: &Connection, self_restart_process_id: Option<u32>) 
     migrate_legacy_multi_agent_payloads(db, self_restart_process_id)?;
     add_missing_session_metadata_columns(db)?;
     db.execute_batch(
-        "CREATE INDEX IF NOT EXISTS session_metadata_parent_session_path_idx ON session_metadata(parent_session_path);
-        CREATE INDEX IF NOT EXISTS session_metadata_empty_main_idx ON session_metadata(id,session_path)
-        WHERE archived_at IS NULL AND is_subagent = 0 AND message_count = 0;",
+        "CREATE INDEX IF NOT EXISTS session_metadata_parent_session_path_idx
+		ON session_metadata(parent_session_path);
+        CREATE INDEX IF NOT EXISTS session_metadata_empty_main_idx
+		ON session_metadata(id, session_path)
+		WHERE archived_at IS NULL AND is_subagent = 0 AND message_count = 0;",
     )?;
     migrate_legacy_session_names(db, self_restart_process_id)?;
     add_missing_runtime_mailbox_listener_columns(db)?;
     add_missing_architect_request_columns(db)?;
     add_missing_shared_channel_origin_columns(db)?;
-    db.execute_batch("CREATE INDEX IF NOT EXISTS shared_channel_messages_created_at_idx ON shared_channel_messages(created_at);
+    db.execute_batch(
+        "CREATE INDEX IF NOT EXISTS shared_channel_messages_created_at_idx
+		ON shared_channel_messages(created_at);
         CREATE TRIGGER IF NOT EXISTS multi_agent_mailbox_default_birth
-        AFTER INSERT ON multi_agent_mailbox_messages
-        WHEN CASE WHEN json_valid(NEW.data) THEN COALESCE(json_type(NEW.data, '$.createdAt'), 'null') = 'null' ELSE 0 END
-        BEGIN
-            UPDATE multi_agent_mailbox_messages
-            SET data = json_set(NEW.data, '$.createdAt', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-            WHERE rowid = NEW.rowid;
-        END;")?;
+		AFTER INSERT ON multi_agent_mailbox_messages
+		WHEN CASE WHEN json_valid(NEW.data) THEN
+			COALESCE(json_type(NEW.data, '$.createdAt'), 'null') = 'null' ELSE 0 END
+		BEGIN
+			UPDATE multi_agent_mailbox_messages
+			SET data = json_set(NEW.data, '$.createdAt', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+			WHERE rowid = NEW.rowid;
+		END;",
+    )?;
     db.execute_batch(&format!(
-        "CREATE INDEX IF NOT EXISTS multi_agent_mailbox_created_at_ms_idx ON multi_agent_mailbox_messages({})",
+        "CREATE INDEX IF NOT EXISTS multi_agent_mailbox_created_at_ms_idx
+		ON multi_agent_mailbox_messages({})",
         super::retention::MAILBOX_CREATED_AT_MS_SQL
     ))?;
     super::retention::cleanup_expired_messages(db)?;
@@ -1171,6 +1179,6 @@ fn add_missing_shared_channel_origin_columns(db: &Connection) -> Result<(), Cont
     if !columns.contains("origin_id") {
         db.execute_batch("ALTER TABLE shared_channel_messages ADD COLUMN origin_id INTEGER")?;
     }
-    db.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS shared_channel_origin_idx ON shared_channel_messages(origin_host,origin_id) WHERE origin_host IS NOT NULL")?;
+    db.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS shared_channel_origin_idx ON shared_channel_messages(origin_host, origin_id) WHERE origin_host IS NOT NULL")?;
     Ok(())
 }

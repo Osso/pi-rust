@@ -43,8 +43,8 @@ async fn device_login_waits_before_the_first_poll_and_uses_the_complete_uri() {
     let interaction = TestInteraction::new(vec![PromptAnswer::Error("unexpected prompt".to_owned())]);
 
     let credential = oauth.login(interaction.clone()).await.expect("credential");
-    assert_eq!(credential.access, "access-token");
-    assert_eq!(credential.refresh, "refresh-token");
+    assert_eq!(credential.access.to_utf8().unwrap(), "access-token");
+    assert_eq!(credential.refresh.to_utf8().unwrap(), "refresh-token");
     assert_eq!(credential.expires, NOW + 3_600_000.0);
     assert_eq!(
         interaction.events()[0],
@@ -123,8 +123,8 @@ async fn refresh_retries_429_then_succeeds_and_rejects_invalid_grant() {
         .refresh(OAuthCredential::new("old", "old", 0.0), CancellationToken::new())
         .await
         .expect("refreshed");
-    assert_eq!(refreshed.access, "a");
-    assert_eq!(refreshed.refresh, "r");
+    assert_eq!(refreshed.access.to_utf8().unwrap(), "a");
+    assert_eq!(refreshed.refresh.to_utf8().unwrap(), "r");
     assert_eq!(recorded_requests(&fetch).len(), 2);
 
     let fetch = RecordingFetch::new(vec![ScriptedResponse::json(
