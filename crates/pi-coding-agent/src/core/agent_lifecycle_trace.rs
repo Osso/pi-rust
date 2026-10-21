@@ -25,7 +25,9 @@ pub struct TraceOwnership {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TraceProcessIdentity {
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pid: f64,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     start_time_ticks: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     incarnation: Option<String>,
