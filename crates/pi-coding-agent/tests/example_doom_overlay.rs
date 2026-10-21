@@ -254,10 +254,15 @@ impl ExtensionUiContext for Ui {
                     .unwrap_or_else(|| vec![json!({"input":"q"})]);
                 for step in steps {
                     if let Some(width) = step["render"].as_u64() {
-                        trace
-                            .lock()
-                            .unwrap()
-                            .push(json!(["render", width, component.render(width as usize)]));
+                        let frame = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            component.render(width as usize)
+                        })) {
+                            Ok(frame) => json!(frame),
+                            Err(error) => {
+                                json!({"error":pi_coding_agent::utils::uncaught::format_uncaught(error.as_ref())})
+                            }
+                        };
+                        trace.lock().unwrap().push(json!(["render", width, frame]));
                     }
                     if let Some(data) = step["input"].as_str() {
                         let data = step["units"]
@@ -476,6 +481,12 @@ async fn component_timer_errors_exit_but_key_errors_remain_uncaught() {
         compare(json!({"kind":"component","resume":resume,"keyErrorAt":n,"steps":steps})).await;
     }
 }
+#[tokio::test]
+async fn component_frame_errors_propagate_without_poisoning_and_empty_frames_render_black() {
+    compare(json!({"kind":"component","frameError":true,"steps":[{"render":80},{"ms":28},{"input":"q"}]})).await;
+    compare(json!({"kind":"component","emptyFrame":true,"steps":[{"render":5},{"input":"q"}]})).await;
+}
+
 #[tokio::test]
 async fn component_projects_lone_surrogates_at_string_input_boundary() {
     assert_eq!(String::from_utf16_lossy(&[0xd800]), "\u{fffd}");

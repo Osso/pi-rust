@@ -24,12 +24,12 @@ async function run(r: any) {
  tui.setKittyProtocolActive(false);
  let current: any = r, timer: (()=>void) | null = null, keyCalls = 0, clock = 0, nextTick = 0;
  class Engine {
-  width = 2; height = 2;
+  width = current.emptyFrame?0:2; height = current.emptyFrame?0:2;
   constructor(public wad: string) { if (r.kind === "index") trace.push(["new",wad]); }
   async init() {trace.push(["init",this.wad]); if (current.initError) throw new Error(current.initError);}
   tick() {trace.push(["tick"]);if(current.tickError)throw new Error("fixture tick failed");}
   pushKey(pressed: boolean,key: number) {trace.push(["key",pressed?1:0,key]);keyCalls++;if(current.keyErrorAt === keyCalls)throw new Error("fixture key failed");}
-  getFrameRGBA() {return Uint8Array.from([255,0,0,255,0,255,0,255,0,0,255,255,255,255,255,255]);}
+  getFrameRGBA() {if(current.frameError)throw new Error("fixture frame failed");return current.emptyFrame?new Uint8Array(0):Uint8Array.from([255,0,0,255,0,255,0,255,0,0,255,255,255,255,255,255]);}
  }
  const components = evaluate(join(dirname(source),"doom-component.ts"), {
   "@earendil-works/pi-tui":tui, "./doom-keys.ts":keys,
@@ -41,7 +41,10 @@ async function run(r: any) {
  function drive(component: any, steps: any[]) {
   trace.push(["wantsKeyRelease",component.wantsKeyRelease]);
   for (const step of steps) {
-   if (step.render !== undefined) trace.push(["render",step.render,component.render(step.render)]);
+   if (step.render !== undefined) {
+    let frame:any;try {frame=component.render(step.render);}catch(e:any){frame={error:`${e.name}: ${e.message}`};}
+    trace.push(["render",step.render,frame]);
+   }
    if (step.input !== undefined) {
     const input=step.units?String.fromCharCode(...step.units).toWellFormed():step.input;
     try {component.handleInput(input);}catch(e:any){trace.push(["uncaught",`${e.name}: ${e.message}`]);}
