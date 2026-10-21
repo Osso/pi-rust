@@ -8,6 +8,7 @@ mod support;
 mod ui_thread;
 
 use pi_coding_agent::core::extensions::*;
+use pi_tui::tui::TuiExt;
 use serde_json::{Value, json};
 use std::{
     cell::RefCell,
@@ -259,7 +260,6 @@ impl ExtensionUiContext for Ui {
                             .borrow_mut()
                             .events
                             .push(pi_tui::terminal::TerminalEvent::Input(data));
-                        use pi_tui::tui::TuiExt;
                         if let Err(error) =
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host.process_events()))
                         {
