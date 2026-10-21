@@ -2920,8 +2920,20 @@ impl SessionManager {
     }
 
     pub fn append_message(&mut self, message: AgentMessage) -> Result<String, SessionManagerError> {
+        self.append_message_with_mailbox_store_refs(message, None)
+    }
+
+    pub fn append_message_with_mailbox_store_refs(
+        &mut self,
+        message: AgentMessage,
+        mailbox_store_refs: Option<&[super::session_control_db::RuntimeMailboxStoreRef]>,
+    ) -> Result<String, SessionManagerError> {
+        let mailbox_store_refs = mailbox_store_refs
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(control_db_error)?;
         let entry = SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
-            mailbox_store_refs: None,
+            mailbox_store_refs,
             id: generate_id(&self.by_id),
             parent_id: self.leaf_id.clone(),
             timestamp: self.timestamp(),
@@ -3247,6 +3259,21 @@ impl SessionManager {
         self.write_entries(&session_file, true)?;
         self.flushed = true;
         Ok(())
+    }
+
+    /// Synchronize the recipient transcript before the caller commits mailbox delivery.
+    /// This does not claim or acknowledge any mailbox row.
+    pub fn fsync(&self) -> Result<(), SessionManagerError> {
+        let path = self
+            .session_file
+            .as_deref()
+            .ok_or_else(|| error("Cannot fsync an in-memory session"))?;
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .and_then(|file| file.sync_all())
+            .map_err(control_db_error)
     }
 
     /// List sessions for a directory, preferring control-db metadata when present.

@@ -90,3 +90,5 @@ Empty-file initialization returns after `new_session`/header recovery without re
 ## Frozen4f9e6f8a4 storage delta (pending whole-module proof)
 
 Archive-aware header/load/list/fork; mutable open/setSessionFile resolves stale path before guard; openReadOnly loads/migrates/indexes in memory without metadata writes. Message receipt field retains raw JSON including null and omission. Existing persist_for_recovery remains available; fsync/typed append integration pending. Codec/fork trace: repin_session_storage. No crash-safe runtime delivery claim.
+
+Receipt proof: source creates real records, mutates exposed entry refs to null/empty/string/object/valid arrays, persists; Rust retained compaction rewrite; same TS reads exact raw values. New typed append + persist_for_recovery + fsync consumed by same frozen acceptance scan; initial RED scan[] missed ref. No DB claim/CAS proof.

@@ -18,8 +18,13 @@ async function handle(r: any) {
    m.appendCompaction("summary",kept,123);
    m.appendMessage({role:"user",content:"newest",timestamp:4});
   }
+  if ("rawRefs" in r) for(const entry of m.getEntries()) if(entry.type==="message") entry.mailboxStoreRefs=r.rawRefs;
   m.persistForRecovery();
   return {path:m.getSessionFile(), id:m.getSessionId()};
+ }
+ if(r.op === "scan") {
+  const acceptance=await import(pathToFileURL(join(root,"runtime-mailbox-transcript.ts")).href);
+  return acceptance.readAcceptedRuntimeMailboxStoreRefs(r.path);
  }
  if (r.op === "archive") return archive.archivePersistedSession(r.db, r.path);
  if (r.op === "restore") return archive.restoreArchivedSession(r.db, r.path);

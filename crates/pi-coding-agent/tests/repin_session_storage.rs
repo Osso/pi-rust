@@ -175,3 +175,68 @@ async fn persisted_history_tool_recovers_source_compacted_ancestor() {
         .unwrap();
     assert_eq!(result.details.unwrap()["totalMatches"], 1);
 }
+
+#[test]
+fn source_receipts_survive_retained_rewrite_with_omission_null_empty_and_raw_values() {
+    configure_worker();
+    for raw in [
+        None,
+        Some(Value::Null),
+        Some(json!([])),
+        Some(json!("malformed receipt")),
+        Some(json!({"invalid":true})),
+        Some(json!([{"sessionPath":"/mail","messageId":"accepted"}])),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().display().to_string();
+        let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+        let mut request = json!({"op":"create","dir":dir,"cwd":dir,"compacted":true});
+        if let Some(raw) = &raw {
+            request["rawRefs"] = raw.clone();
+        }
+        let created = call(&mut ts, request);
+        let path = created["path"].as_str().unwrap();
+        let mut manager = SessionManager::open(path, None, None).unwrap();
+        let compaction = manager
+            .get_entries()
+            .into_iter()
+            .find(|e| e.entry_type() == "compaction")
+            .unwrap();
+        manager
+            .update_compaction_summary(compaction.id().unwrap(), "rewritten")
+            .unwrap();
+        let read = call(&mut ts, json!({"op":"read","path":path}));
+        for message in read["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["type"] == "message")
+        {
+            assert_eq!(message.get("mailboxStoreRefs"), raw.as_ref());
+        }
+    }
+}
+
+#[test]
+fn rust_append_receipt_is_read_by_frozen_complete_record_acceptance_scan() {
+    use pi_coding_agent::core::session_control_db::RuntimeMailboxStoreRef;
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let mut manager = SessionManager::create(&dir, Some(&dir), None).unwrap();
+    let message = serde_json::from_value(json!({"role":"user","content":"mail payload","timestamp":1})).unwrap();
+    let refs = [RuntimeMailboxStoreRef {
+        session_path: "/canonical/mail.jsonl".into(),
+        message_id: "mail-id".into(),
+    }];
+    manager
+        .append_message_with_mailbox_store_refs(message, Some(&refs))
+        .unwrap();
+    manager.persist_for_recovery().unwrap();
+    manager.fsync().unwrap();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    assert_eq!(
+        call(&mut ts, json!({"op":"scan","path":manager.get_session_file()})),
+        serde_json::to_value(refs).unwrap()
+    );
+}
