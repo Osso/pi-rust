@@ -69,8 +69,8 @@ pub use channel::{
 pub use health::{list_session_health, read_session_health, write_session_health};
 
 pub use incoming::{
-    claim_latest_incoming_message, complete_incoming_message, enqueue_incoming_message, fail_incoming_message,
-    read_incoming_message_status,
+    claim_codex_restriction_recovery, claim_latest_incoming_message, complete_incoming_message,
+    enqueue_incoming_message, fail_incoming_message, read_incoming_message_status,
 };
 pub use lifecycle::{
     DetachedJobOutcome, DetachedJobOwnershipIdentity, DetachedJobTerminalInput, DetachedJobTerminalOutput,
@@ -79,9 +79,11 @@ pub use lifecycle::{
 pub use mailbox::{
     RuntimeMailboxListenerRecord, assert_main_session_runtime_available, claim_runtime_mailbox_messages,
     consume_runtime_mailbox_message_by_store_ref, deliver_runtime_mailbox_message, enqueue_runtime_mailbox_message,
-    enqueue_stored_runtime_mailbox_message, fail_runtime_mailbox_message, list_runtime_mailbox_listeners,
+    enqueue_stored_runtime_mailbox_message, enqueue_stored_runtime_mailbox_message_in_transaction,
+    fail_runtime_mailbox_message, is_known_local_session, list_runtime_mailbox_listeners,
     list_runtime_mailbox_messages, list_runtime_mailbox_messages_for_session, mark_runtime_mailbox_message_delivered,
-    mark_runtime_mailbox_signal_keepalive_installed, read_runtime_mailbox_listener, read_runtime_mailbox_message,
+    mark_runtime_mailbox_signal_keepalive_installed, notify_runtime_mailbox_recipient,
+    read_live_runtime_mailbox_session_agent_ids, read_runtime_mailbox_listener, read_runtime_mailbox_message,
     read_runtime_mailbox_message_for_delivery, recover_dead_runtime_mailbox_claims, register_runtime_mailbox_listener,
     release_runtime_mailbox_message_claim, resolve_own_main_runtime_coordination_recipient,
     retire_runtime_mailbox_listener, take_runtime_mailbox_messages_for_delivery,
@@ -95,10 +97,11 @@ pub use requests::{
     renew_architect_request_claims, requeue_supervisor_request,
 };
 pub use sessions::{
-    LastControlMessage, SessionMetadata, SessionNameState, WritableSessionMetadata, archive_session,
-    archive_sessions_older_than, clear_session_sandbox_profile, find_active_session_metadata_by_id,
-    find_active_session_metadata_by_name, list_active_session_metadata, list_archived_session_metadata,
-    list_descendant_session_paths, list_session_metadata, list_subagent_session_paths, normalize_session_name,
+    EmptyMainSessionCandidate, LastControlMessage, ResumeSessionMetadataOptions, SessionMetadata, SessionNameState,
+    WritableSessionMetadata, archive_session, archive_sessions_older_than, clear_session_sandbox_profile,
+    find_active_session_metadata_by_id, find_active_session_metadata_by_name, list_active_session_metadata,
+    list_archived_session_metadata, list_descendant_session_paths, list_empty_main_session_candidates,
+    list_resume_session_metadata, list_session_metadata, list_subagent_session_paths, normalize_session_name,
     read_last_message, read_or_migrate_prompt_history, read_prompt_history, read_session_goal, read_session_metadata,
     read_session_name_state, read_session_sandbox_profile, record_prompt_history_entry, relocate_and_archive_session,
     relocate_and_unarchive_session, relocate_session_control_data, remove_session_metadata, remove_sessions_metadata,

@@ -183,6 +183,28 @@ pub fn enqueue_stored_runtime_mailbox_message(
     Ok(result.id)
 }
 
+/// Caller owns the transaction and subsequent recipient notification.
+pub fn enqueue_stored_runtime_mailbox_message_in_transaction(
+    db: &Connection,
+    input: &EnqueueStoredRuntimeMailboxMessageInput,
+) -> Result<i64, ControlDbError> {
+    Ok(persist_stored_runtime_mailbox_message(db, input, &prepare_stored_runtime_mailbox_message(input)?)?.id)
+}
+pub fn notify_runtime_mailbox_recipient(
+    control_db_path: &str,
+    recipient: &RuntimeMailboxAddress,
+) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        notify_runtime_mailbox_listener(read_runtime_mailbox_listener_row(db, recipient)?.as_ref());
+        Ok(())
+    })
+}
+pub fn is_known_local_session(control_db_path: &str, session_id: &str) -> Result<bool, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        Ok(db.query_row("SELECT 1 FROM session_metadata WHERE id = ? UNION ALL SELECT 1 FROM session_health WHERE session_id = ? LIMIT 1",params![session_id,session_id],|row|row.get::<_,i64>(0)).optional()?.is_some())
+    })
+}
+
 fn persist_stored_runtime_mailbox_message(
     db: &Connection,
     input: &EnqueueStoredRuntimeMailboxMessageInput,
@@ -1172,6 +1194,30 @@ pub struct RuntimeMailboxListenerRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_path: Option<String>,
     pub updated_at: String,
+}
+
+/// `readLiveRuntimeMailboxSessionAgentIds`.
+pub fn read_live_runtime_mailbox_session_agent_ids(
+    control_db_path: &str,
+    session_id: &str,
+) -> Result<Vec<Option<String>>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let mut statement=db.prepare("SELECT recipient_agent_id_key,runtime_instance_id FROM runtime_mailbox_listeners WHERE recipient_session_id = ?")?;
+        let rows = statement
+            .query_map(params![session_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut agents = Vec::new();
+        for (key, identity) in rows {
+            if let Some(identity) = identity.filter(|identity| !identity.is_empty())
+                && runtime_mailbox_claimant_is_live(&identity)?
+            {
+                agents.push((!key.is_empty()).then_some(key));
+            }
+        }
+        Ok(agents)
+    })
 }
 
 /// `assertMainSessionRuntimeAvailable`.
