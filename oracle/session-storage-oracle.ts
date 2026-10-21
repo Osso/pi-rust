@@ -54,9 +54,12 @@ async function handle(r: any) {
   return {id:m.getSessionId(), entries:m.getEntries(), history:entries, header:m.getHeader(), tree:m.getTree(), context:m.buildSessionContext().messages, text:transcript.readSessionTranscriptText(r.path)};
  }
  if(r.op === "transcript"){
-  let streamed="";for await(const chunk of transcript.createSessionTranscriptReadStream(r.path))streamed+=chunk;
+  let streamed="";if(r.stream!==false)for await(const chunk of transcript.createSessionTranscriptReadStream(r.path))streamed+=chunk;
   return {path:transcript.readSessionTranscriptPath(r.path),isTranscript:transcript.isSessionTranscriptFile(r.path),bytes:transcript.readSessionTranscriptBytes(r.path).toString("base64"),text:transcript.readSessionTranscriptText(r.path),streamed};
  }
+ if(r.op === "predicates")return r.paths.map((path:string)=>({transcript:transcript.isSessionTranscriptFile(path),archive:archive.isArchivedSessionFile(path),resolved:transcript.readSessionTranscriptPath(path)}));
+ if(r.op === "fileArchive")return archive.archiveSessionFile(r.path);
+ if(r.op === "fileRestore")return archive.restoreArchivedSessionFile(r.path);
  if(r.op === "info"){
   const s=await manager.buildSessionInfo(r.path);
   return s?{path:s.path,id:s.id,cwd:s.cwd,messageCount:s.messageCount,firstMessage:s.firstMessage}:null;

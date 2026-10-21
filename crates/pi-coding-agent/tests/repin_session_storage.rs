@@ -767,17 +767,26 @@ fn frozen_transcript_exports_match_stream_frame_and_utf8_error_boundaries() {
     let archive = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
     let archive = archive.as_str().unwrap();
     let compressed = std::fs::read(archive).unwrap();
-    for bytes in [
-        compressed.clone(),
-        [compressed.clone(), compressed.clone()].concat(),
-        [compressed.clone(), b"garbage".to_vec()].concat(),
-        compressed[..compressed.len() - 1].to_vec(),
-        vec![0, 1, 2, 3],
+    let mut mismatches = Vec::new();
+    for (case, bytes) in [
+        ("valid", compressed.clone()),
+        ("concatenated", [compressed.clone(), compressed.clone()].concat()),
+        ("trailing-garbage", [compressed.clone(), b"garbage".to_vec()].concat()),
+        ("truncated-tail", compressed[..compressed.len() - 1].to_vec()),
+        ("bad-magic", vec![0, 1, 2, 3]),
     ] {
         std::fs::write(archive, &bytes).unwrap();
-        let source = ts.request(&json!({"id":1,"op":"transcript","path":path}));
+        let source = ts.request(&json!({"id":1,"op":"transcript","path":path,"stream":false}));
         let rust = read_session_transcript_bytes(path);
-        assert_eq!(rust.is_ok(), source["ok"] == true, "{source}");
+        if rust.is_ok() != (source["ok"] == true) {
+            mismatches.push(format!(
+                "case={case}, Rust error={:?}, TS ok={}, TS error={}",
+                rust.as_ref().err(),
+                source["ok"],
+                source["error"]
+            ));
+            continue;
+        }
         if let Ok(bytes) = rust {
             let source = &source["output"];
             assert_eq!(read_session_transcript_path(path), source["path"]);
@@ -791,10 +800,11 @@ fn frozen_transcript_exports_match_stream_frame_and_utf8_error_boundaries() {
                 .unwrap();
             assert_eq!(
                 String::from_utf8_lossy(&streamed).as_ref(),
-                source["streamed"].as_str().unwrap()
+                source["text"].as_str().unwrap()
             );
         }
     }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
     // Existing plain wins even over the last corrupt compressed sibling; replacement UTF8 follows Node.
     let mut plain = original;
     plain.extend_from_slice(&[0xf0, 0x9f, 0xff, 0x80]);
@@ -814,4 +824,64 @@ fn frozen_transcript_exports_match_stream_frame_and_utf8_error_boundaries() {
             assert!(read_session_transcript_bytes(fixture.to_str().unwrap()).is_err());
         }
     }
+}
+
+#[test]
+fn frozen_storage_suffix_noops_missing_and_metadata_surviving_plain_branches() {
+    use pi_coding_agent::core::session_archive_storage::*;
+    use pi_coding_agent::core::session_control_db::read_session_metadata;
+    use pi_coding_agent::core::session_transcript::*;
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let paths = ["a.jsonl", "a.jsonl.zst", "a.zst", "file.jsonl.zst.tmp", "a.JSONL", ""];
+    let expected = call(&mut ts, json!({"op":"predicates","paths":paths}));
+    for (index, path) in paths.iter().enumerate() {
+        assert_eq!(
+            json!({"transcript":is_session_transcript_file(path),"archive":is_archived_session_file(path),"resolved":read_session_transcript_path(path)}),
+            expected[index]
+        );
+    }
+    let missing = tmp.path().join("missing.jsonl").display().to_string();
+    let archived = format!("{missing}.zst");
+    assert_eq!(
+        archive_session_file(&archived).unwrap(),
+        call(&mut ts, json!({"op":"fileArchive","path":archived}))
+    );
+    assert_eq!(
+        restore_archived_session_file(&missing).unwrap(),
+        call(&mut ts, json!({"op":"fileRestore","path":missing}))
+    );
+    assert!(restore_archived_session_file(&archived).is_err());
+    assert_eq!(
+        ts.request(&json!({"id":1,"op":"fileRestore","path":archived}))["ok"],
+        false
+    );
+    assert_eq!(restore_archived_session(&db, &archived).unwrap(), missing);
+    assert_eq!(call(&mut ts, json!({"op":"restore","db":db,"path":archived})), missing);
+    let created = call(&mut ts, json!({"op":"create","dir":dir,"cwd":dir,"db":db}));
+    let path = created["path"].as_str().unwrap();
+    let archive = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
+    let archive = archive.as_str().unwrap();
+    let compressed = std::fs::read(archive).unwrap();
+    restore_archived_session_file(archive).unwrap();
+    let mut manager = SessionManager::open(path, None, None).unwrap();
+    manager
+        .append_message(
+            serde_json::from_value(json!({"role":"user","content":"surviving publication","timestamp":3})).unwrap(),
+        )
+        .unwrap();
+    let newer = std::fs::read(path).unwrap();
+    std::fs::write(archive, compressed).unwrap();
+    assert!(read_session_metadata(&db, archive).unwrap().is_some());
+    assert_eq!(restore_archived_session(&db, archive).unwrap(), path);
+    assert!(read_session_metadata(&db, archive).unwrap().is_none());
+    let metadata = call(&mut ts, json!({"op":"metadata","db":db,"path":path}));
+    assert_eq!(metadata["id"], created["id"]);
+    assert!(metadata["archivedAt"].is_null());
+    assert_eq!(std::fs::read(path).unwrap(), newer);
+    assert!(!std::path::Path::new(archive).exists());
+    assert_eq!(restore_archived_session_file(archive).unwrap(), path);
 }
