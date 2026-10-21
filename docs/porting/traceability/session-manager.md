@@ -106,3 +106,5 @@ Mechanical source-absent read adaptation: footer add_entry_usage no longer reads
 Mutable suffix guard now uses source archive predicate `.zst` (not only `.jsonl.zst`); actual source mutable open of missing arbitrary.zst rejects, prior Rust allocated identity (RED). Read-only generic-zst recursion not classified or duplicated.
 
 Open raw-wire regression: source-generated escaped lone-surrogate mailbox path remains a message in TS; current Value decoding drops it (source_escaped_surrogate_receipt_remains_a_persisted_message RED). Not covered by session-name waiver; narrow lossless representation pending.
+
+Audit correction via dynamic frozen API: filesystem list/listAll/continue-recent scan only.jsonl (source1240,1277); archive-aware exported buildSessionInfo is distinct from resume population. Restored plain-only filename filters; public build_session_info decodes explicit archives. `uncompressed_inactive_tree_and_archived_list_context_are_source_equivalent` covers plain+archived tree/context, explicit info and filesystem list; initial RED incorrectly widened Rust list returnedarchive vs TS[]. No source bug/waiver.

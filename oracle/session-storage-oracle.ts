@@ -13,12 +13,12 @@ async function handle(r: any) {
   const m = manager.SessionManager.create(r.cwd, r.dir);
   if(r.db)m.setMetadataControlDbPath(r.db);
   const first=m.appendMessage({role:"user",content:r.text ?? "hello 😀漢字",timestamp:1}, r.refs);
-  if(r.compacted){
+  if(r.compacted||r.branched){
    const kept=m.appendMessage({role:"user",content:"kept",timestamp:2},r.refs);
    m.branch(first);
    for(let i=0;i<(r.inactiveCount??1);i++)m.appendMessage({role:"user",content:r.largeInactive?"漢😀".repeat(512*1024):"inactive",timestamp:3});
    m.branch(kept);
-   m.appendCompaction("summary",kept,123);
+   if(r.compacted)m.appendCompaction("summary",kept,123);
    m.appendMessage({role:"user",content:"newest",timestamp:4});
   }
   if(r.splitSurrogate)for(const entry of m.getEntries())if(entry.type==="message")entry.mailboxStoreRefs=[{sessionPath:String.fromCharCode(0xd800),messageId:"surrogate"}];
@@ -40,8 +40,13 @@ async function handle(r: any) {
  if (r.op === "read") {
   const m = manager.SessionManager.openReadOnly(r.path);
   const entries = []; for await (const e of history.readSessionHistoryReverse(m)) entries.push(e);
-  return {id:m.getSessionId(), entries:m.getEntries(), history:entries, header:m.getHeader(), text:transcript.readSessionTranscriptText(r.path)};
+  return {id:m.getSessionId(), entries:m.getEntries(), history:entries, header:m.getHeader(), tree:m.getTree(), context:m.buildSessionContext().messages, text:transcript.readSessionTranscriptText(r.path)};
  }
+ if(r.op === "info"){
+  const s=await manager.buildSessionInfo(r.path);
+  return s?{path:s.path,id:s.id,cwd:s.cwd,messageCount:s.messageCount,firstMessage:s.firstMessage}:null;
+ }
+ if(r.op === "list")return (await manager.SessionManager.list(r.cwd,r.dir,undefined,r.db)).map((s:any)=>({path:s.path,id:s.id,cwd:s.cwd,messageCount:s.messageCount,firstMessage:s.firstMessage}));
  if(r.op === "metadata"){
   const db=await import(pathToFileURL(join(root,"session-control-db.ts")).href);
   return db.readSessionMetadata(r.db,r.path)??null;

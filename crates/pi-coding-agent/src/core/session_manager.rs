@@ -1782,7 +1782,7 @@ fn finish_session_info(
     }
 }
 
-fn build_session_info(file_path: &str) -> Option<SessionInfo> {
+pub fn build_session_info(file_path: &str) -> Option<SessionInfo> {
     let metadata = fs::metadata(file_path).ok()?;
     let fallback_modified = metadata
         .modified()
@@ -1831,7 +1831,7 @@ fn list_sessions_from_dir(
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
-            super::session_transcript::is_session_transcript_file(&name)
+            name.ends_with(".jsonl")
                 .then(|| PathBuf::from(dir).join(name).display().to_string())
         })
         .collect();
@@ -1867,7 +1867,7 @@ fn list_default_session_root(progress: Option<&mut dyn FnMut(usize, usize)>) -> 
         };
         for file in dir_entries.flatten() {
             let name = file.file_name().to_string_lossy().into_owned();
-            if super::session_transcript::is_session_transcript_file(&name) {
+            if name.ends_with(".jsonl") {
                 files.push(dir.join(name).display().to_string());
             }
         }

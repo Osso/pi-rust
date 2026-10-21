@@ -544,3 +544,39 @@ fn mutable_open_rejects_all_archived_suffixes_before_allocating_missing_identity
     assert!(SessionManager::open(path.to_str().unwrap(), None, None).is_err());
     assert!(!path.exists());
 }
+
+#[test]
+fn uncompressed_inactive_tree_and_archived_list_context_are_source_equivalent() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(&mut ts, json!({"op":"create","dir":dir,"cwd":dir,"branched":true}));
+    let path = created["path"].as_str().unwrap();
+    let expected = call(&mut ts, json!({"op":"read","path":path}));
+    for archived in [false, true] {
+        if archived {
+            call(&mut ts, json!({"op":"archive","db":db,"path":path}));
+        }
+        let manager = SessionManager::open_read_only(path, None).unwrap();
+        assert_eq!(
+            serde_json::to_value(manager.get_entries()).unwrap(),
+            expected["entries"]
+        );
+        assert_eq!(serde_json::to_value(manager.get_tree()).unwrap(), expected["tree"]);
+        assert_eq!(
+            serde_json::to_value(manager.build_session_context().messages).unwrap(),
+            expected["context"]
+        );
+        let resolved = pi_coding_agent::core::session_transcript::read_session_transcript_path(path);
+        let info = pi_coding_agent::core::session_manager::build_session_info(&resolved).unwrap();
+        assert_eq!(
+            json!({"path":info.path,"id":info.id,"cwd":info.cwd,"messageCount":info.message_count,"firstMessage":info.first_message}),
+            call(&mut ts, json!({"op":"info","path":resolved}))
+        );
+        let actual=SessionManager::list(&dir,Some(&dir),None,None).unwrap().into_iter().map(|s|json!({"path":s.path,"id":s.id,"cwd":s.cwd,"messageCount":s.message_count,"firstMessage":s.first_message})).collect::<Vec<_>>();
+        assert_eq!(json!(actual), call(&mut ts, json!({"op":"list","cwd":dir,"dir":dir})));
+    }
+    assert!(pi_coding_agent::core::session_manager::find_most_recent_session(&dir, None).is_none());
+}
