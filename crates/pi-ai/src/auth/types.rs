@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::request::{BoxFuture, CallbackError};
 use crate::types::{ProviderEnv, ProviderHeaders};
-use pi_js_compat::number::js_number_value;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 
 /// `ModelAuth`: request auth for a single model request.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -40,22 +40,68 @@ pub struct ApiKeyCredential {
 /// `OAuthCredential`: required token fields plus provider-specific extra keys.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OAuthCredential {
-    pub refresh: String,
-    pub access: String,
+    pub refresh: JsString,
+    pub access: JsString,
     /// Unix timestamp in milliseconds.
     pub expires: f64,
     /// Fields outside `refresh`/`access`/`expires`, preserved verbatim.
-    pub extra: Map<String, Value>,
+    pub extra: JsObject,
 }
 
 impl OAuthCredential {
-    pub fn new(refresh: impl Into<String>, access: impl Into<String>, expires: f64) -> Self {
+    pub fn new(refresh: impl Into<JsString>, access: impl Into<JsString>, expires: f64) -> Self {
         Self {
             refresh: refresh.into(),
             access: access.into(),
             expires,
-            extra: Map::new(),
+            extra: JsObject::new(),
         }
+    }
+
+    /// Checked handoff to scalar-string-only request providers and HTTP builders.
+    pub fn access_utf8(&self) -> Result<String, AuthError> {
+        self.access
+            .to_utf8()
+            .map_err(|e| AuthError::failed(format!("Cannot hand OAuth access token to request provider: {e}")))
+    }
+
+    pub fn refresh_utf8(&self) -> Result<String, AuthError> {
+        self.refresh
+            .to_utf8()
+            .map_err(|e| AuthError::failed(format!("Cannot build OAuth refresh request: {e}")))
+    }
+
+    pub fn to_js_value(&self) -> JsValue {
+        let mut object = JsObject::new();
+        object.insert("type".into(), JsValue::String("oauth".into()));
+        object.insert("refresh".into(), JsValue::String(self.refresh.clone()));
+        object.insert("access".into(), JsValue::String(self.access.clone()));
+        object.insert("expires".into(), JsValue::Number(self.expires));
+        object.extend(self.extra.clone());
+        JsValue::Object(object)
+    }
+
+    pub fn from_js_value(value: &JsValue) -> Result<Self, String> {
+        let mut object = value.as_object().cloned().ok_or("Expected OAuth object")?;
+        let refresh = object
+            .shift_remove(&pi_js_compat::js_json::JsString::from("refresh"))
+            .and_then(|v| v.as_string().cloned())
+            .ok_or("Missing refresh")?;
+        let access = object
+            .shift_remove(&pi_js_compat::js_json::JsString::from("access"))
+            .and_then(|v| v.as_string().cloned())
+            .ok_or("Missing access")?;
+        let expires = object
+            .shift_remove(&pi_js_compat::js_json::JsString::from("expires"))
+            .and_then(|v| v.as_f64())
+            .ok_or("Missing expires")?;
+        object.shift_remove(&pi_js_compat::js_json::JsString::from("type"));
+        Ok(Self {
+            refresh,
+            access,
+            expires,
+            extra: object,
+        })
     }
 }
 
@@ -129,13 +175,11 @@ impl Serialize for Credential {
                 }
             }
             Self::OAuth(credential) => {
-                object.insert("type".to_owned(), Value::String("oauth".to_owned()));
-                object.insert("refresh".to_owned(), Value::String(credential.refresh.clone()));
-                object.insert("access".to_owned(), Value::String(credential.access.clone()));
-                object.insert("expires".to_owned(), js_number_value(credential.expires));
-                for (key, value) in &credential.extra {
-                    object.insert(key.clone(), value.clone());
-                }
+                return credential
+                    .to_js_value()
+                    .to_serde()
+                    .map_err(serde::ser::Error::custom)?
+                    .serialize(serializer);
             }
         }
         object.serialize(serializer)
@@ -164,10 +208,13 @@ impl<'de> Deserialize<'de> for Credential {
                     .and_then(|value| value.as_f64())
                     .ok_or_else(|| D::Error::missing_field("expires"))?;
                 Ok(Self::OAuth(OAuthCredential {
-                    refresh,
-                    access,
+                    refresh: refresh.into(),
+                    access: access.into(),
                     expires,
-                    extra: object,
+                    extra: object
+                        .iter()
+                        .map(|(key, value)| (key.into(), JsValue::from(value)))
+                        .collect(),
                 }))
             }
             other => Err(D::Error::custom(format!("unknown credential type {other:?}"))),

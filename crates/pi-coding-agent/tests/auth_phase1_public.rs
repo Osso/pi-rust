@@ -36,8 +36,16 @@ fn public_ts_rust_ts_and_reverse_preserve_oauth_extras_and_unrelated_providers()
         assert_eq!(out["ok"], true, "{out}");
     }
     let storage = AuthStorage::create(Some(path.to_str().unwrap()));
-    assert_eq!(storage.get("openai-codex"), Some(credential.clone()));
-    assert_eq!(storage.get_all()["unrelated"], json!({"raw":["untouched"]}));
+    assert_eq!(
+        storage.get("openai-codex").map(|value| value.to_serde().unwrap()),
+        Some(credential.clone())
+    );
+    assert_eq!(
+        pi_js_compat::js_json::JsValue::Object(storage.get_all())
+            .to_serde()
+            .unwrap()["unrelated"],
+        json!({"raw":["untouched"]})
+    );
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -60,8 +68,16 @@ fn public_ts_rust_ts_and_reverse_preserve_oauth_extras_and_unrelated_providers()
         oracle.request(&json!({"id":3,"op":"modify","authPath":path,"provider":"openai-codex","credential":newer}));
     assert_eq!(out["ok"], true, "{out}");
     storage.reload();
-    assert_eq!(storage.get("openai-codex"), Some(newer));
-    assert_eq!(storage.get_all()["unrelated"], json!({"raw":["untouched"]}));
+    assert_eq!(
+        storage.get("openai-codex").map(|value| value.to_serde().unwrap()),
+        Some(newer)
+    );
+    assert_eq!(
+        pi_js_compat::js_json::JsValue::Object(storage.get_all())
+            .to_serde()
+            .unwrap()["unrelated"],
+        json!({"raw":["untouched"]})
+    );
     storage.remove("new-provider").unwrap();
     let out = oracle.request(&json!({"id":4,"op":"read","authPath":path,"provider":"new-provider"}));
     assert_eq!(out["output"]["credential"], Value::Null);
@@ -115,7 +131,7 @@ fn source_runtime_precedence_status_errors_and_reload_recovery() {
     );
     fs::write(&path, "broken-json").unwrap();
     storage.reload();
-    assert_eq!(storage.get("synthetic").unwrap()["key"], "stored");
+    assert_eq!(storage.get("synthetic").unwrap().to_serde().unwrap()["key"], "stored");
     assert!(
         storage
             .set("other", json!({"type":"api_key","key":"x"}))
@@ -128,7 +144,10 @@ fn source_runtime_precedence_status_errors_and_reload_recovery() {
     fs::write(&path, "{}").unwrap();
     storage.set("2", json!({"type":"api_key","key":"two"})).unwrap();
     storage.set("1", json!({"type":"api_key","key":"one"})).unwrap();
-    assert_eq!(storage.list_providers(), ["1", "2"]);
+    assert_eq!(
+        storage.list_providers(),
+        ["1", "2"].map(pi_js_compat::js_json::JsString::from)
+    );
     storage.logout("2").unwrap();
     assert!(!storage.has("2"));
     assert_eq!(

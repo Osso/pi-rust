@@ -89,7 +89,7 @@ impl OAuthAuth for OpenAICodexOAuth {
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
-            refresh_openai_codex(&runtime, &credential.refresh, signal)
+            refresh_openai_codex(&runtime, &credential.refresh_utf8()?, signal)
                 .await
                 .map_err(|error| AuthError::failed(error.message))
         })
@@ -98,7 +98,7 @@ impl OAuthAuth for OpenAICodexOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access),
+                api_key: Some(credential.access_utf8()?),
                 ..ModelAuth::default()
             })
         })
@@ -218,9 +218,10 @@ fn credentials_from_token(token: OAuthToken, now: f64) -> Result<OAuthCredential
     let account_id =
         get_account_id(&token.access).ok_or_else(|| CallbackError::new("Failed to extract accountId from token"))?;
     let mut credential = OAuthCredential::new(token.refresh, token.access, now + token.expires);
-    credential
-        .extra
-        .insert("accountId".to_owned(), Value::String(account_id));
+    credential.extra.insert(
+        "accountId".into(),
+        pi_js_compat::js_json::JsValue::String(account_id.into()),
+    );
     Ok(credential)
 }
 

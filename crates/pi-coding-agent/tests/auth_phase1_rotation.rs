@@ -45,16 +45,16 @@ impl OAuthProviderInterface for Fake {
                 return Err(AuthError::failed("server rejected A"));
             };
             assert_eq!(
-                current.refresh,
+                current.refresh.to_utf8().unwrap(),
                 if rotation == 0 { "A" } else { "B" },
                 "fake server rejects spent refresh token"
             );
             let mut next = OAuthCredential::new(if rotation == 0 { "B" } else { "C" }, "new", 4_000_000_000_000.0);
-            next.extra.insert("accountId".into(), json!("synthetic"));
+            next.extra.insert("accountId".into(), (&json!("synthetic")).into());
             Ok(next)
         })
     }
-    fn get_api_key(&self, c: &OAuthCredentials) -> String {
+    fn get_api_key(&self, c: &OAuthCredentials) -> pi_js_compat::js_json::JsString {
         c.access.clone()
     }
 }
@@ -173,7 +173,7 @@ fn successful_rotation_callback_then_cancel_or_write_failure_rescues_exact_resul
         assert_eq!(fresh_process["ok"], true, "{fresh_process}");
         assert_eq!(fresh_process["output"]["credential"]["refresh"], "B");
         let fresh_store = AuthStorage::create(Some(file.to_str().unwrap()));
-        let mut expired = fresh_store.get("phase1-rotation").unwrap();
+        let mut expired = fresh_store.get("phase1-rotation").unwrap().to_serde().unwrap();
         assert_eq!(expired["refresh"], "B");
         expired["expires"] = json!(0);
         fresh_store.set("phase1-rotation", expired).unwrap();
@@ -183,7 +183,10 @@ fn successful_rotation_callback_then_cancel_or_write_failure_rescues_exact_resul
                 .as_deref(),
             Some("new")
         );
-        assert_eq!(fresh_store.get("phase1-rotation").unwrap()["refresh"], "C");
+        assert_eq!(
+            fresh_store.get("phase1-rotation").unwrap().to_serde().unwrap()["refresh"],
+            "C"
+        );
         assert_eq!(count.load(Ordering::SeqCst), 2);
     }
     unregister_oauth_provider("phase1-rotation");
@@ -258,7 +261,10 @@ fn failed_rotation_persistence_and_reload_never_succeed_from_memory() {
         } else {
             assert_eq!(result.unwrap(), None);
         }
-        assert_eq!(storage.get("phase1-rotation").unwrap()["refresh"], "B");
+        assert_eq!(
+            storage.get("phase1-rotation").unwrap().to_serde().unwrap()["refresh"],
+            "B"
+        );
         let disk: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
         assert_eq!(disk["phase1-rotation"]["refresh"], "A");
         assert_eq!(

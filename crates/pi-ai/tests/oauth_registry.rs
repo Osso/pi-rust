@@ -26,11 +26,11 @@ impl OAuthProviderInterface for Fake {
     fn refresh_token(&self, c: OAuthCredential) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
         self.0.fetch_add(1, Ordering::SeqCst);
         Box::pin(async move {
-            assert_eq!(c.refresh, "A");
+            assert_eq!(c.refresh.to_utf8().unwrap(), "A");
             Ok(OAuthCredential::new("B", "new", 4_000_000_000_000.0))
         })
     }
-    fn get_api_key(&self, c: &OAuthCredentials) -> String {
+    fn get_api_key(&self, c: &OAuthCredentials) -> pi_js_compat::js_json::JsString {
         c.access.clone()
     }
 }
@@ -60,12 +60,18 @@ async fn registry_helpers_preserve_result_provenance_and_builtin_order() {
     );
     let creds = HashMap::from([("phase1-fake".to_owned(), OAuthCredential::new("A", "old", 0.0))]);
     let result = get_oauth_api_key("phase1-fake", &creds).await.unwrap().unwrap();
-    assert_eq!(result.api_key, "new");
-    assert_eq!(result.new_credentials.refresh, "B");
+    assert_eq!(result.api_key.to_utf8().unwrap(), "new");
+    assert_eq!(result.new_credentials.refresh.to_utf8().unwrap(), "B");
     assert_eq!(count.load(Ordering::SeqCst), 1);
     let creds = HashMap::from([("phase1-fake".to_owned(), result.new_credentials)]);
     assert_eq!(
-        get_oauth_api_key("phase1-fake", &creds).await.unwrap().unwrap().api_key,
+        get_oauth_api_key("phase1-fake", &creds)
+            .await
+            .unwrap()
+            .unwrap()
+            .api_key
+            .to_utf8()
+            .unwrap(),
         "new"
     );
     assert_eq!(count.load(Ordering::SeqCst), 1);

@@ -88,7 +88,7 @@ impl OAuthAuth for AnthropicOAuth {
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
-            refresh_anthropic(&runtime, &credential.refresh, signal)
+            refresh_anthropic(&runtime, &credential.refresh_utf8()?, signal)
                 .await
                 .map_err(|error| AuthError::failed(error.message))
         })
@@ -97,7 +97,7 @@ impl OAuthAuth for AnthropicOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access),
+                api_key: Some(credential.access_utf8()?),
                 ..ModelAuth::default()
             })
         })

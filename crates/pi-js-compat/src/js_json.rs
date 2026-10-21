@@ -35,6 +35,18 @@ impl JsString {
     }
 }
 
+impl From<String> for JsString {
+    fn from(text: String) -> Self {
+        Self::from(text.as_str())
+    }
+}
+
+impl From<&String> for JsString {
+    fn from(text: &String) -> Self {
+        Self::from(text.as_str())
+    }
+}
+
 impl From<&str> for JsString {
     fn from(text: &str) -> Self {
         Self(text.encode_utf16().collect())
@@ -57,6 +69,51 @@ pub enum JsValue {
 }
 
 impl JsValue {
+    pub fn get(&self, key: &str) -> Option<&Self> {
+        self.as_object()?.get(&JsString::from(key))
+    }
+
+    pub fn as_object(&self) -> Option<&JsObject> {
+        match self {
+            Self::Object(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_array(&self) -> Option<&Vec<Self>> {
+        match self {
+            Self::Array(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_string(&self) -> Option<&JsString> {
+        match self {
+            Self::String(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::Number(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::Bool(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Checked adapter for consumers whose contract requires Unicode scalar strings.
+    /// Lossless public credential storage must not use this adapter.
+    pub fn to_serde(&self) -> Result<Value, serde_json::Error> {
+        serde_json::from_str(&stringify_lossless(self))
+    }
+
     /// Explicit lossy conversion. Key collisions occur in insertion order at this boundary.
     /// This is not legacy `parse`, which replaces strings before duplicate-key handling.
     pub fn into_serde_lossy(self) -> Value {
@@ -115,6 +172,12 @@ pub fn to_js_string(value: &JsValue) -> Result<JsString, &'static str> {
                 Ok(JsString::from("[object Object]"))
             }
         }
+    }
+}
+
+impl From<Value> for JsValue {
+    fn from(value: Value) -> Self {
+        Self::from(&value)
     }
 }
 
