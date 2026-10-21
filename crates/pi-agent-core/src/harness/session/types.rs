@@ -10,10 +10,10 @@ use std::fmt::{self, Display, Formatter};
 use indexmap::IndexMap;
 
 use pi_ai::request::BoxFuture;
-use pi_ai::types::{JsonObject, Usage};
+use pi_ai::types::Usage;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::agent::AgentMessage;
 
@@ -180,7 +180,7 @@ pub enum EntryBody {
     },
     Compaction {
         id: String,
-        summary: String,
+        summary: JsString,
         #[serde(serialize_with = "js_number::serialize")]
         tokens_before: f64,
         retained_tail: Vec<AgentMessage>,
@@ -197,7 +197,7 @@ pub enum EntryBody {
     BranchSummary {
         id: String,
         from_id: String,
-        summary: String,
+        summary: JsString,
         #[serde(default, skip_serializing_if = "OptionalValue::is_missing")]
         details: OptionalValue,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -446,7 +446,11 @@ pub enum RecordBody {
         tool_index: f64,
         tool_call_id: String,
         tool_name: String,
-        effective_args: JsonObject,
+        #[serde(
+            serialize_with = "pi_js_compat::js_json::serialize_object",
+            deserialize_with = "pi_js_compat::js_json::deserialize_object"
+        )]
+        effective_args: JsObject,
         result_entry_id: String,
         replay: ReplaySafety,
     },

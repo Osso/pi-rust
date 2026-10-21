@@ -11,11 +11,11 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 - [x] Explicit provider `sanitizeSurrogates` sites remove unmatched units, retaining valid pairs; no mutation of shared text precedes that boundary.
 - [x] Shared Node UTF-8 boundary replaces unmatched units with U+FFFD only when encoding to streams, filesystem paths, process arguments or environment values.
 - [x] User and thinking text use the same UTF-16 authority.
-- [ ] Custom-message text uses the same UTF-16 authority.
+- [x] Core custom-message text uses the same UTF-16 authority; coding-agent consumers remain pending.
 - [x] Tool-call arguments and complete/partial JSON argument parsing use lossless object/value authorities.
 - [x] Anthropic SSE retains text/thinking and native UTF-16 JSON fragments through ordered block/delta/stop handling.
 - [ ] Classify checked scalar provider metadata restrictions (ids/names/type tags, stop reasons/explanations, signatures).
-- [ ] Execution/hook parameters use those same authorities.
+- [x] Core execution/hook parameters use those same authorities; coding-agent tool wrappers remain pending.
 - [ ] Agent result text/details survive agent loop, JSONL append/reload and TS reread in both directions.
 - [ ] Question relay, ask-questions, mailbox and session-name tools preserve arbitrary UTF-16.
 
@@ -40,7 +40,7 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 
 ## Known gaps (current cycle)
 
-- [ ] This is a pi-ai crate-compiling API checkpoint, not workspace readiness; downstream consumers, broad affected targets, agent/JSONL proof, session-name integration and final warning-free workspace check remain open.
+- [ ] Pi-ai and pi-agent-core compile in focused targets; not workspace readiness. Downstream consumers, broad affected targets, persisted JSONL proof, session-name integration and final warning-free workspace check remain open.
 
 ## Out of scope
 

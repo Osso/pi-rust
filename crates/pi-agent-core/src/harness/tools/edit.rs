@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::js_json::{JsObject, JsValue};
 use serde_json::{Map, Value, json};
 
 use crate::agent::{AgentTool, AgentToolResult, ToolError};
@@ -70,14 +71,14 @@ impl AgentTool for EditTool {
         "edit"
     }
 
-    fn prepare_arguments(&self, args: Value) -> Result<Value, crate::agent::ToolError> {
+    fn prepare_arguments(&self, args: JsValue) -> Result<JsValue, crate::agent::ToolError> {
         Ok(prepare_edit_arguments(args))
     }
 
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: crate::agent::AgentToolUpdateCallback,
         _execution: Option<crate::harness::types::AgentToolExecutionContext>,
@@ -87,50 +88,48 @@ impl AgentTool for EditTool {
     }
 }
 
-fn prepare_edit_arguments(input: Value) -> Value {
-    let Value::Object(mut args) = input else {
+fn prepare_edit_arguments(input: JsValue) -> JsValue {
+    let JsValue::Object(mut args) = input else {
         return input;
     };
     parse_serialized_edits(&mut args);
     merge_legacy_edits(args)
 }
 
-fn parse_serialized_edits(args: &mut Map<String, Value>) {
-    if let Some(Value::String(serialized)) = args.get("edits")
-        && let Ok(Value::Array(parsed)) = serde_json::from_str::<Value>(serialized)
+fn parse_serialized_edits(args: &mut JsObject) {
+    if let Some(JsValue::String(serialized)) = args.get("edits")
+        && let Ok(JsValue::Array(parsed)) = pi_js_compat::js_json::parse_lossless(serialized)
     {
-        args.insert("edits".to_owned(), Value::Array(parsed));
+        args.insert("edits".into(), JsValue::Array(parsed));
     }
 }
 
-fn merge_legacy_edits(args: Map<String, Value>) -> Value {
-    let legacy_old_text = args.get("oldText").and_then(Value::as_str).map(str::to_owned);
-    let legacy_new_text = args.get("newText").and_then(Value::as_str).map(str::to_owned);
-    let (Some(old_text), Some(new_text)) = (legacy_old_text, legacy_new_text) else {
-        return Value::Object(args);
+fn merge_legacy_edits(args: JsObject) -> JsValue {
+    let old_text = args.get("oldText").and_then(JsValue::as_string).cloned();
+    let new_text = args.get("newText").and_then(JsValue::as_string).cloned();
+    let (Some(old_text), Some(new_text)) = (old_text, new_text) else {
+        return JsValue::Object(args);
     };
-
     let mut edits = match args.get("edits") {
-        Some(Value::Array(edits)) => edits.clone(),
+        Some(JsValue::Array(edits)) => edits.clone(),
         _ => Vec::new(),
     };
-    edits.push(json!({"oldText": old_text, "newText": new_text}));
-    let mut result = Map::new();
+    edits.push(pi_js_compat::js_json!({"oldText": old_text, "newText": new_text}));
+    let mut result = JsObject::new();
     for (key, value) in args {
-        match key.as_str() {
-            "oldText" | "newText" => {}
-            "edits" => {
-                result.insert(key, Value::Array(edits.clone()));
-            }
-            _ => {
-                result.insert(key, value);
-            }
+        if key == "oldText" || key == "newText" {
+            continue;
+        }
+        if key == "edits" {
+            result.insert(key, JsValue::Array(edits.clone()));
+        } else {
+            result.insert(key, value);
         }
     }
     if !result.contains_key("edits") {
-        result.insert("edits".to_owned(), Value::Array(edits));
+        result.insert("edits".into(), JsValue::Array(edits));
     }
-    Value::Object(result)
+    JsValue::Object(result)
 }
 
 fn parse_edit_input(input: &Value) -> Result<(String, Vec<Edit>), ToolError> {
@@ -182,9 +181,13 @@ fn edit_access_error(path: &str, error: &FileError) -> ToolError {
 
 async fn execute_edit(
     context: Arc<ExecutionToolContext>,
-    params: Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
+    // TODO(edit lane): branch-only checked bridge; remove before merge.
+    let params = params
+        .to_serde()
+        .map_err(|error| ToolError::new(format!("Lossless UTF-16 edits pending edit lane: {error}")))?;
     let (path, edits) = parse_edit_input(&params)?;
     let absolute_path = resolve_tool_path(context.env.as_ref(), &path, signal.as_ref())
         .await
@@ -292,7 +295,7 @@ fn edit_success_result(
         content: vec![TextOrImageContent::Text(TextContent::new(format!(
             "Successfully replaced {edit_count} block(s) in {path}."
         )))],
-        details: Some(Value::Object(details)),
+        details: Some(Value::Object(details).into()),
         is_error: None,
         terminate: None,
     }

@@ -170,7 +170,7 @@ pub struct NewestOwnState {
     #[serde(rename = "type")]
     pub entry_type: EntryType,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
+    pub role: Option<pi_js_compat::js_json::JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<StopReason>,
 }

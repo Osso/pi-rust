@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{ImageContent, TextContent, TextOrImageContent};
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use serde_json::{Value, json};
 
 use crate::agent::{AgentTool, AgentToolResult, ToolError};
@@ -105,7 +106,7 @@ impl AgentTool for ReadTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: crate::agent::AgentToolUpdateCallback,
         _execution: Option<crate::harness::types::AgentToolExecutionContext>,
@@ -119,11 +120,11 @@ impl AgentTool for ReadTool {
 async fn execute_read(
     context: Arc<ExecutionToolContext>,
     options: ReadToolOptions,
-    params: Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let (path, offset, limit) = parse_read_input(&params)?;
-    let absolute_path = resolve_read_tool_path(context.env.as_ref(), &path, signal.as_ref())
+    let absolute_path = resolve_read_tool_path(context.env.as_ref(), &encode_node_utf8(&path), signal.as_ref())
         .await
         .map_err(|error| ToolError::new(error.message))?;
     let bytes = context
@@ -138,19 +139,27 @@ async fn execute_read(
     }
 }
 
-fn parse_read_input(params: &Value) -> Result<(String, Option<usize>, Option<usize>), ToolError> {
+fn parse_read_input(params: &JsValue) -> Result<(JsString, Option<usize>, Option<usize>), ToolError> {
     let path = params
         .get("path")
-        .and_then(Value::as_str)
+        .and_then(JsValue::as_string)
         .ok_or_else(|| ToolError::new("read tool requires a string path"))?
-        .to_owned();
-    let offset = params.get("offset").and_then(Value::as_u64).map(|value| value as usize);
-    let limit = params.get("limit").and_then(Value::as_u64).map(|value| value as usize);
+        .clone();
+    let offset = params
+        .get("offset")
+        .and_then(JsValue::as_f64)
+        .filter(|value| value.is_finite() && *value >= 0.0 && value.fract() == 0.0)
+        .map(|value| value as usize);
+    let limit = params
+        .get("limit")
+        .and_then(JsValue::as_f64)
+        .filter(|value| value.is_finite() && *value >= 0.0 && value.fract() == 0.0)
+        .map(|value| value as usize);
     Ok((path, offset, limit))
 }
 
 fn read_text_result(
-    path: &str,
+    path: &JsString,
     offset: Option<usize>,
     limit: Option<usize>,
     bytes: &[u8],
@@ -179,7 +188,7 @@ fn read_text_result(
     );
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(output_text))],
-        details,
+        details: details.map(JsValue::from),
         is_error: None,
         terminate: None,
     })
@@ -196,41 +205,47 @@ fn select_lines(all_lines: &[&str], start_line: usize, limit: Option<usize>) -> 
 }
 
 fn render_read_output(
-    path: &str,
+    path: &JsString,
     start_line: usize,
     total_file_lines: usize,
     all_lines: &[&str],
     selected_content: &str,
     user_limited_lines: Option<usize>,
     truncation: crate::harness::utils::TruncationResult,
-) -> (String, Option<Value>) {
+) -> (JsString, Option<Value>) {
     let start_line_display = start_line + 1;
     if truncation.first_line_exceeds_limit {
         let notice = first_line_limit_notice(path, start_line_display, all_lines[start_line].len());
-        return (notice, Some(json!({"truncation": truncation})));
+        return (notice.into(), Some(json!({"truncation": truncation})));
     }
     if truncation.truncated {
         let notice = truncation_notice(start_line_display, total_file_lines, &truncation);
-        return (notice, Some(json!({"truncation": truncation})));
+        return (notice.into(), Some(json!({"truncation": truncation})));
     }
     if let Some(user_limited_lines) = user_limited_lines
         && start_line + user_limited_lines < all_lines.len()
     {
         let notice = remainder_notice(start_line, total_file_lines, user_limited_lines);
-        return (format!("{}\n\n{notice}", truncation.content), None);
+        return (format!("{}\n\n{notice}", truncation.content).into(), None);
     }
-    (selected_content.to_owned(), None)
+    (selected_content.into(), None)
 }
 
-fn first_line_limit_notice(path: &str, start_line_display: usize, line_bytes: usize) -> String {
-    format!(
-        "[Line {} is {}, exceeds {} limit. Use bash: sed -n '{}p' {} | head -c {}]",
+fn first_line_limit_notice(path: &JsString, start_line_display: usize, line_bytes: usize) -> JsString {
+    let prefix = format!(
+        "[Line {} is {}, exceeds {} limit. Use bash: sed -n '{}p' ",
         start_line_display,
         format_size(line_bytes),
         format_size(DEFAULT_MAX_BYTES),
-        start_line_display,
-        path,
-        DEFAULT_MAX_BYTES
+        start_line_display
+    );
+    JsString::join(
+        [
+            JsString::from(prefix),
+            path.clone(),
+            JsString::from(format!(" | head -c {}]", DEFAULT_MAX_BYTES)),
+        ],
+        "",
     )
 }
 

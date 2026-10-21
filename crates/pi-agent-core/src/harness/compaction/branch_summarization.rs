@@ -9,7 +9,7 @@ use pi_ai::types::{
 };
 use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy};
 use pi_ai::utils::text::{ContentText, content_text};
-use serde_json::Value;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::agent::AgentMessage;
@@ -67,19 +67,19 @@ Keep each section concise. Preserve exact file paths, function names, and error 
 /// Generated branch summary data ready to be persisted as a branch-summary entry.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BranchSummaryResult {
-    pub summary: String,
+    pub summary: JsString,
     pub usage: Option<Usage>,
-    pub read_files: Vec<String>,
-    pub modified_files: Vec<String>,
+    pub read_files: Vec<JsString>,
+    pub modified_files: Vec<JsString>,
 }
 
 /// File-operation details stored on generated branch summary entries.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BranchSummaryDetails {
     /// Files read while exploring the summarized branch.
-    pub read_files: Vec<String>,
+    pub read_files: Vec<JsString>,
     /// Files modified while exploring the summarized branch.
-    pub modified_files: Vec<String>,
+    pub modified_files: Vec<JsString>,
 }
 
 /// Prepared branch content for summarization.
@@ -112,7 +112,7 @@ pub struct GenerateBranchSummaryOptions<'a> {
     /// Abort signal for the summarization request.
     pub signal: Option<&'a CancellationToken>,
     /// Optional instructions appended to or replacing the default prompt.
-    pub custom_instructions: Option<&'a str>,
+    pub custom_instructions: Option<&'a JsString>,
     /// Replace the default prompt with custom instructions instead of appending them.
     pub replace_instructions: bool,
     /// Tokens reserved for prompt and model output. Defaults to 16384.
@@ -178,10 +178,7 @@ pub async fn collect_entries_for_branch_summary<M: SessionMetadataValue>(
 
 fn get_message_from_entry(entry: &Entry) -> Option<AgentMessage> {
     match &entry.body {
-        EntryBody::Message { message, .. } => match message.role() {
-            "toolResult" => None,
-            _ => Some(message.clone()),
-        },
+        EntryBody::Message { message, .. } => (!message.has_role("toolResult")).then(|| message.clone()),
         EntryBody::BranchSummary { summary, from_id, .. } => {
             Some(create_branch_summary_message(summary, from_id, entry.timestamp))
         }
@@ -208,13 +205,13 @@ fn accumulate_details(details: Option<&Value>, file_ops: &mut FileOperations) {
         return;
     };
     if let Some(read_files) = details.get("readFiles").and_then(Value::as_array) {
-        for file in read_files.iter().filter_map(Value::as_str) {
-            file_ops.read.insert(file.to_owned());
+        for file in read_files.iter().filter_map(Value::as_string) {
+            file_ops.read.insert(file.clone());
         }
     }
     if let Some(modified_files) = details.get("modifiedFiles").and_then(Value::as_array) {
-        for file in modified_files.iter().filter_map(Value::as_str) {
-            file_ops.edited.insert(file.to_owned());
+        for file in modified_files.iter().filter_map(Value::as_string) {
+            file_ops.edited.insert(file.clone());
         }
     }
 }
@@ -263,11 +260,11 @@ pub fn prepare_branch_entries(entries: &[Entry], token_budget: f64) -> BranchPre
     }
 }
 
-fn branch_instructions(options: &GenerateBranchSummaryOptions<'_>) -> String {
+fn branch_instructions(options: &GenerateBranchSummaryOptions<'_>) -> JsString {
     match options.custom_instructions {
-        Some(instructions) if options.replace_instructions => instructions.to_owned(),
-        Some(instructions) => format!("{BRANCH_SUMMARY_PROMPT}\n\nAdditional focus: {instructions}"),
-        None => BRANCH_SUMMARY_PROMPT.to_owned(),
+        Some(instructions) if options.replace_instructions => instructions.clone(),
+        Some(instructions) => JsString::from(BRANCH_SUMMARY_PROMPT) + "\n\nAdditional focus: " + instructions,
+        None => BRANCH_SUMMARY_PROMPT.into(),
     }
 }
 
@@ -301,7 +298,7 @@ pub async fn generate_branch_summary_with_callbacks<C: RetryCallbacks + ?Sized>(
     )
     .await;
     let (text, usage) = summarize_branch_response(&response)?;
-    Ok(finish_branch_summary(text, usage, &file_ops))
+    Ok(finish_branch_summary(text.into(), usage, &file_ops))
 }
 
 fn branch_token_budget(options: &GenerateBranchSummaryOptions<'_>) -> f64 {
@@ -315,7 +312,7 @@ fn branch_token_budget(options: &GenerateBranchSummaryOptions<'_>) -> f64 {
 
 fn no_content_branch_summary() -> BranchSummaryResult {
     BranchSummaryResult {
-        summary: "No content to summarize".to_owned(),
+        summary: "No content to summarize".into(),
         usage: None,
         read_files: Vec::new(),
         modified_files: Vec::new(),
@@ -324,10 +321,8 @@ fn no_content_branch_summary() -> BranchSummaryResult {
 
 fn branch_summary_context(messages: &[AgentMessage], options: &GenerateBranchSummaryOptions<'_>) -> Context {
     let conversation_text = serialize_conversation(&convert_to_llm(messages));
-    let prompt_text = format!(
-        "<conversation>\n{conversation_text}\n</conversation>\n\n{}",
-        branch_instructions(options)
-    );
+    let prompt_text =
+        JsString::from("<conversation>\n") + conversation_text + "\n</conversation>\n\n" + branch_instructions(options);
     let summarization_message = Message::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt_text))]),
@@ -356,7 +351,9 @@ fn branch_summary_completion_options(options: &GenerateBranchSummaryOptions<'_>)
     }
 }
 
-fn summarize_branch_response(response: &pi_ai::types::AssistantMessage) -> Result<(String, Usage), BranchSummaryError> {
+fn summarize_branch_response(
+    response: &pi_ai::types::AssistantMessage,
+) -> Result<(JsString, Usage), BranchSummaryError> {
     if response.stop_reason == StopReason::Aborted {
         return Err(BranchSummaryError::new(
             BranchSummaryErrorCode::Aborted,
@@ -384,17 +381,17 @@ fn summarize_branch_response(response: &pi_ai::types::AssistantMessage) -> Resul
     ))
 }
 
-fn finish_branch_summary(text: String, usage: Usage, file_ops: &FileOperations) -> BranchSummaryResult {
-    let summary = format!("{BRANCH_SUMMARY_PREAMBLE}{text}");
+fn finish_branch_summary(text: JsString, usage: Usage, file_ops: &FileOperations) -> BranchSummaryResult {
+    let summary = JsString::from(BRANCH_SUMMARY_PREAMBLE) + text;
     let FileLists {
         read_files,
         modified_files,
     } = compute_file_lists(file_ops);
-    let summary = format!("{summary}{}", format_file_operations(&read_files, &modified_files));
+    let summary = summary + format_file_operations(&read_files, &modified_files);
 
     BranchSummaryResult {
         summary: if summary.is_empty() {
-            "No summary generated".to_owned()
+            "No summary generated".to_owned().into()
         } else {
             summary
         },

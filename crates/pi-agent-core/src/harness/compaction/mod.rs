@@ -14,8 +14,8 @@ use pi_ai::utils::estimate::{
 use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy, retry_assistant_call};
 use pi_ai::utils::text::{ContentText, content_text};
 use pi_ai::utils::uuid::uuidv7;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::agent::AgentMessage;
@@ -146,8 +146,8 @@ pub struct CutPointResult {
 /// File-operation details stored on generated compaction entries.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CompactionDetails {
-    pub read_files: Vec<String>,
-    pub modified_files: Vec<String>,
+    pub read_files: Vec<JsString>,
+    pub modified_files: Vec<JsString>,
 }
 
 /// Compaction thresholds and retention settings.
@@ -188,7 +188,7 @@ pub fn should_compact(context_tokens: f64, context_window: f64, settings: &Compa
 pub fn estimate_tokens(message: &AgentMessage) -> f64 {
     match message {
         AgentMessage::User(user) => match &user.content {
-            UserContent::Text(text) => estimate_text_and_image_content_tokens(TextOrImageInput::String(text)),
+            UserContent::Text(text) => estimate_text_and_image_content_tokens(TextOrImageInput::Utf16(text)),
             UserContent::Blocks(blocks) => estimate_text_and_image_content_tokens(TextOrImageInput::Blocks(blocks)),
         },
         AgentMessage::Assistant(assistant) => estimate_assistant_message_tokens(assistant),
@@ -199,31 +199,43 @@ pub fn estimate_tokens(message: &AgentMessage) -> f64 {
     }
 }
 
-fn estimate_custom_tokens(object: &Map<String, Value>) -> f64 {
-    match object.get("role").and_then(Value::as_str) {
-        Some("custom") | Some("toolResult") => ceil_tokens(custom_content_chars(object.get("content"))),
-        Some("bashExecution") => {
-            let chars = js_len(string_field(object, "command")) + js_len(string_field(object, "output"));
-            ceil_tokens(chars)
-        }
-        Some("branchSummary") | Some("compactionSummary") => ceil_tokens(js_len(string_field(object, "summary"))),
-        _ => 0.0,
+fn estimate_custom_tokens(object: &JsObject) -> f64 {
+    let Some(role) = object.get("role").and_then(Value::as_string) else {
+        return 0.0;
+    };
+    if role == "custom" || role == "toolResult" {
+        ceil_tokens(custom_content_chars(object.get("content")))
+    } else if role == "bashExecution" {
+        ceil_tokens(js_len(string_field(object, "command")) + js_len(string_field(object, "output")))
+    } else if role == "branchSummary" || role == "compactionSummary" {
+        ceil_tokens(js_len(string_field(object, "summary")))
+    } else {
+        0.0
     }
 }
 
 fn custom_content_chars(content: Option<&Value>) -> usize {
     match content {
-        Some(Value::String(text)) => js_len(text),
+        Some(Value::String(text)) => text.len(),
         Some(Value::Array(blocks)) => blocks.iter().map(content_block_chars).sum(),
         _ => 0,
     }
 }
 
 fn content_block_chars(block: &Value) -> usize {
-    match block.get("type").and_then(Value::as_str) {
-        Some("text") => block.get("text").and_then(Value::as_str).map(js_len).unwrap_or(0),
-        Some("image") => ESTIMATED_IMAGE_CHARS,
-        _ => 0,
+    let Some(kind) = block.get("type").and_then(Value::as_string) else {
+        return 0;
+    };
+    if kind == "text" {
+        block
+            .get("text")
+            .and_then(Value::as_string)
+            .map(JsString::len)
+            .unwrap_or(0)
+    } else if kind == "image" {
+        ESTIMATED_IMAGE_CHARS
+    } else {
+        0
     }
 }
 
@@ -231,13 +243,12 @@ fn ceil_tokens(chars: usize) -> f64 {
     (chars as f64 / 4.0).ceil()
 }
 
-fn string_field<'a>(object: &'a Map<String, Value>, key: &str) -> &'a str {
-    object.get(key).and_then(Value::as_str).unwrap_or_default()
+fn string_field(object: &JsObject, key: &str) -> JsString {
+    object.get(key).and_then(Value::as_string).cloned().unwrap_or_default()
 }
 
-/// JavaScript `String.length`: UTF-16 code units, not Unicode scalar values.
-fn js_len(text: &str) -> usize {
-    text.encode_utf16().count()
+fn js_len(text: impl Into<JsString>) -> usize {
+    text.into().len()
 }
 
 fn get_assistant_usage(message: &AgentMessage) -> Option<&Usage> {
@@ -327,14 +338,16 @@ fn is_turn_start_entry(entry: &Entry) -> bool {
         return true;
     }
     match &entry.body {
-        EntryBody::Message { message, .. } => matches!(message.role(), "user" | "bashExecution" | "custom"),
+        EntryBody::Message { message, .. } => ["user", "bashExecution", "custom"]
+            .iter()
+            .any(|role| message.has_role(role)),
         _ => false,
     }
 }
 
 fn is_active_turn_continuation_entry(entry: &Entry) -> bool {
     match &entry.body {
-        EntryBody::Message { message, .. } => matches!(message.role(), "assistant" | "toolResult"),
+        EntryBody::Message { message, .. } => ["assistant", "toolResult"].iter().any(|role| message.has_role(role)),
         _ => false,
     }
 }
@@ -430,10 +443,16 @@ fn find_valid_cut_points(entries: &[Entry], start_index: usize, end_index: usize
     let mut cut_points = Vec::new();
     for (index, entry) in entries.iter().enumerate().take(end_index).skip(start_index) {
         if let EntryBody::Message { message, .. } = &entry.body
-            && matches!(
-                message.role(),
-                "bashExecution" | "custom" | "branchSummary" | "compactionSummary" | "user" | "assistant"
-            )
+            && [
+                "bashExecution",
+                "custom",
+                "branchSummary",
+                "compactionSummary",
+                "user",
+                "assistant",
+            ]
+            .iter()
+            .any(|role| message.has_role(role))
         {
             cut_points.push(index);
         }
@@ -511,7 +530,7 @@ pub struct CompactionPreparation {
     pub retained_tail: Vec<AgentMessage>,
     pub is_split_turn: bool,
     pub tokens_before: f64,
-    pub previous_summary: Option<String>,
+    pub previous_summary: Option<JsString>,
     pub file_ops: FileOperations,
     pub settings: CompactionSettings,
 }
@@ -554,12 +573,12 @@ fn extract_file_operations(
         && let Some(details) = details.as_object()
     {
         if let Some(read_files) = details.get("readFiles").and_then(Value::as_array) {
-            for file in read_files.iter().filter_map(Value::as_str) {
+            for file in read_files.iter().filter_map(Value::as_string) {
                 file_ops.read.insert(file.to_owned());
             }
         }
         if let Some(modified_files) = details.get("modifiedFiles").and_then(Value::as_array) {
-            for file in modified_files.iter().filter_map(Value::as_str) {
+            for file in modified_files.iter().filter_map(Value::as_string) {
                 file_ops.edited.insert(file.to_owned());
             }
         }
@@ -625,7 +644,7 @@ fn previous_compaction_index(path_entries: &[Entry]) -> Option<usize> {
         .rposition(|entry| entry.entry_type() == EntryType::Compaction)
 }
 
-fn previous_summary(path_entries: &[Entry], previous_compaction_index: Option<usize>) -> Option<String> {
+fn previous_summary(path_entries: &[Entry], previous_compaction_index: Option<usize>) -> Option<JsString> {
     let index = previous_compaction_index?;
     match &path_entries[index].body {
         EntryBody::Compaction { summary, .. } => Some(summary.clone()),
@@ -695,8 +714,8 @@ pub struct GenerateSummaryOptions<'a> {
     pub model: &'a Model,
     pub reserve_tokens: f64,
     pub signal: Option<&'a CancellationToken>,
-    pub custom_instructions: Option<&'a str>,
-    pub previous_summary: Option<&'a str>,
+    pub custom_instructions: Option<&'a JsString>,
+    pub previous_summary: Option<&'a JsString>,
     pub thinking_level: Option<ThinkingLevel>,
     pub retry: Option<&'a RetryPolicy>,
 }
@@ -704,14 +723,14 @@ pub struct GenerateSummaryOptions<'a> {
 /// Generated summary text with the provider usage that produced it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SummaryWithUsage {
-    pub text: String,
+    pub text: JsString,
     pub usage: Usage,
 }
 
 /// Generated compaction data ready to be persisted as a compaction entry.
 #[derive(Debug, Clone)]
 pub struct CompactResult {
-    pub summary: String,
+    pub summary: JsString,
     pub tokens_before: f64,
     pub duration_ms: Option<f64>,
     pub usage: Option<Usage>,
@@ -722,7 +741,7 @@ pub struct CompactResult {
 /// Options for a compaction run.
 #[derive(Clone, Copy, Default)]
 pub struct CompactOptions<'a> {
-    pub custom_instructions: Option<&'a str>,
+    pub custom_instructions: Option<&'a JsString>,
     pub signal: Option<&'a CancellationToken>,
     pub thinking_level: Option<ThinkingLevel>,
     pub retry: Option<&'a RetryPolicy>,
@@ -740,33 +759,29 @@ pub(super) fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn build_summary_prompt(options: &GenerateSummaryOptions<'_>) -> String {
+fn build_summary_prompt(options: &GenerateSummaryOptions<'_>) -> JsString {
     let summary_prompt = if options.previous_summary.is_some() {
         UPDATE_SUMMARIZATION_PROMPT
     } else {
         SUMMARIZATION_PROMPT
     };
-    let focused_prompt = match options.custom_instructions {
-        Some(instructions) => format!("{summary_prompt}\n\nAdditional focus: {instructions}"),
-        None => summary_prompt.to_owned(),
+    let focused = match options.custom_instructions {
+        Some(instructions) => JsString::from(summary_prompt) + "\n\nAdditional focus: " + instructions,
+        None => summary_prompt.into(),
     };
-    let conversation_text = truncate_utf16(
+    let conversation = truncate_utf16(
         &serialize_conversation(&convert_to_llm(options.current_messages)),
         MAX_COMPACTION_CONTEXT_CHARS,
     );
-    let previous_summary_text = match options.previous_summary {
-        Some(summary) => format!("<previous-summary>\n{summary}\n</previous-summary>\n\n"),
-        None => String::new(),
+    let previous = match options.previous_summary {
+        Some(summary) => JsString::from("<previous-summary>\n") + summary + "\n</previous-summary>\n\n",
+        None => JsString::default(),
     };
-    format!("<conversation>\n{conversation_text}\n</conversation>\n\n{previous_summary_text}{focused_prompt}")
+    JsString::from("<conversation>\n") + conversation + "\n</conversation>\n\n" + previous + focused
 }
 
-fn truncate_utf16(text: &str, max_chars: usize) -> String {
-    let units: Vec<u16> = text.encode_utf16().collect();
-    if units.len() <= max_chars {
-        return text.to_owned();
-    }
-    String::from_utf16_lossy(&units[..max_chars])
+fn truncate_utf16(text: &JsString, max_chars: usize) -> JsString {
+    JsString::from_utf16(text.units()[..text.len().min(max_chars)].to_vec())
 }
 
 fn output_token_cap(model: &Model, fraction: f64, reserve_tokens: f64) -> f64 {
@@ -858,7 +873,7 @@ fn summarize_response(
     response: &AssistantMessage,
     aborted_message: &str,
     failed_prefix: &str,
-) -> Result<(String, Usage), CompactionError> {
+) -> Result<(JsString, Usage), CompactionError> {
     if response.stop_reason == StopReason::Aborted {
         return Err(CompactionError::new(
             CompactionErrorCode::Aborted,
@@ -905,7 +920,7 @@ async fn generate_summary_with_options<C: RetryCallbacks + ?Sized>(
 }
 
 /// Generate or update a conversation summary for compaction.
-pub async fn generate_summary(options: &GenerateSummaryOptions<'_>) -> Result<String, CompactionError> {
+pub async fn generate_summary(options: &GenerateSummaryOptions<'_>) -> Result<JsString, CompactionError> {
     generate_summary_with_callbacks(options, None::<&mut NoRetryCallbacks>)
         .await
         .map(|summary| summary.text)
@@ -982,7 +997,7 @@ pub async fn compact_with_callbacks<C: RetryCallbacks + ?Sized>(
         read_files,
         modified_files,
     } = compute_file_lists(&preparation.file_ops);
-    let summary = format!("{summary}{}", format_file_operations(&read_files, &modified_files));
+    let summary = summary + format_file_operations(&read_files, &modified_files);
 
     Ok(CompactResult {
         summary,
@@ -1010,7 +1025,7 @@ fn preparation_summary_options<'a>(
         reserve_tokens: preparation.settings.reserve_tokens,
         signal: options.signal,
         custom_instructions: options.custom_instructions,
-        previous_summary: preparation.previous_summary.as_deref(),
+        previous_summary: preparation.previous_summary.as_ref(),
         thinking_level: options.thinking_level,
         retry: options.retry,
     }
@@ -1022,7 +1037,7 @@ async fn summarize_preparation<C: RetryCallbacks + ?Sized>(
     model: &Model,
     options: &CompactOptions<'_>,
     callbacks: Option<&mut C>,
-) -> Result<(String, Usage), CompactionError> {
+) -> Result<(JsString, Usage), CompactionError> {
     if preparation.is_split_turn && !preparation.turn_prefix_messages.is_empty() {
         return split_turn_summary(preparation, models, model, options, callbacks).await;
     }
@@ -1037,8 +1052,8 @@ async fn split_turn_summary<C: RetryCallbacks + ?Sized>(
     model: &Model,
     options: &CompactOptions<'_>,
     mut callbacks: Option<&mut C>,
-) -> Result<(String, Usage), CompactionError> {
-    let mut history_text = "No prior history.".to_owned();
+) -> Result<(JsString, Usage), CompactionError> {
+    let mut history_text = JsString::from("No prior history.");
     let mut history_usage = None;
     if !preparation.messages_to_summarize.is_empty() {
         let history_options = preparation_summary_options(preparation, models, model, options);
@@ -1055,7 +1070,7 @@ async fn split_turn_summary<C: RetryCallbacks + ?Sized>(
         callbacks,
     )
     .await?;
-    let summary = format!("{history_text}\n\n---\n\n**Turn Context (split turn):**\n\n{turn_prefix_text}");
+    let summary = history_text + "\n\n---\n\n**Turn Context (split turn):**\n\n" + turn_prefix_text;
     let usage = match history_usage {
         Some(history_usage) => combine_usage(&history_usage, &turn_prefix_usage),
         None => turn_prefix_usage,
@@ -1070,11 +1085,13 @@ async fn generate_turn_prefix_summary<C: RetryCallbacks + ?Sized>(
     reserve_tokens: f64,
     options: &CompactOptions<'_>,
     callbacks: Option<&mut C>,
-) -> Result<(String, Usage), CompactionError> {
+) -> Result<(JsString, Usage), CompactionError> {
     let max_tokens = output_token_cap(model, 0.5, reserve_tokens);
     let conversation_text = serialize_conversation(&convert_to_llm(messages));
-    let prompt_text =
-        format!("<conversation>\n{conversation_text}\n</conversation>\n\n{TURN_PREFIX_SUMMARIZATION_PROMPT}");
+    let prompt_text = JsString::from("<conversation>\n")
+        + conversation_text
+        + "\n</conversation>\n\n"
+        + TURN_PREFIX_SUMMARIZATION_PROMPT;
     let summarization_message = Message::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt_text))]),

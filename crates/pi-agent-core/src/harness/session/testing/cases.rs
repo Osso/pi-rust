@@ -44,7 +44,7 @@ fn custom_entry(id: &str, custom_type: &str, data: Option<Value>) -> EntryBody {
     EntryBody::Custom {
         id: id.to_owned(),
         custom_type: custom_type.to_owned(),
-        data: data.into(),
+        data: data.map(pi_js_compat::js_json::JsValue::from).into(),
     }
 }
 
@@ -438,7 +438,7 @@ pub(super) async fn supports_bounded_filtered_and_cursor_based_queries<R: Sessio
         .append_entry(
             EntryBody::Compaction {
                 id: "compact".to_owned(),
-                summary: "summary".to_owned(),
+                summary: "summary".to_owned().into(),
                 tokens_before: 10.0,
                 retained_tail: Vec::new(),
                 duration_ms: None,
@@ -1024,7 +1024,7 @@ pub(super) async fn keeps_latest_value_facts_and_computes_ledger_statistics_acro
             attempt: None,
             stop_reason: None,
             tool_call_id: None,
-            details: OptionalValue::Present(json!({"reason": "provider correction"})),
+            details: OptionalValue::Present(json!({"reason": "provider correction"}).into()),
             usage: Usage {
                 input: -2.0,
                 output: 0.0,
@@ -1163,7 +1163,7 @@ pub(super) async fn returns_immutable_copies_from_reads<R: SessionBackendReposit
             EntryBody::Custom {
                 id: "custom".to_owned(),
                 custom_type: "note".to_owned(),
-                data: OptionalValue::Present(data.clone()),
+                data: OptionalValue::Present(data.clone().into()),
             },
             "main",
         )
@@ -1177,7 +1177,7 @@ pub(super) async fn returns_immutable_copies_from_reads<R: SessionBackendReposit
     else {
         panic!("Expected custom entry");
     };
-    value["nested"]["value"] = json!(99);
+    value["nested"]["value"] = json!(99).into();
     let mut read_metadata = session.get_metadata().await?;
     let mut changed = serde_json::to_value(&read_metadata).expect("metadata JSON");
     changed["id"] = json!("changed");
@@ -1200,7 +1200,7 @@ pub(super) async fn returns_immutable_copies_from_reads<R: SessionBackendReposit
     else {
         panic!("Expected entry log");
     };
-    value["nested"]["value"] = json!(100);
+    value["nested"]["value"] = json!(100).into();
     assert_eq!(session.get_metadata().await?, expected_metadata);
     let stored = session.get_entry("custom").await?.expect("entry");
     assert_eq!(
@@ -1209,7 +1209,7 @@ pub(super) async fn returns_immutable_copies_from_reads<R: SessionBackendReposit
             body: EntryBody::Custom {
                 id: "custom".to_owned(),
                 custom_type: "note".to_owned(),
-                data: OptionalValue::Present(json!({"nested": {"value": 1}})),
+                data: OptionalValue::Present(json!({"nested": {"value": 1}}).into()),
             },
             parent_id: None,
             seq: 1,

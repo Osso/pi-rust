@@ -153,7 +153,7 @@ fn message_entry_messages(message: &AgentMessage) -> Vec<AgentMessage> {
 }
 
 fn compaction_messages(
-    summary: &str,
+    summary: &pi_js_compat::js_json::JsString,
     tokens_before: f64,
     timestamp: i64,
     retained_tail: &[AgentMessage],
@@ -168,7 +168,11 @@ fn compaction_messages(
     messages
 }
 
-fn branch_summary_messages(summary: &str, from_id: &str, timestamp: i64) -> Vec<AgentMessage> {
+fn branch_summary_messages(
+    summary: &pi_js_compat::js_json::JsString,
+    from_id: &str,
+    timestamp: i64,
+) -> Vec<AgentMessage> {
     if summary.is_empty() {
         return Vec::new();
     }

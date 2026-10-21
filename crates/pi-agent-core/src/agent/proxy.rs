@@ -17,6 +17,7 @@ use pi_ai::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
 };
 use pi_ai::utils::json_parse::parse_streaming_json;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
@@ -31,7 +32,7 @@ pub enum ProxyAssistantMessageEvent {
     },
     TextDelta {
         content_index: usize,
-        delta: String,
+        delta: JsString,
     },
     TextEnd {
         content_index: usize,
@@ -43,7 +44,7 @@ pub enum ProxyAssistantMessageEvent {
     },
     ThinkingDelta {
         content_index: usize,
-        delta: String,
+        delta: JsString,
     },
     ThinkingEnd {
         content_index: usize,
@@ -57,7 +58,7 @@ pub enum ProxyAssistantMessageEvent {
     },
     ToolcallDelta {
         content_index: usize,
-        delta: String,
+        delta: JsString,
     },
     ToolcallEnd {
         content_index: usize,
@@ -103,7 +104,7 @@ pub fn stream_proxy(model: Model, context: Context, options: ProxyStreamOptions)
 struct PartialState {
     message: AssistantMessage,
     content: Vec<Option<AssistantContent>>,
-    partial_json: HashMap<usize, String>,
+    partial_json: HashMap<usize, JsString>,
 }
 
 impl PartialState {
@@ -158,7 +159,7 @@ async fn proxy_events(
     state: &mut PartialState,
 ) -> Result<(), String> {
     let fetch = options.fetch.clone().unwrap_or_else(default_fetch);
-    let body = serde_json::to_vec(&serde_json::json!({
+    let body = serde_json::to_vec(&pi_js_compat::js_json!({
         "model": model,
         "context": context,
         "options": build_proxy_request_options(&options.stream_options),
@@ -252,9 +253,7 @@ fn drain_lines(
         if data.is_empty() {
             continue;
         }
-        let value = pi_js_compat::js_json::parse(data).map_err(|error| error.to_string())?;
-        let proxy_event: ProxyAssistantMessageEvent =
-            serde_json::from_value(value).map_err(|error| error.to_string())?;
+        let proxy_event: ProxyAssistantMessageEvent = serde_json::from_str(data).map_err(|error| error.to_string())?;
         if let Some(event) = process_proxy_event(proxy_event, state)? {
             sender.push(event);
         }
@@ -323,11 +322,11 @@ fn process_text_start(state: &mut PartialState, content_index: usize) -> Result<
 fn process_text_delta(
     state: &mut PartialState,
     content_index: usize,
-    delta: String,
+    delta: JsString,
 ) -> Result<AssistantMessageEvent, String> {
     text_mut(&mut state.content, content_index, "text_delta")?
         .text
-        .push_str(&delta);
+        .push_str(delta.clone());
     state.sync();
     Ok(AssistantMessageEvent::TextDelta {
         content_index,
@@ -368,11 +367,11 @@ fn process_thinking_start(state: &mut PartialState, content_index: usize) -> Res
 fn process_thinking_delta(
     state: &mut PartialState,
     content_index: usize,
-    delta: String,
+    delta: JsString,
 ) -> Result<AssistantMessageEvent, String> {
     thinking_mut(&mut state.content, content_index, "thinking_delta")?
         .thinking
-        .push_str(&delta);
+        .push_str(delta.clone());
     state.sync();
     Ok(AssistantMessageEvent::ThinkingDelta {
         content_index,
@@ -406,9 +405,13 @@ fn process_toolcall_start(
     set_slot(
         &mut state.content,
         content_index,
-        Some(AssistantContent::ToolCall(ToolCall::new(id, tool_name, Map::new()))),
+        Some(AssistantContent::ToolCall(ToolCall::new(
+            id,
+            tool_name,
+            JsObject::new(),
+        ))),
     )?;
-    state.partial_json.insert(content_index, String::new());
+    state.partial_json.insert(content_index, JsString::default());
     state.sync();
     Ok(AssistantMessageEvent::ToolCallStart {
         content_index,
@@ -419,10 +422,10 @@ fn process_toolcall_start(
 fn process_toolcall_delta(
     state: &mut PartialState,
     content_index: usize,
-    delta: String,
+    delta: JsString,
 ) -> Result<AssistantMessageEvent, String> {
     let partial_json = state.partial_json.entry(content_index).or_default();
-    partial_json.push_str(&delta);
+    partial_json.push_str(delta.clone());
     let arguments = streaming_arguments(partial_json);
     tool_call_mut(&mut state.content, content_index, "toolcall_delta")?.arguments = arguments;
     state.sync();
@@ -474,10 +477,10 @@ fn process_error(
     })
 }
 
-fn streaming_arguments(partial_json: &str) -> Map<String, Value> {
+fn streaming_arguments(partial_json: &JsString) -> JsObject {
     match parse_streaming_json(Some(partial_json)) {
-        Value::Object(object) => object,
-        _ => Map::new(),
+        JsValue::Object(object) => object,
+        _ => JsObject::new(),
     }
 }
 

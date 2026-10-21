@@ -11,9 +11,10 @@ use indexmap::IndexSet;
 
 use pi_ai::request::{BoxFuture, SimpleStreamOptions};
 use pi_ai::types::{
-    AssistantMessage, AssistantMessageEvent, ConstrainedSampling, Context, JsonObject, Message, Model,
-    TextOrImageContent, ToolCall, ToolCallExecution, ToolResultMessage, UserMessage,
+    AssistantMessage, AssistantMessageEvent, ConstrainedSampling, Context, Message, Model, TextOrImageContent,
+    ToolCall, ToolCallExecution, ToolResultMessage, UserMessage,
 };
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -121,24 +122,65 @@ impl From<ToolError> for AgentError {
 }
 
 /// `Message | CustomAgentMessages[keyof CustomAgentMessages]`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum AgentMessage {
     User(UserMessage),
     Assistant(Box<AssistantMessage>),
     ToolResult(ToolResultMessage),
     /// Custom app message: the full JSON object, including `role`.
-    Custom(JsonObject),
+    Custom(#[serde(serialize_with = "pi_js_compat::js_json::serialize_object")] JsObject),
+}
+
+impl<'de> Deserialize<'de> for AgentMessage {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let value = JsValue::deserialize(d)?;
+        let json = pi_js_compat::js_json::stringify_lossless(&value);
+        let role = value
+            .get("role")
+            .and_then(JsValue::as_string)
+            .and_then(|role| role.to_utf8().ok());
+        match role.as_deref() {
+            Some("user") => serde_json::from_str(&json).map(Self::User).map_err(D::Error::custom),
+            Some("assistant") => serde_json::from_str(&json)
+                .map(Self::Assistant)
+                .map_err(D::Error::custom),
+            Some("toolResult") => serde_json::from_str(&json)
+                .map(Self::ToolResult)
+                .map_err(D::Error::custom),
+            _ => match value {
+                JsValue::Object(object) => Ok(Self::Custom(object)),
+                _ => Err(D::Error::custom("expected agent message object")),
+            },
+        }
+    }
 }
 
 impl AgentMessage {
     /// The message `role` discriminator, including custom roles.
-    pub fn role(&self) -> &str {
+    pub fn role(&self) -> JsString {
         match self {
-            Self::User(_) => "user",
-            Self::Assistant(_) => "assistant",
-            Self::ToolResult(_) => "toolResult",
-            Self::Custom(object) => object.get("role").and_then(Value::as_str).unwrap_or_default(),
+            Self::User(_) => "user".into(),
+            Self::Assistant(_) => "assistant".into(),
+            Self::ToolResult(_) => "toolResult".into(),
+            Self::Custom(object) => object
+                .get("role")
+                .and_then(JsValue::as_string)
+                .cloned()
+                .unwrap_or_default(),
+        }
+    }
+
+    pub fn has_role(&self, role: &str) -> bool {
+        match self {
+            Self::User(_) => role == "user",
+            Self::Assistant(_) => role == "assistant",
+            Self::ToolResult(_) => role == "toolResult",
+            Self::Custom(object) => object
+                .get("role")
+                .and_then(JsValue::as_string)
+                .is_some_and(|value| value == role),
         }
     }
 
@@ -169,7 +211,11 @@ impl AgentMessage {
             Self::User(message) => Some(message.timestamp),
             Self::Assistant(message) => Some(message.timestamp),
             Self::ToolResult(message) => Some(message.timestamp),
-            Self::Custom(object) => object.get("timestamp").and_then(Value::as_i64),
+            Self::Custom(object) => object
+                .get("timestamp")
+                .and_then(JsValue::as_f64)
+                .filter(|n| n.is_finite() && n.fract() == 0.0 && *n >= i64::MIN as f64 && *n < 9223372036854775808.0)
+                .map(|n| n as i64),
         }
     }
 }
@@ -211,8 +257,12 @@ pub type AgentToolCall = ToolCall;
 pub struct AgentToolResult {
     pub content: Vec<TextOrImageContent>,
     /// Arbitrary structured details; absent when the tool returned `undefined`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
+    pub details: Option<JsValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     /// Hint that the agent should stop after the current tool batch.
@@ -222,10 +272,10 @@ pub struct AgentToolResult {
 
 impl AgentToolResult {
     /// Text-only result with empty details (`createErrorToolResult` shape).
-    pub fn text(text: impl Into<String>) -> Self {
+    pub fn text(text: impl Into<JsString>) -> Self {
         Self {
             content: vec![TextOrImageContent::Text(pi_ai::types::TextContent::new(text))],
-            details: Some(Value::Object(JsonObject::new())),
+            details: Some(JsValue::Object(Default::default())),
             is_error: None,
             terminate: None,
         }
@@ -254,7 +304,7 @@ pub trait AgentTool: Send + Sync {
     ///
     /// A failure is returned to the model as an error tool result, matching the
     /// TypeScript agent loop's `prepareArguments` catch.
-    fn prepare_arguments(&self, args: Value) -> Result<Value, ToolError> {
+    fn prepare_arguments(&self, args: JsValue) -> Result<JsValue, ToolError> {
         Ok(args)
     }
     /// Prepare durable execution metadata before the assistant tool call is persisted.
@@ -272,7 +322,7 @@ pub trait AgentTool: Send + Sync {
     fn execute(
         &self,
         tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         on_update: AgentToolUpdateCallback,
         execution: Option<AgentToolExecutionContext>,
@@ -321,13 +371,13 @@ pub enum AgentEvent {
     ToolExecutionStart {
         tool_call_id: String,
         tool_name: String,
-        args: Value,
+        args: JsValue,
         started_at: f64,
     },
     ToolExecutionUpdate {
         tool_call_id: String,
         tool_name: String,
-        args: Value,
+        args: JsValue,
         partial_result: AgentToolResult,
     },
     ToolExecutionEnd {
@@ -366,19 +416,19 @@ pub struct BeforeToolCallContext {
     pub tool_call: AgentToolCall,
     /// Validated arguments. Shared so the hook can mutate them in place, matching
     /// the TypeScript object-reference semantics; the loop does not revalidate.
-    pub args: Arc<Mutex<Value>>,
+    pub args: Arc<Mutex<JsValue>>,
     pub context: AgentContext,
 }
 
 impl BeforeToolCallContext {
-    pub fn args_snapshot(&self) -> Value {
+    pub fn args_snapshot(&self) -> JsValue {
         self.args
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
     }
 
-    pub fn set_args(&self, args: Value) {
+    pub fn set_args(&self, args: JsValue) {
         *self.args.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = args;
     }
 }
@@ -389,8 +439,12 @@ impl BeforeToolCallContext {
 pub struct AfterToolCallResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<Vec<TextOrImageContent>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "pi_js_compat::js_json::deserialize_present"
+    )]
+    pub details: Option<JsValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -402,7 +456,7 @@ pub struct AfterToolCallResult {
 pub struct AfterToolCallContext {
     pub assistant_message: AssistantMessage,
     pub tool_call: AgentToolCall,
-    pub args: Value,
+    pub args: JsValue,
     pub result: AgentToolResult,
     pub is_error: bool,
     pub context: AgentContext,

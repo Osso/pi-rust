@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use pi_ai::types::Usage;
-use serde_json::Value;
+use pi_js_compat::js_json::JsValue as Value;
 
 use crate::agent::AgentMessage;
 use crate::harness::session::state::{assert_valid_cursor, assert_valid_limit};
@@ -257,7 +257,7 @@ impl<M: SessionMetadataValue> Session<M> {
             .append_entry(
                 EntryBody::Compaction {
                     id: self.id_generator.next(),
-                    summary: summary.to_owned(),
+                    summary: summary.to_owned().into(),
                     tokens_before,
                     retained_tail,
                     duration_ms: options.duration_ms,

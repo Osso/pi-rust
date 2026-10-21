@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use pi_js_compat::number::js_number_to_string;
 use serde_json::{Map, Value, json};
 
@@ -23,7 +24,7 @@ const DESCRIPTION: &str = "Execute a bash command in the current working directo
 /// Command, working directory, and environment prepared before shell execution.
 #[derive(Debug, Clone)]
 pub struct BashExecution {
-    pub command: String,
+    pub command: JsString,
     pub cwd: String,
     pub env: HashMap<String, String>,
     pub inherit_env: bool,
@@ -98,7 +99,7 @@ impl AgentTool for BashTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         on_update: AgentToolUpdateCallback,
         _execution: Option<crate::harness::types::AgentToolExecutionContext>,
@@ -169,7 +170,7 @@ fn progress_result(progress: &ShellCaptureProgress) -> AgentToolResult {
     }
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(progress.output.clone()))],
-        details: Some(Value::Object(details)),
+        details: Some(JsValue::from(Value::Object(details))),
         is_error: None,
         terminate: None,
     }
@@ -178,7 +179,7 @@ fn progress_result(progress: &ShellCaptureProgress) -> AgentToolResult {
 async fn execute_bash(
     context: Arc<ExecutionToolContext>,
     options: BashToolOptions,
-    params: Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
     on_update: AgentToolUpdateCallback,
 ) -> Result<AgentToolResult, ToolError> {
@@ -201,19 +202,19 @@ async fn execute_bash(
         } else {
             output_text
         }))],
-        details,
+        details: details.map(JsValue::from),
         is_error: None,
         terminate: None,
     })
 }
 
-fn parse_bash_input(params: &Value) -> Result<(String, Option<f64>), ToolError> {
+fn parse_bash_input(params: &JsValue) -> Result<(JsString, Option<f64>), ToolError> {
     let command = params
         .get("command")
-        .and_then(Value::as_str)
+        .and_then(JsValue::as_string)
         .ok_or_else(|| ToolError::new("bash tool requires a string command"))?
-        .to_owned();
-    let timeout = params.get("timeout").and_then(Value::as_f64);
+        .clone();
+    let timeout = params.get("timeout").and_then(JsValue::as_f64);
     validate_timeout(timeout)?;
     Ok((command, timeout))
 }
@@ -221,12 +222,12 @@ fn parse_bash_input(params: &Value) -> Result<(String, Option<f64>), ToolError> 
 async fn prepare_execution(
     context: &ExecutionToolContext,
     options: &BashToolOptions,
-    command: String,
+    command: JsString,
     signal: Option<&CancellationToken>,
 ) -> Result<BashExecution, ToolError> {
     let mut execution = BashExecution {
         command: match &options.command_prefix {
-            Some(prefix) => format!("{prefix}\n{command}"),
+            Some(prefix) => JsString::from(prefix) + "\n" + command,
             None => command,
         },
         cwd: context.env.cwd().to_owned(),
@@ -251,7 +252,7 @@ async fn capture_shell(
 ) -> Result<ShellCaptureResult, ToolError> {
     execute_shell_with_capture(
         &context.env,
-        &execution.command,
+        &encode_node_utf8(&execution.command),
         ShellCaptureOptions {
             cwd: Some(execution.cwd.clone()),
             env: Some(execution.env.clone()),
@@ -373,7 +374,7 @@ fn capture_update_result(capture: &ShellCaptureResult) -> AgentToolResult {
     }
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(capture.output.clone()))],
-        details: Some(Value::Object(details)),
+        details: Some(JsValue::from(Value::Object(details))),
         is_error: None,
         terminate: None,
     }

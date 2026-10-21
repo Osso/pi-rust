@@ -2,7 +2,7 @@
 
 use indexmap::IndexSet;
 use pi_ai::types::{AssistantContent, Message, TextOrImageContent, UserContent};
-use serde_json::Value;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 
 use crate::agent::AgentMessage;
 
@@ -13,18 +13,18 @@ const TOOL_RESULT_MAX_CHARS: usize = 2000;
 #[serde(rename_all = "camelCase")]
 pub struct FileOperations {
     /// Files read but not necessarily modified.
-    pub read: IndexSet<String>,
+    pub read: IndexSet<JsString>,
     /// Files written by full-file write operations.
-    pub written: IndexSet<String>,
+    pub written: IndexSet<JsString>,
     /// Files modified by edit operations.
-    pub edited: IndexSet<String>,
+    pub edited: IndexSet<JsString>,
 }
 
 /// Sorted read-only and modified file lists derived from [`FileOperations`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FileLists {
-    pub read_files: Vec<String>,
-    pub modified_files: Vec<String>,
+    pub read_files: Vec<JsString>,
+    pub modified_files: Vec<JsString>,
 }
 
 /// Create an empty file-operation accumulator.
@@ -41,18 +41,18 @@ pub fn extract_file_ops_from_message(message: &AgentMessage, file_ops: &mut File
         let AssistantContent::ToolCall(call) = block else {
             continue;
         };
-        let Some(path) = call.arguments.get("path").and_then(Value::as_str) else {
+        let Some(path) = call.arguments.get("path").and_then(Value::as_string) else {
             continue;
         };
         match call.name.as_str() {
             "read" => {
-                file_ops.read.insert(path.to_owned());
+                file_ops.read.insert(path.clone());
             }
             "write" => {
-                file_ops.written.insert(path.to_owned());
+                file_ops.written.insert(path.clone());
             }
             "edit" => {
-                file_ops.edited.insert(path.to_owned());
+                file_ops.edited.insert(path.clone());
             }
             _ => {}
         }
@@ -61,14 +61,14 @@ pub fn extract_file_ops_from_message(message: &AgentMessage, file_ops: &mut File
 
 /// Compute sorted read-only and modified file lists from accumulated operations.
 pub fn compute_file_lists(file_ops: &FileOperations) -> FileLists {
-    let modified: IndexSet<&String> = file_ops.edited.iter().chain(&file_ops.written).collect();
-    let mut read_files: Vec<String> = file_ops
+    let modified: IndexSet<&JsString> = file_ops.edited.iter().chain(&file_ops.written).collect();
+    let mut read_files: Vec<JsString> = file_ops
         .read
         .iter()
         .filter(|path| !modified.contains(path))
         .cloned()
         .collect();
-    let mut modified_files: Vec<String> = modified.into_iter().cloned().collect();
+    let mut modified_files: Vec<JsString> = modified.into_iter().cloned().collect();
     sort_utf16(&mut read_files);
     sort_utf16(&mut modified_files);
     FileLists {
@@ -78,12 +78,12 @@ pub fn compute_file_lists(file_ops: &FileOperations) -> FileLists {
 }
 
 /// `Array.prototype.sort()` default comparison orders UTF-16 code units.
-fn sort_utf16(values: &mut [String]) {
-    values.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
+fn sort_utf16(values: &mut [JsString]) {
+    values.sort();
 }
 
 /// Formats read-only and modified file lists as summary metadata sections.
-pub fn format_file_operations(read_files: &[String], modified_files: &[String]) -> String {
+pub fn format_file_operations(read_files: &[JsString], modified_files: &[JsString]) -> JsString {
     let mut sections = Vec::new();
 
     if !read_files.is_empty() {
@@ -94,18 +94,18 @@ pub fn format_file_operations(read_files: &[String], modified_files: &[String]) 
     }
 
     if sections.is_empty() {
-        String::new()
+        JsString::default()
     } else {
-        format!("\n\n{}", sections.join("\n\n"))
+        JsString::from("\n\n") + JsString::join(sections, "\n\n")
     }
 }
 
-fn format_section(tag: &str, entries: &[String]) -> String {
-    format!("<{tag}>\n{}\n</{tag}>", entries.join("\n"))
+fn format_section(tag: &str, entries: &[JsString]) -> JsString {
+    JsString::from(format!("<{tag}>\n")) + JsString::join(entries, "\n") + JsString::from(format!("\n</{tag}>"))
 }
 
 /// Serialize LLM messages to plain text for summarization prompts.
-pub fn serialize_conversation(messages: &[Message]) -> String {
+pub fn serialize_conversation(messages: &[Message]) -> JsString {
     serialize_conversation_with_arguments(messages, &safe_json_stringify)
 }
 
@@ -115,8 +115,8 @@ pub fn serialize_conversation(messages: &[Message]) -> String {
 /// serializes them in full. Both share this body.
 pub fn serialize_conversation_with_arguments(
     messages: &[Message],
-    serialize_argument: &dyn Fn(&Value) -> String,
-) -> String {
+    serialize_argument: &dyn Fn(&Value) -> JsString,
+) -> JsString {
     let mut parts = Vec::new();
 
     for message in messages {
@@ -127,7 +127,7 @@ pub fn serialize_conversation_with_arguments(
                     UserContent::Blocks(blocks) => text_blocks(blocks),
                 };
                 if !content.is_empty() {
-                    parts.push(format!("[User]: {content}"));
+                    parts.push(JsString::join([JsString::from("[User]: "), content], ""));
                 }
             }
             Message::Assistant(assistant) => {
@@ -136,33 +136,35 @@ pub fn serialize_conversation_with_arguments(
             Message::ToolResult(result) => {
                 let content = text_blocks(&result.content);
                 if !content.is_empty() {
-                    parts.push(format!(
-                        "[Tool result]: {}",
-                        serialize_tool_result_for_summary(&content, result.details.as_ref())
+                    parts.push(JsString::join(
+                        [
+                            JsString::from("[Tool result]: "),
+                            serialize_tool_result_for_summary(&content, result.details.as_ref()),
+                        ],
+                        "",
                     ));
                 }
             }
         }
     }
 
-    parts.join("\n\n")
+    JsString::join(parts, "\n\n")
 }
 
-fn text_blocks(blocks: &[TextOrImageContent]) -> String {
-    blocks
-        .iter()
-        .filter_map(|block| match block {
-            TextOrImageContent::Text(text) => Some(text.text.as_str()),
+fn text_blocks(blocks: &[TextOrImageContent]) -> JsString {
+    JsString::join(
+        blocks.iter().filter_map(|block| match block {
+            TextOrImageContent::Text(text) => Some(&text.text),
             TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("")
+        }),
+        "",
+    )
 }
 
 fn serialize_assistant_message(
     content: &[AssistantContent],
-    serialize_argument: &dyn Fn(&Value) -> String,
-    parts: &mut Vec<String>,
+    serialize_argument: &dyn Fn(&Value) -> JsString,
+    parts: &mut Vec<JsString>,
 ) {
     let mut text_parts = Vec::new();
     let mut tool_calls = Vec::new();
@@ -171,40 +173,42 @@ fn serialize_assistant_message(
         match block {
             AssistantContent::Text(text) => text_parts.push(text.text.clone()),
             AssistantContent::ToolCall(call) => {
-                tool_calls.push(format!(
-                    "{}({})",
-                    call.name,
-                    serialize_tool_arguments(&call.arguments, serialize_argument)
-                ));
+                tool_calls.push(
+                    JsString::from(&call.name)
+                        + "("
+                        + serialize_tool_arguments(&call.arguments, serialize_argument)
+                        + ")",
+                );
             }
             AssistantContent::Thinking(_) => {}
         }
     }
 
     if !text_parts.is_empty() {
-        parts.push(format!("[Assistant]: {}", text_parts.join("\n")));
+        parts.push(JsString::join(
+            [JsString::from("[Assistant]: "), JsString::join(text_parts, "\n")],
+            "",
+        ));
     }
     if !tool_calls.is_empty() {
-        parts.push(format!("[Assistant tool calls]: {}", tool_calls.join("; ")));
+        parts.push(JsString::from("[Assistant tool calls]: ") + JsString::join(tool_calls, "; "));
     }
 }
 
-fn serialize_tool_arguments(
-    arguments: &serde_json::Map<String, Value>,
-    serialize_argument: &dyn Fn(&Value) -> String,
-) -> String {
-    pi_js_compat::js_json::object_entries(arguments)
-        .into_iter()
-        .map(|(key, value)| format!("{key}={}", serialize_argument(value)))
-        .collect::<Vec<_>>()
-        .join(", ")
+fn serialize_tool_arguments(arguments: &JsObject, serialize_argument: &dyn Fn(&Value) -> JsString) -> JsString {
+    JsString::join(
+        pi_js_compat::js_json::object_entries_lossless(arguments)
+            .into_iter()
+            .map(|(key, value)| key.clone() + "=" + serialize_argument(value)),
+        ", ",
+    )
 }
 
-fn safe_json_stringify(value: &Value) -> String {
-    pi_js_compat::js_json::stringify(value)
+fn safe_json_stringify(value: &Value) -> JsString {
+    pi_js_compat::js_json::stringify_lossless(value).into()
 }
 
-fn serialize_tool_result_for_summary(content: &str, details: Option<&Value>) -> String {
+fn serialize_tool_result_for_summary(content: &JsString, details: Option<&Value>) -> JsString {
     let serialized = truncate_for_summary(content, TOOL_RESULT_MAX_CHARS);
     let Some(full_output_path) = extract_full_output_path(details) else {
         return serialized;
@@ -212,30 +216,41 @@ fn serialize_tool_result_for_summary(content: &str, details: Option<&Value>) -> 
     if serialized.contains(full_output_path) {
         return serialized;
     }
-    if js_len(content) <= TOOL_RESULT_MAX_CHARS && !has_tool_output_truncation(details) {
+    if content.len() <= TOOL_RESULT_MAX_CHARS && !has_tool_output_truncation(details) {
         return serialized;
     }
-    format!("{serialized}\n\n[Output truncated. Full output: {full_output_path}]")
-}
-
-/// Truncate text to a maximum UTF-16 length for summarization.
-pub fn truncate_for_summary(text: &str, max_chars: usize) -> String {
-    let units: Vec<u16> = text.encode_utf16().collect();
-    if units.len() <= max_chars {
-        return text.to_owned();
-    }
-    let truncated_chars = units.len() - max_chars;
-    format!(
-        "{}\n\n[... {truncated_chars} more characters truncated]",
-        String::from_utf16_lossy(&units[..max_chars])
+    JsString::join(
+        [
+            serialized,
+            JsString::from("\n\n[Output truncated. Full output: "),
+            full_output_path.clone(),
+            JsString::from("]"),
+        ],
+        "",
     )
 }
 
-fn extract_full_output_path(details: Option<&Value>) -> Option<&str> {
+/// Truncate text to a maximum UTF-16 length for summarization.
+pub fn truncate_for_summary(text: impl Into<JsString>, max_chars: usize) -> JsString {
+    let text = text.into();
+    if text.len() <= max_chars {
+        return text;
+    }
+    let truncated_chars = text.len() - max_chars;
+    JsString::join(
+        [
+            JsString::from_utf16(text.units()[..max_chars].to_vec()),
+            JsString::from(format!("\n\n[... {truncated_chars} more characters truncated]")),
+        ],
+        "",
+    )
+}
+
+fn extract_full_output_path(details: Option<&Value>) -> Option<&JsString> {
     details?
         .as_object()?
         .get("fullOutputPath")?
-        .as_str()
+        .as_string()
         .filter(|path| !path.is_empty())
 }
 
@@ -247,9 +262,4 @@ fn has_tool_output_truncation(details: Option<&Value>) -> bool {
         .and_then(|truncation| truncation.get("truncated"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
-}
-
-/// JavaScript `String.length`: UTF-16 code units, not Unicode scalar values.
-fn js_len(text: &str) -> usize {
-    text.encode_utf16().count()
 }

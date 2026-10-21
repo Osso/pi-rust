@@ -6,11 +6,12 @@ Contract: [lossless content](../../specs/lossless-content.md). Frozen source: `4
 |---|---|---|---|
 | `TextContent.text` / `ToolResultMessage.details` | `JsString` / `Option<JsValue>`, explicit-null adapter | downstream consumers pending | `pi-ai/lossless_content`: exact surrogate units, nested keys, omission/null, Rust→TS→Rust-visible JSON |
 | Shared serde and object fields | raw-fragment writer/parser; object-only shared adapters | non-JSON serde formats unsupported | `pi-js-compat/js_json_serde`: five focused sandbox cases |
-| Content extraction and text streaming final/delta fields | lossless `JsString` | user/thinking/custom strings not migrated yet | pi-ai crate compiles; general provider target regressions pending |
+| Content extraction and text streaming final/delta fields | lossless `JsString`, including user/thinking/core custom text | coding-agent custom consumers pending | pi-ai/core focused targets compile; general provider regressions pending |
 | Provider JSON bodies and `OnPayload` | lossless callback type, scalar builder move into AST; pi-messages direct lossless Context serialization | callback fixtures downstream pending | captured actual HTTP request text/details/callback unmatched-unit escapes equal Node `JSON.stringify` |
 | Explicit provider sanitation | frozen per-call-site drop behavior | broad provider regressions pending | pinned `sanitize-unicode.ts` compared against Rust on the same message units |
 | Node UTF-8 stream/path/process boundary | shared `encode_node_utf8` | consumer migration pending | distinct high/low-unit replacement test; original authority unchanged |
-| Agent loop / JSONL / questions / mailbox / session name | pending next checkpoint | no end-to-end claim | not yet proven |
+| Agent loop / core custom messages and summaries | lossless execution/hook arguments, result/details, custom AST and summary strings | coding-agent consumers and persisted JSONL integration pending | `lossless_agent`: two sandbox cases, including pinned TS JSON reread |
+| Questions / mailbox / session name | downstream migration pending | no end-to-end claim | not yet proven |
 
 ## Development proof ledger
 
@@ -52,3 +53,9 @@ Workspace compilation, consumer fixtures and end-to-end agent/JSONL/question/mai
 `ProviderNativeContext.value` uses JsValue. Responses shared conversion/tools and OpenAI/Azure/Codex request trees now retain native items without projection into serde_json::Value; Codex continuation response-item cache uses the same AST. The core custom-message extractor can decode the typed native context from its lossless authority rather than dropping valid unmatched units.
 
 `native-context-red.log` reproduces the old native value deserialize rejection. `native-context-green.log`: ten pi-ai sandbox tests PASS, zero warnings, including a captured actual Responses HTTP body with unmatched-unit native text and key, no scalar fallback, and exact Node JSON.stringify bytes. Other existing provider fixtures remain pending migration/regression execution.
+
+## Core agent checkpoint
+
+Core execution/prepare/hooks use JsValue, result/details retain missing versus explicit null, and custom messages use a single JsObject authority. Session summary/custom-data fields and compaction serialization retain JsString/JsValue. Proxy deltas/argument buffers and request context are lossless. Node tools encode only at OS boundaries; the temporary checked edit adapter remains an explicit branch-only blocker pending edit-lane integration.
+
+`core-migrate-5.jsonl`: focused core target compiles, zero warnings. `core-lossless-green.log`: two sandbox cases PASS, including tool argument execution, raw result text/details and Rust→TS→Rust JSON reload. This is not a persisted session JSONL proof. `coding-agent-first.jsonl`: downstream library compilation fails with 313 diagnostics; counts recorded in `coding-agent-error-counts.json`. No workspace readiness claim.

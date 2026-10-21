@@ -11,7 +11,7 @@ use pi_ai::types::{
 };
 use pi_ai::utils::event_stream::{AssistantMessageEventStream, EventStream, StreamFailure, event_stream};
 use pi_ai::utils::validation::validate_tool_arguments;
-use serde_json::Value;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -410,7 +410,7 @@ async fn request_assistant_message(
 ) -> Result<AssistantMessage, AgentError> {
     let runtime_continuation_message = state.continuation_instruction_pending.then(|| UserMessage {
         role: UserRole::Tag,
-        content: pi_ai::types::UserContent::Text(END_TURN_CONTINUATION_INSTRUCTION.to_owned()),
+        content: pi_ai::types::UserContent::Text(END_TURN_CONTINUATION_INSTRUCTION.to_owned().into()),
         input_source: None,
         provider_native: None,
         timestamp: pi_ai::request::now_millis(),
@@ -1048,7 +1048,7 @@ fn prepare_tool_call_arguments(tool: &Arc<dyn AgentTool>, tool_call: &ToolCall) 
     Ok(tool_call)
 }
 
-fn immediate_error(message: impl Into<String>, args: Value) -> Preparation {
+fn immediate_error(message: impl Into<JsString>, args: Value) -> Preparation {
     Preparation::Immediate {
         result: create_error_tool_result(message),
         is_error: true,
@@ -1080,7 +1080,7 @@ async fn prepare_tool_call(
     };
     let validated_args = match validate_tool_arguments(&llm_tool(&tool), &prepared_tool_call) {
         Ok(args) => args,
-        Err(error) => return immediate_error(error.to_string(), original_arguments(tool_call)),
+        Err(error) => return immediate_error(error.message().clone(), original_arguments(tool_call)),
     };
     let validated_args = match apply_before_tool_call(
         config,
@@ -1146,7 +1146,7 @@ async fn apply_before_tool_call(
         before_result
             .reason
             .filter(|reason| !reason.is_empty())
-            .unwrap_or_else(|| "Tool execution was blocked".to_owned()),
+            .unwrap_or_else(|| "Tool execution was blocked".to_owned().into()),
     );
     Err(Box::new(Preparation::Immediate {
         result: tool_result,
@@ -1366,7 +1366,7 @@ fn apply_after_tool_call_result(
     (result, is_error)
 }
 
-fn create_error_tool_result(message: impl Into<String>) -> AgentToolResult {
+fn create_error_tool_result(message: impl Into<JsString>) -> AgentToolResult {
     AgentToolResult::text(message)
 }
 
@@ -1405,46 +1405,53 @@ fn cap_tool_result_content(content: Vec<TextOrImageContent>) -> Vec<TextOrImageC
         .collect()
 }
 
-fn cap_tool_result_details(details: Option<Value>) -> Option<Value> {
+fn cap_tool_result_details(details: Option<pi_js_compat::js_json::JsValue>) -> Option<pi_js_compat::js_json::JsValue> {
+    use pi_js_compat::js_json::{JsString, JsValue, stringify_lossless};
     let details = details?;
-    let text = pi_js_compat::js_json::stringify(&details);
+    let text = JsString::from(stringify_lossless(&details));
     if !is_tool_result_text_too_large(&text) {
         return Some(details);
     }
-    Some(serde_json::json!({
-        "truncated": true,
-        "reason": "tool result details exceeded storage cap",
-        "maxBytes": MAX_TOOL_RESULT_TEXT_BYTES,
-        "maxLines": MAX_TOOL_RESULT_TEXT_LINES,
-        "preview": cap_tool_result_text(&text),
-    }))
+    Some(JsValue::object([
+        ("truncated", JsValue::Bool(true)),
+        (
+            "reason",
+            JsValue::String("tool result details exceeded storage cap".into()),
+        ),
+        ("maxBytes", JsValue::Number(MAX_TOOL_RESULT_TEXT_BYTES as f64)),
+        ("maxLines", JsValue::Number(MAX_TOOL_RESULT_TEXT_LINES as f64)),
+        ("preview", JsValue::String(cap_tool_result_text(&text))),
+    ]))
 }
 
-fn cap_tool_result_text(text: &str) -> String {
+fn cap_tool_result_text(text: &pi_js_compat::js_json::JsString) -> pi_js_compat::js_json::JsString {
+    use pi_js_compat::js_json::JsString;
     if !is_tool_result_text_too_large(text) {
-        return text.to_owned();
+        return text.clone();
     }
-    let lines: Vec<&str> = text.split('\n').collect();
-    let line_capped = if lines.len() > MAX_TOOL_RESULT_TEXT_LINES {
-        lines[lines.len() - MAX_TOOL_RESULT_TEXT_LINES..].join("\n")
-    } else {
-        text.to_owned()
-    };
-    let mut byte_capped: Vec<u16> = line_capped.encode_utf16().collect();
-    while !byte_capped.is_empty() && String::from_utf16_lossy(&byte_capped).len() > MAX_TOOL_RESULT_TEXT_BYTES {
-        let start = std::cmp::max(1, byte_capped.len() / 10);
-        byte_capped = byte_capped[start..].to_vec();
+    let lines: Vec<_> = text.units().split(|unit| *unit == u16::from(b'\n')).collect();
+    let first = lines.len().saturating_sub(MAX_TOOL_RESULT_TEXT_LINES);
+    let line_capped = JsString::join(
+        lines[first..].iter().map(|line| JsString::from_utf16(line.to_vec())),
+        "\n",
+    );
+    let mut units = line_capped.units();
+    // Buffer.byteLength measures Node UTF-8 encoding; never store its replacement text.
+    while !units.is_empty() && String::from_utf16_lossy(units).len() > MAX_TOOL_RESULT_TEXT_BYTES {
+        let start = std::cmp::max(1, units.len() / 10);
+        units = &units[start..];
     }
-    format!(
-        "[tool output truncated: max {} bytes / {} lines]\n{}",
-        MAX_TOOL_RESULT_TEXT_BYTES,
-        MAX_TOOL_RESULT_TEXT_LINES,
-        String::from_utf16_lossy(&byte_capped)
-    )
+    let mut capped = JsString::from(format!(
+        "[tool output truncated: max {} bytes / {} lines]\n",
+        MAX_TOOL_RESULT_TEXT_BYTES, MAX_TOOL_RESULT_TEXT_LINES
+    ));
+    capped.push_str(JsString::from_utf16(units.to_vec()));
+    capped
 }
 
-fn is_tool_result_text_too_large(text: &str) -> bool {
-    text.split('\n').count() > MAX_TOOL_RESULT_TEXT_LINES || text.len() > MAX_TOOL_RESULT_TEXT_BYTES
+fn is_tool_result_text_too_large(text: &pi_js_compat::js_json::JsString) -> bool {
+    text.units().split(|unit| *unit == u16::from(b'\n')).count() > MAX_TOOL_RESULT_TEXT_LINES
+        || text.to_utf8_lossy().len() > MAX_TOOL_RESULT_TEXT_BYTES
 }
 
 async fn emit_tool_execution_start(

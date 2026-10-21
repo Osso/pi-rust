@@ -8,6 +8,7 @@ use indexmap::IndexMap;
 use pi_ai::request::BoxFuture;
 use pi_ai::request::OnRetry;
 use pi_ai::types::{CacheRetention, Transport};
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
@@ -57,7 +58,7 @@ pub trait AgentHarnessTool<TContext>: Send + Sync {
         None
     }
     /// Compatibility shim for raw tool-call arguments before schema validation.
-    fn prepare_arguments(&self, args: Value) -> Value {
+    fn prepare_arguments(&self, args: JsValue) -> JsValue {
         args
     }
     /// Prepare durable execution metadata before the assistant tool call is persisted.
@@ -72,7 +73,7 @@ pub trait AgentHarnessTool<TContext>: Send + Sync {
     fn execute(
         &self,
         tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         on_update: Option<AgentToolUpdateCallback>,
         context: TContext,
@@ -195,7 +196,7 @@ pub struct AgentToolExecutionContext {
 #[derive(Debug)]
 pub struct BeforeToolCallResult {
     pub block: Option<bool>,
-    pub reason: Option<String>,
+    pub reason: Option<JsString>,
 }
 
 /// Kind of filesystem object addressed by a `FileInfo` value.

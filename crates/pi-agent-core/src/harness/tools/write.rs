@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use serde_json::{Value, json};
 
 use crate::agent::{AgentTool, AgentToolResult, ToolError};
@@ -58,7 +59,7 @@ impl AgentTool for WriteTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         _on_update: crate::agent::AgentToolUpdateCallback,
         _execution: Option<crate::harness::types::AgentToolExecutionContext>,
@@ -70,11 +71,11 @@ impl AgentTool for WriteTool {
 
 async fn execute_write(
     context: Arc<ExecutionToolContext>,
-    params: Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let (path, content) = parse_write_input(&params)?;
-    let absolute_path = resolve_tool_path(context.env.as_ref(), &path, signal.as_ref())
+    let absolute_path = resolve_tool_path(context.env.as_ref(), &encode_node_utf8(&path), signal.as_ref())
         .await
         .map_err(|error| ToolError::new(error.message))?;
     let env = Arc::clone(&context.env);
@@ -86,38 +87,36 @@ async fn execute_write(
         .map_err(|error| ToolError::new(error.message))?
 }
 
-fn parse_write_input(params: &Value) -> Result<(String, String), ToolError> {
+fn parse_write_input(params: &JsValue) -> Result<(JsString, JsString), ToolError> {
     let path = params
         .get("path")
-        .and_then(Value::as_str)
+        .and_then(JsValue::as_string)
         .ok_or_else(|| ToolError::new("write tool requires a string path"))?
-        .to_owned();
+        .clone();
     let content = params
         .get("content")
-        .and_then(Value::as_str)
+        .and_then(JsValue::as_string)
         .ok_or_else(|| ToolError::new("write tool requires string content"))?
-        .to_owned();
+        .clone();
     Ok((path, content))
 }
 
 async fn write_operation(
     env: &dyn crate::harness::types::ExecutionEnv,
-    path: &str,
-    content: &str,
+    path: &JsString,
+    content: &JsString,
     absolute_path: &str,
     signal: Option<&CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     ensure_not_aborted(signal)?;
-    env.write_file(absolute_path, FileContent::Text(content), signal)
+    env.write_file(absolute_path, FileContent::Text(&encode_node_utf8(content)), signal)
         .await
         .map_err(|error| ToolError::new(error.message))?;
     ensure_not_aborted(signal)?;
     Ok(AgentToolResult {
-        content: vec![TextOrImageContent::Text(TextContent::new(format!(
-            "Successfully wrote {} bytes to {}",
-            content.encode_utf16().count(),
-            path
-        )))],
+        content: vec![TextOrImageContent::Text(TextContent::new(
+            JsString::from(format!("Successfully wrote {} bytes to ", content.len())) + path,
+        ))],
         details: None,
         is_error: None,
         terminate: None,
