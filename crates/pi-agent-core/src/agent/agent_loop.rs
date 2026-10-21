@@ -1,4 +1,4 @@
-//! Port of `packages/agent/src/agent-loop.ts`.
+//! Port of `packages/agent-core/src/agent-loop.ts`.
 
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,7 +15,7 @@ use serde_json::Value;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::agent::stream_fn::get_default_stream_fn;
+use crate::agent::stream_fn::default_stream_fn;
 use crate::agent::types::{
     AfterToolCallContext, AfterToolCallHook, AgentContext, AgentError, AgentEvent, AgentLoopConfig, AgentMessage,
     AgentTool, AgentToolResult, AgentToolUpdateCallback, BeforeToolCallContext, PrepareNextTurnContext,
@@ -130,7 +130,7 @@ pub async fn run_agent_loop(
         .await?;
     }
 
-    let stream_fn = resolve_stream_fn(stream_fn)?;
+    let stream_fn = resolve_stream_fn(stream_fn);
     run_loop(current_context, new_messages, config, signal, &emit, stream_fn).await
 }
 
@@ -166,7 +166,7 @@ pub async fn run_agent_loop_continue(
         return Ok(messages);
     }
 
-    let stream_fn = resolve_stream_fn(stream_fn)?;
+    let stream_fn = resolve_stream_fn(stream_fn);
     run_loop(
         current_context,
         new_messages,
@@ -224,21 +224,23 @@ async fn resume_pending_tool_batch(
         }
         apply_config_update(config, &update);
     }
-    if should_stop_after_turn(config, next_turn_context).await? {
+    let stop_context = ShouldStopAfterTurnContext {
+        context: current_context.clone(),
+        ..next_turn_context
+    };
+    if should_stop_after_turn(config, stop_context).await? {
         let messages = finish_agent(new_messages.clone(), emit).await?;
         return Ok(ResumeOutcome::Stop(messages));
     }
     Ok(ResumeOutcome::Continue)
 }
 
-fn resolve_stream_fn(stream_fn: Option<StreamFn>) -> Result<StreamFn, AgentError> {
-    match stream_fn {
-        Some(stream_fn) => Ok(stream_fn),
-        None => get_default_stream_fn(),
-    }
+fn resolve_stream_fn(stream_fn: Option<StreamFn>) -> StreamFn {
+    stream_fn.unwrap_or_else(default_stream_fn)
 }
 
-fn restored_pending_tool_message(messages: &[AgentMessage]) -> Option<AssistantMessage> {
+/// Returns the trailing assistant batch reduced to calls without a tool result.
+pub fn restored_pending_tool_message(messages: &[AgentMessage]) -> Option<AssistantMessage> {
     let mut completed_tool_call_ids = std::collections::BTreeSet::new();
     for message in messages.iter().rev() {
         match message {
@@ -247,6 +249,9 @@ fn restored_pending_tool_message(messages: &[AgentMessage]) -> Option<AssistantM
                 continue;
             }
             AgentMessage::Assistant(assistant) => {
+                if matches!(assistant.stop_reason, StopReason::Aborted | StopReason::Error) {
+                    return None;
+                }
                 let pending_ids: std::collections::BTreeSet<&str> = assistant
                     .content
                     .iter()
@@ -373,6 +378,9 @@ async fn inject_pending_messages(
     pending_messages: &mut Vec<AgentMessage>,
     emit: &AgentEventSink,
 ) -> Result<(), AgentError> {
+    if !pending_messages.is_empty() {
+        state.continuation_instruction_pending = false;
+    }
     for message in pending_messages.drain(..) {
         emit_event(
             emit,
@@ -478,7 +486,11 @@ async fn finish_turn(
         new_messages: state.new_messages.clone(),
     };
     apply_next_turn(state, next_turn_context.clone()).await?;
-    if should_stop_after_turn(&state.config, next_turn_context).await? {
+    let stop_context = ShouldStopAfterTurnContext {
+        context: state.current_context.clone(),
+        ..next_turn_context
+    };
+    if should_stop_after_turn(&state.config, stop_context).await? {
         return Ok(Some(finish_agent(state.new_messages.clone(), emit).await?));
     }
     Ok(None)
@@ -547,7 +559,7 @@ async fn should_stop_after_turn(
     context: ShouldStopAfterTurnContext,
 ) -> Result<bool, AgentError> {
     match &config.should_stop_after_turn {
-        Some(hook) => hook(context, None).await,
+        Some(hook) => hook(context).await,
         None => Ok(false),
     }
 }
@@ -743,7 +755,7 @@ async fn prepare_assistant_tool_executions(
             content.push(block.clone());
             continue;
         }
-        let Some(tool) = tools.iter().find(|tool| tool.name() == call.name) else {
+        let Some(tool) = tools.iter().rev().find(|tool| tool.name() == call.name) else {
             content.push(block.clone());
             continue;
         };
@@ -996,8 +1008,17 @@ async fn join_finalized_entries(entries: Vec<FinalizedEntry>) -> Result<Vec<Fina
         }
     }
     while let Some(joined) = pending.join_next().await {
-        let (index, finalized) = joined.map_err(|error| AgentError::new(error.to_string()))?;
-        slots[index] = Some(finalized?);
+        let outcome = joined
+            .map_err(|error| AgentError::new(error.to_string()))
+            .and_then(|(index, result)| result.map(|finalized| (index, finalized)));
+        match outcome {
+            Ok((index, finalized)) => slots[index] = Some(finalized),
+            Err(error) => {
+                // Promise.all rejects without cancelling sibling tool promises.
+                pending.detach_all();
+                return Err(error);
+            }
+        }
     }
     slots
         .into_iter()
@@ -1079,7 +1100,7 @@ async fn prepare_tool_call(
         return immediate_error("Operation aborted", validated_args);
     }
     Preparation::Prepared(PreparedToolCall {
-        tool_call: prepared_tool_call,
+        tool_call: tool_call.clone(),
         tool,
         args: validated_args,
     })
@@ -1121,14 +1142,12 @@ async fn apply_before_tool_call(
     if before_result.block != Some(true) {
         return Ok(validated_args);
     }
-    let mut tool_result = create_error_tool_result(
+    let tool_result = create_error_tool_result(
         before_result
             .reason
+            .filter(|reason| !reason.is_empty())
             .unwrap_or_else(|| "Tool execution was blocked".to_owned()),
     );
-    if before_result.terminate == Some(true) {
-        tool_result.terminate = Some(true);
-    }
     Err(Box::new(Preparation::Immediate {
         result: tool_result,
         is_error: true,
@@ -1206,7 +1225,7 @@ async fn run_prepared_tool(
         on_update,
         Some(execution),
     );
-    match await_with_abort(execution_future, signal).await {
+    match await_tool_execution(execution_future, signal).await {
         Ok(Ok(result)) => ExecutedToolCallOutcome {
             is_error: result.is_error.unwrap_or(false),
             result,
@@ -1222,26 +1241,54 @@ async fn run_prepared_tool(
     }
 }
 
+/// Like an uncancelled JS promise, a tool ignoring its signal outlives the loop's
+/// abort race. It runs until completion or Tokio runtime shutdown; late results
+/// are discarded and the update callback is closed by the caller. A detached
+/// observer consumes task panics rather than leaving a failed JoinHandle unread.
+async fn await_tool_execution<T: Send + 'static>(
+    execution: impl Future<Output = T> + Send + 'static,
+    signal: &Option<CancellationToken>,
+) -> Result<T, AgentError> {
+    let mut task = tokio::spawn(execution);
+    match await_with_abort(&mut task, signal).await {
+        Ok(joined) => joined.map_err(|error| AgentError::new(error.to_string())),
+        Err(error) => {
+            tokio::spawn(async move {
+                if let Err(error) = task.await {
+                    eprintln!("Detached tool execution failed: {error}");
+                }
+            });
+            Err(error)
+        }
+    }
+}
+
 async fn await_update_tasks(update_tasks: &UpdateTasks) -> Result<(), AgentError> {
-    let tasks: Vec<tokio::task::JoinHandle<Result<(), AgentError>>> = update_tasks
+    let mut tasks: Vec<_> = update_tasks
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .drain(..)
         .collect();
-    let mut first_error = None;
-    for task in tasks {
-        let outcome = match task.await {
-            Ok(result) => result,
-            Err(error) => Err(AgentError::new(error.to_string())),
-        };
-        if let Err(error) = outcome {
-            first_error.get_or_insert(error);
+    // Poll all sinks, as Promise.all rejects without waiting for pending siblings.
+    // Dropping their JoinHandles detaches (does not cancel) the remaining sinks.
+    std::future::poll_fn(move |cx| {
+        let mut index = 0;
+        while index < tasks.len() {
+            match std::pin::Pin::new(&mut tasks[index]).poll(cx) {
+                std::task::Poll::Ready(joined) => {
+                    drop(tasks.swap_remove(index));
+                    joined.map_err(|error| AgentError::new(error.to_string()))??;
+                }
+                std::task::Poll::Pending => index += 1,
+            }
         }
-    }
-    match first_error {
-        Some(error) => Err(error),
-        None => Ok(()),
-    }
+        if tasks.is_empty() {
+            std::task::Poll::Ready(Ok(()))
+        } else {
+            std::task::Poll::Pending
+        }
+    })
+    .await
 }
 
 async fn finalize_executed_tool_call(
@@ -1302,15 +1349,13 @@ fn apply_after_tool_call_result(
     after_result: crate::agent::types::AfterToolCallResult,
 ) -> (AgentToolResult, bool) {
     let mut result = executed.result;
+    result.is_error = None;
     let mut is_error = executed.is_error;
     if let Some(content) = after_result.content {
         result.content = content;
     }
-    if let Some(details) = after_result.details {
+    if let Some(details) = after_result.details.filter(|details| !details.is_null()) {
         result.details = Some(details);
-    }
-    if let Some(usage) = after_result.usage {
-        result.usage = Some(usage);
     }
     if let Some(terminate) = after_result.terminate {
         result.terminate = Some(terminate);
@@ -1446,8 +1491,8 @@ fn create_tool_result_message(finalized: &FinalizedToolCallOutcome) -> ToolResul
         tool_name: finalized.tool_call.name.clone(),
         content: finalized.result.content.clone(),
         details: finalized.result.details.clone(),
-        usage: finalized.result.usage.clone(),
-        added_tool_names: finalized.result.added_tool_names.clone(),
+        usage: None,
+        added_tool_names: None,
         is_error: finalized.is_error,
         timestamp: pi_ai::request::now_millis(),
     }
@@ -1512,6 +1557,3 @@ fn now_ms_f64() -> f64 {
 
 /// Event stream type produced by [`agent_loop`] and [`agent_loop_continue`].
 pub type AgentEventStream = EventStream<AgentEvent, Vec<AgentMessage>>;
-
-/// Assistant stream alias used by scripted test stream functions.
-pub type ScriptedAssistantStream = AssistantMessageEventStream;

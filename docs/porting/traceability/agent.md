@@ -1,58 +1,24 @@
-# Traceability: `packages/agent/src/agent.ts`
+# Traceability: `packages/agent-core/src/agent.ts`
 
-Rust: `crates/pi-agent-core/src/agent/agent.rs`.
-Tests: `crates/pi-agent-core/tests/agent.rs`, `agent_abort.rs`, `agent_continue_queue.rs`,
-`differential_agent_loop/mod.rs` (`agent_text`, `agent_continue_queue`, `abort_tool`).
+Reference: immutable `4f9e6f8a4`. Rust: `crates/pi-agent-core/src/agent/agent.rs`.
+Evidence and exclusions: [slice-1 proof ledger](agent-core-api-repin.md). Status todo pending owned-reference classification; no whole-module parity claim.
 
-## Exports
-
-| TypeScript export | Rust item | Tests |
+| Frozen surface/function | Rust | Proof |
 |---|---|---|
-| `QueueMode` re-export | `harness::types::QueueMode` | `queue_mode.rs` |
-| `AgentOptions` | `agent::AgentOptions` (+ `AgentInitialState`) | default/custom state tests |
-| `Agent` | `agent::Agent` (`Arc` handle, `Clone`) | all agent tests |
+| QueueMode, AgentOptions, Agent | re-exported QueueMode, AgentOptions, Agent | construction/state/options tests |
+| defaultConvertToLlm, DEFAULT_MODEL, EMPTY_USAGE, createMutableAgentState | default_convert_to_llm, default_model, owned initial state, failure message builder | default/custom state and unsupported-default-provider tests |
+| PendingMessageQueue enqueue/hasItems/drain/clear | PendingMessageQueue equivalents | all/one-at-a-time queue tests |
+| constructor provider callbacks and mutable public configuration | explicit on_payload/on_response/on_retry; Rust setters for provider functions, hooks, budgets, retry cap, transport/session/tool mode | frozen callback/config test; existing forwarding tests |
+| state, steeringMode, followUpMode | snapshot/accessor methods, queue-mode setters | state/queue tests; mutation identity excluded |
+| subscribe | subscribe/unsubscribe, Arc callback identity dedup, live monotonically ordered subscription iteration | live Set and duplicate listener regression |
+| steer/followUp/clear queues/hasQueuedMessages/signal/abort/waitForIdle | corresponding methods | steering interruption, continuation queue and awaited listener lifecycle tests |
+| reset | reset, returns unit even during active run, keeps run reservation | active reset regression and pending-response test |
+| prompt/normalizePromptInput | prompt/prompt_with_images/normalize_prompt_input, PromptInput | text/message/batch/image fixtures |
+| continue | continue_run, ContinueOptions | steering first, skip initial drain, follow-up first when requested, restored pending tools |
+| runPromptMessages/runContinuation/createContextSnapshot/createLoopConfig | corresponding Rust functions | agent and 35-scenario differential |
+| runWithLifecycle | begin_run/finish_run_with/finish_run | concurrency rejection, idle settlement, failures |
+| handleRunFailure | build_failure_message and failure event sequence | preserve thinking/text/tool call/usage/identity on steer/abort/stream failure; one assistant start |
+| processEvents | process_events | state reduction, truthy error text, awaited listeners; log rejection and continue |
+| prepareNextTurn wrappers | build_prepare_next_turn_hook | context-hook precedence and dynamic replacement after turn listeners |
 
-## Members
-
-| TS member | Rust item | Tests |
-|---|---|---|
-| `constructor(options)` (throws without a default stream fn) | `Agent::new -> Result` | `uses_configured_default_when_stream_fn_is_omitted`; missing-default error covered in `stream_fn.rs` |
-| `subscribe(listener) -> unsubscribe` | `subscribe(AgentListener) -> u64`, `unsubscribe(id)`; listeners return `Result<(), AgentError>` | `subscribes_to_events_and_unsubscribes` |
-| `state` (accessor properties, copies on assignment) | `state()` snapshot + typed getters/setters | `updates_state_with_mutators` |
-| `steeringMode` / `followUpMode` | `steering_mode`/`set_steering_mode`, `follow_up_mode`/`set_follow_up_mode` | code inspection; drain behavior tested via `continue_keeps_one_at_a_time_*` |
-| `steer(message)` (aborts active model request) | `steer` | `aborts_active_model_request_when_steering_is_queued` |
-| `followUp(message)` | `follow_up` | `supports_steering_and_follow_up_queues` |
-| `clearSteeringQueue` / `clearFollowUpQueue` / `clearAllQueues` | same | `supports_steering_and_follow_up_queues` |
-| `hasQueuedMessages` | `has_queued_messages` | same |
-| `signal` | `signal() -> Option<CancellationToken>` | `passes_active_abort_signal_to_subscribers` |
-| `abort` | `abort` | `abort_is_a_noop_without_an_active_run`, abort tests |
-| `waitForIdle` | `wait_for_idle` | `wait_for_idle_waits_for_async_subscribers` |
-| `reset` (throws while processing) | `reset() -> Result` | `rejects_reset_while_processing_without_corrupting_transcript` |
-| `prompt(input, images?)` | `prompt` / `prompt_with_images` | `prompt_accepts_agent_messages_and_batches` |
-| `continue(options)` | `continue_run(ContinueOptions)` | continue tests |
-| `normalizePromptInput` | `normalize_prompt_input` | prompt tests |
-| `runPromptMessages` / `runContinuation` | private equivalents | all run tests |
-| `createContextSnapshot` | same | code inspection |
-| `createLoopConfig` (reasoning off→undefined, sessionId, hooks, queue pollers, skip initial steering poll) | same | `forwards_session_id_to_stream_function_options`, `keeps_legacy_prepare_next_turn_signal_callback_behavior`, `forwards_should_stop_after_turn_through_agent_options`, `continue_keeps_one_at_a_time_*` |
-| `runWithLifecycle` (single active run, state flags, failure handling, finish) | `begin_run` / `finish_run_with` / `finish_run` | `rejects_prompt_while_streaming`, `rejects_continue_while_streaming`, failure test |
-| `handleRunFailure` (synthetic assistant message, full event sequence) | `build_failure_message` + event emission | `emits_full_lifecycle_events_for_run_failures` |
-| `finishRun` | `finish_run` | `wait_for_idle_*`, reset test |
-| `processEvents` state reduction + awaited listeners | `process_events` (listener errors propagate) | lifecycle/state tests; differential `listener_*_agent` |
-| `pendingToolCalls` `Set` | `IndexSet` (insertion order preserved) | `pending_tool_calls_preserve_insertion_order` |
-| `PendingMessageQueue` `all` / `one-at-a-time` | same | continue steering test, queue mode tests |
-
-## Branches
-
-- `prompt`/`continue`/`reset` re-entrancy errors use the exact TS messages (`AgentError` constructors).
-- `continue` drains steering first (skipping the initial steering poll for that run), then follow-ups, then falls back to a continuation.
-- `steer` aborts only while `isModelRequestActive` is true.
-- `agent_end` listeners are awaited before `isStreaming` becomes false.
-- Failure path emits `message_start`/`message_end`/`turn_end`/`agent_end` for a synthetic assistant message and sets `state.errorMessage` from `turn_end`.
-- A rejecting listener rejects the loop's `emit`; `runWithLifecycle` then runs the failure sequence. If the listener rejects again inside that sequence, `prompt`/`continue` rejects with the listener error and the remaining failure events are not emitted, matching TS.
-
-## Discrepancies / exclusions
-
-- State accessor properties become explicit getters/setters; getters return copies. TS `state.tools.push(...)` mutation is not preserved (assign a new vector instead).
-- `subscribe` returns an id instead of an unsubscribe closure (`unsubscribe(id)`).
-- `prepareNextTurnWithContext` and legacy `prepareNextTurn(signal)` are separate option fields, mirroring TS.
-- `Agent` is `Clone` (shared `Arc` state) as a Rust handle adaptation; TS instances are not cloneable.
+The removed process-global get/setDefaultStreamFn API has no frozen counterpart. Default streaming calls pi-ai/compat directly. Rust support types (PromptInput, ContinueOptions, AgentInitialState, listener/hook aliases) express TS overloads/inline structural types; they do not add old runtime behavior.

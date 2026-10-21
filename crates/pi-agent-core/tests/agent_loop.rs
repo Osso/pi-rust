@@ -49,6 +49,33 @@ fn agent_message(message: pi_ai::types::UserMessage) -> AgentMessage {
 }
 
 #[tokio::test]
+async fn does_not_resume_tools_from_failed_restored_assistants() {
+    for reason in [StopReason::Error, StopReason::Aborted] {
+        let mut restored = tool_use(vec![AssistantContent::ToolCall(tool_call(
+            "pending",
+            "lookup",
+            json!({}),
+        ))]);
+        restored.stop_reason = reason;
+        let tool = TestTool::no_args("lookup", || panic!("failed assistant tools must not execute"));
+        let stream = agent_loop_continue(
+            context(vec![restored.into()], vec![Arc::new(tool)]),
+            config(),
+            None,
+            Some(scripted_stream_fn(vec![Script::message(text_assistant("recovered"))])),
+        )
+        .unwrap();
+        let (events, result) = collect_events(stream).await;
+        assert!(result.is_ok());
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, AgentEvent::ToolExecutionStart { .. }))
+        );
+    }
+}
+
+#[tokio::test]
 async fn emits_events_with_agent_message_types() {
     let stream = agent_loop(
         vec![agent_message(user("Hello"))],
@@ -1130,7 +1157,7 @@ async fn stops_after_current_turn_when_should_stop_after_turn_returns_true() {
     cfg.should_stop_after_turn = {
         let callback_tool_result_ids = Arc::clone(&callback_tool_result_ids);
         let callback_context_roles = Arc::clone(&callback_context_roles);
-        Some(Arc::new(move |turn_context, _signal| {
+        Some(Arc::new(move |turn_context| {
             let callback_tool_result_ids = Arc::clone(&callback_tool_result_ids);
             let callback_context_roles = Arc::clone(&callback_context_roles);
             Box::pin(async move {
@@ -1337,7 +1364,7 @@ async fn stops_after_tool_batch_when_every_result_terminates() {
 }
 
 #[tokio::test]
-async fn stops_after_blocked_tool_call_when_before_hook_terminates() {
+async fn continues_after_blocked_tool_call_without_termination_hint() {
     let executed = Arc::new(AtomicBool::new(false));
     let executed_hook = Arc::clone(&executed);
     let mut tool = TestTool::new("echo", move |_id, _params| {
@@ -1351,7 +1378,6 @@ async fn stops_after_blocked_tool_call_when_before_hook_terminates() {
             Ok(Some(BeforeToolCallResult {
                 block: Some(true),
                 reason: Some("Blocked by policy".to_owned()),
-                terminate: Some(true),
             }))
         })
     }));
@@ -1395,7 +1421,7 @@ async fn stops_after_blocked_tool_call_when_before_hook_terminates() {
         .find_map(|message| message.as_tool_result())
         .expect("tool result");
     assert!(!executed.load(Ordering::SeqCst));
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert!(tool_result.is_error);
     assert_eq!(
         tool_result.content,
@@ -1421,7 +1447,6 @@ async fn continues_after_mixed_batch_with_one_terminating_blocked_call() {
                 Ok(Some(BeforeToolCallResult {
                     block: Some(true),
                     reason: Some("Blocked first".to_owned()),
-                    terminate: Some(true),
                 }))
             } else {
                 Ok(None)
@@ -1800,8 +1825,6 @@ async fn tool_result_for(text: String, details: Option<serde_json::Value>) -> pi
     let tool = TestTool::new("big", move |_id, _params| AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text.clone()))],
         details: details.clone(),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     });

@@ -16,7 +16,7 @@ pub fn kimi_deferred_tools_extension(pi: &ExtensionApi) -> Result<(), HandlerErr
         execute: Arc::new(|_, _, _, _, _| Box::pin(async {
             Ok(AgentToolResult {
                 content: vec![TextOrImageContent::Text(TextContent::new("42"))],
-                details: Some(json!({})), usage: None, added_tool_names: None, is_error: None, terminate: None,
+                details: Some(json!({})), is_error: None, terminate: None,
             })
         })),
     })?;
@@ -46,7 +46,7 @@ pub fn kimi_deferred_tools_extension(pi: &ExtensionApi) -> Result<(), HandlerErr
                 };
                 Ok(AgentToolResult {
                     content: vec![TextOrImageContent::Text(TextContent::new(text))], details: Some(details),
-                    usage: None, added_tool_names: None, is_error: None, terminate: None,
+                    is_error: None, terminate: None,
                 })
             })
         }),

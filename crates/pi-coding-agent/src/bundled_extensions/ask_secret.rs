@@ -226,8 +226,6 @@ fn ask_secret_result(text: &str, details: AskSecretDetails) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: Some(serde_json::to_value(details).expect("ask_secret details serialize")),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

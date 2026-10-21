@@ -21,7 +21,7 @@ use crate::core::session_manager::lock_session_manager;
 use tokio_util::sync::CancellationToken;
 
 use super::runtime_utils::create_failed_mailbox_message;
-use super::shared::{empty_agent, file_reference_schema};
+use super::shared::empty_agent;
 use super::tool_results::tool_result;
 
 const MAIN_THREAD_AGENT_ID: &str = "main";
@@ -36,6 +36,7 @@ pub struct SendAgentMessageParams {
     pub thread_id: Option<String>,
     pub to_agent_id: String,
     pub to_session_id: Option<String>,
+    pub to_host: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -49,32 +50,93 @@ pub struct ContactParentParams {
 pub fn contact_parent_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["message"],
+        "required": [
+            "body"
+        ],
         "properties": {
+            "body": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Required nonblank message body, sent verbatim. Independent of assistant text or reasoning."
+            },
             "fileRefs": {
                 "type": "array",
-                "items": file_reference_schema()
+                "items": {
+                    "type": "object",
+                    "required": [
+                        "path"
+                    ],
+                    "properties": {
+                        "path": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "description": "Optional file references to attach."
             },
-            "message": {"type": "string"},
-            "threadId": {"type": "string"}
-        }
+            "threadId": {
+                "type": "string",
+                "description": "Optional thread identifier for conversation correlation."
+            }
+        },
+        "additionalProperties": false
     })
 }
 
 pub fn send_agent_message_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["message", "toAgentId"],
+        "required": [
+            "body",
+            "toAgentId"
+        ],
         "properties": {
+            "body": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Required nonblank message body, sent verbatim. Independent of assistant text or reasoning."
+            },
             "fileRefs": {
                 "type": "array",
-                "items": file_reference_schema()
+                "items": {
+                    "type": "object",
+                    "required": [
+                        "path"
+                    ],
+                    "properties": {
+                        "path": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "description": "Optional file references to attach."
             },
-            "message": {"type": "string"},
-            "threadId": {"type": "string"},
-            "toAgentId": {"type": "string"},
-            "toSessionId": {"type": "string"}
-        }
+            "threadId": {
+                "type": "string",
+                "description": "Optional thread identifier for conversation correlation."
+            },
+            "toAgentId": {
+                "type": "string",
+                "description": "Target agent ID, or 'main' when sending to another session's main thread."
+            },
+            "toHost": {
+                "type": "string",
+                "description": "Target hostname for a session on another host; requires toSessionId. Omit for local delivery."
+            },
+            "toSessionId": {
+                "type": "string",
+                "description": "Optional target session ID for direct cross-session mailbox delivery."
+            }
+        },
+        "additionalProperties": false
     })
 }
 
@@ -95,7 +157,32 @@ pub fn send_agent_message(
     ctx: Option<&ExtensionContext>,
     on_session_message_sent: Option<&OnSessionMessageSent>,
 ) -> Result<AgentToolResult, HandlerError> {
-    if params.to_session_id.is_some() && is_main_runtime_target(&params.to_agent_id) {
+    use super::session_message_route::{is_remote_session_message, session_message_route_error};
+    let sender = current_message_sender_id(ctx)?;
+    let db = ctx.map(ExtensionContext::control_db_path).transpose()?.flatten();
+    if sender.is_some()
+        && let Some(reason) = session_message_route_error(db.as_deref(), params)?
+    {
+        let mut result = tool_result(
+            format!(
+                "Could not send agent message to {}: {reason}",
+                format_sent_message_target(
+                    &empty_direct_message(
+                        sender.as_deref().unwrap_or("unknown_subagent"),
+                        &params.to_agent_id,
+                        &params.message
+                    ),
+                    params.to_session_id.as_deref()
+                )
+            ),
+            json!({"agent":current_message_sender_agent(store, ctx)?,"message":empty_direct_message(sender.as_deref().unwrap_or("unknown_subagent"),&params.to_agent_id,&params.message)}),
+        );
+        result.is_error = Some(true);
+        return Ok(result);
+    }
+    if is_remote_session_message(params)
+        || (params.to_session_id.is_some() && is_main_runtime_target(&params.to_agent_id))
+    {
         return send_main_runtime_session_message(store, params, ctx, on_session_message_sent);
     }
     if let Some(target_error) = validate_explicit_runtime_target(store, params, ctx)? {
@@ -223,6 +310,7 @@ fn deliver_sent_agent_message(
             to_session_id,
             ctx,
             (!is_main_runtime_target(&params.to_agent_id)).then(|| params.to_agent_id.clone()),
+            params.to_host.clone(),
         )?,
         None => enqueue_runtime_mailbox_store_message(store, message, ctx)?,
     };
@@ -287,18 +375,33 @@ fn send_main_runtime_session_message(
             to_agent_id: params.to_agent_id.clone(),
         })
         .map_err(|error| HandlerError::new(error.message))?;
-    if !enqueue_runtime_session_message(store, &message, &to_session_id, ctx, None)? {
+    if !enqueue_runtime_session_message(
+        store,
+        &message,
+        &to_session_id,
+        ctx,
+        (!is_main_runtime_target(&params.to_agent_id)).then(|| params.to_agent_id.clone()),
+        params.to_host.clone(),
+    )? {
         let failed_message = mark_failed_mailbox_transport_message(store, &message)?;
         return Ok(tool_result(
             "Could not send runtime session message: runtime mailbox transport is unavailable.",
             json!({"agent": sender, "message": failed_message}),
         ));
     }
-    if let Some(callback) = on_session_message_sent {
+    let remote = super::session_message_route::is_remote_session_message(params);
+    if !remote && let Some(callback) = on_session_message_sent {
         callback(&message, &to_session_id)?;
     }
     Ok(tool_result(
-        format!("Sent message to session {to_session_id}."),
+        if remote {
+            format!(
+                "Queued message to session {to_session_id} for relay to host {}.",
+                params.to_host.as_deref().unwrap_or("")
+            )
+        } else {
+            format!("Sent message to session {to_session_id}.")
+        },
         json!({"agent": sender, "message": message}),
     ))
 }
@@ -495,6 +598,7 @@ fn enqueue_runtime_session_message(
     to_session_id: &str,
     ctx: Option<&ExtensionContext>,
     recipient_agent_id: Option<String>,
+    recipient_host: Option<String>,
 ) -> Result<bool, HandlerError> {
     let Some(ctx) = ctx else {
         return Ok(false);
@@ -513,7 +617,7 @@ fn enqueue_runtime_session_message(
         .get_session_id()
         .to_owned();
     let input = EnqueueRuntimeMailboxMessageInput {
-        recipient_host: None,
+        recipient_host,
         kind: mailbox_kind(message.kind),
         recipient: RuntimeMailboxAddress {
             agent_id: recipient_agent_id,
@@ -785,6 +889,17 @@ fn empty_direct_message(from_agent_id: &str, to_agent_id: &str, body: &str) -> A
     create_failed_mailbox_message(body, from_agent_id, MailboxMessageKindValue::Message, to_agent_id)
 }
 
+fn model_mailbox_params(mut params: Value) -> Result<Value, HandlerError> {
+    let object = params
+        .as_object_mut()
+        .ok_or_else(|| HandlerError::new("Expected mailbox arguments"))?;
+    let body = object
+        .remove("body")
+        .ok_or_else(|| HandlerError::new("Missing required body"))?;
+    object.insert("message".into(), body);
+    Ok(params)
+}
+
 pub fn register_mailbox_tools(
     pi: &ExtensionApi,
     store: Arc<MultiAgentStore>,
@@ -795,9 +910,9 @@ pub fn register_mailbox_tools(
     pi.register_tool(ToolDefinition {
         name: "send_agent_message".to_owned(),
         label: "Send Agent Message".to_owned(),
-        description: "Send a sibling-safe direct mailbox message across a parent-child agent relationship.".to_owned(),
+        description: "Send the required body verbatim across a direct parent-child edge, or to another session via toSessionId (with toAgentId 'main'). For another host, also pass toHost; the message queues locally until relay delivery. Unknown local sessions are rejected. Supply the complete message in body; assistant narration and reasoning are never read.".to_owned(),
         prompt_snippet: None,
-        prompt_guidelines: None,
+        prompt_guidelines: Some(vec!["For send_agent_message and contact_parent, put the complete outgoing message in the required body argument. It is sent verbatim; assistant narration and reasoning are never read. No assistant text is required, and multiple calls in one turn can send distinct bodies.".to_owned(), "For a cross-host reply, use the sender's hostname as toHost plus its session ID as toSessionId. Never infer host ownership from a session ID.".to_owned()]), 
         approval_required: Some(false),
         approval_kind: None,
         parameters: send_agent_message_schema(),
@@ -816,7 +931,7 @@ pub fn register_mailbox_tools(
                 let callback = send_callback.clone();
                 Box::pin(async move {
                     let params: SendAgentMessageParams =
-                        serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                        serde_json::from_value(model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
                     send_agent_message(&store, &params, Some(&ctx), callback.as_ref())
                 })
             },
@@ -828,9 +943,9 @@ pub fn register_mailbox_tools(
     pi.register_tool(ToolDefinition {
         name: "contact_parent".to_owned(),
         label: "Contact Parent".to_owned(),
-        description: "Send a child-agent mailbox request to its direct parent.".to_owned(),
+        description: "Send the required body verbatim as a child-agent mailbox request to its direct parent. Supply the complete message in body; assistant narration and reasoning are never read.".to_owned(),
         prompt_snippet: None,
-        prompt_guidelines: None,
+        prompt_guidelines: Some(vec!["For send_agent_message and contact_parent, put the complete outgoing message in the required body argument. It is sent verbatim; assistant narration and reasoning are never read. No assistant text is required, and multiple calls in one turn can send distinct bodies.".to_owned()]), 
         approval_required: Some(false),
         approval_kind: None,
         parameters: contact_parent_schema(),
@@ -848,7 +963,7 @@ pub fn register_mailbox_tools(
                 let store = Arc::clone(&store);
                 Box::pin(async move {
                     let params: ContactParentParams =
-                        serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                        serde_json::from_value(model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
                     contact_parent(&store, &params, Some(&ctx))
                 })
             },

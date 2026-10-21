@@ -107,6 +107,7 @@ fn execute_case(case: &Value) -> Result<Value, String> {
                 agent_id: case["agentId"].as_str().ok_or("agentId")?.to_owned(),
                 session_id: case["sessionId"].as_str().map(str::to_owned),
                 store_session_id: None,
+                trace: None,
             };
             agent_viewer(&store, &params, None)
                 .map(|result| normalize_result(&result))

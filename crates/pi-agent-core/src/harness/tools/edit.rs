@@ -293,8 +293,6 @@ fn edit_success_result(
             "Successfully replaced {edit_count} block(s) in {path}."
         )))],
         details: Some(Value::Object(details)),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

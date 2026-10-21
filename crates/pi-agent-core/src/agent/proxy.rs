@@ -1,4 +1,4 @@
-//! Port of `packages/agent/src/proxy.ts`.
+//! Port of `packages/agent-core/src/proxy.ts`.
 //!
 //! The TypeScript module uses the global `fetch`. Rust takes an explicit
 //! [`Fetch`] implementation (defaulting to the shared reqwest client), which
@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use pi_ai::http::default_fetch;
-use pi_ai::request::{Fetch, HttpRequest, SimpleStreamOptions};
+use pi_ai::request::{CallbackError, Fetch, HttpBody, HttpRequest, SimpleStreamOptions};
 use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, Context, DoneReason, ErrorReason, Model, StopReason,
     TextContent, ThinkingContent, ToolCall, Usage,
@@ -61,7 +61,6 @@ pub enum ProxyAssistantMessageEvent {
     },
     ToolcallEnd {
         content_index: usize,
-        tool_call: ToolCall,
     },
     Done {
         reason: DoneReason,
@@ -183,14 +182,22 @@ async fn proxy_events(
 
     if !(200..300).contains(&response.status) {
         let mut body = Vec::new();
-        while let Some(chunk) = response.body.next_chunk().await {
-            body.extend(chunk.map_err(|error| error.message)?);
+        while let Some(chunk) = read_proxy_chunk(response.body.as_mut(), &options.signal).await {
+            match chunk {
+                Ok(chunk) => body.extend(chunk),
+                Err(_) => {
+                    // Frozen response.json() failures preserve the HTTP status,
+                    // even if an earlier chunk contained a parseable error body.
+                    body.clear();
+                    break;
+                }
+            }
         }
         return Err(proxy_error_message(response.status, &response.status_text, &body));
     }
 
     let mut buffer: Vec<u8> = Vec::new();
-    while let Some(chunk) = response.body.next_chunk().await {
+    while let Some(chunk) = read_proxy_chunk(response.body.as_mut(), &options.signal).await {
         if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
             return Err("Request aborted by user".to_owned());
         }
@@ -204,6 +211,20 @@ async fn proxy_events(
     Ok(())
 }
 
+async fn read_proxy_chunk(
+    body: &mut dyn HttpBody,
+    signal: &Option<CancellationToken>,
+) -> Option<Result<Vec<u8>, CallbackError>> {
+    let Some(signal) = signal else {
+        return body.next_chunk().await;
+    };
+    tokio::select! {
+        biased;
+        () = signal.cancelled() => Some(Err(CallbackError::new("Request aborted by user"))),
+        chunk = body.next_chunk() => chunk,
+    }
+}
+
 fn proxy_error_message(status: u16, status_text: &str, body: &[u8]) -> String {
     let fallback = format!("Proxy error: {status} {status_text}");
     let parsed: Option<Value> = serde_json::from_slice(body).ok();
@@ -211,6 +232,7 @@ fn proxy_error_message(status: u16, status_text: &str, body: &[u8]) -> String {
         .as_ref()
         .and_then(|value| value.get("error"))
         .and_then(Value::as_str)
+        .filter(|error| !error.is_empty())
         .map(|error| format!("Proxy error: {error}"))
         .unwrap_or(fallback)
 }
@@ -274,10 +296,7 @@ fn process_proxy_event(
         ProxyAssistantMessageEvent::ToolcallDelta { content_index, delta } => {
             process_toolcall_delta(state, content_index, delta).map(Some)
         }
-        ProxyAssistantMessageEvent::ToolcallEnd {
-            content_index,
-            tool_call,
-        } => process_toolcall_end(state, content_index, tool_call),
+        ProxyAssistantMessageEvent::ToolcallEnd { content_index } => process_toolcall_end(state, content_index),
         ProxyAssistantMessageEvent::Done { reason, usage } => process_done(state, reason, usage).map(Some),
         ProxyAssistantMessageEvent::Error {
             reason,
@@ -417,20 +436,11 @@ fn process_toolcall_delta(
 fn process_toolcall_end(
     state: &mut PartialState,
     content_index: usize,
-    tool_call: ToolCall,
 ) -> Result<Option<AssistantMessageEvent>, String> {
-    let is_tool_call = matches!(
-        state.content.get(content_index),
-        Some(Some(AssistantContent::ToolCall(_)))
-    );
-    if !is_tool_call {
+    let Some(Some(AssistantContent::ToolCall(tool_call))) = state.content.get(content_index) else {
         return Ok(None);
-    }
-    set_slot(
-        &mut state.content,
-        content_index,
-        Some(AssistantContent::ToolCall(tool_call.clone())),
-    )?;
+    };
+    let tool_call = tool_call.clone();
     state.partial_json.remove(&content_index);
     state.sync();
     Ok(Some(AssistantMessageEvent::ToolCallEnd {
@@ -540,7 +550,6 @@ fn build_proxy_request_options(options: &SimpleStreamOptions) -> Value {
     let mut object = Map::new();
     let stream = &options.stream;
     insert_some(&mut object, "temperature", stream.temperature);
-    insert_some(&mut object, "samplingParams", stream.sampling_params.clone());
     insert_some(&mut object, "maxTokens", stream.max_tokens);
     insert_some(&mut object, "reasoning", options.reasoning);
     insert_some(&mut object, "cacheRetention", stream.cache_retention);

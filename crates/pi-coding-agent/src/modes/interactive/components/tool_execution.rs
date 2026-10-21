@@ -320,8 +320,6 @@ impl ToolExecutionComponent {
         let result = AgentToolResult {
             content: content.to_vec(),
             details: None,
-            usage: None,
-            added_tool_names: None,
             is_error: None,
             terminate: None,
         };
@@ -573,8 +571,6 @@ impl ToolExecutionComponent {
                         let rendered_result = AgentToolResult {
                             content: display_content,
                             details: result.details,
-                            usage: None,
-                            added_tool_names: None,
                             is_error: None,
                             terminate: None,
                         };

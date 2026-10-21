@@ -146,7 +146,6 @@ fn supervisor_file_access_block() -> BeforeToolCallResult {
     BeforeToolCallResult {
         block: Some(true),
         reason: Some("Pi Supervisor may access files only inside the configured KB directory.".to_owned()),
-        terminate: None,
     }
 }
 
@@ -514,7 +513,7 @@ pub async fn create_supervisor_resource_loader(
                             block: result.block,
                             input: None,
                             reason: result.reason,
-                            terminate: result.terminate,
+                            terminate: None,
                         }
                     }),
                 )

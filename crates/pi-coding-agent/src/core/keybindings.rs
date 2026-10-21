@@ -177,6 +177,14 @@ pub fn app_keybindings() -> Vec<(String, KeybindingDefinition)> {
             "app.tree.filter.cycleBackward",
             definition(&["shift+ctrl+o"], "Tree filter: cycle backward"),
         ),
+        (
+            "app.questions.next",
+            definition(&["right", "tab"], "Next question in ask_questions"),
+        ),
+        (
+            "app.questions.previous",
+            definition(&["left", "shift+tab"], "Previous question in ask_questions"),
+        ),
     ];
     entries
         .into_iter()

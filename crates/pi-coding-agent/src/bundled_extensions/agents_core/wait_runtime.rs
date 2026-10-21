@@ -29,6 +29,13 @@ use super::tool_results::{empty_tool_result, tool_result};
 const RUNTIME_COORDINATION_POLL_INTERVAL_MS: u64 = 3_000;
 const SHARED_CHANNEL_PAGE_LIMIT: i64 = 20;
 
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock")
+        .as_millis() as i64
+}
+
 #[derive(Debug, Clone)]
 pub enum WaitNotificationsWake {
     Agent { agent: Box<AgentSnapshot> },
@@ -36,6 +43,7 @@ pub enum WaitNotificationsWake {
     Coordination,
     Error { message: String },
     None,
+    Timeout,
     Unavailable { message: String },
     WakeUp { wake_up: WaitAgentsWakeUp },
 }
@@ -47,6 +55,7 @@ struct RuntimeCoordinationRecipient {
 }
 
 struct WaitAgentsWakeWatcherOptions {
+    deadline: Option<i64>,
     active_agents: Vec<AgentSnapshot>,
     control_db_path: String,
     recipient: Option<RuntimeCoordinationRecipient>,
@@ -57,6 +66,7 @@ struct WaitAgentsWakeWatcherOptions {
 }
 
 struct WaitAgentsWakeWatcher {
+    deadline: Option<i64>,
     control_db_path: String,
     recipient: Option<RuntimeCoordinationRecipient>,
     session_path: String,
@@ -69,6 +79,7 @@ struct WaitAgentsWakeWatcher {
 impl WaitAgentsWakeWatcher {
     fn new(options: WaitAgentsWakeWatcherOptions) -> Self {
         Self {
+            deadline: options.deadline,
             control_db_path: options.control_db_path,
             recipient: options.recipient,
             session_path: options.session_path,
@@ -109,6 +120,18 @@ impl WaitAgentsWakeWatcher {
             return wake;
         }
 
+        if self.deadline.is_some_and(|deadline| now_ms() >= deadline) {
+            return WaitNotificationsWake::Timeout;
+        }
+        let deadline_timer = async {
+            match self.deadline {
+                Some(deadline) => {
+                    tokio::time::sleep(Duration::from_millis(deadline.saturating_sub(now_ms()).max(0) as u64)).await
+                }
+                None => std::future::pending().await,
+            }
+        };
+        tokio::pin!(deadline_timer);
         loop {
             let sleep = tokio::time::sleep(Duration::from_millis(RUNTIME_COORDINATION_POLL_INTERVAL_MS));
             let notified = notify.notified();
@@ -122,6 +145,7 @@ impl WaitAgentsWakeWatcher {
             };
             tokio::pin!(cancelled);
             tokio::select! {
+                () = &mut deadline_timer => return self.settle_for_terminal_agent_or_check_coordination().unwrap_or(WaitNotificationsWake::Timeout),
                 () = &mut cancelled => return WaitNotificationsWake::Cancelled,
                 () = &mut sleep => {
                     if let Some(wake) = self.on_poll() {
@@ -158,7 +182,11 @@ impl WaitAgentsWakeWatcher {
         if let Some(wake) = self.reconcile_dead_detached_runtimes() {
             return Some(wake);
         }
-        self.settle_for_terminal_agent_or_check_coordination()
+        self.settle_for_terminal_agent_or_check_coordination().or_else(|| {
+            self.deadline
+                .filter(|deadline| now_ms() >= *deadline)
+                .map(|_| WaitNotificationsWake::Timeout)
+        })
     }
 
     fn settle_for_terminal_agent_or_check_coordination(&self) -> Option<WaitNotificationsWake> {
@@ -214,7 +242,7 @@ impl WaitAgentsWakeWatcher {
 
 pub async fn wait_notifications_runtime(
     store: &Arc<MultiAgentStore>,
-    wait_wake_listeners: &WaitWakeListeners,
+    runtime_handles: &super::runtime::MultiAgentRuntimeHandles,
     signal: Option<tokio_util::sync::CancellationToken>,
     ctx: Option<&ExtensionContext>,
 ) -> Result<WaitNotificationsWake, HandlerError> {
@@ -250,7 +278,13 @@ pub async fn wait_notifications_runtime(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let deadline = runtime_handles
+        .latest_model_request_started_at
+        .lock()
+        .expect("model request start")
+        .map(|started| started + 25 * 60_000);
     Ok(WaitAgentsWakeWatcher::new(WaitAgentsWakeWatcherOptions {
+        deadline,
         active_agents: agents
             .into_iter()
             .filter(|agent| is_active_lifecycle(agent.lifecycle))
@@ -260,7 +294,7 @@ pub async fn wait_notifications_runtime(
         session_path: persistence.session_path,
         signal,
         store: Arc::clone(store),
-        wait_wake_listeners: wait_wake_listeners.clone(),
+        wait_wake_listeners: runtime_handles.wait_wake_listeners.clone(),
     })
     .wait()
     .await)
@@ -295,6 +329,10 @@ fn consume_non_agent_wake(
         }
         WaitNotificationsWake::Error { message } => Ok(tool_result(format!("Wait failed: {message}"), json!({}))),
         WaitNotificationsWake::None => Ok(empty_tool_result()),
+        WaitNotificationsWake::Timeout => Ok(tool_result(
+            "Wait slice timed out: agents are still running. No agents were cancelled. You can wait again after the next model request.",
+            json!({"timedOut":true}),
+        )),
         WaitNotificationsWake::Unavailable { message } => Ok(tool_result(message.clone(), json!({}))),
         WaitNotificationsWake::WakeUp { wake_up } => {
             let agent = wake_up

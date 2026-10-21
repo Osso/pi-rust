@@ -5,105 +5,12 @@
 
 use std::sync::Arc;
 
-use pi_agent_core::AgentToolExecutionContext;
-use pi_agent_core::agent::types::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
-use pi_agent_core::harness::types::ToolExecutionMode;
-use pi_ai::types::{ConstrainedSampling, ToolCallExecution};
+use pi_agent_core::agent::types::AgentTool;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use super::runner::ExtensionRunner;
-use super::types::{BoxFuture, ExtensionContext, HandlerError, RegisteredTool, ToolDefinition};
+use super::types::{ExtensionContext, HandlerError, RegisteredTool, ToolDefinition};
 use crate::core::tools::tool_definition_wrapper::{ToolContextFactory, wrap_definition};
-
-struct WrappedExtensionTool {
-    inner: Arc<dyn AgentTool>,
-    runner: ExtensionRunner,
-}
-
-impl AgentTool for WrappedExtensionTool {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-
-    fn description(&self) -> &str {
-        self.inner.description()
-    }
-
-    fn parameters(&self) -> &Value {
-        self.inner.parameters()
-    }
-
-    fn label(&self) -> &str {
-        self.inner.label()
-    }
-
-    fn constrained_sampling(&self) -> Option<ConstrainedSampling> {
-        self.inner.constrained_sampling()
-    }
-
-    fn execution_mode(&self) -> Option<ToolExecutionMode> {
-        self.inner.execution_mode()
-    }
-
-    fn prepare_arguments(&self, args: Value) -> Result<Value, ToolError> {
-        self.inner.prepare_arguments(args)
-    }
-
-    fn prepare_execution(
-        &self,
-        tool_call_id: String,
-        signal: Option<CancellationToken>,
-    ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, ToolError>> {
-        self.inner.prepare_execution(tool_call_id, signal)
-    }
-
-    fn execute(
-        &self,
-        tool_call_id: String,
-        params: Value,
-        signal: Option<CancellationToken>,
-        on_update: AgentToolUpdateCallback,
-        execution: Option<AgentToolExecutionContext>,
-    ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
-        let inner = Arc::clone(&self.inner);
-        let runner = self.runner.clone();
-        Box::pin(async move {
-            let active_before = runner
-                .get_active_tools()
-                .map_err(|error| ToolError::new(error.message))?;
-            let result = inner
-                .execute(tool_call_id, params, signal, on_update, execution)
-                .await?;
-            let active_after = runner
-                .get_active_tools()
-                .map_err(|error| ToolError::new(error.message))?;
-            let active_after_names: Vec<&String> = active_after.iter().collect();
-            if !active_before.iter().all(|name| active_after_names.contains(&name)) {
-                return Ok(result);
-            }
-
-            let added_tool_names: Vec<String> = active_after
-                .into_iter()
-                .filter(|name| !active_before.contains(name))
-                .collect();
-            if added_tool_names.is_empty() {
-                return Ok(result);
-            }
-
-            let mut combined = result.added_tool_names.unwrap_or_default();
-            for name in added_tool_names {
-                if !combined.contains(&name) {
-                    combined.push(name);
-                }
-            }
-            Ok(AgentToolResult {
-                added_tool_names: Some(combined),
-                ..result
-            })
-        })
-    }
-}
 
 /// Wrap a registered extension tool into an `AgentTool`.
 pub fn wrap_registered_tool(registered_tool: RegisteredTool, runner: &ExtensionRunner) -> Arc<dyn AgentTool> {
@@ -114,10 +21,7 @@ pub fn wrap_registered_tool(registered_tool: RegisteredTool, runner: &ExtensionR
 pub fn wrap_definition_tool(definition: ToolDefinition, runner: &ExtensionRunner) -> Arc<dyn AgentTool> {
     let context_runner = runner.clone();
     let context_factory: ToolContextFactory = Arc::new(move || context_runner.create_context());
-    Arc::new(WrappedExtensionTool {
-        inner: wrap_definition(definition, context_factory),
-        runner: runner.clone(),
-    })
+    wrap_definition(definition, context_factory)
 }
 
 /// Wrap all registered extension tools into `AgentTool`s.

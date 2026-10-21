@@ -488,8 +488,6 @@ fn text_result(text: String, details: Option<Value>) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details,
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

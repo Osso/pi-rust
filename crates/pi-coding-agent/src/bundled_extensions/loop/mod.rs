@@ -233,8 +233,6 @@ fn text_result(text: String, details: LoopToolDetails) -> AgentToolResult {
             text,
         ))],
         details: Some(details.to_value()),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }

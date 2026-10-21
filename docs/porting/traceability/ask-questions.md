@@ -1,34 +1,17 @@
-# coding-agent ask-questions traceability
+# Core ask questions
 
-Pinned source: `packages/coding-agent/src/core/tools/ask-questions.ts` at `532f7d12`.
+Frozen `packages/coding-agent/src/core/tools/ask-questions.ts` at `4f9e6f8a4`; native `core/tools/ask_questions.rs`. Retires historical select/input-dialog behavior and old-pin proof.
 
-Rust: `crates/pi-coding-agent/src/core/tools/ask_questions.rs` (`AskQuestionsTool`).
-
-| Source | Rust | Tests |
+| Frozen symbols / branches | Native | Proof |
 |---|---|---|
-| `askQuestionsSchema` with min/max constraints | `parameters()` | `exposes_min_max_schema_constraints`, differential |
-| `validateQuestions` (count, duplicate questions/options, option range) | `validate_questions` | `rejects_duplicate_questions`, `rejects_duplicate_option_labels` |
-| `formatOption` (em dash + description) | `format_option` | single-choice differential |
-| `buildSelectionOptions` (automatic `Other`) | `build_selection_options` | `adds_an_automatic_other_option_for_custom_answers` |
-| `askCustomAnswer` (`ui.input` + trim) | `ask_custom_answer` | custom-answer test |
-| `askSingleQuestion` (`ui.select`, Cancel, unmatched choice) | `ask_single_question` | single-choice/cancel tests |
-| `formatMultiSelectOption`, toggle, custom add, Done join | `format_multi_select_option`, `apply_multi_select_choice`, `ask_multi_select_question` | `supports_multi_select_questions` |
-| `formatAnswers` (`- question → answer`, `(no selection)`) | `format_answers` | result-text test |
-| `unavailableResult` / `cancelledResult` / `answeredResult` | `unavailable_result`, `cancelled_result`, `answered_result` | TUI-unavailable, partial-cancel tests |
-| desktop notification body/title/expiry/urgency and close | `format_ask_questions_notification_body`, `notify_ask_questions_waiting`, `close_ask_questions_notification` | notification and close tests with a mock notifier passed to the module function |
-| notification failure handling (`console.error`) | `DesktopNotifier::notify` returning `None` | system notifier has no error channel; gap below |
+| schema, definition/guidelines/approval/execution mode | parameters, create_ask_questions_tool_definition | full agents-core registration differential; approval false, exact metadata |
+| explicit blocking validation before UI availability | parse_params / execute | omitted-blocking differential GREEN; explicit_boolean_is_required_before_ui_or_question_validation |
+| validateQuestions / validateQuestionOptions, optional free-text options | validate_questions | duplicate questions/options differential; multiSelect-without-options proof pending |
+| queueQuestions / showQuestions; rejection doesn't strand next request | UI-identity queue/worker; custom panel | failed_panel_does_not_strand_later_requests; agent_abort_keeps_pending_panel_fifo_until_settlement reproduces agent-core abort dropping the tool future and proves settlement precedes next panel (GREEN; weak-job ownership mutant killed); 12 omitted/explicit frozen core cases |
+| captureQuestionInboxTarget / startQueuedQuestionRequest / deliverQueuedAnswers / enqueueQuestionAnswer | capture_inbox / deliver_queued | nonblocking_answers_and_cancellation_arrive_via_correlated_inbox passes; failure delivery proof pending |
+| answered/cancelled/unavailable result details + metadata | question_result, execute | baseline and expanded core differential; expanded differential passes |
+| formatAnswers | format_answers with JavaScript object_entries | numeric question-key answer-text RED/GREEN regression; source enumeration order retained |
+| notification helpers | notify_ask_questions_waiting / close_ask_questions_notification | retained system notifier API; error-return trait mismatch remains (cannot model throwing custom notifier) |
+| renderCall/renderResult; answers stay on call row | call_text / render_call / render_result | implementation present; render differential refresh pending |
 
-Differential: `tests/differential_session_tools.rs::ask_questions_tool_differential` with a
-scripted UI and a fake `notify-send` on `PATH` (single, Other, multi-select, cancel,
-duplicate options, duplicate questions).
-
-## Gaps
-
-- None.
-
-## Renderers
-
-Renderers ported: `render_call` (question count), `render_result` (answered/cancelled/empty). Covered by `differential_interactive_components.rs::tool_renderer_cases`.
-- The source wraps `sendDesktopNotification` in `try/catch` and logs to `console.error`; the Rust
-  `DesktopNotifier` trait has no error channel, so a throwing host notifier cannot be represented.
-  Notification content/close behavior is identical.
+Real panel results and initial/post-key text layouts match frozen in eight keystroke scenarios, including inherited `__proto__` string assignment producing no own answer. Notification/error and tool renderer proof gaps remain; no whole-module completion claim. [Tabbed panel](ask-questions-panel.md), [relay](question-relay-tools.md), [contract](../../specs/ask-questions.md).

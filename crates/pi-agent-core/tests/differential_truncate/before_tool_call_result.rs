@@ -69,7 +69,6 @@ fn normalize_case(case: &Case) -> Value {
     let result = BeforeToolCallResult {
         block: optional_bool(case.block_state, case.block),
         reason: optional_string(case.reason_state, case.reason),
-        terminate: optional_bool(case.terminate_state, case.terminate),
     };
     json!({
         "name": case.name,
@@ -98,9 +97,6 @@ fn normalize_record(result: &BeforeToolCallResult) -> Value {
     }
     if let Some(reason) = &result.reason {
         record.insert("reason".to_owned(), json!(reason));
-    }
-    if let Some(terminate) = result.terminate {
-        record.insert("terminate".to_owned(), json!(terminate));
     }
     Value::Object(record)
 }

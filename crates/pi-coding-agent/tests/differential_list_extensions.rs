@@ -85,8 +85,6 @@ fn tool_definition(name: &str) -> ToolDefinition {
                 Ok(AgentToolResult {
                     content: Vec::new(),
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 })

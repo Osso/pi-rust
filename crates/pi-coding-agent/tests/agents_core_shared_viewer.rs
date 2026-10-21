@@ -235,6 +235,7 @@ fn agent_viewer_reports_missing_and_mismatched_sessions() {
             agent_id: "nope".to_owned(),
             session_id: None,
             store_session_id: None,
+            trace: None,
         },
         None,
     )
@@ -248,6 +249,7 @@ fn agent_viewer_reports_missing_and_mismatched_sessions() {
             agent_id: "a".to_owned(),
             session_id: Some("other".to_owned()),
             store_session_id: None,
+            trace: None,
         },
         None,
     )
@@ -275,6 +277,7 @@ fn agent_viewer_exposes_status_transcript_children_and_commands() {
             agent_id: "a".to_owned(),
             session_id: Some("session-a".to_owned()),
             store_session_id: None,
+            trace: None,
         },
         None,
     )
@@ -316,6 +319,7 @@ fn agent_viewer_renders_terminal_summary_and_error() {
             agent_id: "a".to_owned(),
             session_id: None,
             store_session_id: None,
+            trace: None,
         },
         None,
     )
@@ -336,6 +340,7 @@ fn agent_viewer_renders_terminal_summary_and_error() {
             agent_id: "b".to_owned(),
             session_id: None,
             store_session_id: None,
+            trace: None,
         },
         None,
     )
@@ -355,6 +360,7 @@ fn persisted_agent_viewer_requires_a_control_db_and_known_session() {
             agent_id: "a".to_owned(),
             session_id: None,
             store_session_id: Some("store-session".to_owned()),
+            trace: None,
         },
         None,
     )

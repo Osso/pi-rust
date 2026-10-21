@@ -3,6 +3,9 @@
 use pi_agent_core::AgentToolResult;
 use serde_json::{Map, Value, json};
 
+use crate::core::agent_lifecycle_trace::{
+    AgentLifecycleTrace, format_agent_lifecycle_trace, read_agent_lifecycle_trace,
+};
 use crate::core::extensions::types::{ExtensionContext, HandlerError};
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore, is_active_lifecycle};
 use crate::core::session_control_db::{list_session_metadata, read_multi_agent_state};
@@ -21,6 +24,7 @@ pub struct AgentViewerParams {
     pub agent_id: String,
     pub session_id: Option<String>,
     pub store_session_id: Option<String>,
+    pub trace: Option<bool>,
 }
 
 pub fn list_agents(store: &MultiAgentStore, params: &ListAgentsParams) -> Result<AgentToolResult, HandlerError> {
@@ -83,6 +87,12 @@ pub fn agent_viewer(
     params: &AgentViewerParams,
     ctx: Option<&ExtensionContext>,
 ) -> Result<AgentToolResult, HandlerError> {
+    if params.trace == Some(true) && params.store_session_id.as_deref().is_none_or(str::is_empty) {
+        return Ok(tool_result(
+            "Historical lifecycle trace requires storeSessionId.",
+            json!({"agentId":params.agent_id,"error":"trace_requires_store_session"}),
+        ));
+    }
     if params.store_session_id.is_some() {
         return agent_viewer_from_persisted_session(params, ctx);
     }
@@ -110,15 +120,19 @@ pub fn agent_viewer(
         ));
     }
 
-    Ok(agent_viewer_result(&agent, &store.list_agents()))
+    Ok(agent_viewer_result(&agent, &store.list_agents(), None))
 }
 
 fn agent_viewer_from_persisted_session(
     params: &AgentViewerParams,
     ctx: Option<&ExtensionContext>,
 ) -> Result<AgentToolResult, HandlerError> {
-    let agents = match load_persisted_agents_for_viewer(params, ctx)? {
-        AgentPersistedLoad::Agents(agents) => agents,
+    let (agents, control_db_path, session_path) = match load_persisted_agents_for_viewer(params, ctx)? {
+        AgentPersistedLoad::Agents {
+            agents,
+            control_db_path,
+            session_path,
+        } => (agents, control_db_path, session_path),
         AgentPersistedLoad::Error(error) => return Ok(*error),
     };
 
@@ -145,16 +159,27 @@ fn agent_viewer_from_persisted_session(
                 "agentId": params.agent_id,
                 "error": "session_mismatch",
                 "sessionId": session_id,
-                "storeSessionId": params.store_session_id,
             }),
         ));
     }
 
-    Ok(agent_viewer_result(agent, &agents))
+    let trace = if params.trace == Some(true) {
+        Some(
+            read_agent_lifecycle_trace(agent, &agents, &control_db_path, &session_path)
+                .map_err(|error| HandlerError::new(error.to_string()))?,
+        )
+    } else {
+        None
+    };
+    Ok(agent_viewer_result(agent, &agents, trace.as_ref()))
 }
 
 enum AgentPersistedLoad {
-    Agents(Vec<AgentSnapshot>),
+    Agents {
+        agents: Vec<AgentSnapshot>,
+        control_db_path: String,
+        session_path: String,
+    },
     Error(Box<AgentToolResult>),
 }
 
@@ -207,7 +232,11 @@ fn load_persisted_agents_for_viewer(
                 .collect()
         })
         .unwrap_or_default();
-    Ok(AgentPersistedLoad::Agents(agents))
+    Ok(AgentPersistedLoad::Agents {
+        agents,
+        control_db_path,
+        session_path: session.session_path.clone(),
+    })
 }
 
 fn is_persisted_agent_snapshot(value: &Value) -> bool {
@@ -219,7 +248,11 @@ fn is_persisted_agent_snapshot(value: &Value) -> bool {
         && candidate.get("revision").is_some_and(Value::is_number)
 }
 
-fn agent_viewer_result(agent: &AgentSnapshot, agents: &[AgentSnapshot]) -> AgentToolResult {
+fn agent_viewer_result(
+    agent: &AgentSnapshot,
+    agents: &[AgentSnapshot],
+    trace: Option<&AgentLifecycleTrace>,
+) -> AgentToolResult {
     let children: Vec<String> = agents
         .iter()
         .filter(|candidate| candidate.parent_id.as_deref() == Some(agent.id.as_str()))
@@ -238,7 +271,13 @@ fn agent_viewer_result(agent: &AgentSnapshot, agents: &[AgentSnapshot]) -> Agent
         details.insert("transcript".to_owned(), transcript);
     }
 
-    tool_result(format_agent_viewer_content(agent), Value::Object(details))
+    let mut content = format_agent_viewer_content(agent);
+    if let Some(trace) = trace {
+        details.insert("trace".into(), serde_json::to_value(trace).expect("trace JSON"));
+        content.push('\n');
+        content.push_str(&format_agent_lifecycle_trace(trace));
+    }
+    tool_result(content, Value::Object(details))
 }
 
 fn format_agent_viewer_content(agent: &AgentSnapshot) -> String {
