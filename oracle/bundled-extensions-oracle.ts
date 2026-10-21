@@ -14,6 +14,8 @@ type Step = {
 	mode?: string;
 	hasUI?: boolean;
 	idle?: boolean;
+	confirmed?: boolean;
+	activeAgents?: Array<Record<string, unknown>>;
 	inputs?: Array<string | null>;
 	runCommandResults?: Array<{ stdout: string; stderr: string; exitCode: number | null }>;
 	env?: Record<string, string>;
@@ -31,6 +33,8 @@ type Request = {
 };
 
 type Calls = {
+	shutdown: number;
+	confirms: Array<[string,string]>;
 	notify: Array<[string, string | null]>;
 	setStatus: Array<[string, string | null]>;
 	setEditorText: string[];
@@ -50,6 +54,8 @@ type Calls = {
 
 function newCalls(): Calls {
 	return {
+        shutdown: 0,
+        confirms: [],
 		notify: [],
 		setStatus: [],
 		setEditorText: [],
@@ -170,6 +176,10 @@ function createHarness(module: Record<string, unknown>, extension: string, calls
 		state.inputs = [...(step.inputs ?? [])];
 		state.runCommandResults = [...(step.runCommandResults ?? [])];
 		const ui = {
+			confirm: async (title: string, message: string) => {
+                callsRef.calls.confirms.push([title, message]);
+                return step.confirmed ?? false;
+            },
 			input: async (title: string, placeholder: string | null, options?: Record<string, unknown>) => {
 				callsRef.calls.inputs.push([title, placeholder, options]);
 				if (state.inputs.length === 0) throw new Error("no fake input queued");
@@ -199,6 +209,10 @@ function createHarness(module: Record<string, unknown>, extension: string, calls
 				getSessionFile: () => step.sessionFile ?? undefined,
 				getSessionId: () => step.sessionId ?? "test-session-id",
 			},
+			shutdown: () => {
+                callsRef.calls.shutdown++;
+            },
+			multiAgentStore: { listActiveAgents: () => step.activeAgents ?? [] },
 			controlDbPath: step.controlDbPath ?? undefined,
 			restart: async (options: Record<string, unknown>) => {
 				callsRef.calls.restart.push(options);
@@ -280,6 +294,22 @@ async function executeStep(
 				PI_PLAN_PATH: process.env.PI_PLAN_PATH ?? null,
 			};
 		}
+        case "archiveShutdownStderr": {
+            const previousWrite = process.stderr.write;
+            let output = "";
+            process.stderr.write = ((chunk: string | Uint8Array) => {
+                output += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+                return true;
+            }) as typeof process.stderr.write;
+            try {
+                for (const handler of h.handlers.get("session_shutdown") ?? []) {
+                    await handler({ type: "session_shutdown", reason: "quit" }, ctx);
+                }
+                return output;
+            } finally {
+                process.stderr.write = previousWrite;
+            }
+        }
 		case "event": {			const handlers = h.handlers.get(step.name as string) ?? [];
 			let result: unknown;
 			for (const handler of handlers) {

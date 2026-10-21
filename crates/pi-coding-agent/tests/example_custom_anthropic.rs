@@ -278,7 +278,7 @@ async fn native_factory_oauth_matches_pinned_login_refresh_and_failures() {
         };
         let actual = match result {
             Ok(credential) => {
-                json!({"calls":calls.lock().unwrap().clone(), "credential":{"access":credential.access,"refresh":credential.refresh,"expires":pi_js_compat::number::js_number_value(credential.expires)},"auth":oauth.to_auth(credential).await.unwrap().api_key})
+                json!({"calls":calls.lock().unwrap().clone(), "credential":{"access":credential.access.to_utf8().unwrap(),"refresh":credential.refresh.to_utf8().unwrap(),"expires":pi_js_compat::number::js_number_value(credential.expires)},"auth":oauth.to_auth(credential).await.unwrap().api_key})
             }
             Err(error) => json!({"calls":calls.lock().unwrap().clone(), "error":error.to_string()}),
         };

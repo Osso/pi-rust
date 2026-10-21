@@ -51,10 +51,13 @@ async fn device_login_uses_gateway_endpoints_and_keeps_the_scope() {
     let interaction = TestInteraction::new(vec![PromptAnswer::Text("device-code".to_owned())]);
 
     let credential = oauth.login(interaction.clone()).await.expect("credential");
-    assert_eq!(credential.access, "access-token");
-    assert_eq!(credential.refresh, "refresh-token");
+    assert_eq!(credential.access.to_utf8().unwrap(), "access-token");
+    assert_eq!(credential.refresh.to_utf8().unwrap(), "refresh-token");
     assert_eq!(credential.expires, NOW + 3_600_000.0 - 60_000.0);
-    assert_eq!(credential.extra.get("scope"), Some(&json!("gateway offline_access")));
+    assert_eq!(
+        credential.extra.get(&pi_js_compat::js_json::JsString::from("scope")),
+        Some(&pi_js_compat::js_json::JsValue::from(&json!("gateway offline_access")))
+    );
     assert_eq!(
         interaction.events()[0],
         AuthEvent::DeviceCode {
@@ -90,8 +93,8 @@ async fn refresh_uses_the_gateway_without_discovery() {
         )
         .await
         .expect("refreshed");
-    assert_eq!(refreshed.access, "new-access");
-    assert_eq!(refreshed.refresh, "new-refresh");
+    assert_eq!(refreshed.access.to_utf8().unwrap(), "new-access");
+    assert_eq!(refreshed.refresh.to_utf8().unwrap(), "new-refresh");
     assert_eq!(
         recorded_requests(&fetch)[0].body,
         "grant_type=refresh_token&client_id=pi-gateway&refresh_token=old-refresh"
@@ -171,7 +174,7 @@ async fn browser_login_runs_the_callback_and_token_exchange() {
     assert!(body.contains("Signed in to Radius. You may now close this page."));
 
     let credential = login.await.expect("task").expect("credential");
-    assert_eq!(credential.access, "access-token");
+    assert_eq!(credential.access.to_utf8().unwrap(), "access-token");
     let requests = recorded_requests(&fetch);
     assert_eq!(requests.len(), 2);
     assert_eq!(

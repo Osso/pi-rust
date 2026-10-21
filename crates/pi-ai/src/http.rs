@@ -192,6 +192,7 @@ fn native_fetch_error(error: reqwest::Error, message: &str) -> CallbackError {
     CallbackError {
         message: message.to_owned(),
         name: "TypeError".to_owned(),
+        code: None,
         cause: Some(diagnostics.join(": ")),
     }
 }

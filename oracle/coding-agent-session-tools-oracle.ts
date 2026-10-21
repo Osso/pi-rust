@@ -186,6 +186,19 @@ const handlers: Record<string, (src: string, request: Request) => Promise<unknow
 			})),
 		};
 	},
+    "history:definition": async (src) => {
+        const module = await load(src, "core/tools/search-current-session-history.ts");
+        const tool = module.createSearchCurrentSessionHistoryToolDefinition();
+        return {
+            name: tool.name,
+            label: tool.label,
+            description: tool.description,
+            promptSnippet: tool.promptSnippet,
+            promptGuidelines: tool.promptGuidelines,
+            parameters: tool.parameters,
+            executionMode: tool.executionMode,
+        };
+    },
 	"tool:execute": async (src, request) => {
 		if (request.setup) {
 			const controlDb = await load(src, "core/session-control-db.ts");

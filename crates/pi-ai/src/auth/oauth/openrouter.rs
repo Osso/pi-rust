@@ -81,7 +81,7 @@ impl OAuthAuth for OpenRouterOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access),
+                api_key: Some(credential.access_utf8()?),
                 ..ModelAuth::default()
             })
         })

@@ -618,7 +618,10 @@ fn vertex_stored_credential_env_drives_adc_resolution() {
 fn oauth_credential(extra: Value) -> Credential {
     let mut credential = OAuthCredential::new("refresh", "access", 0.0);
     let Value::Object(extra) = extra else { panic!("object") };
-    credential.extra = extra;
+    credential.extra = extra
+        .into_iter()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect();
     Credential::OAuth(credential)
 }
 

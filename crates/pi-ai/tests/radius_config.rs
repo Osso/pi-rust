@@ -81,12 +81,14 @@ fn rejects_non_object_or_malformed_configs() {
 #[test]
 fn reads_the_gateway_config_from_the_credential_extra_fields() {
     let mut credential = OAuthCredential::new("r", "a", 0.0);
-    credential.extra.insert("gatewayConfig".to_owned(), config());
+    credential.extra.insert("gatewayConfig".into(), config().into());
     let parsed = get_radius_credential_config(Some(&credential)).expect("gateway config");
     assert_eq!(parsed.models.len(), 2);
 
     let mut invalid = OAuthCredential::new("r", "a", 0.0);
-    invalid.extra.insert("gatewayConfig".to_owned(), json!({"baseUrl": 1}));
+    invalid
+        .extra
+        .insert("gatewayConfig".into(), json!({"baseUrl": 1}).into());
     assert!(get_radius_credential_config(Some(&invalid)).is_none());
     assert!(get_radius_credential_config(None).is_none());
 }
@@ -107,7 +109,7 @@ fn builds_pi_messages_models_from_gateway_entries() {
     assert!(model.auto_compaction_threshold.is_none());
 
     let mut credential = OAuthCredential::new("r", "a", 0.0);
-    credential.extra.insert("gatewayConfig".to_owned(), config());
+    credential.extra.insert("gatewayConfig".into(), config().into());
     assert_eq!(get_radius_models("radius", Some(&credential)).len(), 2);
     assert!(get_radius_models("radius", None).is_empty());
 }

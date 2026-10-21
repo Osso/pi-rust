@@ -173,7 +173,7 @@ pub async fn get_provider_credential(
     if !options.refresh
         && let Some(Credential::OAuth(oauth)) = credential.as_ref()
     {
-        return Ok(Some(oauth.access.clone()));
+        return Ok(Some(oauth.access_utf8().map_err(|error| error.to_string())?));
     }
 
     let auth = model_runtime

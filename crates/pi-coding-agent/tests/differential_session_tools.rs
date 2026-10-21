@@ -848,14 +848,82 @@ async fn search_current_session_history_tool_differential() {
         ),
     );
 
+    let mut rows: Vec<Value> = std::fs::read_to_string(&session_path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    rows.last_mut().unwrap()["message"]["content"] = json!([
+        {"type":"text","text":"assistant secret text"},
+        {"type":"thinking","thinking":"hidden-thought","thinkingSignature":"hidden-signature"},
+        {"type":"toolCall","id":"call","name":"inspectWidget","arguments":{"propertyNeedle":[true,17,null,{"nested":"argumentNeedle"}],"scalar":1.0,"small":0.000001}},
+        {"type":"toolCall","id":"self","name":"search_current_session_history","arguments":{"query":"self-traffic"}}
+    ]);
+    let mut parent = "history-session-entry-4".to_owned();
+    for (index, mut row) in [
+        json!({"type":"message","message":{"role":"toolResult","toolCallId":"call","toolName":"inspectWidget","content":[{"type":"text","text":"resultNeedle"}],"isError":false,"timestamp":6}}),
+        json!({"type":"message","message":{"role":"toolResult","toolCallId":"self","toolName":"search_current_session_history","content":[{"type":"text","text":"self-traffic"}],"isError":false,"timestamp":7}}),
+        json!({"type":"custom_message","customType":"fixture","content":[{"type":"text","text":"customNeedle"}],"display":true}),
+        json!({"type":"branch_summary","fromId":"history-session-entry-0","summary":"branchNeedle"}),
+        json!({"type":"message","message":{"role":"bashExecution","command":"commandNeedle","output":"outputNeedle","exitCode":0,"cancelled":false,"truncated":false,"timestamp":10}}),
+        json!({"type":"message","message":{"role":"compactionSummary","summary":"inlineSummaryNeedle","tokensBefore":100,"timestamp":11}}),
+    ].into_iter().enumerate() {
+        let id = format!("extra-{index}");
+        row["id"] = json!(id); row["parentId"] = json!(parent); row["timestamp"] = json!("2026-01-01T00:01:00.000Z");
+        parent = id; rows.push(row);
+    }
+    std::fs::write(
+        &session_path,
+        rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n") + "\n",
+    )
+    .unwrap();
     let mut oracle = Oracle::new();
+    let registration = oracle.request(json!({"operation":"history:definition"}));
+    let definition = pi_coding_agent::core::tools::search_current_session_history::create_search_current_session_history_tool_definition();
+    assert_eq!(
+        registration["output"],
+        json!({"name":definition.name,"label":definition.label,"description":definition.description,"promptSnippet":definition.prompt_snippet,"promptGuidelines":definition.prompt_guidelines,"parameters":definition.parameters,"executionMode":definition.execution_mode.map(|mode| mode.as_str())})
+    );
     for (name, params) in [
+        ("tool-name", json!({"query":"inspectWidget"})),
+        ("argument-key", json!({"query":"propertyNeedle"})),
+        ("argument-value", json!({"query":"argumentNeedle"})),
+        ("argument-bool", json!({"query":"true"})),
+        ("argument-number", json!({"query":"17"})),
+        ("number-no-decimal-false-positive", json!({"query":"1.0"})),
+        ("number-fixed-false-negative", json!({"query":"0.000001"})),
+        ("number-no-exponent-false-positive", json!({"query":"1e-6"})),
+        ("number-integer", json!({"query":"1"})),
+        ("number-fixed-context", json!({"query":"0.000001","context_entries":1})),
+        ("argument-null", json!({"query":"null"})),
+        ("tool-result", json!({"query":"resultNeedle"})),
+        ("custom", json!({"query":"customNeedle"})),
+        ("branch-summary", json!({"query":"branchNeedle"})),
+        ("bash-command", json!({"query":"commandNeedle"})),
+        ("bash-output", json!({"query":"outputNeedle"})),
+        ("inline-summary", json!({"query":"inlineSummaryNeedle"})),
+        ("thinking-excluded", json!({"query":"hidden-thought"})),
+        ("signature-excluded", json!({"query":"hidden-signature"})),
+        ("self-excluded", json!({"query":"self-traffic"})),
+        (
+            "context-all-roles",
+            json!({"query":"resultNeedle", "context_entries":2}),
+        ),
         ("match", json!({ "query": "COBALT", "context_entries": 1 })),
         ("assistant", json!({ "query": "assistant secret" })),
         ("page", json!({ "query": "deployment", "limit": 1 })),
         ("page-2", json!({ "query": "deployment", "limit": 1, "cursor": "1" })),
         ("none", json!({ "query": "absent text" })),
         ("bad-cursor", json!({ "query": "deployment", "cursor": "-1" })),
+        ("empty-query", json!({"query":"  "})),
+        (
+            "huge-cursor",
+            json!({"query":"deployment","cursor":"999999999999999999999999999999999999"}),
+        ),
+        (
+            "cursor-leading-zero",
+            json!({"query":"deployment","limit":1,"cursor":"01"}),
+        ),
     ] {
         let response = oracle.request(tool_request(
             "core/tools/search-current-session-history.ts",
@@ -883,6 +951,56 @@ async fn search_current_session_history_tool_differential() {
                 .await,
         );
         assert_eq!(response["output"], rust, "{name}");
+    }
+}
+
+#[tokio::test]
+async fn search_current_session_history_live_numbers_differential() {
+    use pi_agent_core::{AgentHarnessTool, AgentMessage};
+    use pi_ai::types::{AssistantContent, AssistantMessage, ToolCall};
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
+    use std::sync::{Arc, Mutex};
+
+    let root = temp_root("pi-history-live-numbers-");
+    let cwd = root.path().display().to_string();
+    let mut manager = SessionManager::create(&cwd, Some(&cwd), None).unwrap();
+    manager
+        .append_message(
+            serde_json::from_value::<AgentMessage>(json!({"role":"user","content":"fixture","timestamp":1})).unwrap(),
+        )
+        .unwrap();
+    let mut assistant = AssistantMessage::empty("openai-responses", "openai", "fixture", 2);
+    assistant.content.push(AssistantContent::ToolCall(ToolCall::new(
+        "call",
+        "inspect",
+        serde_json::from_str(r#"{"scalar":1.0,"small":0.000001}"#).unwrap(),
+    )));
+    manager
+        .append_message(AgentMessage::Assistant(Box::new(assistant)))
+        .unwrap();
+    let session_path = manager.get_session_file().unwrap().to_owned();
+    let context = tool_context::TestContextBuilder::new(&cwd, Arc::new(Mutex::new(manager)))
+        .build()
+        .await
+        .1;
+    let mut oracle = Oracle::new();
+    for (query, count) in [("1.0", 0), ("0.000001", 1), ("1e-6", 0)] {
+        let params = json!({"query":query});
+        let source = oracle.request(tool_request(
+            "core/tools/search-current-session-history.ts",
+            "createSearchCurrentSessionHistoryToolDefinition",
+            params.clone(),
+            json!({"cwd":cwd,"sessionFile":session_path,"sessionDir":cwd}),
+        ));
+        let native = rust_tool_result(
+            SearchCurrentSessionHistoryTool::new()
+                .execute("call".into(), params, None, None, context.clone(), None)
+                .await,
+        );
+        assert_eq!(source["output"]["details"]["totalMatches"], count, "{query}");
+        assert_eq!(native["details"]["totalMatches"], count, "{query}");
+        assert_eq!(native["content"], source["output"]["content"], "{query}");
     }
 }
 

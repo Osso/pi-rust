@@ -28,6 +28,8 @@ pub struct CallbackError {
     pub message: String,
     /// Top-level error identity; legacy callbacks default to `Error`.
     pub name: String,
+    /// Node error code, when the boundary supplies one.
+    pub code: Option<String>,
     /// Native diagnostics, not a reconstructed JavaScript cause object.
     pub cause: Option<String>,
 }
@@ -37,6 +39,7 @@ impl CallbackError {
         Self {
             message: message.into(),
             name: "Error".to_owned(),
+            code: None,
             cause: None,
         }
     }

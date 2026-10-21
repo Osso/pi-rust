@@ -31,6 +31,8 @@ async fn model_registry() -> Arc<ModelRegistry> {
 
 #[derive(Default)]
 pub struct Calls {
+    pub shutdown: usize,
+    pub confirms: Vec<(String, String)>,
     pub notify: Vec<(String, Option<NotifyType>)>,
     pub set_status: Vec<(String, Option<String>)>,
     pub set_editor_text: Vec<String>,
@@ -54,6 +56,7 @@ pub struct Calls {
 
 #[derive(Default)]
 pub struct RecordingUi {
+    pub confirmed: Mutex<bool>,
     pub calls: Arc<Mutex<Calls>>,
     pub inputs: Mutex<VecDeque<Option<String>>>,
 }
@@ -65,6 +68,21 @@ impl RecordingUi {
 }
 
 impl ExtensionUiContext for RecordingUi {
+    fn confirm<'a>(
+        &'a self,
+        title: &str,
+        message: &str,
+        _opts: Option<&ExtensionUiDialogOptions>,
+    ) -> pi_coding_agent::core::extensions::types::BoxFuture<'a, Result<bool, String>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .confirms
+            .push((title.to_owned(), message.to_owned()));
+        let confirmed = *self.confirmed.lock().unwrap();
+        Box::pin(async move { Ok(confirmed) })
+    }
+
     fn input<'a>(
         &'a self,
         title: &str,
@@ -215,6 +233,7 @@ pub fn actions(calls: &Arc<Mutex<Calls>>) -> ExtensionActions {
 
 pub fn context_actions(calls: &Arc<Mutex<Calls>>, control_db_path: Option<String>) -> ExtensionContextActions {
     let restart_calls = Arc::clone(calls);
+    let shutdown_calls = Arc::clone(calls);
     let control_db_path = Arc::new(Mutex::new(control_db_path));
     ExtensionContextActions {
         get_model: Arc::new(|| None),
@@ -228,7 +247,9 @@ pub fn context_actions(calls: &Arc<Mutex<Calls>>, control_db_path: Option<String
         get_signal: Arc::new(|| None),
         abort: Arc::new(|| {}),
         has_pending_messages: Arc::new(|| false),
-        shutdown: Arc::new(|| {}),
+        shutdown: Arc::new(move || {
+            shutdown_calls.lock().unwrap().shutdown += 1;
+        }),
         restart: Arc::new(move |options| {
             restart_calls.lock().unwrap().restart.push(options);
             Box::pin(async { Ok(()) })
@@ -346,6 +367,8 @@ pub fn calls_json(calls: &Calls) -> Value {
         .map(|(action, session_id)| json!([action, session_id]))
         .collect();
     json!({
+        "shutdown": calls.shutdown,
+        "confirms": calls.confirms,
         "notify": calls.notify.iter().map(|(message, kind)| json!([
             message,
             kind.map(|kind| match kind {
