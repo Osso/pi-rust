@@ -1,9 +1,10 @@
 //! Settings storage and typed accessors (`core/settings-manager.ts`).
 //!
 //! Setters update effective settings immediately and enqueue immutable scoped write snapshots.
-//! `flush` settles earlier writes in FIFO order; native task-completion boundaries must call it.
+//! Shared mutation guards schedule a FIFO drain on release; `flush` synchronously settles earlier writes.
 
 use std::fs;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -37,9 +38,70 @@ pub type Settings = Map<String, Value>;
 /// The settings handle owned by `AgentSession` and shared with the interactive mode.
 pub type SharedSettingsManager = Arc<Mutex<SettingsManager>>;
 
-/// Locks the shared settings handle, recovering the guard from a poisoned mutex.
-pub fn lock_settings_manager(handle: &SharedSettingsManager) -> std::sync::MutexGuard<'_, SettingsManager> {
-    handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+/// A shared mutation boundary. Releasing it schedules pending persistence after unlocking.
+pub struct SettingsManagerGuard<'a> {
+    handle: &'a SharedSettingsManager,
+    guard: Option<std::sync::MutexGuard<'a, SettingsManager>>,
+}
+
+impl std::ops::Deref for SettingsManagerGuard<'_> {
+    type Target = SettingsManager;
+
+    fn deref(&self) -> &Self::Target {
+        self.guard.as_deref().expect("settings guard held until drop")
+    }
+}
+
+impl std::ops::DerefMut for SettingsManagerGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.guard.as_deref_mut().expect("settings guard held until drop")
+    }
+}
+
+impl Drop for SettingsManagerGuard<'_> {
+    fn drop(&mut self) {
+        if self.pending_writes.is_empty() || self.drain_scheduled {
+            return;
+        }
+        self.drain_scheduled = true;
+        let scope = self.pending_writes[0].scope;
+        drop(self.guard.take());
+        spawn_settings_drain(self.handle, scope);
+    }
+}
+
+/// Resets scheduling while still holding the mutex, including during worker unwinding.
+struct SettingsDrainGuard<'a> {
+    manager: std::sync::MutexGuard<'a, SettingsManager>,
+}
+
+impl Drop for SettingsDrainGuard<'_> {
+    fn drop(&mut self) {
+        self.manager.drain_scheduled = false;
+    }
+}
+
+fn spawn_settings_drain(handle: &SharedSettingsManager, scope: SettingsScope) {
+    let worker_handle = Arc::clone(handle);
+    // Synchronous callers need no Tokio runtime. The task retains the manager until drained.
+    let result = std::thread::Builder::new().spawn(move || {
+        let manager = worker_handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut drain = SettingsDrainGuard { manager };
+        drain.manager.flush();
+    });
+    if let Err(error) = result {
+        let mut manager = handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        manager.drain_scheduled = false;
+        manager.record_error(scope, &format!("Failed to spawn settings drain worker: {error}"));
+    }
+}
+
+/// Locks shared settings, recovering poisoning and scheduling queued writes when released.
+pub fn lock_settings_manager(handle: &SharedSettingsManager) -> SettingsManagerGuard<'_> {
+    SettingsManagerGuard {
+        handle,
+        guard: Some(handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner)),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -487,6 +549,7 @@ pub struct SettingsManager {
     project_settings_load_error: Option<String>,
     errors: Vec<SettingsError>,
     pending_writes: Vec<PendingSettingsWrite>,
+    drain_scheduled: bool,
 }
 
 impl std::fmt::Debug for SettingsManager {
@@ -547,6 +610,7 @@ impl SettingsManager {
             project_settings_load_error: project_load.error,
             errors,
             pending_writes: Vec::new(),
+            drain_scheduled: false,
         };
         manager.global_settings = global_load.settings;
         manager.project_settings = project_load.settings;
@@ -968,22 +1032,36 @@ impl SettingsManager {
         self.save_project_settings(project_settings)
     }
 
+    fn persist_pending_settings(&mut self, pending: &PendingSettingsWrite) -> Result<(), SettingsFailure> {
+        if pending.scope == SettingsScope::Project {
+            self.assert_project_trusted_for_write()?;
+        }
+        self.persist_scoped_settings(
+            pending.scope,
+            &pending.settings,
+            &pending.modified_fields,
+            &pending.modified_nested_fields,
+        )?;
+        self.clear_modified_scope(pending.scope);
+        Ok(())
+    }
+
     /// Settles all earlier write snapshots in source order, recording task errors without throwing.
     pub fn flush(&mut self) {
         for pending in std::mem::take(&mut self.pending_writes) {
-            let result = if pending.scope == SettingsScope::Project && !self.project_trusted {
-                self.assert_project_trusted_for_write()
-            } else {
-                self.persist_scoped_settings(
-                    pending.scope,
-                    &pending.settings,
-                    &pending.modified_fields,
-                    &pending.modified_nested_fields,
-                )
-            };
+            // Like the source task catch, failure need not roll back storage to continue later snapshots.
+            let result = catch_unwind(AssertUnwindSafe(|| self.persist_pending_settings(&pending)));
             match result {
-                Ok(()) => self.clear_modified_scope(pending.scope),
-                Err(error) => self.record_error(pending.scope, error.message()),
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => self.record_error(pending.scope, error.message()),
+                Err(payload) => {
+                    let message = payload
+                        .downcast_ref::<&str>()
+                        .copied()
+                        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                        .unwrap_or("non-string panic payload");
+                    self.record_error(pending.scope, &format!("Settings write panicked: {message}"));
+                }
             }
         }
     }

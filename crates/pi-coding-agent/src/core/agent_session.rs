@@ -44,7 +44,7 @@ use crate::core::runtime_message_markers::{
 };
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{SessionEntry, SessionManager, SessionManagerError, get_latest_compaction_entry};
-use crate::core::settings_manager::{SettingsManager, SettingsScope};
+use crate::core::settings_manager::{SettingsManager, SettingsManagerGuard, SettingsScope, lock_settings_manager};
 use crate::core::slash_commands::builtin_slash_commands;
 use crate::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::core::system_prompt::{BuildSystemPromptOptions, build_system_prompt};
@@ -4754,7 +4754,8 @@ impl AgentSession {
             .set_session_model(&model.provider, &model.id)
             .map_err(|error| AgentSessionError::new(error.to_string()))?;
         if self.inner.multi_agent_agent_id.is_none() {
-            lock(&self.inner.settings_manager).set_default_model_and_provider(&model.provider, &model.id);
+            lock_settings_manager(&self.inner.settings_manager)
+                .set_default_model_and_provider(&model.provider, &model.id);
         }
         self.set_thinking_level(thinking_level)?;
         self.emit_model_select(&model, Some(&previous_model), ModelSelectSource::Set)
@@ -4850,7 +4851,8 @@ impl AgentSession {
         lock(&self.inner.session_manager)
             .set_session_model(&next.model.provider, &next.model.id)
             .map_err(|error| AgentSessionError::new(error.to_string()))?;
-        lock(&self.inner.settings_manager).set_default_model_and_provider(&next.model.provider, &next.model.id);
+        lock_settings_manager(&self.inner.settings_manager)
+            .set_default_model_and_provider(&next.model.provider, &next.model.id);
         self.set_thinking_level(thinking_level)?;
         self.emit_model_select(&next.model, Some(&previous_model), ModelSelectSource::Cycle)
             .await;
@@ -4905,7 +4907,7 @@ impl AgentSession {
             if self.inner.multi_agent_agent_id.is_none()
                 && (self.supports_thinking() || effective != ThinkingLevel::Off)
             {
-                lock(&self.inner.settings_manager).set_default_thinking_level(effective);
+                lock_settings_manager(&self.inner.settings_manager).set_default_thinking_level(effective);
             }
             self.emit(AgentSessionEvent::ThinkingLevelChanged(ThinkingLevelChangedEvent {
                 event_type: "thinking_level_changed",
@@ -4965,12 +4967,12 @@ impl AgentSession {
 
     pub fn set_steering_mode(&self, mode: pi_agent_core::harness::QueueMode) {
         self.inner.agent.set_steering_mode(mode);
-        lock(&self.inner.settings_manager).set_steering_mode(mode);
+        lock_settings_manager(&self.inner.settings_manager).set_steering_mode(mode);
     }
 
     pub fn set_follow_up_mode(&self, mode: pi_agent_core::harness::QueueMode) {
         self.inner.agent.set_follow_up_mode(mode);
-        lock(&self.inner.settings_manager).set_follow_up_mode(mode);
+        lock_settings_manager(&self.inner.settings_manager).set_follow_up_mode(mode);
     }
 
     // =========================================================================
@@ -5103,7 +5105,7 @@ impl AgentSession {
     }
 
     pub fn set_auto_retry_enabled(&self, enabled: bool) {
-        lock(&self.inner.settings_manager).set_retry_enabled(enabled);
+        lock_settings_manager(&self.inner.settings_manager).set_retry_enabled(enabled);
     }
 }
 
@@ -5412,8 +5414,8 @@ impl AgentSession {
         Arc::clone(&self.inner.session_manager)
     }
 
-    pub fn settings_manager(&self) -> MutexGuard<'_, SettingsManager> {
-        lock(&self.inner.settings_manager)
+    pub fn settings_manager(&self) -> SettingsManagerGuard<'_> {
+        lock_settings_manager(&self.inner.settings_manager)
     }
 
     /// The shared settings handle owned by this session.
@@ -6243,7 +6245,7 @@ impl AgentSession {
     }
 
     pub fn set_auto_compaction_enabled(&self, enabled: bool) {
-        lock(&self.inner.settings_manager).set_compaction_enabled(enabled);
+        lock_settings_manager(&self.inner.settings_manager).set_compaction_enabled(enabled);
     }
 
     pub fn auto_compaction_enabled(&self) -> bool {
