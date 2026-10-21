@@ -97,3 +97,59 @@ fn frozen_compacted_archive_history_follows_only_active_ancestors() {
     assert_eq!(std::fs::read(archive.as_str().unwrap()).unwrap(), bytes);
     assert!(!std::path::Path::new(path).exists());
 }
+
+#[tokio::test]
+async fn export_uses_read_only_stale_archive_and_legacy_source() {
+    use pi_coding_agent::core::export_html::{ExportOptions, export_from_file};
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(&mut ts, json!({"op":"create","dir":dir,"cwd":dir}));
+    let path = created["path"].as_str().unwrap();
+    let archived = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
+    let bytes = std::fs::read(archived.as_str().unwrap()).unwrap();
+    let out = tmp.path().join("export.html").display().to_string();
+    export_from_file(path, Some(ExportOptions::from_output_path(&out)))
+        .await
+        .unwrap();
+    assert!(std::fs::read_to_string(&out).unwrap().contains("hello"));
+    assert!(!std::path::Path::new(path).exists());
+    assert_eq!(std::fs::read(archived.as_str().unwrap()).unwrap(), bytes);
+    call(&mut ts, json!({"op":"restore","db":db,"path":path}));
+    // Mutate only the version of a real source-created transcript to exercise migration.
+    let bytes = std::fs::read_to_string(path)
+        .unwrap()
+        .replacen("\"version\":3", "\"version\":2", 1);
+    std::fs::write(path, &bytes).unwrap();
+    export_from_file(path, Some(ExportOptions::from_output_path(out)))
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(path).unwrap(), bytes);
+}
+
+#[path = "support/tool_context.rs"]
+mod tool_context;
+#[tokio::test]
+async fn persisted_history_tool_recovers_source_compacted_ancestor() {
+    use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
+    use std::sync::{Arc, Mutex};
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"compacted":true,"text":"needle older"}),
+    );
+    let path = created["path"].as_str().unwrap();
+    let manager = Arc::new(Mutex::new(SessionManager::open(path, None, None).unwrap()));
+    let context = tool_context::TestContextBuilder::new(&dir, manager).build().await.1;
+    let result = SearchCurrentSessionHistoryTool::new()
+        .execute("history".into(), json!({"query":"needle"}), None, None, context, None)
+        .await
+        .unwrap();
+    assert_eq!(result.details.unwrap()["totalMatches"], 1);
+}

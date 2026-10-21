@@ -268,8 +268,11 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
                 return Err(ToolError::new("search_current_session_history query must not be empty"));
             }
 
-            let searchable_entries: Vec<SearchableSessionEntry> =
-                manager.get_branch(None).iter().filter_map(searchable_entry).collect();
+            let mut history = crate::core::session_history::read_session_history_reverse(&manager)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|cause| ToolError::new(cause.to_string()))?;
+            history.reverse();
+            let searchable_entries: Vec<SearchableSessionEntry> = history.iter().filter_map(searchable_entry).collect();
             let normalized_query = query.to_lowercase();
             let all_match_indexes: Vec<usize> = searchable_entries
                 .iter()

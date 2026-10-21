@@ -9,3 +9,5 @@ Archives validate decompression before publication, preserve mode, create exclus
 Seekable archive inspection decodes offthread into a private0600 temporary plain file, terminates native worker at90seconds and removes temporary state on callback/error. The packaged pi executable at the existing package directory is required for native worker dispatch; no companion binary/configuration is added.
 
 Persisted message mailboxStoreRefs are optional raw JSON: preserve explicit null/empty/malformed values and omission. This serialization alone does not implement durable delivery.
+
+HTML export resolves stale paths and opens read-only, including in-memory legacy migration. Current history search consumes full persisted active ancestry through history iterator, without changing search population/filtering beyond storage reachability.
