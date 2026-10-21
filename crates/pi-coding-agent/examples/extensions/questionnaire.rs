@@ -55,7 +55,7 @@ async fn execute(params: Value, ctx: ExtensionContext) -> Result<AgentToolResult
         .ui()?
         .custom(
             Arc::new(move |context, done| {
-                Box::new(Questionnaire {
+                Ok(Box::new(Questionnaire {
                     theme: context.theme.clone(),
                     tui: context.tui.clone(),
                     done,
@@ -68,7 +68,7 @@ async fn execute(params: Value, ctx: ExtensionContext) -> Result<AgentToolResult
                         answers: IndexMap::new(),
                         editor: FormEditor::new(&context),
                     }),
-                })
+                }))
             }),
             None,
         )

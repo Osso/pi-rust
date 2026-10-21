@@ -146,13 +146,13 @@ pub(crate) fn space_invaders_extension_with_random(api: &ExtensionApi, random: R
                 ctx.ui()?
                     .custom(
                         Arc::new(move |context, done| {
-                            Box::new(Invaders::new(
+                            Ok(Box::new(Invaders::new(
                                 context.tui,
                                 done,
                                 save.clone(),
                                 saved.clone(),
                                 random.clone(),
-                            ))
+                            )))
                         }),
                         None,
                     )

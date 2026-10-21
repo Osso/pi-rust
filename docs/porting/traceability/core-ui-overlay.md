@@ -80,3 +80,26 @@ Full commands, revisions and outcomes: `/tmp/pi-rust-core-ui-overlay/ledger.md`;
 - All 83 tests in changed `interactive_mode.rs` were attempted (40). Eighty emitted `ok`; three hung, also individually at a hard 60 seconds (42–44): `command_restart_always_restarts_the_process_and_propagates_errors`, `entry_appended_renders_registered_custom_entries`, `render_session_entries_renders_persisted_custom_entries`.
 - Main reports these three were reproduced at base `04f51ba` by the core-ui-input slice and assigned to a separate fixer. They are not passing evidence. No restore/bisect or unrelated fix was performed here. The hung process tree was cancelled and all owned processes verified exited. No broad rerun.
 - No Cargo check, Clippy, workspace suite, deployment or live smoke test was run, per this task's focused-test-only instruction. Independent/final integration verification belongs to main; this slice does not claim a globally clean milestone.
+
+## Synchronous custom-factory rejection (batch Q prerequisite)
+
+Pinned `interactive-mode.ts:3483–3505` evaluates `factory(...)` inside the
+Promise executor. A synchronous throw rejects directly: the later chained
+`.catch` at `:3533–3537` is never attached. No overlay hide, editor/focus
+restoration, component mount, options/handle callback, or disposal occurs.
+`close` at `:3487–3503` settles first when called before that throw.
+
+`ExtensionUiCustomFactory` now returns `Result<Box<dyn ExtensionUiComponent>,
+String>`, retaining `custom`'s existing error domain. The interactive request
+and response carry that result; factory errors send `Err` only while the response
+is unsettled. Existing successful callers wrap their components in `Ok`;
+fixtures explicitly unwrap that previously infallible path without changing
+behavior assertions. This models synchronous factories; asynchronous factory
+promises remain outside the existing native factory signature.
+
+Behavioral proof through the real `InteractiveUiContext` request adapter:
+`extension_ui_factory_error_rejects_custom_without_changing_focus_or_overlay`
+and `extension_ui_factory_done_before_error_keeps_first_settlement`.
+RED: `/tmp/pi-rust-ext-examples-q/01-core-red.log` rejects both new `Err` factories
+at compile time against baseline `7769ff0c`; subsequent commands/results live
+in that directory's `ledger.md`.

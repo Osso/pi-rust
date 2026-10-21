@@ -101,15 +101,13 @@ fn tool_models<'a>(
     data: &'a JsValue,
     key: &str,
 ) -> Result<impl Iterator<Item = Result<(&'a JsString, &'a JsValue), GeneratorError>>, GeneratorError> {
-    Ok(source_models(data, key)?.into_iter().filter_map(|(id, model)| {
-        if let Err(error) = receiver_types::model(model) {
-            Some(Err(error))
-        } else if field(model, "tool_call") == &JsValue::Bool(true) {
-            Some(Ok((id, model)))
-        } else {
-            None
-        }
-    }))
+    Ok(source_models(data, key)?
+        .into_iter()
+        .filter_map(|(id, model)| match receiver_types::tool_call(model) {
+            Ok(true) => Some(Ok((id, model))),
+            Ok(false) => None,
+            Err(error) => Some(Err(error)),
+        }))
 }
 
 fn base_openai_compat() -> JsValue {
@@ -300,6 +298,7 @@ impl Generator<'_> {
                     } else {
                         "https://bedrock-runtime.us-east-1.amazonaws.com"
                     };
+                    receiver_types::optional_field(m, "structured_output", "models.dev structured_output", "boolean")?;
                     if field(m, "structured_output") == &JsValue::Bool(true) {
                         tail = literal(json!({"compat":{"supportsStrictMode":true}}));
                     }
@@ -429,9 +428,12 @@ impl Generator<'_> {
         }
         for entry in tool_models(data, "nvidia")? {
             let (id, m) = entry?;
-            if !includes(field(field(m, "modalities"), "input"), "text")
-                || !includes(field(field(m, "modalities"), "output"), "text")
-            {
+            receiver_types::modalities(m, "input")?;
+            if !includes(field(field(m, "modalities"), "input"), "text") {
+                continue;
+            }
+            receiver_types::modalities(m, "output")?;
+            if !includes(field(field(m, "modalities"), "output"), "text") {
                 continue;
             }
             let Some(live) = nvidia.get(id).or_else(|| nvidia.get(&normalized_nvidia(id))) else {
@@ -462,7 +464,7 @@ impl Generator<'_> {
         if let Some(key) = together {
             for entry in tool_models(data, key)? {
                 let (id, m) = entry?;
-                if equal(field(m, "status"), "deprecated") {
+                if receiver_types::deprecated(m)? {
                     continue;
                 }
                 let reasoning = field(m, "reasoning") == &JsValue::Bool(true);
@@ -513,10 +515,10 @@ impl Generator<'_> {
         ] {
             for entry in tool_models(data, provider)? {
                 let (id, m) = entry?;
-                if equal(field(m, "status"), "deprecated") {
+                if receiver_types::deprecated(m)? {
                     continue;
                 }
-                let npm = field(field(m, "provider"), "npm");
+                let npm = receiver_types::provider_npm(m)?;
                 let mut api = "openai-completions";
                 let mut base = format!("{path}/v1");
                 let mut compat = object([]);
@@ -579,7 +581,7 @@ impl Generator<'_> {
         let claude_pattern = regex::Regex::new(r"^claude-(haiku|sonnet|opus)-[45]([.\-]|$)").unwrap();
         for entry in tool_models(data, "github-copilot")? {
             let (id, m) = entry?;
-            if equal(field(m, "status"), "deprecated") {
+            if receiver_types::deprecated(m)? {
                 continue;
             }
             let name = id.to_utf8_lossy();

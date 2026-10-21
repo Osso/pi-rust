@@ -177,7 +177,7 @@ async fn generate_draft(
                     done.clone(),
                 ));
                 context.tui.request_render();
-                Box::new(Loader { done, signal })
+                Ok(Box::new(Loader { done, signal }))
             }),
             None,
         )

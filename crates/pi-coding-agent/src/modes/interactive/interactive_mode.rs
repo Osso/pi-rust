@@ -2075,7 +2075,7 @@ enum UiRequest {
     Custom {
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-        respond: tokio::sync::oneshot::Sender<Option<Value>>,
+        respond: tokio::sync::oneshot::Sender<Result<Option<Value>, String>>,
     },
     AddTerminalInput {
         handler: TerminalInputHandler,
@@ -2371,7 +2371,7 @@ impl ExtensionUiContext for InteractiveUiContext {
             options,
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| error.to_string()) })
+        Box::pin(async move { receiver.await.map_err(|error| error.to_string())? })
     }
 
     fn set_title(&self, title: &str) {
@@ -10871,10 +10871,10 @@ impl InteractiveMode {
             dyn Fn(
                 crate::core::extensions::ExtensionUiFactoryContext,
                 ExtensionUiDone,
-            ) -> Box<dyn ExtensionUiComponent>,
+            ) -> Result<Box<dyn ExtensionUiComponent>, String>,
         >,
         options: Option<ExtensionUiCustomOptions>,
-        respond: tokio::sync::oneshot::Sender<Option<Value>>,
+        respond: tokio::sync::oneshot::Sender<Result<Option<Value>, String>>,
     ) {
         let context = self.extension_factory_context();
         let respond = Arc::new(std::sync::Mutex::new(Some(respond)));
@@ -10899,12 +10899,22 @@ impl InteractiveMode {
                     mode.restore_editor();
                 }
             });
-            let _ = respond.send(value);
+            let _ = respond.send(Ok(value));
             if let Some(component) = component {
                 component.dispose();
             }
         }));
-        let inner: Rc<dyn ExtensionUiComponent> = factory(context, done).into();
+        let inner: Rc<dyn ExtensionUiComponent> = match factory(context, done) {
+            Ok(component) => component.into(),
+            Err(error) => {
+                // A synchronous TS factory throw rejects before the chained
+                // async catch: no mounting, restoration, or disposal occurs.
+                if let Some(respond) = respond.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
+                    let _ = respond.send(Err(error));
+                }
+                return;
+            }
+        };
         if respond
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -14341,10 +14351,10 @@ mod ui_tests {
                     let (send, _receive) = tokio::sync::oneshot::channel();
                     mode.show_extension_custom(
                         Arc::new(move |_, _| {
-                            Box::new(ReleaseInput {
+                            Ok(Box::new(ReleaseInput {
                                 opted_in,
                                 inputs: captured.clone(),
-                            })
+                            }))
                         }),
                         None,
                         send,
@@ -14527,11 +14537,11 @@ mod ui_tests {
                 let (send, receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
                     Arc::new(move |_, done| {
-                        Box::new(RetainedOverlay {
+                        Ok(Box::new(RetainedOverlay {
                             handle: Rc::new(RefCell::new(None)),
                             events: captured.clone(),
                             done,
-                        })
+                        }))
                     }),
                     Some(ExtensionUiCustomOptions {
                         overlay: Some(true),
@@ -14544,6 +14554,7 @@ mod ui_tests {
                 assert_eq!(
                     tokio::time::timeout(std::time::Duration::from_secs(2), receive)
                         .await
+                        .unwrap()
                         .unwrap()
                         .unwrap(),
                     None
@@ -14642,14 +14653,14 @@ mod ui_tests {
                         nested.unfocus();
                         assert!(!nested.is_focused());
                         nested.hide();
-                        Box::new(LocalEditorForm {
+                        Ok(Box::new(LocalEditorForm {
                             editor: RefCell::new(pi_tui::components::editor::Editor::new(
                                 Rc::new(context.tui),
                                 crate::modes::interactive::theme::get_editor_theme(),
                                 pi_tui::components::editor::EditorOptions::default(),
                             )),
                             done,
-                        })
+                        }))
                     }),
                     Some(ExtensionUiCustomOptions {
                         overlay: Some(true),
@@ -14668,7 +14679,56 @@ mod ui_tests {
                 mode.ui.process_events();
                 terminal.borrow_mut().send_input("\r");
                 mode.ui.process_events();
-                assert_eq!(receive.await.unwrap(), Some(serde_json::json!("typed 🚀")));
+                assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("typed 🚀")));
+                assert!(!mode.ui.has_overlay_entries());
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_factory_error_rejects_custom_without_changing_focus_or_overlay() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                mode.editor().borrow_mut().set_text("draft 🚀");
+                let focused = mode.ui.get_focused_component().unwrap();
+                for overlay in [false, true] {
+                    let ui = mode.ui_context();
+                    let result = ui.custom(
+                        Arc::new(|_, _| Err("fixture constructor failed".to_owned())),
+                        Some(ExtensionUiCustomOptions {
+                            overlay: Some(overlay),
+                            overlay_options: Some(Arc::new(|| panic!("failed factory must not resolve options"))),
+                            on_handle: Some(Arc::new(|_| panic!("failed factory must not mount"))),
+                        }),
+                    );
+                    mode.handle_ui_requests().await;
+                    assert_eq!(result.await, Err("fixture constructor failed".to_owned()));
+                    assert!(!mode.ui.has_overlay_entries());
+                    assert!(Rc::ptr_eq(&focused, &mode.ui.get_focused_component().unwrap()));
+                    assert_eq!(mode.editor().borrow().get_text(), "draft 🚀");
+                }
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_factory_done_before_error_keeps_first_settlement() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let ui = mode.ui_context();
+                let result = ui.custom(
+                    Arc::new(|_, done| {
+                        done.call(Some(serde_json::json!("closed first")));
+                        Err("too late".to_owned())
+                    }),
+                    None,
+                );
+                mode.handle_ui_requests().await;
+                assert_eq!(result.await.unwrap(), Some(serde_json::json!("closed first")));
                 assert!(!mode.ui.has_overlay_entries());
             })
             .await;
@@ -14689,12 +14749,12 @@ mod ui_tests {
                 mode.show_extension_custom(
                     Arc::new(move |_, done| {
                         *callback.lock().unwrap() = Some(done.clone());
-                        Box::new(SizedExtensionInput {
+                        Ok(Box::new(SizedExtensionInput {
                             done,
                             focus: std::sync::atomic::AtomicBool::new(false),
                             rendered_width: w.clone(),
                             disposed: d.clone(),
-                        })
+                        }))
                     }),
                     Some(ExtensionUiCustomOptions {
                         overlay: Some(true),
@@ -14717,7 +14777,7 @@ mod ui_tests {
                 terminal.borrow_mut().send_input("\r");
                 mode.ui.process_events();
                 assert_eq!(
-                    receive.await.unwrap(),
+                    receive.await.unwrap().unwrap(),
                     Some(serde_json::json!({"action":"Search","query":"x"}))
                 );
                 assert!(!mode.ui.has_overlay_entries());
@@ -14749,12 +14809,12 @@ mod ui_tests {
                 mode.show_extension_custom(
                     Arc::new(move |_, done| {
                         *callback.lock().unwrap() = Some(done.clone());
-                        Box::new(SizedExtensionInput {
+                        Ok(Box::new(SizedExtensionInput {
                             done,
                             focus: std::sync::atomic::AtomicBool::new(false),
                             rendered_width: captured.clone(),
                             disposed: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-                        })
+                        }))
                     }),
                     Some(ExtensionUiCustomOptions {
                         overlay: Some(true),
@@ -14769,13 +14829,13 @@ mod ui_tests {
                 mode.ui.render_now();
                 assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 47);
                 done.lock().unwrap().clone().unwrap().call(None);
-                assert_eq!(receive.await.unwrap(), None);
+                assert_eq!(receive.await.unwrap().unwrap(), None);
                 assert!(!mode.ui.has_overlay_entries());
                 let (send, receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
                     Arc::new(|_, done| {
                         done.call(Some(serde_json::json!("immediate")));
-                        Box::new(StaticWidget)
+                        Ok(Box::new(StaticWidget))
                     }),
                     Some(ExtensionUiCustomOptions {
                         overlay: Some(true),
@@ -14783,7 +14843,7 @@ mod ui_tests {
                     }),
                     send,
                 );
-                assert_eq!(receive.await.unwrap(), Some(serde_json::json!("immediate")));
+                assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("immediate")));
                 assert!(
                     !mode.ui.has_overlay_entries(),
                     "factory completed synchronously: do not mount"
@@ -14794,7 +14854,7 @@ mod ui_tests {
                 mode.show_extension_custom(
                     Arc::new(move |_, done| {
                         *captured.lock().unwrap() = Some(done);
-                        Box::new(StaticWidget)
+                        Ok(Box::new(StaticWidget))
                     }),
                     Some(ExtensionUiCustomOptions {
                         overlay: Some(false),
@@ -14804,7 +14864,7 @@ mod ui_tests {
                     send,
                 );
                 callback.lock().unwrap().clone().unwrap().call(None);
-                assert_eq!(receive.await.unwrap(), None);
+                assert_eq!(receive.await.unwrap().unwrap(), None);
             })
             .await;
     }
@@ -14819,7 +14879,7 @@ mod ui_tests {
                 let state = focused.clone();
                 let (send, _receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
-                    Arc::new(move |_, _| Box::new(FocusedExtensionInput(state.clone()))),
+                    Arc::new(move |_, _| Ok(Box::new(FocusedExtensionInput(state.clone())))),
                     Some(ExtensionUiCustomOptions {
                         overlay: Some(true),
                         ..Default::default()

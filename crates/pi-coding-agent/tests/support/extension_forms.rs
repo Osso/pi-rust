@@ -93,7 +93,8 @@ impl ExtensionUiContext for Ui {
                 keybindings: KeybindingsManager::new(Vec::new(), None),
             },
             ExtensionUiDone::new(Arc::new(move |value| *captured.borrow_mut() = Some(value))),
-        );
+        )
+        .expect("custom component fixture factory");
         let record = || {
             json!(
                 self.request["widths"]

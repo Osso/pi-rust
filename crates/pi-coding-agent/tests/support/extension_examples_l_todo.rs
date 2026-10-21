@@ -50,7 +50,8 @@ impl ExtensionUiContext for Ui {
                         ),
                     },
                     done,
-                );
+                )
+                .expect("custom component fixture factory");
                 let width = item["width"].as_u64().unwrap_or(40) as usize;
                 calls.lock().unwrap().push(json!(["render", component.render(width)]));
                 for key in item["keys"].as_array().into_iter().flatten() {

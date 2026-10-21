@@ -87,11 +87,11 @@ pub fn todo_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 ctx.ui()?
                     .custom(
                         Arc::new(move |context, done| {
-                            Box::new(TodoList {
+                            Ok(Box::new(TodoList {
                                 todos: todos.clone(),
                                 theme: context.theme,
                                 done,
-                            })
+                            }))
                         }),
                         None,
                     )

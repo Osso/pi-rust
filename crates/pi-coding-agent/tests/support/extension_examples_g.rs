@@ -95,7 +95,8 @@ impl ExtensionUiContext for Ui {
         let component = factory(
             context,
             ExtensionUiDone::new(Arc::new(move |value| *captured.lock().unwrap() = value)),
-        );
+        )
+        .expect("custom component fixture factory");
         self.trace.lock().unwrap().push(json!(["custom", component.render(80)]));
         let keys = self.step["keys"]
             .as_array()

@@ -116,7 +116,7 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                                 done.call(Some(value));
                             });
                             context.tui.request_render();
-                            Box::new(loader)
+                            Ok(Box::new(loader))
                         }),
                         None,
                     )

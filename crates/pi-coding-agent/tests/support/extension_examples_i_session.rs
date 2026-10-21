@@ -98,7 +98,8 @@ impl ExtensionUiContext for Ui {
                             let _ = sender.send(value);
                         }
                     })),
-                );
+                )
+                .expect("custom component fixture factory");
                 for width in [32, 80] {
                     trace
                         .lock()

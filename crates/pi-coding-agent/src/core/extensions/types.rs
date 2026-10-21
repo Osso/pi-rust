@@ -442,9 +442,10 @@ impl ExtensionUiDone {
     }
 }
 
-/// Custom-UI factory: `(tui, theme, keybindings, done) => Component`.
-pub type ExtensionUiCustomFactory =
-    Arc<dyn Fn(ExtensionUiFactoryContext, ExtensionUiDone) -> Box<dyn ExtensionUiComponent> + Send + Sync>;
+/// Custom-UI factory. An error rejects `custom`, like a synchronous TS factory throw.
+pub type ExtensionUiCustomFactory = Arc<
+    dyn Fn(ExtensionUiFactoryContext, ExtensionUiDone) -> Result<Box<dyn ExtensionUiComponent>, String> + Send + Sync,
+>;
 
 /// UI-thread overlay handle passed to `custom`'s `onHandle` callback.
 pub trait ExtensionUiOverlayHandle {
