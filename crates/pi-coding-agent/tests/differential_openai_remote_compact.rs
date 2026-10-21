@@ -249,7 +249,12 @@ fn openai_remote_compact_helpers_match_typescript() {
                 )
                 .expect("details");
                 let actual = serde_json::to_value(details).expect("details json");
-                assert_eq!(actual, *expected, "{name}");
+                // Compare the JS-visible bytes, not serde's internal integer/float variants.
+                assert_eq!(
+                    pi_js_compat::js_json::stringify(&actual),
+                    serde_json::to_string(expected).unwrap(),
+                    "{name}"
+                );
             }
             "payload" => {
                 let messages: Vec<AgentMessage> = case["messages"]

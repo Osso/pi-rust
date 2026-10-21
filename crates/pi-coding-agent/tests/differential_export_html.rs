@@ -91,7 +91,7 @@ async fn differential_export_probe() {
         .lines()
         .map(|line| {
             let mut entry: Value = serde_json::from_str(line).unwrap();
-            if entry["message"]["role"] == "toolResult" {
+            if entry["message"]["role"] == "toolResult" && entry["message"].get("details").is_some() {
                 entry["message"]["details"] = serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap();
             }
             serde_json::to_string(&entry).unwrap()
