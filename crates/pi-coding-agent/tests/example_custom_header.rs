@@ -22,6 +22,14 @@ const WIDTHS: [usize; 5] = [0, 1, 16, 80, 200];
 
 struct Terminal;
 impl ExtensionUiTuiBackend for Terminal {
+    fn show_overlay(
+        &self,
+        _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
+        _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
+    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+        panic!("this fixture does not mount nested overlays")
+    }
+
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }

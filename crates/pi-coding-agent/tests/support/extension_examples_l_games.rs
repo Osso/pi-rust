@@ -2,6 +2,8 @@
 mod oracle;
 #[path = "extensions.rs"]
 mod support;
+#[path = "ui_thread.rs"]
+mod ui_thread;
 use pi_coding_agent::core::{
     extensions::*,
     model_registry::ModelRegistry,
@@ -22,6 +24,14 @@ impl ExtensionUiTuiBackend for Backend {
     }
     fn start(&self) -> Result<(), String> {
         panic!("fixture does not acquire terminal")
+    }
+
+    fn show_overlay(
+        &self,
+        _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
+        _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
+    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+        panic!("this fixture does not mount nested overlays")
     }
 
     fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
@@ -77,10 +87,7 @@ struct GameHost {
     terminal: std::rc::Rc<std::cell::RefCell<GameTerminal>>,
     host: std::rc::Rc<pi_tui::tui::TuiRenderer>,
 }
-thread_local! {
-    static GAME_HOST: std::cell::RefCell<Option<GameHost>> = const {std::cell::RefCell::new(None)};
-}
-struct GameInput(Arc<dyn ExtensionUiComponent>);
+struct GameInput(std::rc::Rc<dyn ExtensionUiComponent>);
 impl pi_tui::tui::Component for GameInput {
     fn render(&mut self, width: usize) -> Vec<String> {
         self.0.render(width)
@@ -118,72 +125,75 @@ impl ExtensionUiContext for Ui {
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
     ) -> BoxFuture<'a, Result<Option<Value>, String>> {
-        Box::pin(async move {
-            let completed = Arc::new(Mutex::new(false));
-            let done = completed.clone();
-            let trace = self.trace.clone();
-            let component = factory(
-                ExtensionUiFactoryContext {
-                    tui: ExtensionUiTui::new(Arc::new(Backend(self.trace.clone()))),
-                    theme: self.theme(),
-                    keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
-                },
-                ExtensionUiDone::new(Arc::new(move |_| {
-                    *done.lock().unwrap() = true;
-                    trace.lock().unwrap().push(json!(["done"]));
-                })),
-            );
-            let component: Arc<dyn ExtensionUiComponent> = component.into();
-            use pi_tui::tui::TuiExt;
-            GAME_HOST.with(|slot| {
+        let trace = self.trace.clone();
+        let item = self.item.clone();
+        let theme = self.theme();
+        ui_thread::run(move || {
+            Box::pin(async move {
+                let completed = Arc::new(Mutex::new(false));
+                let done = completed.clone();
+                let done_trace = trace.clone();
+                let component = factory(
+                    ExtensionUiFactoryContext {
+                        tui: ExtensionUiTui::new(Arc::new(Backend(trace.clone()))),
+                        theme: theme,
+                        keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
+                    },
+                    ExtensionUiDone::new(Arc::new(move |_| {
+                        *done.lock().unwrap() = true;
+                        done_trace.lock().unwrap().push(json!(["done"]));
+                    })),
+                );
+                let component: std::rc::Rc<dyn ExtensionUiComponent> = component.into();
+                use pi_tui::tui::TuiExt;
                 let terminal = std::rc::Rc::new(std::cell::RefCell::new(GameTerminal::default()));
                 let host = pi_tui::tui::TuiRenderer::new(terminal.clone());
                 let input = pi_tui::tui::component(GameInput(component.clone()));
                 host.add_child(input.clone());
                 host.set_focus(Some(input));
-                *slot.borrow_mut() = Some(GameHost { terminal, host });
-            });
-            tokio::task::yield_now().await;
-            let render = |width| {
-                let frame = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| component.render(width))) {
-                    Ok(lines) => json!(lines),
-                    Err(error) => json!({"error":pi_coding_agent::utils::uncaught::format_uncaught(error.as_ref())}),
-                };
-                self.trace.lock().unwrap().push(json!(["render", width, frame]));
-            };
-            for width in self.item["widths"].as_array().unwrap() {
-                render(width.as_u64().unwrap() as usize);
-            }
-            for step in self.item["steps"].as_array().unwrap() {
-                match step["op"].as_str().unwrap() {
-                    "key" => GAME_HOST.with(|slot| {
-                        let slot = slot.borrow();
-                        let game = slot.as_ref().unwrap();
-                        game.terminal
-                            .borrow_mut()
-                            .events
-                            .push(pi_tui::terminal::TerminalEvent::Input(
-                                step["key"].as_str().unwrap().into(),
-                            ));
-                        game.host.process_events();
-                    }),
-                    "ticks" => {
-                        for _ in 0..step["count"].as_u64().unwrap() {
-                            tokio::time::advance(Duration::from_millis(step["ms"].as_u64().unwrap_or(100))).await;
-                            tokio::task::yield_now().await;
+                let game = GameHost { terminal, host };
+                tokio::task::yield_now().await;
+                let render = |width| {
+                    let frame = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| component.render(width)))
+                    {
+                        Ok(lines) => json!(lines),
+                        Err(error) => {
+                            json!({"error":pi_coding_agent::utils::uncaught::format_uncaught(error.as_ref())})
                         }
-                    }
-                    "invalidate" => component.invalidate(),
-                    other => panic!("unknown game fixture op {other}"),
-                }
-                for width in self.item["widths"].as_array().unwrap() {
+                    };
+                    trace.lock().unwrap().push(json!(["render", width, frame]));
+                };
+                for width in item["widths"].as_array().unwrap() {
                     render(width.as_u64().unwrap() as usize);
                 }
-            }
-            assert!(*completed.lock().unwrap(), "script must close custom component");
-            component.dispose();
-            GAME_HOST.with(|slot| slot.borrow_mut().take());
-            Ok(None)
+                for step in item["steps"].as_array().unwrap() {
+                    match step["op"].as_str().unwrap() {
+                        "key" => {
+                            game.terminal
+                                .borrow_mut()
+                                .events
+                                .push(pi_tui::terminal::TerminalEvent::Input(
+                                    step["key"].as_str().unwrap().into(),
+                                ));
+                            game.host.process_events();
+                        }
+                        "ticks" => {
+                            for _ in 0..step["count"].as_u64().unwrap() {
+                                tokio::time::advance(Duration::from_millis(step["ms"].as_u64().unwrap_or(100))).await;
+                                tokio::task::yield_now().await;
+                            }
+                        }
+                        "invalidate" => component.invalidate(),
+                        other => panic!("unknown game fixture op {other}"),
+                    }
+                    for width in item["widths"].as_array().unwrap() {
+                        render(width.as_u64().unwrap() as usize);
+                    }
+                }
+                assert!(*completed.lock().unwrap(), "script must close custom component");
+                component.dispose();
+                Ok(None)
+            })
         })
     }
 }
@@ -284,11 +294,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
         .collect();
     let actual = json!({"metadata":metadata,"trace":trace.lock().unwrap().clone(),"entries":entries});
     let mut oracle = oracle::TsOracle::spawn(
-        if name == "space-invaders" {
-            "extension-examples-l-invaders-blocker-oracle.ts"
-        } else {
-            "extension-examples-l-games-oracle.ts"
-        },
+        "extension-examples-l-games-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
     );
     let expected = oracle.request(&request);

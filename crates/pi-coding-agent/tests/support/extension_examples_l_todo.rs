@@ -9,10 +9,12 @@ use std::sync::{Arc, Mutex};
 mod oracle;
 #[path = "extensions.rs"]
 mod support;
+#[path = "ui_thread.rs"]
+mod ui_thread;
 
 #[derive(Default)]
 struct Ui {
-    calls: Mutex<Vec<Value>>,
+    calls: Arc<Mutex<Vec<Value>>>,
     selected: Mutex<Option<String>>,
     item: Mutex<Value>,
 }
@@ -25,55 +27,52 @@ impl ExtensionUiContext for Ui {
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
     ) -> BoxFuture<'a, Result<Option<Value>, String>> {
-        Box::pin(async move {
-            let item = self.item.lock().unwrap().clone();
-            pi_coding_agent::modes::interactive::theme::set_theme_instance(fixture_theme());
-            let done_value = Arc::new(Mutex::new(None));
-            let value = done_value.clone();
-            let done = ExtensionUiDone::new(Arc::new(move |v| {
-                let mut value = value.lock().unwrap();
-                if value.is_none() {
-                    *value = Some(v);
+        let item = self.item.lock().unwrap().clone();
+        let calls = self.calls.clone();
+        ui_thread::run(move || {
+            Box::pin(async move {
+                pi_coding_agent::modes::interactive::theme::set_theme_instance(fixture_theme());
+                let done_value = Arc::new(Mutex::new(None));
+                let value = done_value.clone();
+                let done = ExtensionUiDone::new(Arc::new(move |v| {
+                    let mut value = value.lock().unwrap();
+                    if value.is_none() {
+                        *value = Some(v);
+                    }
+                }));
+                let component = factory(
+                    ExtensionUiFactoryContext {
+                        tui: ExtensionUiTui::new(Arc::new(FixtureTui)),
+                        theme: fixture_theme(),
+                        keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(
+                            Default::default(),
+                            None,
+                        ),
+                    },
+                    done,
+                );
+                let width = item["width"].as_u64().unwrap_or(40) as usize;
+                calls.lock().unwrap().push(json!(["render", component.render(width)]));
+                for key in item["keys"].as_array().into_iter().flatten() {
+                    component.handle_input(key.as_str().unwrap());
+                    calls.lock().unwrap().push(json!(["render", component.render(width)]));
                 }
-            }));
-            let component = factory(
-                ExtensionUiFactoryContext {
-                    tui: ExtensionUiTui::new(Arc::new(FixtureTui)),
-                    theme: fixture_theme(),
-                    keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Default::default(), None),
-                },
-                done,
-            );
-            let width = item["width"].as_u64().unwrap_or(40) as usize;
-            self.calls
-                .lock()
-                .unwrap()
-                .push(json!(["render", component.render(width)]));
-            for key in item["keys"].as_array().into_iter().flatten() {
-                component.handle_input(key.as_str().unwrap());
-                self.calls
+                component.invalidate();
+                calls.lock().unwrap().push(json!(["render", component.render(width)]));
+                for _ in 0..1000 {
+                    if done_value.lock().unwrap().is_some() {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                }
+                component.dispose();
+                let result = done_value
                     .lock()
                     .unwrap()
-                    .push(json!(["render", component.render(width)]));
-            }
-            component.invalidate();
-            self.calls
-                .lock()
-                .unwrap()
-                .push(json!(["render", component.render(width)]));
-            for _ in 0..1000 {
-                if done_value.lock().unwrap().is_some() {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-            }
-            component.dispose();
-            let result = done_value
-                .lock()
-                .unwrap()
-                .take()
-                .ok_or("custom fixture never completed")?;
-            Ok(result)
+                    .take()
+                    .ok_or("custom fixture never completed")?;
+                Ok(result)
+            })
         })
     }
     fn set_editor_text(&self, text: &str) {
@@ -423,6 +422,14 @@ fn oracle_environment(request: &Value) -> Vec<(&'static str, std::ffi::OsString)
 
 struct FixtureTui;
 impl ExtensionUiTuiBackend for FixtureTui {
+    fn show_overlay(
+        &self,
+        _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
+        _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
+    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+        panic!("this fixture does not mount nested overlays")
+    }
+
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }

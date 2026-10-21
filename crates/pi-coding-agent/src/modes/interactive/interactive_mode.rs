@@ -2475,6 +2475,20 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
         .expect("extension fixed cells must be created on the owning live UI thread")
     }
 
+    fn show_overlay(
+        &self,
+        inner: Box<dyn ExtensionUiComponent>,
+        options: Option<crate::core::extensions::ExtensionUiOverlayOptions>,
+    ) -> Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle> {
+        with_mode(self.mode_id, |mode| {
+            let component = component(ExtensionComponentAdapter { inner: inner.into() });
+            Arc::new(InteractiveOverlayHandle(
+                mode.ui.show_overlay(component, options.map(Into::into)),
+            )) as Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle>
+        })
+        .expect("extension overlays must be created on the owning live UI thread")
+    }
+
     fn request_render(&self) {
         let _ = self.sender.send(UiRequest::RequestRender);
     }
@@ -2518,9 +2532,33 @@ enum ExtensionWidget {
 /// Maximum widget lines before the truncation marker (source `MAX_WIDGET_LINES`).
 const MAX_WIDGET_LINES: usize = 10;
 
-/// Adapts a thread-safe extension component to the `pi-tui` component contract.
+/// Adapts a UI-local extension component to the `pi-tui` component contract.
 struct ExtensionComponentAdapter {
-    inner: Arc<dyn ExtensionUiComponent>,
+    inner: Rc<dyn ExtensionUiComponent>,
+}
+
+/// Source `tui.ts` overlay handle, without moving its `Rc` state off-thread.
+struct InteractiveOverlayHandle(OverlayHandle);
+
+impl crate::core::extensions::ExtensionUiOverlayHandle for InteractiveOverlayHandle {
+    fn hide(&self) {
+        self.0.hide();
+    }
+    fn set_hidden(&self, hidden: bool) {
+        self.0.set_hidden(hidden);
+    }
+    fn is_hidden(&self) -> bool {
+        self.0.is_hidden()
+    }
+    fn focus(&self) {
+        self.0.focus();
+    }
+    fn unfocus(&self) {
+        self.0.unfocus();
+    }
+    fn is_focused(&self) -> bool {
+        self.0.is_focused()
+    }
 }
 
 impl Focusable for ExtensionComponentAdapter {
@@ -10829,15 +10867,20 @@ impl InteractiveMode {
 
     fn show_extension_custom(
         &self,
-        factory: ExtensionUiCustomFactory,
+        factory: Arc<
+            dyn Fn(
+                crate::core::extensions::ExtensionUiFactoryContext,
+                ExtensionUiDone,
+            ) -> Box<dyn ExtensionUiComponent>,
+        >,
         options: Option<ExtensionUiCustomOptions>,
         respond: tokio::sync::oneshot::Sender<Option<Value>>,
     ) {
         let context = self.extension_factory_context();
         let respond = Arc::new(std::sync::Mutex::new(Some(respond)));
         let done_respond = Arc::clone(&respond);
-        let component_slot = Arc::new(std::sync::Mutex::new(None::<std::sync::Weak<dyn ExtensionUiComponent>>));
-        let done_component = Arc::clone(&component_slot);
+        let component_slot = Rc::new(RefCell::new(None::<std::rc::Weak<dyn ExtensionUiComponent>>));
+        let done_component = Rc::clone(&component_slot);
         let mode = self.ui_id.get();
         let overlay = options.as_ref().and_then(|options| options.overlay).unwrap_or(false);
         let done = ExtensionUiDone::new(Arc::new(move |value| {
@@ -10848,11 +10891,7 @@ impl InteractiveMode {
             let Some(respond) = respond else {
                 return;
             };
-            let component = done_component
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .as_ref()
-                .and_then(std::sync::Weak::upgrade);
+            let component = done_component.borrow().as_ref().and_then(std::rc::Weak::upgrade);
             with_mode(mode, |mode| {
                 if overlay {
                     mode.ui.hide_overlay();
@@ -10865,7 +10904,7 @@ impl InteractiveMode {
                 component.dispose();
             }
         }));
-        let inner: Arc<dyn ExtensionUiComponent> = factory(context, done).into();
+        let inner: Rc<dyn ExtensionUiComponent> = factory(context, done).into();
         if respond
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -10873,7 +10912,7 @@ impl InteractiveMode {
         {
             return;
         }
-        *component_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::downgrade(&inner));
+        *component_slot.borrow_mut() = Some(Rc::downgrade(&inner));
         let overlay_options = if overlay {
             options
                 .as_ref()
@@ -10891,9 +10930,17 @@ impl InteractiveMode {
         } else {
             None
         };
-        let component_ref = component(ExtensionComponentAdapter { inner });
+        let component_ref = component(ExtensionComponentAdapter {
+            inner: Rc::clone(&inner),
+        });
         if overlay {
-            self.ui.show_overlay(component_ref, overlay_options);
+            let handle: Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle> = Arc::new(
+                InteractiveOverlayHandle(self.ui.show_overlay(component_ref, overlay_options)),
+            );
+            inner.on_overlay_handle(Arc::clone(&handle));
+            if let Some(on_handle) = options.and_then(|options| options.on_handle) {
+                on_handle(handle);
+            }
         } else {
             self.show_selector(component_ref);
         }
@@ -14413,6 +14460,218 @@ mod ui_tests {
         fn dispose(&self) {
             self.disposed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
+    }
+
+    struct LocalEditorForm {
+        editor: RefCell<pi_tui::components::editor::Editor>,
+        done: ExtensionUiDone,
+    }
+    impl ExtensionUiComponent for LocalEditorForm {
+        fn render(&self, width: usize) -> Vec<String> {
+            self.editor.borrow_mut().render(width)
+        }
+        fn handle_input(&self, data: &str) {
+            if data == "\r" {
+                self.done.call(Some(serde_json::json!(self.editor.borrow().get_text())));
+            } else {
+                self.editor.borrow_mut().handle_input(data);
+            }
+        }
+    }
+
+    struct RetainedOverlay {
+        handle: Rc<RefCell<Option<Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle>>>>,
+        events: Arc<std::sync::Mutex<Vec<&'static str>>>,
+        done: ExtensionUiDone,
+    }
+    impl ExtensionUiComponent for RetainedOverlay {
+        fn render(&self, _: usize) -> Vec<String> {
+            vec!["toggle".into()]
+        }
+        fn on_overlay_handle(&self, handle: Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle>) {
+            assert!(handle.is_focused());
+            self.events.lock().unwrap().push("hook");
+            *self.handle.borrow_mut() = Some(handle);
+            let retained = self.handle.clone();
+            let events = self.events.clone();
+            let done = self.done.clone();
+            tokio::task::spawn_local(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                let handle = retained.borrow().clone().unwrap();
+                handle.set_hidden(true);
+                assert!(handle.is_hidden());
+                assert!(!handle.is_focused());
+                events.lock().unwrap().push("hidden");
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                handle.set_hidden(false);
+                assert!(!handle.is_hidden());
+                assert!(handle.is_focused());
+                events.lock().unwrap().push("shown");
+                done.call(None);
+            });
+        }
+        fn dispose(&self) {
+            self.events.lock().unwrap().push("disposed");
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_local_on_handle_retains_handle_for_later_timer() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let captured = events.clone();
+                let option_events = events.clone();
+                let (send, receive) = tokio::sync::oneshot::channel();
+                mode.show_extension_custom(
+                    Arc::new(move |_, done| {
+                        Box::new(RetainedOverlay {
+                            handle: Rc::new(RefCell::new(None)),
+                            events: captured.clone(),
+                            done,
+                        })
+                    }),
+                    Some(ExtensionUiCustomOptions {
+                        overlay: Some(true),
+                        on_handle: Some(Arc::new(move |_| option_events.lock().unwrap().push("option"))),
+                        ..Default::default()
+                    }),
+                    send,
+                );
+                assert_eq!(*events.lock().unwrap(), vec!["hook", "option"]);
+                assert_eq!(
+                    tokio::time::timeout(std::time::Duration::from_secs(2), receive)
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                    None
+                );
+                assert_eq!(
+                    *events.lock().unwrap(),
+                    vec!["hook", "option", "hidden", "shown", "disposed"]
+                );
+                assert!(!mode.ui.has_overlay_entries());
+            })
+            .await;
+    }
+
+    struct NestedInput {
+        width: Arc<std::sync::atomic::AtomicUsize>,
+        input: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+    impl ExtensionUiComponent for NestedInput {
+        fn render(&self, width: usize) -> Vec<String> {
+            self.width.store(width, std::sync::atomic::Ordering::SeqCst);
+            vec!["nested".to_owned()]
+        }
+        fn handle_input(&self, input: &str) {
+            self.input.lock().unwrap().push(input.to_owned());
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_nested_overlay_options_input_and_passive_focus() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let tui = mode.extension_factory_context().tui;
+                let width = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let input = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let active = tui.show_overlay(
+                    Box::new(NestedInput {
+                        width: width.clone(),
+                        input: input.clone(),
+                    }),
+                    Some(crate::core::extensions::ExtensionUiOverlayOptions {
+                        width: Some(pi_tui::tui::SizeValue::Absolute(23.0)),
+                        ..Default::default()
+                    }),
+                );
+                mode.ui.render_now();
+                assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 23);
+                let passive = tui.show_overlay(
+                    Box::new(StaticWidget),
+                    Some(crate::core::extensions::ExtensionUiOverlayOptions {
+                        non_capturing: true,
+                        ..Default::default()
+                    }),
+                );
+                assert!(active.is_focused());
+                assert!(!passive.is_focused());
+                terminal.borrow_mut().send_input("nested key");
+                mode.ui.process_events();
+                assert_eq!(*input.lock().unwrap(), vec!["nested key"]);
+                passive.focus();
+                assert!(passive.is_focused());
+                passive.unfocus();
+                assert!(active.is_focused());
+                active.set_hidden(true);
+                assert!(!active.is_focused());
+                active.set_hidden(false);
+                assert!(active.is_focused());
+                active.hide();
+                assert!(mode.ui.has_overlay_entries(), "hide removes only its own entry");
+                passive.hide();
+                assert!(!mode.ui.has_overlay_entries());
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_local_editor_nested_overlay_and_handle_callback() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let callback = observed.clone();
+                let (send, receive) = tokio::sync::oneshot::channel();
+                mode.show_extension_custom(
+                    Arc::new(|context, done| {
+                        let nested = context.tui.show_overlay(Box::new(StaticWidget), None);
+                        assert!(nested.is_focused());
+                        nested.set_hidden(true);
+                        assert!(nested.is_hidden());
+                        assert!(!nested.is_focused());
+                        nested.set_hidden(false);
+                        nested.focus();
+                        assert!(nested.is_focused());
+                        nested.unfocus();
+                        assert!(!nested.is_focused());
+                        nested.hide();
+                        Box::new(LocalEditorForm {
+                            editor: RefCell::new(pi_tui::components::editor::Editor::new(
+                                Rc::new(context.tui),
+                                crate::modes::interactive::theme::get_editor_theme(),
+                                pi_tui::components::editor::EditorOptions::default(),
+                            )),
+                            done,
+                        })
+                    }),
+                    Some(ExtensionUiCustomOptions {
+                        overlay: Some(true),
+                        on_handle: Some(Arc::new(move |handle| {
+                            callback.lock().unwrap().push(handle.is_focused());
+                            handle.set_hidden(true);
+                            callback.lock().unwrap().push(handle.is_hidden());
+                            handle.set_hidden(false);
+                        })),
+                        ..Default::default()
+                    }),
+                    send,
+                );
+                assert_eq!(*observed.lock().unwrap(), vec![true, true]);
+                terminal.borrow_mut().send_input("typed 🚀");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                assert_eq!(receive.await.unwrap(), Some(serde_json::json!("typed 🚀")));
+                assert!(!mode.ui.has_overlay_entries());
+            })
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]

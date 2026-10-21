@@ -3,6 +3,8 @@
 mod oracle;
 #[path = "extensions.rs"]
 mod support;
+#[path = "ui_thread.rs"]
+mod ui_thread;
 use pi_ai::providers::faux::{
     FauxAssistantMessageOptions, FauxModelDefinition, FauxResponseStep, RegisterFauxProviderOptions,
     faux_assistant_message, faux_provider,
@@ -20,6 +22,14 @@ use std::sync::{Arc, Mutex};
 type Trace = Arc<Mutex<Vec<Value>>>;
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
+    fn show_overlay(
+        &self,
+        _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
+        _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
+    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+        panic!("this fixture does not mount nested overlays")
+    }
+
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }
@@ -69,36 +79,42 @@ impl ExtensionUiContext for Ui {
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
     ) -> BoxFuture<'a, Result<Option<Value>, String>> {
-        Box::pin(async move {
-            let (sender, receiver) = tokio::sync::oneshot::channel();
-            let sender = Arc::new(Mutex::new(Some(sender)));
-            let component = factory(
-                ExtensionUiFactoryContext {
-                    tui: ExtensionUiTui::new(Arc::new(Backend)),
-                    theme: self.theme.clone(),
-                    keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
-                },
-                ExtensionUiDone::new(Arc::new(move |value| {
-                    if let Some(sender) = sender.lock().unwrap().take() {
-                        let _ = sender.send(value);
-                    }
-                })),
-            );
-            for width in [32, 80] {
-                self.trace
-                    .lock()
-                    .unwrap()
-                    .push(json!(["render", width, component.render(width)]));
-            }
-            component.invalidate();
-            component.handle_input("x");
-            component.handle_input(self.request["key"].as_str().unwrap_or("\r"));
-            let result = tokio::time::timeout(std::time::Duration::from_secs(3), receiver)
-                .await
-                .expect("custom UI did not complete")
-                .expect("done sender dropped");
-            component.dispose();
-            Ok(result)
+        let trace = self.trace.clone();
+        let theme = self.theme.clone();
+        let request = self.request.clone();
+        ui_thread::run(move || {
+            Box::pin(async move {
+                set_theme_instance(theme.clone());
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                let sender = Arc::new(Mutex::new(Some(sender)));
+                let component = factory(
+                    ExtensionUiFactoryContext {
+                        tui: ExtensionUiTui::new(Arc::new(Backend)),
+                        theme: theme,
+                        keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
+                    },
+                    ExtensionUiDone::new(Arc::new(move |value| {
+                        if let Some(sender) = sender.lock().unwrap().take() {
+                            let _ = sender.send(value);
+                        }
+                    })),
+                );
+                for width in [32, 80] {
+                    trace
+                        .lock()
+                        .unwrap()
+                        .push(json!(["render", width, component.render(width)]));
+                }
+                component.invalidate();
+                component.handle_input("x");
+                component.handle_input(request["key"].as_str().unwrap_or("\r"));
+                let result = tokio::time::timeout(std::time::Duration::from_secs(3), receiver)
+                    .await
+                    .expect("custom UI did not complete")
+                    .expect("done sender dropped");
+                component.dispose();
+                Ok(result)
+            })
         })
     }
 }

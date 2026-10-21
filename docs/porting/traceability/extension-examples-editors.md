@@ -28,7 +28,7 @@ Oracle imports actual pinned modules and actual CustomEditor/Editor/TUI. Public 
 
 ## Host scope
 
-Overlay-test needs the component's numeric width field honored and its done callback to close/dispose. These missing host semantics were exposed during the port and implemented from TS interactive-mode.ts:3485–3528. Explicit overlay sizing options also override component width. Existing custom UI `onHandle` callback delivery remains outside this slice; none of these four examples uses it.
+Overlay-test needs the component's numeric width field honored and its done callback to close/dispose. These missing host semantics were exposed during the port and implemented from TS interactive-mode.ts:3485–3528. Explicit overlay sizing options also override component width. None of these four examples uses `onHandle`; its subsequent implementation and proof live in [core UI overlay](core-ui-overlay.md).
 
 ## Discrepancy corrected
 

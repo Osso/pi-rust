@@ -20,6 +20,14 @@ struct TestBackend {
 }
 
 impl ExtensionUiTuiBackend for TestBackend {
+    fn show_overlay(
+        &self,
+        _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
+        _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
+    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+        panic!("this fixture does not mount nested overlays")
+    }
+
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }

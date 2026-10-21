@@ -169,7 +169,7 @@ async fn generate_draft(
         .custom(
             Arc::new(move |context, done| {
                 let signal = CancellationToken::new();
-                tokio::spawn(complete_draft(
+                tokio::task::spawn_local(complete_draft(
                     registry.clone(),
                     model.clone(),
                     prompt.clone(),

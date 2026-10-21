@@ -14,6 +14,14 @@ use std::sync::{Arc, Mutex};
 type Trace = Arc<Mutex<Vec<Value>>>;
 struct Backend(Trace);
 impl ExtensionUiTuiBackend for Backend {
+    fn show_overlay(
+        &self,
+        _component: Box<dyn ExtensionUiComponent>,
+        _options: Option<ExtensionUiOverlayOptions>,
+    ) -> Arc<dyn ExtensionUiOverlayHandle> {
+        panic!("shell fixture does not mount nested overlays")
+    }
+
     fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("no editor")
     }

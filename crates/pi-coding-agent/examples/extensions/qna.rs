@@ -85,7 +85,7 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                                 provider_native: None,
                                 timestamp: pi_js_compat::date::js_now_millis() as i64,
                             };
-                            tokio::spawn(async move {
+                            tokio::task::spawn_local(async move {
                                 let mut options = StreamOptions::default();
                                 options.request.signal = Some(signal);
                                 let response = registry
