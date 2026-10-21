@@ -8,14 +8,16 @@ Session display names follow the authorized [common source pin](../porting/sourc
 - [x] Make metadata authoritative: NULL means never named, empty means explicitly cleared, and generic metadata updates preserve both dedicated names and explicit clears.
 - [x] Ignore historical JSONL names; reset/rehydrate names on switching and do not inherit names into forks or copied imports.
 - [x] Persist CLI/RPC name changes without appending JSONL session-info entries.
-- [x] Name eligible persisted TUI/RPC sessions in the background after a real-user turn; preserve manual names/clears and cancel pending work on shutdown.
-- [x] Match TypeScript's SQLite stored names when title truncation splits a surrogate pair; use U+FFFD rather than dropping the sliced code unit.
+- [ ] Expose frozen `set_session_name` model tool with `{name}` and the exact prompt guideline; never issue a separate title-provider request.
+- [ ] Collapse all line breaks and JavaScript whitespace, trim, then truncate at the frozen 80-UTF16-unit word boundary; preserve exact tool results and SQLite storage.
+- [ ] Refuse blank, child, ephemeral, pre-named and explicitly-cleared sessions; allow repeated updates only while the current name equals this factory's last successful tool name.
+- [ ] Preserve closure ownership through session-start/switch events; reset only when the factory is registered again. The frozen module has no session-start listener.
 
 ## How it works
 
 - [Control DB traceability](../porting/traceability/session-control-db.md)
 - [Manager traceability](../porting/traceability/session-manager.md)
-- [Autoname traceability and approved helper gap](../porting/traceability/session-autoname.md)
+- [Autoname traceability and pending representation boundary](../porting/traceability/session-autoname.md)
 
 ## Implementation inventory
 
@@ -23,7 +25,7 @@ Session display names follow the authorized [common source pin](../porting/sourc
 - `crates/pi-coding-agent/src/core/session_manager.rs` — cached name state and lifecycle resets.
 - `crates/pi-coding-agent/src/core/agent_session{,_runtime}.rs` — name events and imported-session metadata removal.
 - `crates/pi-coding-agent/src/{main.rs,cli/session_picker.rs,modes/interactive/interactive_mode.rs}` — startup/selector name paths.
-- `crates/pi-coding-agent/src/bundled_extensions/session_autoname.rs`, `crates/pi-js-compat/src/string.rs` — background title generation and string conversion.
+- `crates/pi-coding-agent/src/bundled_extensions/session_autoname.rs`, `crates/pi-js-compat/src/string.rs` — model naming tool and string semantics.
 
 ## Tests asserting this spec
 
@@ -31,8 +33,8 @@ Session display names follow the authorized [common source pin](../porting/sourc
 
 ## Known gaps (current cycle)
 
-No outstanding behavior gap in this scope; the approved intermediate-string representation difference is listed below.
+Frozen naming-tool ordinary differential, persistence and mutation proofs are in progress. Split-surrogate tool results cannot be represented by the current UTF8 extension setter/result fields; whole-module parity remains pending. Exact fixtures and proof status belong in [autoname traceability](../porting/traceability/session-autoname.md).
 
 ## Out of scope
 
-Exact in-memory representation of JS lone-surrogate helper strings: user approved UTF-8 U+FFFD representation on October 20, 2026 (“Match DB; record gap”), but not a storage discrepancy. General source pin and telemetry behavior remain unchanged.
+DB/manager migration and shared extension API changes belong to their respective owners. The October 20, 2026 intermediate-string waiver is historical and pending revalidation against the new source; this tool does not silently renew it. General source pin and telemetry behavior remain unchanged.

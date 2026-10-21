@@ -1,46 +1,40 @@
 # session-autoname traceability
 
-Source: `coding-agent/extensions/session-autoname/src/index.ts` at authorized
-`c248b0067c9fc3fa438f967f826c222875c54834` (2026-10-20 deviation;
-[common source lock](../source-lock.json); old approval to re-validate against 4f9e6f8a4). Rust:
+Source: complete `packages/coding-agent/extensions/session-autoname/src/index.ts`
+at frozen `4f9e6f8a4` ([source lock](../source-lock.json)). Rust:
 `crates/pi-coding-agent/src/bundled_extensions/session_autoname.rs`.
 
-| Source symbol / branch | Rust | Proof in `tests/session_autoname.rs` |
+The former c248 first-exchange provider implementation is replaced, not retained
+as a fallback. No generation prompt, auth lookup, retry, timeout, kickoff or event
+hook remains. Factory registration identity is unchanged.
+
+| Source symbol / branch | Rust | Dedicated behavioral proof |
 |---|---|---|
-| default factory, agent-end/name-change/shutdown hooks | `session_autoname_extension` | real extension runner in all async cases; `main_process::extensions_command_lists_the_ported_first_party_extensions` proves CLI registration |
-| `decideAutonameTurn`, real vs extension user message, continuation carry | `decide_autoname_turn` | `turn_decision_tracks_pending_real_user_turns_across_continuations`, extension-only/history case |
-| eligibility: TUI/RPC, persisted file, not child, no stored name state | `can_autoname_session` | explicit clear/manual name/history cases |
-| first real user plus completed assistant text; bounded transcript | `find_first_exchange`, `bound_source_text` | first real-user exchange and historical JSONL cases |
-| background generation, at-most-once attempt, metadata recheck | `handle_agent_end`, `generate_and_set_title` | successful naming and explicit clear/manual name cases |
-| auth, 15s cancellation, retries1/delay cap3000ms/tokens64 | `request_generated_title` | faux-provider integration; timeout/cancellation tests below |
-| stop reasons, title error text | `read_generated_title` | `generated_titles_map_stop_reasons_to_outcomes` |
-| title prompt/context | `build_title_context` | `title_context_bounds_the_transcript_and_labels_missing_responses` |
-| normalization and 80-unit title limit | `normalize_title`, `truncate_title` | normalization/word-boundary/JS-whitespace tests |
+| default factory, registered schema, label, instructions, approval false | `session_autoname_extension` | `set_session_name_tool::frozen_registered_tool_matches_results_refusals_and_closure_lifetime` compares registered metadata and executes real tool |
+| `normalizeName`: all lines, JS whitespace, no markdown/prefix stripping | `normalize_name` | same differential scenarios |
+| `describeRefusal`: blank, agent ID, manager child, ephemeral, explicit clear, preexisting name | `describe_refusal` | same differential scenarios, exact error content/details/isError |
+| closure `nameSetByTool`, own repeated/changed name, independent writer, clear, setter failure | factory-local state | same differential scenarios |
+| factory lifetime across `session_start`; reset on factory reload | no lifecycle hooks | same differential scenarios; frozen source has no session-start reset |
+| `errorResult` and successful result | `name_result` | exact result differential |
+| 80 UTF16 units and word boundary | `normalize_name` returns lossless `JsString` | boundary and persistence proof pending |
+| `pi.setSessionName` metadata authority and event publication | existing `ExtensionApi::set_session_name` | real-manager cross-reader proof pending |
 
-Uses the AgentSession's shared manager from `ExtensionContext::session_manager()`.
-No external service is contacted in tests; native faux providers exercise the same
-request path. JS trim/whitespace/UTF-16 utilities are shared through `pi-js-compat`.
+## Current proof ledger
 
-## Behavioral and differential proof
+Initial RED (base `facbfaea`): dedicated differential reaches frozen TS oracle,
+then Rust fails because `set_session_name` is absent. Logs and exact revisions:
+`/tmp/pi-rust-repin-session-name-tool/ledger.md`.
+GREEN, persistence, mutation evidence are not yet claimed. Central coverage row
+must not advance until whole-module proof and pending approval criteria are met.
 
-`tests/session_autoname.rs` has 22 tests, including the TS file's nonblocking prompt
-settlement, RPC/print/JSON/ephemeral/child boundaries, first-user recovery after
-empty/failed/aborted responses, partial-failure exchanges, cwd continuations,
-metadata-clear/history rules, and pending shutdown/manual-clear/manual-name races.
-The real 15-second timeout case asserts the provider receives maxTokens64,
-maxRetries1, maxRetryDelayMs3000 and timeoutMs15000 before observing cancellation.
-`title_outputs_match_the_real_c248_extension` invokes the real default TS extension
-through the shared watchdog-backed oracle for 12 concrete title inputs; names,
-errors, call count and name-state flag compare in source key order.
+## Pending representation boundary (not an approved deviation)
 
-## Approved intermediate-string gap (2026-10-20)
-
-User decision: “Match DB; record gap”. Valid generated title `"x".repeat(79) + "🙂"`
-reaches the 80-UTF16-unit limit inside the emoji. Real c248 returns 79x plus U+D83D
-from `truncateTitle` (`JSON.stringify` ends `\\ud83d`); SQLite bindings persist
-79x plus U+FFFD. Rust's shared `utf16_slice_to_utf8` preserves the sliced code units
-and converts the unpaired surrogate to U+FFFD before persistence. Stored names and
-serialized metadata therefore match; only the intermediate JS helper string differs.
-`split_surrogate_titles_match_typescript_at_the_sqlite_boundary` asserts both exact
-TS representations separately and compares the actual stored Rust name. No oracle
-field is removed or normalized to hide this difference.
+Valid input of 79 ASCII `x` followed by `🙂` crosses the 80-unit cap inside a
+surrogate pair. Normalization retains UTF16 units using `JsString`, without
+lossy conversion. Existing extension setter accepts `&str`; tool content/details
+use UTF8/`serde_json::Value`. An unpaired surrogate cannot cross either field.
+Current code explicitly returns a boundary error rather than silently substituting
+U+FFFD. Exact frozen result/storage fixture is pending. This branch is **not
+whole-module parity** until that boundary is resolved or explicitly approved.
+The old intermediate-string waiver remains pending revalidation; it is not
+renewed here.
