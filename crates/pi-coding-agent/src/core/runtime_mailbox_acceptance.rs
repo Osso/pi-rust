@@ -77,6 +77,17 @@ impl RuntimeMailboxAcceptance {
             ));
         }
         session.persist_for_recovery().map_err(control_error)?;
+        self.append_receipt(session, messages, accepted_message)?;
+        session.fsync().map_err(control_error)?;
+        delete_accepted_claims(control_db_path, messages)
+    }
+
+    fn append_receipt(
+        &mut self,
+        session: &mut SessionManager,
+        messages: &[RuntimeMailboxAcceptanceRef],
+        accepted_message: Option<&AgentMessage>,
+    ) -> Result<(), ControlDbError> {
         let refs = messages
             .iter()
             .map(|message| message.store_ref.clone())
@@ -97,8 +108,7 @@ impl RuntimeMailboxAcceptance {
                 )
                 .map_err(control_error)?;
         }
-        session.fsync().map_err(control_error)?;
-        delete_accepted_claims(control_db_path, messages)
+        Ok(())
     }
 }
 
@@ -132,18 +142,20 @@ pub fn release_unaccepted_runtime_mailbox_messages(
     let accepted = read_accepted_runtime_mailbox_store_refs(session.get_session_file())?;
     for message in messages {
         let expected = JsValue::from(&json!(message.store_ref));
-        let mut has_receipt = false;
-        for reference in &accepted {
-            if mailbox_store_refs_equal(reference, &expected)? {
-                has_receipt = true;
-                break;
-            }
-        }
-        if !has_receipt {
+        if !contains_receipt(&accepted, &expected)? {
             release_runtime_mailbox_message_claim(control_db_path, message.id)?;
         }
     }
     Ok(())
+}
+
+fn contains_receipt(accepted: &[JsValue], expected: &JsValue) -> Result<bool, ControlDbError> {
+    for reference in accepted {
+        if mailbox_store_refs_equal(reference, expected)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn read_runtime_mailbox_tool_delivery(

@@ -2560,14 +2560,7 @@ impl AgentSession {
         mode: MailboxDeliveryMode,
         guard: Option<tokio::sync::MutexGuard<'_, ()>>,
     ) -> Result<bool, AgentSessionError> {
-        let mut prompt_messages = Vec::new();
-        for message in messages {
-            if self.intercept_runtime_mailbox_message(&message).await? {
-                self.accept_runtime_mailbox_messages(std::slice::from_ref(&message), None)?;
-            } else {
-                prompt_messages.push(message);
-            }
-        }
+        let prompt_messages = self.accept_intercepted_mailbox_messages(messages).await?;
         if prompt_messages.is_empty() {
             return Ok(false);
         }
@@ -2584,16 +2577,40 @@ impl AgentSession {
             self.accept_runtime_mailbox_messages(&prompt_messages, Some(&message))?;
             return Ok(true);
         }
+        self.prompt_mailbox_messages(&prompt, &prompt_messages, guard).await
+    }
+
+    async fn accept_intercepted_mailbox_messages(
+        &self,
+        messages: Vec<RuntimeMailboxMessage>,
+    ) -> Result<Vec<RuntimeMailboxMessage>, AgentSessionError> {
+        let mut prompt_messages = Vec::new();
+        for message in messages {
+            if self.intercept_runtime_mailbox_message(&message).await? {
+                self.accept_runtime_mailbox_messages(std::slice::from_ref(&message), None)?;
+            } else {
+                prompt_messages.push(message);
+            }
+        }
+        Ok(prompt_messages)
+    }
+
+    async fn prompt_mailbox_messages(
+        &self,
+        prompt: &str,
+        messages: &[RuntimeMailboxMessage],
+        guard: Option<tokio::sync::MutexGuard<'_, ()>>,
+    ) -> Result<bool, AgentSessionError> {
         let guard = guard.expect("prompt delivery holds the turn start lock");
         let result = Box::pin(self.prompt_turn(
-            &prompt,
+            prompt,
             PromptOptions {
                 expand_prompt_templates: Some(false),
                 source: Some(InputSource::Extension),
                 ..Default::default()
             },
             guard,
-            Some(&prompt_messages),
+            Some(messages),
         ))
         .await;
         self.complete_runtime_mailbox_steering_turn(&self.messages());
