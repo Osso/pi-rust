@@ -239,7 +239,7 @@ fn seed_owned_store(
     });
     let viewed = agent("viewed", "running", "explore");
     let identity: pi_coding_agent::core::runtime_process::ProcessIdentity =
-        serde_json::from_str(&db::get_runtime_process_instance_id().unwrap()).unwrap();
+        serde_json::from_str(db::get_runtime_process_instance_id().unwrap()).unwrap();
     if source_created {
         let result = oracle.request(
             &json!({"op":"create", "db":path, "session":session, "agents":[viewed], "input":{
