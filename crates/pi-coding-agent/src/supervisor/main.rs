@@ -200,23 +200,14 @@ pub fn create_supervisor_console_snapshot(
 
 /// `openSupervisorSession`.
 pub fn open_supervisor_session(agent_dir: &str, kb_dir: &str, control_db_path: &str) -> Result<SessionManager, String> {
-    let session_dir = Path::new(agent_dir).join("supervisor-sessions");
-    std::fs::create_dir_all(&session_dir).map_err(|error| error.to_string())?;
-    let session_dir_text = session_dir.display().to_string();
-    let suffix = format!("_{SUPERVISOR_SESSION_ID}.jsonl");
-    let mut candidates: Vec<String> = std::fs::read_dir(&session_dir)
-        .map_err(|error| error.to_string())?
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            name.ends_with(&suffix).then_some(name)
-        })
-        .collect();
-    candidates.sort();
-    let session_path = candidates.last().map_or_else(
-        || session_dir.join(format!("{SUPERVISOR_SESSION_ID}.jsonl")),
-        |name| session_dir.join(name),
-    );
+    let prepared = crate::core::resident_session::prepare_resident_session_file(
+        agent_dir,
+        crate::core::resident_session::ResidentRole::Supervisor,
+        control_db_path,
+    )
+    .map_err(|error| error.to_string())?;
+    let session_dir_text = prepared.session_dir;
+    let session_path = PathBuf::from(prepared.session_path);
     let mut session_manager = if session_path.exists() {
         SessionManager::open(
             &session_path.display().to_string(),
@@ -238,7 +229,7 @@ pub fn open_supervisor_session(agent_dir: &str, kb_dir: &str, control_db_path: &
         .set_metadata_control_db_path(
             Some(control_db_path),
             crate::core::session_manager::SetMetadataControlDbPathOptions {
-                index_message_text: Some(false),
+                index_message_text: None,
                 cwd_override: None,
             },
         )

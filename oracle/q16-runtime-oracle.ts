@@ -1,6 +1,16 @@
 import { runOracle, requireCases } from "./coding-agent-utils-oracle-support.ts";
 
 void runOracle(async (api, request) => {
+	if (request.operation === "openResident") {
+		const { readdirSync } = await import("node:fs");
+		const { basename, join } = await import("node:path");
+		return requireCases(request).map((value) => {
+			const input = value as {agentDir:string;cwd:string;db:string;role:string};
+			const invoke = api[input.role === "supervisor" ? "openSupervisorSession" : "openArchitectSession"] as (...args: string[]) => {getSessionFile():string};
+			const manager = invoke(input.agentDir,input.cwd,input.db);
+			return {file:basename(manager.getSessionFile()),files:readdirSync(join(input.agentDir,`${input.role}-sessions`)).sort()};
+		});
+	}
 	if (request.operation === "restartPending") {
 		const { pathToFileURL } = await import("node:url");
 		const { dirname, join } = await import("node:path");

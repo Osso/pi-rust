@@ -57,3 +57,5 @@ Focused tests: `crates/pi-coding-agent/tests/architect.rs` (17), `tests/differen
 ## Discrepancies
 
 None.
+
+Q16 `openArchitectSession`: `q16_resident_open` compares frozen selection and filesystem pruning, not just chosen filename. Service uses this export; previous inline newest-file-only discovery removed. Remaining Architect functions still need whole-module revalidation.

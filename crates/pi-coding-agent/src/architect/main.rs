@@ -424,6 +424,28 @@ impl ArchitectConsoleServer for SharedArchitectConsoleServer {
     }
 }
 
+pub fn open_architect_session(agent_dir: &str, cwd: &str, control_db_path: &str) -> Result<SessionManager, String> {
+    let prepared = crate::core::resident_session::prepare_resident_session_file(
+        agent_dir,
+        crate::core::resident_session::ResidentRole::Architect,
+        control_db_path,
+    )
+    .map_err(|error| error.to_string())?;
+    if std::path::Path::new(&prepared.session_path).exists() {
+        SessionManager::open(&prepared.session_path, Some(&prepared.session_dir), Some(cwd))
+    } else {
+        SessionManager::create(
+            cwd,
+            Some(&prepared.session_dir),
+            Some(crate::core::session_manager::NewSessionOptions {
+                id: Some(ARCHITECT_SESSION_ID.into()),
+                ..Default::default()
+            }),
+        )
+    }
+    .map_err(|error| error.to_string())
+}
+
 /// `runArchitectService`.
 pub async fn run_architect_service() -> Result<(), String> {
     let agent_dir = crate::config::get_agent_dir().display().to_string();
@@ -432,36 +454,8 @@ pub async fn run_architect_service() -> Result<(), String> {
             .map(|path| path.display().to_string())
             .unwrap_or_default()
     });
-    let session_dir = std::path::Path::new(&agent_dir).join("architect-sessions");
-    std::fs::create_dir_all(&session_dir).map_err(|error| error.to_string())?;
-    let suffix = format!("_{ARCHITECT_SESSION_ID}.jsonl");
-    let mut candidates: Vec<String> = std::fs::read_dir(&session_dir)
-        .map_err(|error| error.to_string())?
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            name.ends_with(&suffix).then_some(name)
-        })
-        .collect();
-    candidates.sort();
-    let session_dir_text = session_dir.display().to_string();
-    let session_path = candidates.last().map_or_else(
-        || session_dir.join(format!("{ARCHITECT_SESSION_ID}.jsonl")),
-        |name| session_dir.join(name),
-    );
-    let mut session_manager = if session_path.exists() {
-        SessionManager::open(&session_path.display().to_string(), Some(&session_dir_text), Some(&cwd))
-    } else {
-        SessionManager::create(
-            &cwd,
-            Some(&session_dir_text),
-            Some(crate::core::session_manager::NewSessionOptions {
-                id: Some(ARCHITECT_SESSION_ID.to_owned()),
-                ..Default::default()
-            }),
-        )
-    }
-    .map_err(|error| error.to_string())?;
+    let control_db_path = get_control_db_path(&crate::config::get_user_state_root());
+    let mut session_manager = open_architect_session(&agent_dir, &cwd, &control_db_path)?;
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         auth_path: Some(std::path::Path::new(&agent_dir).join("auth.json").display().to_string()),
         models_path: Some(Some(

@@ -21,3 +21,5 @@ Supervisor clients ensure startup before computing request deadlines/posting row
 Automatic idle/completion reviews pass non-generic continue instructions through a stateless veto. Accept preserves instructions; rejection, invalid decision or evaluation failure substitutes the generic continuation and appends hidden policy feedback. Cancellation propagates rather than becoming veto feedback. Generic continuation and other response/request kinds bypass the veto.
 
 Restart recovery appends a result for every unanswered call in the restored pending assistant batch: detached jobs point to background notifications, restart_self succeeds, and other calls report interruption. Already answered calls are not repeated; results precede the restart notice.
+
+Supervisor and Architect session opening use resident-file preparation, retaining a live listener or newest dated resident file and deleting stale candidates/metadata before opening. The approved private-regex delta is unchanged.
