@@ -142,7 +142,10 @@ impl OutputCollector {
         state.temp_file.take();
         BashResult {
             output: if truncation.truncated {
-                truncation.content
+                truncation
+                    .content
+                    .to_utf8()
+                    .expect("decoded process output remains UTF-8")
             } else {
                 full_output
             },

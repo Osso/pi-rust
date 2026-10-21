@@ -30,7 +30,7 @@ pub struct PermissionPromptInput {
 
 /// Calls the MCP permission-prompt tool. `Err` maps a rejected promise.
 pub type PermissionPromptCaller =
-    Arc<dyn for<'a> Fn(&'a str, PermissionPromptInput) -> BoxFuture<'a, Result<Value, String>> + Send + Sync>;
+    Arc<dyn for<'a> Fn(&'a str, PermissionPromptInput) -> BoxFuture<'a, Result<Value, JsString>> + Send + Sync>;
 
 /// Parsed permission-prompt response.
 #[derive(Debug, Clone, PartialEq)]

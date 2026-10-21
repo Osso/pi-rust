@@ -19,9 +19,12 @@ use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use pi_tui::tui::ComponentRef;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value as SchemaValue;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use tokio::sync::{mpsc, oneshot};
@@ -40,14 +43,14 @@ pub const PROMPT_GUIDELINES: [&str; 5] = [
 ];
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct QuestionOption {
-    pub label: String,
-    pub description: Option<String>,
+    pub label: JsString,
+    pub description: Option<JsString>,
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Question {
-    pub question: String,
-    pub header: Option<String>,
+    pub question: JsString,
+    pub header: Option<JsString>,
     pub options: Option<Vec<QuestionOption>>,
     pub multi_select: Option<bool>,
 }
@@ -57,9 +60,9 @@ pub struct AskQuestionsParams {
     pub questions: Vec<Question>,
 }
 
-pub fn parameters() -> &'static Value {
-    static PARAMETERS: OnceLock<Value> = OnceLock::new();
-    PARAMETERS.get_or_init(|| json!({
+pub fn parameters() -> &'static SchemaValue {
+    static PARAMETERS: OnceLock<SchemaValue> = OnceLock::new();
+    PARAMETERS.get_or_init(|| serde_json::json!({
         "type":"object", "required":["blocking","questions"], "properties": {
             "blocking":{"type":"boolean","description":"Required. True waits for answers; false queues questions and returns immediately, with answers delivered later to your inbox. Continue only work independent of unanswered questions."},
             "questions":{"type":"array","minItems":1,"maxItems":4,"description":"Questions to ask the user (1-4 questions).","items":{
@@ -80,13 +83,13 @@ pub fn parameters() -> &'static Value {
         }
     }))
 }
-pub fn parse_params(params: &Value) -> Result<AskQuestionsParams, ToolError> {
+pub fn parse_params(params: &JsValue) -> Result<AskQuestionsParams, ToolError> {
     if params.get("blocking").and_then(Value::as_bool).is_none() {
         return Err(ToolError::new(
             "ask_questions requires explicit blocking: true or false",
         ));
     }
-    serde_json::from_value(params.clone()).map_err(|error| ToolError::new(error.to_string()))
+    pi_js_compat::js_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))
 }
 pub fn validate_questions(questions: &[Question]) -> Result<(), ToolError> {
     if questions.is_empty() || questions.len() > 4 {
@@ -95,39 +98,44 @@ pub fn validate_questions(questions: &[Question]) -> Result<(), ToolError> {
     let mut texts = HashSet::new();
     for question in questions {
         if !texts.insert(&question.question) {
-            return Err(ToolError::new(format!(
-                "Duplicate question text: {}",
-                question.question
-            )));
+            return Err(ToolError::new(
+                JsString::from("Duplicate question text: ") + &question.question,
+            ));
         }
         let Some(options) = &question.options else {
             if question.multi_select == Some(true) {
-                return Err(ToolError::new(format!(
-                    "Free-text question \"{}\" cannot use multiSelect",
-                    question.question
-                )));
+                return Err(ToolError::new(
+                    JsString::from("Free-text question \"") + &question.question + "\" cannot use multiSelect",
+                ));
             }
             continue;
         };
         if !(2..=4).contains(&options.len()) {
-            return Err(ToolError::new(format!(
-                "Question \"{}\" requires 2-4 options",
-                question.question
-            )));
+            return Err(ToolError::new(
+                JsString::from("Question \"") + &question.question + "\" requires 2-4 options",
+            ));
         }
         let mut labels = HashSet::new();
         for option in options {
             if !labels.insert(&option.label) {
-                return Err(ToolError::new(format!(
-                    "Duplicate option label \"{}\" in question \"{}\"",
-                    option.label, question.question
-                )));
+                return Err(ToolError::new(
+                    JsString::from("Duplicate option label \"")
+                        + &option.label
+                        + "\" in question \""
+                        + &question.question
+                        + "\"",
+                ));
             }
         }
     }
     Ok(())
 }
-pub fn question_result(params: &Value, text: impl Into<String>, answers: Value, cancelled: bool) -> AgentToolResult {
+pub fn question_result(
+    params: &JsValue,
+    text: impl Into<JsString>,
+    answers: Value,
+    cancelled: bool,
+) -> AgentToolResult {
     let mut details =
         json!({"blocking":params["blocking"],"questions":params["questions"],"answers":answers,"cancelled":cancelled});
     if let Some(metadata) = params.get("metadata") {
@@ -135,22 +143,26 @@ pub fn question_result(params: &Value, text: impl Into<String>, answers: Value, 
     }
     text_result(text, details)
 }
-pub fn format_answers(answers: &Value) -> String {
-    answers
-        .as_object()
-        .map(pi_js_compat::js_json::object_entries)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(question, answer)| {
-            let answer = answer.as_str().unwrap_or("");
-            format!(
-                "- {question} → {}",
-                if answer.is_empty() { "(no selection)" } else { answer }
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+pub fn format_answers(answers: &Value) -> JsString {
+    let Some(object) = answers.as_object() else {
+        return JsString::default();
+    };
+    JsString::join(
+        pi_js_compat::js_json::object_entries_lossless(object)
+            .into_iter()
+            .map(|(question, answer)| {
+                let answer = answer.as_string().cloned().unwrap_or_default();
+                let text = if answer.is_empty() {
+                    JsString::from("(no selection)")
+                } else {
+                    answer
+                };
+                JsString::from("- ") + question + " → " + text
+            }),
+        "\n",
+    )
 }
+
 #[derive(Clone, Deserialize)]
 struct PanelResult {
     answers: Value,
@@ -190,7 +202,8 @@ fn queue_questions(
                     )
                     .await
                     .and_then(|value| {
-                        serde_json::from_value(value.unwrap_or(Value::Null)).map_err(|error| error.to_string())
+                        pi_js_compat::js_json::from_value(&value.unwrap_or(Value::Null))
+                            .map_err(|error| error.to_string())
                     });
                 close_ask_questions_notification(notification);
                 let _ = job.result.send(result);
@@ -259,12 +272,12 @@ async fn deliver_queued(
             } else {
                 format!("User answered questions (request {request}):")
             };
-            format!("{title}\n{}", format_answers(&result.answers))
+            JsString::from(title) + "\n" + format_answers(&result.answers)
         }
         Err(error) => {
             let body = format!("Questions failed (request {request}): {error}");
             ui.notify(&body, Some(NotifyType::Error));
-            body
+            body.into()
         }
     };
     let message_id = format!("ask_questions:{request}");
@@ -306,7 +319,7 @@ impl AgentHarnessTool<ExtensionContext> for AskQuestionsTool {
     fn description(&self) -> &str {
         DESCRIPTION
     }
-    fn parameters(&self) -> &Value {
+    fn parameters(&self) -> &SchemaValue {
         parameters()
     }
     fn execution_mode(&self) -> Option<ToolExecutionMode> {
@@ -315,7 +328,7 @@ impl AgentHarnessTool<ExtensionContext> for AskQuestionsTool {
     fn execute(
         &self,
         tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
@@ -356,8 +369,8 @@ impl AgentHarnessTool<ExtensionContext> for AskQuestionsTool {
                     false,
                 );
                 let details = result.details.as_mut().unwrap();
-                details["queued"] = json!(true);
-                details["requestId"] = json!(tool_call_id);
+                details["queued"] = json!(true).into();
+                details["requestId"] = json!(tool_call_id).into();
                 return Ok(result);
             }
             let result = pending
@@ -366,9 +379,9 @@ impl AgentHarnessTool<ExtensionContext> for AskQuestionsTool {
                 .map_err(ToolError::new)?;
             drop(queue);
             let text = if result.cancelled {
-                "Questions cancelled".to_owned()
+                JsString::from("Questions cancelled")
             } else {
-                format!("User answered questions:\n{}", format_answers(&result.answers))
+                JsString::from("User answered questions:\n") + format_answers(&result.answers)
             };
             Ok(question_result(&params, text, result.answers, result.cancelled))
         })
@@ -401,7 +414,7 @@ pub fn close_ask_questions_notification(notification: Option<Box<dyn DesktopNoti
         notification.close();
     }
 }
-fn call_text(args: &Value, details: &Value, theme: &Theme) -> String {
+fn call_text(args: &JsValue, details: &Value, theme: &Theme) -> String {
     let questions = args["questions"].as_array().map(Vec::as_slice).unwrap_or_default();
     let label = if questions.len() == 1 {
         "1 question".to_owned()
@@ -433,7 +446,7 @@ fn call_text(args: &Value, details: &Value, theme: &Theme) -> String {
     }
     lines.join("\n")
 }
-pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     super::render_text_component(context, call_text(args, &context.state.get()["details"], theme))
 }
 pub fn render_result(
@@ -444,7 +457,7 @@ pub fn render_result(
 ) -> ComponentRef {
     context
         .state
-        .update(|state| state["details"] = result.details.clone().unwrap_or(Value::Null));
+        .update(|state| state["details"] = result.details.clone().unwrap_or(Value::Null.into()));
     if let Some(component) = &context.call_component
         && let Some(text) = component
             .borrow_mut()

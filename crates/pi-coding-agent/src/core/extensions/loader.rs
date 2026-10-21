@@ -400,7 +400,7 @@ impl ExtensionRegistry {
             .await
             .map_err(|error| ExtensionLoadError {
                 path: extension_path.to_owned(),
-                error: format!("Failed to load extension: {}", error.message),
+                error: pi_js_compat::js_json::JsString::from("Failed to load extension: ") + error.message,
             })
     }
 

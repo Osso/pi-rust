@@ -355,6 +355,13 @@ impl JsValue {
         }
     }
 
+    /// Nonnegative integral JSON number within Rust's unsigned range.
+    pub fn as_u64(&self) -> Option<u64> {
+        let value = self.as_f64()?;
+        (value.is_finite() && value >= 0.0 && value.fract() == 0.0 && value < 18446744073709551616.0)
+            .then_some(value as u64)
+    }
+
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Self::Bool(value) => Some(*value),

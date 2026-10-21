@@ -2,27 +2,29 @@
 use super::ask_questions::Question;
 use crate::core::extensions::types::{ExtensionUiComponent, ExtensionUiDone, ExtensionUiFactoryContext};
 use crate::modes::interactive::theme::{ThemeBg, ThemeColor};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::tui::{Component, Focusable};
 use pi_tui::utils::{truncate_to_width, wrap_text_with_ansi};
-use serde_json::{Map, Value, json};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 #[derive(Default)]
 struct Answer {
-    selected: Vec<String>,
+    selected: Vec<JsString>,
     custom: Option<String>,
 }
 impl Answer {
     fn has_answer(&self) -> bool {
         !self.selected.is_empty() || self.custom.is_some()
     }
-    fn format(&self, question: &Question) -> String {
+    fn format(&self, question: &Question) -> JsString {
         if question.options.is_none() || question.multi_select != Some(true) {
             return self
                 .custom
                 .clone()
+                .map(JsString::from)
                 .or_else(|| self.selected.first().cloned())
                 .unwrap_or_default();
         }
@@ -33,8 +35,8 @@ impl Answer {
             .filter(|option| self.selected.contains(&option.label))
             .map(|option| option.label.clone())
             .collect::<Vec<_>>();
-        selected.extend(self.custom.clone());
-        selected.join(", ")
+        selected.extend(self.custom.clone().map(JsString::from));
+        JsString::join(selected, ", ")
     }
 }
 enum InputAction {
@@ -123,7 +125,8 @@ impl QuestionPanel {
                 answers.insert(question.question.clone(), Value::String(answer.format(question)));
             }
         }
-        self.done.call(Some(json!({"answers":answers,"cancelled":cancelled})));
+        self.done
+            .call(Some(json!({"answers":Value::Object(answers),"cancelled":cancelled})));
     }
     fn move_to_tab(&self, state: &mut State, next: usize) {
         state.tab = next.min(self.tab_count() - 1);
@@ -242,7 +245,11 @@ impl QuestionPanel {
                 } else {
                     "□"
                 };
-                let header = question.header.clone().unwrap_or_else(|| format!("Q{}", index + 1));
+                let header = question
+                    .header
+                    .as_ref()
+                    .map(encode_node_utf8)
+                    .unwrap_or_else(|| format!("Q{}", index + 1));
                 let text = format!(" {marker} {header} ");
                 if index == state.tab {
                     theme.bg(ThemeBg::SelectedBg, &theme.fg(ThemeColor::Text, &text))
@@ -288,9 +295,9 @@ impl QuestionPanel {
                     .description
                     .as_ref()
                     .filter(|text| !text.is_empty())
-                    .map(|text| theme.fg(ThemeColor::Muted, &format!(" — {text}")))
+                    .map(|text| theme.fg(ThemeColor::Muted, &format!(" — {}", encode_node_utf8(text))))
                     .unwrap_or_default();
-                (marker, option.label.clone(), description)
+                (marker, encode_node_utf8(&option.label), description)
             })
             .enumerate()
             .map(|(index, (marker, label, description))| format!("{marker}{}. {label}{description}", index + 1))
@@ -329,14 +336,14 @@ impl QuestionPanel {
                 .zip(&state.answers)
                 .map(|(question, answer)| {
                     let value = if answer.has_answer() {
-                        answer.format(question)
+                        encode_node_utf8(&answer.format(question))
                     } else {
                         theme.fg(ThemeColor::Warning, "—")
                     };
                     truncate_to_width(
                         &format!(
                             "   {}→ {value}",
-                            theme.fg(ThemeColor::Muted, &format!("{} ", question.question))
+                            theme.fg(ThemeColor::Muted, &format!("{} ", encode_node_utf8(&question.question)))
                         ),
                         width,
                     )
@@ -351,7 +358,7 @@ impl QuestionPanel {
             return lines;
         }
         let mut lines = wrap_text_with_ansi(
-            &theme.fg(ThemeColor::Text, &self.questions[state.tab].question),
+            &theme.fg(ThemeColor::Text, &encode_node_utf8(&self.questions[state.tab].question)),
             width.saturating_sub(2).max(1),
         )
         .into_iter()

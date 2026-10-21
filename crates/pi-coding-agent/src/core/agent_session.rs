@@ -78,24 +78,24 @@ pub const THINKING_LEVELS: [ThinkingLevel; 5] = [
 /// Failure surfaced by [`AgentSession`] operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSessionError {
-    message: String,
+    message: JsString,
 }
 
 impl AgentSessionError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
     }
 
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         &self.message
     }
 }
 
 impl std::fmt::Display for AgentSessionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
@@ -113,7 +113,7 @@ impl From<AgentError> for AgentSessionError {
     }
 }
 
-fn error(message: impl Into<String>) -> AgentSessionError {
+fn error(message: impl Into<JsString>) -> AgentSessionError {
     AgentSessionError::new(message)
 }
 
@@ -582,7 +582,7 @@ pub struct AutoRetryStartEvent {
     pub max_attempts: u64,
     #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub delay_ms: f64,
-    pub error_message: String,
+    pub error_message: JsString,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -431,14 +431,14 @@ pub type ExtensionEditorFactory = Arc<
 /// UI-local `done` callback (`interactive-mode.ts:3486–3505`).
 /// Factory closures cross threads; their created callbacks/components do not.
 #[derive(Clone)]
-pub struct ExtensionUiDone(Rc<dyn Fn(Option<Value>)>);
+pub struct ExtensionUiDone(Rc<dyn Fn(Option<JsValue>)>);
 
 impl ExtensionUiDone {
-    pub fn new(callback: Rc<dyn Fn(Option<Value>)>) -> Self {
+    pub fn new(callback: Rc<dyn Fn(Option<JsValue>)>) -> Self {
         Self(callback)
     }
 
-    pub fn call(&self, value: Option<Value>) {
+    pub fn call(&self, value: Option<JsValue>) {
         (self.0)(value);
     }
 }
@@ -631,7 +631,7 @@ pub trait ExtensionUiContext: Send + Sync {
         &'a self,
         _factory: ExtensionUiCustomFactory,
         _options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, String>> {
         Box::pin(async { Ok(None) })
     }
 
@@ -1407,11 +1407,11 @@ pub struct ToolRenderResultOptions {
 /// The TypeScript context carries the same mutable object across call and result
 /// renders for one tool call.
 #[derive(Clone)]
-pub struct ToolRenderState(Arc<std::sync::Mutex<Value>>);
+pub struct ToolRenderState(Arc<std::sync::Mutex<JsValue>>);
 
 impl Default for ToolRenderState {
     fn default() -> Self {
-        Self(Arc::new(std::sync::Mutex::new(Value::Object(serde_json::Map::new()))))
+        Self(Arc::new(std::sync::Mutex::new(JsValue::Object(JsObject::new()))))
     }
 }
 
@@ -1421,12 +1421,12 @@ impl ToolRenderState {
     }
 
     /// Snapshot of the current state.
-    pub fn get(&self) -> Value {
+    pub fn get(&self) -> JsValue {
         self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// Mutates the state in place.
-    pub fn update(&self, update: impl FnOnce(&mut Value)) {
+    pub fn update(&self, update: impl FnOnce(&mut JsValue)) {
         let mut state = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         update(&mut state);
     }
@@ -2804,7 +2804,7 @@ pub struct ExtensionLoadError {
 pub struct ExtensionError {
     pub extension_path: String,
     pub event: String,
-    pub error: String,
+    pub error: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
 }

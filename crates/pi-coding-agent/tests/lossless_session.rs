@@ -4,6 +4,45 @@ use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
+fn question_parser_and_answer_results_keep_raw_units_and_metadata() {
+    use pi_coding_agent::core::tools::ask_questions::{format_answers, parse_params, question_result};
+    let params = parse_lossless(r#"{"blocking":true,"questions":[{"question":"\ud800","options":[{"label":"\udfff"},{"label":"x"}]}],"metadata":{"\ud800":"\udfff"}}"#).unwrap();
+    let parsed = parse_params(&params).unwrap();
+    assert_eq!(parsed.questions[0].question.units(), &[0xd800]);
+    let answers = parse_lossless(r#"{"\ud800":"\udfff"}"#).unwrap();
+    let text = format_answers(&answers);
+    let result = question_result(&params, text, answers.clone(), false);
+    assert_eq!(result.details.as_ref().unwrap()["answers"], answers);
+    assert_eq!(result.details.as_ref().unwrap()["metadata"], params["metadata"]);
+}
+
+#[test]
+fn tool_truncation_keeps_units_until_the_source_utf8_suffix_boundary() {
+    use pi_coding_agent::core::tools::truncate::{TruncationOptions, truncate_line, truncate_tail};
+    use pi_js_compat::js_json::JsString;
+    let text = JsString::from_utf16(vec![0xd800, 0x0a, 0xdfff]);
+    let tail = truncate_tail(
+        &text,
+        TruncationOptions {
+            max_lines: 1,
+            max_bytes: 10,
+        },
+    );
+    assert_eq!(tail.content.units(), &[0xdfff]);
+    let pair = JsString::from_utf16(vec![0xd83d, 0xde00]);
+    let line = truncate_line(&pair, Some(1));
+    assert_eq!(line.text.units()[0], 0xd83d);
+    let suffix = truncate_tail(
+        &JsString::from_utf16(vec![0x78, 0xdfff]),
+        TruncationOptions {
+            max_lines: 2,
+            max_bytes: 3,
+        },
+    );
+    assert_eq!(suffix.content.units(), &[0xfffd]);
+}
+
+#[test]
 fn permission_decisions_retain_updated_input_and_raw_bash_rule_text() {
     use pi_coding_agent::core::permissions::mcp_permission_prompt::{
         PermissionPromptDecision, parse_permission_prompt_decision,

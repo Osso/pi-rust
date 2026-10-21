@@ -494,7 +494,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         transform_context: Some(transform_context),
         ..Default::default()
     })
-    .map_err(|error| error.message().to_owned())?;
+    .map_err(|error| error.to_string())?;
 
     let mut restored_messages = existing_session.messages.clone();
     if has_existing_session && !restored_messages.is_empty() {
@@ -534,7 +534,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         extension_runner_ref: Some(extension_runner_ref),
         session_start_event: options.session_start_event,
     })
-    .map_err(|error| error.message().to_owned())?;
+    .map_err(|error| error.to_string())?;
     let notifier_session = session.clone();
     *lock(&session_ref) = Some(Arc::new(move |event: pi_ai::types::ProviderRetryEvent| {
         notifier_session.notify_provider_retry(event);

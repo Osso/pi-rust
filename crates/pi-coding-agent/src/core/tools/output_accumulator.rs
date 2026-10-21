@@ -164,7 +164,10 @@ impl OutputAccumulator {
         }
 
         OutputSnapshot {
-            content: truncation.content.clone(),
+            content: truncation
+                .content
+                .to_utf8()
+                .expect("decoded process output remains UTF-8"),
             truncation,
             full_output_path: self
                 .temp_file_path
