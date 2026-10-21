@@ -860,7 +860,9 @@ async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
         now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".to_owned())),
     }));
-    store.publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"));
+    store
+        .publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"))
+        .expect("publish child lifecycle");
     let activities = Arc::new(std::sync::Mutex::new(Vec::new()));
     let recorded = Arc::clone(&activities);
     let _subscription = store.subscribe_agent_updates(move |_previous, current| {
@@ -986,6 +988,7 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_r
         message_id: "mailbox-1".to_owned(),
         session_path: session_file,
     };
+    let created_at = pi_coding_agent::utils::iso_time::now_iso_string();
     enqueue_stored_runtime_mailbox_message(
         &control_db_path,
         &EnqueueStoredRuntimeMailboxMessageInput {
@@ -1005,8 +1008,8 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_r
                 "fromAgentId": "parent",
                 "kind": "message",
                 "status": "pending",
-                "createdAt": "2026-06-21T00:00:00.000Z",
-                "updatedAt": "2026-06-21T00:00:00.000Z",
+                "createdAt": created_at,
+                "updatedAt": created_at,
                 "body": "hello from parent",
             }),
             updated_at: None,
@@ -2502,7 +2505,9 @@ async fn thinking_phase_deadline_reports_the_child_subject() {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
         now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".to_owned())),
     }));
-    store.publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"));
+    store
+        .publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"))
+        .expect("publish child lifecycle");
     let fixture = fixture_with_multi_agent(
         Default::default(),
         Vec::new(),
@@ -2586,7 +2591,9 @@ async fn activity_publication_errors_fail_the_agent_run() {
     use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
-    store.publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"));
+    store
+        .publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"))
+        .expect("publish child lifecycle");
     store.set_persistence_session_manager(Some(&FakePersistence));
     let fixture = fixture_with_multi_agent(
         Default::default(),
