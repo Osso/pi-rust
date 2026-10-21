@@ -31,3 +31,5 @@ Project identity extraction applies JS trimming and does not strip a scheme auth
 Supervisor request/console processing propagates failures instead of dropping them or logging-and-continuing. Cancellation still suppresses completion-claim failures only when the stored row is cancelled.
 
 Evaluation cancellation listens across compaction, prompt execution and instruction review, not just while prompting. It aborts the session and then awaits evaluator settlement; cancelled compaction must not start a new prompt.
+
+Architect specs use Node-compatible UTF-8 decoding (replacement characters for malformed bytes), including index discovery. Realpath/read failures retain Node syscall/path messages. Absolute project paths do not consult cwd, and relative paths never fall back to `/` on cwd failure.

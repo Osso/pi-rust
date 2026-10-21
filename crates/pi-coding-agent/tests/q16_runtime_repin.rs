@@ -192,3 +192,74 @@ fn restart_clears_model_overrides() {
     );
     assert_eq!((args.provider, args.model, args.thinking), (None, None, None));
 }
+
+#[tokio::test]
+async fn architect_specs_decode_node_utf8_instead_of_rejecting_file_bytes() {
+    use pi_coding_agent::architect::project_spec::read_project_spec;
+    let dir = tempfile::tempdir().unwrap();
+    let specs = dir.path().join("docs/specs");
+    std::fs::create_dir_all(&specs).unwrap();
+    std::fs::write(specs.join("README.md"), "index").unwrap();
+    std::fs::write(specs.join("bytes.md"), [0x41, 0xf0, 0x80, 0x80, 0x42, 0xff]).unwrap();
+    let mut ts = oracle::TsOracle::spawn(
+        "q16-runtime-oracle.ts",
+        "packages/coding-agent/src/architect/project-spec.ts",
+    );
+    let expected = ts.request(&json!({"id":20,"operation":"readProjectSpec","cases":[[dir.path(),"bytes.md"]]}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    assert_eq!(
+        json!(
+            read_project_spec(&dir.path().display().to_string(), "bytes.md")
+                .await
+                .unwrap()
+        ),
+        expected["output"][0]
+    );
+}
+
+#[tokio::test]
+async fn architect_root_discovery_accepts_a_non_unicode_index_like_node() {
+    use pi_coding_agent::architect::project_spec::read_project_spec;
+    let dir = tempfile::tempdir().unwrap();
+    let specs = dir.path().join("docs/specs");
+    std::fs::create_dir_all(&specs).unwrap();
+    std::fs::write(specs.join("README.md"), [0xff]).unwrap();
+    std::fs::write(specs.join("valid.md"), "body").unwrap();
+    let mut ts = oracle::TsOracle::spawn(
+        "q16-runtime-oracle.ts",
+        "packages/coding-agent/src/architect/project-spec.ts",
+    );
+    let expected = ts.request(&json!({"id":21,"operation":"readProjectSpec","cases":[[dir.path(),"valid.md"]]}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    assert_eq!(
+        json!(
+            read_project_spec(&dir.path().display().to_string(), "valid.md")
+                .await
+                .unwrap()
+        ),
+        expected["output"][0]
+    );
+}
+
+#[tokio::test]
+async fn architect_missing_spec_reports_the_node_realpath_error() {
+    use pi_coding_agent::architect::project_spec::read_project_spec;
+    let dir = tempfile::tempdir().unwrap();
+    let specs = dir.path().join("docs/specs");
+    std::fs::create_dir_all(&specs).unwrap();
+    std::fs::write(specs.join("README.md"), "index").unwrap();
+    let mut ts = oracle::TsOracle::spawn(
+        "q16-runtime-oracle.ts",
+        "packages/coding-agent/src/architect/project-spec.ts",
+    );
+    let expected = ts.request(&json!({"id":22,"operation":"readProjectSpec","cases":[[dir.path(),"missing.md"]]}));
+    assert_eq!(expected["ok"], false, "{expected}");
+    assert_eq!(
+        json!(
+            read_project_spec(&dir.path().display().to_string(), "missing.md")
+                .await
+                .unwrap_err()
+        ),
+        expected["error"]["message"]
+    );
+}
