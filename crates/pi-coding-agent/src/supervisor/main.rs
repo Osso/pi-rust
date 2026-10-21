@@ -13,7 +13,7 @@ use pi_agent_core::harness::types::BeforeToolCallResult;
 use pi_ai::request::BoxFuture;
 use pi_ai::session_resources::cleanup_session_resources;
 use pi_ai::types::{AssistantContent, StopReason};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::agent_session::{AgentSession, AgentSessionEvent, PromptOptions};
@@ -31,15 +31,18 @@ use crate::core::resource_loader::{
 };
 use crate::core::sdk::{CreateAgentSessionOptions, CreateAgentSessionResult, create_agent_session};
 use crate::core::session_control_db::{
-    ControlDbError, SupervisorRequest, SupervisorResponse, claim_next_supervisor_request, complete_supervisor_request,
-    recover_supervisor_requests,
+    ControlDbError, SupervisorRequest, SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse,
+    claim_next_supervisor_request, complete_supervisor_request, read_supervisor_request, recover_supervisor_requests,
 };
 use crate::core::session_manager::{SessionEntry, SessionManager};
 use crate::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
 use crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR;
 use crate::supervisor::request_wake::{SupervisorRequestWakeServer, notify_supervisor_request};
 use crate::supervisor::response_tool::{SUPERVISOR_RESPONSE_TOOL_NAME, create_supervisor_response_tool};
-use crate::supervisor::service::{RunSupervisorRequestInput, SupervisorEvaluator, run_supervisor_request};
+use crate::supervisor::service::{
+    RunSupervisorRequestInput, SupervisorEvaluator, SupervisorInstructionReviewDecision, parse_supervisor_response,
+    run_supervisor_request,
+};
 use crate::utils::paths::{process_cwd, resolve_path};
 
 pub const SUPERVISOR_SESSION_ID: &str = "supervisor";
@@ -60,8 +63,7 @@ pub const SUPERVISOR_EXCLUDED_TOOL_NAMES: [&str; 12] = [
     "spawn_agent",
 ];
 
-const SUPERVISOR_COMPACTION_INSTRUCTIONS: &str =
-    "Preserve Supervisor decisions, project-specific policies, and reusable approval rationale.";
+const SUPERVISOR_COMPACTION_INSTRUCTIONS: &str = "Preserve Supervisor decisions, project-specific policies, instruction-veto policy feedback, and reusable approval rationale.";
 
 /// One queued console prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,6 +265,9 @@ pub trait SupervisorSession: Send + Sync {
     fn session_id(&self) -> Option<String> {
         None
     }
+    fn append_policy_feedback(&self, _content: String, _details: Value) -> BoxFuture<'static, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
     fn get_branch(&self) -> Vec<SessionEntry>;
     fn get_leaf_id(&self) -> Option<String>;
 }
@@ -322,40 +327,150 @@ pub async fn run_supervisor_request_loop(input: RunSupervisorRequestLoopInput) -
     Ok(())
 }
 
-/// `processSupervisorRequest`.
+pub const GENERIC_GOAL_CONTINUATION: &str = "Continue working toward the active goal.";
+pub type SupervisorInstructionReviewer = Arc<
+    dyn Fn(String, CancellationToken) -> BoxFuture<'static, Result<Option<SupervisorInstructionReviewDecision>, String>>
+        + Send
+        + Sync,
+>;
+
 pub async fn process_supervisor_request(
     control_db_path: &str,
     request: SupervisorRequest,
     session: Arc<dyn SupervisorSession>,
 ) {
-    let evaluator = supervisor_evaluator(Arc::clone(&session));
+    let reviewer: SupervisorInstructionReviewer = Arc::new(|_, _| Box::pin(async { Ok(None) }));
+    if let Err(error) = process_supervisor_request_with_reviewer(control_db_path, request, session, reviewer).await {
+        eprintln!("Supervisor request failed: {error}");
+    }
+}
+
+pub async fn process_supervisor_request_with_reviewer(
+    control_db_path: &str,
+    request: SupervisorRequest,
+    session: Arc<dyn SupervisorSession>,
+    reviewer: SupervisorInstructionReviewer,
+) -> Result<(), ControlDbError> {
+    let evaluation_request = request.clone();
+    let evaluate: SupervisorEvaluator = Arc::new(move |prompt, signal| {
+        let session = session.clone();
+        let request = evaluation_request.clone();
+        let reviewer = reviewer.clone();
+        Box::pin(async move {
+            let raw = evaluate_supervisor_prompt(session.clone(), prompt, signal.clone()).await?;
+            apply_supervisor_instruction_veto(&request, raw, session, reviewer, signal).await
+        })
+    });
     let result = run_supervisor_request(RunSupervisorRequestInput {
-        control_db_path: control_db_path.to_owned(),
-        evaluate: evaluator,
+        control_db_path: control_db_path.into(),
+        evaluate,
         request: request.clone(),
         poll_interval_ms: None,
     })
     .await;
-    if let Err(error) = result
-        && let Some(claim_token) = request.claim_token.as_deref()
-    {
-        let _ = complete_supervisor_request(
+    if let Err(error) = result {
+        if read_supervisor_request(control_db_path, request.id)?
+            .is_some_and(|row| row.status == SupervisorRequestStatus::Cancelled)
+        {
+            return Ok(());
+        }
+        let token = request
+            .claim_token
+            .as_deref()
+            .filter(|token| !token.is_empty())
+            .ok_or_else(|| ControlDbError::new(format!("Supervisor request {} has no claim token", request.id)))?;
+        let completion = complete_supervisor_request(
             control_db_path,
             request.id,
-            claim_token,
+            token,
             &SupervisorResponse::Error {
                 reason: error.to_string(),
             },
         );
+        if let Err(error) = completion {
+            if read_supervisor_request(control_db_path, request.id)?
+                .is_some_and(|row| row.status == SupervisorRequestStatus::Cancelled)
+            {
+                return Ok(());
+            }
+            return Err(error);
+        }
     }
+    Ok(())
 }
 
-fn supervisor_evaluator(session: Arc<dyn SupervisorSession>) -> SupervisorEvaluator {
-    Arc::new(move |prompt: String, signal: CancellationToken| {
-        let session = Arc::clone(&session);
-        Box::pin(async move { evaluate_supervisor_prompt(session, prompt, signal).await })
-            as BoxFuture<'static, Result<Value, String>>
+async fn apply_supervisor_instruction_veto(
+    request: &SupervisorRequest,
+    raw: Value,
+    session: Arc<dyn SupervisorSession>,
+    reviewer: SupervisorInstructionReviewer,
+    signal: CancellationToken,
+) -> Result<Value, String> {
+    if !matches!(
+        request.kind,
+        SupervisorRequestKind::GoalIdleReview | SupervisorRequestKind::GoalCompletionReview
+    ) {
+        return Ok(raw);
+    }
+    let Some(response @ SupervisorResponse::Continue { .. }) = parse_supervisor_response(request.kind, &raw) else {
+        return Ok(raw);
+    };
+    let SupervisorResponse::Continue { instructions, reason } = response else {
+        unreachable!()
+    };
+    if instructions == GENERIC_GOAL_CONTINUATION {
+        return Ok(raw);
+    }
+    let decision = (reviewer)(instructions.clone(), signal.clone()).await;
+    if signal.is_cancelled() {
+        return Err("Supervisor instruction review aborted".into());
+    }
+    let (feedback, details) = match decision {
+        Ok(Some(SupervisorInstructionReviewDecision::Accept)) => {
+            return serde_json::to_value(SupervisorResponse::Continue { instructions, reason })
+                .map_err(|error| error.to_string());
+        }
+        Ok(Some(rejection)) => (
+            supervisor_instruction_rejection_feedback(rejection).to_owned(),
+            json!({"reason":rejection}),
+        ),
+        Ok(None) => (
+            "Policy gate failure: invalid_response. Non-generic instructions were suppressed.".into(),
+            json!({"failure":"invalid_response"}),
+        ),
+        Err(_) => (
+            "Policy gate failure: evaluation_error. Non-generic instructions were suppressed.".into(),
+            json!({"failure":"evaluation_error"}),
+        ),
+    };
+    session.append_policy_feedback(feedback, details).await?;
+    serde_json::to_value(SupervisorResponse::Continue {
+        instructions: GENERIC_GOAL_CONTINUATION.into(),
+        reason,
     })
+    .map_err(|error| error.to_string())
+}
+
+fn supervisor_instruction_rejection_feedback(reason: SupervisorInstructionReviewDecision) -> &'static str {
+    use SupervisorInstructionReviewDecision::*;
+    match reason {
+        RejectTaskAssignment => {
+            "Policy rejection: task_assignment. Automatic goal reviews must not assign a tactical task."
+        }
+        RejectImplementationPrescription => {
+            "Policy rejection: implementation_prescription. Automatic goal reviews must not prescribe implementation details."
+        }
+        RejectSequencingInstruction => {
+            "Policy rejection: sequencing_instruction. Automatic goal reviews must not choose work order or next steps."
+        }
+        RejectAgentOrToolDirection => {
+            "Policy rejection: agent_or_tool_direction. Automatic goal reviews must not direct agents, tools, commands, or files."
+        }
+        RejectPlanOverride => {
+            "Policy rejection: plan_override. Automatic goal reviews must not replace or redirect the main agent's plan."
+        }
+        Accept => unreachable!("accepted instructions have no rejection feedback"),
+    }
 }
 
 async fn evaluate_supervisor_prompt(
@@ -599,6 +714,23 @@ pub async fn create_supervisor_session(
 }
 
 impl SupervisorSession for AgentSession {
+    fn append_policy_feedback(&self, content: String, details: Value) -> BoxFuture<'static, Result<(), String>> {
+        let session = self.clone();
+        Box::pin(async move {
+            session
+                .send_custom_message(
+                    "supervisor_policy_feedback",
+                    pi_agent_core::harness::messages::CustomMessageContent::Text(content),
+                    false,
+                    Some(details),
+                    false,
+                    None,
+                )
+                .await
+                .map_err(|error| error.message().into())
+        })
+    }
+
     fn abort(&self) -> BoxFuture<'static, Result<(), String>> {
         let session = self.clone();
         Box::pin(async move { session.abort().await.map_err(|error| error.message().to_owned()) })

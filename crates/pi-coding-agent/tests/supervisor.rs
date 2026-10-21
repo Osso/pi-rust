@@ -519,6 +519,34 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
     );
 }
 
+#[tokio::test]
+async fn non_generic_automatic_instructions_are_suppressed_without_a_valid_veto_decision() {
+    let (_temp, path) = fixture();
+    let id = post_request(&path, SupervisorRequestKind::GoalIdleReview);
+    let request = claim_next_supervisor_request(&path, "runtime").unwrap().unwrap();
+    let manager = Arc::new(Mutex::new(SessionManager::in_memory(None, None).unwrap()));
+    let session = Arc::new(SharedSession {
+        manager,
+        on_prompt: Box::new(|manager| {
+            manager
+                .append_message(tool_call_assistant(
+                    "supervisor_response",
+                    json!({"kind":"continue","reason":"missing proof","instructions":"Run command X"}),
+                    StopReason::ToolUse,
+                ))
+                .unwrap();
+        }),
+    });
+    process_supervisor_request(&path, request, session).await;
+    assert_eq!(
+        read_supervisor_request(&path, id).unwrap().unwrap().response,
+        Some(SupervisorResponse::Continue {
+            reason: "missing proof".into(),
+            instructions: "Continue working toward the active goal.".into()
+        })
+    );
+}
+
 #[test]
 fn structured_tool_calls_are_read_without_assistant_text() {
     let (_temp, control_db_path) = fixture();

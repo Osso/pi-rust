@@ -70,3 +70,5 @@ Frozen objective-authority prompt matrix: `differential_supervisor_service` (fiv
 Q16 cancellation tests: `cancelled_requests_abort_evaluation_without_completing_or_requeueing`, `evaluator_errors_propagate_without_completing_the_request` both failed before changes. Service cancellation now waits for evaluator settlement, replacing the old forced JoinHandle abort deviation.
 
 Q16 client: `supervisor_client` injects ensure-running fakes; pre-abort/startup error do not create a DB, polling abort cancels a claimed row without waiting for its 5-second poll. Existing durable-response/retry/suffix tests also use fakes. Callsite signal defaults are mechanical API integration, not cancellation coverage of those callers.
+
+Q16 veto: `non_generic_automatic_instructions_are_suppressed_without_a_valid_veto_decision` failed on stale behavior before implementation. Runtime session adapter persists hidden `supervisor_policy_feedback`; full decision/error/abort matrix pending.
