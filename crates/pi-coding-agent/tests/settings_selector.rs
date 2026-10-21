@@ -157,9 +157,8 @@ fn selector(config: SettingsConfig, recorder: Rc<Recorder>) -> SettingsSelectorC
 }
 
 fn type_label(component: &mut SettingsSelectorComponent, label: &str) {
-    for character in label.chars() {
-        component.handle_input(&character.to_string());
-    }
+    // Frozen SettingsList reserves a single Space for activation.
+    component.handle_input(&label.replace(' ', ""));
 }
 
 fn plain(component: &mut SettingsSelectorComponent) -> String {

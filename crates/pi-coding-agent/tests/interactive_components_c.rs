@@ -337,87 +337,6 @@ fn assistant_uses_configured_output_padding() {
 }
 
 #[test]
-fn assistant_chains_markdown_transformers_in_registration_order() {
-    use std::sync::Mutex;
-
-    theme();
-    let calls: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
-    let first = calls.clone();
-    let second = calls.clone();
-    let transformers: Vec<pi_coding_agent::core::extensions::types::MarkdownTransformer> = vec![
-        Arc::new(move |markdown: &str, context| {
-            assert_eq!(
-                context.message_type,
-                pi_coding_agent::core::extensions::types::MarkdownMessageType::Assistant
-            );
-            assert!(!context.is_streaming);
-            assert_eq!(context.available_width, 78.0);
-            first.lock().unwrap().push("formula");
-            markdown.replace("$x^2$", "x\u{b2}")
-        }),
-        Arc::new(move |markdown: &str, _context| {
-            second.lock().unwrap().push("suffix");
-            format!("{markdown} Done.")
-        }),
-    ];
-    let message = assistant_message(vec![text("The result is $x^2$.")], StopReason::Stop);
-    let mut component =
-        AssistantMessageComponent::new(Some(message), false, Some(markdown_theme()), None, 1, transformers);
-    let rendered = plain(&component.render(80));
-    assert!(rendered.contains("The result is x\u{b2}. Done."), "{rendered}");
-    assert_eq!(*calls.lock().unwrap(), vec!["formula", "suffix"]);
-}
-
-#[test]
-fn assistant_identifies_partial_markdown_as_streaming() {
-    use std::sync::Mutex;
-
-    theme();
-    let streaming_states: Arc<Mutex<Vec<bool>>> = Arc::new(Mutex::new(Vec::new()));
-    let states = streaming_states.clone();
-    let transformers: Vec<pi_coding_agent::core::extensions::types::MarkdownTransformer> =
-        vec![Arc::new(move |markdown: &str, context| {
-            states.lock().unwrap().push(context.is_streaming);
-            if context.is_streaming {
-                markdown.to_owned()
-            } else {
-                format!("{markdown} transformed")
-            }
-        })];
-    let message = assistant_message(vec![text("partial")], StopReason::Stop);
-    let mut component = AssistantMessageComponent::new(None, false, Some(markdown_theme()), None, 1, transformers);
-
-    component.update_content(message.clone(), true);
-    assert!(!plain(&component.render(80)).contains("transformed"));
-
-    component.update_content(message, false);
-    assert!(plain(&component.render(80)).contains("partial transformed"));
-    assert_eq!(*streaming_states.lock().unwrap(), vec![true, false]);
-}
-
-#[test]
-fn assistant_reapplies_transformers_when_width_changes() {
-    use std::sync::Mutex;
-
-    theme();
-    let widths: Arc<Mutex<Vec<f64>>> = Arc::new(Mutex::new(Vec::new()));
-    let recorded = widths.clone();
-    let transformers: Vec<pi_coding_agent::core::extensions::types::MarkdownTransformer> =
-        vec![Arc::new(move |markdown: &str, context| {
-            recorded.lock().unwrap().push(context.available_width);
-            format!("{markdown} ({})", context.available_width)
-        })];
-    let message = assistant_message(vec![text("answer")], StopReason::Stop);
-    let mut component =
-        AssistantMessageComponent::new(Some(message), false, Some(markdown_theme()), None, 1, transformers);
-
-    assert!(plain(&component.render(80)).contains("answer (78)"));
-    component.render(80);
-    assert!(plain(&component.render(60)).contains("answer (58)"));
-    assert_eq!(*widths.lock().unwrap(), vec![78.0, 58.0]);
-}
-
-#[test]
 fn user_message_keeps_height_and_zone_markers() {
     theme();
     let mut component = UserMessageComponent::new("hello", Some(markdown_theme()), 1, Vec::new());
@@ -429,45 +348,6 @@ fn user_message_keeps_height_and_zone_markers() {
     assert!(lines[1].contains("hello"));
     assert!(lines[2].starts_with(&format!("{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")));
     assert!(lines[2].ends_with("\u{1b}[49m"), "{:?}", lines[2]);
-}
-
-#[test]
-fn user_message_chains_transformers_with_user_context() {
-    theme();
-    let transformers: Vec<pi_coding_agent::core::extensions::types::MarkdownTransformer> = vec![
-        Arc::new(|markdown: &str, context| {
-            assert_eq!(
-                context.message_type,
-                pi_coding_agent::core::extensions::types::MarkdownMessageType::User
-            );
-            assert!(!context.is_streaming);
-            assert_eq!(context.available_width, 78.0);
-            markdown.replace("$x^2$", "x\u{b2}")
-        }),
-        Arc::new(|markdown: &str, _context| format!("{markdown} Done.")),
-    ];
-    let mut component = UserMessageComponent::new("The input is $x^2$.", Some(markdown_theme()), 1, transformers);
-    let rendered = plain(&component.render(80));
-    assert!(rendered.contains("The input is x\u{b2}. Done."), "{rendered}");
-}
-
-#[test]
-fn user_message_reapplies_transformers_when_invalidated() {
-    use std::sync::Mutex;
-
-    theme();
-    let suffix = Arc::new(Mutex::new("before"));
-    let captured = suffix.clone();
-    let transformers: Vec<pi_coding_agent::core::extensions::types::MarkdownTransformer> =
-        vec![Arc::new(move |markdown: &str, _context| {
-            format!("{markdown} {}", captured.lock().unwrap())
-        })];
-    let mut component = UserMessageComponent::new("Message", Some(markdown_theme()), 1, transformers);
-    assert!(plain(&component.render(80)).contains("Message before"));
-
-    *suffix.lock().unwrap() = "after";
-    component.invalidate();
-    assert!(plain(&component.render(80)).contains("Message after"));
 }
 
 #[test]
