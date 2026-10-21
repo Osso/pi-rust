@@ -5,7 +5,7 @@ use std::path::Path;
 
 use super::session_control_db::{read_session_metadata, relocate_and_archive_session, relocate_and_unarchive_session};
 use super::session_manager::SessionManagerError;
-use super::session_transcript::read_session_transcript_path;
+use super::session_transcript::{decode_session_zstd_bytes, read_session_transcript_path};
 
 pub const ARCHIVED_SESSION_SUFFIX: &str = ".zst";
 pub fn is_archived_session_file(path: &str) -> bool {
@@ -66,7 +66,7 @@ pub fn archive_session_file(path: &str) -> Result<String, SessionManagerError> {
     }
     let original = fs::read(path).map_err(error)?;
     let compressed = zstd::stream::encode_all(original.as_slice(), 0).map_err(error)?;
-    if zstd::stream::decode_all(compressed.as_slice()).map_err(error)? != original {
+    if decode_session_zstd_bytes(compressed.as_slice()).map_err(error)? != original {
         return Err(error(format!("Compressed session validation failed: {path}")));
     }
     replace_session_file(path, &archived, &compressed).map_err(error)?;
@@ -87,7 +87,7 @@ pub fn restore_archived_session_file(path: &str) -> Result<String, SessionManage
     if Path::new(&restored).exists() {
         return Err(error(format!("Restored session file already exists: {restored}")));
     }
-    let content = zstd::stream::decode_all(fs::read(path).map_err(error)?.as_slice()).map_err(error)?;
+    let content = decode_session_zstd_bytes(fs::read(path).map_err(error)?.as_slice()).map_err(error)?;
     replace_session_file(path, &restored, &content).map_err(error)?;
     Ok(restored)
 }
