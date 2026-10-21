@@ -29,6 +29,40 @@ fn fixture(name: &str) -> PathBuf {
     file
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn auth_heartbeat_permission_error_uses_auth_thirty_second_threshold() {
+    use std::os::unix::fs::PermissionsExt;
+    let file = fixture("transient-stat");
+    let parent = file.parent().unwrap().to_owned();
+    let backend = FileAuthStorageBackend::new(file.to_str().unwrap());
+    let result = backend
+        .with_lock_async(
+            Box::new(move |_| {
+                Box::pin(async move {
+                    let lock_path = parent.join("auth.json.lock");
+                    let before = fs::metadata(&lock_path).unwrap().modified().unwrap();
+                    fs::set_permissions(&parent, fs::Permissions::from_mode(0)).unwrap();
+                    // Owned inaccessible parent makes the first heartbeat stat fail, but it is not yet stale.
+                    tokio::time::sleep(Duration::from_millis(16_100)).await;
+                    fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+                    tokio::time::sleep(Duration::from_millis(1_100)).await;
+                    assert!(
+                        fs::metadata(&lock_path).unwrap().modified().unwrap() > before,
+                        "transient heartbeat must retry after 1s, not wait another 15s"
+                    );
+                    Ok(None)
+                })
+            }),
+            AuthOperationOptions::default(),
+        )
+        .await;
+    assert!(
+        result.is_ok(),
+        "transient error before auth stale deadline was compromised: {result:?}"
+    );
+}
+
 #[tokio::test]
 async fn compromised_callback_cannot_write_under_lost_lock() {
     let file = fixture("compromised");
