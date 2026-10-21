@@ -5,6 +5,57 @@ use pi_coding_agent::core::session_transcript::create_session_transcript_read_st
 use serde_json::{Value, json};
 use std::io::Read;
 
+fn approved_frozen_stderr() -> String {
+    let record: Value =
+        serde_json::from_str(include_str!("../../../docs/porting/deltas/transcript-stream.json")).unwrap();
+    record["frozen"]["normalizedStderr"].as_str().unwrap().to_owned()
+}
+
+// Only replace numeric locations in the node:events source header and Node-internal
+// stack frames. Preserve function/module names, punctuation (including ` {`), all
+// other lines, whitespace, and the final newline. No paths or versions are erased.
+fn normalize_frozen_stderr(stderr: &str) -> String {
+    let header = regex::Regex::new(r"(?m)^node:events:[0-9]+$").unwrap();
+    let frames = regex::Regex::new(r"(?m)^(    at [^\n]*\(node:[^()\n]+):[0-9]+:[0-9]+(\)(?: \{)?)$").unwrap();
+    let normalized_header = header.replace_all(stderr, "node:events:<line>");
+    frames
+        .replace_all(&normalized_header, "${1}:<line>:<column>${2}")
+        .into_owned()
+}
+
+#[test]
+fn stderr_normalizer_preserves_unrelated_errors() {
+    let stderr = r"node:events:505
+    throw er; // Unhandled 'error' event
+    ^
+
+Error: unexpected end of file
+    at genericNodeError (node:internal/errors:999:15)
+    at wrappedFn (node:internal/errors:544:14)
+    at ZstdDecompress.zlibOnError [as onerror] (node:zlib:210:13)
+Emitted 'error' event on ZstdDecompress instance at:
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  errno: -5,
+  code: 'Z_BUF_ERROR'
+}
+
+Node.js v26.11.1
+";
+    let approved = approved_frozen_stderr();
+    assert_eq!(normalize_frozen_stderr(stderr), approved);
+    let appended = format!("{stderr}Error: unrelated additional failure\n");
+    let normalized_appended = normalize_frozen_stderr(&appended);
+    assert_ne!(normalized_appended, approved);
+    assert_eq!(
+        normalized_appended,
+        format!("{approved}Error: unrelated additional failure\n")
+    );
+    let different_error = stderr.replace("unexpected end of file", "different failure");
+    assert_ne!(normalize_frozen_stderr(&different_error), approved);
+}
+
 fn source_stream(delta: bool) -> (tempfile::TempDir, String, Value) {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("truncated.jsonl.zst").display().to_string();
@@ -46,8 +97,6 @@ fn frozen_large_truncation_has_exact_approved_uncaught_error_discrepancy() {
     assert_eq!(response["signal"], Value::Null);
     assert_eq!(response["stdout"], "");
     let stderr = response["stderr"].as_str().unwrap();
-    assert!(stderr.contains("Unhandled 'error' event"), "{response}");
-    assert!(stderr.contains("Error: unexpected end of file"), "{response}");
-    assert!(stderr.contains("code: 'Z_BUF_ERROR'"), "{response}");
+    assert_eq!(normalize_frozen_stderr(stderr), approved_frozen_stderr(), "{response}");
     assert_native_stream_error(&path);
 }

@@ -5,7 +5,9 @@
     "exit": 1,
     "stdout": "",
     "unhandledError": "Z_BUF_ERROR",
-    "message": "unexpected end of file"
+    "message": "unexpected end of file",
+    "stderrNormalization": "Replace only lines matching (?m)^node:events:[0-9]+$ with node:events:<line>, and numeric line/column suffixes in lines matching (?m)^(    at [^\\n]*\\(node:[^()\\n]+):[0-9]+:[0-9]+(\\)(?: \\{)?)$ with ${1}:<line>:<column>${2}. Preserve all other bytes, including frame function/module names, braces, whitespace, final newline and Node version. No filesystem paths are present or normalized.",
+    "normalizedStderr": "node:events:<line>\n    throw er; // Unhandled 'error' event\n    ^\n\nError: unexpected end of file\n    at genericNodeError (node:internal/errors:<line>:<column>)\n    at wrappedFn (node:internal/errors:<line>:<column>)\n    at ZstdDecompress.zlibOnError [as onerror] (node:zlib:<line>:<column>)\nEmitted 'error' event on ZstdDecompress instance at:\n    at emitErrorNT (node:internal/streams/destroy:<line>:<column>)\n    at emitErrorCloseNT (node:internal/streams/destroy:<line>:<column>)\n    at process.processTicksAndRejections (node:internal/process/task_queues:<line>:<column>) {\n  errno: -5,\n  code: 'Z_BUF_ERROR'\n}\n\nNode.js v26.11.1\n"
   },
   "approved": {
     "exit": 0,
