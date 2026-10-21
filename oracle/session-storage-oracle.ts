@@ -10,7 +10,7 @@ const transcript = await import(pathToFileURL(join(root, "session-transcript.ts"
 const history = await import(pathToFileURL(join(root, "session-history.ts")).href);
 async function handle(r: any) {
  if (r.op === "create") {
-  const m = manager.SessionManager.create(r.cwd, r.dir);
+  const m = manager.SessionManager.create(r.cwd, r.dir, r.options);
   if(r.db)m.setMetadataControlDbPath(r.db);
   const first=m.appendMessage({role:"user",content:r.text ?? "hello 😀漢字",timestamp:1}, r.refs);
   if(r.compacted||r.branched){

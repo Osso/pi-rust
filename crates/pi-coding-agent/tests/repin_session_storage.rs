@@ -885,3 +885,41 @@ fn frozen_storage_suffix_noops_missing_and_metadata_surviving_plain_branches() {
     assert!(!std::path::Path::new(archive).exists());
     assert_eq!(restore_archived_session_file(archive).unwrap(), path);
 }
+
+#[test]
+fn metadata_filtered_empty_does_not_fall_back_or_cache_unindexed_files() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let known = tmp.path().join("known").display().to_string();
+    let other = tmp.path().join("other").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    call(&mut ts, json!({"op":"create","dir":known,"cwd":known,"db":db}));
+    let unindexed = call(&mut ts, json!({"op":"create","dir":other,"cwd":other}));
+    assert_eq!(
+        call(&mut ts, json!({"op":"list","dir":other,"cwd":other,"db":db})),
+        json!([])
+    );
+    let listed = SessionManager::list(&other, Some(&other), None, Some(&db)).unwrap();
+    assert!(
+        listed.is_empty(),
+        "nonempty metadata table with empty scoped result must suppress filesystem discovery"
+    );
+    assert_eq!(
+        call(&mut ts, json!({"op":"metadata","db":db,"path":unindexed["path"]})),
+        Value::Null
+    );
+}
+#[test]
+fn resident_sessions_are_excluded_from_ordinary_filesystem_listing() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"options":{"id":"supervisor"}}),
+    );
+    assert_eq!(call(&mut ts, json!({"op":"list","dir":dir,"cwd":dir})), json!([]));
+    assert!(SessionManager::list(&dir, Some(&dir), None, None).unwrap().is_empty());
+}
