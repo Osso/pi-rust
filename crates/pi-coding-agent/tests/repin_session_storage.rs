@@ -44,7 +44,7 @@ fn frozen_archive_stale_path_never_allocates_identity_or_masks_history() {
         read_session_header(path).map(|h| h.id),
         Some(created["id"].as_str().unwrap().to_owned())
     );
-    assert!(!load_entries_from_file(path).is_empty());
+    assert!(!load_entries_from_file(path).unwrap().is_empty());
     assert!(SessionManager::open(path, None, None).is_err());
     assert!(!std::path::Path::new(path).exists());
     assert_eq!(call(&mut ts, json!({"op":"read","path":archived})), before);
@@ -394,4 +394,30 @@ fn storage_worker_hard90second_timeout_kills_and_reaps_before_cleanup() {
             assert!(!String::from_utf8_lossy(&cmdline).contains("--internal-session-transcript-spool"));
         }
     }
+}
+
+#[test]
+fn fallible_full_loader_and_context_match_frozen_archive_preconditions() {
+    use pi_coding_agent::core::session_manager::load_session_context_entries;
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(&mut ts, json!({"op":"create","dir":dir,"cwd":dir,"compacted":true}));
+    let path = created["path"].as_str().unwrap();
+    let archive = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
+    let expected = call(&mut ts, json!({"op":"context","path":archive}));
+    let loaded = load_session_context_entries(archive.as_str().unwrap()).unwrap();
+    assert_eq!(serde_json::to_value(loaded.header).unwrap(), expected["header"]);
+    assert_eq!(serde_json::to_value(loaded.entries).unwrap(), expected["entries"]);
+    assert_eq!(ts.request(&json!({"id":1,"op":"context","path":path}))["ok"], false);
+    assert!(load_session_context_entries(path).is_err());
+    assert_eq!(
+        serde_json::to_value(load_entries_from_file(path).unwrap()).unwrap(),
+        call(&mut ts, json!({"op":"load","path":path}))
+    );
+    std::fs::write(archive.as_str().unwrap(), [0, 1, 2, 3]).unwrap();
+    assert_eq!(ts.request(&json!({"id":1,"op":"load","path":path}))["ok"], false);
+    assert!(load_entries_from_file(path).is_err());
 }

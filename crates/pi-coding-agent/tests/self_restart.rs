@@ -147,7 +147,7 @@ fn appends_a_restarted_notice_with_the_current_pid_after_an_exec_in_place_restar
     )
     .expect("notice");
     flush_session(&mut session);
-    let entries = load_entries_from_file(session.get_session_file().expect("session file"));
+    let entries = load_entries_from_file(session.get_session_file().expect("session file")).unwrap();
     let message = custom_message(&entries);
     assert_eq!(message.custom_type, "self_restart");
     assert_eq!(
@@ -173,7 +173,7 @@ fn appends_a_restarted_notice_with_the_old_and_new_pid_after_a_spawn_handoff() {
     )
     .expect("notice");
     flush_session(&mut session);
-    let entries = load_entries_from_file(session.get_session_file().expect("session file"));
+    let entries = load_entries_from_file(session.get_session_file().expect("session file")).unwrap();
     let message = custom_message(&entries);
     assert_eq!(
         message.content,
@@ -195,7 +195,7 @@ fn skips_the_notice_without_a_prompt() {
         std::process::id(),
     )
     .expect("notice");
-    let entries = load_entries_from_file(session.get_session_file().expect("session file"));
+    let entries = load_entries_from_file(session.get_session_file().expect("session file")).unwrap();
     assert!(!entries.iter().any(|entry| {
         entry
             .entry()

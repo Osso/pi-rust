@@ -367,19 +367,31 @@ fn unknown_leaf_falls_back_to_last_entry_and_orphans_stop_walking() {
 fn reads_files_and_headers() {
     let dir = temp_dir("session-read");
     let missing = dir.join("nonexistent.jsonl");
-    assert!(load_entries_from_file(&missing.display().to_string()).is_empty());
+    assert!(
+        load_entries_from_file(&missing.display().to_string())
+            .unwrap()
+            .is_empty()
+    );
 
     let empty = dir.join("empty.jsonl");
     fs::write(&empty, "").unwrap();
-    assert!(load_entries_from_file(&empty.display().to_string()).is_empty());
+    assert!(load_entries_from_file(&empty.display().to_string()).unwrap().is_empty());
 
     let no_header = dir.join("no-header.jsonl");
     fs::write(&no_header, "{\"type\":\"message\",\"id\":\"1\"}\n").unwrap();
-    assert!(load_entries_from_file(&no_header.display().to_string()).is_empty());
+    assert!(
+        load_entries_from_file(&no_header.display().to_string())
+            .unwrap()
+            .is_empty()
+    );
 
     let malformed = dir.join("malformed.jsonl");
     fs::write(&malformed, "not json\n").unwrap();
-    assert!(load_entries_from_file(&malformed.display().to_string()).is_empty());
+    assert!(
+        load_entries_from_file(&malformed.display().to_string())
+            .unwrap()
+            .is_empty()
+    );
 
     let valid = dir.join("valid.jsonl");
     fs::write(
@@ -388,7 +400,7 @@ fn reads_files_and_headers() {
          {\"type\":\"message\",\"id\":\"1\",\"parentId\":null,\"timestamp\":\"2025-01-01T00:00:01Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"timestamp\":1}}\n",
     )
     .unwrap();
-    let entries = load_entries_from_file(&valid.display().to_string());
+    let entries = load_entries_from_file(&valid.display().to_string()).unwrap();
     assert_eq!(entries.len(), 2);
     assert_eq!(read_session_header(&valid.display().to_string()).unwrap().id, "abc");
 
@@ -400,7 +412,7 @@ fn reads_files_and_headers() {
          {\"type\":\"message\",\"id\":\"1\",\"parentId\":null,\"timestamp\":\"2025-01-01T00:00:01Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"timestamp\":1}}\n",
     )
     .unwrap();
-    assert_eq!(load_entries_from_file(&mixed.display().to_string()).len(), 2);
+    assert_eq!(load_entries_from_file(&mixed.display().to_string()).unwrap().len(), 2);
 
     let header = dir.join("header.jsonl");
     fs::write(

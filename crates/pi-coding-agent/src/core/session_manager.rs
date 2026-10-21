@@ -31,9 +31,7 @@ use crate::core::session_control_db::{
     write_session_thinking_level,
 };
 use crate::core::session_tool_output::serialize_session_entry_for_persistence;
-use crate::core::session_transcript::{
-    create_session_transcript_read_stream, read_session_transcript_bytes, read_session_transcript_path,
-};
+use crate::core::session_transcript::{create_session_transcript_read_stream, read_session_transcript_path};
 use crate::utils::iso_time;
 use crate::utils::paths::{PathInputOptions, normalize_path, process_cwd, resolve_path};
 
@@ -1241,24 +1239,56 @@ fn decode_utf8_lossy(bytes: &[u8]) -> String {
 }
 
 /// Load every entry from a session file, skipping malformed lines.
-pub fn load_entries_from_file(file_path: &str) -> Vec<FileEntry> {
-    let Ok(resolved_path) = normalize(file_path) else {
-        return Vec::new();
-    };
-    let Ok(bytes) = read_session_transcript_bytes(&resolved_path) else {
-        return Vec::new();
-    };
-
-    let content = decode_utf8_lossy(&bytes);
-    let entries: Vec<FileEntry> = content.split('\n').filter_map(parse_session_entry_line).collect();
-
-    let Some(first) = entries.first() else {
-        return entries;
-    };
-    match first {
-        FileEntry::Header(header) if !header.id.is_empty() => entries,
-        _ => Vec::new(),
+pub fn load_entries_from_file(file_path: &str) -> Result<Vec<FileEntry>, SessionManagerError> {
+    let source = read_session_transcript_path(&normalize(file_path)?);
+    if !Path::new(&source).exists() {
+        return Ok(Vec::new());
     }
+    super::session_transcript_spool::with_seekable_session_transcript(&source, |plain| {
+        let file = File::open(plain).map_err(control_db_error)?;
+        let mut entries = Vec::new();
+        for line in BufReader::with_capacity(SESSION_READ_BUFFER_SIZE, file).split(b'\n') {
+            let line = line.map_err(control_db_error)?;
+            if let Some(entry) = parse_session_entry_line(&decode_utf8_lossy(&line)) {
+                entries.push(entry);
+            }
+        }
+        if entries.first().is_some_and(|e| !matches!(e, FileEntry::Header(_))) {
+            entries.clear();
+        }
+        Ok(entries)
+    })
+}
+
+pub struct LoadedSessionContextEntries {
+    pub header: SessionHeader,
+    pub entries: Vec<SessionEntry>,
+}
+/// Current context projection; source requires an existing actual filename here.
+pub fn load_session_context_entries(file_path: &str) -> Result<LoadedSessionContextEntries, SessionManagerError> {
+    let source = resolve(file_path)?;
+    if !Path::new(&source).exists() {
+        return Err(error(format!("Session file does not exist: {source}")));
+    }
+    let mut loaded = load_session_file_entries(&source)?.file_entries;
+    if !matches!(loaded.first(), Some(FileEntry::Header(_))) {
+        return Err(error(format!("Session file has no valid header: {source}")));
+    }
+    migrate_to_current_version(&mut loaded);
+    let FileEntry::Header(header) = loaded.remove(0) else {
+        unreachable!("validated header");
+    };
+    let entries = loaded
+        .into_iter()
+        .filter_map(|e| match e {
+            FileEntry::Entry(entry) => Some(entry),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    Ok(LoadedSessionContextEntries {
+        header,
+        entries: build_context_entries(&entries, LeafSelection::Last),
+    })
 }
 
 fn read_first_line(file_path: &str) -> Option<String> {
@@ -1564,7 +1594,7 @@ fn load_current_version_entries_from_file(
             .len();
         let Some(loaded) = read_current_version_session_entries(&mut file, file_size, file_path)? else {
             return Ok(LoadedCurrentVersionSession {
-                file_entries: load_entries_from_file(plain),
+                file_entries: load_entries_from_file(plain)?,
                 preceding_cwd: None,
             });
         };
@@ -1586,7 +1616,7 @@ fn load_session_file_entries(file_path: &str) -> Result<LoadedCurrentVersionSess
             return load_current_version_entries_from_file(plain, header);
         }
         Ok(LoadedCurrentVersionSession {
-            file_entries: load_entries_from_file(plain),
+            file_entries: load_entries_from_file(plain)?,
             preceding_cwd: None,
         })
     })

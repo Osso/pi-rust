@@ -283,7 +283,7 @@ fn reads_files_and_headers_identically() {
 
     let response = oracle
         .request(&json!({"id": REQUEST_BASE + 10, "operation": "load_entries", "path": file.display().to_string()}));
-    let loaded = load_entries_from_file(&file.display().to_string());
+    let loaded = load_entries_from_file(&file.display().to_string()).unwrap();
     let rust_entries: Vec<Value> = loaded
         .iter()
         .map(|entry| serde_json::to_value(entry).unwrap())
