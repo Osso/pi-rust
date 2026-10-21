@@ -10,4 +10,6 @@ Source: `packages/ai/src/models.generated.ts` and its 36 imported `providers/*.m
 
 Staged dependency: timestamp API remains solely because `pi-coding-agent/src/core/model_runtime.rs` imports/calls it. Provenance contains no `generatedAt`, so it returns None. Old generator/checker APIs retain their old grouped-data contracts and are not ported or accepted by this slice. No image catalog changes.
 
+Artifact-deletion coupling: builtin provider factory ID/order inventory must match the 36 entries of frozen `providers/all.ts`, including Team, with old-only entries removed. A separate actual-source oracle checks only this inventory; factory/protocol/auth and mutable helper alias parity remain TODO.
+
 Proof: [traceability](../porting/traceability/providers-models.md). Targeted development proof only; workspace gates belong to integration.

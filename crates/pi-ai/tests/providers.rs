@@ -51,7 +51,6 @@ fn builtin_provider_order_matches_all_ts() {
             "amazon-bedrock",
             "ant-ling",
             "anthropic",
-            "baseten",
             "cerebras",
             "cloudflare-ai-gateway",
             "cloudflare-workers-ai",
@@ -72,13 +71,10 @@ fn builtin_provider_order_matches_all_ts() {
             "openai",
             "openai-codex",
             "openai-codex-gc",
+            "openai-codex-team",
             "opencode",
             "opencode-go",
             "openrouter",
-            "qwen-token-plan",
-            "qwen-token-plan-cn",
-            "qwen-token-plan-individual",
-            "radius",
             "together",
             "vercel-ai-gateway",
             "xai",
@@ -90,8 +86,7 @@ fn builtin_provider_order_matches_all_ts() {
             "zai-coding-cn",
         ]
     );
-    // `azure-openai-responses` has a catalog entry and factory but is not built in.
-    assert!(get_builtin_providers().iter().any(|id| id == "azure-openai-responses"));
+    assert!(!get_builtin_providers().iter().any(|id| id == "azure-openai-responses"));
 }
 
 #[test]
@@ -460,7 +455,7 @@ fn builtin_models_registers_every_builtin_provider_with_models() {
 #[test]
 fn catalog_keeps_ts_generated_order_and_metadata() {
     let anthropic = get_builtin_models("anthropic");
-    assert_eq!(anthropic.len(), 17);
+    assert_eq!(anthropic.len(), 19);
     assert_eq!(anthropic[0].id, "claude-fable-5");
 
     let openai = get_builtin_model("openai", "gpt-4o").expect("gpt-4o");
@@ -519,10 +514,7 @@ fn catalog_keeps_ts_generated_order_and_metadata() {
     assert_eq!(together.context_window, 1048576.0);
     assert_eq!(together.max_tokens, 131072.0);
 
-    let baseten = get_builtin_model("baseten", "zai-org/GLM-5.2").expect("baseten glm");
-    assert_eq!(baseten.base_url, "https://inference.baseten.co/v1");
-    assert_eq!(baseten.context_window, 1048576.0);
-    assert_eq!(baseten.max_tokens, 262144.0);
+    assert!(get_builtin_model("baseten", "zai-org/GLM-5.2").is_none());
 
     let bedrock_ids: Vec<String> = get_builtin_models("amazon-bedrock")
         .into_iter()
