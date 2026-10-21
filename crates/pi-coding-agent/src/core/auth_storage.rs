@@ -964,10 +964,14 @@ impl CredentialStore for ReadOnlyAuthStorage {
     }
 }
 pub fn read_stored_credential(id: &str, path: Option<&str>) -> Option<Credential> {
-    AuthStorage::create(path)
-        .get(id)
-        .as_ref()
-        .and_then(|v| to_credential(v).ok())
+    let path = path
+        .map(str::to_owned)
+        .unwrap_or_else(|| default_auth_path().display().to_string());
+    let path = normalize_path(&path, &Default::default()).unwrap_or(path);
+    let content = std::fs::read_to_string(path).ok()?;
+    let data = parse_auth_data(Some(&content)).ok()?;
+    data.get(&JsString::from(id))
+        .and_then(|value| to_credential(value).ok())
 }
 pub fn ordered_provider_ids(data: &AuthStorageData) -> Vec<JsString> {
     js_json::object_entries_lossless(data)

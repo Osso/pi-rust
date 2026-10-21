@@ -133,3 +133,17 @@ async fn touched_refresh_and_public_roundtrip_match_ts_without_surrogate_replace
     assert_eq!(js_json::stringify_lossless(&storage.get("fake").unwrap()), updated);
     unregister_oauth_provider("fake");
 }
+
+#[test]
+fn one_off_stored_read_never_creates_missing_auth_files() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("not-created/auth.json");
+    assert_eq!(
+        pi_coding_agent::core::auth_storage::read_stored_credential("fake", Some(path.to_str().unwrap())),
+        None
+    );
+    assert!(
+        !path.parent().unwrap().exists(),
+        "one-off read must not create auth state"
+    );
+}
