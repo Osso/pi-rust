@@ -58,14 +58,14 @@ Renewed focused proof at `a95ac55c`: nine tests across cli/frame_whitespace/radi
 
 ## Integrated verifier-fix acceptance (2026-10-21)
 
-`master` `166eac08` merged branch-locally as `0ca61cfd`; sole conflict was the coverage count header. All 686 rows verified as the parent union, frozen 13-module bytes and every locked delta HEAD/SHA256 verified, orchestrator production bytes unchanged by merge. No source conflict or canonical merge.
+Master snapshots `166eac08` and then `65c7acce` (concurrent TUI integration) merged branch-locally as `0ca61cfd` and `11d2a7ad`. Each sole conflict was the coverage count header; every one of 686 rows verified as the three-way parent union. Frozen 13-module bytes and every locked delta HEAD/SHA256 verified; orchestrator production bytes unchanged by either merge. No source conflict, push or canonical merge.
 
-| Current proof scope | Result | Artifact under `/tmp/pi-rust-repin-orchestrator-fixes` |
+| Current proof scope at 11d2a7ad | Result | Artifact under `/tmp/pi-rust-repin-orchestrator-fixes` |
 | --- | --- | --- |
-| `cargo test -p pi-orchestrator` at 0ca61cfd | 56 passed; subsequent test-only lint changes covered by replacement targets below | final-orchestrator.log |
-| Replacement frame_whitespace/radius at e8cba5dc; errors at d4a43a60; ipc at 1db1081b | 7 + 7 + 8 passed; all other prior tests remain current | final-affected-tests.log, final-errors.log, final-ipc.log |
-| `cargo test -p pi-js-compat --test node_fs_errors` | 6 passed; unchanged scope | final-node-fs.log |
-| `cargo check --workspace --all-targets` at 1db1081b | exit0, zero warnings | final-workspace-check-passing.log |
-| `cargo clippy -p pi-orchestrator -p pi-js-compat -j4 --all-targets -- -D warnings` at 1db1081b | exit0, zero warnings | final-clippy-passing.log |
+| `cargo test -p pi-orchestrator` | 56 passed, zero failed/ignored | latest-orchestrator.log |
+| `cargo test -p pi-js-compat --test node_fs_errors` | 6 passed; scope unchanged by TUI merge, retained proof at 0ca61cfd | final-node-fs.log |
+| `cargo check --workspace --all-targets` | exit0, zero warnings | latest-workspace-check.log |
+| `cargo clippy -p pi-orchestrator -p pi-js-compat -j4 --all-targets -- -D warnings` | exit0, zero warnings | latest-clippy.log |
+| `cargo fmt --all --check` | exit0 before final documentation commit | latest-handoff-fmt.log |
 
-Formatting passes before each commit. All Cargo commands use jobs4/offline/worktree target; test binaries use the mandatory sandbox runner. Detailed command/revision/invalidation ledger: `proof-ledger.md` in that artifact directory. No independent verifier/delegation, network, push or canonical merge. Coverage remains 5 done / 8 partial; this does not close named parity gaps.
+The TUI dependency changes invalidate earlier consumer proof, justifying the final test/check/clippy rerun. Shared node_fs scope is unchanged; its passing proof is retained. All commands use jobs4/offline/worktree target; test binaries use mandatory sandbox runner. Detailed command/revision/invalidation ledger: `proof-ledger.md` in that artifact directory. No independent verifier/delegation or network. Coverage remains 5 done / 8 partial; this does not close named parity gaps.
