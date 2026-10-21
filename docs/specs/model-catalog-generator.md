@@ -5,7 +5,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 ## What it must do
 
 - [x] Reject wrong copied Model field types at actual artifact emission, including JSON-only, outside fetch catches and after existing staged validators; validate only emitted data-only subsets. No added finite/range/domain limits.
-- [x] Reject malformed consumed models.dev provider/model/cost/tier/modalities/reasoning receivers at their use points with native TypeErrors; preserve filters, defaults, unknown strings, unused controls and deferred outer reasoning failures. Remaining response/metadata branches stay partial (approved “Reject wrong field types (Recommended)”, 2026-10-20).
+- [x] Reject malformed consumed provider/model/cost/tier/modalities/reasoning/filter/routing receivers at their use points with native TypeErrors; reject missing required reasoning-option type/effort values only when consumed. Preserve filters, defaults, unknown strings, unused controls and deferred outer reasoning failures (approved “Reject wrong field types (Recommended)”, 2026-10-20). Copied fields retain the emission boundary above, including defaults and overrides; raw OpenRouter numeric parsing and metadata cache comparisons retain source coercions.
 - [x] Consume shared native HTTP error name/message/cause without string parsing; preserve top-level fetch-failed/body-terminated identity and fetch strict/default catch behavior. Native cause diagnostics remain sanitized (approved “Allow native causes (Recommended)”, 2026-10-20).
 
 - [x] Preserve models.dev plain costs and context-sized pricing tiers.
@@ -57,16 +57,17 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/tests/model_catalog_generator_options.rs`: source flags and validation ordering.
 - `crates/pi-ai/tests/model_catalog_generator_raw.rs`: distinct UTF-16 provider keys/names; malformed-type policy is tested in receiver fixtures.
 - `crates/pi-ai/tests/model_catalog_generator_receivers.rs`: approved native receiver errors, source short-circuits and deferred reasoning failure order.
+- `crates/pi-ai/tests/model_catalog_generator_consumed.rs`, `model_catalog_generator_consumed_order.rs`, `model_catalog_generator_required_controls.rs`: all-provider reasoning rejection, filter/routing/collection errors, required controls, fetch discard/order, ignored fields and preserved copied-field boundary.
 - `crates/pi-ai/tests/model_catalog_generator_metadata.rs`: 675 merged-model cases against original source metadata mutations.
 - `crates/pi-ai/tests/model_catalog_generator_models_dev.rs`: all-provider pipeline with independently mocked models.dev/NVIDIA responses.
 - `crates/pi-ai/tests/model_catalog_generator_workflow.rs`: full source module workflow with fixture HTTP and sandboxed temporary filesystem.
 - `crates/pi-ai/tests/model_catalog_generator_artifacts.rs`: source/native artifact bytes, manifests, include-table preservation, compiled fixture inclusion and current embedded values.
 
-## Known gaps (current cycle)
+## Closed acceptance boundaries
 
 - [x] Close identified URL-only custom-provider routing, empty-compat omission and actual deleted-CWD CLI proof boundaries; source-region/test map records scope.
 - [x] Reuse integrated native model-data validators, manifests and shared provider-structure reader.
-- [ ] Independent module acceptance/coverage promotion (parent-owned); no new schema or helper audit implied.
+- [x] Complete consumed-field matrix and validation proof; promote coverage under the completion brief. Targeted proof does not imply workspace checks or a live catalog refresh.
 
 ## Out of scope
 
