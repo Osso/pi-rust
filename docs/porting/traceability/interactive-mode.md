@@ -283,6 +283,32 @@ reloads, and the extension autocomplete/editor factories.
 `main_interactive` drives `/share` dispatch through the real binary under a
 pty with a fake `gh` on `PATH`.
 
+## Startup extension inventory lock regression
+
+`show_loaded_resources` copies `path` and `source_info` through one registration
+guard. Two `extension.read()` temporaries in the same tuple retain the first
+mutex guard while acquiring the second, blocking the UI thread in `init`.
+Pinned TS `interactive-mode.ts:2158–2166` directly reads both fields; it does
+not block or require a test-only startup bypass.
+
+Introduced by `ea57863f`, first merged to master in `04f51bab`: all three tests
+below pass at its first parent `5d2454df` and time out at that merge. Temporary
+instrumentation at `b5cfa925` reaches the path read, then blocks acquiring
+`source_info` in each case. Regression proofs drive the real capture-terminal
+startup, then custom-entry rendering or command restart:
+
+| Capability | Behavioral proof |
+| --- | --- |
+| Startup with a visible extension lists its path | `ui_tests::entry_appended_renders_registered_custom_entries` (also asserts rendered resource inventory) |
+| Live custom entries render after startup | `ui_tests::entry_appended_renders_registered_custom_entries` |
+| Persisted custom entries replay after startup | `ui_tests::render_session_entries_renders_persisted_custom_entries` |
+| Extension restart reaches process restarter and propagates failure | `ui_tests::command_restart_always_restarts_the_process_and_propagates_errors` |
+
+Same-receiver repeated-read audit found no other overlapping tuple reads in
+production Rust. Resource-loader filter reads end before loop-body reads;
+runner candidates are separate functions. No fixture bypass, source semantic
+deviation, or new gap.
+
 ## v15 name paths (approved 2026-10-20)
 
 `c248b0067` name-only changes: selector ordering uses each loaded metadata-backed `SessionInfo.name`,

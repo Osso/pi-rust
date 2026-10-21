@@ -5317,10 +5317,8 @@ impl InteractiveMode {
                 .iter()
                 .filter(|extension| extension.read().hidden != Some(true))
                 .map(|extension| {
-                    (
-                        extension.read().path.clone(),
-                        Some(extension.read().source_info.clone()),
-                    )
+                    let registration = extension.read();
+                    (registration.path.clone(), Some(registration.source_info.clone()))
                 })
                 .collect();
             if !listed_extensions.is_empty() {
@@ -14649,6 +14647,8 @@ mod ui_tests {
             .run_until(async {
                 let (mode, _terminal, _faux, _temp) = build_mode_with_custom_entry_renderer().await;
                 let _events = start(&mode).await;
+                let resources = mode.loaded_resources_container.borrow_mut().render(80).join("\n");
+                assert!(resources.contains("test-extension"), "{resources}");
                 mode.handle_event(AgentSessionEvent::EntryAppended(
                     crate::core::agent_session::EntryAppendedEvent {
                         event_type: "entry_appended",
