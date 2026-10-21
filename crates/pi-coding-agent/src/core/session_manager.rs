@@ -519,12 +519,59 @@ impl Serialize for KnownSessionEntry {
     }
 }
 
+/// An untyped record awaiting migration or an unknown entry shape. Ordinary
+/// fields remain editable by legacy ID/role migration; wire-only fields bypass Value.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct UnknownSessionEntry {
+    fields: Map<String, Value>,
+    mailbox_store_refs: Option<PersistedJsonValue>,
+    summary_extra: PersistedJsonObject,
+}
+
+impl From<Map<String, Value>> for UnknownSessionEntry {
+    fn from(fields: Map<String, Value>) -> Self {
+        Self {
+            fields,
+            ..Self::default()
+        }
+    }
+}
+impl std::ops::Deref for UnknownSessionEntry {
+    type Target = Map<String, Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.fields
+    }
+}
+impl std::ops::DerefMut for UnknownSessionEntry {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.fields
+    }
+}
+impl<'de> Deserialize<'de> for UnknownSessionEntry {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Map::<String, Value>::deserialize(deserializer).map(Self::from)
+    }
+}
+impl Serialize for UnknownSessionEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut object = pi_js_compat::js_json::JsObject::new();
+        for (key, value) in &self.fields {
+            object.insert(key.as_str().into(), pi_js_compat::js_json::JsValue::from(value));
+        }
+        if let Some(receipt) = &self.mailbox_store_refs {
+            object.insert("mailboxStoreRefs".into(), receipt.0.clone());
+        }
+        object.extend(self.summary_extra.0.clone());
+        serialize_lossless(&pi_js_compat::js_json::JsValue::Object(object), serializer)
+    }
+}
+
 /// One session entry. Unknown `type` values are preserved as raw JSON objects.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SessionEntry {
     Known(KnownSessionEntry),
-    Unknown(Map<String, Value>),
+    Unknown(UnknownSessionEntry),
 }
 
 impl SessionEntry {
@@ -532,11 +579,11 @@ impl SessionEntry {
         match serde_json::from_value::<KnownSessionEntry>(value.clone()) {
             Ok(entry) => Self::Known(entry),
             Err(_) => match value {
-                Value::Object(object) => Self::Unknown(object),
+                Value::Object(object) => Self::Unknown(object.into()),
                 other => {
                     let mut object = Map::new();
                     object.insert("value".to_owned(), other);
-                    Self::Unknown(object)
+                    Self::Unknown(object.into())
                 }
             },
         }
@@ -923,7 +970,8 @@ pub fn migrate_to_current_version(entries: &mut [FileEntry]) -> bool {
     // Reify those records before typed context projection, never on disk here.
     for entry in entries {
         if let FileEntry::Entry(SessionEntry::Unknown(object)) = entry {
-            *entry = FileEntry::Entry(SessionEntry::from_value(Value::Object(object.clone())));
+            let serialized = serde_json::to_string(object).expect("untyped session record serialization must succeed");
+            *entry = parse_session_file_entry(&serialized).expect("migrated session record must remain valid JSON");
         }
     }
     true
@@ -1430,13 +1478,18 @@ pub(crate) fn parse_session_file_entry(line: &str) -> Result<FileEntry, SessionM
     }
     let typed: Value = serde_json::from_str(&stringify_lossless(&value)).map_err(control_db_error)?;
     let mut entry = parse_file_entry_value(typed);
-    if let FileEntry::Entry(SessionEntry::Known(known)) = &mut entry {
-        match known {
+    match &mut entry {
+        FileEntry::Entry(SessionEntry::Known(known)) => match known {
             KnownSessionEntry::Message(entry) => entry.mailbox_store_refs = receipt,
             KnownSessionEntry::Compaction(entry) => entry.extra = PersistedJsonObject(extra),
             KnownSessionEntry::BranchSummary(entry) => entry.extra = PersistedJsonObject(extra),
             _ => {}
+        },
+        FileEntry::Entry(SessionEntry::Unknown(unknown)) => {
+            unknown.mailbox_store_refs = receipt;
+            unknown.summary_extra = PersistedJsonObject(extra);
         }
+        FileEntry::Header(_) => {}
     }
     Ok(entry)
 }

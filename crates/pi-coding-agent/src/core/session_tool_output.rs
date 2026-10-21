@@ -349,7 +349,7 @@ fn read_session_file_for_migration(file_path: &str) -> SessionFileParseResult {
         match serde_json::from_str::<Value>(line) {
             Ok(value) => entries.push(
                 serde_json::from_value::<FileEntry>(value)
-                    .unwrap_or_else(|_| FileEntry::Entry(SessionEntry::Unknown(serde_json::Map::new()))),
+                    .unwrap_or_else(|_| FileEntry::Entry(SessionEntry::Unknown(serde_json::Map::new().into()))),
             ),
             Err(_) => return SessionFileParseResult::Malformed,
         }
