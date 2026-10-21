@@ -329,9 +329,37 @@ async fn polling_claims_mailbox_messages_only_after_listener_binding() {
     env.faux.set_responses(vec![
         faux_assistant_message("mailbox reply", FauxAssistantMessageOptions::default()).into(),
     ]);
-    let expected_prompt = format_runtime_mailbox_prompt(&message, &session_id(&env));
+    let second_id = enqueue_stored_message(&env, "Second distinct message", "runtime_test_poll_second", None);
+    let second = read_runtime_mailbox_message(&env.control_db, second_id)
+        .expect("read second")
+        .expect("second");
+    let expected_prompt = format!(
+        "{}\n\n{}",
+        format_runtime_mailbox_prompt(&message, &session_id(&env)),
+        format_runtime_mailbox_prompt(&second, &session_id(&env))
+    );
     advance(30_000).await;
     assert_eq!(user_texts(&env.session), vec![expected_prompt]);
+    let accepted = pi_coding_agent::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs(Some(
+        &session_path(&env),
+    ))
+    .expect("receipt refs");
+    assert_eq!(accepted.len(), 2, "both distinct messages must have durable receipts");
+    let transcript = std::fs::read_to_string(session_path(&env)).expect("transcript");
+    let user_records = transcript
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("record"))
+        .filter(|entry| entry["type"] == "message" && entry["message"]["role"] == "user")
+        .count();
+    assert_eq!(
+        user_records, 1,
+        "accepted prompt must not be appended again at MessageEnd"
+    );
+    assert!(
+        read_runtime_mailbox_message(&env.control_db, second_id)
+            .expect("second removed")
+            .is_none()
+    );
     // Frozen session-control-db.ts:1092-1101 deletes delivered canonical rows.
     assert!(
         read_runtime_mailbox_message(&env.control_db, message_id)
@@ -446,7 +474,7 @@ async fn steering_delivery_marks_the_store_message_and_completes_the_agent() {
     let AgentSteeringRequestResult::Ok { message, .. } = steered else {
         panic!("steering rejected: {steered:?}");
     };
-    let transport_id = enqueue_steering_transport(&env, &message.id, "agent_1");
+    enqueue_steering_transport(&env, &message.id, "agent_1");
     env.faux.set_responses(vec![
         faux_assistant_message("initial reply", FauxAssistantMessageOptions::default()).into(),
         faux_assistant_message("steer done", FauxAssistantMessageOptions::default()).into(),
@@ -457,11 +485,16 @@ async fn steering_delivery_marks_the_store_message_and_completes_the_agent() {
         .await
         .expect("prompt");
 
-    // Frozen session-control-db.ts:1092-1101 deletes delivered canonical rows.
+    // Frozen mailbox rowids can be reused by the new terminal notification.
+    // Assert the immutable store reference, not absence of a retired rowid.
     assert!(
-        read_runtime_mailbox_message(&env.control_db, transport_id)
-            .expect("read transport")
-            .is_none()
+        pi_coding_agent::core::session_control_db::get_multi_agent_mailbox_message_status(
+            &env.control_db,
+            &session_path(&env),
+            &message.id,
+        )
+        .expect("steering status")
+        .is_none()
     );
     let agent = store.get_agent("agent_1").expect("agent");
     assert_eq!(agent.lifecycle, AgentLifecycle::Completed);
