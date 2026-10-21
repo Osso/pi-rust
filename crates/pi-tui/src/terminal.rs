@@ -82,9 +82,9 @@ pub struct TerminalIoError {
 }
 
 /// A parsed Kitty keyboard protocol negotiation response.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum KeyboardProtocolNegotiationSequence {
-    KittyFlags { flags: u32 },
+    KittyFlags { flags: f64 },
     DeviceAttributes,
 }
 
@@ -92,10 +92,10 @@ pub enum KeyboardProtocolNegotiationSequence {
 pub fn parse_keyboard_protocol_negotiation_sequence(sequence: &str) -> Option<KeyboardProtocolNegotiationSequence> {
     if let Some(body) = sequence.strip_prefix("\x1b[?").and_then(|rest| rest.strip_suffix('u')) {
         if !body.is_empty() && body.bytes().all(|byte| byte.is_ascii_digit()) {
-            return body
-                .parse()
-                .ok()
-                .map(|flags| KeyboardProtocolNegotiationSequence::KittyFlags { flags });
+            let flags = pi_js_compat::number::parse_number(body);
+            return flags
+                .is_finite()
+                .then_some(KeyboardProtocolNegotiationSequence::KittyFlags { flags });
         }
         return None;
     }
@@ -522,7 +522,7 @@ impl ProcessTerminal {
         self.clear_keyboard_protocol_negotiation_buffer();
         match negotiation {
             KeyboardProtocolNegotiationSequence::KittyFlags { flags } => {
-                if flags != 0 {
+                if flags != 0.0 {
                     self.disable_modify_other_keys();
                     if !self.kitty_protocol_active {
                         self.kitty_protocol_active = true;

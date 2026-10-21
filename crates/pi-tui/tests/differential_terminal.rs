@@ -31,7 +31,12 @@ fn rust_terminal(request: &Value) -> Value {
                 .map(
                     |case| match parse_keyboard_protocol_negotiation_sequence(case.as_str().unwrap()) {
                         Some(KeyboardProtocolNegotiationSequence::KittyFlags { flags }) => {
-                            json!({"type": "kitty-flags", "flags": flags})
+                            let number = if flags < u64::MAX as f64 {
+                                json!(flags as u64)
+                            } else {
+                                json!(flags)
+                            };
+                            json!({"type": "kitty-flags", "flags": number})
                         }
                         Some(KeyboardProtocolNegotiationSequence::DeviceAttributes) => {
                             json!({"type": "device-attributes"})
@@ -108,7 +113,7 @@ fn terminal_helpers_match_typescript() {
             "id": "terminal",
             "operation": "terminal",
             "env": env,
-            "sequences": ["\u{1b}[?7u", "\u{1b}[?62;4;52c", "\u{1b}[?u", "\u{1b}[?0u", "\u{1b}[7u", "\u{1b}[?12;3c"],
+            "sequences": ["\u{1b}[?7u", "\u{1b}[?62;4;52c", "\u{1b}[?u", "\u{1b}[?0u", "\u{1b}[7u", "\u{1b}[?12;3c", "\u{1b}[?4294967296u", "\u{1b}[?18446744073709551616u"],
             "normalize": [
                 {"kind": "native", "data": "\r", "flag": true, "shift": true},
                 {"kind": "native", "data": "\r", "flag": false, "shift": true},

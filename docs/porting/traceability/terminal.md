@@ -73,3 +73,5 @@ three raw-mode failure cases exactly.
 ## Q1 re-pin audit (2026-10-21)
 
 Reference: immutable `4f9e6f8a4`. Removed later escape-timeout env/SSH helper and native Shift normalization export. ProcessTerminal uses fixed 10ms stdin buffering and Apple-only Shift+Enter. Progress clear is the frozen OSC 9;4;0;BEL (extra semicolon); capture-output differential RED/GREEN compares actual setProgress calls without touching a live terminal. Existing negotiation event tests cover split input, zero/nonzero flags, DA fallback and stop.
+
+Finite Kitty flag numbers beyond u32/u64 are represented as f64 and match parseInt output; flags 4294967296 and 18446744073709551616 have differential RED proof. Non-finite flag reports and negative/fractional/non-finite environment dimensions remain explicit numeric-domain gaps pending user classification.

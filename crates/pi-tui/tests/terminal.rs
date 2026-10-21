@@ -78,7 +78,7 @@ fn recognizes_bun_style_raw_mode_failure_messages() {
 fn parses_keyboard_protocol_negotiation_sequences() {
     assert_eq!(
         parse_keyboard_protocol_negotiation_sequence("\x1b[?7u"),
-        Some(pi_tui::terminal::KeyboardProtocolNegotiationSequence::KittyFlags { flags: 7 })
+        Some(pi_tui::terminal::KeyboardProtocolNegotiationSequence::KittyFlags { flags: 7.0 })
     );
     assert_eq!(
         parse_keyboard_protocol_negotiation_sequence("\x1b[?62;4;52c"),

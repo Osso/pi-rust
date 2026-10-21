@@ -48,3 +48,5 @@ None.
 ## Q1 re-pin audit (2026-10-21)
 
 Reference: immutable `4f9e6f8a4`. Frozen color-scheme regex accepts exactly one report, not repeated reports. Repeated-report differential RED then GREEN. Module proof pending final focused gate.
+
+Finite long hex channels (16/17/32/100/255 digits) now use JavaScript-style floating arithmetic, not overflowing u64 exponentiation. RED overflow and GREEN differential: `/tmp/q1-colors-long-red.log`, `/tmp/q1-terminal-flags-red.log`. Non-finite RGB values remain an explicit gap pending user classification; source lines 29-30 can produce NaN.
