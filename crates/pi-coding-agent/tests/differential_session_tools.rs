@@ -878,6 +878,12 @@ async fn search_current_session_history_tool_differential() {
     )
     .unwrap();
     let mut oracle = Oracle::new();
+    let registration = oracle.request(json!({"operation":"tool:definition","module":"core/tools/search-current-session-history.ts","factory":"createSearchCurrentSessionHistoryToolDefinition"}));
+    let definition = pi_coding_agent::core::tools::search_current_session_history::create_search_current_session_history_tool_definition();
+    assert_eq!(
+        registration["output"],
+        json!({"name":definition.name,"label":definition.label,"description":definition.description,"promptSnippet":definition.prompt_snippet,"promptGuidelines":definition.prompt_guidelines,"parameters":definition.parameters,"executionMode":"parallel"})
+    );
     for (name, params) in [
         ("tool-name", json!({"query":"inspectWidget"})),
         ("argument-key", json!({"query":"propertyNeedle"})),
@@ -904,6 +910,15 @@ async fn search_current_session_history_tool_differential() {
         ("page-2", json!({ "query": "deployment", "limit": 1, "cursor": "1" })),
         ("none", json!({ "query": "absent text" })),
         ("bad-cursor", json!({ "query": "deployment", "cursor": "-1" })),
+        ("empty-query", json!({"query":"  "})),
+        (
+            "huge-cursor",
+            json!({"query":"deployment","cursor":"999999999999999999999999999999999999"}),
+        ),
+        (
+            "cursor-leading-zero",
+            json!({"query":"deployment","limit":1,"cursor":"01"}),
+        ),
     ] {
         let response = oracle.request(tool_request(
             "core/tools/search-current-session-history.ts",

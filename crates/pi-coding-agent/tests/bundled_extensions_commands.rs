@@ -159,6 +159,7 @@ async fn session_archive_matches_typescript() {
         None,
     )
     .unwrap();
+    manager.persist_for_recovery().unwrap();
     let session_file = manager.get_session_file().unwrap().to_owned();
     write_session_metadata(
         &db_path,
@@ -381,7 +382,9 @@ async fn registers_all_small_extensions_under_source_ids() {
             "run-plan",
             "safe",
             "spec-validation",
+            "unarchive",
             "archive",
+            "delete",
             "restart",
             "session-id",
         ]
@@ -431,4 +434,154 @@ fn archive_command_rejects_missing_control_db() {
             )]
         );
     });
+}
+
+#[tokio::test]
+async fn session_archive_command_branches_match_frozen() {
+    use pi_coding_agent::core::extensions::types::{ExtensionEvent, SessionShutdownEvent, SessionShutdownReason};
+    use pi_coding_agent::core::multi_agent_store::{AgentSnapshot, MultiAgentStore};
+    use pi_coding_agent::core::session_control_db::archive_session;
+    let temp = TempDir::new().unwrap();
+    let db = temp.path().join("control.sqlite").display().to_string();
+    let mut manager =
+        SessionManager::create(temp.path().to_str().unwrap(), Some(temp.path().to_str().unwrap()), None).unwrap();
+    manager.persist_for_recovery().unwrap();
+    manager
+        .set_metadata_control_db_path(Some(&db), Default::default())
+        .unwrap();
+    let path = manager.get_session_file().unwrap().to_owned();
+    let manager = Arc::new(Mutex::new(manager));
+    for command in ["archive", "delete", "unarchive"] {
+        for mode in ["usage", "no-db", "unpersisted", "valid"] {
+            let persisted = mode != "unpersisted";
+            let db_path = (mode != "no-db").then(|| db.clone());
+            let args = if mode == "usage" { "now" } else { "" };
+            let session = if persisted {
+                Arc::clone(&manager)
+            } else {
+                Arc::new(Mutex::new(SessionManager::in_memory(Some("/tmp"), None).unwrap()))
+            };
+            let harness = Harness::load_full(
+                "/tmp",
+                session,
+                Arc::new(RecordingUi::default()),
+                db_path.clone(),
+                pi_coding_agent::bundled_extensions::session_archive::session_archive_extension,
+            )
+            .await;
+            let mut oracle = oracle_for("packages/coding-agent/extensions/session-archive/src/index.ts");
+            let response = oracle.request(&json!({"id":1,"extension":"session-archive","steps":[{"op":"command","name":command,"args":args,"controlDbPath":db_path,"sessionFile":persisted.then_some(&path)}]}));
+            assert_eq!(
+                response["output"]["steps"][0]["error"],
+                serde_json::Value::Null,
+                "{response}"
+            );
+            harness.run_command(command, args).await.unwrap();
+            assert_eq!(
+                calls_json(&harness.take_calls()),
+                response["output"]["steps"][0]["calls"],
+                "{command}/{mode}"
+            );
+            if command == "archive" && mode == "valid" {
+                harness
+                    .runner
+                    .emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+                        reason: SessionShutdownReason::Reload,
+                        target_session_file: None,
+                    }))
+                    .await;
+                harness
+                    .runner
+                    .emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+                        reason: SessionShutdownReason::Quit,
+                        target_session_file: None,
+                    }))
+                    .await;
+                assert!(std::path::Path::new(&path).exists(), "non-quit consumes pending action");
+            }
+        }
+    }
+    archive_session(&db, &path).unwrap();
+    let harness = Harness::load_full(
+        "/tmp",
+        Arc::clone(&manager),
+        Arc::new(RecordingUi::default()),
+        Some(db.clone()),
+        pi_coding_agent::bundled_extensions::session_archive::session_archive_extension,
+    )
+    .await;
+    let mut oracle = oracle_for("packages/coding-agent/extensions/session-archive/src/index.ts");
+    let response = oracle.request(&json!({"id":2,"extension":"session-archive","steps":[{"op":"command","name":"unarchive","controlDbPath":db,"sessionFile":path}]}));
+    archive_session(&db, &path).unwrap();
+    harness.run_command("unarchive", "").await.unwrap();
+    assert_eq!(
+        calls_json(&harness.take_calls()),
+        response["output"]["steps"][0]["calls"]
+    );
+    assert_eq!(
+        read_session_metadata(&db, &path).unwrap().unwrap().is_archived,
+        Some(false)
+    );
+    for count in [1, 2] {
+        let store = Arc::new(MultiAgentStore::new(Default::default()));
+        let agents:Vec<_> = (0..count).map(|index| json!({"id":format!("agent-{index}"),"displayName":"child","agentType":"worker","lifecycle":"running","revision":1,"createdAt":"2026-10-21T00:00:00.000Z","updatedAt":"2026-10-21T00:00:00.000Z","cwd":"/tmp","permission":{"policy":"on-request","narrowed":true},"transcript":{"sessionId":"child","path":"/tmp/child.jsonl"}})).collect();
+        for agent in &agents {
+            store
+                .publish_lifecycle_coordinator_snapshot(
+                    &serde_json::from_value::<AgentSnapshot>(agent.clone()).unwrap(),
+                )
+                .unwrap();
+        }
+        let harness = Harness::load_full(
+            "/tmp",
+            Arc::clone(&manager),
+            Arc::new(RecordingUi::default()),
+            Some(db.clone()),
+            pi_coding_agent::bundled_extensions::session_archive::session_archive_extension,
+        )
+        .await;
+        let mut runner = harness.runner.clone();
+        runner.bind_core(
+            support::actions(&harness.calls),
+            pi_coding_agent::core::extensions::types::ExtensionContextActions {
+                get_multi_agent_store: Some(Arc::new(move || Some(Arc::clone(&store)))),
+                ..support::context_actions(&harness.calls, Some(db.clone()))
+            },
+            None,
+        );
+        let response = oracle.request(&json!({"id":3,"extension":"session-archive","steps":[{"op":"command","name":"delete","controlDbPath":db,"sessionFile":path,"activeAgents":agents,"confirmed":true}]}));
+        (harness.command("delete").handler)("".to_owned(), runner.create_command_context())
+            .await
+            .unwrap();
+        assert_eq!(
+            calls_json(&harness.take_calls()),
+            response["output"]["steps"][0]["calls"]
+        );
+    }
+    let ui = Arc::new(RecordingUi::default());
+    *ui.confirmed.lock().unwrap() = true;
+    let harness = Harness::load_full(
+        "/tmp",
+        Arc::clone(&manager),
+        ui,
+        Some(db.clone()),
+        pi_coding_agent::bundled_extensions::session_archive::session_archive_extension,
+    )
+    .await;
+    let response = oracle.request(&json!({"id":4,"extension":"session-archive","steps":[{"op":"command","name":"delete","controlDbPath":db,"sessionFile":path,"confirmed":true}]}));
+    harness.run_command("delete", "").await.unwrap();
+    assert_eq!(
+        calls_json(&harness.take_calls()),
+        response["output"]["steps"][0]["calls"]
+    );
+    assert!(std::path::Path::new(&path).exists());
+    harness
+        .runner
+        .emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+            reason: SessionShutdownReason::Quit,
+            target_session_file: None,
+        }))
+        .await;
+    assert!(!std::path::Path::new(&path).exists());
+    assert!(read_session_metadata(&db, &path).unwrap().is_none());
 }
