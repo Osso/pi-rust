@@ -848,8 +848,56 @@ async fn search_current_session_history_tool_differential() {
         ),
     );
 
+    let mut rows: Vec<Value> = std::fs::read_to_string(&session_path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    rows.last_mut().unwrap()["message"]["content"] = json!([
+        {"type":"text","text":"assistant secret text"},
+        {"type":"thinking","thinking":"hidden-thought","thinkingSignature":"hidden-signature"},
+        {"type":"toolCall","id":"call","name":"inspectWidget","arguments":{"propertyNeedle":[true,17,null,{"nested":"argumentNeedle"}]}},
+        {"type":"toolCall","id":"self","name":"search_current_session_history","arguments":{"query":"self-traffic"}}
+    ]);
+    let mut parent = "history-session-entry-4".to_owned();
+    for (index, mut row) in [
+        json!({"type":"message","message":{"role":"toolResult","toolCallId":"call","toolName":"inspectWidget","content":[{"type":"text","text":"resultNeedle"}],"isError":false,"timestamp":6}}),
+        json!({"type":"message","message":{"role":"toolResult","toolCallId":"self","toolName":"search_current_session_history","content":[{"type":"text","text":"self-traffic"}],"isError":false,"timestamp":7}}),
+        json!({"type":"custom_message","customType":"fixture","content":[{"type":"text","text":"customNeedle"}],"display":true}),
+        json!({"type":"branch_summary","fromId":"history-session-entry-0","summary":"branchNeedle"}),
+        json!({"type":"message","message":{"role":"bashExecution","command":"commandNeedle","output":"outputNeedle","exitCode":0,"cancelled":false,"truncated":false,"timestamp":10}}),
+        json!({"type":"message","message":{"role":"compactionSummary","summary":"inlineSummaryNeedle","tokensBefore":100,"timestamp":11}}),
+    ].into_iter().enumerate() {
+        let id = format!("extra-{index}");
+        row["id"] = json!(id); row["parentId"] = json!(parent); row["timestamp"] = json!("2026-01-01T00:01:00.000Z");
+        parent = id; rows.push(row);
+    }
+    std::fs::write(
+        &session_path,
+        rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n") + "\n",
+    )
+    .unwrap();
     let mut oracle = Oracle::new();
     for (name, params) in [
+        ("tool-name", json!({"query":"inspectWidget"})),
+        ("argument-key", json!({"query":"propertyNeedle"})),
+        ("argument-value", json!({"query":"argumentNeedle"})),
+        ("argument-bool", json!({"query":"true"})),
+        ("argument-number", json!({"query":"17"})),
+        ("argument-null", json!({"query":"null"})),
+        ("tool-result", json!({"query":"resultNeedle"})),
+        ("custom", json!({"query":"customNeedle"})),
+        ("branch-summary", json!({"query":"branchNeedle"})),
+        ("bash-command", json!({"query":"commandNeedle"})),
+        ("bash-output", json!({"query":"outputNeedle"})),
+        ("inline-summary", json!({"query":"inlineSummaryNeedle"})),
+        ("thinking-excluded", json!({"query":"hidden-thought"})),
+        ("signature-excluded", json!({"query":"hidden-signature"})),
+        ("self-excluded", json!({"query":"self-traffic"})),
+        (
+            "context-all-roles",
+            json!({"query":"resultNeedle", "context_entries":2}),
+        ),
         ("match", json!({ "query": "COBALT", "context_entries": 1 })),
         ("assistant", json!({ "query": "assistant secret" })),
         ("page", json!({ "query": "deployment", "limit": 1 })),

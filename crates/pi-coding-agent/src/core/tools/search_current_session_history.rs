@@ -26,11 +26,11 @@ const DEFAULT_LIMIT: usize = 20;
 
 pub const NAME: &str = "search_current_session_history";
 pub const LABEL: &str = "search_current_session_history";
-pub const DESCRIPTION: &str = "Search user-message content in the current persisted session's active branch, including full entries hidden from model context by compaction.";
-pub const PROMPT_SNIPPET: &str = "Search user messages in the current stored session history after compaction";
+pub const DESCRIPTION: &str = "Search conversational content in the current persisted session's active branch, including full entries hidden from model context by compaction.";
+pub const PROMPT_SNIPPET: &str = "Search the current stored session history after compaction";
 pub const PROMPT_GUIDELINES: [&str; 2] = [
-    "Use search_current_session_history to recover user-message details from the current session that may have been omitted by compaction.",
-    "Matching searches only user messages; optional neighboring entries may include other entry types.",
+    "Use search_current_session_history to recover details from the current session that may have been omitted by compaction.",
+    "Matching includes user and assistant text, tool-call names and arguments, tool results, custom messages, and summaries; excludes thinking, signatures, and this tool's own calls and results.",
 ];
 
 #[derive(Debug, Deserialize)]
@@ -114,20 +114,47 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-fn collect_search_texts(value: &Value, texts: &mut Vec<String>) {
+fn collect_argument_texts(value: &Value, texts: &mut Vec<String>) {
     match value {
         Value::String(text) => texts.push(text.clone()),
-        Value::Array(items) => {
-            for item in items {
-                collect_search_texts(item, texts);
-            }
-        }
+        Value::Array(items) => items.iter().for_each(|item| collect_argument_texts(item, texts)),
         Value::Object(object) => {
-            for (_, item) in pi_js_compat::js_json::object_entries(object) {
-                collect_search_texts(item, texts);
+            for (key, item) in pi_js_compat::js_json::object_entries(object) {
+                texts.push(key.to_owned());
+                collect_argument_texts(item, texts);
             }
         }
-        _ => {}
+        _ => texts.push(value.to_string()),
+    }
+}
+
+fn collect_search_texts(content: &Value) -> Vec<String> {
+    if let Some(text) = content.as_str() {
+        return vec![text.to_owned()];
+    }
+    let mut texts = Vec::new();
+    for block in content.as_array().into_iter().flatten() {
+        match block["type"].as_str() {
+            Some("text") => texts.push(block["text"].as_str().unwrap_or_default().to_owned()),
+            Some("toolCall") if block["name"] != "search_current_session_history" => {
+                texts.push(block["name"].as_str().unwrap_or_default().to_owned());
+                collect_argument_texts(&block["arguments"], &mut texts);
+            }
+            _ => {}
+        }
+    }
+    texts
+}
+
+fn collect_message_search_texts(message: &AgentMessage, content: &Value) -> Vec<String> {
+    let value = serde_json::to_value(message).expect("agent message must serialize");
+    match message.role() {
+        "toolResult" if value["toolName"] == "search_current_session_history" => Vec::new(),
+        "bashExecution" => ["command", "output"]
+            .map(|key| value[key].as_str().unwrap_or_default().to_owned())
+            .to_vec(),
+        "branchSummary" | "compactionSummary" => vec![value["summary"].as_str().unwrap_or_default().to_owned()],
+        _ => collect_search_texts(content),
     }
 }
 
@@ -145,10 +172,7 @@ fn searchable_entry(entry: &SessionEntry) -> Option<SearchableSessionEntry> {
             crate::core::session_manager::KnownSessionEntry::Message(message) => {
                 let role = message.message.role().to_owned();
                 let content = message_content(&message.message);
-                let mut search_texts = Vec::new();
-                if role == "user" {
-                    collect_search_texts(&content, &mut search_texts);
-                }
+                let search_texts = collect_message_search_texts(&message.message, &content);
                 Some(SearchableSessionEntry {
                     entry: entry.clone(),
                     role,
@@ -166,21 +190,21 @@ fn searchable_entry(entry: &SessionEntry) -> Option<SearchableSessionEntry> {
                 Some(SearchableSessionEntry {
                     entry: entry.clone(),
                     role: "custom".to_owned(),
+                    search_texts: collect_search_texts(&content),
                     content,
-                    search_texts: Vec::new(),
                 })
             }
             crate::core::session_manager::KnownSessionEntry::Compaction(compaction) => Some(SearchableSessionEntry {
                 entry: entry.clone(),
                 role: "compaction".to_owned(),
                 content: Value::String(compaction.summary.clone()),
-                search_texts: Vec::new(),
+                search_texts: vec![compaction.summary.clone()],
             }),
             crate::core::session_manager::KnownSessionEntry::BranchSummary(summary) => Some(SearchableSessionEntry {
                 entry: entry.clone(),
                 role: "branchSummary".to_owned(),
                 content: Value::String(summary.summary.clone()),
-                search_texts: Vec::new(),
+                search_texts: vec![summary.summary.clone()],
             }),
             _ => None,
         },
@@ -384,7 +408,7 @@ mod js_value_tests {
     fn collects_numeric_properties_in_javascript_order() {
         let value = serde_json::from_str(r#"{"2":"second","1":"first"}"#).unwrap();
         let mut texts = Vec::new();
-        collect_search_texts(&value, &mut texts);
-        assert_eq!(texts, ["first", "second"]);
+        collect_argument_texts(&value, &mut texts);
+        assert_eq!(texts, ["1", "first", "2", "second"]);
     }
 }

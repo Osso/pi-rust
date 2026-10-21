@@ -62,6 +62,10 @@ async function handle(r: any) {
   const acceptance=await import(pathToFileURL(join(root,"runtime-mailbox-transcript.ts")).href);
   return acceptance.readAcceptedRuntimeMailboxStoreRefs(r.path);
  }
+ if (r.op === "delete") {
+  const deletion=await import(pathToFileURL(join(root,"session-delete.ts")).href);
+  return deletion.deleteSessionTree(r.path,r.db);
+ }
  if (r.op === "archive") return archive.archivePersistedSession(r.db, r.path);
  if (r.op === "restore") return archive.restoreArchivedSession(r.db, r.path);
  if (r.op === "read") {

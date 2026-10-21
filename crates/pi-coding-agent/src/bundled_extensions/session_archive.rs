@@ -1,42 +1,173 @@
-//! Bundled `session-archive` extension (`extensions/session-archive/src/index.ts`).
+//! Frozen `extensions/session-archive/src/index.ts`: destructive work runs only at quit.
+use std::sync::{Arc, Mutex};
 
-use std::sync::Arc;
-
-use crate::core::extensions::types::{ExtensionApi, HandlerError, NotifyType};
-use crate::core::session_control_db::archive_session;
+use crate::core::extensions::types::{
+    ExtensionApi, ExtensionCommandContext, HandlerError, NotifyType, SessionShutdownReason,
+};
+use crate::core::session_archive_storage::archive_persisted_session;
+use crate::core::session_control_db::{read_session_metadata, unarchive_session};
+use crate::core::session_delete::delete_session_tree;
 use crate::core::session_manager::lock_session_manager;
 
-pub fn session_archive_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
-    pi.register_command(
-        "archive",
-        Some("Archive the current session".to_owned()),
-        None,
-        Arc::new(|args, ctx| {
-            Box::pin(async move {
-                if !args.trim().is_empty() {
-                    ctx.ui()?.notify("Usage: /archive", Some(NotifyType::Warning));
-                    return Ok(());
-                }
-                let Some(control_db_path) = ctx.control_db_path()? else {
-                    ctx.ui()?
-                        .notify("Session archive requires a control database.", Some(NotifyType::Error));
-                    return Ok(());
-                };
-                let session_path = lock_session_manager(&ctx.session_manager()?)
-                    .get_session_file()
-                    .map(str::to_owned);
-                let Some(session_path) = session_path else {
-                    ctx.ui()?
-                        .notify("The current session is not persisted.", Some(NotifyType::Warning));
-                    return Ok(());
-                };
+struct CurrentSession {
+    db: String,
+    path: String,
+}
 
-                archive_session(&control_db_path, &session_path)
-                    .map_err(|error| HandlerError::new(error.to_string()))?;
-                ctx.ui()?.notify("Archived current session.", Some(NotifyType::Info));
-                Ok(())
+enum QuitAction {
+    Archive(CurrentSession),
+    Delete(CurrentSession),
+}
+
+fn validate_current_session(
+    command: &str,
+    args: &str,
+    ctx: &ExtensionCommandContext,
+) -> Result<Option<CurrentSession>, HandlerError> {
+    if !pi_js_compat::string::js_trim(args).is_empty() {
+        ctx.ui()?
+            .notify(&format!("Usage: /{command}"), Some(NotifyType::Warning));
+        return Ok(None);
+    }
+    let Some(db) = ctx.control_db_path()?.filter(|path| !path.is_empty()) else {
+        ctx.ui()?.notify(
+            &format!("Session {command} requires a control database."),
+            Some(NotifyType::Error),
+        );
+        return Ok(None);
+    };
+    let path = lock_session_manager(&ctx.session_manager()?)
+        .get_session_file()
+        .map(str::to_owned);
+    let Some(path) = path.filter(|path| !path.is_empty()) else {
+        ctx.ui()?
+            .notify("The current session is not persisted.", Some(NotifyType::Warning));
+        return Ok(None);
+    };
+    Ok(Some(CurrentSession { db, path }))
+}
+
+fn unarchive_current_session(session: CurrentSession, ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
+    let archived = read_session_metadata(&session.db, &session.path)
+        .map_err(|error| HandlerError::new(error.to_string()))?
+        .is_some_and(|row| row.is_archived == Some(true));
+    if !archived {
+        ctx.ui()?
+            .notify("Current session is already unarchived.", Some(NotifyType::Info));
+        return Ok(());
+    }
+    unarchive_session(&session.db, &session.path).map_err(|error| HandlerError::new(error.to_string()))?;
+    ctx.ui()?.notify("Unarchived current session.", Some(NotifyType::Info));
+    Ok(())
+}
+
+async fn confirm_delete(ctx: &ExtensionCommandContext) -> Result<bool, HandlerError> {
+    let count = ctx.multi_agent_store()?.map_or(0, |store| {
+        store
+            .list_active_agents()
+            .iter()
+            .filter(|agent| {
+                agent
+                    .transcript
+                    .as_ref()
+                    .and_then(|transcript| transcript.path.as_ref())
+                    .is_some_and(|path| !path.is_empty())
             })
-        }),
+            .count()
+    });
+    if count > 0 {
+        let (agents, subject, transcripts) = if count == 1 {
+            ("agent", "it", "its transcript")
+        } else {
+            ("agents", "they", "their transcripts")
+        };
+        ctx.ui()?.notify(
+            &format!(
+                "Close the {count} running child {agents} before /delete; {subject} could still write {transcripts}."
+            ),
+            Some(NotifyType::Warning),
+        );
+        return Ok(false);
+    }
+    ctx.ui()?
+        .confirm(
+            "Delete session?",
+            "Delete the current session and its child agent sessions, then quit.",
+            None,
+        )
+        .await
+        .map_err(HandlerError::new)
+}
+
+async fn run_quit_action(action: QuitAction) -> Result<(), String> {
+    match action {
+        QuitAction::Archive(session) => archive_persisted_session(&session.db, &session.path)
+            .map(|_| ())
+            .map_err(|error| format!("Failed to archive session: {error}")),
+        QuitAction::Delete(session) => match delete_session_tree(&session.path, Some(&session.db)).await {
+            crate::core::session_delete::SessionDeleteResult::Success { .. } => Ok(()),
+            crate::core::session_delete::SessionDeleteResult::Failure { error, .. } => {
+                Err(format!("Failed to delete session: {error}"))
+            }
+        },
+    }
+}
+
+pub fn session_archive_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
+    let pending = Arc::new(Mutex::new(None));
+    let shutdown_pending = Arc::clone(&pending);
+    pi.on_session_shutdown(
+        move |event: crate::core::extensions::types::SessionShutdownEvent, _ctx| {
+            let action = shutdown_pending.lock().expect("quit action lock").take();
+            Box::pin(async move {
+                if event.reason == SessionShutdownReason::Quit {
+                    if let Some(action) = action {
+                        if let Err(error) = run_quit_action(action).await {
+                            eprintln!("{error}");
+                        }
+                    }
+                }
+                Ok(None)
+            }) as crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>>
+        },
     )
-    .map_err(HandlerError::new)
+    .map_err(HandlerError::new)?;
+    for (command, description) in [
+        ("unarchive", "Unarchive the current session"),
+        ("archive", "Archive the current session and quit"),
+        (
+            "delete",
+            "Delete the current session and its child agent sessions, then quit",
+        ),
+    ] {
+        let pending = Arc::clone(&pending);
+        pi.register_command(
+            command,
+            Some(description.to_owned()),
+            None,
+            Arc::new(move |args, ctx| {
+                let pending = Arc::clone(&pending);
+                Box::pin(async move {
+                    let Some(session) = validate_current_session(command, &args, &ctx)? else {
+                        return Ok(());
+                    };
+                    if command == "unarchive" {
+                        return unarchive_current_session(session, &ctx);
+                    }
+                    if command == "delete" && !confirm_delete(&ctx).await? {
+                        return Ok(());
+                    }
+                    let action = if command == "archive" {
+                        QuitAction::Archive(session)
+                    } else {
+                        QuitAction::Delete(session)
+                    };
+                    *pending.lock().expect("quit action lock") = Some(action);
+                    ctx.shutdown()
+                })
+            }),
+        )
+        .map_err(HandlerError::new)?;
+    }
+    Ok(())
 }

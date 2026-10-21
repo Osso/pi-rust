@@ -14,6 +14,8 @@ type Step = {
 	mode?: string;
 	hasUI?: boolean;
 	idle?: boolean;
+	confirmed?: boolean;
+	activeAgents?: Array<Record<string, unknown>>;
 	inputs?: Array<string | null>;
 	runCommandResults?: Array<{ stdout: string; stderr: string; exitCode: number | null }>;
 	env?: Record<string, string>;
@@ -170,6 +172,7 @@ function createHarness(module: Record<string, unknown>, extension: string, calls
 		state.inputs = [...(step.inputs ?? [])];
 		state.runCommandResults = [...(step.runCommandResults ?? [])];
 		const ui = {
+			confirm: async () => step.confirmed ?? false,
 			input: async (title: string, placeholder: string | null, options?: Record<string, unknown>) => {
 				callsRef.calls.inputs.push([title, placeholder, options]);
 				if (state.inputs.length === 0) throw new Error("no fake input queued");
@@ -199,6 +202,8 @@ function createHarness(module: Record<string, unknown>, extension: string, calls
 				getSessionFile: () => step.sessionFile ?? undefined,
 				getSessionId: () => step.sessionId ?? "test-session-id",
 			},
+			shutdown: () => {},
+			multiAgentStore: { listActiveAgents: () => step.activeAgents ?? [] },
 			controlDbPath: step.controlDbPath ?? undefined,
 			restart: async (options: Record<string, unknown>) => {
 				callsRef.calls.restart.push(options);

@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_coding_agent::core::extensions::types::{BoxFuture, HandlerError, NotifyType};
 use pi_coding_agent::core::session_control_db::{
-    WritableSessionMetadata, read_session_metadata, unarchive_session, write_session_metadata,
+    WritableSessionMetadata, read_session_metadata, write_session_metadata,
 };
 use pi_coding_agent::core::session_manager::{SessionManager, SetMetadataControlDbPathOptions};
 use serde_json::json;
@@ -197,7 +197,6 @@ async fn session_archive_matches_typescript() {
     )
     .await;
 
-    // The command is unchanged; its DB dependency must read the approved v15 schema.
     let mut oracle = oracle_for("session-names:packages/coding-agent/extensions/session-archive/src/index.ts");
     let response = oracle.request(&json!({
         "id": 4,
@@ -209,45 +208,53 @@ async fn session_archive_matches_typescript() {
         ]
     }));
     assert_eq!(response["ok"], true, "{response}");
-
     assert_eq!(harness.registrations(), response["output"]["steps"][0]["result"]);
     for step in response["output"]["steps"].as_array().unwrap() {
         assert_eq!(step["error"], serde_json::Value::Null, "{response}");
     }
-    assert_eq!(
-        read_session_metadata(&db_path, &session_file)
-            .unwrap()
-            .unwrap()
-            .is_archived,
-        Some(true),
-        "TypeScript archives the same persisted session used by Rust"
-    );
-    unarchive_session(&db_path, &session_file).unwrap();
-    assert_eq!(
-        read_session_metadata(&db_path, &session_file)
-            .unwrap()
-            .unwrap()
-            .is_archived,
-        Some(false)
-    );
     harness.run_command("archive", "").await.unwrap();
     assert_eq!(
         calls_json(&harness.take_calls()),
         response["output"]["steps"][1]["calls"]
     );
-    assert_eq!(
+    assert_ne!(
         read_session_metadata(&db_path, &session_file)
             .unwrap()
             .unwrap()
             .is_archived,
         Some(true)
     );
-
+    assert!(
+        std::path::Path::new(&session_file).exists(),
+        "quit action must be deferred"
+    );
     harness.run_command("archive", "now").await.unwrap();
     assert_eq!(
         calls_json(&harness.take_calls()),
         response["output"]["steps"][2]["calls"]
     );
+    use pi_coding_agent::core::extensions::types::{ExtensionEvent, SessionShutdownEvent, SessionShutdownReason};
+    harness
+        .runner
+        .emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+            reason: SessionShutdownReason::Quit,
+            target_session_file: None,
+        }))
+        .await;
+    let archived = format!("{session_file}.zst");
+    assert!(!std::path::Path::new(&session_file).exists());
+    assert!(std::path::Path::new(&archived).exists());
+    assert_eq!(
+        read_session_metadata(&db_path, &archived).unwrap().unwrap().is_archived,
+        Some(true)
+    );
+    harness
+        .runner
+        .emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+            reason: SessionShutdownReason::Quit,
+            target_session_file: None,
+        }))
+        .await;
 }
 
 #[tokio::test]
