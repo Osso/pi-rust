@@ -1066,7 +1066,7 @@ pub async fn show_llama_ui_with_context(
                 }
             }
         });
-        Ok(Box::new(LlamaViewComponent { view }))
+        crate::core::extensions::ready_custom_component(Box::new(LlamaViewComponent { view }))
     });
     ui_context.custom(factory, None).await.map(|_| ())
 }

@@ -192,7 +192,7 @@ pub fn overlay_test_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 let ui = ctx.ui()?;
                 let result = ui
                     .custom(
-                        Arc::new(|context, done| Ok(Box::new(OverlayTest::new(context.theme, done)))),
+                        Arc::new(|context, done| pi_coding_agent::core::extensions::ready_custom_component(Box::new(OverlayTest::new(context.theme, done)))),
                         Some(ExtensionUiCustomOptions {
                             overlay: Some(true),
                             ..Default::default()

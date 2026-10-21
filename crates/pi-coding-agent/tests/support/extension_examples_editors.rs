@@ -1,3 +1,4 @@
+${1}use futures_util::FutureExt;
 #[path = "extensions.rs"]
 mod extensions;
 #[path = "oracle.rs"]
@@ -119,7 +120,7 @@ impl ExtensionUiContext for Ui {
                     *captured.lock().unwrap() = value;
                 })),
             )
-            .expect("custom component fixture factory");
+            .expect("custom component fixture factory").now_or_never().expect("fixture factory must resolve immediately").expect("custom component fixture factory");
             component.set_focused(true);
             let widths = self.request["widths"].as_array().unwrap();
             let record = || json!({"text":null,"focused":component.focused(),"lines":widths.iter().map(|w|component.render(w.as_u64().unwrap() as usize)).collect::<Vec<_>>()});

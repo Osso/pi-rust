@@ -86,7 +86,7 @@ pub(crate) fn snake_extension_with_random(pi: &ExtensionApi, random: Random) -> 
                 ctx.ui()?
                     .custom(
                         Arc::new(move |context, done| {
-                            Ok(Box::new(Snake::new(
+                            pi_coding_agent::core::extensions::ready_custom_component(Box::new(Snake::new(
                                 context.tui,
                                 done,
                                 save.clone(),

@@ -151,7 +151,9 @@ impl Default for FakeUi {
                                     },
                                     done,
                                 )
-                                .expect("custom component fixture factory"),
+                                .expect("custom component fixture factory")
+                                .await
+                                .expect("custom component fixture continuation"),
                             );
                         }
                         FixtureRequest::Render(sender) => {

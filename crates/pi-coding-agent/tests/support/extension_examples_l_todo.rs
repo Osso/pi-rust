@@ -1,3 +1,4 @@
+${1}use futures_util::FutureExt;
 use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
@@ -52,7 +53,7 @@ impl ExtensionUiContext for Ui {
                     },
                     done,
                 )
-                .expect("custom component fixture factory");
+                .expect("custom component fixture factory").now_or_never().expect("fixture factory must resolve immediately").expect("custom component fixture factory");
                 let width = item["width"].as_u64().unwrap_or(40) as usize;
                 calls.lock().unwrap().push(json!(["render", component.render(width)]));
                 for key in item["keys"].as_array().into_iter().flatten() {

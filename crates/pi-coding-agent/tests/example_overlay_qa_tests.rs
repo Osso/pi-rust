@@ -7,6 +7,7 @@ mod support;
 #[path = "support/ui_thread.rs"]
 mod ui_thread;
 
+use futures_util::FutureExt;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme};
@@ -52,6 +53,9 @@ impl ExtensionUiOverlayHandle for Handle {
         self.0.focused.set(false);
         self.0.component.set_focused(false);
     }
+    fn unfocus_to(&self, _: Option<pi_tui::tui::ComponentRef>) {
+        panic!("fixture does not exercise explicit focus targets")
+    }
     fn is_focused(&self) -> bool {
         self.0.focused.get()
     }
@@ -70,6 +74,9 @@ impl ExtensionUiOverlayHandle for MainHandle {
     }
     fn focus(&self) {}
     fn unfocus(&self) {}
+    fn unfocus_to(&self, _: Option<pi_tui::tui::ComponentRef>) {
+        panic!("fixture does not exercise explicit focus targets")
+    }
     fn is_focused(&self) -> bool {
         true
     }
@@ -246,6 +253,9 @@ impl ExtensionUiContext for Ui {
                 },
                 ExtensionUiDone::new(Rc::new(move |result| *saved.borrow_mut() = result)),
             )
+            .unwrap()
+            .now_or_never()
+            .expect("stack factory resolves immediately")
             .unwrap();
             component.handle_input("\r");
             component.dispose();
@@ -275,6 +285,8 @@ impl ExtensionUiContext for Ui {
                     },
                     done,
                 )
+                .unwrap()
+                .await
                 .unwrap();
                 component.set_focused(true);
                 component.on_overlay_handle(Rc::new(MainHandle(calls.clone(), false)));
@@ -287,6 +299,9 @@ impl ExtensionUiContext for Ui {
                         },
                         ExtensionUiDone::new(Rc::new(|_| {})),
                     )
+                    .unwrap()
+                    .now_or_never()
+                    .expect("clone factory resolves immediately")
                     .unwrap();
                     cloned.on_overlay_handle(Rc::new(MainHandle(calls.clone(), true)));
                     cloned

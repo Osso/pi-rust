@@ -225,7 +225,7 @@ impl ExtensionUiContext for Ui {
                         actions.lock().unwrap().push(json!(["done", result]));
                     })),
                 ) {
-                    Ok(component) => component,
+                    Ok(pending) => pending.await.expect("custom component fixture continuation"),
                     Err(error) => {
                         if index {
                             return Err(error);
@@ -386,12 +386,14 @@ async fn compare(mut request: Value) {
                         ctx.ui()?
                             .custom(
                                 Arc::new(move |context, done| {
-                                    Ok(Box::new(example::doom_component::DoomOverlayComponent::new(
-                                        context.tui,
-                                        engine.clone(),
-                                        done,
-                                        resume,
-                                    )?))
+                                    pi_coding_agent::core::extensions::ready_custom_component(Box::new(
+                                        example::doom_component::DoomOverlayComponent::new(
+                                            context.tui,
+                                            engine.clone(),
+                                            done,
+                                            resume,
+                                        )?,
+                                    ))
                                 }),
                                 None,
                             )

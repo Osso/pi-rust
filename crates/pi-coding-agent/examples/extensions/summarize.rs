@@ -146,7 +146,7 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
     if ctx.mode()? == ExtensionMode::Tui {
         ui.custom(
             Arc::new(move |context, done| {
-                Ok(Box::new(Summary {
+                pi_coding_agent::core::extensions::ready_custom_component(Box::new(Summary {
                     text: text.clone(),
                     context,
                     done,

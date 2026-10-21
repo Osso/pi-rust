@@ -176,7 +176,7 @@ async fn generate_draft(
                     done.clone(),
                 ));
                 context.tui.request_render();
-                Ok(Box::new(Loader { done, signal }))
+                pi_coding_agent::core::extensions::ready_custom_component(Box::new(Loader { done, signal }))
             }),
             None,
         )

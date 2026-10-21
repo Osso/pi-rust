@@ -102,13 +102,28 @@ Promise executor. A synchronous throw rejects directly: the later chained
 restoration, component mount, options/handle callback, or disposal occurs.
 `close` at `:3487–3503` settles first when called before that throw.
 
-`ExtensionUiCustomFactory` now returns `Result<Box<dyn ExtensionUiComponent>,
-String>`, retaining `custom`'s existing error domain. The interactive request
-and response carry that result; factory errors send `Err` only while the response
-is unsettled. Existing successful callers wrap their components in `Ok`;
-fixtures explicitly unwrap that previously infallible path without changing
-behavior assertions. This models synchronous factories; asynchronous factory
-promises remain outside the existing native factory signature.
+`ExtensionUiCustomFactory` returns `ExtensionUiCustomResult`: an outer `Result`
+for synchronous throws, containing a UI-local future whose `Result` models
+fulfillment/rejection. `ready_custom_component` migrates synchronous callers
+onto that same future path. Factories remain Send/Sync; futures and components
+stay on the owning LocalSet. `show_extension_custom` saves text before calling
+the factory and awaits settlement before the common mount helper.
+
+`extension_ui_async_factory_settlement_orders_mount_restore_and_early_done`
+drives actual UI requests through the capture-terminal mode for eight cases:
+fulfill/reject/Done-before-fulfill/Done-before-reject, each with/without overlay.
+Pending factories keep the editor visible/focused; non-overlay rejection and
+Done restore saved text, overlay paths retain edits; late settlement cannot
+mount, invoke onHandle or restore twice. A fulfilled component closes through
+real terminal Enter input. Existing synchronous-throw tests retain their ordering.
+No loadable whole-interactive-mode TS oracle exists; these are native host
+proofs against exact pinned `interactive-mode.ts:3471–3534` statements.
+
+`ExtensionUiOverlayHandle::unfocus_to(Option<pi_tui::tui::ComponentRef>)`
+bridges directly to native pi-tui, without a new component registry.
+`extension_ui_unfocus_distinguishes_omitted_explicit_target_and_null` checks
+previous-overlay restoration, explicit editor target, null focus, and no-op on
+an unfocused handle (`tui.ts:257–276,828–858`).
 
 Behavioral proof through the real `InteractiveUiContext` request adapter:
 `extension_ui_factory_error_rejects_custom_without_changing_focus_or_overlay`

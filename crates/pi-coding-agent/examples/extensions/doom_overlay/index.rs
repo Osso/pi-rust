@@ -91,7 +91,7 @@ async fn show_game(
     };
     ui.custom(
         Arc::new(move |context, done| {
-            Ok(Box::new(DoomOverlayComponent::new(
+            pi_coding_agent::core::extensions::ready_custom_component(Box::new(DoomOverlayComponent::new(
                 context.tui,
                 engine.clone(),
                 done,

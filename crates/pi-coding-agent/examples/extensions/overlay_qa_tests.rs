@@ -198,7 +198,11 @@ fn overlay_options(demo: Demo, index: usize) -> ExtensionUiOverlayOptions {
 }
 async fn show(ui: &Arc<dyn ExtensionUiContext>, demo: Demo, index: usize) -> Result<Option<Value>, HandlerError> {
     ui.custom(
-        Arc::new(move |ctx, done| Ok(Box::new(QaComponent(Model::new(demo, index, ctx, done))))),
+        Arc::new(move |ctx, done| {
+            pi_coding_agent::core::extensions::ready_custom_component(Box::new(QaComponent(Model::new(
+                demo, index, ctx, done,
+            ))))
+        }),
         Some(ExtensionUiCustomOptions {
             overlay: Some(true),
             overlay_options: Some(Arc::new(move || overlay_options(demo, index))),

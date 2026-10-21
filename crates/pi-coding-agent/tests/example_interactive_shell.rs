@@ -81,7 +81,9 @@ impl ExtensionUiContext for Ui {
                     trace.lock().unwrap().push(json!(["done", v]));
                 })),
             )
-            .expect("custom component fixture factory");
+            .expect("custom component fixture factory")
+            .await
+            .expect("custom component fixture continuation");
             assert_eq!(component.render(80), Vec::<String>::new());
             component.invalidate();
             component.dispose();
