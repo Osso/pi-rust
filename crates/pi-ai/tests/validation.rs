@@ -50,6 +50,17 @@ fn validation_message(tool: &Tool, tool_call: &ToolCall) -> String {
 }
 
 #[test]
+fn lossless_schema_checks_use_javascript_numeric_property_order() {
+    use pi_ai::utils::validation::schema_error_lines;
+    use pi_js_compat::js_json::parse_lossless;
+    let schema =
+        parse_lossless(r#"{"type":"object","properties":{"10":{"type":"number"},"2":{"type":"number"}}}"#).unwrap();
+    let args = parse_lossless(r#"{"10":"x","2":"y"}"#).unwrap();
+    let lines = schema_error_lines(&schema, &args);
+    assert_eq!(lines, vec!["  - 2: must be number", "  - 10: must be number"]);
+}
+
+#[test]
 fn patterns_support_javascript_backreferences() {
     let tool = plain_value_schema(json!({"type":"string", "pattern":r"^(a)\1$"}));
     assert_eq!(validate(&tool, &value_args(json!("aa"))), json!({"value":"aa"}));

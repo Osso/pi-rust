@@ -76,7 +76,9 @@ pub fn validate_arguments(
     typebox_kind: bool,
     tool_name: &str,
 ) -> Result<Value, ValidationError> {
-    let mut args = arguments.clone();
+    let schema = clone_in_js_order(schema);
+    let schema = &schema;
+    let mut args = clone_in_js_order(arguments);
     if typebox_kind {
         let _ = convert(schema, &mut args, &JsObject::new());
     }
@@ -824,7 +826,9 @@ fn collect_issues(schema: &Value, value: &Value) -> Issues {
 
 /// TypeBox-style validation lines (`  - path: message`) for a schema compiled by `Compile(...).Errors`.
 pub fn schema_error_lines(schema: &Value, value: &Value) -> Vec<JsString> {
-    collect_issues(schema, value).items.iter().map(Issue::line).collect()
+    let schema = clone_in_js_order(schema);
+    let value = clone_in_js_order(value);
+    collect_issues(&schema, &value).items.iter().map(Issue::line).collect()
 }
 
 fn check(schema: &Value, value: &Value) -> bool {
@@ -2044,6 +2048,20 @@ fn is_max_length_fast(units: &[u16], maximum: f64) -> bool {
         }
     }
     true
+}
+
+/// JS objects enumerate array-index keys first, independently of insertion order.
+fn clone_in_js_order(value: &Value) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            pi_js_compat::js_json::object_entries_lossless(object)
+                .into_iter()
+                .map(|(key, value)| (key.clone(), clone_in_js_order(value)))
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.iter().map(clone_in_js_order).collect()),
+        _ => value.clone(),
+    }
 }
 
 fn url_field(schema: &Value, key: &str) -> Option<String> {

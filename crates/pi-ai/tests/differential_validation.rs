@@ -1136,6 +1136,9 @@ fn lossless_utf16_validation_matches_frozen_typescript() {
         r#""😀""#,
         r#""\ud800x""#,
         r#""\ufffd""#,
+        r#""aa""#,
+        r#""x\ud800""#,
+        r#""\ud800\ud800""#,
     ];
     let schemas = [
         json!({"type":"string"}),
