@@ -2494,15 +2494,27 @@ impl AgentSession {
             Some(path) => path,
             None => return Ok(false),
         };
-        let _drain_guard = self.inner.runtime_mailbox_drain_lock.lock().await;
+        let drain_guard = self.inner.runtime_mailbox_drain_lock.lock().await;
         if can_steer_active_turn {
             return self
-                .deliver_ready_runtime_mailbox_messages(&control_db_path, options, MailboxDeliveryMode::Steer, None)
+                .deliver_ready_runtime_mailbox_messages(
+                    &control_db_path,
+                    options,
+                    MailboxDeliveryMode::Steer,
+                    None,
+                    drain_guard,
+                )
                 .await;
         }
         let guard = self.inner.turn_start_lock.lock().await;
-        self.deliver_ready_runtime_mailbox_messages(&control_db_path, options, MailboxDeliveryMode::Prompt, Some(guard))
-            .await
+        self.deliver_ready_runtime_mailbox_messages(
+            &control_db_path,
+            options,
+            MailboxDeliveryMode::Prompt,
+            Some(guard),
+            drain_guard,
+        )
+        .await
     }
 
     async fn deliver_ready_runtime_mailbox_messages(
@@ -2511,6 +2523,7 @@ impl AgentSession {
         options: DrainCoordinationOptions,
         mode: MailboxDeliveryMode,
         guard: Option<tokio::sync::MutexGuard<'_, ()>>,
+        drain_guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<bool, AgentSessionError> {
         if mode == MailboxDeliveryMode::Prompt {
             let model = self.inner.agent.model();
@@ -2542,7 +2555,7 @@ impl AgentSession {
             .map(crate::core::runtime_mailbox_acceptance::RuntimeMailboxAcceptanceRef::from)
             .collect::<Vec<_>>();
         let result = self
-            .deliver_claimed_runtime_mailbox_messages(messages, &recipient.session_id, mode, guard)
+            .deliver_claimed_runtime_mailbox_messages(messages, &recipient.session_id, mode, guard, drain_guard)
             .await;
         crate::core::runtime_mailbox_acceptance::release_unaccepted_runtime_mailbox_messages(
             &lock(&self.inner.session_manager),
@@ -2559,6 +2572,7 @@ impl AgentSession {
         recipient_session_id: &str,
         mode: MailboxDeliveryMode,
         guard: Option<tokio::sync::MutexGuard<'_, ()>>,
+        drain_guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<bool, AgentSessionError> {
         let prompt_messages = self.accept_intercepted_mailbox_messages(messages).await?;
         if prompt_messages.is_empty() {
@@ -2577,7 +2591,8 @@ impl AgentSession {
             self.accept_runtime_mailbox_messages(&prompt_messages, Some(&message))?;
             return Ok(true);
         }
-        self.prompt_mailbox_messages(&prompt, &prompt_messages, guard).await
+        self.prompt_mailbox_messages(&prompt, &prompt_messages, guard, drain_guard)
+            .await
     }
 
     async fn accept_intercepted_mailbox_messages(
@@ -2600,8 +2615,12 @@ impl AgentSession {
         prompt: &str,
         messages: &[RuntimeMailboxMessage],
         guard: Option<tokio::sync::MutexGuard<'_, ()>>,
+        drain_guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<bool, AgentSessionError> {
         let guard = guard.expect("prompt delivery holds the turn start lock");
+        // Frozen releases the mailbox drain before _promptTurn: its tool-result
+        // checkpoint must be able to drain again while this prompt is running.
+        drop(drain_guard);
         let result = Box::pin(self.prompt_turn(
             prompt,
             PromptOptions {
