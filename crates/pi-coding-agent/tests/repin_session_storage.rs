@@ -1072,3 +1072,25 @@ fn source_lossless_tool_migration_preserves_receipt_summary_and_classifications(
         0
     );
 }
+
+#[tokio::test]
+async fn legacy_v1_raw_summary_extras_survive_migration_and_export() {
+    use pi_coding_agent::core::export_html::{ExportOptions, export_from_file};
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"legacy1":true,"compacted":true,"splitExtra":true}),
+    );
+    let path = created["path"].as_str().unwrap();
+    let before = std::fs::read(path).unwrap();
+    let expected = call(&mut ts, json!({"op":"extraTokens","path":path}));
+    let output = tmp.path().join("legacy-summary.html").display().to_string();
+    export_from_file(path, Some(ExportOptions::from_output_path(&output)))
+        .await
+        .unwrap();
+    assert_eq!(call(&mut ts, json!({"op":"exportExtraTokens","path":output})), expected);
+    assert_eq!(std::fs::read(path).unwrap(), before);
+}

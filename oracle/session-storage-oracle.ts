@@ -44,10 +44,14 @@ async function handle(r: any) {
   const entry=manager.SessionManager.openReadOnly(r.path).getEntries().find((e:any)=>e.type==="compaction");
   return JSON.stringify([entry[String.fromCharCode(0xd800)],entry.usage]);
  }
- if(r.op === "exportReceiptTokens") {
+ if(r.op === "exportReceiptTokens" || r.op === "exportExtraTokens") {
   const html=readFileSync(r.path,"utf8");const marker='<script id="session-data" type="application/json">';
   const start=html.indexOf(marker)+marker.length;const end=html.indexOf("</script>",start);
   const data=JSON.parse(Buffer.from(html.slice(start,end),"base64").toString("utf8"));
+  if(r.op === "exportExtraTokens") {
+   const entry=data.entries.find((e:any)=>e.type==="compaction");
+   return JSON.stringify([entry[String.fromCharCode(0xd800)],entry.usage]);
+  }
   return JSON.stringify(data.entries.find((e:any)=>e.type==="message").mailboxStoreRefs);
  }
  if(r.op === "receiptTokens") {
