@@ -927,3 +927,34 @@ fn resident_sessions_are_excluded_from_ordinary_filesystem_listing() {
     assert_eq!(call(&mut ts, json!({"op":"list","dir":dir,"cwd":dir})), json!([]));
     assert!(SessionManager::list(&dir, Some(&dir), None, None).unwrap().is_empty());
 }
+
+#[test]
+fn source_tool_result_raw_receipt_survives_storage_truncation_boundary() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"toolResult":true,"splitSurrogate":true}),
+    );
+    let path = created["path"].as_str().unwrap();
+    let expected = call(&mut ts, json!({"op":"receiptTokens","path":path}));
+    let mut manager = SessionManager::open(path, None, None).unwrap();
+    let first = manager.get_entries()[0].id().unwrap().to_owned();
+    let id = manager
+        .append_compaction("summary", &first, 1.0, Default::default())
+        .unwrap();
+    manager.update_compaction_summary(&id, "rewritten").unwrap();
+    assert_eq!(call(&mut ts, json!({"op":"receiptTokens","path":path})), expected);
+    let entries = load_entries_from_file(path).unwrap();
+    assert_eq!(
+        entries[1].entry().unwrap().as_message().unwrap().message.role(),
+        "toolResult"
+    );
+    let fork = SessionManager::fork_from(path, &dir, Some(&dir), None, None).unwrap();
+    assert_eq!(
+        call(&mut ts, json!({"op":"receiptTokens","path":fork.get_session_file()})),
+        expected
+    );
+}

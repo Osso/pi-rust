@@ -12,7 +12,7 @@ async function handle(r: any) {
  if (r.op === "create") {
   const m = manager.SessionManager.create(r.cwd, r.dir, r.options);
   if(r.db)m.setMetadataControlDbPath(r.db);
-  const first=m.appendMessage({role:"user",content:r.text ?? "hello 😀漢字",timestamp:1}, r.refs);
+  const first=m.appendMessage(r.toolResult?{role:"toolResult",toolCallId:"source-call",toolName:"fixture",content:[{type:"text",text:r.text??"tool result"}],isError:false,timestamp:1}:{role:"user",content:r.text ?? "hello 😀漢字",timestamp:1}, r.refs);
   if(r.compacted||r.branched){
    const kept=m.appendMessage({role:"user",content:"kept",timestamp:2},r.refs);
    m.branch(first);
