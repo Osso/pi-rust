@@ -421,11 +421,7 @@ pub fn no_change_error(path: impl Into<JsString>, total_edits: usize) -> EditErr
                 + ". The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected.",
         )
     } else {
-        EditError::new(
-            JsString::from("No changes made to ")
-                + path
-                + ". The replacements produced identical content. This might indicate an issue with special characters or the text not existing as expected.",
-        )
+        EditError::new(JsString::from("No changes made to ") + path + ". The replacements produced identical content.")
     }
 }
 
