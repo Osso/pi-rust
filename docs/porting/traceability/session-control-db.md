@@ -1,5 +1,11 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Blocking canonical JSON counterexample — current group is not accepted
+
+`repin_control_raw_json::canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim` is RED. A real frozen TS enqueue writes body `before\ud800after`; native runtime projection replaces U+D800 with U+FFFD, and native claim rewrites the canonical stored body to U+FFFD. The same TS process reads that changed row. `canonical-raw-json-red.log` records both code-unit changes.
+
+Root: canonical `parse_stored_json_object` / `parse_json_object` still use legacy lossy serde `Value` maps, and runtime body is `String`. Lossless receipt scanning is fixed separately; it does not fix canonical payload authority or runtime payload egress. No typed-input exclusion or waiver applies to this source-created persisted JSON. Lossless public payload/egress interfaces require integration-owner coordination; no dual-authority fallback is added. Positive proofs below remain bounded, not whole-group/shared-state acceptance.
+
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
 Channel trim RED→GREEN: actual source public posts distinguish JS U+FEFF/NBSP whitespace from U+0085 NEL. Native post now uses the shared JS trim helper; empty U+FEFF rejects before DB mutation. `channel-trim-green.log` focused1 pass over all three cases.

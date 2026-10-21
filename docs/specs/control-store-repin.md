@@ -4,6 +4,8 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 
 ## What it must do
 
+- [ ] Preserve canonical persisted JSON UTF16 strings/keys through reads and mutations. Current source-created lone-surrogate mailbox body is replaced on projection and rewritten by claim; [blocking proof](../porting/traceability/session-control-db.md).
+
 - [x] Read and update TS-created metadata, and survive TS initialization of Rust-created metadata, without obsolete transcript search columns.
 - [x] Preserve authoritative NULL versus explicit cleared names during metadata updates.
 - [x] Select archive candidates without archiving; expose atomic relocation plus archive/unarchive operations.
@@ -28,7 +30,8 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 - [x] Preserve escaped lone-surrogate receipt values/keys and malformed ref elements losslessly; compare raw refs with JS property/strict-equality semantics.
 - [x] Exercise fresh Rust→TS initialization→Rust mutation→same TS reads across mailbox, agent/outbox, channel, supervisor and base control state.
 - [x] Fence delivery against a real peer payload update; abort on malformed later complete receipts before deleting, and honor raw ref short-circuit errors.
-- [ ] Classify source limit0 and empty-host retry branches; finish explicit mutation negative controls and independent group acceptance.
+- [x] Prove expected-payload CAS with an explicit guard-disabled negative control and byte-identical restoration.
+- [ ] Classify source limit0 and empty-host retry branches; resolve canonical lossless JSON and run independent group acceptance.
 
 ## How it works
 

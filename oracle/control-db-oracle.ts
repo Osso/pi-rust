@@ -58,6 +58,12 @@ async function main(): Promise<void> {
 		}
 		if (step.op === "acceptedRefsWire") return JSON.stringify(transcript.readAcceptedRuntimeMailboxStoreRefs(step.path));
 		if (step.op === "acceptedRefs") return transcript.readAcceptedRuntimeMailboxStoreRefs(step.path);
+		if (step.op === "callWire") {
+			const [fn, wire] = step.args as [string, string];
+			const implementation = api[fn];
+			if (typeof implementation !== "function") throw new Error(`unknown control-db function ${fn}`);
+			return JSON.stringify(normalize(implementation(...JSON.parse(wire))));
+		}
 		if (step.op === "call") {
 			const [fn, args] = step.args as [string, unknown[]];
 			const implementation = api[fn];
