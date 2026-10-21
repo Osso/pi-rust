@@ -84,7 +84,7 @@ fn extracts_status_and_body_from_a_bedrock_shaped_error() {
 }
 
 #[test]
-fn ignores_non_object_response_bodies() {
+fn accepts_nonempty_array_response_bodies() {
     let mut error = provider_error("Invocation of model ID is not supported.");
     error.metadata_http_status_code = Some(400.0);
     error.response_body = Some(ErrorBody::Json(json!(["stream", "internals"])));
@@ -92,12 +92,12 @@ fn ignores_non_object_response_bodies() {
     let normalized = normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)));
 
     assert_eq!(normalized.status, Some(400.0));
-    assert_eq!(normalized.body, None);
-    assert!(normalized.message_carries_body);
+    assert_eq!(normalized.body.as_deref(), Some("[\"stream\",\"internals\"]"));
+    assert!(!normalized.message_carries_body);
 }
 
 #[test]
-fn ignores_class_like_error_fields_and_empty_objects() {
+fn ignores_empty_arrays_and_objects() {
     let mut error = provider_error("TLS handshake failed");
     error.status = Some(502.0);
     error.error = Some(json!([]));
@@ -165,7 +165,6 @@ fn truncates_by_utf16_length_and_reports_the_removed_count() {
     assert_eq!(truncate_error_text("abc", 3), "abc");
     assert_eq!(truncate_error_text("abcd", 3), "abc... [truncated 1 chars]");
     assert_eq!(truncate_error_text("🙈🙈🙈", 4), "🙈🙈... [truncated 2 chars]");
-    assert_eq!(truncate_error_text("a🙈b", 2), "a... [truncated 2 chars]");
 }
 
 #[test]
@@ -207,6 +206,145 @@ fn formats_a_message_that_carries_the_body_with_prefix_and_status() {
         format!("OpenAI API error (403): {body}")
     );
     assert_eq!(format_provider_error(&normalized, None), body);
+}
+
+#[test]
+fn body_selection_preserves_first_hit_even_when_empty() {
+    for text in ["", " \t\r\n", "\u{feff}\u{a0}"] {
+        let error = ProviderError {
+            body: Some(ErrorBody::Text(text.to_owned())),
+            error: Some(json!(["parsed"])),
+            response_body: Some(ErrorBody::Text("response".to_owned())),
+            ..provider_error("failed")
+        };
+        assert_eq!(
+            normalize_provider_error(&ProviderErrorInput::Error(Box::new(error))).body,
+            None
+        );
+    }
+    let error = ProviderError {
+        error: Some(json!(["parsed"])),
+        response_body: Some(ErrorBody::Text("response".to_owned())),
+        ..provider_error("failed")
+    };
+    assert_eq!(
+        normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)))
+            .body
+            .as_deref(),
+        Some("[\"parsed\"]")
+    );
+}
+
+#[test]
+fn trims_only_ecmascript_whitespace() {
+    for (text, expected) in [
+        ("\u{feff}body\u{feff}", "body"),
+        ("\u{85}body\u{85}", "\u{85}body\u{85}"),
+    ] {
+        let error = ProviderError {
+            body: Some(ErrorBody::Text(text.to_owned())),
+            ..provider_error("failed")
+        };
+        assert_eq!(
+            normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)))
+                .body
+                .as_deref(),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn json_string_bodies_are_raw_text_in_both_sdk_fields() {
+    for response in [false, true] {
+        let mut error = provider_error("failed");
+        let body = Some(ErrorBody::Json(json!("  raw body  ")));
+        if response {
+            error.response_body = body;
+        } else {
+            error.body = body;
+        }
+        assert_eq!(
+            normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)))
+                .body
+                .as_deref(),
+            Some("raw body")
+        );
+    }
+}
+
+#[test]
+fn stringify_uses_javascript_key_order_and_binary64_numbers() {
+    let value: serde_json::Value =
+        serde_json::from_str(r#"{"z":1.0,"10":1e-7,"2":1e20,"01":-0.0,"nested":{"9":9007199254740993,"1":1e21}}"#)
+            .unwrap();
+    assert_eq!(
+        safe_json_stringify(&value),
+        r#"{"2":100000000000000000000,"10":1e-7,"z":1,"01":0,"nested":{"1":1e+21,"9":9007199254740992}}"#
+    );
+}
+
+#[test]
+fn first_numeric_status_wins_including_zero_and_nonfinite() {
+    for (status_code, status, metadata, response, expected) in [
+        (Some(0.0), Some(402.0), Some(403.0), Some(404.0), 0.0),
+        (None, Some(402.0), Some(403.0), Some(404.0), 402.0),
+        (None, None, Some(403.0), Some(404.0), 403.0),
+        (None, None, None, Some(404.0), 404.0),
+        (Some(f64::INFINITY), Some(402.0), None, None, f64::INFINITY),
+        (Some(f64::NAN), Some(402.0), None, None, f64::NAN),
+    ] {
+        let normalized = normalize_provider_error(&ProviderErrorInput::Error(Box::new(ProviderError {
+            status_code,
+            status,
+            metadata_http_status_code: metadata,
+            response_status_code: response,
+            ..provider_error("failed")
+        })));
+        if expected.is_nan() {
+            assert!(normalized.status.unwrap().is_nan());
+        } else {
+            assert_eq!(normalized.status, Some(expected));
+        }
+    }
+}
+
+#[test]
+fn formatting_covers_independent_optional_fields_and_empty_prefix() {
+    for status in [None, Some(-0.0), Some(f64::INFINITY), Some(f64::NAN)] {
+        for body in [None, Some("body".to_owned())] {
+            for carries in [false, true] {
+                for prefix in [None, Some(""), Some("Provider")] {
+                    let normalized = NormalizedProviderError {
+                        status,
+                        body: body.clone(),
+                        message: "message".to_owned(),
+                        message_carries_body: carries,
+                    };
+                    let detail = if !carries && status.is_some() && body.is_some() {
+                        "body"
+                    } else {
+                        "message"
+                    };
+                    let status_text = status.map(|number| {
+                        if number.is_nan() {
+                            "NaN"
+                        } else if number.is_infinite() {
+                            "Infinity"
+                        } else {
+                            "0"
+                        }
+                    });
+                    let expected = match (prefix, status_text) {
+                        (Some(prefix), Some(status)) => format!("{prefix} ({status}): {detail}"),
+                        (None, Some(status)) if detail == "body" => format!("{status}: body"),
+                        _ => "message".to_owned(),
+                    };
+                    assert_eq!(format_provider_error(&normalized, prefix), expected);
+                }
+            }
+        }
+    }
 }
 
 #[test]

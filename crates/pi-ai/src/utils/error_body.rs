@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use pi_js_compat::number::js_number_to_string;
+use pi_js_compat::{js_json, number::js_number_to_string, string::js_trim};
 
 pub const MAX_PROVIDER_ERROR_BODY_CHARS: usize = 4000;
 
@@ -14,8 +14,8 @@ pub struct NormalizedProviderError {
 
 /// Raw HTTP body shape carried by an SDK error.
 ///
-/// Streams and class-instance wrappers are not representable in the typed core
-/// API; callers pass text or already-parsed JSON.
+/// Callers pass text or already-parsed JSON. JSON strings have the same
+/// selection semantics as `Text`; JSON arrays and objects retain their shape.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ErrorBody {
     Text(String),
@@ -72,7 +72,7 @@ fn extract_status(error: &ProviderError) -> Option<f64> {
 
 fn extract_body(error: &ProviderError) -> Option<String> {
     let body_text = pick_body_text(error)?;
-    let trimmed = body_text.trim();
+    let trimmed = js_trim(&body_text);
     if trimmed.is_empty() {
         return None;
     }
@@ -80,23 +80,27 @@ fn extract_body(error: &ProviderError) -> Option<String> {
 }
 
 fn pick_body_text(error: &ProviderError) -> Option<String> {
-    if let Some(ErrorBody::Text(text)) = &error.body {
+    if let Some(ErrorBody::Text(text) | ErrorBody::Json(Value::String(text))) = &error.body {
         return Some(text.clone());
     }
     if let Some(value) = &error.error
-        && is_plain_non_empty_object(value)
+        && is_non_empty_object(value)
     {
         return Some(safe_json_stringify(value));
     }
     match &error.response_body {
-        Some(ErrorBody::Text(text)) => Some(text.clone()),
-        Some(ErrorBody::Json(value)) if is_plain_non_empty_object(value) => Some(safe_json_stringify(value)),
+        Some(ErrorBody::Text(text) | ErrorBody::Json(Value::String(text))) => Some(text.clone()),
+        Some(ErrorBody::Json(value)) if is_non_empty_object(value) => Some(safe_json_stringify(value)),
         _ => None,
     }
 }
 
-fn is_plain_non_empty_object(value: &Value) -> bool {
-    matches!(value, Value::Object(object) if !object.is_empty())
+fn is_non_empty_object(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => !object.is_empty(),
+        Value::Array(array) => !array.is_empty(),
+        _ => false,
+    }
 }
 
 pub fn format_provider_error(normalized: &NormalizedProviderError, prefix: Option<&str>) -> String {
@@ -143,5 +147,5 @@ fn take_utf16_units(text: &str, max_units: usize) -> String {
 }
 
 pub fn safe_json_stringify(value: &Value) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "null".to_owned())
+    js_json::stringify(value)
 }
