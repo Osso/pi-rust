@@ -1,6 +1,6 @@
 # Resident session file preparation
 
-Reference: unmodified `core/resident-session.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, plus user-approved private role-regex fix (2026-10-21): both slash and backslash separators. Separate actual TS-delta pin: `8f8f3c2621a595ff799cd42cb4d14399cd1e286d`, [module-scoped provenance](../porting/deltas/resident-session-private-regex.json); frozen bytes remain unchanged.
+Reference: unmodified `core/resident-session.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, plus user-approved private role-regex fix (2026-10-21): both slash and backslash separators. Separate actual TS-delta pin: `8f8f3c2621a595ff799cd42cb4d14399cd1e286d`, [tracked delta lock](../porting/delta-lock.json); frozen bytes remain unchanged.
 
 - `ResidentRole` permits architect and supervisor. Existing `isResidentSession` ID/path-segment behavior remains unchanged.
 - Preparation recursively creates the role directory using Node lexical join semantics, scans only regular canonical/underscore-suffixed role files, and returns directory plus retained file path without creating that file.

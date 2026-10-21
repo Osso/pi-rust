@@ -18,7 +18,7 @@ All pre-repin proof logs/checklists and dated approvals in `docs/porting/traceab
 
 All tracked `crates/`, `oracle/`, `scripts/`, `.cargo/` and `run-tests.sh` paths were searched for checkout literals, secondary locks, catalog assumptions and lock consumers. Active runtime checkout selection now reads the common lock; no old checkout literal or secondary session-name lock remains. The two asset/script fixture checkout literals now use the common lock. Supplied R-record selectors are updated exactly; deleted or D/A-replaced APIs are not guessed or adapted. No product source changed.
 
-The protected guard mounts only the common source and its Git metadata, not an obsolete type-reference tree. Source tsconfig aliases resolve installed packages to real source despite absent dist declarations. Type-only oracle imports use lock-selected `@pi-oracle-source/*`; ambient declaration files remain included. Session preflight checks tracked `models.generated.ts`, not old generated provider JSON. Strict type reference [proof](oracle-gate.md) passes at the public-index compiler boundary, without changing any source bytes. Existing downstream API/diagnostic assertions remain unchanged and may fail.
+The protected guard mounts the common source, explicitly [locked post-pin deltas](oracle-gate.md#locked-post-pin-deltas), and their Git metadata, not an obsolete type-reference tree. Source tsconfig aliases resolve installed packages to real source despite absent dist declarations. Type-only oracle imports use lock-selected `@pi-oracle-source/*`; ambient declaration files remain included. Session preflight checks tracked `models.generated.ts`, not old generated provider JSON. Strict type reference [proof](oracle-gate.md) passes at the public-index compiler boundary, without changing any source bytes. Existing downstream API/diagnostic assertions remain unchanged and may fail.
 
 Static literal audit found 221 distinct source-like paths, 46 absent. Two are not oracle blockers: `ai/src/autocomplete.ts` is an intentional temporary autocomplete fixture; `coding-agent/dist/cli.js` is a product returned-path assertion, not a source-oracle import. Remaining 44 candidate missing paths below map to active/removed coverage rows by path. This static inventory is not execution proof and does not predict every failing target. Full locations: `/tmp/pi-rust-repin-infra/runtime-path-audit.json`.
 
@@ -82,3 +82,17 @@ CARGO_BUILD_JOBS=4 cargo test --workspace --all-targets --no-fail-fast
 ```
 
 Run using argv/environment via Pyrun and retain stdout/stderr once in `/tmp/pi-rust-repin-infra/discovery.log`; configured Cargo runner protects compiled tests. Main then writes `DISCOVERY.md` with per-target pass/fail counts, primary cause and coverage-row mapping. No discovery command has been run by this slice. Missing modules/API differences above are deferred, not bypassed. No merge, push or deployment by the implementer.
+
+
+## Approved-delta integration (2026-10-21)
+
+The separate [delta lock](delta-lock.json) and mandatory guard now support exact
+approved module deltas alongside the unchanged frozen pin. Guard setup validates
+HEAD plus per-module SHA256 before exposing checkout/Git metadata read-only;
+module-specific tests own explicit selection. No common oracle retargeting,
+`/opt` alias wrapper or ignore attribute is required. Resident frozen tests assert
+the exact approved 42-row difference record; delta tests assert zero differences.
+Focused sandbox and resident proof is recorded in
+[resident traceability](traceability/resident-session.md); this is not broad
+re-pin acceptance. Later approved delta entries can use their own immutable
+checkouts without changing guard code.

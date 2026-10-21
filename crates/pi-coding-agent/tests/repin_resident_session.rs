@@ -1,8 +1,10 @@
 //! Actual-source filesystem/metadata interoperability, not a runtime impersonation.
-//! Frozen-baseline-with-approved-delta: unignored frozen metadata matrices stay RED
-//! on 42 documented discrepancies. Explicit ignored `delta_` entrypoints use only
-//! the pinned resident fix; no frozen test is ignored or silently retargeted.
+//! Frozen-baseline-with-approved-delta 8f8f3c26: frozen matrices assert exactly
+//! the 42 approved metadata differences; delta matrices assert none. Both run in
+//! the ordinary gate through the mandatory guard and tracked delta lock.
 #![cfg(unix)]
+#[path = "support/resident_frozen_delta.rs"]
+mod frozen_delta;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -259,11 +261,17 @@ fn restore_permissions(f: &Value) {
 }
 
 #[test]
-fn source_created_trees_native_prepare_and_source_reader_reciprocal() {
-    run_source_created_trees_native_prepare_and_source_reader_reciprocal(oracle());
+fn frozen_approved_delta_8f8f3c26_reciprocal_snapshot_differences_are_exact() {
+    run_source_created_trees_native_prepare_and_source_reader_reciprocal(
+        oracle(),
+        frozen_delta::expected_discrepancies("reciprocal"),
+    );
 }
 
-fn run_source_created_trees_native_prepare_and_source_reader_reciprocal(mut oracle: oracle::TsOracle) {
+fn run_source_created_trees_native_prepare_and_source_reader_reciprocal(
+    mut oracle: oracle::TsOracle,
+    expected: Vec<Value>,
+) {
     let mut mismatches = Vec::new();
     for role in ["architect", "supervisor"] {
         for case in [
@@ -299,11 +307,10 @@ fn run_source_created_trees_native_prepare_and_source_reader_reciprocal(mut orac
                 );
                 outputs.push(normalized(json!({"prepared": prepared, "observed": observed}), &root));
             }
-            if outputs[0] != outputs[1] {
-                mismatches.push(format!(
-                    "{role}/{case}: source={} native={}",
-                    outputs[0]["observed"]["metadata"], outputs[1]["observed"]["metadata"]
-                ));
+            if let Some(difference) =
+                frozen_delta::snapshot_difference(&format!("{role}/{case}"), &outputs[0], &outputs[1]).unwrap()
+            {
+                mismatches.push(difference);
             }
             let path = outputs[0]["prepared"]["value"]["sessionPath"].as_str().unwrap();
             let expected = match case {
@@ -315,19 +322,21 @@ fn run_source_created_trees_native_prepare_and_source_reader_reciprocal(mut orac
             assert!(path.ends_with(&expected), "{case}: {path}");
         }
     }
-    assert!(
-        mismatches.is_empty(),
-        "all reciprocal cases executed; mismatches:\n{}",
-        mismatches.join("\n")
-    );
+    frozen_delta::verify_discrepancies(&mismatches, &expected).unwrap();
 }
 
 #[test]
-fn paired_actual_self_pids_cover_live_validation_without_impersonating_pi() {
-    run_paired_actual_self_pids_cover_live_validation_without_impersonating_pi(oracle());
+fn frozen_approved_delta_8f8f3c26_own_pid_snapshot_differences_are_exact() {
+    run_paired_actual_self_pids_cover_live_validation_without_impersonating_pi(
+        oracle(),
+        frozen_delta::expected_discrepancies("ownPid"),
+    );
 }
 
-fn run_paired_actual_self_pids_cover_live_validation_without_impersonating_pi(mut oracle: oracle::TsOracle) {
+fn run_paired_actual_self_pids_cover_live_validation_without_impersonating_pi(
+    mut oracle: oracle::TsOracle,
+    expected: Vec<Value>,
+) {
     let mut mismatches = Vec::new();
     for role in ["architect", "supervisor"] {
         for case in [
@@ -364,27 +373,28 @@ fn run_paired_actual_self_pids_cover_live_validation_without_impersonating_pi(mu
                 let observed = success(&mut oracle, "inspect", &f);
                 outputs.push(normalized(json!({"prepared": prepared, "observed": observed}), &root));
             }
-            if outputs[0] != outputs[1] {
-                mismatches.push(format!(
-                    "{role}/{case}: source={} native={}",
-                    outputs[0]["observed"]["metadata"], outputs[1]["observed"]["metadata"]
-                ));
+            if let Some(difference) =
+                frozen_delta::snapshot_difference(&format!("{role}/{case}"), &outputs[0], &outputs[1]).unwrap()
+            {
+                mismatches.push(difference);
             }
         }
     }
-    assert!(
-        mismatches.is_empty(),
-        "all paired own-PID cases executed; mismatches:\n{}",
-        mismatches.join("\n")
-    );
+    frozen_delta::verify_discrepancies(&mismatches, &expected).unwrap();
 }
 
 #[test]
-fn source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes() {
-    run_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes(oracle());
+fn frozen_approved_delta_8f8f3c26_owned_child_snapshot_differences_are_exact() {
+    run_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes(
+        oracle(),
+        frozen_delta::expected_discrepancies("ownedChild"),
+    );
 }
 
-fn run_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes(mut oracle: oracle::TsOracle) {
+fn run_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes(
+    mut oracle: oracle::TsOracle,
+    expected: Vec<Value>,
+) {
     let mut mismatches = Vec::new();
     for case in ["dead", "nonpi"] {
         let mut outputs = Vec::new();
@@ -404,11 +414,8 @@ fn run_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes(mut 
                 &root,
             ));
         }
-        if outputs[0] != outputs[1] {
-            mismatches.push(format!(
-                "{case}: source={} native={}",
-                outputs[0]["observed"]["metadata"], outputs[1]["observed"]["metadata"]
-            ));
+        if let Some(difference) = frozen_delta::snapshot_difference(case, &outputs[0], &outputs[1]).unwrap() {
+            mismatches.push(difference);
         }
         assert!(
             outputs[0]["prepared"]["value"]["sessionPath"]
@@ -417,11 +424,7 @@ fn run_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes(mut 
                 .ends_with("900_supervisor.jsonl")
         );
     }
-    assert!(
-        mismatches.is_empty(),
-        "all owned child cases executed; mismatches:\n{}",
-        mismatches.join("\n")
-    );
+    frozen_delta::verify_discrepancies(&mismatches, &expected).unwrap();
 }
 
 #[test]
@@ -496,8 +499,8 @@ fn invalid_control_database_propagates_after_mkdir_before_file_deletion() {
     }
 }
 
-// File/path/liveness proof is independent of the explicitly failing metadata regex
-// fixtures above. All metadata rows, including backslash cases, remain in these trees.
+// File/path/liveness proof is independent of approved frozen metadata differences.
+// All metadata rows, including backslash cases, remain in these trees.
 #[test]
 fn independent_selection_unicode_relative_types_and_paired_liveness() {
     run_independent_selection_unicode_relative_types_and_paired_liveness(oracle());
@@ -643,11 +646,11 @@ fn nul_path_shared_argument_validation_boundary_is_explicit() {
     assert!(pi_js_compat::node_fs::node_path_argument_error("/tmp/valid-path").is_none());
 }
 
-// Explicit opt-in: frozen tests above remain unignored and RED on the approved
-// private-regex discrepancy. These tests alone select the separately pinned delta.
+// Only these tests select the resident delta; frozen tests keep the common pin.
+// The mandatory runner exposes verified delta-lock checkouts read-only.
 fn approved_delta_oracle() -> oracle::TsOracle {
-    let pin: Value = serde_json::from_str(RESIDENT_DELTA).expect("resident delta pin must be valid JSON");
-    let checkout = std::path::Path::new(pin["sandboxAlias"].as_str().unwrap());
+    let pin = resident_delta_pin();
+    let checkout = std::path::Path::new(pin["checkout"].as_str().unwrap());
     let module = verify_resident_delta(checkout, &pin)
         .unwrap_or_else(|error| panic!("approved resident delta unavailable (no frozen fallback): {error}"));
     oracle::TsOracle::spawn_with_environment(
@@ -658,33 +661,40 @@ fn approved_delta_oracle() -> oracle::TsOracle {
 }
 
 #[test]
-#[ignore = "opt-in approved resident delta; use scripts/resident-delta-runner.py and --ignored delta_"]
 fn delta_source_created_trees_native_prepare_and_source_reader_reciprocal() {
-    run_source_created_trees_native_prepare_and_source_reader_reciprocal(approved_delta_oracle());
+    run_source_created_trees_native_prepare_and_source_reader_reciprocal(approved_delta_oracle(), Vec::new());
 }
 
 #[test]
-#[ignore = "opt-in approved resident delta; use scripts/resident-delta-runner.py and --ignored delta_"]
 fn delta_paired_actual_self_pids_cover_live_validation_without_impersonating_pi() {
-    run_paired_actual_self_pids_cover_live_validation_without_impersonating_pi(approved_delta_oracle());
+    run_paired_actual_self_pids_cover_live_validation_without_impersonating_pi(approved_delta_oracle(), Vec::new());
 }
 
 #[test]
-#[ignore = "opt-in approved resident delta; use scripts/resident-delta-runner.py and --ignored delta_"]
 fn delta_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes() {
-    run_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes(approved_delta_oracle());
+    run_source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes(approved_delta_oracle(), Vec::new());
 }
 
 #[test]
-#[ignore = "opt-in approved resident delta; use scripts/resident-delta-runner.py and --ignored delta_"]
 fn delta_independent_selection_unicode_relative_types_and_paired_liveness() {
     run_independent_selection_unicode_relative_types_and_paired_liveness(approved_delta_oracle());
 }
 
-const RESIDENT_DELTA: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../docs/porting/deltas/resident-session-private-regex.json"
-));
+fn resident_delta_pin() -> Value {
+    const MODULE: &str = "packages/coding-agent/src/core/resident-session.ts";
+    let lock: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/porting/delta-lock.json"
+    )))
+    .expect("delta lock must be valid JSON");
+    let delta = lock["deltas"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|delta| delta["modules"].get(MODULE).is_some())
+        .expect("resident module must have an explicit approved delta pin");
+    json!({"checkout":delta["checkout"],"commit":delta["commit"],"module":MODULE,"moduleSha256":delta["modules"][MODULE]})
+}
 
 fn verify_resident_delta(checkout: &std::path::Path, pin: &Value) -> Result<std::path::PathBuf, String> {
     use sha2::{Digest, Sha256};
@@ -726,14 +736,14 @@ fn verify_resident_delta(checkout: &std::path::Path, pin: &Value) -> Result<std:
 #[test]
 fn resident_delta_selector_rejects_missing_checkout() {
     let root = tempfile::tempdir().unwrap();
-    let pin: Value = serde_json::from_str(RESIDENT_DELTA).unwrap();
+    let pin = resident_delta_pin();
     let error = verify_resident_delta(&root.path().join("absent"), &pin).unwrap_err();
     assert!(error.contains("HEAD"), "{error}");
 }
 
 #[test]
 fn resident_delta_selector_rejects_wrong_commit() {
-    let pin: Value = serde_json::from_str(RESIDENT_DELTA).unwrap();
+    let pin = resident_delta_pin();
     let lock: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../docs/porting/source-lock.json"
@@ -745,7 +755,7 @@ fn resident_delta_selector_rejects_wrong_commit() {
 
 #[test]
 fn resident_delta_selector_rejects_wrong_module_hash() {
-    let mut pin: Value = serde_json::from_str(RESIDENT_DELTA).unwrap();
+    let mut pin = resident_delta_pin();
     let lock: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../docs/porting/source-lock.json"
