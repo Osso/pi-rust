@@ -11,11 +11,15 @@ pub fn parse_compaction_threshold_percent(value: Option<&Value>) -> Result<Optio
         return Ok(None);
     };
     if let Some(percent) = value.as_f64()
-        && percent.is_finite() && percent > 0.0 && percent <= 100.0
+        && percent.is_finite()
+        && percent > 0.0
+        && percent <= 100.0
     {
         return Ok(Some(percent));
     }
-    let text = to_js_string(&JsValue::from(value)).map_err(SettingsFailure::new)?.to_utf8_lossy();
+    let text = to_js_string(&JsValue::from(value))
+        .map_err(SettingsFailure::new)?
+        .to_utf8_lossy();
     Err(SettingsFailure::new(format!(
         "Invalid compaction.thresholdPercent setting: {text}. Use a finite number greater than 0 and at most 100, or remove the setting."
     )))
