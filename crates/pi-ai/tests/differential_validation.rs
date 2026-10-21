@@ -836,10 +836,16 @@ fn rust_validate(arguments: &Value, schema: &Value, kind: &str) -> Value {
         "echo",
         arguments.as_object().cloned().unwrap_or_else(Map::<String, Value>::new),
     );
-    match validate_tool_arguments(&tool, &tool_call) {
+    let original = tool_call.arguments.clone();
+    let result = match validate_tool_arguments(&tool, &tool_call) {
         Ok(value) => json!({ "ok": true, "value": value }),
         Err(error) => json!({ "ok": false, "message": error.to_string() }),
-    }
+    };
+    assert_eq!(
+        tool_call.arguments, original,
+        "validation must not mutate caller arguments"
+    );
+    result
 }
 
 fn normalized_expected(result: &Value) -> Value {
@@ -1057,6 +1063,11 @@ fn optional_nulls_and_union_order_match_the_frozen_source() {
     assert_eq!(results.len(), fixtures.len());
     let mut mismatches = Vec::new();
     for (fixture, expected) in fixtures.iter().zip(results) {
+        assert_eq!(
+            expected["argumentsAfter"], fixture["arguments"],
+            "source caller arguments: {}",
+            fixture["name"]
+        );
         let actual = rust_validate(
             &fixture["arguments"],
             &expected["schemas"][0],

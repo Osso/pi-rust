@@ -1,6 +1,6 @@
 # utils/validation traceability
 
-Source: complete `packages/ai/src/utils/validation.ts` (326 lines) read at
+Source: complete `packages/ai/src/utils/validation.ts` (324 lines) read at
 `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
 Spec: [shared validation](../../specs/validation.md).
 
@@ -24,6 +24,49 @@ Differential oracle: `oracle/validation-oracle.ts` (builds TypeBox schemas with 
 `Type.*` builders or passes plain JSON, calls the real `validateToolArguments`/`validateToolCall`).
 Tests: `crates/pi-ai/tests/validation.rs` (26 behavioral cases), `crates/pi-ai/tests/differential_validation.rs`
 (68 schema/argument cases + 3 tool-lookup cases), both byte-for-byte on returned values and `Error.message`.
+
+## Current-pin source branch matrix
+
+| Source symbols / branches | Concrete current-pin evidence | Status |
+|---|---|---|
+| `validateToolCall`: found, missing | 3 lookup differential cases | passing |
+| `validateToolArguments`: clone, convert, coerce, success/error | 50-case null/order matrix; oracle `argumentsAfter` and Rust input snapshots assert caller immutability on success/error | targeted proof |
+| `getSchemaTypes`, `matchesJsonType`, primitive coercions | prior matrix plus 36 required/optional null cases | partial: not every string/number boundary |
+| `applySchemaObjectCoercion`: properties/additional properties | prior object/additional/ref fixtures; nested optional-null fixture | targeted proof |
+| `applySchemaArrayCoercion`: items and tuple; beyond tuple length | prior array/tuple fixtures | targeted proof |
+| `coerceWithUnionSchema`: declared order, first rejected, no match, cloned object candidates | 12 new anyOf/oneOf cases | passing |
+| `coerceWithJsonSchema`: allOf/anyOf/oneOf then type | prior composition fixtures; new union ordering fixtures | partial: combined-keyword ordering not independently proven |
+| `getValidator`: first compile, cached compile, compile throw | first compile used throughout; nullable-array exception reproduced | cache reuse not independently exercised |
+| `getSubSchemaValidator`: compile success/failure | successful arm checks exercised | exception branch not independently exercised |
+| `formatValidationPath`: required and root/nested paths | existing unit/path/error fixtures | targeted proof |
+| `hasTypeBoxMetadata`: absent symbol | current TypeBox builders; actual conversion outcomes in matrix | symbol-present branch not represented by Rust API |
+| root replacement result / invalid primitive fallback | source root-string probe returns `"1"` for argument `1` | non-object Rust arguments not representable; not newly excluded |
+
+## Reproduced wider boundaries (no new approval)
+
+Observed with the same frozen source and TypeBox **1.1.38** installed under that
+worktree. Raw observations: `/tmp/pi-rust-repin-validation/boundary-source.jsonl`,
+`boundary-request.json`, `boundary-rust.log`, `boundary-rust-probe.rs`.
+
+- Nested `Type.Unsafe({type:"integer"})` under `Type.Object`, input
+  `{value:"42.9"}`: TS integer error; Rust `{value:42}`. Replacing the Unsafe node
+  with `Type.Integer()` yields the **same serialized schema**, but TS `{value:42}`.
+  Source `Value.Convert` dispatches node-by-node through
+  `node_modules/typebox/build/value/convert/from_type.mjs:24–47`;
+  source validation invokes it at `validation.ts:294`. Rust `types.rs:744,773`
+  stores a JSON schema and only one root `typebox_kind` boolean. A per-node
+  conversion-kind tree associated with `TypeBoxSchema` is the narrow proposed API
+  change; ownership/authorization is required before implementation.
+- Pattern `^(a)\\1$`, input `{value:"aa"}`: TS accepts; Rust rejects the pattern.
+  Source validation delegates to `Compile` (`validation.ts:239–247`). Regex engine
+  work is outside this bounded repair; no unsupported-pattern waiver is assumed.
+- Root string schema with argument `1`: TS returns `"1"`; Rust `ToolCall.arguments`
+  is `JsonObject` (`types.rs:382`), so that input is not representable. A raw-value
+  validation entry point could expose the source function's runtime domain without
+  replacing every typed caller; main must decide whether it belongs in the domain.
+- Root `parameters:false`: TS `TypeError: Invalid value used as weak map key`;
+  Rust returns formatted `schema is false` error. Runtime error classification is
+  unresolved; no new exclusion or source-bug choice.
 
 ## Representation decisions
 
