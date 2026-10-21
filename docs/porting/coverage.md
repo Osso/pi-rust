@@ -96,7 +96,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/models.generated.ts` | 78 | 4 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
 | `ai/src/models.ts` | 450 | 1 | todo | `crates/pi-ai/src/models.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/models.rs`; providers/models, refresh generations+publication chains, auth application, login/logout, deferred, cost/thinking helpers; differential cost/thinking/refresh/apply-auth |
 | `ai/src/oauth.ts` | 1 | 3 | partial | `crates/pi-ai/src/oauth.rs` | frozen registry re-export; direct provider helper exports pending provider ports; [trace](traceability/oauth-registry.md) |
-| `ai/src/providers/all.ts` | 131 | 5 | todo | `crates/pi-ai/src/providers/all.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/all.rs`; All 40 factories including both `openai-codex` entries; catalog/order/generatedAt/images differential ([traceability](traceability/providers-all.md)). |
+| `ai/src/providers/all.ts` | 131 | 5 | todo | `crates/pi-ai/src/providers/all.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/all.rs`; Historical pre-repin factory/catalog differential only; frozen inventory now has 36 entries including default/GC/Team Codex, checked by `differential_provider_inventory`. Old-only public factories removed; whole-module parity remains TODO ([traceability](traceability/providers-all.md)). |
 | `ai/src/providers/amazon-bedrock.models.ts` | 1831 | 3 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
 | `ai/src/providers/amazon-bedrock.ts` | 35 | 4 | todo | `crates/pi-ai/src/providers/amazon_bedrock.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/amazon_bedrock.rs`; Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/providers/ant-ling.models.ts` | 62 | 3 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
@@ -720,7 +720,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 
 ## Removed by re-pin (old pin only)
 
-213 old rows; not part of active totals. Rust deletion is deferred to product slices.
+213 old rows; not part of active totals. Removed Rust slices are recorded in [removed-rust-sources.json](removed-rust-sources.json); other deletions remain deferred.
 
 | Old source | Old status | Rust crate/module to delete |
 |---|---|---|
@@ -779,34 +779,34 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/model-types.ts` | done | `crates/pi-ai/src/types.rs` |
 | `ai/src/models-store.ts` | done | `crates/pi-ai/src/models_store.rs` |
 | `ai/src/providers/azure-openai-responses.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
-| `ai/src/providers/azure-openai-responses.ts` | done | `crates/pi-ai/src/providers/azure_openai_responses.rs` |
+| `ai/src/providers/azure-openai-responses.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/baseten.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
-| `ai/src/providers/baseten.ts` | done | `crates/pi-ai/src/providers/baseten.rs` |
+| `ai/src/providers/baseten.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/cloudflare-stream.ts` | done | `crates/pi-ai/src/providers/cloudflare_stream.rs` |
 | `ai/src/providers/data-json.d.ts` | gap | — |
 | `ai/src/providers/qwen-token-plan-cn.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
-| `ai/src/providers/qwen-token-plan-cn.ts` | done | `crates/pi-ai/src/providers/qwen_token_plan_cn.rs` |
+| `ai/src/providers/qwen-token-plan-cn.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/qwen-token-plan-individual.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
-| `ai/src/providers/qwen-token-plan-individual.ts` | done | `crates/pi-ai/src/providers/qwen_token_plan_individual.rs` |
+| `ai/src/providers/qwen-token-plan-individual.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/qwen-token-plan.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
-| `ai/src/providers/qwen-token-plan.ts` | done | `crates/pi-ai/src/providers/qwen_token_plan.rs` |
+| `ai/src/providers/qwen-token-plan.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/radius-config.ts` | done | `crates/pi-ai/src/providers/radius_config.rs` |
-| `ai/src/providers/radius.ts` | done | `crates/pi-ai/src/providers/radius.rs` |
+| `ai/src/providers/radius.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/utils/abort.ts` | done | `crates/pi-ai/src/utils/abort.rs` |
 | `ai/src/utils/deferred-tools.ts` | done | `crates/pi-ai/src/utils/deferred_tools.rs` |
 | `ai/src/utils/provider-retry.ts` | done | `crates/pi-ai/src/utils/provider_retry.rs` |
 | `ai/src/utils/text.ts` | done | `crates/pi-ai/src/utils/text.rs` |
-| `client/src/client.ts` | done | `crates/pi-client/src/client.rs` |
-| `client/src/connection.ts` | done | `crates/pi-client/src/connection.rs` |
-| `client/src/errors.ts` | done | `crates/pi-client/src/errors.rs` |
-| `client/src/index.ts` | done | `crates/pi-client/src/lib.rs` |
-| `client/src/promise.ts` | done | `crates/pi-client/src/promise.rs` |
-| `client/src/session-handle.ts` | done | `crates/pi-client/src/session_handle.rs` |
-| `client/src/state.ts` | done | `crates/pi-client/src/state.rs` |
-| `client/src/transport.ts` | done | `crates/pi-client/src/transport.rs` |
-| `client/src/types.ts` | done | `crates/pi-client/src/types.rs` |
-| `client/src/unix.ts` | done | `crates/pi-client/src/unix.rs` |
-| `client/vitest.config.ts` | gap | — |
+| `client/src/client.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `client/src/connection.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `client/src/errors.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `client/src/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `client/src/promise.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `client/src/session-handle.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `client/src/state.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `client/src/transport.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `client/src/types.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `client/src/unix.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `client/vitest.config.ts` | gap | Removed: no frozen counterpart (2026-10-21) |
 | `coding-agent/examples/extensions/custom-compaction.ts` | done | `crates/pi-coding-agent/examples/extensions/custom_compaction.rs` |
 | `coding-agent/examples/extensions/kimi-deferred-tools.ts` | done | `crates/pi-coding-agent/examples/extensions/kimi_deferred_tools.rs` |
 | `coding-agent/extensions/agents-core/src/control-runtime.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/control_runtime.rs` |
@@ -832,9 +832,9 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/cli/experimental/commands/pi.ts` | done | `crates/pi-coding-agent/src/cli/experimental/commands/pi.rs` |
 | `coding-agent/src/cli/experimental/commands/server.ts` | done | `crates/pi-coding-agent/src/cli/experimental/commands/server.rs` |
 | `coding-agent/src/cli/experimental/transport-address.ts` | done | `crates/pi-coding-agent/src/cli/experimental/transport_address.rs` |
-| `coding-agent/src/client/index.ts` | done | `crates/pi-coding-agent/src/client/mod.rs` |
-| `coding-agent/src/client/remote-session.ts` | done | `crates/pi-coding-agent/src/client/remote_session.rs` |
-| `coding-agent/src/client/transcript.ts` | done | `crates/pi-coding-agent/src/client/transcript.rs` |
+| `coding-agent/src/client/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `coding-agent/src/client/remote-session.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `coding-agent/src/client/transcript.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `coding-agent/src/core/cache-stats.ts` | done | `crates/pi-coding-agent/src/core/cache_stats.rs` |
 | `coding-agent/src/core/extensions/extension-runtime.ts` | done | `crates/pi-coding-agent/src/core/extensions/extension_runtime.rs` |
 | `coding-agent/src/core/model-config.ts` | done | `crates/pi-coding-agent/src/core/model_config.rs` |
@@ -860,64 +860,64 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/utils/git-project.ts` | done | `crates/pi-coding-agent/src/utils/git_project.rs` |
 | `coding-agent/src/utils/management-http.ts` | done | `crates/pi-coding-agent/src/utils/management_http.rs` |
 | `coding-agent/src/utils/tool-result-images.ts` | done | `crates/pi-coding-agent/src/utils/tool_result_images.rs` |
-| `evals/scripts/run-evals.mjs` | done | `crates/pi-evals/src/run_evals.rs`, `crates/pi-evals/src/bin/run-evals.rs` |
-| `evals/src/extensions.eval.ts` | done | `crates/pi-evals/src/evals/extensions.rs` + `tests/extensions_eval.rs` |
-| `evals/src/pi-harness.ts` | done | `crates/pi-evals/src/pi_harness.rs` |
-| `evals/src/smoke.eval.ts` | done | `crates/pi-evals/src/evals/smoke.rs` + `tests/smoke_eval.rs` |
-| `evals/src/vitest-evals/artifacts.ts` | done | `crates/pi-evals/src/vitest_evals/artifacts.rs` |
-| `evals/src/vitest-evals/harness-table.ts` | done | `crates/pi-evals/src/vitest_evals/harness_table.rs` |
-| `evals/src/vitest-evals/reporter.ts` | done | `crates/pi-evals/src/vitest_evals/reporter.rs` |
-| `evals/src/vitest-evals/setup.ts` | done | `crates/pi-evals/src/vitest_evals/setup.rs` |
-| `evals/src/vitest-evals/summary.ts` | done | `crates/pi-evals/src/vitest_evals/summary.rs` |
-| `evals/vitest.config.ts` | gap | — |
-| `protocol/src/cbor/decoder.ts` | done | `crates/pi-protocol/src/cbor/decoder.rs` |
-| `protocol/src/cbor/encoder.ts` | done | `crates/pi-protocol/src/cbor/encoder.rs` |
-| `protocol/src/cbor/index.ts` | done | `crates/pi-protocol/src/cbor/mod.rs` |
-| `protocol/src/cbor/options.ts` | done | `crates/pi-protocol/src/cbor/options.rs` |
-| `protocol/src/codec.ts` | done | `crates/pi-protocol/src/codec.rs` + `src/codec/*` |
-| `protocol/src/framing.ts` | done | `crates/pi-protocol/src/framing.rs` |
-| `protocol/src/index.ts` | done | `crates/pi-protocol/src/lib.rs` |
-| `protocol/src/schemas.ts` | done | `crates/pi-protocol/src/schemas.rs` + `src/schemas/*` |
-| `protocol/vitest.config.ts` | gap | — |
-| `server/src/connection.ts` | done | `crates/pi-server/src/connection.rs` |
-| `server/src/errors.ts` | done | `crates/pi-server/src/errors.rs` |
-| `server/src/index.ts` | done | `crates/pi-server/src/lib.rs` |
-| `server/src/listener.ts` | done | `crates/pi-server/src/listener.rs` |
-| `server/src/protocol.ts` | done | `crates/pi-server/src/protocol.rs` |
-| `server/src/server.ts` | done | `crates/pi-server/src/server.rs` |
-| `server/src/sessions.ts` | done | `crates/pi-server/src/sessions.rs` |
-| `server/src/snapshots.ts` | done | `crates/pi-server/src/snapshots.rs` |
-| `server/src/testing/client.ts` | done | `crates/pi-server/src/testing/client.rs` |
-| `server/src/testing/index.ts` | done | `crates/pi-server/src/testing/mod.rs` |
-| `server/src/testing/server.ts` | done | `crates/pi-server/src/testing/server.rs` |
-| `server/src/testing/service.ts` | done | `crates/pi-server/src/testing/service.rs` |
-| `server/src/transports/unix/index.ts` | done | `crates/pi-server/src/transports/unix/mod.rs` |
-| `server/src/transports/unix/listener.ts` | done | `crates/pi-server/src/transports/unix/listener.rs` |
-| `server/src/transports/unix/preset.ts` | done | `crates/pi-server/src/transports/unix/preset.rs` |
-| `server/src/transports/unix/types.ts` | done | `crates/pi-server/src/transports/unix/types.rs` |
-| `server/src/types.ts` | done | `crates/pi-server/src/types.rs` |
-| `server/vitest.config.ts` | gap | — |
-| `session-backends/sqlite-node/scripts/prepare-dist.mjs` | gap | — |
-| `session-backends/sqlite-node/src/index.ts` | done | `crates/pi-session-sqlite/src/sqlite/connection.rs + src/lib.rs` |
-| `session-backends/sqlite-node/src/sqlite/branch-cache.ts` | done | `crates/pi-session-sqlite/src/sqlite/branch_cache.rs` |
-| `session-backends/sqlite-node/src/sqlite/index.ts` | done | `crates/pi-session-sqlite/src/sqlite/mod.rs` |
-| `session-backends/sqlite-node/src/sqlite/migrations.ts` | done | `crates/pi-session-sqlite/src/sqlite/migrations.rs + migrations/001_initial.sql` |
-| `session-backends/sqlite-node/src/sqlite/migrations/001_initial.sql` | done | `crates/pi-session-sqlite/src/sqlite/migrations/001_initial.sql` |
-| `session-backends/sqlite-node/src/sqlite/repo.ts` | done | `crates/pi-session-sqlite/src/sqlite/repo/{mod,storage,decode,fork}.rs` |
-| `session-backends/sqlite-node/src/sqlite/search-backend.ts` | done | `crates/pi-session-sqlite/src/sqlite/search_backend.rs` |
-| `session-backends/sqlite-node/src/sqlite/sql.ts` | done | `crates/pi-session-sqlite/src/sqlite/sql.rs` |
-| `session-backends/sqlite-node/src/sqlite/storage/branch-entries.ts` | done | `crates/pi-session-sqlite/src/sqlite/storage/branch_entries.rs` |
-| `session-backends/sqlite-node/src/sqlite/storage/branch-tips.ts` | done | `crates/pi-session-sqlite/src/sqlite/storage/branch_tips.rs` |
-| `session-backends/sqlite-node/src/sqlite/storage/entries.ts` | done | `crates/pi-session-sqlite/src/sqlite/storage/entries.rs` |
-| `session-backends/sqlite-node/src/sqlite/storage/facts.ts` | done | `crates/pi-session-sqlite/src/sqlite/storage/facts.rs` |
-| `session-backends/sqlite-node/src/sqlite/storage/lanes.ts` | done | `crates/pi-session-sqlite/src/sqlite/storage/lanes.rs` |
-| `session-backends/sqlite-node/src/sqlite/storage/records.ts` | done | `crates/pi-session-sqlite/src/sqlite/storage/records.rs` |
-| `session-backends/sqlite-node/src/sqlite/storage/session-sequences.ts` | done | `crates/pi-session-sqlite/src/sqlite/storage/session_sequences.rs` |
-| `session-backends/sqlite-node/src/sqlite/storage/session-stats.ts` | done | `crates/pi-session-sqlite/src/sqlite/storage/session_stats.rs` |
-| `session-backends/sqlite-node/src/sqlite/storage/sessions.ts` | done | `crates/pi-session-sqlite/src/sqlite/storage/sessions.rs` |
-| `session-backends/sqlite-node/src/sqlite/storage/writer-leases.ts` | done | `crates/pi-session-sqlite/src/sqlite/storage/writer_leases.rs` |
-| `session-backends/sqlite-node/src/sqlite/types.ts` | done | `crates/pi-session-sqlite/src/sqlite/types.rs + src/error.rs` |
-| `session-backends/sqlite-node/vitest.config.ts` | gap | — |
+| `evals/scripts/run-evals.mjs` | done | Removed: no frozen counterpart (2026-10-21) |
+| `evals/src/extensions.eval.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `evals/src/pi-harness.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `evals/src/smoke.eval.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `evals/src/vitest-evals/artifacts.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `evals/src/vitest-evals/harness-table.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `evals/src/vitest-evals/reporter.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `evals/src/vitest-evals/setup.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `evals/src/vitest-evals/summary.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `evals/vitest.config.ts` | gap | Removed: no frozen counterpart (2026-10-21) |
+| `protocol/src/cbor/decoder.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `protocol/src/cbor/encoder.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `protocol/src/cbor/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `protocol/src/cbor/options.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `protocol/src/codec.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `protocol/src/framing.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `protocol/src/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `protocol/src/schemas.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `protocol/vitest.config.ts` | gap | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/connection.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/errors.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/listener.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/protocol.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/server.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/sessions.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/snapshots.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/testing/client.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/testing/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/testing/server.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/testing/service.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/transports/unix/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/transports/unix/listener.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/transports/unix/preset.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/transports/unix/types.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/src/types.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `server/vitest.config.ts` | gap | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/scripts/prepare-dist.mjs` | gap | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/branch-cache.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/migrations.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/migrations/001_initial.sql` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/repo.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/search-backend.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/sql.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/storage/branch-entries.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/storage/branch-tips.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/storage/entries.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/storage/facts.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/storage/lanes.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/storage/records.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/storage/session-sequences.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/storage/session-stats.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/storage/sessions.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/storage/writer-leases.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/src/sqlite/types.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `session-backends/sqlite-node/vitest.config.ts` | gap | Removed: no frozen counterpart (2026-10-21) |
 | `telemetry/src/index.ts` | done | `crates/pi-telemetry/src/lib.rs` |
 | `telemetry/src/memory.ts` | done | `crates/pi-telemetry/src/memory.rs` |
 | `telemetry/src/noop.ts` | done | `crates/pi-telemetry/src/noop.rs` |

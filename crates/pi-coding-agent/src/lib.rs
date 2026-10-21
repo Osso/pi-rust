@@ -5,7 +5,6 @@ pub mod bun;
 pub mod bundled_extensions;
 pub mod cli;
 pub mod cli_entry;
-pub mod client;
 pub mod config;
 pub mod core;
 pub mod internal_runner;

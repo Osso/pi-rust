@@ -34,7 +34,7 @@ use tokio::process::Child;
 use crate::config;
 use crate::core::output_guard::is_stdout_taken_over;
 use crate::core::pi_manifest::{PiManifest, read_pi_manifest};
-use crate::core::settings_manager::{Settings, SettingsManager};
+use crate::core::settings_manager::{Settings, SettingsManager, lock_settings_manager};
 use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::git::{GitSource, parse_git_url};
 use crate::utils::paths::{
@@ -265,7 +265,7 @@ impl SettingsManagerStore {
     }
 
     pub fn with<T>(&self, operation: impl FnOnce(&mut SettingsManager) -> T) -> T {
-        let mut manager = self.manager.lock().unwrap();
+        let mut manager = lock_settings_manager(&self.manager);
         operation(&mut manager)
     }
 }

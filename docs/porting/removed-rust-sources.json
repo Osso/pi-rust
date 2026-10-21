@@ -1,0 +1,8 @@
+[
+  "client/",
+  "coding-agent/src/client/",
+  "evals/",
+  "protocol/",
+  "server/",
+  "session-backends/sqlite-node/"
+]

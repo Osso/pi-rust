@@ -143,18 +143,12 @@ async fn distinguishes_subscription_oauth_from_generic_oauth() {
             "openrouter",
             json!({"type": "oauth", "access": "openrouter-key", "refresh": "", "expires": 9_007_199_254_740_991.0}),
         ),
-        (
-            "radius",
-            json!({"type": "oauth", "access": "radius-access", "refresh": "radius-refresh", "expires": now + 3_600_000.0}),
-        ),
     ]);
     let runtime = ModelRuntime::create(create_options(storage)).await.unwrap();
     assert!(runtime.is_using_oauth("anthropic"));
     assert!(runtime.is_using_subscription("anthropic"));
     assert!(runtime.is_using_oauth("openrouter"));
     assert!(!runtime.is_using_subscription("openrouter"));
-    assert!(runtime.is_using_oauth("radius"));
-    assert!(!runtime.is_using_subscription("radius"));
 }
 
 #[tokio::test]

@@ -27,7 +27,7 @@ Static audit: read both complete byte arrays for each of nine asset pairs and co
 |---|---|---|
 | Five HTML-export assets | [export assets](traceability/export-html-assets.md) | `todo` → `done` |
 | Dark/light and schema JSON | [theme assets](traceability/theme-assets.md) | Two `todo` → `done`; schema stays `todo` |
-| Initial SQL | [initial schema](traceability/sqlite-initial-schema.md) | `todo` → `done` |
+| Initial SQL | Old-only SQLite backend; [removed in the re-pin](removed-rust-sources.json) | Historical `todo` → `done`; crate and traceability now removed |
 | Two Bedrock package forwarders | [entrypoints](traceability/bedrock-provider-entrypoints.md) | Two `todo` → `done` |
 | Two native C implementations | [native modifiers](traceability/native-modifiers.md#native-addon-implementation-rows) | Two `todo` → existing approved `gap` |
 
