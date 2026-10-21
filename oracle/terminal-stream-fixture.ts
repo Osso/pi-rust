@@ -19,9 +19,11 @@ for (let cycle = 0; cycle < cycles; cycle++) {
 	await done;
 	const kitty = terminal.kittyProtocolActive;
 	const modify = terminal.modifyOtherKeysActive;
+	const drainStart = Date.now();
 	await terminal.drainInput(100, 30);
+	const waitedForLateData = Date.now() - drainStart >= 40;
 	terminal.stop();
-	process.stderr.write(`RESULT ${JSON.stringify({ inputs, sizes, kitty, modify })}\n`);
+	process.stderr.write(`RESULT ${JSON.stringify({ inputs, sizes, kitty, modify, waitedForLateData })}\n`);
 	await new Promise((resolve) => setTimeout(resolve, 40));
 }
 process.exit(0);

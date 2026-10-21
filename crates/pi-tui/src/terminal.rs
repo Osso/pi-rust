@@ -658,11 +658,12 @@ impl ProcessTerminal {
         }
     }
 
-    fn drain_stdin_channel(&mut self) {
+    fn drain_stdin_channel(&mut self) -> bool {
         let Some(receiver) = self.input_handler.as_ref() else {
-            return;
+            return false;
         };
         let chunks: Vec<Vec<u8>> = receiver.try_iter().collect();
+        let received = !chunks.is_empty();
         for chunk in chunks {
             let text = decode_stdin_chunk(&mut self.stdin_utf8_buffer, &chunk);
             if text.is_empty() {
@@ -673,6 +674,7 @@ impl ProcessTerminal {
                 self.dispatch_stdin_events(events);
             }
         }
+        received
     }
 
     fn append_write_log(&self, data: &str) {
@@ -783,15 +785,13 @@ impl Terminal for ProcessTerminal {
             if now >= end {
                 break;
             }
+            if self.drain_stdin_channel() {
+                last_data = now;
+            }
+            self.poll_at(now);
             if now.duration_since(last_data) >= idle {
                 break;
             }
-            self.drain_stdin_channel();
-            let events = self.poll_at(now);
-            if events.iter().any(|event| matches!(event, TerminalEvent::Input(_))) {
-                last_data = Instant::now();
-            }
-            self.pending_events.clear();
             std::thread::sleep(Duration::from_millis(5));
         }
     }

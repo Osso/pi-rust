@@ -8,7 +8,7 @@ use pi_tui::{ProcessTerminal, Terminal};
 use serde_json::{Value, json};
 
 const DRIVER: &str = r#"
-import fcntl, json, os, select, struct, subprocess, sys, termios, time
+import fcntl, json, os, select, struct, subprocess, sys, signal, termios, time
 command, case = json.loads(sys.argv[1]), json.loads(sys.argv[2])
 pty = case['kind'] != 'pipe'
 master = slave = None
@@ -46,7 +46,7 @@ try:
         if pty:
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 7+cycle, 30+cycle, 0, 0))
             time.sleep(.04)
-        send(b'q'); time.sleep(.01); send(b'x')
+        send(b'q'); time.sleep(.02); send(b'\x1b[?0u')
         result = line()
         if not result.startswith('RESULT '): raise RuntimeError('unexpected fixture result: ' + result)
         results.append(json.loads(result[7:]))
@@ -59,7 +59,9 @@ try:
         output = child.stdout.read(); restored = None
     print(json.dumps(dict(results=results, writes=bytes(output).decode(), restored=restored, exit=child.returncode)))
 except Exception as error:
-    child.kill(); child.wait()
+    try: os.killpg(child.pid, signal.SIGKILL)
+    except ProcessLookupError: pass
+    child.wait()
     print(json.dumps(dict(error=str(error), stderr=child.stderr.read().decode(errors='replace'))))
 finally:
     if master is not None: os.close(master)
@@ -100,11 +102,13 @@ fn run_child() {
         }
         let kitty = terminal.kitty_protocol_active();
         let modify = terminal.modify_other_keys_active();
+        let drain_start = Instant::now();
         terminal.drain_input(100, 30);
+        let waited_for_late_data = drain_start.elapsed() >= Duration::from_millis(40);
         terminal.stop();
         eprintln!(
             "RESULT {}",
-            json!({"inputs":inputs,"sizes":sizes,"kitty":kitty,"modify":modify})
+            json!({"inputs":inputs,"sizes":sizes,"kitty":kitty,"modify":modify,"waitedForLateData": waited_for_late_data})
         );
         std::thread::sleep(Duration::from_millis(40));
     }
