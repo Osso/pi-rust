@@ -2,6 +2,12 @@
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
+Reciprocal proof: `repin_control_reciprocal.rs` GREEN6 starts fresh Rust public producers, then the same frozen TS initializes/reads, Rust mutates and the same TS reads again. Covers mailbox retry/claim/fail/delete, owned agent model/terminal/peer-ack replay, channel/cursor reserved-key coexistence, cancelled supervisor fencing, unchanged incoming/history/health/counters and archive failure after relocation rolling back metadata/counter moves.
+
+`mailbox-order-cas-proof.log` GREEN13 adds actual TS upsert after a Rust claim/read snapshot (stale delivery CAS rejects), foreign claimant release/fail/delete fences, malformed complete receipt after an earlier matching ref aborts before deletion, and raw null-ref short-circuit ordering. Two tests reproduce TS discrepancies only, not accepted Rust contracts: limit0 and empty optional recipientHost retry.
+
+Empty-host discrepancy pending classification: source first enqueue with `recipientHost:""` omits host/routes locally, but identical retry conflicts because insertion uses truthiness and identity uses nullish defaulting. Rust empty-host behavior is not claimed compatible; no silent waiver or fix. Ordinary nonempty/local host paths are independently proved.
+
 Migration/liveness follow-up: RED delivered legacy outbox row survives→fixed v12 copy excludes delivered; RED legacy live process identity without an incarnation is wrongly superseded→fixed nonce supersession requires both incarnations, matching the exact TS helper. `migration-live-green.log` GREEN23 across exports/lifecycle/mailbox/migrations. Explicit fixture mutations start from public-TS-created primary schema: legacy secondary routing/outbox marker, metadata missing parent/obsolete search column, monotonic legacy counters, nested artifact stripping and owned-live-owner migration refusal followed by dead-owner success. Owned Node-child exit is awaited explicitly after tsx group termination; prior wrapper wait alone was not sufficient proof of child death.
 
 `repin_control_retention_clock` passes real TS-created SQLite state through the actual Rust retention module at a controlled relative clock, comparing frozen TS cleanup at the same clock. Exactly24h and invalid/missing/null/numeric births expire; 24h−1ms remains for mailbox/channel. Rust rows are asserted before the same TS process reloads them; no peer-row normalization or runtime clock flags. Primary schemas are never hand-built.

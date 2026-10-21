@@ -26,7 +26,9 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 - [x] Match SQLite cleanup at controlled exactly24h/24h−1ms and expire missing/null/non-text/invalid births.
 - [x] Preserve legacy live process identities without incarnation; supersession requires both nonces.
 - [x] Preserve escaped lone-surrogate receipt values/keys and malformed ref elements losslessly; compare raw refs with JS property/strict-equality semantics.
-- [ ] Finish full group reverse-init/mutation proof and source limit0 classification.
+- [x] Exercise fresh Rust→TS initialization→Rust mutation→same TS reads across mailbox, agent/outbox, channel, supervisor and base control state.
+- [x] Fence delivery against a real peer payload update; abort on malformed later complete receipts before deleting, and honor raw ref short-circuit errors.
+- [ ] Classify source limit0 and empty-host retry branches; finish explicit mutation negative controls and independent group acceptance.
 
 ## How it works
 
