@@ -176,7 +176,10 @@ fn engine_wrapper_matches_pinned_memory_frame_and_input_lifecycle() {
             next: 64,
             fail,
         };
-        let error = engine.init_with_module(Box::new(module)).err();
+        let error = engine
+            .init_with_module(Box::new(module))
+            .err()
+            .map(|error| error.to_string());
         engine.tick().unwrap();
         engine.push_key(true, 173).unwrap();
         engine.push_key(false, 173).unwrap();
@@ -188,6 +191,47 @@ fn engine_wrapper_matches_pinned_memory_frame_and_input_lifecycle() {
                 vec![0x34, 0x56, 0x78, 255, 0xab, 0xcd, 0xef, 255]
             );
         }
+    }
+}
+
+#[test]
+fn wad_read_failures_match_node_error_messages_before_any_module_calls() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("file.wad");
+    std::fs::write(&file, b"IWAD").unwrap();
+    let cycle = temp.path().join("cycle.wad");
+    std::os::unix::fs::symlink(&cycle, &cycle).unwrap();
+    let mut ts = oracle::TsOracle::spawn(
+        "example-doom-helpers-oracle.ts",
+        "packages/coding-agent/examples/extensions/doom-overlay/doom-engine.ts",
+    );
+    for path in [
+        temp.path().join("missing '🚀.wad"),
+        temp.path().to_owned(),
+        file.join("child"),
+        cycle,
+    ] {
+        let expected = ts.request(&json!({"kind":"engine-read", "wad":path}));
+        let trace = Arc::new(Mutex::new(Vec::new()));
+        let mut engine = doom_engine::DoomEngine::new(path);
+        let error = engine
+            .init_with_module(Box::new(Module {
+                trace: trace.clone(),
+                next: 64,
+                fail: false,
+            }))
+            .unwrap_err();
+        assert_eq!(error.to_string(), expected["error"]["message"].as_str().unwrap());
+        let doom_engine::DoomInitError::Wad(identity) = error else {
+            panic!("WAD read must retain Node error identity")
+        };
+        assert_eq!(
+            json!({"name":identity.name,"message":identity.message,"errno":identity.errno,"code":identity.code,"syscall":identity.syscall,"path":identity.path}),
+            expected["error"]
+        );
+        assert_eq!(json!(trace.lock().unwrap().clone()), expected["trace"]);
+        assert!(!engine.is_initialized());
+        assert_eq!((engine.width(), engine.height()), (640, 400));
     }
 }
 

@@ -1,10 +1,33 @@
 //! Separable Doom wrapper. A host supplies the waived external module; this
 //! file does not load/evaluate the generated Emscripten JavaScript asset.
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf};
+
+use pi_js_compat::node_fs::{NodeFsError, NodeReadApi, node_read_error_record};
+
+#[derive(Debug)]
+pub enum DoomInitError {
+    Wad(NodeFsError),
+    Module(String),
+}
+
+impl fmt::Display for DoomInitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Wad(error) => f.write_str(&error.message),
+            Self::Module(message) => f.write_str(message),
+        }
+    }
+}
+
+impl From<String> for DoomInitError {
+    fn from(message: String) -> Self {
+        Self::Module(message)
+    }
+}
 
 /// Native fixture/host boundary for the Emscripten operations used by this example.
 /// Not a new core extension API or a WASM interpreter.
-pub trait DoomModule {
+pub trait DoomModule: Send {
     fn create_path(&mut self, parent: &str, path: &str) -> Result<(), String>;
     fn create_data_file(&mut self, parent: &str, name: &str, bytes: &[u8]) -> Result<(), String>;
     fn malloc(&mut self, size: u32) -> Result<u32, String>;
@@ -52,8 +75,14 @@ impl DoomEngine {
 
     /// Caller supplies the external module instead of loading `doom/build/doom.js`.
     /// Pre-run filesystem setup and all subsequent ABI calls retain source order.
-    pub fn init_with_module(&mut self, mut module: Box<dyn DoomModule>) -> Result<(), String> {
-        let wad = std::fs::read(&self.wad_path).map_err(|error| error.to_string())?;
+    pub fn init_with_module(&mut self, mut module: Box<dyn DoomModule>) -> Result<(), DoomInitError> {
+        let wad = std::fs::read(&self.wad_path).map_err(|error| {
+            DoomInitError::Wad(node_read_error_record(
+                &error,
+                &self.wad_path.to_string_lossy(),
+                NodeReadApi::ReadFileSync,
+            ))
+        })?;
         module.create_path("/", "doom")?;
         module.create_data_file("/doom", "doom1.wad", &wad)?;
         self.module = Some(module);

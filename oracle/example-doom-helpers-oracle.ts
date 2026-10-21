@@ -38,7 +38,7 @@ async function run(r: any) {
   const inputs=r.units?r.units.map((units:number[])=>String.fromCharCode(...units)):r.inputs;
   return {constants:Object.entries(keys.DoomKeys),mapped:inputs.map((input:string)=>keys.mapKeyToDoom(input))};
  }
- if (r.kind === "engine") {
+ if (r.kind === "engine" || r.kind === "engine-read") {
   const trace:any[]=[];
   let next=64;
   const fixtureModule = {
@@ -57,7 +57,10 @@ async function run(r: any) {
   const engine=new exports.DoomEngine(r.wad);
   engine.tick();engine.pushKey(true,173);
   let error=null;
-  try {await engine.init();} catch(e:any) {error=e.message;}
+  try {await engine.init();} catch(e:any) {
+   error=r.kind === "engine-read" ? {name:e.name,message:e.message,errno:e.errno,code:e.code,syscall:e.syscall,path:e.path ?? null} : e.message;
+  }
+  if(r.kind === "engine-read") return {error,trace,initialized:engine.isInitialized(),width:engine.width,height:engine.height};
   engine.tick();engine.pushKey(true,173);engine.pushKey(false,173);
   return {trace,error,initialized:engine.isInitialized(),width:engine.width,height:engine.height,frame:[...engine.getFrameRGBA()]};
  }
