@@ -40,8 +40,6 @@ fn write_metadata(control_db_path: &str, id: &str, session_path: &str, modified_
             modified_at: modified_at.to_owned(),
             message_count: 1,
             first_message: "hello".to_owned(),
-            all_messages_text: "hello".to_owned(),
-            index_message_text: None,
         },
     )
     .expect("write metadata");

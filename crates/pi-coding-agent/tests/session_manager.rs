@@ -702,8 +702,6 @@ fn metadata_row(session_path: &str, id: &str, cwd: &str, name: Option<&str>) -> 
         modified_at: "2025-01-01T00:00:03.000Z".to_owned(),
         message_count: 0,
         first_message: "(no messages)".to_owned(),
-        all_messages_text: String::new(),
-        index_message_text: None,
     }
 }
 
@@ -1429,8 +1427,6 @@ fn metadata_empty_paths_and_model_fields_use_js_truthiness() {
             modified_at: "2026-01-01T00:00:00.000Z".to_owned(),
             message_count: 0,
             first_message: String::new(),
-            all_messages_text: String::new(),
-            index_message_text: Some(true),
         },
     )
     .expect("seed metadata");
@@ -1540,8 +1536,6 @@ fn metadata_backed_listing_prefers_control_db_and_excludes_subagents() {
             modified_at: "2026-01-01T00:10:00.000Z".to_owned(),
             message_count: 1,
             first_message: "task".to_owned(),
-            all_messages_text: "task".to_owned(),
-            index_message_text: None,
         },
     )
     .unwrap();
@@ -1578,8 +1572,6 @@ fn metadata_backed_listing_prefers_control_db_and_excludes_subagents() {
             modified_at: "2026-01-01T00:10:00.000Z".to_owned(),
             message_count: 3,
             first_message: "archived".to_owned(),
-            all_messages_text: "archived".to_owned(),
-            index_message_text: None,
         },
     )
     .unwrap();
