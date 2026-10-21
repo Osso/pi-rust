@@ -147,9 +147,12 @@ fn rapid_shared_snapshots_preserve_fifo_across_scopes() {
     assert_eq!(project.1["packages"][0], "npm:project");
     assert_eq!(second.0, SettingsScope::Global);
     assert_eq!(second.1["defaultModel"], "second");
+    // A completed burst must not leave scheduling latched and strand the next mutation.
+    lock_settings_manager(&manager).set_default_model("third");
+    assert_eq!(fixture.write().1["defaultModel"], "third");
     fixture.finish(manager);
     assert!(fixture.writes.try_recv().is_err());
-    assert_eq!(fixture.reconstructed().get_default_model(), Some("second"));
+    assert_eq!(fixture.reconstructed().get_default_model(), Some("third"));
 }
 
 #[test]
