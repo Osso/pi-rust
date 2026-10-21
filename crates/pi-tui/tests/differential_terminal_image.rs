@@ -97,6 +97,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         json!({ "kind": "iterm2", "data": "AAAA", "options": { "width": 2, "height": "auto" } }),
         json!({ "kind": "iterm2", "data": "AAAA", "options": { "inline": false, "name": "shot.png", "preserveAspectRatio": false } }),
         json!({ "kind": "iterm2", "data": "AAAA", "options": { "width": "50%", "height": 10 } }),
+        json!({ "kind": "iterm2", "data": "AAAA", "options": { "width": 1e21, "height": -0.0 } }),
     ];
     let response = oracle.request(&json!({
         "id": "image-encode",
@@ -159,6 +160,14 @@ fn terminal_image_matches_the_pinned_typescript_source() {
                 ..Default::default()
             },
         ),
+        encode_iterm2(
+            "AAAA",
+            &Iterm2Options {
+                width: Some(Iterm2Size::Number(1e21)),
+                height: Some(Iterm2Size::Number(-0.0)),
+                ..Default::default()
+            },
+        ),
     ];
     for (expected, actual) in results.iter().zip(expected_encoded) {
         assert_eq!(actual, expected.as_str().unwrap());
@@ -212,6 +221,20 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         bytes.extend_from_slice(&200u16.to_le_bytes());
         pi_js_compat::base64::btoa(&bytes)
     };
+    let gif_high = {
+        let mut bytes = pi_js_compat::base64::buffer_from_base64(&gif);
+        for byte in &mut bytes[..6] {
+            *byte |= 0x80;
+        }
+        pi_js_compat::base64::btoa(&bytes)
+    };
+    let webp_high = {
+        let mut bytes = pi_js_compat::base64::buffer_from_base64(&vp8x);
+        for index in (0..4).chain(8..16) {
+            bytes[index] |= 0x80;
+        }
+        pi_js_compat::base64::btoa(&bytes)
+    };
     let dimension_cases = vec![
         json!({ "data": png, "mimeType": "image/png" }),
         json!({ "data": "AAAA", "mimeType": "image/png" }),
@@ -223,6 +246,8 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         json!({ "data": vp8, "mimeType": "image/webp" }),
         json!({ "data": "AAAA", "mimeType": "image/webp" }),
         json!({ "data": png, "mimeType": "image/unknown" }),
+        json!({ "data": gif_high, "mimeType": "image/gif" }),
+        json!({ "data": webp_high, "mimeType": "image/webp" }),
     ];
     let response = oracle.request(&json!({
         "id": "image-dimensions",
@@ -242,6 +267,8 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         (&vp8, "image/webp"),
         (&"AAAA".to_string(), "image/webp"),
         (&png, "image/unknown"),
+        (&gif_high, "image/gif"),
+        (&webp_high, "image/webp"),
     ]
     .iter()
     .map(|(data, mime)| {

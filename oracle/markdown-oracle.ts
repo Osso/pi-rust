@@ -104,7 +104,12 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
             const heading = new Markdown("# heading", 0, 0, theme, { color: (text: string) => { colorCalls++; return text; } }).render(10);
             const text = new Text(); text.setText("hi");
             const box = new Box(); box.addChild(new Text("hi", 0, 0));
-            return { snapshots, heading, colorCalls, defaultText: text.render(4), defaultBox: box.render(4) };
+            const { Input } = (await loadApi(sourceDirectory, "components/input.ts")) as any;
+            const { SelectList } = (await loadApi(sourceDirectory, "components/select-list.ts")) as any;
+            const input = new Input(); input.setValue("hello");
+            const selectionTheme = { selectedPrefix: identity, selectedText: identity, description: identity, scrollInfo: identity, noMatch: identity };
+            const selection = new SelectList([{ value: "alpha", label: "alpha", description: " \r\n\ufeff " }], 5, selectionTheme);
+            return { snapshots, heading, colorCalls, defaultText: text.render(4), defaultBox: box.render(4), narrowInput: input.render(2), emptyDescription: selection.render(80) };
         }
 		case "markdown_lex": {
 			const instance = await getParser(sourceDirectory);

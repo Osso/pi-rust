@@ -160,6 +160,18 @@ mod oracle;
 fn component_lifetimes_match_the_frozen_modules() {
     let mut oracle = oracle::TsOracle::spawn("markdown-oracle.ts", "packages/tui/src");
     let response = oracle.request(&serde_json::json!({"id": 1, "operation": "markdown_lifecycle"}));
+    let mut input = pi_tui::Input::new(Default::default());
+    input.set_value("hello");
+    let mut selection = pi_tui::SelectList::new(
+        vec![pi_tui::SelectItem {
+            value: "alpha".into(),
+            label: "alpha".into(),
+            description: Some(" \r\n\u{feff} ".into()),
+        }],
+        5,
+        pi_tui::SelectListTheme::plain(),
+        Default::default(),
+    );
     assert_eq!(response["ok"], true, "{response}");
     let theme: Rc<dyn pi_tui::MarkdownTheme> = Rc::new(HighlightTheme(std::cell::Cell::new(0)));
     let mut md = pi_tui::Markdown::with_shared_theme(
@@ -203,7 +215,30 @@ fn component_lifetimes_match_the_frozen_modules() {
     let mut bx = pi_tui::Box::default();
     bx.add_child(pi_tui::tui::component(Text::new("hi", 0, 0)));
     assert_eq!(
-        serde_json::json!({"snapshots": snapshots, "heading": heading.render(10), "colorCalls": calls.get(), "defaultText": text.render(4), "defaultBox": bx.render(4)}),
+        serde_json::json!({"snapshots": snapshots, "heading": heading.render(10), "colorCalls": calls.get(), "defaultText": text.render(4), "defaultBox": bx.render(4), "narrowInput": input.render(2), "emptyDescription": selection.render(80)}),
         response["output"]
     );
+}
+
+#[test]
+fn input_at_prompt_width_does_not_add_a_fake_cursor() {
+    let mut input = pi_tui::Input::new(Default::default());
+    input.set_value("hello");
+    assert_eq!(input.render(2), ["> "]);
+}
+
+#[test]
+fn empty_normalized_description_does_not_create_a_description_column() {
+    use pi_tui::components::select_list::{SelectItem, SelectList, SelectListLayoutOptions, SelectListTheme};
+    let mut list = SelectList::new(
+        vec![SelectItem {
+            value: "alpha".into(),
+            label: "alpha".into(),
+            description: Some(" \r\n\u{feff} ".into()),
+        }],
+        5,
+        SelectListTheme::plain(),
+        SelectListLayoutOptions::default(),
+    );
+    assert_eq!(list.render(80), ["→ alpha"]);
 }

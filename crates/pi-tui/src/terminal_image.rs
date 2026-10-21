@@ -71,10 +71,7 @@ pub enum Iterm2Size {
 impl fmt::Display for Iterm2Size {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Number(value) if value.is_nan() => formatter.write_str("NaN"),
-            Self::Number(value) if *value == f64::INFINITY => formatter.write_str("Infinity"),
-            Self::Number(value) if *value == f64::NEG_INFINITY => formatter.write_str("-Infinity"),
-            Self::Number(value) => write!(formatter, "{value}"),
+            Self::Number(value) => formatter.write_str(&pi_js_compat::number::js_number_to_string(*value)),
             Self::Text(value) => formatter.write_str(value),
         }
     }
@@ -528,7 +525,7 @@ pub fn get_gif_dimensions(base64_data: &str) -> Option<ImageDimensions> {
     if bytes.len() < 10 {
         return None;
     }
-    let signature = &bytes[0..6];
+    let signature = bytes[0..6].iter().map(|byte| byte & 0x7f).collect::<Vec<_>>();
     if signature != b"GIF87a" && signature != b"GIF89a" {
         return None;
     }
@@ -543,11 +540,12 @@ pub fn get_webp_dimensions(base64_data: &str) -> Option<ImageDimensions> {
     if bytes.len() < 30 {
         return None;
     }
-    if &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
+    let ascii_header = bytes[..16].iter().map(|byte| byte & 0x7f).collect::<Vec<_>>();
+    if &ascii_header[0..4] != b"RIFF" || &ascii_header[8..12] != b"WEBP" {
         return None;
     }
 
-    match &bytes[12..16] {
+    match &ascii_header[12..16] {
         b"VP8 " => Some(ImageDimensions {
             width_px: u32::from(read_u16_le(&bytes, 26)? & 0x3fff),
             height_px: u32::from(read_u16_le(&bytes, 28)? & 0x3fff),

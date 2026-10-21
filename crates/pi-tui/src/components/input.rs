@@ -312,7 +312,7 @@ fn clean_pasted_text(pasted_text: &str) -> String {
 impl Component for Input {
     fn render(&mut self, width: usize) -> Vec<String> {
         const PROMPT: &str = "> ";
-        let Some(available_width) = width.checked_sub(PROMPT.len()) else {
+        let Some(available_width) = width.checked_sub(PROMPT.len()).filter(|width| *width > 0) else {
             return vec![PROMPT.to_string()];
         };
 

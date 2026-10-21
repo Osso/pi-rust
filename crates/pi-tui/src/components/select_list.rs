@@ -198,7 +198,7 @@ impl SelectList {
         let prefix = if is_selected { "→ " } else { "  " };
         let prefix_width = visible_width(prefix);
 
-        if let Some(description) = description_single_line
+        if let Some(description) = description_single_line.filter(|text| !text.is_empty())
             && width > 40
         {
             let effective_primary_column_width =
@@ -330,5 +330,5 @@ fn normalize_to_single_line(text: &str) -> String {
             result.push(character);
         }
     }
-    result.trim().to_string()
+    pi_js_compat::string::js_trim(&result).to_string()
 }

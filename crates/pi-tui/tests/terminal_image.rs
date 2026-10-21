@@ -599,3 +599,51 @@ fn default_cell_dimensions_match_the_source() {
         }
     );
 }
+
+#[test]
+fn node_ascii_dimension_headers_mask_the_high_bit() {
+    let mut gif = b"GIF89a\x0a\x00\x14\x00".to_vec();
+    for byte in &mut gif[..6] {
+        *byte |= 0x80;
+    }
+    assert_eq!(
+        get_gif_dimensions(&pi_js_compat::base64::btoa(&gif)),
+        Some(ImageDimensions {
+            width_px: 10,
+            height_px: 20
+        })
+    );
+}
+
+#[test]
+fn node_ascii_webp_header_masks_the_high_bit() {
+    let mut webp = vec![0; 30];
+    webp[..4].copy_from_slice(b"RIFF");
+    webp[8..12].copy_from_slice(b"WEBP");
+    webp[12..16].copy_from_slice(b"VP8X");
+    for index in (0..4).chain(8..16) {
+        webp[index] |= 0x80;
+    }
+    assert_eq!(
+        get_webp_dimensions(&pi_js_compat::base64::btoa(&webp)),
+        Some(ImageDimensions {
+            width_px: 1,
+            height_px: 1
+        })
+    );
+}
+
+#[test]
+fn iterm2_number_options_use_javascript_number_strings() {
+    assert_eq!(
+        encode_iterm2(
+            "AAAA",
+            &pi_tui::terminal_image::Iterm2Options {
+                width: Some(Iterm2Size::Number(1e21)),
+                height: Some(Iterm2Size::Number(-0.0)),
+                ..Default::default()
+            }
+        ),
+        "\x1b]1337;File=inline=1;width=1e+21;height=0:AAAA\x07"
+    );
+}
