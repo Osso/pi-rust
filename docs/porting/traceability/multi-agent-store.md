@@ -1,5 +1,7 @@
 # `coding-agent/src/core/multi-agent-store.ts`
 
+Integrated model-lane clippy follow-up: native `MailboxMessageCommandResult::Ok.message` is boxed to avoid a304-byte enum for otherwise ≤32-byte variants. Existing serialization dereferences the box, preserving source-visible result shape. Removed five redundant timestamp borrows in control relocation; no behavior or warning suppression added. Exact integrated clippy recheck belongs to the independent verifier.
+
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
 Current group blocker: [canonical JSON UTF16 counterexample](session-control-db.md#blocking-canonical-json-counterexample--current-group-is-not-accepted). Lossless receipts do not make serde-backed canonical payloads or typed runtime body egress lossless. No whole-module acceptance/coverage advancement is claimed.

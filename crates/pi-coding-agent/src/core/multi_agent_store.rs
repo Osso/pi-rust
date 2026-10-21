@@ -479,7 +479,7 @@ pub enum ParentContactResult {
 pub enum MailboxMessageCommandResult {
     Ok {
         agent: Box<AgentSnapshot>,
-        message: AgentMailboxMessage,
+        message: Box<AgentMailboxMessage>,
     },
     NotFound {
         agent_id: String,
@@ -1597,7 +1597,7 @@ impl MultiAgentStore {
         )?;
         Ok(MailboxMessageCommandResult::Ok {
             agent: Box::new(copy_agent(&updated)),
-            message: copy_message(&message),
+            message: Box::new(copy_message(&message)),
         })
     }
 
@@ -1659,7 +1659,7 @@ impl MultiAgentStore {
         )?;
         Ok(MailboxMessageCommandResult::Ok {
             agent: Box::new(copy_agent(&updated)),
-            message: copy_message(&message),
+            message: Box::new(copy_message(&message)),
         })
     }
 

@@ -254,24 +254,24 @@ fn relocate_session_control_data_in_transaction(
         return Ok(());
     }
     relocate_session_path_primary_key(db, "session_metadata", old_session_path, new_session_path, now)?;
-    relocate_session_path_primary_key(db, "session_sandbox_profiles", old_session_path, new_session_path, &now)?;
-    relocate_multi_agent_session_rows(db, "multi_agent_agents", old_session_path, new_session_path, &now)?;
+    relocate_session_path_primary_key(db, "session_sandbox_profiles", old_session_path, new_session_path, now)?;
+    relocate_multi_agent_session_rows(db, "multi_agent_agents", old_session_path, new_session_path, now)?;
     relocate_multi_agent_runtime_owners(db, old_session_path, new_session_path)?;
     relocate_multi_agent_session_rows(
         db,
         "multi_agent_terminal_outbox",
         old_session_path,
         new_session_path,
-        &now,
+        now,
     )?;
     relocate_multi_agent_session_rows(
         db,
         "multi_agent_mailbox_messages",
         old_session_path,
         new_session_path,
-        &now,
+        now,
     )?;
-    relocate_multi_agent_counters(db, old_session_path, new_session_path, &now)?;
+    relocate_multi_agent_counters(db, old_session_path, new_session_path, now)?;
     db.execute(
         "UPDATE runtime_mailbox_listeners SET session_path = ? WHERE session_path = ?",
         params![new_session_path, old_session_path],
