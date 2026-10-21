@@ -2245,6 +2245,7 @@ impl AgentSession {
                     poll_interval_ms: None,
                     retry_delay_ms: None,
                     retry_jitter_ratio: None,
+                    signal: None,
                 };
                 let requester = Arc::clone(&session.inner.supervisor_decision_requester);
                 let request_decision: crate::supervisor::approval_reviewer::SupervisorApprovalCall =

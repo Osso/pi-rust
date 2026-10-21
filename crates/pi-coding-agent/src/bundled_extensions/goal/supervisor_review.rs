@@ -81,6 +81,7 @@ pub fn review_goal_with_resident_supervisor(
             poll_interval_ms: None,
             retry_delay_ms: Some(GOAL_REVIEW_RETRY_DELAY_MS),
             retry_jitter_ratio: None,
+            signal: None,
         })
         .await
         .map_err(|error| HandlerError::new(error.to_string()))?;

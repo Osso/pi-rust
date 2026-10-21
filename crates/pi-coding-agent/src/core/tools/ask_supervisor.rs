@@ -128,6 +128,7 @@ impl AgentHarnessTool<ExtensionContext> for AskSupervisorTool {
                 poll_interval_ms: None,
                 retry_delay_ms: None,
                 retry_jitter_ratio: None,
+                signal: None,
             })
             .await
             .map_err(|error| ToolError::new(error.to_string()))?;

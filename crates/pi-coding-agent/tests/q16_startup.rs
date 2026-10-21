@@ -33,8 +33,9 @@ async fn startup_launches_once_and_rejects_external_mismatch() {
         *running.lock().unwrap() = Some(identity(&pi_coding_agent::config::version(), ResidentManagedBy::Pi));
         Box::pin(async { Ok(()) })
     });
-    deps.terminate =
-        Arc::new(|_| Box::pin(async { panic!("must not terminate") }) as BoxFuture<'static, Result<(), String>>);
+    deps.terminate = Arc::new(|_| {
+        Box::pin(async { Err("must not terminate".to_owned()) }) as BoxFuture<'static, Result<(), String>>
+    });
     let input = EnsureSupervisorRunningInput {
         control_db_path: dir.path().join("control.sqlite").display().to_string(),
         launch_invocation: Some(SupervisorLaunchInvocation {

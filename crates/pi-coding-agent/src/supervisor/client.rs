@@ -2,11 +2,17 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::ensure_running::{
+    EnsureSupervisorRunningDependencies, EnsureSupervisorRunningInput, ensure_supervisor_running,
+};
+use pi_ai::request::BoxFuture;
 use serde_json::{Map, Value};
+use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 use crate::core::session_control_db::{
     ControlDbError, PostSupervisorRequestInput, SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse,
-    post_supervisor_request, read_supervisor_request,
+    cancel_supervisor_request, post_supervisor_request, read_supervisor_request,
 };
 use crate::supervisor::request_wake::notify_supervisor_request;
 use crate::utils::iso_time::format_iso_millis;
@@ -23,12 +29,78 @@ pub struct RequestSupervisorDecisionInput {
     pub poll_interval_ms: Option<u64>,
     pub retry_delay_ms: Option<f64>,
     pub retry_jitter_ratio: Option<f64>,
+    pub signal: Option<CancellationToken>,
 }
 
+pub const SUPERVISOR_REQUEST_CANCELLED_REASON: &str = "Supervisor request cancelled";
+pub const DEFAULT_SUPERVISOR_POLL_INTERVAL_MS: u64 = 300;
+
+type EnsureRunning = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
+#[derive(Clone)]
+pub struct SupervisorClientDependencies {
+    pub ensure_running: EnsureRunning,
+}
+impl Default for SupervisorClientDependencies {
+    fn default() -> Self {
+        Self {
+            ensure_running: Arc::new(|path| {
+                Box::pin(async move {
+                    ensure_supervisor_running(
+                        &EnsureSupervisorRunningInput::new(path),
+                        &EnsureSupervisorRunningDependencies::default(),
+                    )
+                    .await
+                    .map(|_| ())
+                })
+            }),
+        }
+    }
+}
+fn cancelled_response() -> SupervisorResponse {
+    SupervisorResponse::Error {
+        reason: SUPERVISOR_REQUEST_CANCELLED_REASON.into(),
+    }
+}
+fn is_aborted(input: &RequestSupervisorDecisionInput) -> bool {
+    input.signal.as_ref().is_some_and(CancellationToken::is_cancelled)
+}
+fn cancel_request(input: &RequestSupervisorDecisionInput, id: i64) -> Result<(), ControlDbError> {
+    if cancel_supervisor_request(
+        &input.control_db_path,
+        id,
+        &input.sender_session_id,
+        SUPERVISOR_REQUEST_CANCELLED_REASON,
+    )? {
+        notify_supervisor_request(&input.control_db_path);
+    }
+    Ok(())
+}
+async fn delay(milliseconds: u64, signal: Option<&CancellationToken>) -> bool {
+    let sleep = tokio::time::sleep(std::time::Duration::from_millis(milliseconds));
+    match signal {
+        Some(signal) => tokio::select! {biased; ()=signal.cancelled()=>false, ()=sleep=>true},
+        None => {
+            sleep.await;
+            true
+        }
+    }
+}
 async fn request_supervisor_decision_attempt(
     input: &RequestSupervisorDecisionInput,
+    dependencies: &SupervisorClientDependencies,
 ) -> Result<Option<SupervisorResponse>, ControlDbError> {
+    if is_aborted(input) {
+        return Ok(Some(cancelled_response()));
+    }
+    if let Err(error) = (dependencies.ensure_running)(input.control_db_path.clone()).await {
+        return Ok(Some(SupervisorResponse::Error {
+            reason: format!("Supervisor startup failed: {error}"),
+        }));
+    }
     let deadline = now_millis() + input.timeout_ms;
+    if is_aborted(input) {
+        return Ok(Some(cancelled_response()));
+    }
     let request_id = post_supervisor_request(
         &input.control_db_path,
         &PostSupervisorRequestInput {
@@ -40,16 +112,28 @@ async fn request_supervisor_decision_attempt(
         },
     )?;
     notify_supervisor_request(&input.control_db_path);
-    let poll_interval_ms = input.poll_interval_ms.unwrap_or(50);
+    let poll_interval_ms = input.poll_interval_ms.unwrap_or(DEFAULT_SUPERVISOR_POLL_INTERVAL_MS);
     while now_millis() < deadline {
-        let request = read_supervisor_request(&input.control_db_path, request_id)?;
-        if let Some(request) = request
-            && request.status == SupervisorRequestStatus::Completed
-            && let Some(response) = request.response
-        {
-            return Ok(Some(response));
+        if is_aborted(input) {
+            cancel_request(input, request_id)?;
+            return Ok(Some(cancelled_response()));
         }
-        tokio::time::sleep(std::time::Duration::from_millis(poll_interval_ms)).await;
+        if let Some(request) = read_supervisor_request(&input.control_db_path, request_id)? {
+            if request.status == SupervisorRequestStatus::Completed && request.response.is_some() {
+                return Ok(request.response);
+            }
+            if request.status == SupervisorRequestStatus::Cancelled {
+                let response = match request.response {
+                    Some(response @ SupervisorResponse::Error { .. }) => response,
+                    _ => cancelled_response(),
+                };
+                return Ok(Some(response));
+            }
+        }
+        if !delay(poll_interval_ms, input.signal.as_ref()).await {
+            cancel_request(input, request_id)?;
+            return Ok(Some(cancelled_response()));
+        }
     }
     Ok(None)
 }
@@ -71,13 +155,20 @@ fn retry_delay(input: &RequestSupervisorDecisionInput, attempt: u32) -> u64 {
 pub async fn request_supervisor_decision(
     input: &RequestSupervisorDecisionInput,
 ) -> Result<SupervisorResponse, ControlDbError> {
+    request_supervisor_decision_with_dependencies(input, &SupervisorClientDependencies::default()).await
+}
+
+pub async fn request_supervisor_decision_with_dependencies(
+    input: &RequestSupervisorDecisionInput,
+    dependencies: &SupervisorClientDependencies,
+) -> Result<SupervisorResponse, ControlDbError> {
     let max_attempts = input.max_attempts.unwrap_or(1);
     for attempt in 1..=max_attempts {
-        if let Some(response) = request_supervisor_decision_attempt(input).await? {
+        if let Some(response) = request_supervisor_decision_attempt(input, dependencies).await? {
             return Ok(response);
         }
-        if attempt < max_attempts {
-            tokio::time::sleep(std::time::Duration::from_millis(retry_delay(input, attempt))).await;
+        if attempt < max_attempts && !delay(retry_delay(input, attempt), input.signal.as_ref()).await {
+            return Ok(cancelled_response());
         }
     }
     let suffix = if max_attempts == 1 {
