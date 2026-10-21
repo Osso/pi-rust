@@ -142,6 +142,67 @@ async fn touched_refresh_and_public_roundtrip_match_ts_without_surrogate_replace
     unregister_oauth_provider("fake");
 }
 
+struct OverlappingProvider {
+    reads: Arc<std::sync::Mutex<Vec<String>>>,
+    overlap: Arc<tokio::sync::Barrier>,
+}
+impl OAuthProviderInterface for OverlappingProvider {
+    fn id(&self) -> &str {
+        "auth-refresh-boundary"
+    }
+    fn name(&self) -> &str {
+        "Synthetic overlap"
+    }
+    fn login(&self, _: Arc<dyn OAuthLoginCallbacks>) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
+        Box::pin(async { unreachable!() })
+    }
+    fn refresh_token(&self, credential: OAuthCredentials) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
+        let reads = self.reads.clone();
+        let overlap = self.overlap.clone();
+        Box::pin(async move {
+            reads.lock().unwrap().push(credential.refresh.to_utf8().unwrap());
+            overlap.wait().await;
+            Ok(OAuthCredential::new("B", "new", 4_000_000_000_000.0))
+        })
+    }
+    fn get_api_key(&self, credential: &OAuthCredentials) -> JsString {
+        credential.access.clone()
+    }
+}
+
+#[tokio::test]
+async fn overlapping_expired_in_memory_refreshes_both_read_a_like_frozen() {
+    let mut source = oracle::TsOracle::spawn(
+        "auth-refresh-boundaries-oracle.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
+    );
+    let frozen = source.request(&json!({"id":1,"op":"overlap"}));
+    assert_eq!(frozen["ok"], true, "{frozen}");
+    assert_eq!(frozen["output"]["reads"], json!(["A", "A"]));
+    let reads = Arc::new(std::sync::Mutex::new(Vec::new()));
+    register_oauth_provider(Arc::new(OverlappingProvider {
+        reads: reads.clone(),
+        overlap: Arc::new(tokio::sync::Barrier::new(2)),
+    }));
+    let id = "auth-refresh-boundary";
+    let storage = AuthStorage::in_memory([(id, OAuthCredential::new("A", "old", 0.0).to_js_value())]);
+    let results = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        tokio::join!(
+            storage.get_api_key(id, GetApiKeyOptions::default()),
+            storage.get_api_key(id, GetApiKeyOptions::default())
+        )
+    })
+    .await;
+    unregister_oauth_provider(id);
+    let (first, second) = results.expect("both refreshes must enter provider before either finishes");
+    let native = json!({
+        "reads": *reads.lock().unwrap(),
+        "results": [first.unwrap().unwrap().to_utf8().unwrap(), second.unwrap().unwrap().to_utf8().unwrap()],
+        "credential": storage.get(id).unwrap().to_serde().unwrap(),
+    });
+    assert_eq!(native, frozen["output"]);
+}
+
 #[test]
 fn one_off_stored_read_never_creates_missing_auth_files() {
     let directory = tempfile::tempdir().unwrap();

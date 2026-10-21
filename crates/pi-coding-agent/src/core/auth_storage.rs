@@ -322,11 +322,10 @@ fn write_auth_file(path: &str, content: &str) -> Result<(), StorageError> {
     Ok(())
 }
 
-/// `InMemoryAuthStorageBackend`: one JSON string guarded by an async chain.
+/// `InMemoryAuthStorageBackend`: callbacks independently snapshot one JSON string.
 #[derive(Default)]
 pub struct InMemoryAuthStorageBackend {
     value: Mutex<Option<String>>,
-    chain: tokio::sync::Mutex<()>,
 }
 
 impl InMemoryAuthStorageBackend {
@@ -359,7 +358,6 @@ impl AuthStorageBackend for InMemoryAuthStorageBackend {
         options: AuthOperationOptions,
     ) -> BoxFuture<'_, Result<(), StorageError>> {
         Box::pin(async move {
-            let _guard = self.chain.lock().await;
             check_aborted(options.signal.as_ref())?;
             let current = self
                 .value

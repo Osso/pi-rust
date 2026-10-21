@@ -8,6 +8,8 @@ Async backend rejects a compromised lock before callback, after callback and aft
 
 Successful OAuth refresh spends the old credential. The source attempts locked persistence, then fresh-storage rescue preserving unrelated providers. Public refresh/get_api_key follows the frozen module plus approved 2026-10-21 delta `0c9f0390` (locked checkout `26c8050f`). If locked write, rescue set, and reload all fail, memory retains the rotated credential but get_api_key returns None, or throws the authentication wrapper with the persistence error as cause when requested. Only successful reload can prove another instance persisted a usable credential. No same-provider newer-token arbitration is approved.
 
+In-memory async callbacks are not serialized: overlapping expired refreshes both read the current A credential before either callback persists B, matching frozen InMemoryAuthStorageBackend. File-backed callbacks retain their lock policy.
+
 Only synthetic disposable credentials may be used in parity proofs. Source public API parity and obsolete native consumer replacement remain separate tracked work until proved.
 
 Public raw credential values, provider IDs, getters/list results, and typed OAuth access/refresh/extras use `JsValue`/`JsString` with lossless parse/stringify. There is no parallel raw credential copy. Public get_api_key returns JsString, including isolated surrogates from provider.get_api_key, without request encoding or validation. Required OAuth strings remain UTF-16 until the actual HTTP header/body boundary; JSON/form/header conversions belong there, not in public storage lookup. Legacy serde adapters reject unrepresentable Unicode instead of replacing it; they are not the public persistence path.

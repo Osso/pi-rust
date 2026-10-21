@@ -44,7 +44,7 @@ Frozen all-sync-fails behavior returns `new` with memory B/disk A. Approved beha
 ## Remaining boundaries / retained scaffolding
 
 - CredentialStore/read-only adapters remain because main/model runtime/resolver still consume them. They use canonical credential values; obsolete shared-revision/coalesced-read machinery is removed. The read-only adapter does not create auth files. Generic modify has no OAuth rotation rescue.
-- In-memory backend still retains its old async serialization chain; this is not a frozen-concurrency parity claim.
+- In-memory async callbacks take independent snapshots without an async chain. auth_phase1_lossless compares overlapping public expired refreshes against frozen: both consume A and return new, persisting B. File backend locking is unchanged.
 - Full registry restore/order/error/model-filter and login/callback proofs remain pending. Copilot's old policy fallback still differs from frozen picker-only selection; provider protocol changes were excluded.
 - Node differential proves outbound JSON escapes, form USVString replacement, and header TypeError name/message/code (ERR_INVALID_CHAR) without mutating tokens. CallbackError.code preserves boundary error identity; stored/typed values remain lossless. Nonbuiltin provider response parser revalidation remains separate.
 - Touched differential targets expose missing retired models-store/model-runtime-test-utils imports and old extension/provider protocol differences. See report; no skips, source patches, fallback or weakened expected outputs added.
