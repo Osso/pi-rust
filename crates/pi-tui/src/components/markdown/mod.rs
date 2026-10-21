@@ -6,38 +6,19 @@
 pub mod lexer;
 pub mod tokens;
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use pi_js_compat::string::{is_js_whitespace_char, js_trim};
 
-use crate::latex::{RenderLatexOptions, render_latex};
 use crate::terminal_image::{get_capabilities, hyperlink, is_image_line};
 use crate::tui::Component;
 use crate::utils::{apply_background_to_line, visible_width, wrap_text_with_ansi};
 
 use self::tokens::{ListItem, ListStart, TableCell, Token};
 
-/// Package-root `Marked` facade: the pinned `marked` lexer.
-///
-/// TypeScript exports the third-party `Marked` class; Rust exposes the same
-/// lexing entry point as a namespace type.
-pub struct Marked;
-
-impl Marked {
-    /// `new Marked().lex(source)`.
-    pub fn lex(source: &str) -> Vec<Token> {
-        lexer::lex(source)
-    }
-}
-
-/// `Tokens` (`Token[]`).
-pub type Tokens = Vec<Token>;
-
 /// Caller-supplied text styling function.
 pub type StyleFn = Box<dyn Fn(&str) -> String>;
-
-/// Caller-supplied Markdown source transform.
-pub type TransformFn = Box<dyn Fn(&str, usize) -> String>;
 
 /// Default text styling for markdown content.
 #[derive(Default)]
@@ -80,8 +61,6 @@ pub trait MarkdownTheme {
 pub struct MarkdownOptions {
     pub preserve_ordered_list_markers: bool,
     pub preserve_backslash_escapes: bool,
-    pub transform: Option<TransformFn>,
-    pub render_latex: bool,
 }
 
 impl Default for MarkdownOptions {
@@ -89,8 +68,6 @@ impl Default for MarkdownOptions {
         Self {
             preserve_ordered_list_markers: false,
             preserve_backslash_escapes: false,
-            transform: None,
-            render_latex: true,
         }
     }
 }
@@ -98,6 +75,13 @@ impl Default for MarkdownOptions {
 struct InlineStyleContext<'a> {
     apply_text: &'a dyn Fn(&str) -> String,
     style_prefix: String,
+}
+
+struct TokenRenderCache {
+    next_token_type: Option<String>,
+    width: usize,
+    fingerprint: String,
+    wrapped_lines: Vec<String>,
 }
 
 pub struct Markdown {
@@ -110,6 +94,8 @@ pub struct Markdown {
     cached_text: Option<String>,
     cached_width: Option<usize>,
     cached_lines: Option<Vec<String>>,
+    previous_token_caches: Vec<TokenRenderCache>,
+    default_style_prefix: RefCell<Option<String>>,
 }
 
 impl Markdown {
@@ -143,24 +129,91 @@ impl Markdown {
             cached_text: None,
             cached_width: None,
             cached_lines: None,
+            previous_token_caches: Vec::new(),
+            default_style_prefix: RefCell::new(None),
         }
     }
 
     pub fn set_text(&mut self, text: impl Into<String>) {
-        self.text = text.into();
+        let text = text.into();
+        if self.text == text {
+            return;
+        }
+        self.text = text;
+        self.clear_render_cache();
+    }
+
+    pub fn set_padding(&mut self, padding_x: usize, padding_y: usize) {
+        if self.padding_x == padding_x && self.padding_y == padding_y {
+            return;
+        }
+        self.padding_x = padding_x;
+        self.padding_y = padding_y;
+        self.clear_render_cache();
+    }
+
+    pub fn set_theme(&mut self, theme: Rc<dyn MarkdownTheme>) {
+        if Rc::ptr_eq(&self.theme, &theme) {
+            return;
+        }
+        self.theme = theme;
+        *self.default_style_prefix.borrow_mut() = None;
         self.invalidate();
+    }
+
+    fn clear_render_cache(&mut self) {
+        self.cached_text = None;
+        self.cached_width = None;
+        self.cached_lines = None;
+    }
+
+    fn render_cached_tokens(&mut self, tokens: &[Token], width: usize) -> Vec<String> {
+        let mut caches = Vec::with_capacity(tokens.len());
+        let mut lines = Vec::new();
+        for (index, token) in tokens.iter().enumerate() {
+            let next_type = tokens.get(index + 1).map(lexer::type_name);
+            let fingerprint = serde_json::to_string(token).expect("Markdown token serialization");
+            let previous = self.previous_token_caches.get(index).filter(|cache| {
+                cache.width == width
+                    && cache.next_token_type.as_deref() == next_type
+                    && cache.fingerprint == fingerprint
+            });
+            let wrapped_lines = match previous {
+                Some(cache) => cache.wrapped_lines.clone(),
+                None => self.render_and_wrap_token(token, width, next_type),
+            };
+            lines.extend(wrapped_lines.iter().cloned());
+            caches.push(TokenRenderCache {
+                next_token_type: next_type.map(str::to_string),
+                width,
+                fingerprint,
+                wrapped_lines,
+            });
+        }
+        self.previous_token_caches = caches;
+        lines
+    }
+
+    fn render_and_wrap_token(&self, token: &Token, width: usize, next_type: Option<&str>) -> Vec<String> {
+        self.render_token(token, width, next_type, None)
+            .into_iter()
+            .flat_map(|line| {
+                if is_image_line(&line) {
+                    vec![line]
+                } else {
+                    wrap_text_with_ansi(&line, width)
+                }
+            })
+            .collect()
     }
 
     pub fn text(&self) -> &str {
         &self.text
     }
 
-    fn render_content(&self, width: usize) -> Vec<String> {
+    fn render_content(&mut self, width: usize) -> Vec<String> {
         let content_width = width.saturating_sub(self.padding_x * 2).max(1);
-        let text = match &self.options.transform {
-            Some(transform) => transform(&self.text, content_width),
-            None => self.text.clone(),
-        };
+        let text = self.text.clone();
 
         if js_trim(&text).is_empty() {
             return Vec::new();
@@ -170,20 +223,7 @@ impl Markdown {
         let mut tokens = lexer::lex(&normalized);
         trim_partial_closing_fences(&mut tokens);
 
-        let mut rendered_lines: Vec<String> = Vec::new();
-        for (index, token) in tokens.iter().enumerate() {
-            let next_type = tokens.get(index + 1).map(lexer::type_name);
-            rendered_lines.extend(self.render_token(token, content_width, next_type, None));
-        }
-
-        let mut wrapped_lines: Vec<String> = Vec::new();
-        for line in rendered_lines {
-            if is_image_line(&line) {
-                wrapped_lines.push(line);
-            } else {
-                wrapped_lines.extend(wrap_text_with_ansi(&line, content_width));
-            }
-        }
+        let wrapped_lines = self.render_cached_tokens(&tokens, content_width);
 
         let left_margin = " ".repeat(self.padding_x);
         let right_margin = left_margin.clone();
@@ -255,6 +295,9 @@ impl Markdown {
         let Some(style) = &self.default_text_style else {
             return String::new();
         };
+        if let Some(prefix) = self.default_style_prefix.borrow().as_ref() {
+            return prefix.clone();
+        }
         let sentinel = "\u{0}";
         let mut styled = sentinel.to_string();
         if let Some(color) = &style.color {
@@ -272,10 +315,12 @@ impl Markdown {
         if style.underline {
             styled = self.theme.underline(&styled);
         }
-        match styled.find(sentinel) {
+        let prefix = match styled.find(sentinel) {
             Some(index) => styled[..index].to_string(),
             None => String::new(),
-        }
+        };
+        *self.default_style_prefix.borrow_mut() = Some(prefix.clone());
+        prefix
     }
 
     fn style_prefix(&self, style: &dyn Fn(&str) -> String) -> String {
@@ -329,19 +374,6 @@ impl Markdown {
             Token::Text { tokens, .. } => {
                 let _ = tokens;
                 lines.push(self.render_inline_tokens(std::slice::from_ref(token), style_context));
-            }
-            Token::LatexBlock { raw, text, pending, .. } => {
-                let rendered = if !*pending && self.options.render_latex {
-                    render_latex(text, RenderLatexOptions { display: true }).unwrap_or_else(|| js_trim(raw).to_string())
-                } else {
-                    js_trim(raw).to_string()
-                };
-                for line in rendered.split('\n') {
-                    lines.push(self.apply_default_style(line));
-                }
-                if next_token_type.is_some_and(|next| next != "space") {
-                    lines.push(String::new());
-                }
             }
             Token::Code { lang, text, .. } => {
                 let indent = self.theme.code_block_indent().to_string();
@@ -443,14 +475,6 @@ impl Markdown {
         let mut result = String::new();
         for token in tokens {
             match token {
-                Token::Latex { raw, text, pending, .. } => {
-                    let rendered = if !*pending && self.options.render_latex {
-                        render_latex(text, RenderLatexOptions { display: false }).unwrap_or_else(|| raw.clone())
-                    } else {
-                        raw.clone()
-                    };
-                    result.push_str(&apply_text_with_newlines(&rendered));
-                }
                 Token::Escape { raw, text } => {
                     result.push_str(&apply_text_with_newlines(if self.options.preserve_backslash_escapes {
                         raw
@@ -875,9 +899,8 @@ impl Component for Markdown {
     }
 
     fn invalidate(&mut self) {
-        self.cached_text = None;
-        self.cached_width = None;
-        self.cached_lines = None;
+        self.clear_render_cache();
+        self.previous_token_caches.clear();
     }
 }
 
