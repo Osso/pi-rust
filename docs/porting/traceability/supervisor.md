@@ -72,3 +72,5 @@ Q16 cancellation tests: `cancelled_requests_abort_evaluation_without_completing_
 Q16 client: `supervisor_client` injects ensure-running fakes; pre-abort/startup error do not create a DB, polling abort cancels a claimed row without waiting for its 5-second poll. Existing durable-response/retry/suffix tests also use fakes. Callsite signal defaults are mechanical API integration, not cancellation coverage of those callers.
 
 Q16 veto: `non_generic_automatic_instructions_are_suppressed_without_a_valid_veto_decision` failed on stale behavior before implementation. Runtime session adapter persists hidden `supervisor_policy_feedback`; full decision/error/abort matrix pending.
+
+Q16 evaluator wiring: native fake-provider test `instruction_evaluator_uses_only_fake_provider_and_classifies_its_exact_token`; no live model calls. Runtime selects authenticated frozen provider order, composes retry/timeout/attribution settings, builds fresh context per call and skips only frozen quota-error categories. Request-loop oracle now uses frozen SDK/ModelRegistry APIs (old ModelRuntime/createSupervisorSession exports were removed).

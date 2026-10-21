@@ -94,8 +94,8 @@ fn builds_bounded_prompts_for_each_request_kind() {
         SupervisorRequestKind::GoalSetReview,
         json!({"currentObjective": "ship the feature", "proposedObjective": "write one test"}),
     ));
-    assert!(prompt.contains("preserve every requirement and completion criterion in currentObjective"));
-    assert!(prompt.contains("add proposedObjective without narrowing existing scope"));
+    assert!(prompt.contains("preserve every grounded requirement, exclusion, and completion criterion"));
+    assert!(prompt.contains("Only an explicit user instruction may reset or narrow that parent"));
     assert!(prompt.contains("Use kind set with a non-empty reason and objective"));
 
     let prompt = build_supervisor_prompt(&request(
@@ -103,8 +103,8 @@ fn builds_bounded_prompts_for_each_request_kind() {
         json!({"objective": "finish"}),
     ));
     assert!(prompt.contains("resident peer unblocker and policy engine"));
-    assert!(prompt.contains("Treat payload.objective as the authoritative full goal"));
-    assert!(prompt.contains("a completed subtask must not replace broader scope"));
+    assert!(prompt.contains("Treat payload.objective and any current claims as claims about the active goal"));
+    assert!(prompt.contains("A child-slice completion that lacks that proof must return continue"));
     assert!(prompt.contains("instructions exactly \"Continue working toward the active goal.\""));
     assert!(prompt.contains("Use pause only when progress requires user action"));
     assert!(prompt.contains("Call supervisor_response exactly once as the final action"));
@@ -637,6 +637,13 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_runtime::ModelRunt
         }]),
         ..Default::default()
     });
+    faux.set_responses(vec![
+        pi_ai::providers::faux::faux_assistant_message(
+            pi_ai::providers::faux::FauxContent::Text("ACCEPT".into()),
+            pi_ai::providers::faux::FauxAssistantMessageOptions::default(),
+        )
+        .into(),
+    ]);
     let runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
         pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
             credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
@@ -720,6 +727,29 @@ async fn resource_loader_registers_only_the_frozen_kb_gate() {
         .await
         .unwrap();
     assert!(allowed.is_none());
+}
+
+#[tokio::test]
+async fn instruction_evaluator_uses_only_fake_provider_and_classifies_its_exact_token() {
+    use pi_coding_agent::supervisor::main::{
+        create_supervisor_instruction_evaluator_with_runtime, create_supervisor_instruction_reviewer,
+    };
+    let runtime = faux_codex_runtime().await;
+    let evaluator = create_supervisor_instruction_evaluator_with_runtime(runtime).unwrap();
+    let reviewer = create_supervisor_instruction_reviewer(evaluator);
+    let decision = reviewer(
+        "Evidence lacks a completion proof".into(),
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        decision,
+        Some(pi_coding_agent::supervisor::service::SupervisorInstructionReviewDecision::Accept)
+    );
+    let token = tokio_util::sync::CancellationToken::new();
+    token.cancel();
+    assert_eq!(reviewer("Do not evaluate".into(), token).await.unwrap(), None);
 }
 
 #[tokio::test]

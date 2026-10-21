@@ -348,6 +348,146 @@ pub type SupervisorInstructionReviewer = Arc<
         + Sync,
 >;
 
+pub type SupervisorInstructionEvaluator =
+    Arc<dyn Fn(String, CancellationToken) -> BoxFuture<'static, Result<Option<String>, String>> + Send + Sync>;
+
+pub fn create_supervisor_instruction_reviewer(
+    evaluate: SupervisorInstructionEvaluator,
+) -> SupervisorInstructionReviewer {
+    Arc::new(move |instructions, signal| {
+        let evaluate = evaluate.clone();
+        Box::pin(async move {
+            if signal.is_cancelled() {
+                return Ok(None);
+            }
+            let raw = evaluate(instructions, signal).await?;
+            Ok(raw.and_then(|text| {
+                crate::supervisor::service::parse_supervisor_instruction_review_decision(&Value::String(text))
+            }))
+        })
+    })
+}
+
+pub async fn create_supervisor_instruction_evaluator(
+    agent_dir: &str,
+) -> Result<SupervisorInstructionEvaluator, String> {
+    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        auth_path: Some(Path::new(agent_dir).join("auth.json").display().to_string()),
+        models_path: Some(Some(Path::new(agent_dir).join("models.json").display().to_string())),
+        ..Default::default()
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    create_supervisor_instruction_evaluator_with_runtime(runtime)
+}
+
+pub fn create_supervisor_instruction_evaluator_with_runtime(
+    runtime: ModelRuntime,
+) -> Result<SupervisorInstructionEvaluator, String> {
+    let models = require_supervisor_models(&runtime)?;
+    Ok(Arc::new(move |instructions, signal| {
+        let runtime = runtime.clone();
+        let models = models.clone();
+        Box::pin(async move {
+            for model in models {
+                if signal.is_cancelled() {
+                    return Ok(None);
+                }
+                let message = evaluate_instruction_model(&runtime, model, &instructions, signal.clone()).await?;
+                if signal.is_cancelled() {
+                    return Ok(None);
+                }
+                if !is_supervisor_quota_exhaustion(&message) {
+                    return Ok(read_instruction_review_text(&message));
+                }
+            }
+            Ok(None)
+        })
+    }))
+}
+
+async fn evaluate_instruction_model(
+    runtime: &ModelRuntime,
+    model: pi_ai::types::Model,
+    instructions: &str,
+    signal: CancellationToken,
+) -> Result<pi_ai::types::AssistantMessage, String> {
+    use crate::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
+    use pi_ai::request::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
+    let registry = ModelRegistry::new(runtime.clone());
+    let auth = registry.get_api_key_and_headers(&model).await;
+    let ResolvedRequestAuth::Ok {
+        api_key, headers, env, ..
+    } = auth
+    else {
+        return Err(auth.error().unwrap_or_default().into());
+    };
+    let settings = create_supervisor_settings_manager();
+    let retry = settings.get_provider_retry_settings();
+    let idle = settings.get_http_idle_timeout_ms().map_err(|error| error.to_string())?;
+    let timeout = if idle == 0 { 2_147_483_647.0 } else { idle as f64 };
+    let headers =
+        crate::core::provider_attribution::merge_provider_attribution_headers(&model, &settings, None, &[headers]);
+    let context =
+        crate::supervisor::service::build_supervisor_instruction_review_context(instructions, supervisor_now_millis());
+    let context = serde_json::from_value(context).map_err(|error| error.to_string())?;
+    let options = SimpleStreamOptions {
+        stream: StreamOptions {
+            request: ProviderRequestOptions {
+                api_key,
+                headers,
+                env,
+                signal: Some(signal),
+                max_retries: retry.max_retries,
+                max_retry_delay_ms: Some(retry.max_retry_delay_ms),
+                timeout_ms: Some(retry.timeout_ms.unwrap_or(timeout)),
+                ..Default::default()
+            },
+            websocket_connect_timeout_ms: settings
+                .get_websocket_connect_timeout_ms()
+                .map_err(|error| error.to_string())?
+                .map(|timeout| timeout as f64),
+            ..Default::default()
+        },
+        reasoning: Some(pi_ai::types::ThinkingLevel::Low),
+        ..Default::default()
+    };
+    runtime
+        .complete_simple(model, context, options)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn supervisor_now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_millis() as i64
+}
+fn read_instruction_review_text(message: &pi_ai::types::AssistantMessage) -> Option<String> {
+    if message.stop_reason != StopReason::Stop {
+        return None;
+    }
+    let text: String = message
+        .content
+        .iter()
+        .filter_map(|part| match part {
+            AssistantContent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect();
+    (!text.is_empty()).then_some(text)
+}
+fn is_supervisor_quota_exhaustion(message: &pi_ai::types::AssistantMessage) -> bool {
+    static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let pattern=PATTERN.get_or_init(||regex::Regex::new(r"(?i)GoUsageLimitError|FreeUsageLimitError|usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing (?:limit|quota|exhausted)").expect("quota pattern"));
+    message.stop_reason == StopReason::Error
+        && message
+            .error_message
+            .as_deref()
+            .is_some_and(|text| pattern.is_match(text))
+}
+
 pub async fn process_supervisor_request(
     control_db_path: &str,
     request: SupervisorRequest,
@@ -847,6 +987,9 @@ pub async fn run_supervisor_service() -> Result<(), String> {
     })
     .await
     .map_err(|error| error.to_string())?;
+    let review_instructions = create_supervisor_instruction_reviewer(
+        create_supervisor_instruction_evaluator_with_runtime(model_runtime.clone())?,
+    );
     let settings_manager = Arc::new(Mutex::new(create_supervisor_settings_manager()));
     let resource_loader = create_supervisor_resource_loader(&agent_dir, &kb_dir, Arc::clone(&settings_manager)).await?;
     let session = create_supervisor_session(CreateSupervisorSessionOptions {
@@ -884,7 +1027,14 @@ pub async fn run_supervisor_service() -> Result<(), String> {
         signal,
         wake_server: Arc::clone(&wake_server),
         claim_next_request: None,
-        process_request: None,
+        process_request: Some(Arc::new(move |path, request, session| {
+            let reviewer = review_instructions.clone();
+            Box::pin(async move {
+                if let Err(error) = process_supervisor_request_with_reviewer(&path, request, session, reviewer).await {
+                    eprintln!("Supervisor request failed: {error}");
+                }
+            })
+        })),
     })
     .await;
     console_server.close().await?;

@@ -130,8 +130,7 @@ async function run(request: Request) {
 			stopReason: "toolUse",
 		}),
 	]);
-	const authStorage = AuthStorage.inMemory();
-	await authStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+	const authStorage = AuthStorage.inMemory({ [faux.getModel().provider]: { type: "api_key", key: "faux-key" } });
 	const modelRuntime = ModelRegistry.create(authStorage, join(dir, "models.json"));
 	const model = faux.getModel();
 	modelRuntime.registerProvider(model.provider, {
