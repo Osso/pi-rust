@@ -69,3 +69,7 @@ three raw-mode failure cases exactly.
 - `PI_TUI_WRITE_LOG` directory filenames use `tui-<unix-seconds>-<pid>.log`
   instead of a local `YYYY-MM-DD_HH-MM-SS` timestamp.
 - `PI_TUI_ESC_TIMEOUT`/`COLUMNS`/`LINES` use `pi_js_compat::number::parse_number`, so hex/binary/octal literals and `Infinity` match JS `Number`.
+
+## Q1 re-pin audit (2026-10-21)
+
+Reference: immutable `4f9e6f8a4`. Removed later escape-timeout env/SSH helper and native Shift normalization export. ProcessTerminal uses fixed 10ms stdin buffering and Apple-only Shift+Enter. Progress clear is the frozen OSC 9;4;0;BEL (extra semicolon); capture-output differential RED/GREEN compares actual setProgress calls without touching a live terminal. Existing negotiation event tests cover split input, zero/nonzero flags, DA fallback and stop.

@@ -21,12 +21,10 @@ use crate::stdin_buffer::{StdinBuffer, StdinBufferEvent, StdinBufferOptions};
 
 const TERMINAL_PROGRESS_KEEPALIVE: Duration = Duration::from_millis(1000);
 const TERMINAL_PROGRESS_ACTIVE_SEQUENCE: &str = "\x1b]9;4;3\x07";
-const TERMINAL_PROGRESS_CLEAR_SEQUENCE: &str = "\x1b]9;4;0\x07";
-const NATIVE_SHIFT_ENTER_SEQUENCE: &str = "\x1b[13;2u";
+const TERMINAL_PROGRESS_CLEAR_SEQUENCE: &str = "\x1b]9;4;0;\x07";
+const APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE: &str = "\x1b[13;2u";
 const DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS: u32 = 7;
 const KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT: Duration = Duration::from_millis(150);
-const DEFAULT_ESCAPE_TIMEOUT_MS: f64 = 10.0;
-const DEFAULT_SSH_ESCAPE_TIMEOUT_MS: f64 = 100.0;
 const BRACKETED_PASTE_ENABLE: &str = "\x1b[?2004h";
 const BRACKETED_PASTE_DISABLE: &str = "\x1b[?2004l";
 
@@ -123,21 +121,12 @@ pub fn is_apple_terminal_session(platform: &str, term_program: Option<&str>) -> 
     platform == "macos" && term_program == Some("Apple_Terminal")
 }
 
-/// Rewrite a bare Return to CSI-u Shift+Enter when native Shift detection applies.
-pub fn normalize_native_shift_enter_input(
-    data: &str,
-    should_detect_native_shift_enter: bool,
-    is_shift_pressed: bool,
-) -> String {
-    if should_detect_native_shift_enter && data == "\r" && is_shift_pressed {
-        return NATIVE_SHIFT_ENTER_SEQUENCE.to_string();
+/// Rewrite bare Return only for Apple Terminal with native Shift pressed.
+pub fn normalize_apple_terminal_input(data: &str, is_apple_terminal: bool, is_shift_pressed: bool) -> String {
+    if is_apple_terminal && data == "\r" && is_shift_pressed {
+        return APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE.to_string();
     }
     data.to_string()
-}
-
-/// Apple Terminal variant of [`normalize_native_shift_enter_input`].
-pub fn normalize_apple_terminal_input(data: &str, is_apple_terminal: bool, is_shift_pressed: bool) -> String {
-    normalize_native_shift_enter_input(data, is_apple_terminal, is_shift_pressed)
 }
 
 /// Raw-mode switch failure with the source message.
@@ -173,20 +162,6 @@ pub fn is_terminal_raw_mode_failure(error: &(dyn std::error::Error + 'static)) -
     let message = error.to_string();
     let lower = message.to_ascii_lowercase();
     lower.starts_with("setrawmode failed with errno:")
-}
-
-/// Resolve the escape reassembly timeout from an environment lookup.
-pub fn resolve_escape_timeout_ms(env: &dyn Fn(&str) -> Option<String>) -> f64 {
-    if let Some(raw) = env("PI_TUI_ESC_TIMEOUT") {
-        let configured = pi_js_compat::number::parse_number(&raw);
-        if configured.is_finite() && configured > 0.0 {
-            return configured;
-        }
-    }
-    if env("SSH_CONNECTION").is_some() || env("SSH_TTY").is_some() {
-        return DEFAULT_SSH_ESCAPE_TIMEOUT_MS;
-    }
-    DEFAULT_ESCAPE_TIMEOUT_MS
 }
 
 fn parse_positive_dimension(value: Option<String>) -> Option<usize> {
@@ -430,10 +405,8 @@ impl ProcessTerminal {
     }
 
     fn setup_stdin_buffer(&mut self) {
-        let escape_timeout = resolve_escape_timeout_ms(&environment);
         self.stdin_buffer = Some(StdinBuffer::with_options(StdinBufferOptions {
-            timeout: Duration::from_millis(50),
-            escape_timeout: Duration::from_secs_f64(escape_timeout / 1000.0),
+            timeout: Duration::from_millis(10),
         }));
     }
 
@@ -529,13 +502,12 @@ impl ProcessTerminal {
     }
 
     fn forward_input_sequence(&mut self, sequence: &str) {
-        let should_detect_native_shift_enter = sequence == "\r"
-            && (is_apple_terminal_session(std::env::consts::OS, environment("TERM_PROGRAM").as_deref())
-                || std::env::consts::OS == "windows");
-        let input = normalize_native_shift_enter_input(
+        let is_apple_terminal =
+            sequence == "\r" && is_apple_terminal_session(std::env::consts::OS, environment("TERM_PROGRAM").as_deref());
+        let input = normalize_apple_terminal_input(
             sequence,
-            should_detect_native_shift_enter,
-            should_detect_native_shift_enter && is_native_modifier_pressed(ModifierKey::Shift),
+            is_apple_terminal,
+            is_apple_terminal && is_native_modifier_pressed(ModifierKey::Shift),
         );
         self.pending_events.push(TerminalEvent::Input(input));
     }

@@ -1,17 +1,12 @@
-use std::collections::BTreeMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use pi_tui::terminal::{
     ProcessTerminal, Terminal, TerminalEvent, TerminalRawModeError, is_apple_terminal_session,
-    is_terminal_raw_mode_failure, normalize_apple_terminal_input, normalize_native_shift_enter_input,
-    parse_keyboard_protocol_negotiation_sequence, resolve_columns, resolve_escape_timeout_ms, resolve_rows,
+    is_terminal_raw_mode_failure, normalize_apple_terminal_input, parse_keyboard_protocol_negotiation_sequence,
+    resolve_columns, resolve_rows,
 };
-
-fn env_lookup(values: BTreeMap<&'static str, &'static str>) -> impl Fn(&str) -> Option<String> {
-    move |name| values.get(name).map(|value| (*value).to_string())
-}
 
 #[derive(Clone, Default)]
 struct SharedWriter(Arc<Mutex<Vec<u8>>>);
@@ -38,73 +33,6 @@ fn negotiation_terminal() -> (ProcessTerminal, SharedWriter) {
     let mut terminal = ProcessTerminal::with_output(Box::new(writer.clone()));
     terminal.begin_keyboard_protocol_negotiation();
     (terminal, writer)
-}
-
-#[test]
-fn uses_configured_escape_timeout() {
-    assert_eq!(
-        resolve_escape_timeout_ms(&env_lookup(BTreeMap::from([("PI_TUI_ESC_TIMEOUT", "80")]))),
-        80.0
-    );
-    assert_eq!(
-        resolve_escape_timeout_ms(&env_lookup(BTreeMap::from([
-            ("PI_TUI_ESC_TIMEOUT", "80"),
-            ("SSH_TTY", "/dev/pts/1"),
-        ]))),
-        80.0
-    );
-}
-
-#[test]
-fn ignores_invalid_escape_timeout_values() {
-    for value in ["abc", "0", "-5", ""] {
-        assert_eq!(
-            resolve_escape_timeout_ms(&env_lookup(BTreeMap::from([("PI_TUI_ESC_TIMEOUT", value)]))),
-            10.0,
-            "value {value:?}"
-        );
-    }
-}
-
-#[test]
-fn defaults_to_100ms_over_ssh() {
-    assert_eq!(
-        resolve_escape_timeout_ms(&env_lookup(BTreeMap::from([("SSH_CONNECTION", "10.0.0.1 22")]))),
-        100.0
-    );
-    assert_eq!(
-        resolve_escape_timeout_ms(&env_lookup(BTreeMap::from([("SSH_TTY", "/dev/pts/1")]))),
-        100.0
-    );
-}
-
-#[test]
-fn defaults_to_10ms_otherwise() {
-    assert_eq!(resolve_escape_timeout_ms(&env_lookup(BTreeMap::new())), 10.0);
-}
-
-#[test]
-fn rewrites_return_to_csi_u_shift_enter_when_native_shift_detection_applies() {
-    assert_eq!(normalize_native_shift_enter_input("\r", true, true), "\x1b[13;2u");
-}
-
-#[test]
-fn leaves_return_unchanged_when_native_shift_detection_is_disabled() {
-    assert_eq!(normalize_native_shift_enter_input("\r", false, true), "\r");
-}
-
-#[test]
-fn leaves_return_unchanged_when_shift_is_not_pressed() {
-    assert_eq!(normalize_native_shift_enter_input("\r", true, false), "\r");
-}
-
-#[test]
-fn leaves_non_return_input_unchanged() {
-    assert_eq!(
-        normalize_native_shift_enter_input("\x1b[13;2u", true, true),
-        "\x1b[13;2u"
-    );
-    assert_eq!(normalize_native_shift_enter_input("a", true, true), "a");
 }
 
 #[test]
@@ -254,7 +182,7 @@ fn writes_a_valid_osc_9_4_clear_sequence() {
 
     terminal.set_progress(false);
 
-    assert_eq!(writer.contents(), "\x1b]9;4;0\x07");
+    assert_eq!(writer.contents(), "\x1b]9;4;0;\x07");
 }
 
 #[test]
@@ -271,14 +199,6 @@ fn falls_back_to_columns_and_lines_before_default_dimensions() {
 #[test]
 fn environment_numbers_use_javascript_number_parsing() {
     // `Number("0x10")` is 16 and `Number("2e1")` is 20.
-    assert_eq!(
-        resolve_escape_timeout_ms(&env_lookup(BTreeMap::from([("PI_TUI_ESC_TIMEOUT", "0x10")]))),
-        16.0
-    );
-    assert_eq!(
-        resolve_escape_timeout_ms(&env_lookup(BTreeMap::from([("PI_TUI_ESC_TIMEOUT", "2e1")]))),
-        20.0
-    );
     assert_eq!(resolve_columns(None, Some("0x10".to_owned())), 16);
     assert_eq!(resolve_rows(None, Some("0b1010".to_owned())), 10);
     assert_eq!(resolve_columns(None, Some("1e2".to_owned())), 100);

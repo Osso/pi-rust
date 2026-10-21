@@ -55,3 +55,7 @@ Differential oracle: `oracle/tui-leaves-oracle.ts` (`stdin_buffer`). Tests: `cra
 ## Discrepancies
 
 None found in the ported behavior. The source comment in `isCompleteOscSequence` is accurate; the Rust helper also serves DCS/APC with their respective prefixes.
+
+## Q1 re-pin audit (2026-10-21)
+
+Reference: immutable `4f9e6f8a4`. Function audit found the default/option delta missed by the old explicit-10ms corpus. Frozen has one timeout option defaulting to 10ms for ALL incomplete sequences, including lone ESC; removed later escape_timeout option and 50ms default. Added real timer differential RED/GREEN for default partial CSI and custom-100ms ESC. All other sequence/paste/dedup/flush/clear/destroy branches inspected against frozen.

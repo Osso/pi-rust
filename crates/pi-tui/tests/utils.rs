@@ -506,7 +506,7 @@ fn truncation_retains_frozen_unclosed_osc8_link() {
     let text = format!("{open}some-longer-label-here{close}");
     assert_eq!(
         truncate_to_width(&text, 15),
-        format!("{open}some-longer-{close}\x1b[0m...\x1b[0m")
+        format!("{open}some-longer-\x1b[0m...\x1b[0m")
     );
 }
 

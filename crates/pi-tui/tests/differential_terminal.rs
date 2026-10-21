@@ -1,27 +1,28 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use std::collections::BTreeMap;
+use std::io::Write;
+use std::sync::{Arc, Mutex};
 
 use oracle::TsOracle;
 use pi_tui::terminal::{
-    KeyboardProtocolNegotiationSequence, TerminalRawModeError, is_terminal_raw_mode_failure,
-    normalize_apple_terminal_input, normalize_native_shift_enter_input, parse_keyboard_protocol_negotiation_sequence,
-    resolve_escape_timeout_ms,
+    KeyboardProtocolNegotiationSequence, ProcessTerminal, Terminal, TerminalRawModeError, is_terminal_raw_mode_failure,
+    normalize_apple_terminal_input, parse_keyboard_protocol_negotiation_sequence,
 };
 use serde_json::{Value, json};
 
+struct Capture(Arc<Mutex<Vec<u8>>>);
+impl Write for Capture {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(data);
+        Ok(data.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 fn rust_terminal(request: &Value) -> Value {
-    let env: BTreeMap<String, String> = request["env"]
-        .as_object()
-        .map(|entries| {
-            entries
-                .iter()
-                .map(|(key, value)| (key.clone(), value.as_str().unwrap_or("").to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    let escape_timeout = resolve_escape_timeout_ms(&|name| env.get(name).cloned());
     let sequences: Vec<Value> = request["sequences"]
         .as_array()
         .map(|cases| {
@@ -50,11 +51,7 @@ fn rust_terminal(request: &Value) -> Value {
                     let data = case["data"].as_str().unwrap();
                     let flag = case["flag"].as_bool().unwrap();
                     let shift = case["shift"].as_bool().unwrap();
-                    let output = if case["kind"].as_str() == Some("native") {
-                        normalize_native_shift_enter_input(data, flag, shift)
-                    } else {
-                        normalize_apple_terminal_input(data, flag, shift)
-                    };
+                    let output = normalize_apple_terminal_input(data, flag, shift);
                     json!(output)
                 })
                 .collect()
@@ -78,13 +75,13 @@ fn rust_terminal(request: &Value) -> Value {
                 .collect()
         })
         .unwrap_or_default();
-    let escape_timeout_value = if escape_timeout.fract() == 0.0 {
-        json!(escape_timeout as u64)
-    } else {
-        json!(escape_timeout)
-    };
+    let bytes = Arc::new(Mutex::new(Vec::new()));
+    let mut terminal = ProcessTerminal::with_output(Box::new(Capture(Arc::clone(&bytes))));
+    terminal.set_progress(true);
+    terminal.set_progress(false);
+    let progress = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
     json!({
-        "escapeTimeout": escape_timeout_value,
+        "progress": progress,
         "sequences": sequences,
         "normalize": normalize,
         "rawMode": raw_mode,

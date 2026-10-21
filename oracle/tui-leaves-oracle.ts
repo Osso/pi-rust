@@ -131,7 +131,7 @@ type KeysApi = {
 };
 
 type StdinBufferApi = {
-	StdinBuffer: new (options?: { timeout?: number; escapeTimeout?: number }) => {
+	StdinBuffer: new (options?: { timeout?: number }) => {
 		process(data: string | Buffer): void;
 		flush(): string[];
 		getBuffer(): string;
@@ -445,12 +445,12 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 		}
 		case "stdin_buffer": {
 			const api = (await loadApi(sourceDirectory, "stdin-buffer.ts")) as StdinBufferApi;
-			const cases = requireArray<{ chunks: string[] }>(request, "cases");
+			const cases = requireArray<{ chunks: string[]; timeout?: number }>(request, "cases");
 			const results: Array<{ events: unknown[]; bufferAfterProcess: string }> = [];
 			const buffers: Array<InstanceType<StdinBufferApi["StdinBuffer"]>> = [];
 			for (const testCase of cases) {
 				const events: unknown[] = [];
-				const buffer = new api.StdinBuffer({ timeout: 10, escapeTimeout: 10 });
+				const buffer = new api.StdinBuffer({ timeout: testCase.timeout });
 				buffer.on("data", (value) => events.push({ kind: "data", value }));
 				buffer.on("paste", (value) => events.push({ kind: "paste", value }));
 				for (const chunk of testCase.chunks) buffer.process(chunk);
