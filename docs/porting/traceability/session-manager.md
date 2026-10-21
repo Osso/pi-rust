@@ -94,3 +94,5 @@ Archive-aware header/load/list/fork; mutable open/setSessionFile resolves stale 
 Receipt proof: source creates real records, mutates exposed entry refs to null/empty/string/object/valid arrays, persists; Rust retained compaction rewrite; same TS reads exact raw values. New typed append + persist_for_recovery + fsync consumed by same frozen acceptance scan; initial RED scan[] missed ref. No DB claim/CAS proof.
 
 Bounded reverse scan now defers inactive payload loading until an uncompacted tree requires forward full read. Resource behavioral RED: real TS manager writes24 inactive3.5MiB Unicode records; fresh Rust child VmHWM delta114380KiB exceeded64MiB cap. Frozen source uses hasInactiveEntries, not retained inactive records. Compacted manager must retain only active cutoff plus chunk/largest-record memory.
+
+Late truncation mutation: TS-generated210KiB Unicode archive minus final2bytes → frozen header null; prior Rust direct first-line stream returned header. Header now uses seekable full decode validation, and manager/fork share one outer spool before plaintext scan. Test `late_truncated_archive_header_does_not_hide_decode_failure`.

@@ -1262,6 +1262,13 @@ pub fn load_entries_from_file(file_path: &str) -> Vec<FileEntry> {
 }
 
 fn read_first_line(file_path: &str) -> Option<String> {
+    super::session_transcript_spool::with_seekable_session_transcript(file_path, |plain| {
+        Ok(read_plain_first_line(plain))
+    })
+    .ok()
+    .flatten()
+}
+fn read_plain_first_line(file_path: &str) -> Option<String> {
     let mut file = create_session_transcript_read_stream(file_path).ok()?;
     let mut chunks: Vec<u8> = Vec::new();
     let mut buffer = [0_u8; HEADER_READ_BUFFER_SIZE];
@@ -1571,15 +1578,17 @@ fn load_current_version_entries_from_file(
 }
 
 fn load_session_file_entries(file_path: &str) -> Result<LoadedCurrentVersionSession, SessionManagerError> {
-    let header = read_session_header(file_path);
-    if header.as_ref().and_then(|header| header.version) == Some(CURRENT_SESSION_VERSION)
-        && let Some(header) = header
-    {
-        return load_current_version_entries_from_file(file_path, header);
-    }
-    Ok(LoadedCurrentVersionSession {
-        file_entries: load_entries_from_file(file_path),
-        preceding_cwd: None,
+    super::session_transcript_spool::with_seekable_session_transcript(file_path, |plain| {
+        let header = read_session_header(plain);
+        if header.as_ref().and_then(|header| header.version) == Some(CURRENT_SESSION_VERSION)
+            && let Some(header) = header
+        {
+            return load_current_version_entries_from_file(plain, header);
+        }
+        Ok(LoadedCurrentVersionSession {
+            file_entries: load_entries_from_file(plain),
+            preceding_cwd: None,
+        })
     })
 }
 
@@ -1851,14 +1860,7 @@ fn list_default_session_root(progress: Option<&mut dyn FnMut(usize, usize)>) -> 
 }
 
 fn load_fork_source_entries(source_path: &str) -> Result<Vec<FileEntry>, SessionManagerError> {
-    let source_header = read_session_header(source_path);
-    let entries = match source_header.as_ref().and_then(|header| header.version) {
-        Some(version) if version == CURRENT_SESSION_VERSION => {
-            let header = source_header.clone().expect("header was checked");
-            load_current_version_entries_from_file(source_path, header)?.file_entries
-        }
-        _ => load_entries_from_file(source_path),
-    };
+    let entries = load_session_file_entries(source_path)?.file_entries;
     if entries.is_empty() {
         return Err(error(format!(
             "Cannot fork: source session file is empty or invalid: {source_path}"

@@ -35,6 +35,7 @@ async function handle(r: any) {
   const entries = []; for await (const e of history.readSessionHistoryReverse(m)) entries.push(e);
   return {id:m.getSessionId(), entries:m.getEntries(), history:entries, header:m.getHeader(), text:transcript.readSessionTranscriptText(r.path)};
  }
+ if(r.op === "header")return manager.readSessionHeader(r.path);
  if (r.op === "bytes") return {bytes:readFileSync(r.path).toString("base64"), mode:statSync(r.path).mode & 0o777};
  throw new Error(`Unknown operation: ${r.op}`);
 }

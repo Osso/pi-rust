@@ -290,3 +290,29 @@ fn compacted_reverse_loading_does_not_retain_large_inactive_payloads() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn late_truncated_archive_header_does_not_hide_decode_failure() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"text":"😀漢".repeat(30000)}),
+    );
+    let path = created["path"].as_str().unwrap();
+    let archive = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
+    let archive = archive.as_str().unwrap();
+    let mut bytes = std::fs::read(archive).unwrap();
+    bytes.truncate(bytes.len() - 2);
+    std::fs::write(archive, &bytes).unwrap();
+    assert_eq!(call(&mut ts, json!({"op":"header","path":archive})), Value::Null);
+    assert!(
+        read_session_header(archive).is_none(),
+        "header must validate full archived stream"
+    );
+    assert!(SessionManager::open_read_only(path, None).is_err());
+    assert!(!std::path::Path::new(path).exists());
+}
