@@ -1,3 +1,11 @@
+#[path = "support/required_fd.rs"]
+mod required_fd;
+
+#[test]
+fn unusable_fd_fails_instead_of_skipping() {
+    required_fd::assert_unusable_fd_fails("fuzzy_empty_query_returns_files_and_folders");
+}
+
 use std::fs;
 use std::path::Path;
 
@@ -116,17 +124,9 @@ async fn absolute_paths_trigger_after_slash_command_arguments() {
     assert_eq!(result.prefix, "/");
 }
 
-fn fd_or_skip() -> Option<String> {
-    let fd = find_fd();
-    if fd.is_none() {
-        eprintln!("fd is not available; skipping fd-backed assertions");
-    }
-    fd
-}
-
 #[tokio::test]
 async fn fuzzy_empty_query_returns_files_and_folders() {
-    let Some(fd) = fd_or_skip() else { return };
+    let fd = find_fd().expect("fd is required for autocomplete coverage");
     let base = TempDir::new().expect("temp dir");
     setup_folder(base.path(), &["src"], &[("README.md", "readme")]);
     let provider = provider(Vec::new(), base.path().to_str().unwrap(), Some(fd));
@@ -140,7 +140,7 @@ async fn fuzzy_empty_query_returns_files_and_folders() {
 
 #[tokio::test]
 async fn fuzzy_matches_extension_case_insensitively() {
-    let Some(fd) = fd_or_skip() else { return };
+    let fd = find_fd().expect("fd is required for autocomplete coverage");
     let base = TempDir::new().expect("temp dir");
     setup_folder(base.path(), &[], &[("file.txt", "content"), ("README.md", "readme")]);
     let provider = provider(Vec::new(), base.path().to_str().unwrap(), Some(fd));
@@ -160,7 +160,7 @@ async fn fuzzy_matches_extension_case_insensitively() {
 
 #[tokio::test]
 async fn fuzzy_ranks_directories_before_files() {
-    let Some(fd) = fd_or_skip() else { return };
+    let fd = find_fd().expect("fd is required for autocomplete coverage");
     let base = TempDir::new().expect("temp dir");
     setup_folder(
         base.path(),
@@ -177,7 +177,7 @@ async fn fuzzy_ranks_directories_before_files() {
 
 #[tokio::test]
 async fn fuzzy_returns_nested_paths_and_full_path_matches() {
-    let Some(fd) = fd_or_skip() else { return };
+    let fd = find_fd().expect("fd is required for autocomplete coverage");
     let base = TempDir::new().expect("temp dir");
     setup_folder(
         base.path(),
@@ -214,7 +214,7 @@ async fn fuzzy_returns_nested_paths_and_full_path_matches() {
 
 #[tokio::test]
 async fn fuzzy_scopes_relative_directories_recursively() {
-    let Some(fd) = fd_or_skip() else { return };
+    let fd = find_fd().expect("fd is required for autocomplete coverage");
     let root = TempDir::new().expect("temp dir");
     let base = root.path().join("cwd");
     let outside = root.path().join("outside");
@@ -240,7 +240,7 @@ async fn fuzzy_scopes_relative_directories_recursively() {
 
 #[tokio::test]
 async fn fuzzy_quotes_paths_with_spaces_and_continues_quoted_paths() {
-    let Some(fd) = fd_or_skip() else { return };
+    let fd = find_fd().expect("fd is required for autocomplete coverage");
     let base = TempDir::new().expect("temp dir");
     setup_folder(
         base.path(),
@@ -278,7 +278,7 @@ async fn fuzzy_quotes_paths_with_spaces_and_continues_quoted_paths() {
 
 #[tokio::test]
 async fn fuzzy_includes_hidden_paths_but_excludes_git() {
-    let Some(fd) = fd_or_skip() else { return };
+    let fd = find_fd().expect("fd is required for autocomplete coverage");
     let base = TempDir::new().expect("temp dir");
     setup_folder(
         base.path(),
@@ -306,7 +306,7 @@ async fn fuzzy_includes_hidden_paths_but_excludes_git() {
 #[cfg(unix)]
 #[tokio::test]
 async fn fuzzy_follows_symlinked_directories_and_files() {
-    let Some(fd) = fd_or_skip() else { return };
+    let fd = find_fd().expect("fd is required for autocomplete coverage");
     use std::os::unix::fs::symlink;
 
     let root = TempDir::new().expect("temp dir");
@@ -343,7 +343,7 @@ async fn fuzzy_follows_symlinked_directories_and_files() {
 
 #[tokio::test]
 async fn fuzzy_results_ignore_query_text_in_the_base_path() {
-    let Some(fd) = fd_or_skip() else { return };
+    let fd = find_fd().expect("fd is required for autocomplete coverage");
     let root = TempDir::new().expect("temp dir");
     let normal = root.path().join("cwd-normal");
     let containing = root.path().join("cwd-plan-repro");

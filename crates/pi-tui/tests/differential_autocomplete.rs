@@ -1,6 +1,14 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+#[path = "support/required_fd.rs"]
+mod required_fd;
+
+#[test]
+fn unusable_fd_fails_instead_of_skipping() {
+    required_fd::assert_unusable_fd_fails("autocomplete_matches_the_pinned_typescript_source");
+}
+
 use std::fs;
 use std::path::Path;
 
@@ -214,10 +222,7 @@ const SUGGESTION_CASES: &[SuggestionCase] = &[
 
 #[test]
 fn autocomplete_matches_the_pinned_typescript_source() {
-    let Some(fd) = find_fd() else {
-        eprintln!("fd is not available; skipping autocomplete differential");
-        return;
-    };
+    let fd = find_fd().expect("fd is required for autocomplete differential coverage");
 
     let root = TempDir::new().expect("temp dir");
     let base = root.path().join("cwd");
