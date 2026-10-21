@@ -125,10 +125,16 @@ impl FileAuthStorageBackend {
         if directory.exists() {
             return Ok(());
         }
-        std::fs::create_dir_all(directory)
-            .map_err(|error| StorageError::new(format!("Failed to create {}: {error}", directory.display())))?;
-        set_mode(directory, 0o700);
-        Ok(())
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder
+            .create(directory)
+            .map_err(|error| StorageError::new(format!("Failed to create {}: {error}", directory.display())))
     }
 
     fn ensure_file_exists(&self) -> Result<(), StorageError> {
@@ -286,19 +292,26 @@ impl AuthStorageBackend for FileAuthStorageBackend {
 }
 
 fn write_auth_file(path: &str, content: &str) -> Result<(), StorageError> {
-    std::fs::write(path, content).map_err(|error| StorageError::new(format!("Failed to write auth.json: {error}")))?;
-    set_mode(Path::new(path), AUTH_FILE_MODE);
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(AUTH_FILE_MODE);
+    }
+    options
+        .open(path)
+        .and_then(|mut file| file.write_all(content.as_bytes()))
+        .map_err(|error| StorageError::new(format!("Failed to write auth.json: {error}")))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(AUTH_FILE_MODE))
+            .map_err(|error| StorageError::new(format!("Failed to chmod auth.json: {error}")))?;
+    }
     Ok(())
 }
-
-#[cfg(unix)]
-fn set_mode(path: &Path, mode: u32) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
-}
-
-#[cfg(not(unix))]
-fn set_mode(_path: &Path, _mode: u32) {}
 
 /// `InMemoryAuthStorageBackend`: one JSON string guarded by an async chain.
 #[derive(Default)]

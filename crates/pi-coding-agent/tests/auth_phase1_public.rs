@@ -14,7 +14,7 @@ fn fixture() -> std::path::PathBuf {
             .as_nanos()
     ));
     fs::create_dir_all(&p).unwrap();
-    p.join("private/auth.json")
+    p.join("private/nested/auth.json")
 }
 #[test]
 fn public_ts_rust_ts_and_reverse_preserve_oauth_extras_and_unrelated_providers() {
@@ -71,6 +71,14 @@ fn public_ts_rust_ts_and_reverse_preserve_oauth_extras_and_unrelated_providers()
         assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(
             fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(path.parent().unwrap().parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
             0o700
         );
     }
