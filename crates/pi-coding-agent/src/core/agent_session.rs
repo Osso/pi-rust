@@ -1457,6 +1457,11 @@ impl AgentSession {
                 let previous_with_context = previous_with_context.clone();
                 let previous_signal_only = previous_signal_only.clone();
                 Box::pin(async move {
+                    if let Some(inner) = weak.upgrade() {
+                        lock(&inner.settings_manager)
+                            .get_compaction_settings()
+                            .map_err(|failure| AgentError::new(failure.to_string()))?;
+                    }
                     let previous_snapshot = if let Some(hook) = previous_with_context {
                         hook(turn.clone(), signal.clone()).await?
                     } else if let Some(hook) = previous_signal_only {
@@ -3355,7 +3360,10 @@ impl AgentSession {
         let listener_event = match &event {
             AgentEvent::AgentEnd { messages } => AgentSessionEvent::AgentEnd(AgentEndEvent::new(
                 messages.clone(),
-                session_continuation.is_some() || self.will_retry_after_agent_end(messages),
+                session_continuation.is_some()
+                    || self
+                        .will_retry_after_agent_end(messages)
+                        .map_err(|failure| AgentError::new(failure.message()))?,
                 session_continuation,
             )),
             AgentEvent::MessageStart { .. } | AgentEvent::MessageUpdate { .. } | AgentEvent::MessageEnd { .. } => {
@@ -3370,7 +3378,8 @@ impl AgentSession {
         if let AgentEvent::MessageEnd { message } = &event {
             self.persist_completed_message(message, original_tool_call_id.as_deref());
             if let AgentMessage::Assistant(assistant) = message {
-                self.start_background_compaction_during_tool_turn(assistant);
+                self.start_background_compaction_during_tool_turn(assistant)
+                    .map_err(|failure| AgentError::new(failure.message()))?;
             }
         }
         if matches!(event, AgentEvent::AgentEnd { .. }) && session_continuation.is_some() {
@@ -3547,20 +3556,23 @@ impl AgentSession {
             .map_err(|error| AgentError::new(error.to_string()))
     }
 
-    fn start_background_compaction_during_tool_turn(&self, message: &AssistantMessage) {
+    fn start_background_compaction_during_tool_turn(
+        &self,
+        message: &AssistantMessage,
+    ) -> Result<(), AgentSessionError> {
         if message.stop_reason != StopReason::ToolUse {
-            return;
+            return Ok(());
         }
         let model = self.inner.agent.model();
         if message.provider != model.provider || message.model != model.id {
-            return;
+            return Ok(());
         }
         let context_window = model.context_window;
         let context_tokens = crate::core::compaction::calculate_context_tokens(&message.usage);
         if context_tokens <= 0.0 || context_window <= 0.0 {
-            return;
+            return Ok(());
         }
-        let settings = compaction_settings(&self.inner.settings_manager);
+        let settings = compaction_settings(&self.inner.settings_manager)?;
         if crate::core::compaction::should_compact(
             context_tokens,
             context_window,
@@ -3570,32 +3582,32 @@ impl AgentSession {
             },
             model.auto_compaction_threshold,
         ) {
-            return;
+            return Ok(());
         }
-        self.start_background_compaction(context_tokens, context_window);
+        self.start_background_compaction(context_tokens, context_window)
     }
 
-    fn start_background_compaction(&self, context_tokens: f64, context_window: f64) {
+    fn start_background_compaction(&self, context_tokens: f64, context_window: f64) -> Result<(), AgentSessionError> {
         if context_window <= 0.0 || context_tokens < context_window * BACKGROUND_COMPACTION_CONTEXT_RATIO {
-            return;
+            return Ok(());
         }
         if lock(&self.inner.background_compaction_cache).is_some()
             || lock(&self.inner.auto_compaction_abort_controller).is_some()
             || lock(&self.inner.compaction_abort_controller).is_some()
         {
-            return;
+            return Ok(());
         }
         let model = self.inner.agent.model();
-        let settings = compaction_settings(&self.inner.settings_manager);
+        let settings = compaction_settings(&self.inner.settings_manager)?;
         if !settings.enabled && !self.runner().has_handlers("compaction") {
-            return;
+            return Ok(());
         }
         let branch_entries = lock(&self.inner.session_manager).get_branch(None);
         let Some(snapshot_leaf_id) = lock(&self.inner.session_manager).get_leaf_id().map(str::to_owned) else {
-            return;
+            return Ok(());
         };
         let Some(preparation) = crate::core::compaction::prepare_compaction(&branch_entries, settings) else {
-            return;
+            return Ok(());
         };
         static NEXT_BACKGROUND_COMPACTION_TOKEN: AtomicU64 = AtomicU64::new(1);
         let token = NEXT_BACKGROUND_COMPACTION_TOKEN.fetch_add(1, Ordering::SeqCst);
@@ -3626,6 +3638,7 @@ impl AgentSession {
             };
             AgentSession { inner }.generate_background_compaction(token).await;
         });
+        Ok(())
     }
 
     async fn generate_background_compaction(&self, token: u64) {
@@ -3718,7 +3731,7 @@ impl AgentSession {
         abort: &CancellationToken,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let stream_fn = self.inner.agent.stream_fn();
-        let retry_policy = self.retry_policy();
+        let retry_policy = self.retry_policy()?;
         let summary_options = crate::core::compaction::CompactionSummaryOptions {
             model: &auth.model,
             api_key: auth.api_key.clone(),
@@ -3746,47 +3759,52 @@ impl AgentSession {
             let Some(inner) = weak.upgrade() else {
                 return;
             };
-            let session = AgentSession { inner };
-            let _guard = session.inner.turn_start_lock.lock().await;
-            if !session.background_compaction_matches_current_session(token) {
-                if lock(&session.inner.background_compaction_cache)
-                    .as_ref()
-                    .is_some_and(|cache| cache.token == token)
-                {
-                    *lock(&session.inner.background_compaction_cache) = None;
-                }
-                return;
+            if let Err(failure) = (AgentSession { inner }).install_background_compaction(token).await {
+                eprintln!("Failed to install background compaction cache: {failure}");
             }
-            let session_advanced = lock(&session.inner.session_manager).get_leaf_id().map(str::to_owned)
-                != lock(&session.inner.background_compaction_cache)
-                    .as_ref()
-                    .map(|cache| cache.snapshot_leaf_id.clone());
-            let agent_run_needs_post_processing =
-                session.is_streaming() || lock(&session.inner.last_assistant_message).is_some();
-            let ready = lock(&session.inner.background_compaction_cache)
-                .as_ref()
-                .is_some_and(|cache| cache.token == token && cache.state == BackgroundCompactionState::Ready);
-            if !ready || session_advanced || agent_run_needs_post_processing {
-                return;
-            }
-            session.run_auto_compaction("threshold", false, false).await;
         });
     }
 
-    fn background_compaction_matches_current_session(&self, token: u64) -> bool {
+    async fn install_background_compaction(&self, token: u64) -> Result<(), AgentSessionError> {
+        let _guard = self.inner.turn_start_lock.lock().await;
+        if !self.background_compaction_matches_current_session(token)? {
+            if lock(&self.inner.background_compaction_cache)
+                .as_ref()
+                .is_some_and(|cache| cache.token == token)
+            {
+                *lock(&self.inner.background_compaction_cache) = None;
+            }
+            return Ok(());
+        }
+        let session_advanced = lock(&self.inner.session_manager).get_leaf_id().map(str::to_owned)
+            != lock(&self.inner.background_compaction_cache)
+                .as_ref()
+                .map(|cache| cache.snapshot_leaf_id.clone());
+        let agent_run_needs_post_processing = self.is_streaming() || lock(&self.inner.last_assistant_message).is_some();
+        let ready = lock(&self.inner.background_compaction_cache)
+            .as_ref()
+            .is_some_and(|cache| cache.token == token && cache.state == BackgroundCompactionState::Ready);
+        if !ready || session_advanced || agent_run_needs_post_processing {
+            return Ok(());
+        }
+        self.run_auto_compaction("threshold", false, false).await?;
+        Ok(())
+    }
+
+    fn background_compaction_matches_current_session(&self, token: u64) -> Result<bool, AgentSessionError> {
         let model = self.inner.agent.model();
-        let settings = compaction_settings(&self.inner.settings_manager);
+        let settings = compaction_settings(&self.inner.settings_manager)?;
         let Some(cache) = lock(&self.inner.background_compaction_cache).clone() else {
-            return false;
+            return Ok(false);
         };
         if cache.token != token {
-            return false;
+            return Ok(false);
         }
         let snapshot_is_ancestor = lock(&self.inner.session_manager)
             .get_branch(None)
             .iter()
             .any(|entry| entry.id() == Some(cache.snapshot_leaf_id.as_str()));
-        cache.session_id == lock(&self.inner.session_manager).get_session_id()
+        Ok(cache.session_id == lock(&self.inner.session_manager).get_session_id()
             && snapshot_is_ancestor
             && cache.model_provider == model.provider
             && cache.model_id == model.id
@@ -3795,22 +3813,22 @@ impl AgentSession {
             && cache.system_prompt == self.inner.agent.state().system_prompt
             && cache.settings.enabled == settings.enabled
             && cache.settings.reserve_tokens == settings.reserve_tokens
-            && cache.settings.keep_recent_tokens == settings.keep_recent_tokens
+            && cache.settings.keep_recent_tokens == settings.keep_recent_tokens)
     }
 
-    fn has_ready_background_compaction(&self) -> bool {
+    fn has_ready_background_compaction(&self) -> Result<bool, AgentSessionError> {
         let token = lock(&self.inner.background_compaction_cache)
             .as_ref()
             .filter(|cache| cache.state == BackgroundCompactionState::Ready)
             .map(|cache| cache.token);
         let Some(token) = token else {
-            return false;
+            return Ok(false);
         };
-        if self.background_compaction_matches_current_session(token) {
-            return true;
+        if self.background_compaction_matches_current_session(token)? {
+            return Ok(true);
         }
         *lock(&self.inner.background_compaction_cache) = None;
-        false
+        Ok(false)
     }
 
     async fn cancel_background_compaction(&self) {
@@ -3824,22 +3842,24 @@ impl AgentSession {
         *lock(&self.inner.background_compaction_cache) = None;
     }
 
-    async fn take_background_compaction(&self) -> Option<BackgroundCompactionCache> {
+    async fn take_background_compaction(&self) -> Result<Option<BackgroundCompactionCache>, AgentSessionError> {
         let (token, state, abort) = {
             let guard = lock(&self.inner.background_compaction_cache);
-            let cache = guard.as_ref()?;
+            let Some(cache) = guard.as_ref() else {
+                return Ok(None);
+            };
             (cache.token, cache.state, cache.abort.clone())
         };
         if state == BackgroundCompactionState::Pending {
             abort.cancel();
             *lock(&self.inner.background_compaction_cache) = None;
-            return None;
+            return Ok(None);
         }
-        if state != BackgroundCompactionState::Ready || !self.background_compaction_matches_current_session(token) {
+        if state != BackgroundCompactionState::Ready || !self.background_compaction_matches_current_session(token)? {
             *lock(&self.inner.background_compaction_cache) = None;
-            return None;
+            return Ok(None);
         }
-        lock(&self.inner.background_compaction_cache).take()
+        Ok(lock(&self.inner.background_compaction_cache).take())
     }
 
     fn remove_started_message_from_queue(&self, event: &AgentEvent) {
@@ -3949,20 +3969,22 @@ impl AgentSession {
         }
     }
 
-    fn will_retry_after_agent_end(&self, messages: &[AgentMessage]) -> bool {
+    fn will_retry_after_agent_end(&self, messages: &[AgentMessage]) -> Result<bool, AgentSessionError> {
         for message in messages.iter().rev() {
             let AgentMessage::Assistant(assistant) = message else {
                 continue;
             };
             if self.find_quota_fallback_model(assistant).is_some() {
-                return true;
+                return Ok(true);
             }
-            let settings = lock(&self.inner.settings_manager).get_retry_settings();
-            return settings.enabled
+            let settings = lock(&self.inner.settings_manager)
+                .get_retry_settings()
+                .map_err(|failure| error(failure.to_string()))?;
+            return Ok(settings.enabled
                 && self.inner.retry_attempt.load(Ordering::SeqCst) < settings.max_retries as u64
-                && self.is_retryable_error(assistant);
+                && self.is_retryable_error(assistant));
         }
-        false
+        Ok(false)
     }
 
     fn find_last_assistant_message(&self) -> Option<AssistantMessage> {
@@ -4071,11 +4093,11 @@ impl AgentSession {
         if self.prepare_quota_fallback(&message).await? {
             return Ok(Some("normal"));
         }
-        if self.is_retryable_error(&message) && self.prepare_retry(&message).await {
+        if self.is_retryable_error(&message) && self.prepare_retry(&message).await? {
             return Ok(Some("normal"));
         }
         self.finish_exhausted_retry(&message);
-        if self.check_compaction(&message, true).await {
+        if self.check_compaction(&message, true).await? {
             return Ok(Some("normal"));
         }
         if self.inner.agent.has_queued_messages() {
@@ -4148,7 +4170,7 @@ impl AgentSession {
         }
         self.validate_model_authentication().await?;
         if let Some(last_assistant) = self.find_last_assistant_message() {
-            self.check_compaction(&last_assistant, false).await;
+            self.check_compaction(&last_assistant, false).await?;
         }
         if self.is_streaming() {
             return Err(error(
@@ -4308,7 +4330,7 @@ impl AgentSession {
         self.flush_pending_bash_messages();
         self.validate_model_authentication().await?;
         if let Some(last_assistant) = self.find_last_assistant_message() {
-            self.check_compaction(&last_assistant, false).await;
+            self.check_compaction(&last_assistant, false).await?;
         }
         Ok(())
     }
@@ -4953,17 +4975,24 @@ impl AgentSession {
         Ok(true)
     }
 
-    async fn prepare_retry(&self, message: &AssistantMessage) -> bool {
-        let settings = lock(&self.inner.settings_manager).get_retry_settings();
+    async fn prepare_retry(&self, message: &AssistantMessage) -> Result<bool, AgentSessionError> {
+        let settings = lock(&self.inner.settings_manager)
+            .get_retry_settings()
+            .map_err(|failure| error(failure.to_string()))?;
         if !settings.enabled {
-            return false;
+            return Ok(false);
         }
         let attempt = self.inner.retry_attempt.fetch_add(1, Ordering::SeqCst) + 1;
         if attempt > settings.max_retries as u64 {
             self.inner.retry_attempt.store(attempt - 1, Ordering::SeqCst);
-            return false;
+            return Ok(false);
         }
-        let delay_ms = settings.base_delay_ms;
+        let delay_ms = crate::core::retry_delay::calculate_retry_delay_ms(
+            attempt as f64,
+            settings.base_delay_ms,
+            settings.max_backoff_ms,
+            crate::utils::random::random_f64(),
+        );
         self.emit(AgentSessionEvent::AutoRetryStart(AutoRetryStartEvent {
             event_type: "auto_retry_start",
             attempt,
@@ -4994,9 +5023,9 @@ impl AgentSession {
                 attempt,
                 final_error: Some("Retry cancelled".to_owned()),
             }));
-            return false;
+            return Ok(false);
         }
-        true
+        Ok(true)
     }
 
     /// Cancels an in-progress retry.
@@ -5087,13 +5116,17 @@ fn serialize_thinking_level<S: serde::Serializer>(level: &ThinkingLevel, seriali
     serializer.serialize_str(level.as_str())
 }
 
-fn compaction_settings(settings_manager: &Arc<Mutex<SettingsManager>>) -> crate::core::compaction::CompactionSettings {
-    let view = lock(settings_manager).get_compaction_settings();
-    crate::core::compaction::CompactionSettings {
+fn compaction_settings(
+    settings_manager: &Arc<Mutex<SettingsManager>>,
+) -> Result<crate::core::compaction::CompactionSettings, AgentSessionError> {
+    let view = lock(settings_manager)
+        .get_compaction_settings()
+        .map_err(|failure| error(failure.to_string()))?;
+    Ok(crate::core::compaction::CompactionSettings {
         enabled: view.enabled,
         reserve_tokens: view.reserve_tokens,
         keep_recent_tokens: view.keep_recent_tokens,
-    }
+    })
 }
 
 struct CompactedContextEstimate {
@@ -5692,7 +5725,7 @@ impl AgentSession {
         reason: &str,
     ) -> Result<(crate::core::compaction::CompactionResult, bool), AgentSessionError> {
         let model = self.inner.agent.model();
-        let settings = compaction_settings(&self.inner.settings_manager);
+        let settings = compaction_settings(&self.inner.settings_manager)?;
         let auth = if settings.enabled {
             Some(self.get_compaction_request_auth(&model).await)
         } else {
@@ -5793,13 +5826,15 @@ impl AgentSession {
         self.subscribe_agent();
     }
 
-    fn retry_policy(&self) -> pi_ai::utils::retry::RetryPolicy {
-        let settings = lock(&self.inner.settings_manager).get_retry_settings();
-        pi_ai::utils::retry::RetryPolicy {
+    fn retry_policy(&self) -> Result<pi_ai::utils::retry::RetryPolicy, AgentSessionError> {
+        let settings = lock(&self.inner.settings_manager)
+            .get_retry_settings()
+            .map_err(|failure| error(failure.to_string()))?;
+        Ok(pi_ai::utils::retry::RetryPolicy {
             enabled: settings.enabled,
             max_retries: settings.max_retries.max(0.0) as u32,
             base_delay_ms: settings.base_delay_ms,
-        }
+        })
     }
 
     async fn get_compaction_source_hint(
@@ -5901,10 +5936,14 @@ impl AgentSession {
         }
     }
 
-    async fn check_compaction(&self, assistant_message: &AssistantMessage, post_run_check: bool) -> bool {
-        let settings = compaction_settings(&self.inner.settings_manager);
+    async fn check_compaction(
+        &self,
+        assistant_message: &AssistantMessage,
+        post_run_check: bool,
+    ) -> Result<bool, AgentSessionError> {
+        let settings = compaction_settings(&self.inner.settings_manager)?;
         if post_run_check && assistant_message.stop_reason == StopReason::Aborted {
-            return false;
+            return Ok(false);
         }
         let model = self.inner.agent.model();
         let context_window = model.context_window;
@@ -5916,7 +5955,7 @@ impl AgentSession {
             compaction_timestamp.is_some_and(|timestamp| assistant_message.timestamp <= timestamp)
         });
         if assistant_is_before_compaction {
-            return false;
+            return Ok(false);
         }
         let recoverable_length =
             same_model && pi_ai::utils::overflow::is_recoverable_length(assistant_message, model.max_tokens);
@@ -5940,7 +5979,7 @@ impl AgentSession {
                         "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.".to_owned(),
                     ),
                 })));
-                return false;
+                return Ok(false);
             }
             if post_run_check {
                 self.inner.overflow_recovery_attempted.store(true, Ordering::SeqCst);
@@ -5965,7 +6004,7 @@ impl AgentSession {
             let messages = self.inner.agent.messages();
             let estimate = crate::core::compaction::estimate_context_tokens(&messages);
             let Some(last_usage_index) = estimate.last_usage_index else {
-                return false;
+                return Ok(false);
             };
             let index = last_usage_index as usize;
             if let Some(compaction_entry) = &compaction_entry
@@ -5975,7 +6014,7 @@ impl AgentSession {
                     .and_then(pi_js_compat::date::date_parse_millis)
                 && usage_message.timestamp <= timestamp
             {
-                return false;
+                return Ok(false);
             }
             context_tokens = estimate.tokens;
         }
@@ -5996,16 +6035,21 @@ impl AgentSession {
             }
             return self.run_auto_compaction("threshold", will_retry, will_retry).await;
         }
-        if self.has_ready_background_compaction() {
+        if self.has_ready_background_compaction()? {
             return self.run_auto_compaction("threshold", false, false).await;
         }
-        self.start_background_compaction(context_tokens, context_window);
-        false
+        self.start_background_compaction(context_tokens, context_window)?;
+        Ok(false)
     }
 
-    async fn run_auto_compaction(&self, reason: &str, will_retry: bool, continue_after_compaction: bool) -> bool {
-        let settings = compaction_settings(&self.inner.settings_manager);
-        let cached = self.take_background_compaction().await;
+    async fn run_auto_compaction(
+        &self,
+        reason: &str,
+        will_retry: bool,
+        continue_after_compaction: bool,
+    ) -> Result<bool, AgentSessionError> {
+        let settings = compaction_settings(&self.inner.settings_manager)?;
+        let cached = self.take_background_compaction().await?;
         let path_entries = cached
             .as_ref()
             .map(|cache| cache.branch_entries.clone())
@@ -6015,7 +6059,7 @@ impl AgentSession {
             .map(|cache| cache.preparation.clone())
             .or_else(|| crate::core::compaction::prepare_compaction(&path_entries, settings));
         let Some(preparation) = preparation else {
-            return false;
+            return Ok(false);
         };
         let source_hint = self.get_compaction_source_hint(reason, will_retry).await;
         self.emit(AgentSessionEvent::CompactionStart(CompactionStartEvent {
@@ -6042,7 +6086,7 @@ impl AgentSession {
                     will_retry: false,
                     error_message: None,
                 })));
-                return false;
+                return Ok(false);
             }
             CompactionExtensionDecision::None => {}
             CompactionExtensionDecision::Compaction(compaction) => {
@@ -6072,7 +6116,7 @@ impl AgentSession {
                         will_retry: false,
                         error_message: None,
                     })));
-                    return false;
+                    return Ok(false);
                 }
                 CompactionExtensionDecision::None => {}
                 CompactionExtensionDecision::Compaction(compaction) => {
@@ -6128,9 +6172,9 @@ impl AgentSession {
                         messages.pop();
                         self.inner.agent.set_messages(messages);
                     }
-                    return true;
+                    return Ok(true);
                 }
-                self.inner.agent.has_queued_messages()
+                Ok(self.inner.agent.has_queued_messages())
             }
             Err(error) => {
                 let aborted = abort.is_cancelled() || error.message() == "Compaction cancelled";
@@ -6148,7 +6192,7 @@ impl AgentSession {
                         }
                     }),
                 })));
-                false
+                Ok(false)
             }
         }
     }
@@ -6376,7 +6420,7 @@ impl AgentSession {
         let abort = CancellationToken::new();
         *lock(&self.inner.compaction_summary_materialization_abort_controller) = Some(abort.clone());
         let auth = self.get_required_request_auth(&model).await?;
-        let settings = compaction_settings(&self.inner.settings_manager);
+        let settings = compaction_settings(&self.inner.settings_manager)?;
         let stream_fn = self.inner.agent.stream_fn();
         let result = crate::core::compaction::materialize_compaction_summary(
             &entry,
