@@ -600,3 +600,69 @@ async fn session_archive_command_branches_match_frozen() {
     assert!(!std::path::Path::new(&path).exists());
     assert!(read_session_metadata(&db, &path).unwrap().is_none());
 }
+
+#[tokio::test]
+async fn session_archive_error_worker() {
+    use pi_coding_agent::core::extensions::types::{ExtensionEvent, SessionShutdownEvent, SessionShutdownReason};
+    let Ok(mode) = std::env::var("ARCHIVE_ERROR_MODE") else {
+        return;
+    };
+    let dir = std::env::var("ARCHIVE_ERROR_DIR").unwrap();
+    let db = format!("{dir}/control.sqlite");
+    let mut manager = SessionManager::create(&dir, Some(&dir), None).unwrap();
+    manager.persist_for_recovery().unwrap();
+    manager
+        .set_metadata_control_db_path(Some(&db), Default::default())
+        .unwrap();
+    let path = manager.get_session_file().unwrap().to_owned();
+    std::fs::remove_file(&path).unwrap();
+    if mode == "delete" {
+        std::fs::create_dir(&path).unwrap();
+    }
+    std::fs::write(format!("{dir}/paths.json"), json!({"path":path,"db":db}).to_string()).unwrap();
+    let ui = Arc::new(RecordingUi::default());
+    *ui.confirmed.lock().unwrap() = true;
+    let harness = Harness::load_full(
+        &dir,
+        Arc::new(Mutex::new(manager)),
+        ui,
+        Some(db),
+        pi_coding_agent::bundled_extensions::session_archive::session_archive_extension,
+    )
+    .await;
+    harness.run_command(&mode, "").await.unwrap();
+    harness
+        .runner
+        .emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+            reason: SessionShutdownReason::Quit,
+            target_session_file: None,
+        }))
+        .await;
+}
+
+#[test]
+fn session_archive_shutdown_errors_match_frozen_stderr() {
+    for mode in ["archive", "delete"] {
+        let dir = TempDir::new().unwrap();
+        let missing_bin = dir.path().join("missing-bin");
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "session_archive_error_worker"])
+            .env("ARCHIVE_ERROR_MODE", mode)
+            .env("ARCHIVE_ERROR_DIR", dir.path())
+            .env("PATH", &missing_bin)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let paths: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join("paths.json")).unwrap()).unwrap();
+        let mut oracle = oracle_for("packages/coding-agent/extensions/session-archive/src/index.ts");
+        let response=oracle.request(&json!({"id":1,"extension":"session-archive","steps":[{"op":"command","name":mode,"confirmed":true,"controlDbPath":paths["db"],"sessionFile":paths["path"],"env":{"PATH":missing_bin}},{"op":"archiveShutdownStderr"}]}));
+        assert_eq!(response["ok"], true, "{response}");
+        for step in response["output"]["steps"].as_array().unwrap() {
+            assert_eq!(step["error"], serde_json::Value::Null, "{response}");
+        }
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.starts_with(&format!("Failed to {mode} session:")), "{stderr}");
+        assert_eq!(stderr, response["output"]["steps"][1]["result"].as_str().unwrap());
+    }
+}

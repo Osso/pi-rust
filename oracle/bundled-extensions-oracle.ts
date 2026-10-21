@@ -294,6 +294,22 @@ async function executeStep(
 				PI_PLAN_PATH: process.env.PI_PLAN_PATH ?? null,
 			};
 		}
+        case "archiveShutdownStderr": {
+            const previousWrite = process.stderr.write;
+            let output = "";
+            process.stderr.write = ((chunk: string | Uint8Array) => {
+                output += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+                return true;
+            }) as typeof process.stderr.write;
+            try {
+                for (const handler of h.handlers.get("session_shutdown") ?? []) {
+                    await handler({ type: "session_shutdown", reason: "quit" }, ctx);
+                }
+                return output;
+            } finally {
+                process.stderr.write = previousWrite;
+            }
+        }
 		case "event": {			const handlers = h.handlers.get(step.name as string) ?? [];
 			let result: unknown;
 			for (const handler of handlers) {
