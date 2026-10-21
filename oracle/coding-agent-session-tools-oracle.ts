@@ -186,9 +186,9 @@ const handlers: Record<string, (src: string, request: Request) => Promise<unknow
 			})),
 		};
 	},
-    "tool:definition": async (src, request) => {
-        const module = await load(src, request.module as string);
-        const tool = module[request.factory as string]();
+    "history:definition": async (src) => {
+        const module = await load(src, "core/tools/search-current-session-history.ts");
+        const tool = module.createSearchCurrentSessionHistoryToolDefinition();
         return {
             name: tool.name,
             label: tool.label,

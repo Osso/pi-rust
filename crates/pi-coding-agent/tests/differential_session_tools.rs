@@ -878,7 +878,7 @@ async fn search_current_session_history_tool_differential() {
     )
     .unwrap();
     let mut oracle = Oracle::new();
-    let registration = oracle.request(json!({"operation":"tool:definition","module":"core/tools/search-current-session-history.ts","factory":"createSearchCurrentSessionHistoryToolDefinition"}));
+    let registration = oracle.request(json!({"operation":"history:definition"}));
     let definition = pi_coding_agent::core::tools::search_current_session_history::create_search_current_session_history_tool_definition();
     assert_eq!(
         registration["output"],
