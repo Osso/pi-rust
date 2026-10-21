@@ -525,12 +525,12 @@ fn recover_runtime_mailbox_claim(
             break;
         }
     }
-    let mut pending = candidate.data.clone();
-    pending.insert("status".to_owned(), Value::String("pending".to_owned()));
-    pending.insert("updatedAt".to_owned(), Value::String(now_iso.to_owned()));
-    pending.remove("claimedAt");
-    pending.remove("claimantProcessIdentity");
-    let serialized = js_json::stringify(&Value::Object(pending));
+    let serialized = super::serialize_canonical_mailbox_mutation(&candidate.row, |pending| {
+        pending.insert(JsString::from("status"), JsValue::String(JsString::from("pending")));
+        pending.insert(JsString::from("updatedAt"), JsValue::String(JsString::from(now_iso)));
+        pending.shift_remove(&JsString::from("claimedAt"));
+        pending.shift_remove(&JsString::from("claimantProcessIdentity"));
+    })?;
     with_immediate_transaction(db, |db| {
         let current_authority = read_runtime_mailbox_authority_snapshot(db, recipient, &candidate.row.session_path)?;
         if !runtime_mailbox_authority_snapshots_equal(&candidate.authority, &current_authority) {
