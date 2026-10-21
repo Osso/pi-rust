@@ -23,6 +23,13 @@ fn normalize(value: f64) -> Value {
 fn number_argument(value: f64) -> String {
     if value == 0.0 && value.is_sign_negative() {
         "-0".to_owned()
+    } else if value.is_infinite() {
+        if value.is_sign_positive() {
+            "Infinity"
+        } else {
+            "-Infinity"
+        }
+        .to_owned()
     } else {
         value.to_string()
     }
@@ -47,6 +54,8 @@ fn matches_frozen_retry_delay_for_caps_jitter_rounding_and_number_edges() {
         [1.0, 5.0, 100.0, f64::INFINITY],
         [1.0, 5.0, 100.0, f64::NEG_INFINITY],
         [1.0, 5.0, -0.0, 0.5],
+        [1.0, 5.0, -0.0, -3.0],
+        [1.0, 5.0, -0.0, -2.25],
     ]);
     let mut source = oracle::TsOracle::spawn("retry-delay-oracle.ts", "packages/coding-agent/src/core/retry-delay.ts");
     let response = source.request(&json!({
