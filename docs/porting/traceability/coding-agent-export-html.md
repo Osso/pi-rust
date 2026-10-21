@@ -76,3 +76,5 @@ TypeScript object is likewise single-threaded. `ToolRenderContext.args` is
 Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).
 
 Frozen storage edge: `repin_session_storage::export_uses_read_only_stale_archive_and_legacy_source` covers archive/stale export and legacy source immutability; initial RED File not found on stale path.
+
+Bounded merged evidence and unresolved consumer/classification limits: [session storage integration](session-storage-integration.md). No fresh gate or whole-module promotion.

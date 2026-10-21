@@ -10,3 +10,5 @@ Frozen `4f9e6f8a4`, `core/resident-session.ts:8-14`.
 | Preparation, live-listener lookup, stale file/metadata cleanup | Pending lifecycle owner; no whole-module promotion |
 
 Source-backed RED at12b382a9 before production; focused GREEN4fdf1250. Manager excludes resident sessions in metadata results and filesystem discovery, including no-control-DB calls. No lifecycle behavior added.
+
+Bounded merged evidence and unresolved consumer/classification limits: [session storage integration](session-storage-integration.md). No fresh gate or whole-module promotion.

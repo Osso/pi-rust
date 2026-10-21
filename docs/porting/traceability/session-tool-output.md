@@ -35,3 +35,5 @@ None observed. File traversal order differs but is not observable in the report.
 ## JS-value boundary regression (2026-10-20)
 
 Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).
+
+Bounded merged evidence and unresolved consumer/classification limits: [session storage integration](session-storage-integration.md). No fresh gate or whole-module promotion.
