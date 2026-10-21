@@ -21,7 +21,7 @@ Provenance: `/tmp/pi-rust-repin-session-storage/REPORT.md` and `ledger.md`. Inhe
 | Boundary | Status |
 |---|---|
 | Public truncated-zstd stream | Frozen source emits unhandled `ZstdDecompress` `Z_BUF_ERROR` and exits; classification unresolved. Rust IO error is not an approved semantic deviation. |
-| Resident preparation/live cleanup; archive CLI, idle, deletion and mutable restore callers | OPEN; storage and predicate proofs do not prove these consumers. |
+| Resident preparation/live cleanup; archive CLI, idle, deletion and mutable restore callers | Bundled archive/delete consumers now have [bounded proof](../session-archive-history-proof.md). Resident preparation, idle/archive CLI and mutable restore callers remain OPEN. |
 | Durable mailbox acceptance | OPEN: serialized markers, append, persist and fsync do not prove runtime claim/CAS/duplicate-suppression wiring. |
 | Packaged SDK/release worker layout | OPEN; private package test layout is not distribution proof. |
 | Whole-module/final gate | OPEN; focused tests and targeted clippy passed, but no broad or final acceptance. Manual readability findings remain; numerical metrics unavailable. |
