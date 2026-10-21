@@ -962,11 +962,10 @@ async fn binds_extension_relocation_handlers_on_the_session() {
 }
 
 #[tokio::test]
-async fn runtime_mailbox_delivery_prompts_the_session_and_marks_the_message_delivered() {
+async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_row() {
     use pi_coding_agent::core::session_control_db::{
         EnqueueStoredRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind,
-        RuntimeMailboxMessageStatus, RuntimeMailboxStoreRef, enqueue_stored_runtime_mailbox_message,
-        list_runtime_mailbox_messages,
+        RuntimeMailboxStoreRef, enqueue_stored_runtime_mailbox_message, list_runtime_mailbox_messages,
     };
 
     let fixture = fixture_with_multi_agent(
@@ -1000,6 +999,7 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_marks_the_message_deli
             },
             kind: RuntimeMailboxMessageKind::Message,
             store_ref,
+            recipient_host: None,
             message: json!({
                 "id": "mailbox-1",
                 "fromAgentId": "parent",
@@ -1052,8 +1052,7 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_marks_the_message_deli
     assert!(user_text.contains("hello from parent"), "{user_text}");
 
     let rows = list_runtime_mailbox_messages(&control_db_path).expect("mailbox rows");
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].status, RuntimeMailboxMessageStatus::Delivered);
+    assert!(rows.is_empty(), "accepted mailbox row must be removed: {rows:?}");
 }
 
 #[tokio::test]
