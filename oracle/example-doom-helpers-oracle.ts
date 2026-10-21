@@ -113,7 +113,7 @@ async function run(r: any) {
  const calls:any[]=[];
  const bundled=join(r.bundled,"doom1.wad");
  const exports=evaluate(sourcePath,{sourceUrl:pathToFileURL(join(r.bundled,"wad-finder.ts")).href,
-  process:{cwd:()=>r.cwd,env:{HOME:r.home ?? ""}}}, {
+  process:{cwd:()=>r.cwd,env:r.home === undefined ? {} : {HOME:r.home}}}, {
   fetch:async (address:string)=>{
    calls.push(["GET",address]);
    if(r.fail)throw new Error("fixture network failed");
@@ -121,10 +121,11 @@ async function run(r: any) {
   }
  });
  if(r.kind === "wad-find") return exports.findWadFile(r.custom ?? undefined);
- const before=existsSync(bundled)?readFileSync(bundled):null;
+ const existed=existsSync(bundled);
+ const before=existed && fs.statSync(bundled).isFile()?readFileSync(bundled):null;
  const result=await exports.ensureWadFile();
- const bytes=existsSync(bundled)?[...readFileSync(bundled)]:null;
- if(before)writeFileSync(bundled,before);else if(existsSync(bundled))unlinkSync(bundled);
+ const bytes=existsSync(bundled) && fs.statSync(bundled).isFile()?[...readFileSync(bundled)]:null;
+ if(before)writeFileSync(bundled,before);else if(!existed && existsSync(bundled))unlinkSync(bundled);
  return {path:result,calls,bytes};
 }
 async function main() {
