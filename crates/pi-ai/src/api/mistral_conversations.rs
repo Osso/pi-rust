@@ -1042,7 +1042,7 @@ fn finish_current_block(output: &AssistantMessage, sender: &AssistantMessageEven
         CurrentBlock::Thinking => {
             let content = match output.content.get(index) {
                 Some(AssistantContent::Thinking(thinking)) => thinking.thinking.clone(),
-                _ => String::new(),
+                _ => String::new().into(),
             };
             sender.push(AssistantMessageEvent::ThinkingEnd {
                 content_index: index,
@@ -1168,7 +1168,7 @@ fn append_thinking_delta(
     }
     sender.push(AssistantMessageEvent::ThinkingDelta {
         content_index: index,
-        delta: thinking_delta,
+        delta: thinking_delta.into(),
         partial: output.clone(),
     });
 }

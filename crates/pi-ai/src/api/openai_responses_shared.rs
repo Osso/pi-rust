@@ -1322,7 +1322,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 }
                 sender.push(AssistantMessageEvent::ThinkingDelta {
                     content_index,
-                    delta: delta.to_owned(),
+                    delta: delta.to_owned().into(),
                     partial: output.clone(),
                 });
             }
@@ -1335,7 +1335,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 }
                 sender.push(AssistantMessageEvent::ThinkingDelta {
                     content_index,
-                    delta: "\n\n".to_owned(),
+                    delta: "\n\n".to_owned().into(),
                     partial: output.clone(),
                 });
             }
@@ -1487,9 +1487,9 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         if let AssistantContent::Thinking(block) = &mut output.content[content_index] {
                             let existing = block.thinking.clone();
                             block.thinking = if !summary_text.is_empty() {
-                                summary_text
+                                summary_text.into()
                             } else if !content_text.is_empty() {
-                                content_text
+                                content_text.into()
                             } else {
                                 existing
                             };
@@ -1500,7 +1500,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         }
                         let content = match &output.content[content_index] {
                             AssistantContent::Thinking(block) => block.thinking.clone(),
-                            _ => String::new(),
+                            _ => String::new().into(),
                         };
                         sender.push(AssistantMessageEvent::ThinkingEnd {
                             content_index,

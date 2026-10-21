@@ -668,7 +668,7 @@ fn non_blank_text_block(text: impl Into<JsString>) -> Option<Value> {
     }
 }
 
-fn required_text_block(text: &str) -> Value {
+fn required_text_block(text: impl Into<JsString>) -> Value {
     non_blank_text_block(text).unwrap_or_else(placeholder_text_block)
 }
 
@@ -1142,7 +1142,7 @@ fn handle_content_block_delta(
                 blocks.push(BlockState {
                     content: AssistantContent::Thinking(ThinkingContent {
                         r#type: crate::types::ThinkingTag::Tag,
-                        thinking: String::new(),
+                        thinking: String::new().into(),
                         thinking_signature: Some(String::new()),
                         redacted: None,
                         index: None,
@@ -1184,7 +1184,7 @@ fn handle_content_block_delta(
         if let Some(text) = text {
             sender.push(AssistantMessageEvent::ThinkingDelta {
                 content_index: index,
-                delta: text,
+                delta: text.into(),
                 partial: output.clone(),
             });
         }

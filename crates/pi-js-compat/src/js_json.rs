@@ -378,6 +378,32 @@ pub fn to_value<T: serde::Serialize + ?Sized>(value: &T) -> Result<JsValue, serd
     parse_lossless(&json).map_err(<serde_json::Error as serde::de::Error>::custom)
 }
 
+impl std::ops::Index<&str> for JsValue {
+    type Output = JsValue;
+    fn index(&self, key: &str) -> &JsValue {
+        self.get(key).unwrap_or(&JsValue::Null)
+    }
+}
+impl std::ops::Index<usize> for JsValue {
+    type Output = JsValue;
+    fn index(&self, key: usize) -> &JsValue {
+        self.as_array()
+            .and_then(|items| items.get(key))
+            .unwrap_or(&JsValue::Null)
+    }
+}
+impl std::ops::IndexMut<&str> for JsValue {
+    fn index_mut(&mut self, key: &str) -> &mut JsValue {
+        if self.is_null() {
+            *self = Self::Object(JsObject::new());
+        }
+        self.as_object_mut()
+            .expect("JSON indexing requires an object")
+            .entry(key.into())
+            .or_default()
+    }
+}
+
 /// JavaScript Boolean conversion at a lossless JSON boundary.
 pub fn is_truthy(value: &JsValue) -> bool {
     match value {

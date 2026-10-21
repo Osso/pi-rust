@@ -26,6 +26,7 @@ pub struct ContextUsageEstimate {
 /// `string | (TextContent | ImageContent)[]` content of user and tool-result messages.
 pub enum TextOrImageInput<'a> {
     String(&'a str),
+    Utf16(&'a pi_js_compat::js_json::JsString),
     Blocks(&'a [TextOrImageContent]),
 }
 
@@ -47,6 +48,7 @@ pub fn estimate_text_tokens(text: &str) -> f64 {
 pub fn estimate_text_and_image_content_tokens(content: TextOrImageInput<'_>) -> f64 {
     let chars = match content {
         TextOrImageInput::String(text) => js_len(text),
+        TextOrImageInput::Utf16(text) => text.len(),
         TextOrImageInput::Blocks(blocks) => blocks
             .iter()
             .map(|block| match block {
@@ -64,7 +66,7 @@ pub fn estimate_assistant_message_tokens(message: &AssistantMessage) -> f64 {
         .iter()
         .map(|block| match block {
             AssistantContent::Text(text) => text.text.len(),
-            AssistantContent::Thinking(thinking) => js_len(&thinking.thinking),
+            AssistantContent::Thinking(thinking) => thinking.thinking.len(),
             AssistantContent::ToolCall(call) => js_len(&call.name) + js_len(&safe_json_stringify(&call.arguments)),
         })
         .sum();
@@ -74,7 +76,7 @@ pub fn estimate_assistant_message_tokens(message: &AssistantMessage) -> f64 {
 pub fn estimate_message_tokens(message: &Message) -> f64 {
     match message {
         Message::User(user) => estimate_text_and_image_content_tokens(match &user.content {
-            UserContent::Text(text) => TextOrImageInput::String(text),
+            UserContent::Text(text) => TextOrImageInput::Utf16(text),
             UserContent::Blocks(blocks) => TextOrImageInput::Blocks(blocks),
         }),
         Message::ToolResult(result) => {

@@ -24,3 +24,5 @@ Artifacts under `/tmp/pi-rust-repin-lossless-content/`:
 - `content-provider-diff-green.log`: two sandbox differentials pass, including actual pi-messages HTTP body capture and callback replacement.
 
 Checkpoint proof is bounded. It does not establish workspace compilation, unchanged provider test fixtures, all-source parity, or JSONL integration.
+
+User/thinking checkpoint: `UserContent::Text`, `ThinkingContent.thinking`, thinking delta/end events use JsString. OpenAI Completions conversion/cache/request builders now use JsValue, preserving the source-unsanitized reasoning-signature field. `user-thinking-red.log` reproduces rejection of a user lone surrogate; `user-thinking-green-2.log`: four pi-ai sandbox tests PASS, including captured OpenAI HTTP reasoning escapes. Initial thinking-only HTTP fixture was dropped by the existing no-visible-content rule; adding visible text reproduces the actual source boundary. Custom text, argument API and downstream consumers remain pending.

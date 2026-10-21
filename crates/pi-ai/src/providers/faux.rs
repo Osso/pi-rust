@@ -107,7 +107,7 @@ pub fn faux_text(text: impl Into<JsString>) -> AssistantContent {
     AssistantContent::Text(TextContent::new(text))
 }
 
-pub fn faux_thinking(thinking: impl Into<String>) -> AssistantContent {
+pub fn faux_thinking(thinking: impl Into<JsString>) -> AssistantContent {
     AssistantContent::Thinking(ThinkingContent::new(thinking))
 }
 
@@ -883,7 +883,7 @@ async fn stream_with_deltas(
                     content_index: index,
                     partial: partial.clone(),
                 });
-                for chunk in split_string_by_token_size(&block.thinking, min_token_size, max_token_size) {
+                for chunk in split_text_by_token_size(&block.thinking, min_token_size, max_token_size) {
                     schedule_chunk(&chunk, tokens_per_second).await;
                     if signal.is_some_and(CancellationToken::is_cancelled) {
                         let aborted = create_aborted_message(&partial);
@@ -897,7 +897,7 @@ async fn stream_with_deltas(
                     append_thinking(&mut partial, index, &chunk);
                     sender.push(AssistantMessageEvent::ThinkingDelta {
                         content_index: index,
-                        delta: chunk,
+                        delta: chunk.into(),
                         partial: partial.clone(),
                     });
                 }
@@ -1028,7 +1028,7 @@ fn append_text(partial: &mut AssistantMessage, index: usize, chunk: &JsString) {
     }
 }
 
-fn append_thinking(partial: &mut AssistantMessage, index: usize, chunk: &str) {
+fn append_thinking(partial: &mut AssistantMessage, index: usize, chunk: &JsString) {
     if let Some(AssistantContent::Thinking(block)) = partial.content.get_mut(index) {
         block.thinking.push_str(chunk);
     }

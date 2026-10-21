@@ -328,7 +328,7 @@ impl TextContent {
 #[serde(rename_all = "camelCase")]
 pub struct ThinkingContent {
     pub r#type: ThinkingTag,
-    pub thinking: String,
+    pub thinking: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_signature: Option<String>,
     /// The thinking was redacted; the opaque payload is in `thinking_signature`.
@@ -343,7 +343,7 @@ pub struct ThinkingContent {
 }
 
 impl ThinkingContent {
-    pub fn new(thinking: impl Into<String>) -> Self {
+    pub fn new(thinking: impl Into<JsString>) -> Self {
         Self {
             r#type: ThinkingTag::Tag,
             thinking: thinking.into(),
@@ -584,7 +584,7 @@ pub enum InputSource {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum UserContent {
-    Text(String),
+    Text(JsString),
     Blocks(Vec<UserContentBlock>),
 }
 
@@ -883,13 +883,13 @@ pub enum AssistantMessageEvent {
     ThinkingDelta {
         #[serde(rename = "contentIndex")]
         content_index: usize,
-        delta: String,
+        delta: JsString,
         partial: AssistantMessage,
     },
     ThinkingEnd {
         #[serde(rename = "contentIndex")]
         content_index: usize,
-        content: String,
+        content: JsString,
         partial: AssistantMessage,
     },
     #[serde(rename = "toolcall_start")]

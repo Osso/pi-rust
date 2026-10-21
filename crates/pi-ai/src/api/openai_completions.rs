@@ -1,6 +1,6 @@
 //! Port of `packages/ai/src/api/openai-completions.ts` (+ `.lazy.ts`).
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsObject, JsValue};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -394,12 +394,16 @@ fn sanitize_id_part(part: &str) -> String {
         .collect()
 }
 
+fn lossless_object(entries: Vec<(&str, JsValue)>) -> JsValue {
+    JsValue::object(entries)
+}
+
 pub fn convert_messages(
     model: &Model,
     context: &Context,
     compat: &ResolvedOpenAICompletionsCompat,
     options: Option<&ConvertCompletionsMessagesOptions>,
-) -> Vec<Value> {
+) -> Vec<JsValue> {
     let empty_options = ConvertCompletionsMessagesOptions::default();
     let options = options.unwrap_or(&empty_options);
     let mut params = Vec::new();
@@ -415,9 +419,9 @@ pub fn convert_messages(
         } else {
             "system"
         };
-        params.push(json_object(vec![
-            ("role", Value::String(role.to_owned())),
-            ("content", Value::String(sanitize_surrogates(system_prompt).to_owned())),
+        params.push(lossless_object(vec![
+            ("role", JsValue::String(role.into())),
+            ("content", JsValue::String(sanitize_surrogates(system_prompt).into())),
         ]));
     }
 
@@ -429,12 +433,9 @@ pub fn convert_messages(
             && last_role.as_deref() == Some("toolResult")
             && matches!(msg, Message::User(_))
         {
-            params.push(json_object(vec![
-                ("role", Value::String("assistant".to_owned())),
-                (
-                    "content",
-                    Value::String("I have processed the tool results.".to_owned()),
-                ),
+            params.push(lossless_object(vec![
+                ("role", JsValue::String("assistant".into())),
+                ("content", JsValue::String("I have processed the tool results.".into())),
             ]));
         }
 
@@ -442,26 +443,28 @@ pub fn convert_messages(
             Message::User(user) => {
                 match &user.content {
                     crate::types::UserContent::Text(text) => {
-                        params.push(json_object(vec![
-                            ("role", Value::String("user".to_owned())),
-                            ("content", Value::String(sanitize_surrogates(text).to_owned())),
+                        params.push(lossless_object(vec![
+                            ("role", JsValue::String("user".into())),
+                            ("content", JsValue::String(sanitize_surrogates(text).into())),
                         ]));
                     }
                     crate::types::UserContent::Blocks(blocks) => {
                         let content = blocks
                             .iter()
                             .map(|block| match block {
-                                crate::types::TextOrImageContent::Text(text) => json_object(vec![
-                                    ("type", Value::String("text".to_owned())),
-                                    ("text", Value::String(sanitize_surrogates(&text.text).to_owned())),
+                                crate::types::TextOrImageContent::Text(text) => lossless_object(vec![
+                                    ("type", JsValue::String("text".into())),
+                                    ("text", JsValue::String(sanitize_surrogates(&text.text).into())),
                                 ]),
-                                crate::types::TextOrImageContent::Image(image) => json_object(vec![
-                                    ("type", Value::String("image_url".to_owned())),
+                                crate::types::TextOrImageContent::Image(image) => lossless_object(vec![
+                                    ("type", JsValue::String("image_url".into())),
                                     (
                                         "image_url",
-                                        json_object(vec![(
+                                        lossless_object(vec![(
                                             "url",
-                                            Value::String(format!("data:{};base64,{}", image.mime_type, image.data)),
+                                            JsValue::String(
+                                                format!("data:{};base64,{}", image.mime_type, image.data).into(),
+                                            ),
                                         )]),
                                     ),
                                 ]),
@@ -471,24 +474,24 @@ pub fn convert_messages(
                             index += 1;
                             continue;
                         }
-                        params.push(json_object(vec![
-                            ("role", Value::String("user".to_owned())),
-                            ("content", Value::Array(content)),
+                        params.push(lossless_object(vec![
+                            ("role", JsValue::String("user".into())),
+                            ("content", JsValue::Array(content)),
                         ]));
                     }
                 }
-                last_role = Some("user".to_owned());
+                last_role = Some("user".into());
             }
             Message::Assistant(assistant) => {
                 let assistant = assistant.as_ref();
-                let mut assistant_message = Map::new();
-                assistant_message.insert("role".to_owned(), Value::String("assistant".to_owned()));
+                let mut assistant_message = JsObject::new();
+                assistant_message.insert("role".into(), JsValue::String("assistant".into()));
                 assistant_message.insert(
-                    "content".to_owned(),
+                    "content".into(),
                     if compat.requires_assistant_after_tool_result {
-                        Value::String(String::new())
+                        JsValue::String(String::new().into())
                     } else {
-                        Value::Null
+                        JsValue::Null
                     },
                 );
 
@@ -496,17 +499,19 @@ pub fn convert_messages(
                     .content
                     .iter()
                     .filter_map(|block| match block {
-                        AssistantContent::Text(text) if !text.text.trim().is_empty() => Some(json_object(vec![
-                            ("type", Value::String("text".to_owned())),
-                            ("text", Value::String(sanitize_surrogates(&text.text).to_owned())),
+                        AssistantContent::Text(text) if !text.text.trim().is_empty() => Some(lossless_object(vec![
+                            ("type", JsValue::String("text".into())),
+                            ("text", JsValue::String(sanitize_surrogates(&text.text).into())),
                         ])),
                         _ => None,
                     })
                     .collect::<Vec<_>>();
-                let assistant_text = assistant_text_parts
-                    .iter()
-                    .map(|part| part["text"].as_str().unwrap_or(""))
-                    .collect::<String>();
+                let assistant_text = pi_js_compat::js_json::JsString::join(
+                    assistant_text_parts
+                        .iter()
+                        .filter_map(|part| part.get("text").and_then(JsValue::as_string)),
+                    "",
+                );
 
                 let non_empty_thinking = assistant
                     .content
@@ -520,40 +525,37 @@ pub fn convert_messages(
                     if compat.requires_thinking_as_text {
                         let thinking_text = non_empty_thinking
                             .iter()
-                            .map(|block| sanitize_surrogates(&block.thinking).to_owned())
+                            .map(|block| sanitize_surrogates(&block.thinking))
                             .collect::<Vec<_>>()
                             .join("\n\n");
-                        let mut content = vec![json_object(vec![
-                            ("type", Value::String("text".to_owned())),
-                            ("text", Value::String(thinking_text)),
+                        let mut content = vec![lossless_object(vec![
+                            ("type", JsValue::String("text".into())),
+                            ("text", JsValue::String(thinking_text.into())),
                         ])];
                         content.extend(assistant_text_parts.iter().cloned());
-                        assistant_message.insert("content".to_owned(), Value::Array(content));
+                        assistant_message.insert("content".into(), JsValue::Array(content));
                     } else {
                         if !assistant_text.is_empty() {
-                            assistant_message.insert("content".to_owned(), Value::String(assistant_text));
+                            assistant_message.insert("content".into(), JsValue::String(assistant_text));
                         }
                         let mut signature = non_empty_thinking
                             .first()
                             .and_then(|block| block.thinking_signature.clone());
                         if model.provider == "opencode-go" && signature.as_deref() == Some("reasoning") {
-                            signature = Some("reasoning_content".to_owned());
+                            signature = Some("reasoning_content".into());
                         }
                         if let Some(signature) = signature.filter(|signature| !signature.is_empty()) {
                             assistant_message.insert(
-                                signature,
-                                Value::String(
-                                    non_empty_thinking
-                                        .iter()
-                                        .map(|block| block.thinking.as_str())
-                                        .collect::<Vec<_>>()
-                                        .join("\n"),
-                                ),
+                                signature.into(),
+                                JsValue::String(pi_js_compat::js_json::JsString::join(
+                                    non_empty_thinking.iter().map(|block| &block.thinking),
+                                    "\n",
+                                )),
                             );
                         }
                     }
                 } else if !assistant_text.is_empty() {
-                    assistant_message.insert("content".to_owned(), Value::String(assistant_text));
+                    assistant_message.insert("content".into(), JsValue::String(assistant_text));
                 }
 
                 let tool_calls = assistant
@@ -573,31 +575,31 @@ pub fn convert_messages(
                             .and_then(|properties| properties.get(&tool_call.name));
                         if let Some(property) = custom_input_property {
                             let input = get_grammar_tool_input(&tool_call.name, &tool_call.arguments, property)
-                                .map(|input| sanitize_surrogates(&input).to_owned())
+                                .map(|input| sanitize_surrogates(&input).into())
                                 .unwrap_or_default();
-                            serialized_calls.push(json_object(vec![
-                                ("id", Value::String(tool_call.id.clone())),
-                                ("type", Value::String("custom".to_owned())),
+                            serialized_calls.push(lossless_object(vec![
+                                ("id", JsValue::String(tool_call.id.clone().into())),
+                                ("type", JsValue::String("custom".into())),
                                 (
                                     "custom",
-                                    json_object(vec![
-                                        ("name", Value::String(tool_call.name.clone())),
-                                        ("input", Value::String(input)),
+                                    lossless_object(vec![
+                                        ("name", JsValue::String(tool_call.name.clone().into())),
+                                        ("input", JsValue::String(input)),
                                     ]),
                                 ),
                             ]));
                         } else {
-                            serialized_calls.push(json_object(vec![
-                                ("id", Value::String(tool_call.id.clone())),
-                                ("type", Value::String("function".to_owned())),
+                            serialized_calls.push(lossless_object(vec![
+                                ("id", JsValue::String(tool_call.id.clone().into())),
+                                ("type", JsValue::String("function".into())),
                                 (
                                     "function",
-                                    json_object(vec![
-                                        ("name", Value::String(tool_call.name.clone())),
+                                    lossless_object(vec![
+                                        ("name", JsValue::String(tool_call.name.clone().into())),
                                         (
                                             "arguments",
-                                            Value::String(
-                                                serde_json::to_string(&tool_call.arguments).unwrap_or_default(),
+                                            JsValue::String(
+                                                serde_json::to_string(&tool_call.arguments).unwrap_or_default().into(),
                                             ),
                                         ),
                                     ]),
@@ -605,36 +607,36 @@ pub fn convert_messages(
                             ]));
                         }
                     }
-                    assistant_message.insert("tool_calls".to_owned(), Value::Array(serialized_calls));
+                    assistant_message.insert("tool_calls".into(), JsValue::Array(serialized_calls));
 
                     let reasoning_details = tool_calls
                         .iter()
                         .filter_map(|tool_call| tool_call.thought_signature.as_deref())
-                        .filter_map(|signature| serde_json::from_str::<Value>(signature).ok())
-                        .filter(is_truthy_value)
+                        .filter_map(|signature| serde_json::from_str::<JsValue>(signature).ok())
+                        .filter(pi_js_compat::js_json::is_truthy)
                         .collect::<Vec<_>>();
                     if !reasoning_details.is_empty() {
-                        assistant_message.insert("reasoning_details".to_owned(), Value::Array(reasoning_details));
+                        assistant_message.insert("reasoning_details".into(), JsValue::Array(reasoning_details));
                     }
                 }
                 if compat.requires_reasoning_content_on_assistant_messages
                     && model.reasoning
                     && !assistant_message.contains_key("reasoning_content")
                 {
-                    assistant_message.insert("reasoning_content".to_owned(), Value::String(String::new()));
+                    assistant_message.insert("reasoning_content".into(), JsValue::String(String::new().into()));
                 }
 
                 let has_content = match assistant_message.get("content") {
-                    Some(Value::String(content)) => !content.is_empty(),
-                    Some(Value::Array(content)) => !content.is_empty(),
+                    Some(JsValue::String(content)) => !content.is_empty(),
+                    Some(JsValue::Array(content)) => !content.is_empty(),
                     _ => false,
                 };
                 if !has_content && !assistant_message.contains_key("tool_calls") {
                     index += 1;
                     continue;
                 }
-                params.push(Value::Object(assistant_message));
-                last_role = Some("assistant".to_owned());
+                params.push(JsValue::Object(assistant_message));
+                last_role = Some("assistant".into());
             }
             Message::ToolResult(_) => {
                 let mut image_blocks = Vec::new();
@@ -662,24 +664,24 @@ pub fn convert_messages(
                     let tool_result_text = if has_text {
                         text_result
                     } else if has_images {
-                        "(see attached image)".to_owned()
+                        "(see attached image)".into()
                     } else {
-                        "(no tool output)".to_owned()
+                        "(no tool output)".into()
                     };
-                    let mut tool_message = Map::new();
-                    tool_message.insert("role".to_owned(), Value::String("tool".to_owned()));
+                    let mut tool_message = JsObject::new();
+                    tool_message.insert("role".into(), JsValue::String("tool".into()));
                     tool_message.insert(
-                        "content".to_owned(),
-                        Value::String(sanitize_surrogates(&tool_result_text).to_owned()),
+                        "content".into(),
+                        JsValue::String(sanitize_surrogates(&tool_result_text).into()),
                     );
                     tool_message.insert(
-                        "tool_call_id".to_owned(),
-                        Value::String(tool_result.tool_call_id.clone()),
+                        "tool_call_id".into(),
+                        JsValue::String(tool_result.tool_call_id.clone().into()),
                     );
                     if compat.requires_tool_result_name && !tool_result.tool_name.is_empty() {
-                        tool_message.insert("name".to_owned(), Value::String(tool_result.tool_name.clone()));
+                        tool_message.insert("name".into(), JsValue::String(tool_result.tool_name.clone().into()));
                     }
-                    params.push(Value::Object(tool_message));
+                    params.push(JsValue::Object(tool_message));
 
                     if compat.deferred_tools_mode == Some(crate::types::DeferredToolsMode::Kimi) {
                         for name in tool_result.added_tool_names.iter().flatten() {
@@ -693,13 +695,13 @@ pub fn convert_messages(
                         for block in &tool_result.content {
                             if let crate::types::TextOrImageContent::Image(ImageContent { data, mime_type, .. }) = block
                             {
-                                image_blocks.push(json_object(vec![
-                                    ("type", Value::String("image_url".to_owned())),
+                                image_blocks.push(lossless_object(vec![
+                                    ("type", JsValue::String("image_url".into())),
                                     (
                                         "image_url",
-                                        json_object(vec![(
+                                        lossless_object(vec![(
                                             "url",
-                                            Value::String(format!("data:{mime_type};base64,{data}")),
+                                            JsValue::String(format!("data:{mime_type};base64,{data}").into()),
                                         )]),
                                     ),
                                 ]));
@@ -712,34 +714,31 @@ pub fn convert_messages(
 
                 if !image_blocks.is_empty() {
                     if compat.requires_assistant_after_tool_result {
-                        params.push(json_object(vec![
-                            ("role", Value::String("assistant".to_owned())),
-                            (
-                                "content",
-                                Value::String("I have processed the tool results.".to_owned()),
-                            ),
+                        params.push(lossless_object(vec![
+                            ("role", JsValue::String("assistant".into())),
+                            ("content", JsValue::String("I have processed the tool results.".into())),
                         ]));
                     }
-                    let mut content = vec![json_object(vec![
-                        ("type", Value::String("text".to_owned())),
-                        ("text", Value::String("Attached image(s) from tool result:".to_owned())),
+                    let mut content = vec![lossless_object(vec![
+                        ("type", JsValue::String("text".into())),
+                        ("text", JsValue::String("Attached image(s) from tool result:".into())),
                     ])];
                     content.extend(image_blocks);
-                    params.push(json_object(vec![
-                        ("role", Value::String("user".to_owned())),
-                        ("content", Value::Array(content)),
+                    params.push(lossless_object(vec![
+                        ("role", JsValue::String("user".into())),
+                        ("content", JsValue::Array(content)),
                     ]));
-                    last_role = Some("user".to_owned());
+                    last_role = Some("user".into());
                 } else {
-                    last_role = Some("toolResult".to_owned());
+                    last_role = Some("toolResult".into());
                 }
 
                 if !deferred_tool_names.is_empty() {
                     let deferred_tools = get_tools_by_name(context.tools.as_deref(), &deferred_tool_names);
                     if !deferred_tools.is_empty() {
-                        params.push(json_object(vec![
-                            ("role", Value::String("system".to_owned())),
-                            ("tools", convert_tools(&deferred_tools, compat)),
+                        params.push(lossless_object(vec![
+                            ("role", JsValue::String("system".into())),
+                            ("tools", convert_tools(&deferred_tools, compat).into()),
                         ]));
                     }
                 }
@@ -750,16 +749,6 @@ pub fn convert_messages(
         index += 1;
     }
     params
-}
-
-fn is_truthy_value(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(number) => number.as_f64().is_some_and(|value| value != 0.0),
-        Value::String(text) => !text.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
-    }
 }
 
 fn convert_tools(tools: &[Tool], compat: &ResolvedOpenAICompletionsCompat) -> Value {
@@ -843,53 +832,58 @@ fn get_compat_cache_control(
     Some(CacheControl { ttl })
 }
 
-fn apply_anthropic_cache_control(messages: &mut [Value], tools: &mut Option<Value>, cache_control: &CacheControl) {
+fn apply_anthropic_cache_control(messages: &mut [JsValue], tools: &mut Option<JsValue>, cache_control: &CacheControl) {
     for message in messages.iter_mut() {
-        if matches!(
-            message.get("role").and_then(Value::as_str),
-            Some("system" | "developer")
-        ) {
+        if message
+            .get("role")
+            .and_then(JsValue::as_string)
+            .is_some_and(|role| role == "system" || role == "developer")
+        {
             add_cache_control_to_text_content(message, cache_control);
             break;
         }
     }
-    if let Some(Value::Array(tools)) = tools
+    if let Some(JsValue::Array(tools)) = tools
         && let Some(last) = tools.last_mut()
-        && let Value::Object(tool) = last
+        && let JsValue::Object(tool) = last
     {
-        tool.insert("cache_control".to_owned(), cache_control.to_value());
+        tool.insert("cache_control".into(), cache_control.to_value().into());
     }
     for message in messages.iter_mut().rev() {
-        if matches!(
-            message.get("role").and_then(Value::as_str),
-            Some("user" | "assistant" | "tool")
-        ) && add_cache_control_to_text_content(message, cache_control)
+        if message
+            .get("role")
+            .and_then(JsValue::as_string)
+            .is_some_and(|role| role == "user" || role == "assistant" || role == "tool")
+            && add_cache_control_to_text_content(message, cache_control)
         {
             break;
         }
     }
 }
 
-fn add_cache_control_to_text_content(message: &mut Value, cache_control: &CacheControl) -> bool {
-    let Value::Object(message) = message else {
+fn add_cache_control_to_text_content(message: &mut JsValue, cache_control: &CacheControl) -> bool {
+    let JsValue::Object(message) = message else {
         return false;
     };
     match message.get_mut("content") {
-        Some(Value::String(content)) if !content.is_empty() => {
+        Some(JsValue::String(content)) if !content.is_empty() => {
             let text = std::mem::take(content);
-            *message.get_mut("content").expect("content") = Value::Array(vec![json_object(vec![
-                ("type", Value::String("text".to_owned())),
-                ("text", Value::String(text)),
-                ("cache_control", cache_control.to_value()),
+            *message.get_mut("content").expect("content") = JsValue::Array(vec![lossless_object(vec![
+                ("type", JsValue::String("text".into())),
+                ("text", JsValue::String(text)),
+                ("cache_control", cache_control.to_value().into()),
             ])]);
             true
         }
-        Some(Value::Array(parts)) => {
+        Some(JsValue::Array(parts)) => {
             for part in parts.iter_mut().rev() {
-                if part.get("type").and_then(Value::as_str) == Some("text")
-                    && let Value::Object(part) = part
+                if part
+                    .get("type")
+                    .and_then(JsValue::as_string)
+                    .is_some_and(|kind| kind == "text")
+                    && let JsValue::Object(part) = part
                 {
-                    part.insert("cache_control".to_owned(), cache_control.to_value());
+                    part.insert("cache_control".into(), cache_control.to_value().into());
                     return true;
                 }
             }
@@ -934,7 +928,7 @@ fn nullish_effort(model: &Model, effort: &str) -> String {
 }
 
 fn insert_nullish_reasoning_effort(
-    params: &mut Map<String, Value>,
+    params: &mut JsObject,
     model: &Model,
     effort: Option<&str>,
     supports_reasoning_effort: bool,
@@ -943,8 +937,8 @@ fn insert_nullish_reasoning_effort(
         && supports_reasoning_effort
     {
         params.insert(
-            "reasoning_effort".to_owned(),
-            Value::String(nullish_effort(model, effort)),
+            "reasoning_effort".into(),
+            JsValue::String(nullish_effort(model, effort).into()),
         );
     }
 }
@@ -1009,7 +1003,7 @@ pub fn build_params(
     compat: &ResolvedOpenAICompletionsCompat,
     cache_retention: CacheRetention,
     grammar_tool_input_properties: &IndexMap<String, String>,
-) -> Value {
+) -> JsValue {
     let messages = convert_messages(
         model,
         context,
@@ -1020,37 +1014,37 @@ pub fn build_params(
     );
     let cache_control = get_compat_cache_control(compat, cache_retention);
 
-    let mut params = Map::new();
-    params.insert("model".to_owned(), Value::String(model.id.clone()));
-    params.insert("messages".to_owned(), Value::Array(messages.clone()));
-    params.insert("stream".to_owned(), Value::Bool(true));
+    let mut params = JsObject::new();
+    params.insert("model".into(), JsValue::String(model.id.clone().into()));
+    params.insert("messages".into(), JsValue::Array(messages.clone()));
+    params.insert("stream".into(), JsValue::Bool(true));
     if ((model.base_url.contains("api.openai.com") && cache_retention != CacheRetention::None)
         || (cache_retention == CacheRetention::Long && compat.supports_long_cache_retention))
         && let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_deref())
     {
-        params.insert("prompt_cache_key".to_owned(), Value::String(key.to_owned()));
+        params.insert("prompt_cache_key".into(), JsValue::String(key.into()));
     }
     if cache_retention == CacheRetention::Long && compat.supports_long_cache_retention {
-        params.insert("prompt_cache_retention".to_owned(), Value::String("24h".to_owned()));
+        params.insert("prompt_cache_retention".into(), JsValue::String("24h".into()));
     }
     if compat.supports_usage_in_streaming {
         params.insert(
-            "stream_options".to_owned(),
-            json_object(vec![("include_usage", Value::Bool(true))]),
+            "stream_options".into(),
+            lossless_object(vec![("include_usage", JsValue::Bool(true))]),
         );
     }
     if compat.supports_store {
-        params.insert("store".to_owned(), Value::Bool(false));
+        params.insert("store".into(), JsValue::Bool(false));
     }
     if let Some(max_tokens) = stream_options.max_tokens.filter(|max_tokens| *max_tokens != 0.0) {
         let field = match compat.max_tokens_field {
             MaxTokensField::MaxTokens => "max_tokens",
             MaxTokensField::MaxCompletionTokens => "max_completion_tokens",
         };
-        params.insert(field.to_owned(), js_number_value(max_tokens));
+        params.insert(field.into(), js_number_value(max_tokens).into());
     }
     if let Some(temperature) = stream_options.temperature {
-        params.insert("temperature".to_owned(), js_number_value(temperature));
+        params.insert("temperature".into(), js_number_value(temperature).into());
     }
 
     let deferred_tool_names = if compat.deferred_tools_mode == Some(crate::types::DeferredToolsMode::Kimi) {
@@ -1068,65 +1062,65 @@ pub fn build_params(
     });
     let mut tools_value = None;
     if let Some(active_tools) = active_tools.as_deref().filter(|tools| !tools.is_empty()) {
-        tools_value = Some(convert_tools(active_tools, compat));
+        tools_value = Some(JsValue::from(convert_tools(active_tools, compat)));
         if compat.zai_tool_stream {
-            params.insert("tool_stream".to_owned(), Value::Bool(true));
+            params.insert("tool_stream".into(), JsValue::Bool(true));
         }
     } else if has_tool_history(&context.messages) {
-        tools_value = Some(Value::Array(Vec::new()));
+        tools_value = Some(JsValue::Array(Vec::new()));
     }
     if let Some(tools) = &tools_value {
-        params.insert("tools".to_owned(), tools.clone());
+        params.insert("tools".into(), tools.clone().into());
     }
 
     if let Some(cache_control) = &cache_control {
         let mut cache_messages = messages;
         apply_anthropic_cache_control(&mut cache_messages, &mut tools_value, cache_control);
-        params.insert("messages".to_owned(), Value::Array(cache_messages));
+        params.insert("messages".into(), JsValue::Array(cache_messages));
         if let Some(tools) = tools_value {
-            params.insert("tools".to_owned(), tools);
+            params.insert("tools".into(), tools.into());
         }
     }
 
     if let Some(tool_choice) = &options.tool_choice {
-        params.insert("tool_choice".to_owned(), tool_choice.clone());
+        params.insert("tool_choice".into(), tool_choice.clone().into());
     }
 
     let effort = options.reasoning_effort.as_deref();
     if compat.thinking_format == ThinkingFormat::Zai && model.reasoning {
         let thinking = if effort.is_some() {
-            json_object(vec![
-                ("type", Value::String("enabled".to_owned())),
-                ("clear_thinking", Value::Bool(false)),
+            lossless_object(vec![
+                ("type", JsValue::String("enabled".into())),
+                ("clear_thinking", JsValue::Bool(false)),
             ])
         } else {
-            json_object(vec![("type", Value::String("disabled".to_owned()))])
+            lossless_object(vec![("type", JsValue::String("disabled".into()))])
         };
-        params.insert("thinking".to_owned(), thinking);
+        params.insert("thinking".into(), thinking);
         if let Some(effort) = effort
             && compat.supports_reasoning_effort
             && let Some(mapped) = strict_effort(model, effort)
         {
-            params.insert("reasoning_effort".to_owned(), Value::String(mapped));
+            params.insert("reasoning_effort".into(), JsValue::String(mapped.into()));
         }
     } else if compat.thinking_format == ThinkingFormat::Qwen && model.reasoning {
-        params.insert("enable_thinking".to_owned(), Value::Bool(effort.is_some()));
+        params.insert("enable_thinking".into(), JsValue::Bool(effort.is_some()));
         insert_nullish_reasoning_effort(&mut params, model, effort, compat.supports_reasoning_effort);
     } else if compat.thinking_format == ThinkingFormat::QwenChatTemplate && model.reasoning {
         params.insert(
-            "chat_template_kwargs".to_owned(),
-            json_object(vec![
-                ("enable_thinking", Value::Bool(effort.is_some())),
-                ("preserve_thinking", Value::Bool(true)),
+            "chat_template_kwargs".into(),
+            lossless_object(vec![
+                ("enable_thinking", JsValue::Bool(effort.is_some())),
+                ("preserve_thinking", JsValue::Bool(true)),
             ]),
         );
     } else if compat.thinking_format == ThinkingFormat::ChatTemplate && model.reasoning {
         if let Some(values) = build_chat_template_values(model, effort, &compat.chat_template_kwargs) {
-            params.insert("chat_template_kwargs".to_owned(), values);
+            params.insert("chat_template_kwargs".into(), values.into());
         }
     } else if compat.thinking_format == ThinkingFormat::Baseten && model.reasoning {
         if let Some(values) = build_chat_template_values(model, effort, &compat.chat_template_args) {
-            params.insert("chat_template_args".to_owned(), values);
+            params.insert("chat_template_args".into(), values.into());
         }
         if compat.supports_reasoning_effort {
             let mapped = match effort {
@@ -1134,34 +1128,34 @@ pub fn build_params(
                 None => off_value(model).flatten(),
             };
             if let Some(mapped) = mapped {
-                params.insert("reasoning_effort".to_owned(), Value::String(mapped));
+                params.insert("reasoning_effort".into(), JsValue::String(mapped.into()));
             }
         }
     } else if compat.thinking_format == ThinkingFormat::Deepseek && model.reasoning {
         if effort.is_some() {
             params.insert(
-                "thinking".to_owned(),
-                json_object(vec![("type", Value::String("enabled".to_owned()))]),
+                "thinking".into(),
+                lossless_object(vec![("type", JsValue::String("enabled".into()))]),
             );
         } else if off_value(model) != Some(None) {
             params.insert(
-                "thinking".to_owned(),
-                json_object(vec![("type", Value::String("disabled".to_owned()))]),
+                "thinking".into(),
+                lossless_object(vec![("type", JsValue::String("disabled".into()))]),
             );
         }
         insert_nullish_reasoning_effort(&mut params, model, effort, compat.supports_reasoning_effort);
     } else if compat.thinking_format == ThinkingFormat::Openrouter && model.reasoning {
         if let Some(effort) = effort {
             params.insert(
-                "reasoning".to_owned(),
-                json_object(vec![("effort", Value::String(nullish_effort(model, effort)))]),
+                "reasoning".into(),
+                lossless_object(vec![("effort", JsValue::String(nullish_effort(model, effort).into()))]),
             );
         } else if off_value(model) != Some(None) {
             params.insert(
-                "reasoning".to_owned(),
-                json_object(vec![(
+                "reasoning".into(),
+                lossless_object(vec![(
                     "effort",
-                    Value::String(off_value(model).flatten().unwrap_or_else(|| "none".to_owned())),
+                    JsValue::String(off_value(model).flatten().unwrap_or_else(|| "none".into()).into()),
                 )]),
             );
         }
@@ -1172,23 +1166,23 @@ pub fn build_params(
             .flatten()
         {
             params.insert(
-                "reasoning".to_owned(),
-                json_object(vec![("effort", Value::String(mapped))]),
+                "reasoning".into(),
+                lossless_object(vec![("effort", JsValue::String(mapped.into()))]),
             );
         }
     } else if compat.thinking_format == ThinkingFormat::Together && model.reasoning {
         params.insert(
-            "reasoning".to_owned(),
-            json_object(vec![("enabled", Value::Bool(effort.is_some()))]),
+            "reasoning".into(),
+            lossless_object(vec![("enabled", JsValue::Bool(effort.is_some()))]),
         );
         insert_nullish_reasoning_effort(&mut params, model, effort, compat.supports_reasoning_effort);
     } else if compat.thinking_format == ThinkingFormat::StringThinking && model.reasoning {
         if let Some(effort) = effort {
-            params.insert("thinking".to_owned(), Value::String(nullish_effort(model, effort)));
+            params.insert("thinking".into(), JsValue::String(nullish_effort(model, effort).into()));
         } else if off_value(model) != Some(None) {
             params.insert(
-                "thinking".to_owned(),
-                Value::String(off_value(model).flatten().unwrap_or_else(|| "none".to_owned())),
+                "thinking".into(),
+                JsValue::String(off_value(model).flatten().unwrap_or_else(|| "none".into()).into()),
             );
         }
     } else if let Some(effort) = effort
@@ -1196,15 +1190,15 @@ pub fn build_params(
         && compat.supports_reasoning_effort
     {
         params.insert(
-            "reasoning_effort".to_owned(),
-            Value::String(nullish_effort(model, effort)),
+            "reasoning_effort".into(),
+            JsValue::String(nullish_effort(model, effort).into()),
         );
     } else if effort.is_none()
         && model.reasoning
         && compat.supports_reasoning_effort
         && let Some(off_value) = off_value(model).flatten()
     {
-        params.insert("reasoning_effort".to_owned(), Value::String(off_value));
+        params.insert("reasoning_effort".into(), JsValue::String(off_value.into()));
     }
 
     if compat.supports_thinking_token_budget
@@ -1233,12 +1227,12 @@ pub fn build_params(
         .unwrap_or(0.0);
         let ceiling = params
             .get("max_tokens")
-            .and_then(Value::as_f64)
-            .or_else(|| params.get("max_completion_tokens").and_then(Value::as_f64))
+            .and_then(JsValue::as_f64)
+            .or_else(|| params.get("max_completion_tokens").and_then(JsValue::as_f64))
             .unwrap_or(model.max_tokens);
         let budget = budget.min((ceiling - MIN_ANSWER_TOKENS).max(0.0));
         if budget > 0.0 {
-            params.insert("thinking_token_budget".to_owned(), js_number_value(budget));
+            params.insert("thinking_token_budget".into(), js_number_value(budget).into());
         }
     }
 
@@ -1246,33 +1240,41 @@ pub fn build_params(
         && let Some(routing) = &compat.open_router_routing
     {
         params.insert(
-            "provider".to_owned(),
-            serde_json::to_value(routing).unwrap_or(Value::Null),
+            "provider".into(),
+            pi_js_compat::js_json::to_value(&routing)
+                .unwrap_or(JsValue::Null)
+                .into(),
         );
     }
     if let Some(ModelCompat::OpenAICompletions(compat)) = &model.compat
         && let Some(routing) = &compat.vercel_gateway_routing
         && (routing.only.is_some() || routing.order.is_some())
     {
-        let mut gateway = Map::new();
+        let mut gateway = JsObject::new();
         if let Some(only) = &routing.only {
-            gateway.insert("only".to_owned(), serde_json::to_value(only).unwrap_or(Value::Null));
+            gateway.insert(
+                "only".into(),
+                pi_js_compat::js_json::to_value(&only).unwrap_or(JsValue::Null).into(),
+            );
         }
         if let Some(order) = &routing.order {
-            gateway.insert("order".to_owned(), serde_json::to_value(order).unwrap_or(Value::Null));
+            gateway.insert(
+                "order".into(),
+                pi_js_compat::js_json::to_value(&order).unwrap_or(JsValue::Null).into(),
+            );
         }
         params.insert(
-            "providerOptions".to_owned(),
-            json_object(vec![("gateway", Value::Object(gateway))]),
+            "providerOptions".into(),
+            lossless_object(vec![("gateway", JsValue::Object(gateway))]),
         );
     }
 
     if let Some(sampling_params) = &stream_options.sampling_params {
         for (key, value) in sampling_params {
-            params.insert(key.clone(), value.clone());
+            params.insert(key.clone().into(), value.clone().into());
         }
     }
-    Value::Object(params)
+    JsValue::Object(params)
 }
 
 fn clamp_reasoning_level(level: ModelThinkingLevel) -> Option<crate::types::ThinkingLevel> {
@@ -1683,7 +1685,7 @@ pub async fn process_completions_stream(
                 None => {
                     output.content.push(AssistantContent::Thinking(ThinkingContent {
                         r#type: crate::types::ThinkingTag::Tag,
-                        thinking: String::new(),
+                        thinking: String::new().into(),
                         thinking_signature: Some(signature.to_owned()),
                         redacted: None,
                         index: None,
@@ -1702,7 +1704,7 @@ pub async fn process_completions_stream(
             }
             sender.push(AssistantMessageEvent::ThinkingDelta {
                 content_index: index,
-                delta: delta_text.to_owned(),
+                delta: delta_text.to_owned().into(),
                 partial: output.clone(),
             });
         }

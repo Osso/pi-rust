@@ -9,7 +9,8 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 - [x] Pi-messages HTTP context and `OnPayload` replacements serialize unmatched units as escapes, matching Node `JSON.stringify`.
 - [x] Explicit provider `sanitizeSurrogates` sites remove unmatched units, retaining valid pairs; no mutation of shared text precedes that boundary.
 - [x] Shared Node UTF-8 boundary replaces unmatched units with U+FFFD only when encoding to streams, filesystem paths, process arguments or environment values.
-- [ ] User, thinking and custom-message text use the same UTF-16 authority.
+- [x] User and thinking text use the same UTF-16 authority.
+- [ ] Custom-message text uses the same UTF-16 authority.
 - [ ] Tool-call arguments and execution/hook parameters use lossless object/value authorities.
 - [ ] Agent result text/details survive agent loop, JSONL append/reload and TS reread in both directions.
 - [ ] Question relay, ask-questions, mailbox and session-name tools preserve arbitrary UTF-16.

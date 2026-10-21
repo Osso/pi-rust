@@ -95,3 +95,60 @@ async fn pi_messages_http_json_and_payload_callback_keep_utf16_escapes() {
     let reference = oracle.request(&serde_json::json!({"wire":body}));
     assert_eq!(reference["wire"], body);
 }
+
+#[test]
+fn user_and_thinking_content_round_trip_lone_surrogate_units() {
+    for source in [
+        r#"{"role":"user","content":"\ud800","timestamp":1}"#,
+        r#"{"role":"assistant","content":[{"type":"thinking","thinking":"\udfff"}],"api":"probe","provider":"probe","model":"probe","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1}"#,
+    ] {
+        let message: pi_ai::types::Message = serde_json::from_str(source).unwrap();
+        assert_eq!(
+            parse_lossless(&serde_json::to_string(&message).unwrap()).unwrap(),
+            parse_lossless(source).unwrap()
+        );
+    }
+}
+
+#[tokio::test]
+async fn openai_reasoning_signature_keeps_unsanitized_utf16_in_http_json() {
+    use pi_ai::types::{AssistantContent, AssistantMessage, Context, Message, Model, StopReason, ThinkingContent};
+    use pi_js_compat::js_json::JsString;
+    let model: Model = serde_json::from_value(serde_json::json!({
+        "id":"probe", "name":"probe", "api":"openai-completions", "provider":"openai", "baseUrl":"https://provider.invalid/v1", "reasoning":true, "input":["text"],
+        "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":10000, "maxTokens":1000
+    })).unwrap();
+    let fetch = std::sync::Arc::new(CaptureRequest::default());
+    let mut options = pi_ai::request::StreamOptions::default();
+    options.request.fetch = Some(fetch.clone());
+    options.request.api_key = Some("test".into());
+    options.request.max_retries = Some(0.0);
+    let mut thinking = ThinkingContent::new(JsString::from_utf16(vec![0xd800]));
+    thinking.thinking_signature = Some("reasoning_content".into());
+    let mut assistant = AssistantMessage::empty("openai-completions", "openai", "probe", 1);
+    assistant.content.push(AssistantContent::Thinking(thinking));
+    assistant
+        .content
+        .push(AssistantContent::Text(pi_ai::types::TextContent::new("visible")));
+    assistant.stop_reason = StopReason::Stop;
+    let mut stream = pi_ai::api::openai_completions::stream(
+        model,
+        Context {
+            system_prompt: None,
+            messages: vec![Message::Assistant(Box::new(assistant))],
+            tools: None,
+        },
+        options,
+    );
+    while stream.next().await.is_some() {}
+    let requests = fetch.0.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let body = std::str::from_utf8(requests[0].body.as_ref().unwrap()).unwrap();
+    assert!(body.contains(r#""reasoning_content":"\ud800""#), "{body}");
+    let mut oracle = oracle::TsOracle::spawn(
+        "lossless-content-oracle.ts",
+        "packages/ai/src/utils/sanitize-unicode.ts",
+    );
+    let reference = oracle.request(&serde_json::json!({"wire":body}));
+    assert_eq!(reference["wire"], body);
+}

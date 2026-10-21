@@ -1361,7 +1361,7 @@ fn apply_content_block_delta(sender: &AssistantMessageEventSender, output: &mut 
                 block.thinking.push_str(thinking);
                 sender.push(AssistantMessageEvent::ThinkingDelta {
                     content_index: position,
-                    delta: thinking.to_owned(),
+                    delta: thinking.to_owned().into(),
                     partial: output.clone(),
                 });
             }

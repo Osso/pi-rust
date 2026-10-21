@@ -4,6 +4,7 @@ use pi_js_compat::js_json::JsString;
 /// `string | (TextContent | ImageContent)[] | AssistantContent[]` input of `contentText`.
 pub enum ContentText<'a> {
     String(&'a str),
+    Utf16(&'a JsString),
     Assistant(&'a [AssistantContent]),
     TextOrImage(&'a [TextOrImageContent]),
 }
@@ -12,6 +13,7 @@ pub enum ContentText<'a> {
 pub fn content_text(content: ContentText<'_>, separator: &str) -> JsString {
     match content {
         ContentText::String(text) => text.into(),
+        ContentText::Utf16(text) => text.clone(),
         ContentText::Assistant(blocks) => JsString::join(blocks.iter().filter_map(assistant_block_text), separator),
         ContentText::TextOrImage(blocks) => {
             JsString::join(blocks.iter().filter_map(text_or_image_block_text), separator)

@@ -748,7 +748,7 @@ impl EventConverter {
                 self.append_thinking(content_index, &delta)?;
                 Ok(AssistantMessageEvent::ThinkingDelta {
                     content_index,
-                    delta,
+                    delta: delta.into(),
                     partial: self.partial.clone(),
                 })
             }
@@ -761,7 +761,7 @@ impl EventConverter {
                 self.finish_thinking(content_index, content.clone(), content_signature, redacted)?;
                 Ok(AssistantMessageEvent::ThinkingEnd {
                     content_index,
-                    content,
+                    content: content.into(),
                     partial: self.partial.clone(),
                 })
             }
@@ -870,7 +870,7 @@ impl EventConverter {
     ) -> Result<(), PiMessagesError> {
         match self.partial.content.get_mut(index) {
             Some(AssistantContent::Thinking(thinking)) => {
-                thinking.thinking = content;
+                thinking.thinking = content.into();
                 thinking.thinking_signature = signature;
                 thinking.redacted = redacted;
                 Ok(())

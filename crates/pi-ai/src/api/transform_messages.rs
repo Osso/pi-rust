@@ -292,8 +292,6 @@ fn tool_calls(assistant: &AssistantMessage) -> Vec<ToolCall> {
         .collect()
 }
 
-fn is_blank(value: &str) -> bool {
-    value
-        .trim_matches(|character: char| character.is_whitespace() || character == '\u{feff}')
-        .is_empty()
+fn is_blank(value: impl Into<pi_js_compat::js_json::JsString>) -> bool {
+    value.into().trim().is_empty()
 }
