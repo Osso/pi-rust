@@ -262,8 +262,17 @@ async fn run_lifetime_fixture(descendant: bool) {
         ),
         drive
     );
+    let fixture_pids: Vec<_> = ["child.pid", "grandchild.pid"]
+        .iter()
+        .filter_map(|name| std::fs::read_to_string(temp.path().join(name)).ok())
+        .map(|value| rustix::process::Pid::from_raw(value.parse().unwrap()).unwrap())
+        .collect();
     // Cleanup runs before asserting, including the timeout/RED path.
     drop(cleanup);
+    assert_eq!(fixture_pids.len(), if descendant { 2 } else { 1 });
+    for pid in fixture_pids {
+        assert_eq!(rustix::process::test_kill_process(pid), Err(rustix::io::Errno::SRCH));
+    }
     let result = outcome
         .expect("client must not await process or inherited pipes")
         .unwrap();
