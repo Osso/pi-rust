@@ -25,7 +25,7 @@ where
     FSelect: FnOnce() -> Result<Option<Goal>, HandlerError>,
     FClear: FnOnce(),
     FScheduleRetry: FnOnce(Goal),
-    FScheduleError: FnOnce(&str),
+    FScheduleError: FnOnce(&str) -> Result<(), HandlerError>,
     FReport: FnOnce(&str),
 {
     let Some(goal) = (options.select_goal)()? else {
@@ -47,7 +47,7 @@ where
         if has_pending_messages() {
             (options.report_skipped)("Goal continuation deferred: pending input will run next.");
         } else {
-            (options.schedule_error_status)("Goal continuation skipped: the model turn ended with an error.");
+            (options.schedule_error_status)("Goal continuation skipped: the model turn ended with an error.")?;
         }
         return Ok(None);
     }
