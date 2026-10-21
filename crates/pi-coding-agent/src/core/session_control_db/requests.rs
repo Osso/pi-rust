@@ -235,7 +235,7 @@ const ARCHITECT_REQUEST_COLUMNS: &str =
 
 /// `postArchitectRequest`.
 pub fn post_architect_request(control_db_path: &str, input: &PostArchitectRequestInput) -> Result<i64, ControlDbError> {
-    let body = input.body.trim();
+    let body = pi_js_compat::string::js_trim(&input.body);
     if body.is_empty() {
         return Err(ControlDbError::new("Architect request body must be non-empty"));
     }

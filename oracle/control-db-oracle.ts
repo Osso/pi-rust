@@ -6,6 +6,12 @@ import { pathToFileURL } from "node:url";
 type Api = Record<string, (...args: unknown[]) => unknown> & Record<string, unknown>;
 type Step = { op: string; args?: unknown[]; path?: string; count?: number; prefix?: string };
 type Request = { id: number; steps: Step[] };
+type FixtureManager = {
+	appendMessage(message: unknown, refs?: unknown): string;
+	appendCustomEntry(customType: string, data?: unknown): string;
+	persistForRecovery(): void;
+	getSessionFile(): string | undefined;
+};
 
 type StepResult = { ok: true; value: unknown } | { ok: false; error: { name: string; message: string } };
 
@@ -23,6 +29,9 @@ async function main(): Promise<void> {
 	const api = (await import(pathToFileURL(`${sourceRoot}/core/session-control-db.ts`).href)) as Api;
 	const sqlite = (await import(pathToFileURL(`${sourceRoot}/core/sqlite.ts`).href)) as Api;
 	const transcript = (await import(pathToFileURL(`${sourceRoot}/core/runtime-mailbox-transcript.ts`).href)) as Api;
+	const { SessionManager } = (await import(pathToFileURL(`${sourceRoot}/core/session-manager.ts`).href)) as {
+		SessionManager: { create(cwd: string, sessionDir: string): FixtureManager };
+	};
 
 	const execute = (step: Step): unknown => {
 		if (step.op === "takeAll") {
@@ -34,7 +43,27 @@ async function main(): Promise<void> {
 			api.registerRuntimeMailboxListener(path, recipient, process.pid, sessionPath);
 			return api.getRuntimeProcessInstanceId();
 		}
+		if (step.op === "createReceipt") {
+			const [directory, wire, customOnly] = step.args as [string, string, boolean?];
+			const data = JSON.parse(wire) as { mailboxStoreRefs?: unknown };
+			const manager = SessionManager.create("/fixture", directory);
+			if (!customOnly) manager.appendMessage({ role: "user", content: "fixture", timestamp: Date.now() }, data.mailboxStoreRefs);
+			manager.appendCustomEntry("runtime_mailbox_acceptance", data);
+			manager.persistForRecovery();
+			return manager.getSessionFile();
+		}
+		if (step.op === "refsEqualWire") {
+			const [left, right] = step.args as [string, string];
+			return transcript.mailboxStoreRefsEqual(JSON.parse(left), JSON.parse(right));
+		}
+		if (step.op === "acceptedRefsWire") return JSON.stringify(transcript.readAcceptedRuntimeMailboxStoreRefs(step.path));
 		if (step.op === "acceptedRefs") return transcript.readAcceptedRuntimeMailboxStoreRefs(step.path);
+		if (step.op === "callWire") {
+			const [fn, wire] = step.args as [string, string];
+			const implementation = api[fn];
+			if (typeof implementation !== "function") throw new Error(`unknown control-db function ${fn}`);
+			return JSON.stringify(normalize(implementation(...JSON.parse(wire))));
+		}
 		if (step.op === "call") {
 			const [fn, args] = step.args as [string, unknown[]];
 			const implementation = api[fn];
@@ -42,6 +71,24 @@ async function main(): Promise<void> {
 			return implementation(...(args ?? []));
 		}
 		// Fixture mutations run inside a schema initialized by the actual public API.
+		if (step.op === "fixtureExec") {
+			const [path, sql] = step.args as [string, string];
+			return api.withControlDb(path, (db: { exec(sql: string): void }) => db.exec(sql));
+		}
+		if (step.op === "retentionAt") {
+			const [path, now] = step.args as [string, number];
+			const OriginalDate = globalThis.Date;
+			class FixtureDate extends OriginalDate {
+				constructor(value?: string | number) {
+					if (value === undefined) super(now);
+					else super(value);
+				}
+				static now(): number { return now; }
+			}
+			globalThis.Date = FixtureDate as DateConstructor;
+			try { return api.listRuntimeMailboxMessages(path); }
+			finally { globalThis.Date = OriginalDate; }
+		}
 		if (step.op === "fixtureSql") {
 			const [path, sql, parameters = []] = step.args as [string, string, unknown[]];
 			return api.withControlDb(path, (db: { prepare(sql: string): { all(...args: unknown[]): unknown[] } }) =>

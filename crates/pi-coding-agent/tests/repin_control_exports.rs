@@ -1,3 +1,5 @@
+#[path = "support/repin_fixture_process.rs"]
+mod fixture_process;
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_coding_agent::core::session_control_db::*;
@@ -99,7 +101,9 @@ fn live_agent_ids_track_owned_peer_process_lifetime() {
         read_live_runtime_mailbox_session_agent_ids(&db, "s").unwrap(),
         vec![Some("child".into())]
     );
+    let identity = serde_json::from_str(response["output"][0]["value"].as_str().unwrap()).unwrap();
     drop(ts);
+    fixture_process::wait_for_owned_fixture_exit(&identity);
     assert!(
         read_live_runtime_mailbox_session_agent_ids(&db, "s")
             .unwrap()
@@ -142,4 +146,32 @@ fn transaction_enqueue_rolls_back_collision_and_publishes_only_committed_rows() 
         "original"
     );
     notify_runtime_mailbox_recipient(&db, &input.recipient).unwrap();
+}
+
+#[test]
+fn legacy_live_identity_without_incarnation_is_not_superseded_by_current_nonce() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let identity = pi_coding_agent::core::runtime_process::read_process_identity(std::process::id()).unwrap();
+    register_runtime_mailbox_listener(
+        &db,
+        &RuntimeMailboxAddress {
+            session_id: "legacy".into(),
+            agent_id: None,
+        },
+        std::process::id(),
+        None,
+        RuntimeMailboxRegistrationOptions {
+            runtime_instance_id: Some(serde_json::to_string(&identity).unwrap()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let peer = call(&mut ts, "readLiveRuntimeMailboxSessionAgentIds", json!([db, "legacy"]));
+    assert_eq!(peer, json!([null]));
+    assert_eq!(
+        serde_json::to_value(read_live_runtime_mailbox_session_agent_ids(&db, "legacy").unwrap()).unwrap(),
+        peer
+    );
 }

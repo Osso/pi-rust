@@ -254,24 +254,24 @@ fn relocate_session_control_data_in_transaction(
         return Ok(());
     }
     relocate_session_path_primary_key(db, "session_metadata", old_session_path, new_session_path, now)?;
-    relocate_session_path_primary_key(db, "session_sandbox_profiles", old_session_path, new_session_path, &now)?;
-    relocate_multi_agent_session_rows(db, "multi_agent_agents", old_session_path, new_session_path, &now)?;
+    relocate_session_path_primary_key(db, "session_sandbox_profiles", old_session_path, new_session_path, now)?;
+    relocate_multi_agent_session_rows(db, "multi_agent_agents", old_session_path, new_session_path, now)?;
     relocate_multi_agent_runtime_owners(db, old_session_path, new_session_path)?;
     relocate_multi_agent_session_rows(
         db,
         "multi_agent_terminal_outbox",
         old_session_path,
         new_session_path,
-        &now,
+        now,
     )?;
     relocate_multi_agent_session_rows(
         db,
         "multi_agent_mailbox_messages",
         old_session_path,
         new_session_path,
-        &now,
+        now,
     )?;
-    relocate_multi_agent_counters(db, old_session_path, new_session_path, &now)?;
+    relocate_multi_agent_counters(db, old_session_path, new_session_path, now)?;
     db.execute(
         "UPDATE runtime_mailbox_listeners SET session_path = ? WHERE session_path = ?",
         params![new_session_path, old_session_path],
@@ -1118,7 +1118,7 @@ fn prepare_prompt_history_migration_rows(legacy_entries: &[String]) -> Vec<(Stri
     let mut rows = Vec::new();
     let mut previous_content: Option<String> = None;
     for content in legacy_entries.iter().rev() {
-        let content = content.trim();
+        let content = pi_js_compat::string::js_trim(content);
         if content.is_empty() || previous_content.as_deref() == Some(content) {
             continue;
         }
@@ -1161,7 +1161,7 @@ fn read_prompt_history_rows(db: &Connection, limit: i64) -> Result<Vec<String>, 
 }
 
 fn insert_prompt_history_entry(db: &Connection, content: &str) -> Result<(), ControlDbError> {
-    let trimmed_content = content.trim();
+    let trimmed_content = pi_js_compat::string::js_trim(content);
     if trimmed_content.is_empty() {
         return Ok(());
     }

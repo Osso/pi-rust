@@ -1,3 +1,5 @@
+#[path = "support/repin_fixture_process.rs"]
+mod fixture_process;
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_coding_agent::core::session_control_db::*;
@@ -137,13 +139,19 @@ fn dead_owned_ts_claim_with_durable_complete_record_is_deleted_not_requeued() {
     let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
         .as_i64()
         .unwrap();
-    step(&mut ts, "registerSelf", json!([db, address(), path]));
+    let owner_identity: pi_coding_agent::core::runtime_process::ProcessIdentity = serde_json::from_str(
+        step(&mut ts, "registerSelf", json!([db, address(), path]))
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         call(&mut ts, "claimRuntimeMailboxMessages", json!([db, address(), 20]))[0]["status"],
         "claimed"
     );
     std::fs::write(&transcript,format!("{}\n{}",json!({"type":"custom","customType":"runtime_mailbox_acceptance","data":{"mailboxStoreRefs":[input("accepted")["storeRef"].clone()]}}),"{partial")).unwrap();
     drop(ts); // owned fixture process exits before replacement registration/recovery
+    fixture_process::wait_for_owned_fixture_exit(&owner_identity);
     register(&db, Some(&path));
     assert!(
         read_runtime_mailbox_message(&db, id).unwrap().is_none(),
@@ -204,4 +212,230 @@ fn frozen_source_limit_zero_discrepancy_fixture() {
         2,
         "source bug repro, not approved Rust contract"
     );
+}
+
+#[test]
+fn lone_surrogate_receipt_does_not_alias_a_replacement_character_db_key() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut data = input("surrogate");
+    data["storeRef"]["sessionPath"] = json!("/fixture/�/source.jsonl");
+    let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
+        .as_i64()
+        .unwrap();
+    let owner_identity = serde_json::from_str(
+        step(&mut ts, "registerSelf", json!([db, address(), null]))
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        call(&mut ts, "claimRuntimeMailboxMessages", json!([db, address(), 20]))[0]["status"],
+        "claimed"
+    );
+    let wire = r#"{"mailboxStoreRefs":[{"sessionPath":"/fixture/\ud800/source.jsonl","messageId":"surrogate"}]}"#;
+    let path = step(&mut ts, "createReceipt", json!([t.path().join("receipt"), wire, true]));
+    step(&mut ts, "registerSelf", json!([db, address(), path]));
+    drop(ts);
+    fixture_process::wait_for_owned_fixture_exit(&owner_identity);
+    register(&db, path.as_str());
+    assert_eq!(
+        read_runtime_mailbox_message(&db, id).unwrap().unwrap().status,
+        RuntimeMailboxMessageStatus::Pending,
+        "different UTF16 identities must not falsely delete the claim"
+    );
+    let mut peer = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    assert_eq!(
+        call(&mut peer, "readRuntimeMailboxMessage", json!([db, id]))["status"],
+        "pending"
+    );
+}
+
+#[test]
+fn frozen_source_empty_host_retry_discrepancy_fixture() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut data = input("empty-host");
+    data["recipientHost"] = json!("");
+    let response=ts.request(&json!({"id":1,"steps":[{"op":"call","args":["enqueueStoredRuntimeMailboxMessage",[db,data]]},{"op":"call","args":["enqueueStoredRuntimeMailboxMessage",[db,data]]}]}));
+    assert_eq!(response["output"][0]["ok"], true);
+    assert_eq!(response["output"][1]["ok"], false);
+    assert!(
+        response["output"][1]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("conflicts with canonical mailbox row")
+    );
+    step(&mut ts, "registerSelf", json!([db, address(), null]));
+    assert_eq!(
+        step(&mut ts, "takeAll", json!([db, address(), 1]))
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "first empty-host enqueue routes locally; only retry is inconsistent"
+    );
+}
+
+#[test]
+fn cas_payload_changed_by_source_actor_rejects_old_delivery_snapshot() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let data = input("source-race");
+    let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
+        .as_i64()
+        .unwrap();
+    register(&db, None);
+    claim_runtime_mailbox_messages(&db, &address(), 1).unwrap();
+    let before = read_runtime_mailbox_message_for_delivery(&db, id).unwrap().unwrap();
+    assert!(before.payload_valid);
+    let old = before.payload_data.unwrap();
+    let mut changed = data["message"].clone();
+    changed["body"] = json!("source changed after claim");
+    call(
+        &mut ts,
+        "upsertMultiAgentMailboxMessage",
+        json!([db, "/fixture/source.jsonl", "source-race", changed]),
+    );
+    assert!(!deliver_runtime_mailbox_message(&db, id, Some(&old)).unwrap());
+    let peer = call(&mut ts, "readRuntimeMailboxMessage", json!([db, id]));
+    assert_eq!(peer["status"], "claimed");
+    assert_eq!(peer["body"], "source changed after claim");
+    let current = read_runtime_mailbox_message_for_delivery(&db, id).unwrap().unwrap();
+    assert_ne!(current.payload_data.as_deref(), Some(old.as_str()));
+    assert!(deliver_runtime_mailbox_message(&db, id, current.payload_data.as_deref()).unwrap());
+    assert!(call(&mut ts, "readRuntimeMailboxMessage", json!([db, id])).is_null());
+}
+
+#[test]
+fn foreign_claimant_fences_release_fail_and_delivery() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let id = call(
+        &mut ts,
+        "enqueueStoredRuntimeMailboxMessage",
+        json!([db, input("owned-by-peer")]),
+    )
+    .as_i64()
+    .unwrap();
+    step(&mut ts, "registerSelf", json!([db, address(), null]));
+    call(&mut ts, "claimRuntimeMailboxMessages", json!([db, address(), 1]));
+    let read = read_runtime_mailbox_message_for_delivery(&db, id).unwrap().unwrap();
+    assert!(!read.payload_valid);
+    release_runtime_mailbox_message_claim(&db, id).unwrap();
+    fail_runtime_mailbox_message(&db, id, "wrong owner").unwrap();
+    assert!(!deliver_runtime_mailbox_message(&db, id, read.payload_data.as_deref()).unwrap());
+    assert_eq!(
+        call(&mut ts, "readRuntimeMailboxMessage", json!([db, id]))["status"],
+        "claimed"
+    );
+    call(&mut ts, "failRuntimeMailboxMessage", json!([db, id, "peer failure"]));
+    assert_eq!(
+        read_runtime_mailbox_message(&db, id).unwrap().unwrap().error.as_deref(),
+        Some("peer failure")
+    );
+}
+
+#[test]
+fn malformed_complete_receipt_after_matching_ref_aborts_recovery_before_delete() {
+    use std::io::Write;
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let id = call(
+        &mut ts,
+        "enqueueStoredRuntimeMailboxMessage",
+        json!([db, input("parse-order")]),
+    )
+    .as_i64()
+    .unwrap();
+    let owner = serde_json::from_str(
+        step(&mut ts, "registerSelf", json!([db, address(), null]))
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    call(&mut ts, "claimRuntimeMailboxMessages", json!([db, address(), 1]));
+    let wire = serde_json::to_string(&json!({"mailboxStoreRefs":[input("parse-order")["storeRef"]]})).unwrap();
+    let path = step(&mut ts, "createReceipt", json!([t.path().join("receipt"), wire, true]));
+    step(&mut ts, "registerSelf", json!([db, address(), path]));
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(path.as_str().unwrap())
+        .unwrap()
+        .write_all(b"{malformed\n")
+        .unwrap();
+    drop(ts);
+    fixture_process::wait_for_owned_fixture_exit(&owner);
+    let error =
+        register_runtime_mailbox_listener(&db, &address(), std::process::id(), path.as_str(), Default::default())
+            .unwrap_err();
+    assert_eq!(
+        read_runtime_mailbox_message(&db, id).unwrap().unwrap().status,
+        RuntimeMailboxMessageStatus::Claimed
+    );
+    let mut peer = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let expected = peer.request(&json!({"id":1,"steps":[{"op":"acceptedRefsWire","path":path}]}));
+    assert_eq!(expected["output"][0]["ok"], false);
+    assert_eq!(
+        error.message(),
+        expected["output"][0]["error"]["message"].as_str().unwrap()
+    );
+    assert_eq!(
+        call(&mut peer, "readRuntimeMailboxMessage", json!([db, id]))["status"],
+        "claimed"
+    );
+}
+
+#[test]
+fn raw_null_ref_recovery_obeys_some_short_circuit_order() {
+    for matching_first in [true, false] {
+        let t = tempfile::tempdir().unwrap();
+        let db = t.path().join("control.sqlite").display().to_string();
+        let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+        let id = call(
+            &mut ts,
+            "enqueueStoredRuntimeMailboxMessage",
+            json!([db, input("ref-order")]),
+        )
+        .as_i64()
+        .unwrap();
+        let owner = serde_json::from_str(
+            step(&mut ts, "registerSelf", json!([db, address(), null]))
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        call(&mut ts, "claimRuntimeMailboxMessages", json!([db, address(), 1]));
+        let valid = input("ref-order")["storeRef"].clone();
+        let refs = if matching_first {
+            json!([valid, null])
+        } else {
+            json!([null, valid])
+        };
+        let wire = serde_json::to_string(&json!({"mailboxStoreRefs":refs})).unwrap();
+        let path = step(&mut ts, "createReceipt", json!([t.path().join("receipt"), wire, true]));
+        step(&mut ts, "registerSelf", json!([db, address(), path]));
+        drop(ts);
+        fixture_process::wait_for_owned_fixture_exit(&owner);
+        let recovered =
+            register_runtime_mailbox_listener(&db, &address(), std::process::id(), path.as_str(), Default::default());
+        if matching_first {
+            recovered.unwrap();
+            assert!(read_runtime_mailbox_message(&db, id).unwrap().is_none())
+        } else {
+            assert_eq!(
+                recovered.unwrap_err().message(),
+                "Cannot read properties of null (reading 'sessionPath')"
+            );
+            assert_eq!(
+                read_runtime_mailbox_message(&db, id).unwrap().unwrap().status,
+                RuntimeMailboxMessageStatus::Claimed
+            );
+        }
+    }
 }

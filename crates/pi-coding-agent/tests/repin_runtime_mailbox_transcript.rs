@@ -1,7 +1,8 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_coding_agent::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs;
-use serde_json::{Value, json};
+use pi_js_compat::js_json::JsValue;
+use serde_json::json;
 #[test]
 fn whole_transcript_complete_lf_raw_refs_and_error_order_match_frozen_helper() {
     let t = tempfile::tempdir().unwrap();
@@ -28,8 +29,8 @@ fn whole_transcript_complete_lf_raw_refs_and_error_order_match_frozen_helper() {
         let rust = read_accepted_runtime_mailbox_store_refs(path.to_str());
         if success {
             assert_eq!(
-                serde_json::to_value(rust.expect("TS accepts raw refs")).unwrap(),
-                peer["value"]
+                JsValue::Array(rust.expect("TS accepts raw refs")),
+                JsValue::from(&peer["value"])
             )
         } else {
             assert!(rust.is_err(), "TS failure must not be silently skipped: {peer}")
@@ -41,5 +42,93 @@ fn whole_transcript_complete_lf_raw_refs_and_error_order_match_frozen_helper() {
         0
     );
     assert_eq!(read_accepted_runtime_mailbox_store_refs(None).unwrap().len(), 0);
-    let _: Value = json!(null);
+}
+
+#[test]
+fn source_manager_receipts_preserve_lone_surrogate_values_keys_and_raw_items() {
+    let t = tempfile::tempdir().unwrap();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let payloads = [
+        (
+            r#"{"mailboxStoreRefs":[{"sessionPath":"/\ud800/source","messageId":"msg\udfff","\ud800":1,"�":2}]}"#,
+            false,
+        ),
+        (
+            r#"{"mailboxStoreRefs":[{},null,7,false,[],{"sessionPath":null,"messageId":0}]}"#,
+            true,
+        ),
+        (r#"{"mailboxStoreRefs":"a\ud83d\udca5\ud800"}"#, true),
+    ];
+    for (index, (wire, custom_only)) in payloads.into_iter().enumerate() {
+        let directory = t.path().join(format!("case{index}"));
+        let made = ts.request(&json!({"id":1,"steps":[{"op":"createReceipt","args":[directory,wire,custom_only]}]}));
+        assert_eq!(made["output"][0]["ok"], true, "{made}");
+        let path = made["output"][0]["value"].as_str().unwrap();
+        let peer = ts.request(&json!({"id":1,"steps":[{"op":"acceptedRefsWire","path":path}]}));
+        assert_eq!(peer["output"][0]["ok"], true, "{peer}");
+        let rust = read_accepted_runtime_mailbox_store_refs(Some(path)).unwrap();
+        let encoded = pi_js_compat::js_json::stringify_lossless(&JsValue::Array(rust));
+        assert_eq!(
+            encoded,
+            peer["output"][0]["value"].as_str().unwrap(),
+            "source manager case{index}"
+        );
+    }
+}
+
+#[test]
+fn noniterable_ref_collection_throws_at_the_source_spread_boundary() {
+    let t = tempfile::tempdir().unwrap();
+    let path = t.path().join("bad.jsonl");
+    std::fs::write(
+        &path,
+        "{\"type\":\"custom\",\"customType\":\"runtime_mailbox_acceptance\",\"data\":{\"mailboxStoreRefs\":{}}}\n",
+    )
+    .unwrap();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let peer = ts.request(&json!({"id":1,"steps":[{"op":"acceptedRefsWire","path":path}]}));
+    assert_eq!(peer["output"][0]["ok"], false);
+    let error = read_accepted_runtime_mailbox_store_refs(path.to_str()).unwrap_err();
+    assert_eq!(error.message(), peer["output"][0]["error"]["message"].as_str().unwrap());
+}
+
+#[test]
+fn raw_ref_equality_uses_js_property_access_strict_equality_and_utf16() {
+    use pi_coding_agent::core::runtime_mailbox_transcript::mailbox_store_refs_equal;
+    use pi_js_compat::js_json::parse_lossless;
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let cases = [
+        ("{}", "{}"),
+        ("null", "{}"),
+        ("{\"sessionPath\":\"x\"}", "null"),
+        ("7", "false"),
+        (
+            r#"{"sessionPath":"\ud800","messageId":"\udfff"}"#,
+            r#"{"sessionPath":"\ud800","messageId":"\udfff"}"#,
+        ),
+        (
+            r#"{"sessionPath":"\ud800","messageId":"a"}"#,
+            r#"{"sessionPath":"�","messageId":"a"}"#,
+        ),
+        (
+            r#"{"sessionPath":{},"messageId":0}"#,
+            r#"{"sessionPath":{},"messageId":0}"#,
+        ),
+    ];
+    for (left, right) in cases {
+        let peer = ts.request(&json!({"id":1,"steps":[{"op":"refsEqualWire","args":[left,right]}]}));
+        let actual = mailbox_store_refs_equal(&parse_lossless(left).unwrap(), &parse_lossless(right).unwrap());
+        if peer["output"][0]["ok"] == true {
+            assert_eq!(
+                actual.unwrap(),
+                peer["output"][0]["value"].as_bool().unwrap(),
+                "{left} / {right}"
+            )
+        } else {
+            assert_eq!(
+                actual.unwrap_err().message(),
+                peer["output"][0]["error"]["message"].as_str().unwrap()
+            );
+        }
+    }
 }

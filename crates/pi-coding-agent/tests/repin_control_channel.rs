@@ -124,3 +124,36 @@ fn retained_connection_sweeps_channel_on_source_minute_timer() {
             .is_empty()
     );
 }
+
+#[test]
+fn channel_body_uses_javascript_whitespace_not_rust_unicode_trim() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let sender = RuntimeMailboxAddress {
+        session_id: "fixture".into(),
+        agent_id: None,
+    };
+    for body in ["\u{feff} text \u{a0}", "\u{0085}", "\u{feff}"] {
+        let input = PostSharedChannelMessageInput {
+            sender: sender.clone(),
+            body: body.into(),
+        };
+        let peer = ts.request(&json!({"id":1,"steps":[{"op":"call","args":["postSharedChannelMessage",[db,input]]}]}));
+        let native = post_shared_channel_message(&db, &input);
+        if peer["output"][0]["ok"] == true {
+            let native_id = native.unwrap();
+            let source_id = peer["output"][0]["value"].as_i64().unwrap();
+            let rows = step(&mut ts, "call", json!(["listSharedChannelMessagesAfter", [db, 0, 20]]));
+            let rows = rows.as_array().unwrap();
+            let source = rows.iter().find(|row| row["id"] == source_id).unwrap();
+            let native = rows.iter().find(|row| row["id"] == native_id).unwrap();
+            assert_eq!(native["body"], source["body"], "body{body:?}");
+        } else {
+            assert_eq!(
+                native.unwrap_err().message(),
+                peer["output"][0]["error"]["message"].as_str().unwrap()
+            );
+        }
+    }
+}

@@ -37,6 +37,20 @@ const LIFECYCLE_VALUES = new Set(["completed", "failed", "waiting_for_input"]);
 
 function executeStep(store: StoreLike, step: StoreStep): StepResult {
 	try {
+		if (step.op === "probeRestoreListeners") {
+			const [controlDbPath, sessionPath, running, terminal] = step.args;
+			const counts = { transitions: 0, lifecycle: 0, updates: 0 };
+			store.subscribeAgentTransitions(() => counts.transitions++);
+			store.subscribeLifecycleNotifications(() => counts.lifecycle++);
+			store.subscribeAgentUpdates(() => counts.updates++);
+			store.restoreFromSessionManager({
+				getMetadataControlDbPath: () => controlDbPath,
+				getSessionFile: () => sessionPath,
+			});
+			store.publishLifecycleCoordinatorSnapshot(running);
+			store.publishTerminalOutboxSnapshot(terminal);
+			return { ok: true, value: counts };
+		}
 		const method = store[step.op];
 		if (typeof method !== "function") {
 			throw new Error(`unsupported store operation ${step.op}`);

@@ -1,16 +1,24 @@
 # `coding-agent/src/core/multi-agent-store.ts`
 
+Integrated model-lane clippy follow-up: native `MailboxMessageCommandResult::Ok.message` is boxed to avoid a304-byte enum for otherwise ≤32-byte variants. Existing serialization dereferences the box, preserving source-visible result shape. Removed five redundant timestamp borrows in control relocation; no behavior or warning suppression added. Exact integrated clippy recheck belongs to the independent verifier.
+
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
-Partial canonical checkpoint only. [Integration status and open boundaries](../../specs/control-store-repin.md#integration-status--2026-10-21) distinguish integrated fixtures, later control-store branch evidence, canonical raw-JSON RED, receipt scanning and runtime durability.
+Partial integration only; [integration status and open boundaries](../../specs/control-store-repin.md#integration-status--2026-10-21) are authoritative.
+
+Current group blocker: [canonical JSON UTF16 counterexample](session-control-db.md#blocking-canonical-json-counterexample--current-group-is-not-accepted). Lossless receipts do not make serde-backed canonical payloads or typed runtime body egress lossless. No whole-module acceptance/coverage advancement is claimed.
+
+Terminal summary/error JS trimming now has actual-source RED→GREEN proof in `repin_control_whitespace`, sharing the JS whitespace helper rather than native Unicode trim.
+
+`repin_store_persistence.rs` compares a real TS store restore/subscription probe against Rust: restore clears transition/lifecycle listener sets but retains update subscribers (RED callback counts1/1/1→GREEN0/0/1). Filesystem-blocked DB allocation/listing propagates errors without local-counter fallback; recovery starts at agent_1 and evicts absent rows. Old terminal snapshots cannot mint fresh notifications, compared with actual TS store. `store-reset-green.log`: differential operation script1 + persistence3 pass after final store changes. No broad acceptance command.
 
 `repin_multi_agent_store.rs` RED5→GREEN5 proves original snapshot returned on consume/removal, controlled relative creation age at 24h−1ms / exactly24h, peer-deleted DB rows evicted without failed-message resurrection, nested tool `detail` preserved and persisted top-level `extra.suppressTerminalNotification` enforced on terminal snapshot publication. `repin_control_agents.rs` additionally proves exact-owner model/activity updates visible to the same TS reader, wrong-owner rejection and typed `detail` roundtrip. The updated actual-source `differential_multi_agent_store` operation script passes including optional effective model publication with current activity.
 
 Source-throwing mailbox listing/consume/projection/publication and counter allocation now return `Result`; persistence errors no longer cause local counter fallback or `.ok()` mutation suppression. Mechanical callers propagate through existing error/logging boundaries. No effective-model producer timing parity is claimed: producer callsites pass absent optional model until their later module-group port.
 
-Checkpoint gaps include persistent store restore/listener/error branches and full cross-state reverse-init/mutation acceptance. Bounded DB finalization/dead-recovery suppression, steering take/consume atomicity and retained cleanup fixtures are recorded in [control DB traceability](session-control-db.md); these do not establish runtime durability or whole-store parity. Later branch results remain separate from integration. Historical proof below is not renewed whole-module proof. Coverage row unchanged.
+Remaining: full cross-state reverse-init/mutation and exact schema migration acceptance. Restore/listener/error and reciprocal fixtures above provide bounded evidence, not whole-store acceptance. DB finalization/dead recovery, steering take/consume and retained cleanup have bounded dedicated evidence in [control DB traceability](session-control-db.md). Historical proof below is not renewed whole-module proof. Coverage row unchanged.
 
-Runtime integration blocker: `agent_session::{mark_store_mailbox_message_delivered,mark_store_steering_delivered}` and `agents_core/wait_runtime::mark_wait_mailbox_store_message_delivered` currently accept eagerly before durable fsync and still need claim → append refs/custom receipt → persist/fsync → fenced delete ordering. Source-style store deletion alone does not make these older callers safe. No deployment or live-state use is authorized from these fixture results.
+Runtime durability remains blocked at the [delivery boundary](../../specs/control-store-repin.md#integration-status--2026-10-21); these fixtures authorize no deployment or live-state use.
 
 Source: `packages/coding-agent/src/core/multi-agent-store.ts` (1387 lines) at the pinned revision.
 Rust: `crates/pi-coding-agent/src/core/multi_agent_store.rs`.
