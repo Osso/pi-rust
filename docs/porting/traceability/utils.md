@@ -1,77 +1,25 @@
-# utils.ts traceability
+# utils.ts frozen traceability
 
-Source: `packages/tui/src/utils.ts` (1326 lines). Rust: `crates/pi-tui/src/utils.rs`, generated data in `crates/pi-tui/src/unicode_tables.rs`, shared ECMAScript string semantics in `crates/pi-js-compat/src/string.rs`.
+Reference: immutable `4f9e6f8a4`, `packages/tui/src/utils.ts` (1188 lines).
+Rust: `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs`. [Q1 proof](../q1-tui-core-proof.md).
 
-Differential oracle: `oracle/tui-leaves-oracle.ts` (operations `utils_*`). Tests: `crates/pi-tui/tests/utils.rs`, `crates/pi-tui/tests/differential_utils.rs`.
-
-## Exported symbols
-
-| TypeScript export | Rust item | Tests |
+| Frozen export/function/branch | Rust mapping | Proof |
 |---|---|---|
-| `getGraphemeSegmenter()` | gap: no `Intl.Segmenter` object; segmentation is internal via `unicode-segmentation` | differential width/wrap/truncate corpus |
-| `getWordSegmenter()` | gap: no word segmenter object; the leaf module does not use it | explicit gap (unused in slice) |
-| `cjkBreakRegex` | internal `unicode_tables::is_cjk_break` | wrap CJK tests, differential wrap |
-| `visibleWidth(str)` | `visible_width(&str) -> usize` | `tests/utils.rs` width tests; differential corpus + ~11k codepoint/emoji/flag samples |
-| `stripTerminalSequences(str)` | `strip_terminal_sequences(&str) -> String` | unit + differential over full corpus |
-| `getGraphemeCellRange(line, column)` | `get_grapheme_cell_range(&str, usize) -> Option<GraphemeCellRange>` | unit + differential line/column matrix |
-| `getOsc8LinkAtColumn(line, column)` | `get_osc8_link_at_column(&str, usize) -> Option<&str>` | unit + differential columns |
-| `normalizeTerminalOutput(str)` | `normalize_terminal_output(&str) -> String` | Thai/Lao and tab tests, differential corpus |
-| `extractAnsiCode(str, pos)` | `extract_ansi_code(&str, usize) -> Option<AnsiCode<'_>>` | unit tests + differential scan over corpus |
-| `wrapTextWithAnsi(text, width)` | `wrap_text_with_ansi(&str, usize) -> Vec<String>` | 12 unit tests + 22 differential cases |
-| `PUNCTUATION_REGEX` | `is_punctuation_char(&str) -> bool` (same character set) | unit + differential |
-| `isWhitespaceChar(char)` | `is_whitespace_char(&str) -> bool` | unit + differential ECMAScript `\s` matrix |
-| `isPunctuationChar(char)` | `is_punctuation_char(&str) -> bool` | unit + differential |
-| `applyBackgroundToLine(line, width, bgFn)` | `apply_background_to_line(&str, usize, impl Fn(&str) -> String)` | unit + differential |
-| `truncateToWidth(text, maxWidth, ellipsis?, pad?)` | `truncate_to_width(&str, usize)` and `truncate_to_width_with(&str, usize, &str, bool)` | 14 unit tests + 24 differential cases |
-| `sliceByColumn(line, startCol, length, strict?)` | `slice_by_column(&str, usize, usize, bool) -> String` | unit + differential |
-| `sliceWithWidth(line, startCol, length, strict?)` | `slice_with_width(...) -> SliceWithWidth { text, width }` | unit + differential |
-| `extractSegments(line, beforeEnd, afterStart, afterLen, strictAfter?)` | `extract_segments(...) -> Segments` | unit + differential |
+| getGraphemeSegmenter/getWordSegmenter | internal unicode-segmentation/ICU4X, not JS Intl objects | typed host-object adaptation; segmentation exercised through text APIs |
+| cjkBreakRegex, PUNCTUATION_REGEX | generated CJK predicate and punctuation predicate | unit + character-class differential |
+| couldBeEmoji/graphemeWidth/visibleWidth | frozen base code point, marks/emoji/regional-indicator/halfwidth/Thai-Lao rules; tabs are width 3 | corpus + approximately 11k code point/emoji/flag samples |
+| normalizeTerminalOutput | Thai/Lao AM decomposition only; tabs preserved | unit + source normalization corpus |
+| extractAnsiCode | CSI m/G/K/H/J and OSC/APC BEL/ST scan | complete extracted-sequence stream comparison |
+| parse/format OSC8 hyperlink/close, AnsiCodeTracker reset/clear/process/active/line-end methods | same SGR attributes, foreground/background state, link terminator preservation | wrapping, slicing and segment source differential |
+| splitIntoTokensWithAnsi/wrapTextWithAnsi/wrapSingleLine/breakLongWord/updateTrackerFromText | LF-only line split; style/link carry; CJK tokens; whitespace/long-token handling | unit + source wrap matrix |
+| isWhitespaceChar/isPunctuationChar | JS whitespace/punctuation predicates | ECMAScript character-class source matrix |
+| applyBackgroundToLine | visible-width padding then caller style function | unit + source callback-output comparison |
+| truncateFragmentToWidth/finalizeTruncatedResult/truncateToWidth | empty/zero/ellipsis clipping, ASCII/Unicode/tab/ANSI paths, contiguous prefix, padding/reset placement; no added OSC8 close | unit + source truncation matrix |
+| sliceByColumn/sliceWithWidth | strict/non-strict wide-grapheme boundaries, inherited ANSI and width | unit + source slice matrix |
+| extractSegments | before/after extraction, inherited styling, strict after bound, zero-after-length early exit | unit + source segment matrix |
 
-## Internal behavior
+Removed later terminal-spacing-mark/conjunct corrections, tab normalization, CR splitting and truncation hyperlink closing. Those later improvements are not frozen behavior. Removed unused generated nonprinting/spacing-mark tables and their generator entries; remaining Unicode 17.0 properties and EAW/RGI data are unchanged.
 
-| TypeScript item | Rust item | Tests |
-|---|---|---|
-| `couldBeEmoji` prefilter | `could_be_emoji` | differential emoji corpus |
-| `graphemeWidth` | `grapheme_width` | all width tests + differential |
-| `truncateFragmentToWidth` | `truncate_fragment_to_width` | truncate unit/differential |
-| `finalizeTruncatedResult` | `finalize_truncated_result` | truncate unit/differential |
-| `AnsiCodeTracker` (all SGR attributes, colors, OSC 8) | `AnsiCodeTracker` | wrap/truncate/slice/segments unit + differential |
-| `updateTrackerFromText` | `update_tracker_from_text` | wrap state tests |
-| `splitIntoTokensWithAnsi` | `split_into_tokens_with_ansi` | wrap tests |
-| `wrapSingleLine` | `wrap_single_line` | wrap tests |
-| `breakLongWord` | `break_long_word` | wrap long-token tests |
-| width cache (512 entries, FIFO eviction) | omitted | no observable output difference; pure recomputation |
+Later-only stripTerminalSequences/getGraphemeCellRange/getOsc8LinkAtColumn are absent from frozen exports. Their internal Rust implementations remain for Q2/Q13 consumers with local unit tests only; impossible differential calls to nonexistent frozen exports were removed. The retained inventory is in the Q1 report.
 
-## Unicode data
-
-- `unicode_tables.rs` is generated by `crates/pi-tui/scripts/generate-unicode-tables.mjs`.
-- Character properties (`Default_Ignorable_Code_Point`, `Control`, `Format`, `Mark`, `Surrogate`, `Spacing_Mark`, CJK `Script_Extensions`) are range tables evaluated with Node 26.11.1 (ICU 78.3, Unicode 17.0).
-- East Asian Width ranges are copied from `get-east-asian-width` 1.6.0 (`fullwidthRanges`, `wideRanges`), the exact package pinned by `packages/tui/package.json`.
-- `RGI_EMOJI` is the union of Unicode 17.0 `emoji-sequences.txt` (Basic_Emoji, keycaps, modifier sequences, flags, tag sequences) and `emoji-zwj-sequences.txt`. The generator asserts every listed sequence matches Node's `^\p{RGI_Emoji}$`. The differential test compares widths for all RGI-relevant codepoint samples, `cp + U+FE0F` pairs, and all 676 regional-indicator pairs.
-- Grapheme segmentation uses `unicode-segmentation` 1.13.3, whose tables are Unicode 17.0.0 (same as Node ICU 78.3).
-
-## Branch coverage highlights
-
-- `visibleWidth`: empty, printable-ASCII fast path, tab expansion, ANSI strip, grapheme sum.
-- `graphemeWidth`: tab, terminal spacing marks, zero-width clusters, emoji, regional indicators, base width, trailing marks, halfwidth/fullwidth forms, Thai/Lao AM.
-- `truncateToWidth`: `maxWidth <= 0`, empty text, ellipsis wider than width, clipped ellipsis, printable-ASCII fast path, contiguous-prefix retention, tab path, overflow/exhaustion, padding, OSC 8 close, reset placement.
-- `wrapTextWithAnsi`: empty input, CRLF/CR/LF splitting, style carry-over, underline-only line-end reset, background preservation, CJK break tokens, long-token breaking, trailing whitespace trim, OSC 8 reopen/close with BEL and ST terminators.
-- `sliceWithWidth` / `extractSegments`: zero length, out-of-range start, wide-grapheme `strict` boundary, pending ANSI attachment, inherited styling for the after segment, `afterLen == 0` early exit.
-
-## Gaps / exclusions
-
-- `getGraphemeSegmenter`/`getWordSegmenter` return JavaScript `Intl.Segmenter` instances. Rust exposes no equivalent object; the same segmentation is applied internally. The word segmenter is not used by this module or by any ported leaf.
-- `cjkBreakRegex` and `PUNCTUATION_REGEX` are JavaScript `RegExp` values. Rust exposes the predicates (`is_cjk_break`, `is_punctuation_char`) instead of regex objects; typed Rust callers cannot pass non-string values.
-- `extractAnsiCode` positions and lengths are UTF-16 code units in TypeScript and byte offsets in Rust. Sequences are ASCII-framed, so results agree whenever the position is the ESC byte; differential tests compare the extracted sequence stream rather than raw lengths. Callers must pass char-boundary byte offsets.
-- The TypeScript width cache is omitted; it has no observable effect.
-- JavaScript callers passing non-string values are excluded by the typed Rust API (decision 2026-08-12).
-
-## Discrepancies
-
-None found. `isOsc11...`-style behavior is not in this module. The source's `getOsc8LinkAtColumn` recomputes tab width with a redundant `segment === "\t" ? 3` branch; Rust uses `grapheme_width` (which already returns 3 for a tab). Output is identical and covered by differential tests.
-
-The SGR parser's `Number.parseInt(part, 10)` is equivalent to `parse::<i64>` here: the parameter string is validated as ASCII digits and `;` before splitting, and only the values 38/48 select a branch (oversized values fail the Rust parse and cannot equal 38/48 in JavaScript either).
-
-## Q1 re-pin audit (2026-10-21)
-
-Reference: immutable `4f9e6f8a4`. Removed later spacing-mark/conjunct widths, tab normalization, CR splitting and truncation hyperlink-close behavior; frozen output governs even where later changes improved terminal rendering. `stripTerminalSequences`, `getGraphemeCellRange`, `getOsc8LinkAtColumn` are absent from frozen utils; their internal Rust implementations remain for Q2/Q13 consumers, with local unit tests only. Removed impossible frozen differential calls, not assertions on an existing frozen API. Module proof pending final focused gate.
+Representation boundaries: positions/lengths are UTF-8 bytes rather than UTF-16 units; tests compare extracted ANSI streams at valid character boundaries. JS Intl.Segmenter/RegExp objects are represented by Rust operations/predicates, not returned JS host objects. Width caching and pooled tracker reuse are omitted because pure recomputation has the same outputs. Invalid JS runtime input types remain excluded by the typed API.

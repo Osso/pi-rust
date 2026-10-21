@@ -1,89 +1,36 @@
-# terminal.ts traceability
+# terminal.ts frozen traceability
 
-Source: `packages/tui/src/terminal.ts` (594 lines, pinned revision in
-`docs/porting/source-lock.json`). Rust: `crates/pi-tui/src/terminal.rs`.
+Reference: immutable `4f9e6f8a4`, `packages/tui/src/terminal.ts` (567 lines).
+Rust: `crates/pi-tui/src/terminal.rs`. [Q1 proof](../q1-tui-core-proof.md).
 
-## Exported symbols
+| Export/function group | Rust mapping and exact behavior | Proof |
+|---|---|---|
+| `KeyboardProtocolNegotiationSequence`, `parseKeyboardProtocolNegotiationSequence`, prefix check | f64 finite flags, anchored decimal Kitty/DA grammar, partial-prefix buffering | unit + differential, including flags beyond u32/u64 |
+| `isAppleTerminalSession`, `normalizeAppleTerminalInput` | macOS + Apple_Terminal only; bare CR plus native Shift becomes CSI-u Shift+Enter | unit + differential |
+| `TerminalRawModeError`, cause formatting, `isTerminalRawModeFailure` | typed enable/restore messages and case-insensitive Bun errno prefix | unit + differential |
+| `Terminal`, `ProcessTerminal`, getters | event-queue/poll adaptation; dimensions use terminal size then env/default; getter flags exposed | unit, real PTYs/pipes |
+| constructor/write-log initialization | configured file or local `tui-YYYY-MM-DD_HH-MM-SS-<pid>.log` in configured directory | real frozen write differential in America/Chicago; timestamp checked against invocation interval |
+| `start`, raw-mode switch, resize setup, `setupStdinBuffer` | raw mode only for TTY stdin; bracketed paste; fixed 10ms buffer; worker with stateful UTF-8 decoding | real frozen PTY/pipe differential |
+| query/push, read/set/clear/flush negotiation buffer and timer | request flags 7, query flags and DA; 150ms fragment reassembly; nonzero Kitty/zero-or-DA modifyOtherKeys; forward unrelated input | unit + real fragmented negotiation |
+| `forwardInputSequence`, paste callback | Apple-only normalization, paste rewrapped with bracket markers | differential helpers + real ordered input/paste events |
+| enable/disable modifyOtherKeys | exact control bytes, idempotence guards | unit + real DA/Kitty/late-response cases |
+| `enableWindowsVTInput` | not implemented on Linux | approved native gap; [native classification](native-modifiers.md) |
+| `drainInput` | disables protocol first, suppresses forwarded input, extends idle window on **raw chunks**, including consumed negotiation replies | real frozen late-response idle-boundary differential |
+| `stop` | progress clear, paste disable, protocol pop/reset, worker cancellation/join, raw restoration | exact full-stream bytes and exact termios restoration across two lifetimes |
+| `write` + write-log failure | output bytes, append payload; logging error intentionally ignored without creating missing parents | unit I/O-error queue + real frozen logging side-effect differential |
+| moveBy/hide/show/clearLine/clearFromCursor/clearScreen/setTitle | source escape sequences | capturing-terminal/core render tests |
+| progress interval/keepalive and clear | source active OSC and clear `OSC 9;4;0; BEL`; polling drives keepalive | unit + real start/drain/stop output |
 
-| TS symbol | Rust item | Tests |
-| --- | --- | --- |
-| `KeyboardProtocolNegotiationSequence` | `KeyboardProtocolNegotiationSequence` | `parses_keyboard_protocol_negotiation_sequences` |
-| `parseKeyboardProtocolNegotiationSequence` | `parse_keyboard_protocol_negotiation_sequence` | unit + differential |
-| `isAppleTerminalSession` | `is_apple_terminal_session(platform, term_program)` | `detects_apple_terminal_only_on_macos_with_the_apple_program` |
-| `normalizeNativeShiftEnterInput` | `normalize_native_shift_enter_input` | 4 unit tests + differential |
-| `TerminalRawModeError` | `TerminalRawModeError` (`Display`, `Error`) | `converts_raw_mode_failures_into_typed_errors` |
-| `isTerminalRawModeFailure` | `is_terminal_raw_mode_failure` | typed + message-prefix tests + differential |
-| `normalizeAppleTerminalInput` | `normalize_apple_terminal_input` | 4 unit tests + differential |
-| `Terminal` | `Terminal` trait + `TerminalEvent` | every TUI test uses a `VirtualTerminal` implementation |
-| `resolveEscapeTimeoutMs` | `resolve_escape_timeout_ms` | 5 unit tests + differential |
-| `ProcessTerminal` | `ProcessTerminal`; Rust-native `Terminal::crash_restore` / `TerminalRestore::{publish_tui, restore_then}` publish saved termios and stop bytes across threads | negotiation/progress/dimension tests; coding-agent `interactive_crash::worker_restore_matches_normal_ui_stop_bytes` (real PTY, regular/fullscreen, progress, color notifications, Kitty/modifyOtherKeys, exact bytes and termios) |
+## Re-pin changes
 
-## Branches
+Removed later `resolveEscapeTimeoutMs`/SSH override API and `normalizeNativeShiftEnterInput` export. Preserved finite large flags and long finite colors. Write-log local date/pid and no-mkdir error behavior now match frozen.
 
-| Source branch | Rust item | Tests |
-| --- | --- | --- |
-| kitty-flags response regex / device-attributes regex | `parse_keyboard_protocol_negotiation_sequence` | parse test + differential |
-| negotiation prefix (`ESC [`, `ESC [ ? [\d;]*`) | `is_keyboard_protocol_negotiation_sequence_prefix` | split-CSI replay test |
-| `PI_TUI_ESC_TIMEOUT` finite/positive override | `resolve_escape_timeout_ms` (`Number(string)` via `pi_js_compat::number::parse_number`) | override/invalid tests, `environment_numbers_use_javascript_number_parsing` |
-| SSH defaults (100 ms) vs 10 ms | `resolve_escape_timeout_ms` | SSH/default tests |
-| native Shift+Enter rewrite only for `\r` + shift | `normalize_native_shift_enter_input` | rewrite/no-op tests |
-| raw-mode error message by flag | `TerminalRawModeError::Display` | typed-error test |
-| Bun `setRawMode failed with errno:` message detection | `is_terminal_raw_mode_failure` | message test |
-| start: bracketed paste, raw mode, query, stdin reader | `ProcessTerminal::start` | negotiation harness; differential TUI start writes |
-| negotiation buffer: append, prefix pending, replay | `read_keyboard_protocol_negotiation_sequence`, `flush_*` | split confirmation + CSI replay |
-| 150 ms fragment flush timer | `keyboard_protocol_flush_deadline` via `poll_at` | CSI replay test |
-| kitty flags non-zero → activate, zero → modifyOtherKeys | `handle_keyboard_protocol_negotiation_sequence` | three fallback tests |
-| device attributes → modifyOtherKeys when kitty inactive | same | DA test |
-| normal input forwarded while negotiating | `forward_input_sequence` | forward test |
-| paste re-wrapped as `ESC[200~…ESC[201~` | `dispatch_stdin_events` | exercised through `StdinBuffer`; no dedicated terminal test (stdin-buffer slice owns paste parsing) |
-| drainInput disables kitty/modifyOtherKeys and waits | `drain_input` | gap: real stdin timing |
-| stop: progress clear, paste off, kitty disable, buffer destroy, raw restore | `ProcessTerminal::stop` | kitty/modifyOtherKeys stop assertions |
-| write log path (dir → timestamped file, else as-is) | `write_log_path`/`append_write_log` | gap: debug artifact only |
-| columns/rows fallbacks | `resolve_columns`/`resolve_rows` (`Number(string)`) | dimension test, `environment_numbers_use_javascript_number_parsing` |
-| progress OSC 9;4 active/clear + 1 s keepalive | `set_progress`/`refresh_progress_keepalive` | clear-sequence test |
-| write log errors ignored | `append_write_log` | gap: I/O failure injection |
+The real-stream `terminal_stream` target runs frozen ProcessTerminal and Rust as separate real stdin/stdout processes under Python-created private PTYs in the mandatory sandbox. It reproduces split UTF-8 across OS reads, fragmented negotiation, DA fallback, repeated terminal lifetimes, redirected pipes, resize, paste, late raw negotiation during drain and termios restoration. REDs found lossy per-read decoding, an old reader stealing the next lifetime's response, ENOTTY startup and premature idle exit; all fixed at those boundaries.
 
-## Differential
+The driver waits for DRAINING before injecting late data (300ms idle, 1000ms max). The old 20ms wall-clock injection could run after frozen restored raw mode under concurrent compilation; the handshake fixes the test, not production state.
 
-`crates/pi-tui/tests/differential_terminal.rs` runs
-`oracle/tui-core-oracle.ts` over ten environments and compares
-`resolveEscapeTimeoutMs`, six negotiation sequences, six normalization cases, and
-three raw-mode failure cases exactly.
+## Representation and pending classification
 
-## Deviations and gaps
+Callbacks/Promise timers become event queues and synchronous polling. Resize and progress are polled; original termios is restored. Stream I/O failures use `TerminalIoError`/`take_errors`; the Rust crash-restore handle is a native runtime detail, not a frozen package-root export.
 
-- `Terminal::start` takes no callbacks. Events are pulled with
-  `Terminal::poll_events` and `TerminalEvent::{Input,Resize}`. This avoids
-  re-entrant `RefCell` borrows and lets `ProcessTerminal` own a stdin reader
-  thread that cannot call back into non-`Send` TUI state.
-- `drainInput` is synchronous (`fn drain_input(max_ms, idle_ms)`) instead of
-  returning a JS `Promise`.
-- `start` returns `Result<(), TerminalRawModeError>` instead of throwing. The Bun
-  `setRawMode` error-event path cannot be injected through a Rust `stdin`; the
-  typed error and message detection are tested directly.
-- `ProcessTerminal` stores the original `Termios` and restores it on stop instead
-  of `setRawMode(wasRaw)`. Same observable raw-mode restoration, stronger state.
-- Resize detection polls `tcgetwinsize` in `poll_events` instead of installing a
-  SIGWINCH handler (signal handlers require unsafe).
-- Progress keepalive is checked in `poll_events` instead of a `setInterval`.
-- `PI_TUI_WRITE_LOG` directory filenames use `tui-<unix-seconds>-<pid>.log`
-  instead of a local `YYYY-MM-DD_HH-MM-SS` timestamp.
-- `PI_TUI_ESC_TIMEOUT`/`COLUMNS`/`LINES` use `pi_js_compat::number::parse_number`, so hex/binary/octal literals and `Infinity` match JS `Number`.
-
-## Q1 re-pin audit (2026-10-21)
-
-Reference: immutable `4f9e6f8a4`. Removed later escape-timeout env/SSH helper and native Shift normalization export. ProcessTerminal uses fixed 10ms stdin buffering and Apple-only Shift+Enter. Progress clear is the frozen OSC 9;4;0;BEL (extra semicolon); capture-output differential RED/GREEN compares actual setProgress calls without touching a live terminal. Existing negotiation event tests cover split input, zero/nonzero flags, DA fallback and stop.
-
-Finite Kitty flag numbers beyond u32/u64 are represented as f64 and match parseInt output; flags 4294967296 and 18446744073709551616 have differential RED proof. Non-finite flag reports and negative/fractional/non-finite environment dimensions remain explicit numeric-domain gaps pending user classification.
-
-Q1 parent-directed write-log closure: directory filenames now use frozen local YYYY-MM-DD_HH-MM-SS plus pid, not Unix seconds. `differential_terminal_write_log` compares a real frozen ProcessTerminal write, validates the local timestamp against the invocation interval in America/Chicago, and checks exact payload. Failed logging never creates missing parent directories, matching the frozen catch-and-ignore branch. RED filename `/tmp/q1-write-log-red.log`, RED side effect `/tmp/q1-write-log-parent-red.log`.
-
-## Real-stream Q1 proof
-
-`terminal_stream` is a harness-free integration target driven by Python-created private PTYs inside the mandatory runner. It runs the unmodified frozen ProcessTerminal and the Rust terminal as separate real stdin/stdout processes. Matrix: fragmented Kitty negotiation plus UTF-8 split across OS writes; DA fallback through two start/drain/stop lifetimes; redirected non-TTY pipes. Each compares complete output bytes, ordered input/paste events, resize dimensions, active negotiation state, exit status and exact termios restoration. Late input during drain is not forwarded.
-
-RED logs `/tmp/q1-stream-red2.log`, `/tmp/q1-stream-restart-red.log`, `/tmp/q1-stream-pipe-red.log` prove three actual boundaries: lossy per-read UTF-8 conversion; stopped reader stealing the next lifecycle negotiation response; ENOTTY raw-mode failure where frozen skips absent setRawMode. Fixes retain incomplete UTF-8 across reads; poll stdin with a bounded cancellation deadline and join the old reader before stop returns; switch termios only for real TTY stdin. No host terminal is accessed.
-
-Real drain timing also matches raw stdin activity, including late negotiation responses that produce no input event. Direct RED `/tmp/q1-stream-drain-red.log` shows Rust stopping before the idle extension while frozen waits; drain now updates idle time from received chunks before evaluating the idle boundary.
-
-The PTY driver synchronizes on an explicit DRAINING marker before injecting the late response, using a 300ms idle window with a 1000ms maximum. This avoids relying on a 20ms parent scheduling delay under concurrent compilation; frozen output had demonstrated the old fixture could inject after raw-mode restoration. The source and Rust production idle semantics are unchanged by this fixture repair.
+Frozen lines 501-506 return negative/fractional/±Infinity env dimensions; Rust usize cannot. Frozen line 28 permits Infinity flags from 400 decimal digits; Rust currently rejects non-finite flags. Parent deferred these numeric domains to user classification; coverage remains **partial**, not done. Exact captures: `/tmp/pi-rust-repin-tui-core/numeric-domains.log`.

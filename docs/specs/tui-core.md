@@ -13,3 +13,11 @@ Internal later-only component/interactive helpers remain pending Q2/Q13; they ar
 ## Explicit unresolved boundaries
 
 Non-finite RGB channels/Kitty flags and negative/fractional/non-finite terminal dimensions are pending user classification, not approved semantic deviations. Native Darwin modifiers and Windows VT-console helper remain approved platform gaps. Existing Rust driver-owned scheduling/event queues, byte-offset text APIs and valid-Unicode Strings remain representation adaptations; unrestricted JS number/surrogate behavior is not claimed.
+
+## Stateful and process boundaries
+
+The global keybinding manager preserves shared mutation identity across returned handles; registry replacement does not mutate old holders. Debug/crash default paths resolve HOME/.pi/agent regardless of PI_CODING_AGENT_DIR. PI_TUI_DEBUG emits complete diagnostic payloads under /tmp/tui; redraw-log append errors propagate like frozen. Write-log directory filenames use local YYYY-MM-DD_HH-MM-SS and pid; ignored logging failures create no missing parent.
+
+Real terminal lifetimes preserve partial UTF8 across OS reads, reclaim the old stdin worker before restart, skip unavailable raw-mode operations for redirected stdin and extend drain idle time on raw data even if consumed as a protocol response. These contracts are proved against frozen using private sandbox PTYs/pipes, not a live terminal.
+
+[Current proof and pending numeric domains](../porting/q1-tui-core-proof.md).
