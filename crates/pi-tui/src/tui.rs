@@ -324,7 +324,7 @@ pub struct FlowRenderRegionLayout {
     pub viewport_height: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct CursorPosition {
     pub row: usize,
     pub col: usize,
@@ -688,7 +688,7 @@ struct TuiBaseInner {
     show_hardware_cursor: Cell<bool>,
     clear_on_shrink: Cell<bool>,
     termux_session: Cell<bool>,
-    debug_redraw: Cell<bool>,
+    debug_redraw: Cell<Option<bool>>,
     full_redraw_count: Cell<usize>,
     stopped: Cell<bool>,
     pending_osc11_queries: RefCell<VecDeque<Rc<RefCell<Osc11QueryState>>>>,
@@ -739,7 +739,7 @@ impl TuiBase {
             ),
             clear_on_shrink: Cell::new(environment_flag("PI_CLEAR_ON_SHRINK")),
             termux_session: Cell::new(pi_js_compat::process_env::get("TERMUX_VERSION").is_some()),
-            debug_redraw: Cell::new(environment_flag("PI_DEBUG_REDRAW")),
+            debug_redraw: Cell::new(None),
             full_redraw_count: Cell::new(0),
             stopped: Cell::new(false),
             pending_osc11_queries: RefCell::new(VecDeque::new()),
@@ -806,7 +806,7 @@ impl TuiBase {
 
     /// Explicit override for the source's `PI_DEBUG_REDRAW` environment check.
     pub fn set_debug_redraw(&self, enabled: bool) {
-        self.inner.debug_redraw.set(enabled);
+        self.inner.debug_redraw.set(Some(enabled));
     }
 
     fn is_termux_session(&self) -> bool {
@@ -814,7 +814,10 @@ impl TuiBase {
     }
 
     fn debug_redraw(&self) -> bool {
-        self.inner.debug_redraw.get()
+        self.inner
+            .debug_redraw
+            .get()
+            .unwrap_or_else(|| environment_flag("PI_DEBUG_REDRAW"))
     }
 
     pub fn get_focused_component(&self) -> Option<ComponentRef> {
@@ -2288,11 +2291,11 @@ fn environment_flag(name: &str) -> bool {
 }
 
 fn default_log_directory() -> PathBuf {
-    if let Some(directory) = pi_js_compat::process_env::get("PI_CODING_AGENT_DIR") {
-        return PathBuf::from(directory);
-    }
-    let home = pi_js_compat::process_env::get("HOME").unwrap_or_else(|| ".".to_string());
-    PathBuf::from(home).join(".pi").join("agent")
+    let home = pi_js_compat::process_env::get("HOME")
+        .map(PathBuf::from)
+        .or_else(std::env::home_dir)
+        .expect("the terminal home directory must resolve");
+    home.join(".pi").join("agent")
 }
 
 fn find_upward_viewport_top_after_shrink(
@@ -2511,13 +2514,13 @@ fn log_redraw(base: &TuiBase, reason: &str, previous: usize, new: usize, height:
     let timestamp = log_timestamp();
     let message = format!("[{timestamp}] fullRender: {reason} (prev={previous}, new={new}, height={height})\n");
     let path = base.log_directory().join("pi-debug.log");
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
     use std::io::Write;
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = file.write_all(message.as_bytes());
-    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .expect("open TUI redraw log");
+    file.write_all(message.as_bytes()).expect("append TUI redraw log");
 }
 
 fn write_crash_log(base: &TuiBase, width: usize, line_index: usize, new_lines: &[String]) -> PathBuf {
@@ -2532,10 +2535,73 @@ fn write_crash_log(base: &TuiBase, width: usize, line_index: usize, new_lines: &
     }
     data.push('\n');
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        std::fs::create_dir_all(parent).expect("create TUI crash log directory");
     }
-    let _ = std::fs::write(&path, data);
+    std::fs::write(&path, data).expect("write TUI crash log");
     path
+}
+
+struct RenderDebug {
+    first_changed: i64,
+    viewport_top: i64,
+    line_diff: i64,
+    hardware_cursor_row: i64,
+    render_end: i64,
+    final_cursor_row: i64,
+}
+
+fn random_debug_suffix() -> String {
+    use std::io::Read;
+    let mut bytes = [0; 8];
+    std::fs::File::open("/dev/urandom")
+        .expect("open debug filename entropy")
+        .read_exact(&mut bytes)
+        .expect("read debug filename entropy");
+    let mut value = u64::from_ne_bytes(bytes) >> 11;
+    let mut suffix = Vec::new();
+    loop {
+        let digit = (value % 36) as u32;
+        suffix.push(char::from_digit(digit, 36).expect("base-36 digit"));
+        value /= 36;
+        if value == 0 {
+            break;
+        }
+    }
+    suffix.into_iter().rev().collect()
+}
+
+fn format_render_debug(state: &RenderFrameState, frame: &CommitFrame<'_>, diff: RenderDebug, buffer: &str) -> String {
+    let cursor = serde_json::to_string(&frame.cursor_pos).expect("serialize cursor position");
+    let next = serde_json::to_string_pretty(frame.new_lines).expect("serialize next debug lines");
+    let previous = serde_json::to_string_pretty(&state.previous_lines).expect("serialize previous debug lines");
+    let output = serde_json::to_string(buffer).expect("serialize terminal debug output");
+    let header = format!(
+        "firstChanged: {}\nviewportTop: {}\ncursorRow: {}\nheight: {}\nlineDiff: {}\nhardwareCursorRow: {}\nrenderEnd: {}\nfinalCursorRow: {}\ncursorPos: {cursor}\nnewLines.length: {}\npreviousLines.length: {}",
+        diff.first_changed,
+        diff.viewport_top,
+        state.cursor_row,
+        frame.height,
+        diff.line_diff,
+        diff.hardware_cursor_row,
+        diff.render_end,
+        diff.final_cursor_row,
+        frame.new_lines.len(),
+        state.previous_lines.len()
+    );
+    format!("{header}\n\n=== newLines ===\n{next}\n\n=== previousLines ===\n{previous}\n\n=== buffer ===\n{output}")
+}
+
+fn write_render_debug(state: &RenderFrameState, frame: &CommitFrame<'_>, diff: RenderDebug, buffer: &str) {
+    if !environment_flag("PI_TUI_DEBUG") {
+        return;
+    }
+    let directory = PathBuf::from("/tmp/tui");
+    std::fs::create_dir_all(&directory).expect("create /tmp/tui debug directory");
+    let millis = pi_js_compat::date::js_now_millis() as i64;
+    let suffix = random_debug_suffix();
+    let path = directory.join(format!("render-{millis}-{suffix}.log"));
+    let data = format_render_debug(state, frame, diff, buffer);
+    std::fs::write(path, data).expect("write TUI debug dump");
 }
 
 fn full_render(
@@ -2960,6 +3026,19 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
         buffer.push_str(&format!("\x1b[{extra_lines}A"));
     }
     buffer.push_str("\x1b[?2026l");
+    write_render_debug(
+        state,
+        &frame,
+        RenderDebug {
+            first_changed,
+            viewport_top,
+            line_diff,
+            hardware_cursor_row,
+            render_end,
+            final_cursor_row,
+        },
+        &buffer,
+    );
     base.terminal().borrow_mut().write(&buffer);
 
     state.cursor_row = (new_lines.len() as i64 - 1).max(0);

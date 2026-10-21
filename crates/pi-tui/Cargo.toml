@@ -16,8 +16,9 @@ unicode-segmentation = "=1.13.3"
 regex = "=1.13.1"
 # Executes the lookaround/backreference grammar ported from marked 18.0.5.
 fancy-regex = "=0.16.2"
-# Serializes the ported marked token model for differential comparison.
+# Serializes marked tokens and exact TUI debug-dump JSON payloads.
 serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
 # ICU4X word segmentation: dictionary/LSTM behavior matching Intl.Segmenter.
 icu_segmenter = "=2.3.0"
 # Async process I/O for fd-backed file suggestions and AbortSignal cancellation.
@@ -27,8 +28,6 @@ tokio-util = { version = "=0.7.20", features = ["rt"] }
 rustix = { version = "=1.1.5", features = ["termios"] }
 
 [dev-dependencies]
-# Drives JSON-lines differential requests against the pinned TypeScript source.
-serde_json = "=1.0.151"
 # Creates isolated directory trees for path-completion tests.
 tempfile = "=3.27.0"
 # Kills oracle process groups so a failed differential leaves no tsx/node children.

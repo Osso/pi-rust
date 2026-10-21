@@ -1,6 +1,8 @@
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 import * as path from "node:path";
+import * as fs from "node:fs";
+import * as os from "node:os";
 
 type RequestId = string | number | null;
 
@@ -386,6 +388,42 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 	};
 }
 
+async function captureTuiDebugFailure(request: Request, sourceDirectory: string): Promise<unknown> {
+    const { TUI } = await loadApi(sourceDirectory, "tui.ts") as { TUI: new (terminal: CaptureTerminal) => any };
+    process.env.HOME = request.home as string;
+    process.env.PI_DEBUG_REDRAW = "1";
+    const tui = new TUI(new CaptureTerminal(20, 5));
+    tui.addChild({ render: () => ["first"], invalidate: () => {} });
+    try {
+        tui.doRender();
+        return { failed: false };
+    } catch {
+        return { failed: true };
+    }
+}
+
+async function captureTuiDebug(sourceDirectory: string): Promise<unknown> {
+    const { TUI } = await loadApi(sourceDirectory, "tui.ts") as { TUI: new (terminal: CaptureTerminal) => any };
+    const logDirectory = path.join(os.homedir(), ".pi", "agent");
+    fs.mkdirSync(logDirectory, { recursive: true });
+    process.env.PI_CODING_AGENT_DIR = path.join(os.homedir(), "wrong-agent-dir");
+    let lines = ["first"];
+    const terminal = new CaptureTerminal(20, 5);
+    const tui = new TUI(terminal);
+    process.env.PI_DEBUG_REDRAW = "1";
+    process.env.PI_TUI_DEBUG = "1";
+    tui.addChild({ render: () => lines, invalidate: () => {} });
+    tui.start();
+    await settle();
+    lines = ["changed"];
+    tui.requestRender();
+    await settle();
+    tui.stop();
+    const debug = fs.readFileSync(path.join(logDirectory, "pi-debug.log"), "utf8").replace(/\[[^\]]+\]/g, "[TIME]");
+    const dumps = fs.readdirSync("/tmp/tui").map((name) => fs.readFileSync(path.join("/tmp/tui", name), "utf8")).sort();
+    return { debug, dumps };
+}
+
 async function captureTerminalNumericDomains(request: Request, sourceDirectory: string): Promise<unknown> {
 	const api = await loadApi(sourceDirectory, "terminal.ts") as {
 		ProcessTerminal: new () => { columns: number; rows: number };
@@ -411,6 +449,10 @@ async function captureTerminalNumericDomains(request: Request, sourceDirectory: 
 
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
 	switch (request.operation) {
+		case "tui_debug_failure":
+			return captureTuiDebugFailure(request, sourceDirectory);
+		case "tui_debug":
+			return captureTuiDebug(sourceDirectory);
 		case "terminal_numeric_domains":
 			return captureTerminalNumericDomains(request, sourceDirectory);
 		case "keybindings":
