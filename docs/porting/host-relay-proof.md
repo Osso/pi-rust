@@ -22,10 +22,11 @@ Every Cargo invocation used `CARGO_BUILD_JOBS=4` and `CARGO_TARGET_DIR=/home/oss
 | Implementation `f86b567e` | `cargo test -p pi-coding-agent --test host_relay --test host_relay_protocol --test host_relay_store --test host_relay_resident --no-fail-fast -- --nocapture` | `green-followup.log`: 20/20 pass, zero warnings |
 | Final implementation `3a95c8e8` | Same focused command | `green-final.log`: 20 tests pass; added custom-kind test initially asserted the wrong runtime projection rather than canonical storage |
 | Corrected custom-kind fixture, same production code | `cargo test -p pi-coding-agent --test host_relay_store custom_kind_survives_frozen_queue_native_import_and_frozen_read -- --exact --nocapture` | `green-custom-kind.log`: pass. Frozen SQLite reads literal `custom`; frozen runtime-message projection normalizes it, as native projection already does. Higher-sequence retry preserves original canonical bytes. Combined current focused proof: 21 passing tests, no ignores. |
-| Whole workspace/types | `cargo check --workspace --all-targets` | `cargo-check-final.log`: exit 0, zero warnings; no new production code after this check |
+| Final current fixture/code, `d9d18bbe` | Same four-target focused command after the canonical SQL-read correction | `green-complete.log`: exit 0, 21/21 pass, zero warnings, no ignores. This rerun followed the relevant test-source correction and also rebuilt the restored non-mutant binaries. |
+| Whole workspace/types, `d9d18bbe` | `cargo check --workspace --all-targets` | `cargo-check-complete.log`: exit 0, zero warnings; no new code after this check |
 | Formatting | `cargo fmt --check` before each commit | exit 0 |
 
-All evidence paths are under `/tmp/pi-rust-repin-host-relay/`. Later documentation-only edits do not invalidate production proofs; the SQL-read test correction is compiled/passed by the exact focused command. Tests were not rerun merely for a commit milestone.
+All evidence paths are under `/tmp/pi-rust-repin-host-relay/`. Later documentation-only edits do not invalidate the final proofs. The failed custom-kind assertion was corrected to observe canonical bytes, not the frozen API's intentionally normalized projection; the four focused targets then passed together. Tests were not rerun merely for a commit milestone.
 
 ## Production mutants
 
