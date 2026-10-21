@@ -8,9 +8,9 @@ Rust: `providers/models_data.rs`, `model_catalogs_generated.rs`, and exactly 36 
 
 | Export/branch | Native representation | Focused proof |
 |---|---|---|
-| `models.generated.ts::MODELS` | ordered static include table | every_literal_value_order_and_lookup_matches_source: every provider key, model key/value, absent key/provider; development RED recorded, GREEN pending |
-| Every literal model field, omission, nested map/array | existing Model, no shared-type changes | every_source_record_roundtrips_native_model_without_field_loss: all 1058 values, initial GREEN |
-| Literal GC/Team vs operational Codex aliases | independent literal records vs unchanged default-loader/rewrite factory | codex_factory_aliases_use_default_while_literal_aliases_remain_distinct_and_fresh: actual source values and independent fresh native copies; RED recorded, GREEN pending |
+| `models.generated.ts::MODELS` | ordered static include table | every_literal_value_order_and_lookup_matches_source: every provider key, model key/value, absent key/provider; development RED → GREEN (all providers/records) |
+| Every literal model field, omission, nested map/array | existing Model, no shared-type changes | every_source_record_roundtrips_native_model_without_field_loss: all 1058 values, GREEN |
+| Literal GC/Team vs operational Codex aliases | independent literal records vs unchanged default-loader/rewrite factory | codex_factory_aliases_use_default_while_literal_aliases_remain_distinct_and_fresh: actual source values and independent fresh native copies; RED → GREEN |
 
 All shard exports map to the same direct loader and both full-value tests above, not separate provider factory proofs:
 
@@ -57,6 +57,8 @@ All shard exports map to the same direct loader and both full-value tests above,
 
 `data/providers/.manifest.json` records source export, common commit, SHA-256 of all 37 actual imported source files, and every native JSON payload. `oracle/chat-catalog-oracle.ts` imports `models.generated.ts` directly via locked TsOracle under mandatory Cargo isolation; explicit export uses `python3 scripts/test-sandbox.py -- <pinned-tsx> ... --export`. No generator, provider implementation, network source, or invented catalog fixture participates.
 
+At this pin GC/Team literal values equal default+provider rewrite; the literals remain separately keyed/cataloged. No unequal-pricing claim is made.
+
 All 1058 source keys equal model.id. IDs repeat across providers (774 globally distinct); each provider's full ordered record is compared without global deduplication. Runtime exported records have unique keys by JavaScript object semantics. No old grouped flatten/dedup contract is carried into the direct loader.
 
 Deleted old-only azure-openai-responses, baseten, qwen-token-plan, qwen-token-plan-cn, qwen-token-plan-individual artifacts; added Team. Public data-URL helper deleted (only in-repo test consumers). Timestamp API retained only for `pi-coding-agent/src/core/model_runtime.rs:21,217`; no generatedAt in new provenance, so None. This is a staged dependency, not parity approval.
@@ -64,3 +66,11 @@ Deleted old-only azure-openai-responses, baseten, qwen-token-plan, qwen-token-pl
 Old `model_catalog_generator` and `model_data_tools::native_model_data_structure`/checker still expect grouped JSON and schema-3 maintenance manifests; untouched, not ported or accepted here. Existing old provider differential imports all.ts/index and removed timestamp export; not used as this proof. Whole providers/all.ts, provider helpers/factories, global Model APIs, readonly-vs-mutable TS alias identity, image catalogs and maintenance generators retain their own coverage labels.
 
 37 source rows remain partial pending parent integration gates; focused development proof is not workspace/final acceptance.
+
+## Targeted development evidence
+
+`cargo test -p pi-ai --test differential_chat_catalog -- --nocapture`: 4/4 pass at e778072a; every 1058 source value/lookup and all ordered provider/model keys, Model losslessness, actual 37-file provenance/native-byte hashes, both alias paths/fresh copies. `providers` target exact staged-timestamp test: 1/1. All under mandatory Cargo runner, worktree-local target, jobs=4.
+
+Five production-artifact mutants killed by the full-record lookup test: changed cost, swapped model order, omitted optional thinkingLevelMap, duplicate model.id under extra key, removed Team include entry. Mutants restored byte-for-byte to e778072a; existing GREEN remains valid. No broad suites/final gates run.
+
+Bounded legacy test probe exposed `providers.rs::catalog_keeps_ts_generated_order_and_metadata` (hardcoded 17 vs frozen 19 Anthropics) and `every_catalog_api_dispatches_to_an_implementation` (`builtin_providers` → old baseten factory → missing authorized-deleted catalog). These are staged consumers outside this slice; no runtime/factory redesign or test weakening was performed. Old generator/checker and old broader differentials remain integration work.
