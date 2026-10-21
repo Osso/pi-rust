@@ -42,9 +42,47 @@ impl JsString {
         self.0.push(unit);
     }
 
+    pub fn find(&self, text: impl Into<Self>) -> Option<usize> {
+        find_unit_sequence(&self.0, text.into().units())
+    }
+
     pub fn contains(&self, text: impl Into<Self>) -> bool {
-        let text = text.into();
-        text.is_empty() || self.0.windows(text.len()).any(|window| window == text.units())
+        self.find(text).is_some()
+    }
+
+    /// JavaScript `slice` with nonnegative unit offsets.
+    pub fn slice(&self, start: usize, end: usize) -> Self {
+        let start = start.min(self.len());
+        let end = end.min(self.len()).max(start);
+        Self(self.0[start..end].to_vec())
+    }
+
+    /// Literal global replacement, retaining unmatched units in both operands.
+    pub fn replace(&self, pattern: impl Into<Self>, replacement: impl Into<Self>) -> Self {
+        let pattern = pattern.into();
+        let replacement = replacement.into();
+        let mut output = Vec::new();
+        if pattern.is_empty() {
+            for unit in &self.0 {
+                output.extend_from_slice(replacement.units());
+                output.push(*unit);
+            }
+            output.extend_from_slice(replacement.units());
+            return Self(output);
+        }
+        let mut start = 0;
+        while let Some(offset) = find_unit_sequence(&self.0[start..], pattern.units()) {
+            let index = start + offset;
+            output.extend_from_slice(&self.0[start..index]);
+            output.extend_from_slice(replacement.units());
+            start = index + pattern.len();
+        }
+        output.extend_from_slice(&self.0[start..]);
+        Self(output)
+    }
+
+    pub fn replace_range(&mut self, range: std::ops::Range<usize>, replacement: impl Into<Self>) {
+        self.0.splice(range, replacement.into().0);
     }
 
     pub fn starts_with(&self, text: impl Into<Self>) -> bool {
@@ -59,6 +97,11 @@ impl JsString {
         self.0.strip_prefix(prefix.units()).map(|tail| Self(tail.to_vec()))
     }
 
+    pub fn strip_suffix(&self, suffix: impl Into<Self>) -> Option<Self> {
+        let suffix = suffix.into();
+        self.0.strip_suffix(suffix.units()).map(|head| Self(head.to_vec()))
+    }
+
     pub fn encode_utf16(&self) -> impl Iterator<Item = u16> + '_ {
         self.0.iter().copied()
     }
@@ -68,6 +111,33 @@ impl JsString {
         assert_eq!(separator.len(), 1, "split requires one UTF-16 code unit");
         let unit = separator.0[0];
         self.0.split(move |item| *item == unit).map(|part| Self(part.to_vec()))
+    }
+
+    pub fn split_inclusive(&self, separator: char) -> impl Iterator<Item = Self> + '_ {
+        let separator = Self::from(separator);
+        assert_eq!(separator.len(), 1, "split requires one UTF-16 code unit");
+        let unit = separator.0[0];
+        self.0
+            .split_inclusive(move |item| *item == unit)
+            .map(|part| Self(part.to_vec()))
+    }
+
+    pub fn trim_start(&self) -> Self {
+        let start = self
+            .0
+            .iter()
+            .position(|unit| !crate::string::is_js_whitespace_unit(*unit))
+            .unwrap_or(self.len());
+        self.slice(start, self.len())
+    }
+
+    pub fn trim_end(&self) -> Self {
+        let end = self
+            .0
+            .iter()
+            .rposition(|unit| !crate::string::is_js_whitespace_unit(*unit))
+            .map_or(0, |index| index + 1);
+        self.slice(0, end)
     }
 
     pub fn trim(&self) -> Self {
@@ -127,6 +197,41 @@ impl JsString {
     pub fn to_utf8_lossy(&self) -> String {
         encode_node_utf8(self)
     }
+}
+
+fn build_unit_prefix_table(pattern: &[u16]) -> Vec<usize> {
+    let mut prefixes = vec![0; pattern.len()];
+    let mut matched = 0;
+    for index in 1..pattern.len() {
+        while matched > 0 && pattern[index] != pattern[matched] {
+            matched = prefixes[matched - 1];
+        }
+        if pattern[index] == pattern[matched] {
+            matched += 1;
+        }
+        prefixes[index] = matched;
+    }
+    prefixes
+}
+
+fn find_unit_sequence(text: &[u16], pattern: &[u16]) -> Option<usize> {
+    if pattern.is_empty() {
+        return Some(0);
+    }
+    let prefixes = build_unit_prefix_table(pattern);
+    let mut matched = 0;
+    for (index, unit) in text.iter().enumerate() {
+        while matched > 0 && *unit != pattern[matched] {
+            matched = prefixes[matched - 1];
+        }
+        if *unit == pattern[matched] {
+            matched += 1;
+        }
+        if matched == pattern.len() {
+            return Some(index + 1 - matched);
+        }
+    }
+    None
 }
 
 /// Lossless JSON serde uses serde_json's raw-fragment protocol. Deserialize from JSON
