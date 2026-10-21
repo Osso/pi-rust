@@ -632,7 +632,8 @@ async fn steer_without_runtime_identity_reports_unavailable_identity() {
         text(&result),
         "Could not steer agent: subagent runtime identity is unavailable."
     );
-    assert_eq!(result.is_error, Some(true));
+    // Frozen runtime.ts:2801 uses errorResult (402-412), without an isError flag.
+    assert_eq!(result.is_error, None);
 }
 
 #[tokio::test]
