@@ -63,7 +63,7 @@ All 1058 source keys equal model.id. IDs repeat across providers (774 globally d
 
 Deleted old-only azure-openai-responses, baseten, qwen-token-plan, qwen-token-plan-cn, qwen-token-plan-individual artifacts; added Team. Public data-URL helper deleted (only in-repo test consumers). Timestamp API retained only for `pi-coding-agent/src/core/model_runtime.rs:21,217`; no generatedAt in new provenance, so None. This is a staged dependency, not parity approval.
 
-Old `model_catalog_generator` and `model_data_tools::native_model_data_structure`/checker still expect grouped JSON and schema-3 maintenance manifests; untouched, not ported or accepted here. Existing old provider differential imports all.ts/index and removed timestamp export; not used as this proof. Whole providers/all.ts, provider helpers/factories, global Model APIs, readonly-vs-mutable TS alias identity, image catalogs and maintenance generators retain their own coverage labels.
+Old `model_catalog_generator/artifacts.rs:298-301` still writes schema-3 manifests/grouped artifacts, and `model_data_tools.rs:317-330,518-527,616-630` still reads/validates grouped JSON/schema-3 maintenance manifests; untouched, not ported or accepted here. Existing old provider differential imports all.ts/index and removed timestamp export; not used as this proof. Whole providers/all.ts, provider helpers/factories, global Model APIs, readonly-vs-mutable TS alias identity, image catalogs and maintenance generators retain their own coverage labels.
 
 37 source rows remain partial pending parent integration gates; focused development proof is not workspace/final acceptance.
 

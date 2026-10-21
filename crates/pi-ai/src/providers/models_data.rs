@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::types::Model;
 
-// Native include table; generator updates this glue alongside the JSON catalogs.
+// Frozen-source include table; maintenance generator re-pin remains staged.
 include!("model_catalogs_generated.rs");
 
 const MODEL_DATA_MANIFEST: &str = include_str!("../../data/providers/.manifest.json");
