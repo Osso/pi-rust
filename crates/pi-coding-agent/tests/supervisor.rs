@@ -399,6 +399,20 @@ fn blocks_file_access_outside_the_kb_and_symlink_escapes() {
 }
 
 #[test]
+fn supervisor_snapshot_advertises_stable_ready_process_identity() {
+    use pi_coding_agent::supervisor::main::create_supervisor_console_snapshot;
+    let a = create_supervisor_console_snapshot("/fixture", 1, None, Vec::new());
+    let b = create_supervisor_console_snapshot("/fixture", 2, None, Vec::new());
+    let a = serde_json::to_value(a).unwrap();
+    let b = serde_json::to_value(b).unwrap();
+    assert_eq!(a["identity"]["version"], pi_coding_agent::config::version());
+    assert_eq!(a["identity"]["pid"], std::process::id());
+    assert_eq!(a["identity"]["ready"], true);
+    assert_eq!(a["identity"]["instanceId"], b["identity"]["instanceId"]);
+    assert_eq!(a["identity"]["managedBy"], "external");
+}
+
+#[test]
 fn supervisor_settings_and_tool_allowlists_match_the_source() {
     use pi_coding_agent::core::permissions::policy::ApprovalPolicy;
     use pi_coding_agent::core::permissions::presets::SandboxProfileName;
@@ -613,7 +627,7 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_runtime::ModelRunt
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("openai-codex".to_owned()),
         models: Some(vec![FauxModelDefinition {
-            id: "gpt-5.6-sol".to_owned(),
+            id: "gpt-6.1-sol".to_owned(),
             name: Some("Sol".to_owned()),
             reasoning: Some(true),
             input: None,
@@ -626,7 +640,10 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_runtime::ModelRunt
     let runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
         pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
             credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-                serde_json::Map::new(),
+                serde_json::from_value::<Map<String, Value>>(
+                    json!({"openai-codex":{"type":"api_key","key":"faux-key"}}),
+                )
+                .unwrap(),
             ))),
             models_path: Some(None),
             refresh_on_create: Some(false),
@@ -640,7 +657,7 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_runtime::ModelRunt
 }
 
 #[tokio::test]
-async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
+async fn resource_loader_registers_only_the_frozen_kb_gate() {
     use pi_coding_agent::core::extensions::types::{ToolCallEvent, ToolName};
     use pi_coding_agent::core::model_registry::ModelRegistry;
     use pi_coding_agent::core::resource_loader::ResourceLoader;
@@ -660,9 +677,8 @@ async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
         .expect("loader");
     let extensions = loader.get_extensions();
     assert!(extensions.errors.is_empty());
-    assert_eq!(extensions.extensions.len(), 2);
+    assert_eq!(extensions.extensions.len(), 1);
     assert_eq!(extensions.extensions[0].read().tool_gates.len(), 1);
-    assert_eq!(extensions.extensions[1].read().handlers.compaction.len(), 1);
 
     let runtime = faux_codex_runtime().await;
     let runner = pi_coding_agent::core::extensions::ExtensionRunner::new(
@@ -727,7 +743,7 @@ async fn supervisor_session_uses_the_sol_model_and_supervisor_tool_set() {
     .await
     .expect("session");
     assert_eq!(result.session.model().provider, "openai-codex");
-    assert_eq!(result.session.model().id, "gpt-5.6-sol");
+    assert_eq!(result.session.model().id, "gpt-6.1-sol");
     assert_eq!(
         result.session.thinking_level(),
         pi_agent_core::harness::types::ThinkingLevel::Low

@@ -28,7 +28,9 @@ async function loadModules() {
 	const main = await import(supervisorMainPath);
 	const { SessionManager } = await import(`${packagesRoot}/coding-agent/src/core/session-manager.ts`);
 	const { AuthStorage } = await import(`${packagesRoot}/coding-agent/src/core/auth-storage.ts`);
-	const { ModelRuntime } = await import(`${packagesRoot}/coding-agent/src/core/model-runtime.ts`);
+	const { ModelRegistry } = await import(`${packagesRoot}/coding-agent/src/core/model-registry.ts`);
+	const { createAgentSession } = await import(`${packagesRoot}/coding-agent/src/core/sdk.ts`);
+	const { createSupervisorResponseTool } = await import(`${packagesRoot}/coding-agent/src/supervisor/response-tool.ts`);
 	const controlDb = await import(`${packagesRoot}/coding-agent/src/core/session-control-db.ts`);
 	const sqlite = await import(`${packagesRoot}/coding-agent/src/core/sqlite.ts`);
 	const { registerFauxProvider, fauxAssistantMessage, fauxToolCall } = await import(
@@ -39,7 +41,9 @@ async function loadModules() {
 		main,
 		SessionManager,
 		AuthStorage,
-		ModelRuntime,
+		ModelRegistry,
+		createAgentSession,
+		createSupervisorResponseTool,
 		controlDb,
 		sqlite,
 		registerFauxProvider,
@@ -92,7 +96,9 @@ async function run(request: Request) {
 		main,
 		SessionManager,
 		AuthStorage,
-		ModelRuntime,
+		ModelRegistry,
+		createAgentSession,
+		createSupervisorResponseTool,
 		controlDb,
 		sqlite,
 		registerFauxProvider,
@@ -108,7 +114,7 @@ async function run(request: Request) {
 		api: "faux",
 		models: [
 			{
-				id: "gpt-5.6-sol",
+				id: "gpt-6.1-sol",
 				name: "Sol",
 				reasoning: true,
 				contextWindow: 200000,
@@ -126,10 +132,7 @@ async function run(request: Request) {
 	]);
 	const authStorage = AuthStorage.inMemory();
 	await authStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
-	const modelRuntime = await ModelRuntime.create({
-		credentials: authStorage,
-		modelsPath: join(dir, "models.json"),
-	});
+	const modelRuntime = ModelRegistry.create(authStorage, join(dir, "models.json"));
 	const model = faux.getModel();
 	modelRuntime.registerProvider(model.provider, {
 		api: model.api,
@@ -151,10 +154,10 @@ async function run(request: Request) {
 	});
 	const sessionManager = SessionManager.create(dir, sessionDir, { id: "supervisor" });
 	sessionManager.setMetadataControlDbPath(controlDbPath, { indexMessageText: false });
-	const { session } = await main.createSupervisorSession({
+	const { session } = await createAgentSession({
+		cwd: dir, authStorage, model, modelRegistry: modelRuntime, disableRuntimeCoordinationInbound: true,
+		customTools: [createSupervisorResponseTool()], tools: [...main.SUPERVISOR_TOOL_NAMES, "supervisor_response"], excludeTools: main.SUPERVISOR_EXCLUDED_TOOL_NAMES, thinkingLevel: "low",
 		agentDir: dir,
-		kbDir: dir,
-		modelRuntime,
 		resourceLoader: createResourceLoader(createExtensionRuntime()),
 		sessionManager,
 		settingsManager: main.createSupervisorSettingsManager(),

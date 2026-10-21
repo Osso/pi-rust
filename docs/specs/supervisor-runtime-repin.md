@@ -23,3 +23,5 @@ Automatic idle/completion reviews pass non-generic continue instructions through
 Restart recovery appends a result for every unanswered call in the restored pending assistant batch: detached jobs point to background notifications, restart_self succeeds, and other calls report interruption. Already answered calls are not repeated; results precede the restart notice.
 
 Supervisor and Architect session opening use resident-file preparation, retaining a live listener or newest dated resident file and deleting stale candidates/metadata before opening. The approved private-regex delta is unchanged.
+
+Supervisor requires gpt-6.1-sol on an authenticated provider in frozen order: openai-codex, openai-codex-gc, openai-codex-team. The KB-only resource loader registers no old remote-compaction extension. Supervisor snapshots advertise version/process identity, stable per-process instance UUID, readiness, and Pi/external management based on autostart environment.

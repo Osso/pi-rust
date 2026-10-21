@@ -193,9 +193,32 @@ pub fn create_supervisor_console_snapshot(
         session_id: session_id.unwrap_or(SUPERVISOR_SESSION_ID).to_owned(),
         cwd: cwd.to_owned(),
         generation,
-        identity: None,
+        identity: Some(crate::core::resident_console_transport::ResidentConsoleIdentity {
+            version: crate::config::version().to_owned(),
+            pid: std::process::id().into(),
+            executable: std::env::current_exe()
+                .expect("running executable path")
+                .display()
+                .to_string(),
+            entrypoint: std::env::args().nth(1),
+            instance_id: supervisor_instance_id().to_owned(),
+            managed_by: if pi_js_compat::process_env::get(crate::supervisor::ensure_running::SUPERVISOR_AUTOSTART_ENV)
+                .as_deref()
+                == Some("1")
+            {
+                crate::core::resident_console_transport::ResidentManagedBy::Pi
+            } else {
+                crate::core::resident_console_transport::ResidentManagedBy::External
+            },
+            ready: true,
+        }),
         branch,
     }
+}
+
+fn supervisor_instance_id() -> &'static str {
+    static INSTANCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    INSTANCE.get_or_init(pi_ai::utils::uuid::random_uuid)
 }
 
 /// `openSupervisorSession`.
@@ -632,16 +655,10 @@ pub async fn create_supervisor_resource_loader(
     let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
         cwd: kb_dir.to_owned(),
         agent_dir: agent_dir.to_owned(),
-        extension_factories: vec![
-            InlineExtension::Factory {
-                extension_path: None,
-                factory: gate,
-            },
-            InlineExtension::Factory {
-                extension_path: None,
-                factory: crate::bundled_extensions::openai_remote_compact::openai_remote_compact_extension_factory(),
-            },
-        ],
+        extension_factories: vec![InlineExtension::Factory {
+            extension_path: None,
+            factory: gate,
+        }],
         no_context_files: true,
         no_extensions: true,
         no_prompt_templates: true,
@@ -671,14 +688,29 @@ pub struct CreateSupervisorSessionOptions {
     pub settings_manager: Arc<Mutex<SettingsManager>>,
 }
 
+const SUPERVISOR_MODEL_ID: &str = "gpt-6.1-sol";
+const SUPERVISOR_PROVIDERS: [&str; 3] = ["openai-codex", "openai-codex-gc", "openai-codex-team"];
+
+fn require_supervisor_models(runtime: &ModelRuntime) -> Result<Vec<pi_ai::types::Model>, String> {
+    let models: Vec<_> = SUPERVISOR_PROVIDERS
+        .iter()
+        .filter(|provider| runtime.has_configured_auth(provider))
+        .filter_map(|provider| runtime.get_model(provider, SUPERVISOR_MODEL_ID))
+        .collect();
+    if models.is_empty() {
+        return Err(format!(
+            "Pi Supervisor requires {SUPERVISOR_MODEL_ID} on an authenticated provider: {}",
+            SUPERVISOR_PROVIDERS.join(", ")
+        ));
+    }
+    Ok(models)
+}
+
 /// `createSupervisorSession`.
 pub async fn create_supervisor_session(
     options: CreateSupervisorSessionOptions,
 ) -> Result<CreateAgentSessionResult, String> {
-    let model = options
-        .model_runtime
-        .get_model("openai-codex", "gpt-5.6-sol")
-        .ok_or_else(|| "Pi Supervisor requires openai-codex/gpt-5.6-sol".to_owned())?;
+    let model = require_supervisor_models(&options.model_runtime)?.remove(0);
     let mut tools: Vec<String> = SUPERVISOR_TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
     tools.push(SUPERVISOR_RESPONSE_TOOL_NAME.to_owned());
     create_agent_session(CreateAgentSessionOptions {

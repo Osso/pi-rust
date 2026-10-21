@@ -77,7 +77,7 @@ async fn run_rust(dir: &str) -> Value {
         provider: Some("openai-codex".to_owned()),
         api: Some("faux".to_owned()),
         models: Some(vec![FauxModelDefinition {
-            id: "gpt-5.6-sol".to_owned(),
+            id: "gpt-6.1-sol".to_owned(),
             name: Some("Sol".to_owned()),
             reasoning: Some(true),
             input: None,
@@ -110,7 +110,10 @@ async fn run_rust(dir: &str) -> Value {
         .into(),
     ]);
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::new()))),
+        credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::from_iter([(
+            "openai-codex".to_owned(),
+            json!({"type":"api_key","key":"faux-key"}),
+        )])))),
         models_path: Some(None),
         refresh_on_create: Some(false),
         ..Default::default()
