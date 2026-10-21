@@ -2,9 +2,21 @@
 
 Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the common frozen pin](../porting/source-lock.json). Proof mapping: [control DB traceability](../porting/traceability/session-control-db.md).
 
+## Integration status — 2026-10-21
+
+Canonical checkpoint merge `35d6429097833d094ca448068dae07ce30c482af` integrates `c7248cac`, not completed control/store parity. Subsequent canonical merge `128df8af` integrates the bounded model-tool work through `58301d0a`. Checked items below describe bounded checkpoint fixtures, not whole-module or runtime acceptance. Frozen source remains `4f9e6f8a4`; full repin is ongoing. Coverage and pending waiver revalidation are unchanged.
+
+| Boundary | Checkpoint status / remaining limitation |
+|---|---|
+| Control/store follow-ups | This integration combines control checkpoint `2284dc6d` with canonical `4cb53c3143c0da5850242aa47629a001cfe69737`; follow-up integration is not whole-module acceptance. Bounded proof: `/tmp/pi-rust-repin-control-store/{REPORT.md,ledger.md}` and linked traceability. |
+| Canonical raw JSON | Source→public regression `489d4381` remains OPEN: source-created escaped U+D800 projects as U+FFFD because public body remains `String`. Status claim/release/fail `eef3707b` and recovery `429d6033` preserve original raw JSON with bounded source-peer proof; source SQLite keys and receipt identities remain distinct. Routing/steering/store/migration raw writers and scalar widening remain pending; no whole lossless-authority claim or waiver. |
+| Receipt scanner/equality | Lossless receipt scanning and raw JS equality `06620ae7` are included in integrated control checkpoint `2284dc6d`. Scanner proof does not resolve public payload egress or all canonical writers. |
+| Runtime delivery | Acceptance is currently eager, before durable fsync. Claim → receipt append → persist/fsync → fenced delete integration remains pending in the delivery lane. SQLite fixtures do not prove this boundary. |
+| Model publication | Bounded model-tool work through `58301d0a` is integrated by `128df8af`; [bounded model-tool proof](../porting/traceability/agent-model-tool.md) remain distinct from control/store acceptance. Shared-validator repairs through `f86144ba` are integrated by `8d9bb557`. Independent verifier41 (`/tmp/pi-rust-repin-validation-model-verify`) reports model9/9, viewed5/5, validation26 and50-case PASS; historical admission RED is not current. Six lint diagnostics were fixed at `2284dc6d` by boxing the enum payload and removing five borrows; invalidated exact clippy has not been rerun. Owned DB model/activity fixtures do not establish whole agent-session or end-to-end model parity. |
+
 ## What it must do
 
-- [ ] Preserve canonical persisted JSON UTF16 strings/keys through reads and mutations. Current source-created lone-surrogate mailbox body is replaced on projection and rewritten by claim; [blocking proof](../porting/traceability/session-control-db.md).
+- [ ] Preserve canonical persisted JSON UTF16 strings/keys through all reads and mutations. Public projection remains lossy; bounded status/recovery preservation does not complete routing/steering/store/migration writers or egress; [blocking proof](../porting/traceability/session-control-db.md).
 
 - [x] Read and update TS-created metadata, and survive TS initialization of Rust-created metadata, without obsolete transcript search columns.
 - [x] Preserve authoritative NULL versus explicit cleared names during metadata updates.
@@ -32,6 +44,7 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 - [x] Fence delivery against a real peer payload update; abort on malformed later complete receipts before deleting, and honor raw ref short-circuit errors.
 - [x] Prove expected-payload CAS with an explicit guard-disabled negative control and byte-identical restoration.
 - [ ] Classify source limit0 and empty-host retry branches; resolve canonical lossless JSON and run independent group acceptance.
+- [ ] Complete group-wide schema migration/reverse-init, export and whole-store acceptance; bounded migration, reciprocal and reset/error proofs do not establish whole-module parity.
 
 ## How it works
 
@@ -51,9 +64,10 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 
 ## Known gaps (current cycle)
 
-- [ ] Finish group-wide source exports/branches and bidirectional cross-state proof. Current foundation proof is not whole-module acceptance.
+- [ ] Finish group-wide source exports/branches and bidirectional cross-state acceptance. Current bounded proof is not whole-module acceptance.
 - [x] Add failure-injected atomic relocation proof and TS-primary migration fixtures.
 - [x] Reject nested legacy artifact insert/update in both initializers without changing the original row.
+
 
 ## Out of scope
 

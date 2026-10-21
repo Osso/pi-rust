@@ -4,6 +4,8 @@ Integrated model-lane clippy follow-up: native `MailboxMessageCommandResult::Ok.
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
+Partial integration only; [integration status and open boundaries](../../specs/control-store-repin.md#integration-status--2026-10-21) are authoritative.
+
 Current group blocker: [canonical JSON UTF16 counterexample](session-control-db.md#blocking-canonical-json-counterexample--current-group-is-not-accepted). Lossless receipts do not make serde-backed canonical payloads or typed runtime body egress lossless. No whole-module acceptance/coverage advancement is claimed.
 
 Terminal summary/error JS trimming now has actual-source RED→GREEN proof in `repin_control_whitespace`, sharing the JS whitespace helper rather than native Unicode trim.
@@ -14,9 +16,9 @@ Terminal summary/error JS trimming now has actual-source RED→GREEN proof in `r
 
 Source-throwing mailbox listing/consume/projection/publication and counter allocation now return `Result`; persistence errors no longer cause local counter fallback or `.ok()` mutation suppression. Mechanical callers propagate through existing error/logging boundaries. No effective-model producer timing parity is claimed: producer callsites pass absent optional model until their later module-group port.
 
-Remaining: full cross-state reverse-init/mutation proof and exact schema migration proof; DB finalization/dead recovery, steering take/consume and retained cleanup have bounded dedicated evidence in control DB traceability. Untested historical branches are not promoted by this evidence. Historical proof below is not renewed whole-module proof. Coverage row unchanged.
+Remaining: full cross-state reverse-init/mutation and exact schema migration acceptance. Restore/listener/error and reciprocal fixtures above provide bounded evidence, not whole-store acceptance. DB finalization/dead recovery, steering take/consume and retained cleanup have bounded dedicated evidence in [control DB traceability](session-control-db.md). Historical proof below is not renewed whole-module proof. Coverage row unchanged.
 
-Runtime integration blocker: `agent_session::{mark_store_mailbox_message_delivered,mark_store_steering_delivered}` and `agents_core/wait_runtime::mark_wait_mailbox_store_message_delivered` still need durable claim → append refs/custom receipt → persist/fsync → fenced delete ordering. Source-style store deletion alone does not make these older callers safe. No deployment or live-state use is authorized from these fixture results.
+Runtime durability remains blocked at the [delivery boundary](../../specs/control-store-repin.md#integration-status--2026-10-21); these fixtures authorize no deployment or live-state use.
 
 Source: `packages/coding-agent/src/core/multi-agent-store.ts` (1387 lines) at the pinned revision.
 Rust: `crates/pi-coding-agent/src/core/multi_agent_store.rs`.

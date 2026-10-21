@@ -122,7 +122,7 @@ fn plain_schemas_do_not_run_typebox_value_convert() {
 }
 
 #[test]
-fn null_is_omitted_for_optional_non_nullable_typebox_properties() {
+fn optional_nulls_are_converted_without_deleting_properties() {
     let tool = typebox_tool(json!({
         "type": "object",
         "required": ["path", "metadata"],
@@ -144,7 +144,7 @@ fn null_is_omitted_for_optional_non_nullable_typebox_properties() {
     ]));
     assert_eq!(
         validate(&tool, &call),
-        json!({ "path": "file.txt", "nullable": null, "metadata": {} })
+        json!({ "path": "file.txt", "offset": 0, "nullable": "", "metadata": { "enabled": false } })
     );
 }
 
@@ -159,21 +159,21 @@ fn optional_nulls_with_nullable_references_are_preserved() {
 }
 
 #[test]
-fn nulls_matching_a_typebox_nullable_union_arm_are_preserved() {
+fn typebox_nullable_union_still_runs_plain_coercion_in_arm_order() {
     let tool = typebox_tool(json!({
         "type": "object",
         "required": ["value"],
         "properties": { "value": { "anyOf": [{ "type": "number" }, { "type": "null" }] } }
     }));
-    assert_eq!(validate(&tool, &value_args(Value::Null)), json!({ "value": null }));
+    assert_eq!(validate(&tool, &value_args(Value::Null)), json!({ "value": 0 }));
 }
 
 #[test]
-fn nulls_matching_a_plain_one_of_nullable_arm_are_preserved() {
+fn plain_one_of_coerces_the_first_valid_arm_before_checking_later_arms() {
     let tool = plain_value_schema(json!({
         "oneOf": [{ "type": "number" }, { "type": "null" }]
     }));
-    assert_eq!(validate(&tool, &value_args(Value::Null)), json!({ "value": null }));
+    assert_eq!(validate(&tool, &value_args(Value::Null)), json!({ "value": 0 }));
 }
 
 #[test]

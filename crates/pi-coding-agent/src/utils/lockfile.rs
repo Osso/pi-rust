@@ -218,6 +218,8 @@ pub async fn acquire(target: &Path, options: &LockOptions) -> Result<LockGuard, 
         }
     };
 
+    let mut state = state;
+    state.stale = Duration::from_millis(options.normalized_stale_ms());
     let state = Arc::new(Mutex::new(state));
     let refresh = spawn_refresh(
         Arc::clone(&state),
@@ -369,24 +371,30 @@ fn spawn_refresh(
     on_compromised: Option<CompromisedCallback>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval);
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        ticker.tick().await;
+        let mut delay = interval;
         loop {
-            ticker.tick().await;
-            if refresh_once(&state, &on_compromised) {
-                return;
+            tokio::time::sleep(delay).await;
+            match refresh_once(&state, &on_compromised) {
+                RefreshOutcome::Finished => return,
+                RefreshOutcome::Updated => delay = interval,
+                RefreshOutcome::Retry => delay = Duration::from_secs(1),
             }
         }
     })
 }
 
-/// One refresh attempt; returns true once the lock is released or compromised.
-fn refresh_once(state: &Arc<Mutex<LockState>>, on_compromised: &Option<CompromisedCallback>) -> bool {
+enum RefreshOutcome {
+    Updated,
+    Retry,
+    Finished,
+}
+
+/// One refresh attempt; transient filesystem errors retry after one second.
+fn refresh_once(state: &Arc<Mutex<LockState>>, on_compromised: &Option<CompromisedCallback>) -> RefreshOutcome {
     let (path, expected_mtime, precision, stale_ms, last_update_ms) = {
         let state = lock(state);
         if state.released {
-            return true;
+            return RefreshOutcome::Finished;
         }
         (
             state.lockfile_path.clone(),
@@ -412,38 +420,44 @@ fn refresh_once(state: &Arc<Mutex<LockState>>, on_compromised: &Option<Compromis
                 )
                 .for_file(&path),
             );
-            return true;
+            return RefreshOutcome::Finished;
         }
         Err(error) if error.kind() == ErrorKind::NotFound || over_threshold => {
             compromise(
                 state,
                 on_compromised,
-                LockError::new(
-                    LockErrorCode::Compromised,
-                    format!("ENOENT: no such file or directory, stat '{}'", path.display()),
-                )
-                .for_file(&path),
+                LockError {
+                    code: LockErrorCode::Compromised,
+                    ..io_error(&error, "stat", &path)
+                },
             );
-            return true;
+            return RefreshOutcome::Finished;
         }
-        Err(_) => return false,
+        Err(_) => return RefreshOutcome::Retry,
     }
 
     let mtime = refreshed_mtime(precision);
     if let Err(error) = set_mtime(&path, mtime) {
         if error.message.contains("ENOENT") || over_threshold {
-            compromise(state, on_compromised, error);
-            return true;
+            compromise(
+                state,
+                on_compromised,
+                LockError {
+                    code: LockErrorCode::Compromised,
+                    ..error
+                },
+            );
+            return RefreshOutcome::Finished;
         }
-        return false;
+        return RefreshOutcome::Retry;
     }
     let mut state = lock(state);
     if state.released {
-        return true;
+        return RefreshOutcome::Finished;
     }
     state.mtime = SystemTime::UNIX_EPOCH + Duration::from_millis(u64::try_from(mtime).unwrap_or(0));
     state.last_update = SystemTime::now();
-    false
+    RefreshOutcome::Updated
 }
 
 fn compromise(state: &Arc<Mutex<LockState>>, on_compromised: &Option<CompromisedCallback>, error: LockError) {

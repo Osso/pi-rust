@@ -2,6 +2,14 @@
 
 Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` ([lock](source-lock.json)); infra branch `repin/infra`. Phase 0 changes infrastructure only. No product behavioral delta, Rust deletion, approval renewal, broad discovery or acceptance is claimed.
 
+## Discovery process lifecycle
+
+The one-time new-pin discovery exposed an RPC oracle hang: its child failed importing a removed module, but the outer request reader stayed open while Rust retained its stdin writer. No response or EOF could reach Rust. The oracle now closes its request reader and pauses stdin in `finally`, preserving the failing exit and diagnostics rather than converting the import failure to success. `oracle/rpc-oracle-lifecycle.test.mjs` holds caller stdin open and injects a child import failure; it runs through the protected `run-tests.sh oracle` gate. Product adapter/import gaps remain unresolved; this repair proves error-path termination only.
+
+A distinct VM-backed RPC UI oracle swallowed the example's startup error and mocked exit without settling screen readiness. Its mock exit now rejects pending startup, and VM error diagnostics reach stderr. The second real-process lifecycle regression injects a terminal-constructor failure while retaining caller stdin. This establishes failure termination, not a working TUI fixture or RPC UI parity.
+
+Discovery containment, exact owned process identities and logs: `/tmp/pi-rust-repin-infra/{HANG.md,HANG-PATTERN.md}`. Only verified test-oracle groups were terminated; the original `--no-fail-fast` Cargo run continued without a retry. Final discovery evidence distinguishes compiled product revision and the later harness-only lifecycle repair.
+
 ## Evidence policy
 
 All pre-repin proof logs/checklists and dated approvals in `docs/porting/traceability/`, `docs/specs/`, and prior proof reports describe their recorded original source/revisions, not new-pin acceptance. Preserve that provenance; [coverage](coverage.md) is the active per-module inventory. Unchanged rows still need oracle re-run; modified/renamed/added rows remain todo. [Inventory reconciliation](inventory.md) records 686 active rows and 213 old-only rows. The excluded 687th classification path is `packages/coding-agent/examples/extensions/custom-provider-gitlab-duo/test.ts`, a standalone test driver excluded by the existing selection rules.

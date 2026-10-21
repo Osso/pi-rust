@@ -2,7 +2,7 @@
 
 ## Blocking canonical JSON counterexample — current group is not accepted
 
-`repin_control_raw_json::canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim` is RED. A real frozen TS enqueue writes body `before\ud800after`; native runtime projection replaces U+D800 with U+FFFD, and native claim rewrites the canonical stored body to U+FFFD. The same TS process reads that changed row. `canonical-raw-json-red.log` records both code-unit changes.
+`repin_control_raw_json::canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim` is RED. A real frozen TS enqueue writes body `before\ud800after`; native runtime projection replaces U+D800 with U+FFFD. The original `489d4381` run also showed claim rewriting the canonical stored body; `canonical-raw-json-red.log` records both code-unit changes. Subsequent bounded status/recovery fixes below preserve the original canonical JSON, but the combined source→public regression remains OPEN.
 
 Actual source SQL/receipt boundary: source callWire enqueue of storeRef `/fixture/\ud800/s` + messageId `\udfff` stores replacement-character SQL TEXT keys while canonical JSON `id` retains U+DFFF. A real source SessionManager receipt retains the original UTF16 refs. After verified owned-source-process exit, strict raw receipt identity does not equal row-derived SQL keys, so native recovery requeues rather than deletes. Recovery originally rewrote raw id/body/unknown keys (RED); its original-row lossless mutation now preserves them (GREEN1, `canonical-recovery-sql-green.log`). This proves row-derived returned SQL key encoding, not permission to normalize canonical/ref identity or every incoming identity interface.
 
@@ -11,6 +11,8 @@ Partial internal authority step: `canonical_status_mutations_preserve_source_utf
 Root: canonical `parse_stored_json_object` / `parse_json_object` still use legacy lossy serde `Value` maps, and runtime body is `String`. Lossless receipt scanning is fixed separately; it does not fix canonical payload authority or runtime payload egress. No typed-input exclusion or waiver applies to this source-created persisted JSON. Lossless public payload/egress interfaces require integration-owner coordination; no dual-authority fallback is added. Positive proofs below remain bounded, not whole-group/shared-state acceptance.
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
+
+Partial integration only; [integration status and open boundaries](../../specs/control-store-repin.md#integration-status--2026-10-21) are authoritative. The evidence below includes integrated control follow-ups through `2284dc6d`, not whole-module acceptance.
 
 `repin_control_schema_constraints` adds behavior-only shared-schema proof with both primary initialization orders. Native and real frozen source schemas reject nested `artifactIds`/`artifactRefs` on insert and update in both agent/mailbox tables; failed writes leave original payload/timestamp/row count unchanged, and the other initializer preserves those rows. `schema-constraints-proof.log` GREEN1; no SQL-text/trigger-name assertion or whole-schema parity inference.
 
@@ -46,7 +48,7 @@ Discrepancy pending user classification: frozen TS `takeRuntimeMailboxMessagesFo
 
 Source runtime status is pending/claimed/failed; unknown statuses project failed, not throw. `senderHost` and recipient host routing fields are represented. `markRuntimeMailboxMessageDelivered` retains its source export but now host-guards and CAS-deletes; removed `consumeRuntimeMailboxMessage` had no production caller. `takeRuntimeMailboxMessagesForDelivery` claims only; acceptance/fsync callers and expanded reverse-init/migration/retention-boundary proof remain pending. No SQLite-fixture crash-safety claim.
 
-`repin_control_channel.rs` reproduces and resolves dropped origins/self-filter and initialization retention: imported same-session origins remain pending, origin fields survive TS/Rust projection, cursor decreases do not regress peer state, old relative-age TS-created rows expire on Rust initialization. Retained-connection timer still pending. `repin_control_requests.rs` reproduces cancelled→completed misprojection; resolves cancellation read, sender-fenced pending/claimed cancellation, repeat/wrong-sender rejection and token-fenced late completion. Three targeted tests pass.
+`repin_control_channel.rs` reproduces and resolves dropped origins/self-filter and initialization retention: imported same-session origins remain pending, origin fields survive TS/Rust projection, cursor decreases do not regress peer state, old relative-age TS-created rows expire on Rust initialization. Retained-connection timer proof is recorded above. `repin_control_requests.rs` reproduces cancelled→completed misprojection; resolves cancellation read, sender-fenced pending/claimed cancellation, repeat/wrong-sender rejection and token-fenced late completion. Three targeted tests pass.
 
 
 `repin_control_sessions.rs` proves real TS-created v15 → Rust read/write → same TS read/reopen, and fresh Rust → TS initialization → Rust write → TS read. Removed `all_messages_text` from schema, public metadata and producer snapshots. NULL name/explicit clear survives peer writes. Candidate archive selection does not mutate rows. Descendant/subagent exports match plain/archived parent aliases; combined relocation/archive and relocation/unarchive commit together. Bulk metadata removal matches source.
@@ -58,14 +60,13 @@ Source: `packages/coding-agent/src/core/session-control-db.ts` (7047 lines) at t
 Rust: `crates/pi-coding-agent/src/core/session_control_db/` (`mod.rs`, `schema.rs`, `sessions.rs`,
 `incoming.rs`, `mailbox.rs`, `requests.rs`, `channel.rs`, `health.rs`, `agents.rs`, `lifecycle.rs`).
 
-The shared `control.sqlite` is opened by TypeScript and Rust processes at the same time. SQL text,
-schema version, migrations, PRAGMAs, and transaction boundaries are kept verbatim.
+The shared `control.sqlite` is opened by TypeScript and Rust processes at the same time. The historical inventory below maps intended contracts and earlier tests; it does not establish frozen-pin equivalence of every SQL statement, migration or transaction boundary.
 
 ## Schema and connection
 
 | Contract | Rust | Proof |
 |---|---|---|
-| `CONTROL_DB_SCHEMA_VERSION = 14` | `CONTROL_DB_SCHEMA_VERSION` | `schema_and_pragmas_match_the_shared_contract`, `legacy_database_migrates_to_schema_fifteen`, `unsupported_future_schema_is_rejected` |
+| `CONTROL_DB_SCHEMA_VERSION = 15` | `CONTROL_DB_SCHEMA_VERSION` | `schema_and_pragmas_match_the_shared_contract`, `legacy_database_migrates_to_schema_fifteen`, `unsupported_future_schema_is_rejected` |
 | `CREATE TABLE`/`CREATE INDEX` for all 17 tables | `schema.rs::CREATE_SCHEMA_SQL` | `cross_implementation_control_db::schema_text_and_pragmas_match_the_typescript_module` |
 | Migration from legacy counters, payloads, runtime owners, outbox, mailbox, lifecycle rows, architect/listener/session-metadata columns | `initialize_schema` + `migrate_*` | `legacy_database_migrates_to_schema_fifteen` |
 | Legacy artifact-field rejection triggers | `create_legacy_artifact_field_triggers` | migration test; trigger names asserted by cross-language schema test |

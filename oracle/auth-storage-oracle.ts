@@ -1,58 +1,59 @@
-// Oracle for `core/auth-storage.ts`: real AuthStorage / ReadOnlyAuthStorage operations on a file.
+// Frozen public AuthStorage API. Synthetic, isolated file paths supplied by the sandboxed test.
 import { serve } from "./config-auth-oracle-support.ts";
 
-type Request =
-	| { id: unknown; op: "modify"; authPath: string; provider: string; credential: unknown }
-	| { id: unknown; op: "delete"; authPath: string; provider: string }
-	| { id: unknown; op: "read"; authPath: string; provider: string; readOnly?: boolean }
-	| { id: unknown; op: "list"; authPath: string; readOnly?: boolean };
-
-type AuthApi = {
-	AuthStorage: {
-		create(authPath: string): {
-			read(provider: string): Promise<unknown>;
-			list(): Promise<unknown>;
-			modify(provider: string, fn: (current: unknown) => Promise<unknown>): Promise<unknown>;
-			delete(provider: string): Promise<void>;
-		};
-	};
-	ReadOnlyAuthStorage: new (authPath: string) => {
-		read(provider: string): Promise<unknown>;
-		list(): Promise<unknown>;
-	};
+type Storage = {
+	get(provider: string): unknown;
+	set(provider: string, credential: unknown): void;
+	remove(provider: string): void;
+	list(): string[];
+	getAll(): unknown;
+	drainErrors(): Error[];
 };
 
 async function main(): Promise<void> {
 	const { readFileSync, existsSync } = await import("node:fs");
 	const { pathToFileURL } = await import("node:url");
-	const sourcePath = process.argv[2];
-	if (!sourcePath) throw new Error("auth storage oracle requires a source module path");
-	const api = (await import(pathToFileURL(sourcePath).href)) as AuthApi;
-
-	const fileContent = (path: string): string | null =>
-		existsSync(path) ? readFileSync(path, "utf-8") : null;
-
+	const sourceUrl = pathToFileURL(process.argv[2]);
+	const api = await import(sourceUrl.href);
+	const oauth = await import(new URL("../../../ai/src/utils/oauth/index.ts", sourceUrl).href);
 	serve(async (raw) => {
-		const request = raw as Request;
-		const storage = api.AuthStorage.create(request.authPath);
-		if (request.op === "read") {
-			const target = request.readOnly ? new api.ReadOnlyAuthStorage(request.authPath) : storage;
-			return { credential: (await target.read(request.provider)) ?? null };
+		const request = raw as { op: string; authPath: string; provider: string; credential: unknown };
+		if (request.op === "rotation-all-sync-fail") {
+			const calls: string[] = [];
+			let syncs = 0;
+			oauth.registerOAuthProvider({
+				id: "phase1-rotation", name: "Synthetic", login: async () => { throw new Error("unused"); },
+				refreshToken: async () => { calls.push("refresh A->B"); return { refresh: "B", access: "new", expires: 4_000_000_000_000 }; },
+				getApiKey: (credential: {access: string}) => credential.access,
+			});
+			const backend = {
+				withLock: (fn: (current: string) => {result: unknown; next?: string}) => {
+					calls.push(`sync ${++syncs}`);
+					if (syncs > 1) throw new Error("sync denied");
+					return fn(readFileSync(request.authPath, "utf8")).result;
+				},
+				withLockAsync: async (fn: (current: string) => Promise<unknown>) => {
+					calls.push("async callback"); await fn(readFileSync(request.authPath, "utf8"));
+					calls.push("after callback: write denied"); throw new Error("locked write denied");
+				},
+			};
+			const storage = api.AuthStorage.fromStorage(backend);
+			const result = await storage.getApiKey("phase1-rotation", {throwOnRefreshFailure: true});
+			oauth.unregisterOAuthProvider("phase1-rotation");
+			return { result, calls, errors: storage.drainErrors().map((error: Error) => error.message), memory: storage.getAll(), file: readFileSync(request.authPath, "utf8") };
 		}
-		if (request.op === "list") {
-			const target = request.readOnly ? new api.ReadOnlyAuthStorage(request.authPath) : storage;
-			return { entries: await target.list(), file: fileContent(request.authPath) };
-		}
-		if (request.op === "modify") {
-			const credential = await storage.modify(request.provider, async () => request.credential);
-			return { credential: credential ?? null, file: fileContent(request.authPath) };
-		}
-		await storage.delete(request.provider);
-		return { file: fileContent(request.authPath) };
+		const storage: Storage = api.AuthStorage.create(request.authPath);
+		if (request.op === "errors") return {errors: storage.drainErrors().map(error => error.message)};
+		if (request.op === "read") return { credential: storage.get(request.provider) ?? null };
+		if (request.op === "modify" || request.op === "modify-file") storage.set(request.provider, request.credential);
+		if (request.op === "modify-file") return {file: readFileSync(request.authPath,"utf8")};
+		if (request.op === "delete") storage.remove(request.provider);
+		return {
+			credential: storage.get(request.provider) ?? null,
+			entries: storage.list(), all: storage.getAll(),
+			errors: storage.drainErrors().map(error => error.message),
+			file: existsSync(request.authPath) ? readFileSync(request.authPath, "utf-8") : null,
+		};
 	});
 }
-
-void main().catch((error: unknown) => {
-	process.stderr.write(`auth storage oracle failed: ${(error as Error).message}\n`);
-	process.exitCode = 1;
-});
+void main().catch(error => { process.stderr.write(`${String(error)}\n`); process.exitCode = 1; });
