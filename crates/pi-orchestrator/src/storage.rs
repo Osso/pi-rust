@@ -1,11 +1,12 @@
 //! JSON persistence; unknown record fields survive read/modify/write, as in TS.
 use pi_js_compat::{
     js_json,
-    node_fs::{node_fs_error, node_read_error, node_rm_error},
+    node_fs::{node_file_write_error_record, node_fs_error, node_read_error, node_rm_error},
 };
 use serde_json::Value;
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -27,8 +28,10 @@ impl Storage {
             fs::create_dir_all(&self.0).map_err(|error| node_fs_error(&error, "mkdir", &self.0.to_string_lossy()))?;
         }
         let path = crate::config::join_path(&self.0, name);
-        fs::write(&path, js_json::stringify_pretty(value))
-            .map_err(|error| node_fs_error(&error, "open", &path.to_string_lossy()))
+        let mut file =
+            fs::File::create(&path).map_err(|error| node_fs_error(&error, "open", &path.to_string_lossy()))?;
+        file.write_all(js_json::stringify_pretty(value).as_bytes())
+            .map_err(|error| node_file_write_error_record(&error).message)
     }
     pub fn load_machine(&self) -> Result<Option<Value>, String> {
         self.read_json("machine.json")

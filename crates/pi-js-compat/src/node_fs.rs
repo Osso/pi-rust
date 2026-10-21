@@ -220,9 +220,11 @@ fn format_fs_error_record(error: &io::Error, syscall: &str, path: &str, api: Nod
         io::ErrorKind::InvalidInput => "invalid argument".to_owned(),
         io::ErrorKind::DirectoryNotEmpty => "directory not empty".to_owned(),
         _ if code == "ELOOP" => "too many symbolic links encountered".to_owned(),
+        _ if code == "ENOSPC" => "no space left on device".to_owned(),
         _ => error.to_string(),
     };
     let omit_path = syscall == "uv_cwd"
+        || (syscall == "write" && path.is_empty())
         || (api == NodeReadApi::ReadFileSync
             && syscall == "read"
             && code == "EISDIR"
@@ -291,6 +293,11 @@ pub fn node_spawn_error_record(error: &io::Error, program: &str) -> NodeFsError 
     }
 }
 
+/// A write to an already-open file reports `write` without the open path.
+pub fn node_file_write_error_record(error: &io::Error) -> NodeFsError {
+    node_fs_error_record(error, "write", "")
+}
+
 /// Writable pipe callback errors use `write EPIPE`, without a filesystem path.
 pub fn node_pipe_write_error_record(error: &io::Error) -> NodeFsError {
     let code = node_error_code(error);
@@ -309,6 +316,9 @@ pub fn node_pipe_write_error_record(error: &io::Error) -> NodeFsError {
 pub fn node_rm_error(error: &io::Error, path: &str) -> String {
     if error.kind() == io::ErrorKind::IsADirectory {
         return format!("Path is a directory: rm returned EISDIR (is a directory) {path}");
+    }
+    if error.kind() == io::ErrorKind::PermissionDenied {
+        return format!("{}, Permission denied: '{path}'", node_error_code(error));
     }
     node_fs_error(error, "unlink", path)
 }
