@@ -43,12 +43,44 @@ fn parse_agent(value: &Value) -> Result<AgentSnapshot, String> {
 fn execute(store: &MultiAgentStore, op: &str, args: &[Value]) -> Result<Value, String> {
     match op {
         "publishLifecycleCoordinatorSnapshot" => {
-            store.publish_lifecycle_coordinator_snapshot(&parse_agent(&args[0])?);
+            store
+                .publish_lifecycle_coordinator_snapshot(&parse_agent(&args[0])?)
+                .map_err(|e| e.message)?;
             Ok(Value::Null)
         }
         "publishTerminalOutboxSnapshot" => {
-            store.publish_terminal_outbox_snapshot(&parse_agent(&args[0])?);
+            store
+                .publish_terminal_outbox_snapshot(&parse_agent(&args[0])?)
+                .map_err(|e| e.message)?;
             Ok(Value::Null)
+        }
+        "expireMailboxMessages" => {
+            store
+                .expire_mailbox_messages(args[0].as_f64().ok_or("now")?)
+                .map_err(|e| e.message)?;
+            Ok(Value::Null)
+        }
+        "publishAgentModel" => {
+            let model = serde_json::from_value(args[1].clone()).map_err(|e| e.to_string())?;
+            to_value(
+                store
+                    .publish_agent_model(args[0].as_str().ok_or("id")?, &model, None)
+                    .map_err(|e| e.message)?,
+            )
+        }
+        "publishAgentCurrentActivity" => {
+            let activity = serde_json::from_value(args[1].clone()).map_err(|e| e.to_string())?;
+            let model = args
+                .get(3)
+                .filter(|v| !v.is_null())
+                .map(|v| serde_json::from_value(v.clone()))
+                .transpose()
+                .map_err(|e| e.to_string())?;
+            to_value(
+                store
+                    .publish_agent_current_activity(args[0].as_str().ok_or("id")?, activity, None, model.as_ref())
+                    .map_err(|e| e.message)?,
+            )
         }
         "listAgents" => to_value(store.list_agents()),
         "listDescendants" => to_value(store.list_descendants(args[0].as_str().ok_or("parent")?)),
@@ -127,20 +159,32 @@ fn execute(store: &MultiAgentStore, op: &str, args: &[Value]) -> Result<Value, S
                     .map_err(|error| error.message.clone())?,
             )
         }
-        "listMailboxMessages" => to_value(store.list_mailbox_messages()),
-        "listPendingMailboxMessagesForAgent" => {
-            to_value(store.list_pending_mailbox_messages_for_agent(args[0].as_str().ok_or("id")?))
-        }
-        "markMailboxMessageDelivered" => to_value(store.mark_mailbox_message_delivered(args[0].as_str().ok_or("id")?)),
-        "markMailboxMessageFailed" => {
-            to_value(store.mark_mailbox_message_failed(args[0].as_str().ok_or("id")?, args[1].as_str().ok_or("error")?))
-        }
-        "consumeCompletionNotificationsForAgent" => {
-            to_value(store.consume_completion_notifications_for_agent(args[0].as_str().ok_or("id")?))
-        }
-        "consumeFailureNotificationsForAgent" => {
-            to_value(store.consume_failure_notifications_for_agent(args[0].as_str().ok_or("id")?))
-        }
+        "listMailboxMessages" => to_value(store.list_mailbox_messages().map_err(|e| e.message)?),
+        "listPendingMailboxMessagesForAgent" => to_value(
+            store
+                .list_pending_mailbox_messages_for_agent(args[0].as_str().ok_or("id")?)
+                .map_err(|e| e.message)?,
+        ),
+        "markMailboxMessageDelivered" => to_value(
+            store
+                .mark_mailbox_message_delivered(args[0].as_str().ok_or("id")?)
+                .map_err(|e| e.message)?,
+        ),
+        "markMailboxMessageFailed" => to_value(
+            store
+                .mark_mailbox_message_failed(args[0].as_str().ok_or("id")?, args[1].as_str().ok_or("error")?)
+                .map_err(|e| e.message)?,
+        ),
+        "consumeCompletionNotificationsForAgent" => to_value(
+            store
+                .consume_completion_notifications_for_agent(args[0].as_str().ok_or("id")?)
+                .map_err(|e| e.message)?,
+        ),
+        "consumeFailureNotificationsForAgent" => to_value(
+            store
+                .consume_failure_notifications_for_agent(args[0].as_str().ok_or("id")?)
+                .map_err(|e| e.message)?,
+        ),
         "listPendingLifecycleNotificationsForAgent" => {
             let lifecycle = match args[1].as_str().ok_or("lifecycle")? {
                 "completed" => pi_coding_agent::core::multi_agent_store::LifecycleNotificationLifecycle::Completed,
@@ -150,12 +194,18 @@ fn execute(store: &MultiAgentStore, op: &str, args: &[Value]) -> Result<Value, S
                 }
                 other => return Err(format!("unknown lifecycle {other}")),
             };
-            to_value(store.list_pending_lifecycle_notifications_for_agent(args[0].as_str().ok_or("id")?, lifecycle))
+            to_value(
+                store
+                    .list_pending_lifecycle_notifications_for_agent(args[0].as_str().ok_or("id")?, lifecycle)
+                    .map_err(|e| e.message)?,
+            )
         }
-        "getProjectionSnapshot" => to_value(store.get_projection_snapshot()),
+        "getProjectionSnapshot" => to_value(store.get_projection_snapshot().map_err(|e| e.message)?),
         "getAgent" => to_value(store.get_agent(args[0].as_str().ok_or("id")?)),
         "allocateAgentIdForLifecycleCoordinator" => Ok(Value::String(
-            store.allocate_agent_id_for_lifecycle_coordinator(args[0].as_str().unwrap_or("agent")),
+            store
+                .allocate_agent_id_for_lifecycle_coordinator(args[0].as_str().unwrap_or("agent"))
+                .map_err(|e| e.message)?,
         )),
         "getRestoreGeneration" => to_value(store.get_restore_generation()),
         other => Err(format!("unsupported store operation {other}")),
@@ -177,6 +227,22 @@ fn script() -> Vec<Value> {
         step("publishLifecycleCoordinatorSnapshot", vec![scout2.clone()]),
         step("publishLifecycleCoordinatorSnapshot", vec![child.clone()]),
         step("publishLifecycleCoordinatorSnapshot", vec![grandchild.clone()]),
+        step(
+            "publishAgentModel",
+            vec![
+                json!("child"),
+                json!({"providerId":"fixture","modelId":"new","thinkingLevel":"high"}),
+            ],
+        ),
+        step(
+            "publishAgentCurrentActivity",
+            vec![
+                json!("child"),
+                json!({"phase":"tool","startedAt":"2026-06-21T00:00:00.000Z","toolCallId":"tool","toolName":"read","detail":"/fixture/a.rs"}),
+                Value::Null,
+                json!({"providerId":"fixture","modelId":"effective"}),
+            ],
+        ),
         step("listAgents", vec![]),
         step("listDescendants", vec![json!("scout1")]),
         step("selectAgentView", vec![json!("scout1")]),

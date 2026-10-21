@@ -9,7 +9,20 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 - [x] Select archive candidates without archiving; expose atomic relocation plus archive/unarchive operations.
 - [x] Resolve direct/transitive subagent paths through plain and `.zst` aliases; remove metadata in bulk.
 - [x] Assign missing mailbox birth on INSERT; enforce unique imported channel origins and restriction request IDs.
-- [ ] Match retention, canonical mailbox CAS/recovery, channel projection/cursors, supervisor cancellation, agent terminal replay/suppression/model updates and whole in-memory store contracts.
+- [x] Preserve channel origins, count origin-tagged same-session messages as pending, and advance cursors monotonically across peers.
+- [x] Expire old channel messages during DB initialization.
+- [x] Preserve cancelled supervisor status; cancel only matching sender's pending/claimed requests, clear claim token and reject late completion.
+- [x] Retry missing-birth enqueues idempotently without accepting changed message identity.
+- [x] Claim before delivery; reject stale payload deletion; CAS-delete after explicit delivery and never consume foreign-host rows locally.
+- [x] Hide expired mailbox rows by creation age; delete dead claims with complete transcript acceptance rather than replaying.
+- [x] Scan raw receipt refs across all complete transcript records; propagate malformed complete-record errors and ignore partial final records.
+- [x] Preserve original mailbox birth through updates, delete terminal outbox acknowledgement rows, and accept identical terminal replay after peer acknowledgement removed the row.
+- [x] Expire in-memory mailbox at exactly24h, evict peer-deleted rows, and consume/remove while returning the original message snapshot.
+- [x] Enforce store terminal-notification suppression; preserve activity `detail` and publish model/current activity under exact DB ownership.
+- [x] Sweep expired retained-connection messages on the source minute timer; default null birth once and project unknown runtime status to failed.
+- [x] Consume direct steering or atomically claim runtime steering with its lifecycle advance; roll back both writes on message CAS failure.
+- [x] Honor suppression in detached finalization/dead recovery and preserve finalization replay after outbox deletion; persist same-lifecycle cancellation suppression without duplicate commands.
+- [ ] Finish schema migration/reverse-init proof, remaining exports and whole-store reset/error branches.
 
 ## How it works
 
@@ -25,7 +38,7 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 
 ## Tests asserting this spec
 
-`crates/pi-coding-agent/tests/repin_control_{schema,sessions}.rs`.
+`crates/pi-coding-agent/tests/repin_control_{schema,sessions,channel,requests,mailbox}.rs`, `repin_runtime_mailbox_transcript.rs`.
 
 ## Known gaps (current cycle)
 
@@ -34,4 +47,4 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 
 ## Out of scope
 
-Runtime message append/fsync acceptance belongs to later delivery integration. Relay storage/transport belongs to a separate group. SQLite fixtures do not prove crash-safe recipient acceptance. Historical waivers remain pending user revalidation.
+Runtime message append/fsync acceptance belongs to later delivery integration and remains a completion blocker, not an approved gap. Older runtime mark/consume callers still require durable acceptance before source-style deletion. Relay storage/transport belongs to a separate group. SQLite fixtures do not prove crash-safe recipient acceptance. Historical waivers remain pending user revalidation.

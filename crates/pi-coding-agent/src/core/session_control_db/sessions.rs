@@ -111,6 +111,22 @@ pub struct WritableSessionMetadata {
     pub first_message: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeSessionMetadataOptions {
+    pub archived: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_path_prefix: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmptyMainSessionCandidate {
+    pub id: String,
+    pub session_path: String,
+}
+
 /// `writeSessionName`.
 pub fn write_session_name(control_db_path: &str, session_path: &str, name: Option<&str>) -> Result<(), ControlDbError> {
     let stored_name = normalize_session_name(name).unwrap_or_default();
@@ -831,6 +847,63 @@ pub fn read_session_metadata(
 /// `listSessionMetadata`.
 pub fn list_session_metadata(control_db_path: &str) -> Result<Vec<SessionMetadata>, ControlDbError> {
     list_session_metadata_by_archive_state(control_db_path, None)
+}
+
+/// `listEmptyMainSessionCandidates`.
+pub fn list_empty_main_session_candidates(
+    control_db_path: &str,
+) -> Result<Vec<EmptyMainSessionCandidate>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let mut statement=db.prepare("SELECT id,session_path FROM session_metadata WHERE archived_at IS NULL AND is_subagent = 0 AND message_count = 0")?;
+        Ok(statement
+            .query_map([], |row| {
+                Ok(EmptyMainSessionCandidate {
+                    id: row.get(0)?,
+                    session_path: row.get(1)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?)
+    })
+}
+/// `listResumeSessionMetadata`: absent metadata differs from a populated index with no matching rows.
+pub fn list_resume_session_metadata(
+    control_db_path: &str,
+    options: &ResumeSessionMetadataOptions,
+) -> Result<Option<Vec<SessionMetadata>>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        if db
+            .query_row("SELECT 1 FROM session_metadata LIMIT 1", [], |row| row.get::<_, i64>(0))
+            .optional()?
+            .is_none()
+        {
+            return Ok(None);
+        }
+        let mut predicates = vec![
+            if options.archived {
+                "archived_at IS NOT NULL"
+            } else {
+                "archived_at IS NULL"
+            },
+            "is_subagent = 0",
+        ];
+        let mut values = Vec::new();
+        if let Some(cwd) = options.cwd.as_deref().filter(|value| !value.is_empty()) {
+            predicates.push("cwd = ?");
+            values.push(cwd);
+        }
+        if let Some(prefix) = options.session_path_prefix.as_deref().filter(|value| !value.is_empty()) {
+            predicates.push("substr(session_path,1,length(?)) = ?");
+            values.extend([prefix, prefix]);
+        }
+        let mut statement = db.prepare(&format!(
+            "{SESSION_METADATA_SELECT} WHERE {} ORDER BY modified_at DESC,updated_at DESC,session_path DESC",
+            predicates.join(" AND ")
+        ))?;
+        let rows = statement
+            .query_map(rusqlite::params_from_iter(values), query_session_metadata_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(rows.into_iter().map(session_metadata_from_row).collect()))
+    })
 }
 
 /// `listActiveSessionMetadata`.

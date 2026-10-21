@@ -474,6 +474,7 @@ fn send_broadcast(
     enqueue_runtime_mailbox_message(
         control_db_path,
         &EnqueueRuntimeMailboxMessageInput {
+            recipient_host: None,
             kind: RuntimeMailboxMessageKind::Message,
             recipient: RuntimeMailboxAddress {
                 agent_id: None,

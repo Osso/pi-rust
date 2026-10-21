@@ -22,8 +22,19 @@ async function main(): Promise<void> {
 	if (!sourceRoot) throw new Error("control-db oracle requires the coding-agent src directory");
 	const api = (await import(pathToFileURL(`${sourceRoot}/core/session-control-db.ts`).href)) as Api;
 	const sqlite = (await import(pathToFileURL(`${sourceRoot}/core/sqlite.ts`).href)) as Api;
+	const transcript = (await import(pathToFileURL(`${sourceRoot}/core/runtime-mailbox-transcript.ts`).href)) as Api;
 
 	const execute = (step: Step): unknown => {
+		if (step.op === "takeAll") {
+			const [path, recipient, limit] = step.args as [string, unknown, number];
+			return api.takeRuntimeMailboxMessagesForDelivery(path, recipient, () => true, limit);
+		}
+		if (step.op === "registerSelf") {
+			const [path, recipient, sessionPath] = step.args as [string, unknown, string];
+			api.registerRuntimeMailboxListener(path, recipient, process.pid, sessionPath);
+			return api.getRuntimeProcessInstanceId();
+		}
+		if (step.op === "acceptedRefs") return transcript.readAcceptedRuntimeMailboxStoreRefs(step.path);
 		if (step.op === "call") {
 			const [fn, args] = step.args as [string, unknown[]];
 			const implementation = api[fn];

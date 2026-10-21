@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use tokio::task::JoinHandle;
 
-use crate::core::extensions::types::ExtensionContext;
+use crate::core::extensions::types::{ExtensionContext, HandlerError};
 use crate::core::session_manager::lock_session_manager;
 
 use super::stale_context::is_stale_context_error;
@@ -81,35 +81,33 @@ impl ErrorStatusScheduler {
         }
     }
 
-    pub fn schedule(&self, ctx: ExtensionContext, message: &str) {
-        let Ok(session) = ctx.session_manager() else {
-            return;
-        };
+    pub fn schedule(&self, ctx: ExtensionContext, message: &str) -> Result<(), HandlerError> {
+        let session = ctx
+            .session_manager()
+            .map_err(|failure| HandlerError::new(failure.to_string()))?;
         let session_id = lock_session_manager(&session).get_session_id().to_owned();
         self.clear_session(&session_id);
-        let retry_delay_ms = ctx
+        let settings = ctx
             .settings_manager()
-            .ok()
-            .flatten()
-            .map(|settings| {
-                let base_delay_ms = settings
+            .map_err(|failure| HandlerError::new(failure.to_string()))?;
+        let retry_delay_ms = match settings {
+            Some(settings) => {
+                settings
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .get_retry_settings()
-                    .base_delay_ms;
-                if base_delay_ms.is_finite() && base_delay_ms > 0.0 {
-                    base_delay_ms as u64
-                } else {
-                    0
-                }
-            })
-            .unwrap_or(0);
+                    .map_err(|failure| HandlerError::new(failure.to_string()))?
+                    .base_delay_ms as u64
+            }
+            None => 0,
+        };
         self.schedule_status_check(
             ctx,
             message.to_owned(),
             session_id,
             retry_delay_ms + ERROR_STATUS_SETTLEMENT_MS,
         );
+        Ok(())
     }
 }
 

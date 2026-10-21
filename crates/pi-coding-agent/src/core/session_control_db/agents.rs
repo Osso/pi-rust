@@ -258,6 +258,7 @@ pub struct CommitMultiAgentLifecycleMutationInput {
 pub struct DetachedCancellation {
     pub output_label: String,
     pub reason: Option<String>,
+    pub suppress_terminal_notification: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -331,7 +332,6 @@ pub struct CommitMultiAgentTerminalMutationInput {
 #[serde(rename_all = "snake_case")]
 pub enum TerminalOutboxStatus {
     Claimed,
-    Delivered,
     Pending,
     Poisoned,
 }
@@ -340,7 +340,6 @@ impl TerminalOutboxStatus {
     fn as_str(self) -> &'static str {
         match self {
             Self::Claimed => "claimed",
-            Self::Delivered => "delivered",
             Self::Pending => "pending",
             Self::Poisoned => "poisoned",
         }
@@ -581,9 +580,10 @@ pub fn fail_multi_agent_terminal_outbox(
 pub fn deliver_multi_agent_terminal_outbox(
     control_db_path: &str,
     record: &MultiAgentTerminalOutboxRecord,
-    now_iso: &str,
 ) -> Result<bool, ControlDbError> {
-    update_claimed_terminal_outbox(control_db_path, record, TerminalOutboxStatus::Delivered, now_iso, None)
+    with_control_db(control_db_path, |db| {
+        Ok(db.execute("DELETE FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'claimed' AND claim_id = ?",params![record.session_path,record.agent_id,record.terminal_revision,record.event_kind,record.claim_id])?==1)
+    })
 }
 
 fn update_claimed_terminal_outbox(
@@ -594,12 +594,10 @@ fn update_claimed_terminal_outbox(
     error: Option<&str>,
 ) -> Result<bool, ControlDbError> {
     with_control_db(control_db_path, |db| {
-        let delivered_at = (status == TerminalOutboxStatus::Delivered).then_some(now_iso);
         Ok(db.execute(
-            "UPDATE multi_agent_terminal_outbox SET status = ?, claim_id = NULL, claimed_at = NULL, delivered_at = ?, last_error = ?, updated_at = ? WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'claimed' AND claim_id = ?",
+            "UPDATE multi_agent_terminal_outbox SET status = ?, claim_id = NULL, claimed_at = NULL, last_error = ?, updated_at = ? WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'claimed' AND claim_id = ?",
             params![
                 status.as_str(),
-                delivered_at,
                 error,
                 now_iso,
                 record.session_path,
@@ -617,7 +615,7 @@ pub fn cleanup_multi_agent_terminal_outbox(control_db_path: &str, older_than: &s
     with_control_db(control_db_path, |db| {
         Ok(db.execute(
             "DELETE FROM multi_agent_terminal_outbox
-					 WHERE status IN ('delivered', 'poisoned') AND updated_at < ?",
+					 WHERE status = 'poisoned' AND updated_at < ?",
             params![older_than],
         )? as i64)
     })
@@ -885,6 +883,7 @@ fn build_steering_mailbox_message(
     message_id: &str,
 ) -> Result<AgentMailboxMessage, ControlDbError> {
     Ok(AgentMailboxMessage {
+        extra: serde_json::Map::new(),
         body: Some(input.body.clone()),
         created_at: input.updated_at.clone(),
         file_refs: input.file_refs.clone(),
@@ -906,6 +905,7 @@ fn prepare_steering_mailbox_message(
     let message = build_steering_mailbox_message(input, STEERING_MESSAGE_ID_PLACEHOLDER)?;
     let message_value = serde_json::to_value(&message).map_err(|error| ControlDbError::new(error.to_string()))?;
     let mailbox_input = EnqueueStoredRuntimeMailboxMessageInput {
+        recipient_host: None,
         kind: RuntimeMailboxMessageKind::Steer,
         message: message_value,
         recipient: input.recipient.clone(),
@@ -1043,14 +1043,13 @@ pub fn commit_multi_agent_detach_mark(
 // Steering delivery
 // ---------------------------------------------------------------------------
 
-struct SteeringDeliveryPlan {
+pub(super) struct SteeringDeliveryPlan {
     agent_data: String,
-    message_data: String,
+    pub(super) message_data: String,
     process_identity_data: String,
     updated_agent: AgentSnapshot,
     updated_agent_data: String,
     updated_message: AgentMailboxMessage,
-    updated_message_data: String,
 }
 
 /// `commitMultiAgentSteeringDelivery`.
@@ -1064,7 +1063,7 @@ pub fn commit_multi_agent_steering_delivery(
                 Ok(plan) => plan,
                 Err(error) => return Ok(CommitMultiAgentSteeringDeliveryResult::Err { error }),
             };
-            let persisted = with_immediate_transaction(db, |db| persist_steering_delivery(db, input, &plan))?;
+            let persisted = persist_steering_delivery(db, input, &plan, None)?;
             if persisted {
                 return Ok(CommitMultiAgentSteeringDeliveryResult::Ok {
                     agent: Box::new(plan.updated_agent),
@@ -1078,7 +1077,7 @@ pub fn commit_multi_agent_steering_delivery(
     })
 }
 
-fn read_steering_delivery_plan(
+pub(super) fn read_steering_delivery_plan(
     db: &Connection,
     input: &CommitMultiAgentSteeringDeliveryInput,
 ) -> Result<Result<SteeringDeliveryPlan, SteeringCommandError>, ControlDbError> {
@@ -1104,8 +1103,15 @@ fn read_steering_delivery_plan(
     }
     let message_data: Option<String> = db
         .query_row(
-            "SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-            params![input.session_path, input.message_id],
+            &format!(
+                "SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND {} > ?",
+                super::retention::MAILBOX_CREATED_AT_MS_SQL
+            ),
+            params![
+                input.session_path,
+                input.message_id,
+                super::retention::mailbox_cutoff_ms()
+            ],
             |row| row.get(0),
         )
         .optional()?;
@@ -1116,7 +1122,7 @@ fn read_steering_delivery_plan(
         "multi_agent_mailbox_messages:{}#{}",
         input.session_path, input.message_id
     );
-    let mut message = parse_stored_json_object(&message_data, &message_context)?;
+    let message = parse_stored_json_object(&message_data, &message_context)?;
     validate_mailbox_payload(&Value::Object(message.clone()), &message_context)?;
     let is_steering_message = message.get("kind").and_then(Value::as_str) == Some("steer");
     let addressed_to_agent = message.get("toAgentId").and_then(Value::as_str) == Some(input.agent_id.as_str());
@@ -1129,8 +1135,6 @@ fn read_steering_delivery_plan(
     updated_agent_object.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
     let updated_agent: AgentSnapshot = serde_json::from_value(Value::Object(updated_agent_object))
         .map_err(|error| ControlDbError::new(error.to_string()))?;
-    message.insert("status".to_owned(), Value::String("delivered".to_owned()));
-    message.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
     let updated_message: AgentMailboxMessage = serde_json::from_value(Value::Object(message.clone()))
         .map_err(|error| ControlDbError::new(error.to_string()))?;
     Ok(Ok(SteeringDeliveryPlan {
@@ -1138,19 +1142,31 @@ fn read_steering_delivery_plan(
         message_data,
         process_identity_data: serialize_process_identity(&input.process_identity),
         updated_agent_data: super::serialize_agent(&updated_agent)?,
-        updated_message_data: js_json::stringify(&Value::Object(message)),
         updated_agent,
         updated_message,
     }))
 }
 
-fn persist_steering_delivery(
+pub(super) fn persist_steering_delivery(
     db: &Connection,
     input: &CommitMultiAgentSteeringDeliveryInput,
     plan: &SteeringDeliveryPlan,
+    mailbox: Option<(&RuntimeMailboxAddress, &super::mailbox::RuntimeMailboxCandidate)>,
 ) -> Result<bool, ControlDbError> {
-    let agent_updated = db.execute(
-        "UPDATE multi_agent_agents SET data = ?, updated_at = ?
+    with_immediate_transaction(db, |db| {
+        if super::is_mailbox_message_expired(
+            Some(&plan.updated_message.created_at),
+            pi_js_compat::date::js_now_millis(),
+        ) {
+            return Ok(false);
+        }
+        if let Some((recipient, candidate)) = mailbox
+            && !super::mailbox::candidate_authority_is_current(db, recipient, candidate)?
+        {
+            return Ok(false);
+        }
+        let agent_updated = db.execute(
+            "UPDATE multi_agent_agents SET data = ?, updated_at = ?
 		 WHERE session_path = ? AND agent_id = ? AND data = ?
 		 AND EXISTS (
 			SELECT 1 FROM multi_agent_runtime_owners
@@ -1161,43 +1177,54 @@ fn persist_steering_delivery(
 			SELECT 1 FROM multi_agent_mailbox_messages
 			WHERE session_path = ? AND message_id = ? AND data = ?
 		 )",
-        params![
-            plan.updated_agent_data,
-            input.updated_at,
-            input.session_path,
-            input.agent_id,
-            plan.agent_data,
-            input.session_path,
-            input.agent_id,
-            plan.process_identity_data,
-            input.owner.session_id,
-            input.owner.agent_id,
-            input.session_path,
-            input.message_id,
-            plan.message_data
-        ],
-    )?;
-    if agent_updated != 1 {
-        return Ok(false);
-    }
-    let message_updated = db.execute(
-        "UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
-		 WHERE session_path = ? AND message_id = ? AND data = ?",
-        params![
-            plan.updated_message_data,
-            input.updated_at,
-            input.session_path,
-            input.message_id,
-            plan.message_data
-        ],
-    )?;
-    if message_updated != 1 {
-        return Err(ControlDbError::new(format!(
-            "Steering message changed during delivery {}#{}",
-            input.session_path, input.message_id
-        )));
-    }
-    Ok(true)
+            params![
+                plan.updated_agent_data,
+                input.updated_at,
+                input.session_path,
+                input.agent_id,
+                plan.agent_data,
+                input.session_path,
+                input.agent_id,
+                plan.process_identity_data,
+                input.owner.session_id,
+                input.owner.agent_id,
+                input.session_path,
+                input.message_id,
+                plan.message_data
+            ],
+        )?;
+        if agent_updated != 1 {
+            return Ok(false);
+        }
+        let message_updated = if let Some((_, candidate)) = mailbox {
+            let mut claimed = candidate.data.clone();
+            claimed.insert("status".into(), Value::String("claimed".into()));
+            claimed.insert("claimedAt".into(), Value::String(input.updated_at.clone()));
+            claimed.insert(
+                "claimantProcessIdentity".into(),
+                Value::String(super::get_runtime_process_instance_id()?.to_owned()),
+            );
+            claimed.insert("updatedAt".into(), Value::String(input.updated_at.clone()));
+            usize::from(super::compare_and_write_canonical_mailbox_payload(
+                db,
+                &candidate.row,
+                &claimed,
+                &input.updated_at,
+            )?)
+        } else {
+            db.execute(
+                "DELETE FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND data = ?",
+                params![input.session_path, input.message_id, plan.message_data],
+            )?
+        };
+        if message_updated != 1 {
+            return Err(ControlDbError::new(format!(
+                "Steering message changed during delivery {}#{}",
+                input.session_path, input.message_id
+            )));
+        }
+        Ok(true)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1268,20 +1295,31 @@ fn read_lifecycle_mutation_plan(
         return Ok(LifecycleMutationRead::Err(LifecycleCommandError::MutationMismatch));
     }
     let current_lifecycle = agent.get("lifecycle").and_then(Value::as_str).unwrap_or("");
-    if current_lifecycle == input.requested_lifecycle {
+    let lifecycle_changed = current_lifecycle != input.requested_lifecycle;
+    let persist_suppression = input
+        .detached_cancellation
+        .as_ref()
+        .and_then(|cancellation| cancellation.suppress_terminal_notification)
+        == Some(true)
+        && agent.get("suppressTerminalNotification").and_then(Value::as_bool) != Some(true);
+    if !lifecycle_changed && !persist_suppression {
         return Ok(LifecycleMutationRead::Unchanged(agent));
     }
-    if !can_persist_lifecycle_transition_str(current_lifecycle, &input.requested_lifecycle) {
+    if lifecycle_changed && !can_persist_lifecycle_transition_str(current_lifecycle, &input.requested_lifecycle) {
         return Ok(LifecycleMutationRead::Err(LifecycleCommandError::InvalidTransition));
     }
     let revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
     let mut updated = agent;
+    if persist_suppression {
+        updated.insert("suppressTerminalNotification".into(), Value::Bool(true));
+    }
     updated.insert("lifecycle".to_owned(), Value::String(input.requested_lifecycle.clone()));
     updated.insert("revision".to_owned(), Value::from(revision));
     updated.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
     let cancellation = input
         .detached_cancellation
         .as_ref()
+        .filter(|_| lifecycle_changed)
         .map(|cancellation| build_detached_cancellation_message(input, cancellation, revision))
         .transpose()?;
     let updated_data = js_json::stringify(&Value::Object(updated.clone()));
@@ -1339,7 +1377,7 @@ fn build_detached_cancellation_message(
     cancelling_revision: i64,
 ) -> Result<(String, String), ControlDbError> {
     let message_id = format!("detached-cancel:{}:{cancelling_revision}", input.agent_id);
-    let body = js_json::stringify(&serde_json::json!({
+    let mut body = serde_json::json!({
         "command": "cancel",
         "identity": {
             "jobId": input.agent_id,
@@ -1352,9 +1390,16 @@ fn build_detached_cancellation_message(
                 .map_err(|error| ControlDbError::new(error.to_string()))?,
         },
         "reason": cancellation.reason,
-    }));
+    });
+    if cancellation.reason.is_none()
+        && let Some(body) = body.as_object_mut()
+    {
+        body.remove("reason");
+    }
+    let body = js_json::stringify(&body);
     let message = js_json::stringify(&serde_json::json!({
         "body": body,
+        "createdAt":input.updated_at,
         "fromAgentId": "main",
         "id": message_id,
         "kind": "system",
@@ -1487,7 +1532,7 @@ fn read_terminal_mutation_plan(
     let current_lifecycle = agent.get("lifecycle").and_then(Value::as_str).unwrap_or("");
     if current_lifecycle == input.terminal_lifecycle {
         return Ok(TerminalMutationRead::Replay(terminal_mutation_replay_result(
-            db, input, &agent,
+            input, &agent,
         )));
     }
     let terminal_revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
@@ -1668,7 +1713,6 @@ fn is_nonterminal_lifecycle(lifecycle: Option<&Value>) -> bool {
 }
 
 fn terminal_mutation_replay_result(
-    db: &Connection,
     input: &CommitMultiAgentTerminalMutationInput,
     agent: &Map<String, Value>,
 ) -> CommitMultiAgentTerminalMutationResult {
@@ -1680,20 +1724,7 @@ fn terminal_mutation_replay_result(
             };
         }
     }
-    let outbox = db
-        .query_row(
-            "SELECT 1 FROM multi_agent_terminal_outbox
-			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?",
-            params![input.session_path, input.agent_id, terminal_revision, input.event_kind],
-            |_| Ok(()),
-        )
-        .optional();
-    match outbox {
-        Ok(Some(())) => CommitMultiAgentTerminalMutationResult::Ok { terminal_revision },
-        _ => CommitMultiAgentTerminalMutationResult::Err {
-            error: LifecycleCommandError::MutationMismatch,
-        },
-    }
+    CommitMultiAgentTerminalMutationResult::Ok { terminal_revision }
 }
 
 fn can_persist_terminal_transition(current: &str, requested: &str) -> bool {
@@ -2482,12 +2513,37 @@ pub fn update_multi_agent_agent_current_activity(
     current_activity: Option<&Value>,
     updated_at: &str,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
+    model: Option<&Value>,
 ) -> Result<Option<Value>, ControlDbError> {
     let mut metadata = Map::new();
+    if let Some(model) = model {
+        metadata.insert("model".into(), model.clone());
+    }
     metadata.insert(
         "currentActivity".to_owned(),
         current_activity.cloned().unwrap_or(Value::Null),
     );
+    update_multi_agent_agent_metadata(
+        control_db_path,
+        session_path,
+        agent_id,
+        &metadata,
+        updated_at,
+        Some(ownership),
+    )
+}
+
+/// `updateMultiAgentAgentModel`.
+pub fn update_multi_agent_agent_model(
+    control_db_path: &str,
+    session_path: &str,
+    agent_id: &str,
+    model: &Value,
+    updated_at: &str,
+    ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
+) -> Result<Option<Value>, ControlDbError> {
+    let mut metadata = Map::new();
+    metadata.insert("model".into(), model.clone());
     update_multi_agent_agent_metadata(
         control_db_path,
         session_path,
@@ -2749,13 +2805,27 @@ pub fn upsert_multi_agent_mailbox_message(
     data: &Value,
 ) -> Result<(), ControlDbError> {
     validate_mailbox_payload(data, &format!("multi_agent_mailbox_messages:{session_path}#{id}"))?;
+    let created_at = data.get("createdAt").filter(|value| !value.is_null());
+    if created_at
+        .is_some_and(|value| super::is_mailbox_message_expired(value.as_str(), pi_js_compat::date::js_now_millis()))
+    {
+        return Ok(());
+    }
     with_control_db(control_db_path, |db| {
         for _ in 0..MULTI_AGENT_MAILBOX_UPSERT_MAX_ATTEMPTS {
             let plan = prepare_multi_agent_mailbox_upsert(db, session_path, id, data)?;
+            if super::is_mailbox_message_expired(
+                super::parse_stored_json_object(&plan.serialized, &format!("{session_path}#{id}"))?
+                    .get("createdAt")
+                    .and_then(Value::as_str),
+                pi_js_compat::date::js_now_millis(),
+            ) {
+                return Ok(());
+            }
             if plan.existing.as_ref().map(|existing| existing.data.as_str()) == Some(plan.serialized.as_str()) {
                 return Ok(());
             }
-            if commit_multi_agent_mailbox_upsert(db, session_path, id, &plan)? {
+            if with_immediate_transaction(db, |db| commit_multi_agent_mailbox_upsert(db, session_path, id, &plan))? {
                 return Ok(());
             }
         }
@@ -2804,6 +2874,13 @@ fn prepare_multi_agent_mailbox_upsert(
             )));
         }
         serialized = js_json::stringify(&Value::Object(merge_canonical_mailbox_update(&previous, &next)));
+    } else if data.get("createdAt").is_none_or(Value::is_null) {
+        let mut incoming = super::parse_stored_json_object(&serialized, &format!("{session_path}#{id}"))?;
+        incoming.insert(
+            "createdAt".into(),
+            Value::String(crate::utils::iso_time::now_iso_string()),
+        );
+        serialized = js_json::stringify(&Value::Object(incoming));
     }
     Ok(MultiAgentMailboxUpsertPlan {
         existing,
@@ -2818,6 +2895,14 @@ fn commit_multi_agent_mailbox_upsert(
     id: &str,
     plan: &MultiAgentMailboxUpsertPlan,
 ) -> Result<bool, ControlDbError> {
+    if super::is_mailbox_message_expired(
+        super::parse_stored_json_object(&plan.serialized, &format!("{session_path}#{id}"))?
+            .get("createdAt")
+            .and_then(Value::as_str),
+        pi_js_compat::date::js_now_millis(),
+    ) {
+        return Ok(true);
+    }
     let has_parent_target = i64::from(plan.parent_target.is_some());
     let has_existing = i64::from(plan.existing.is_some());
     Ok(db.execute(
@@ -2886,6 +2971,7 @@ fn read_multi_agent_mailbox_row_snapshot(
 fn merge_canonical_mailbox_update(previous: &Map<String, Value>, next: &Map<String, Value>) -> Map<String, Value> {
     let mut merged = next.clone();
     for key in [
+        "createdAt",
         "recipientAgentId",
         "recipientSessionId",
         "senderAgentId",
@@ -2893,6 +2979,8 @@ fn merge_canonical_mailbox_update(previous: &Map<String, Value>, next: &Map<Stri
     ] {
         if let Some(value) = previous.get(key) {
             merged.insert(key.to_owned(), value.clone());
+        } else {
+            merged.remove(key);
         }
     }
     if next.get("status").and_then(Value::as_str) == Some("pending")
@@ -2949,8 +3037,8 @@ pub fn get_multi_agent_mailbox_message_status(
     with_control_db(control_db_path, |db| {
         let data: Option<String> = db
             .query_row(
-                "SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-                params![session_path, message_id],
+                &format!("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND {} > ?",super::retention::MAILBOX_CREATED_AT_MS_SQL),
+                params![session_path, message_id,super::retention::mailbox_cutoff_ms()],
                 |row| row.get(0),
             )
             .optional()?;
@@ -2967,7 +3055,13 @@ pub fn mark_multi_agent_mailbox_message_delivered(
     session_path: &str,
     message_id: &str,
 ) -> Result<bool, ControlDbError> {
-    update_multi_agent_mailbox_message_status(control_db_path, session_path, message_id, "delivered", None)
+    Ok(super::consume_runtime_mailbox_message_by_store_ref(
+        control_db_path,
+        &super::RuntimeMailboxStoreRef {
+            session_path: session_path.to_owned(),
+            message_id: message_id.to_owned(),
+        },
+    )? == 1)
 }
 
 /// `markMultiAgentMailboxMessageFailed`.
@@ -2988,17 +3082,17 @@ fn update_multi_agent_mailbox_message_status(
     error: Option<&str>,
 ) -> Result<bool, ControlDbError> {
     with_control_db(control_db_path, |db| {
-        let data: Option<String> = db
-            .query_row(
-                "SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-                params![session_path, message_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let Some(data) = data else {
+        let Some(row) = super::read_canonical_mailbox_row_by_store_ref(
+            db,
+            &super::RuntimeMailboxStoreRef {
+                session_path: session_path.to_owned(),
+                message_id: message_id.to_owned(),
+            },
+        )?
+        else {
             return Ok(false);
         };
-        let Some(mut parsed) = super::parse_json_object(&data) else {
+        let Some(mut parsed) = super::parse_json_object(&row.data) else {
             return Ok(false);
         };
         if parsed.get("status").and_then(Value::as_str) != Some("pending") {
@@ -3010,18 +3104,9 @@ fn update_multi_agent_mailbox_message_status(
         if let Some(error) = error {
             parsed.insert("error".to_owned(), Value::String(error.to_owned()));
         }
-        db.execute(
-            "UPDATE multi_agent_mailbox_messages
-			 SET data = ?, updated_at = ?
-			 WHERE session_path = ? AND message_id = ?",
-            params![
-                js_json::stringify(&Value::Object(parsed)),
-                now,
-                session_path,
-                message_id
-            ],
-        )?;
-        Ok(true)
+        with_immediate_transaction(db, |db| {
+            super::compare_and_write_canonical_mailbox_payload(db, &row, &parsed, &now)
+        })
     })
 }
 
@@ -3195,11 +3280,20 @@ pub fn read_multi_agent_state(
 ) -> Result<Option<MultiAgentPersistedState>, ControlDbError> {
     with_control_db(control_db_path, |db| {
         let read_rows = |table: &str| -> Result<Vec<Value>, ControlDbError> {
+            let retention = if table == "multi_agent_mailbox_messages" {
+                format!(" AND {} > ?", super::retention::MAILBOX_CREATED_AT_MS_SQL)
+            } else {
+                String::new()
+            };
             let mut statement = db.prepare(&format!(
-                "SELECT data FROM {table} WHERE session_path = ? ORDER BY rowid"
+                "SELECT data FROM {table} WHERE session_path = ?{retention} ORDER BY rowid"
             ))?;
+            let mut args = vec![rusqlite::types::Value::Text(session_path.to_owned())];
+            if table == "multi_agent_mailbox_messages" {
+                args.push(rusqlite::types::Value::Integer(super::retention::mailbox_cutoff_ms()));
+            }
             let rows = statement
-                .query_map(params![session_path], |row| row.get::<_, String>(0))?
+                .query_map(rusqlite::params_from_iter(args), |row| row.get::<_, String>(0))?
                 .collect::<Result<Vec<_>, _>>()?;
             let mut values = Vec::with_capacity(rows.len());
             for (index, data) in rows.iter().enumerate() {
@@ -3474,7 +3568,7 @@ fn prepare_dead_runtime_recovery(
     updated_agent.insert("revision".to_owned(), Value::from(terminal_revision));
     updated_agent.insert("updatedAt".to_owned(), Value::String(now_iso.to_owned()));
     updated_agent.remove("worker");
-    let terminal_transport = if agent.get("detached").and_then(Value::as_bool) == Some(true) {
+    let terminal_transport = if should_notify_detached_job_owner(&agent) {
         Some(prepare_detached_agent_terminal_transport(
             &expected_owner.session_path,
             &expected_owner.agent_id,
@@ -3634,6 +3728,11 @@ fn release_dead_runtime_ownership_if_current(
     )? == 1)
 }
 
+pub(super) fn should_notify_detached_job_owner(agent: &Map<String, Value>) -> bool {
+    agent.get("detached").and_then(Value::as_bool) == Some(true)
+        && agent.get("suppressTerminalNotification").and_then(Value::as_bool) != Some(true)
+}
+
 pub(crate) fn prepare_detached_agent_terminal_transport(
     session_path: &str,
     agent_id: &str,
@@ -3666,6 +3765,7 @@ pub(crate) fn prepare_detached_agent_terminal_transport(
         "updatedAt": terminal_at,
     });
     let input = EnqueueStoredRuntimeMailboxMessageInput {
+        recipient_host: None,
         kind: RuntimeMailboxMessageKind::System,
         message,
         recipient: RuntimeMailboxAddress {
@@ -3690,6 +3790,7 @@ pub(crate) fn persist_prepared_terminal_transport(
     db: &Connection,
     transport: &PreparedTerminalTransport,
 ) -> Result<(), ControlDbError> {
+    super::retention::assert_mailbox_message_fresh(&transport.prepared.routed, &transport.prepared.context)?;
     db.execute(
         "INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 		 VALUES (?, ?, ?, ?)",

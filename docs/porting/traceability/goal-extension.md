@@ -9,6 +9,10 @@ command, renderers, and message/status payloads as the TypeScript source are
 registered. TypeScript file → Rust module mapping is one file per module with
 the source basename converted to snake_case.
 
+## Re-pin fallibility boundary
+
+Frozen `4f9e6f8a4` synchronous settings errors now propagate through the native error-status scheduler and idle-goal selection callbacks. Exact APIs, branch distinctions and currently unproven failure-injection cases: [native fallibility propagation](retry-delay.md#native-fallibility-propagation). Historical tests below do not establish this new boundary or whole new-pin goal parity.
+
 ## Symbols and branches
 
 | Source symbol / branch | Rust item | Tests |
