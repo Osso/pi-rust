@@ -139,6 +139,13 @@ fn classification_messages() -> Vec<Value> {
     }
     for text in [
         "Error: WebSocket connection to 'wss://x' failed: Expected 101 status code",
+        "Error:WebSocket connection to 'wss://x' failed: Expected 101 status code",
+        "Error:  WebSocket connection to 'wss://x' failed: Expected 101 status  code",
+        "WebSocket connection to 'wss://x' failed: Expected 101 statuscode",
+        "WebSocket connection to 'wss://a'b' failed: Expected 101 status code",
+        "providerreturned error",
+        "provider returnederror",
+        "Codex error: Unable to verify Daybreak Blue access. Please try again.\r\nOpenAI request ID: req_1",
         "Error:\tWebSocket connection to 'wss://x' failed: Expected 101 status\ncode",
         "WebSocket connection to 'ws://x' failed: Expected 101 status code",
         "WebSocket connection to 'wss://' failed: Expected 101 status code",
