@@ -9,10 +9,9 @@
     "origin": "Tracked in the pinned TypeScript Git tree; no network generation or supplements. Rust provider data remains unchanged pending re-pin parity work."
   },
   "typecheckReference": {
-    "status": "blocked",
-    "worktree": "/home/osso/.worktrees/pi-oracle-typecheck-4f9e6f8a4",
+    "status": "unmodified",
     "baseCommit": "4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d",
-    "todo": "Re-evaluate need for type-only reference at new pin. Old patch fails: cloudflare-ai-gateway.ts:6 and opencode-go.ts:2; patch does not apply. No replacement patch or reference created."
+    "note": "Original public index plus tracked ambient declaration compiles without provider patch. Type and runtime proofs use worktree above. Old patch fails cloudflare-ai-gateway.ts:6 and opencode-go.ts:2; retired, no replacement source changes."
   },
   "note": "Later master commits are tracked as explicit deltas."
 }

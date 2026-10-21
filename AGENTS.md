@@ -1,8 +1,9 @@
 # Development Rules
 
-- Treat `/home/osso/.worktrees/pi-rust-source-532f7d12` as read-only. Its pinned revision lives in `docs/porting/source-lock.json`.
-- Type proofs use the separately pinned two-file type-only reference (approved 2026-10-20); runtime oracles retain the original source/catalog. Setup and byte-identity proof: `docs/porting/oracle-gate.md`.
-- Control DB v15 and metadata-authoritative session names follow `c248b0067` instead of the v14 pin (approved deviation 2026-10-20); reference: `docs/porting/source-lock.json`.
+- Treat `/home/osso/.worktrees/pi-rust-source-4f9e6f8a4` as read-only; full pin: `docs/porting/source-lock.json`. Later master commits are explicit deltas.
+- Type and runtime proofs use the unmodified common pin; retired type patch fails on this revision. Integrity/setup: `docs/porting/oracle-gate.md`.
+- All pre-repin approvals below are **to re-validate against 4f9e6f8a4**; retain them pending user review, not as new-pin parity evidence.
+- Control DB v15 and metadata-authoritative names formerly followed approved `c248b0067` (2026-10-20), now an ancestor of the common pin.
 - Split-surrogate session-name helpers may use U+FFFD in memory; SQLite stored names must match TS exactly (approved 2026-10-20: “Match DB; record gap”).
 - Target: full parity of all packages (decision 2026-10-18). Track every non-test source file in `docs/porting/coverage.md`.
 - Port one whole TypeScript module (file or tightly coupled file group) per slice. Ask Alessio before any unapproved semantic deviation.

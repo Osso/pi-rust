@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
-import type { createSessionBackendConformance } from "/home/osso/.worktrees/pi-rust-source-532f7d12/packages/agent/src/harness/session/testing/index.ts";
-import type { InMemorySessionRepo } from "/home/osso/.worktrees/pi-rust-source-532f7d12/packages/agent/src/harness/session/memory.ts";
+import type { createSessionBackendConformance } from "@pi-oracle-source/agent/src/harness/session/testing/index.ts";
+import type { InMemorySessionRepo } from "@pi-oracle-source/agent/src/harness/session/memory.ts";
 
 type Api = {
 	createSessionBackendConformance: typeof createSessionBackendConformance;

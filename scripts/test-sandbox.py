@@ -29,8 +29,6 @@ def reference_inputs():
         ROOT,
         Path(lock["worktree"]),
     ]
-    if lock["typecheckReference"].get("status") != "blocked":
-        references.append(Path(lock["typecheckReference"]["worktree"]))
     for reference in references:
         yield reference
         git_file = reference / ".git"

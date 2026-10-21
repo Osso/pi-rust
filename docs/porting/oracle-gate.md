@@ -1,157 +1,40 @@
-# Oracle typecheck gate
+# Frozen oracle and typecheck gate
 
-`./run-tests.sh oracle` runs subprocess regressions, checks registered oracle
-entrypoints, then registered public-index/direct-module type proofs. It stops on
-failure. `all` requires the same gate before Rust tests. This is not a typecheck
-of every oracle or the entire pinned monorepo.
+## Active reference (2026-10-21)
 
-## Two explicitly selected references
+[Source lock](source-lock.json): `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, read-only `/home/osso/.worktrees/pi-rust-source-4f9e6f8a4`. Both runtime and type proofs use these exact unmodified bytes. The model catalog is tracked `packages/ai/src/models.generated.ts`; no generated provider JSON snapshot, supplement, network refresh or second source checkout is needed. Old approvals are to re-validate against this pin.
 
-[source-lock.json](source-lock.json) retains the original `commit` and `worktree`:
-`532f7d12cd19235081bd4d6e425bde185652d86f` at
-`/home/osso/.worktrees/pi-rust-source-532f7d12`. This checkout remains read-only.
-**Runtime differential oracles always use this original checkout and its existing
-model snapshot.** Embedded value probes inside typeproof scripts also use the
-original source, `tsx`, and root config; only their temporary import paths change.
-No live Pi config, session state, provider calls, or model refresh is involved.
+`oracle/typecheck-reference.mjs` verifies frozen HEAD, clean source, compiler/tsconfig availability, tracked catalog identity and exact catalog bytes. `setup` only validates; it never clones, patches, installs or mutates source. Missing or mismatched inputs fail without alternate-source fallback. Runtime fixture preparation verifies that type and runtime selections are identical and leaves the fixture unchanged. No source transformation exists, so emitted-JavaScript identity is trivial: type/runtime import the same files. Historical patched-source transpile comparisons are no longer applicable.
 
-On 2026-10-20 Alessio approved a separate type-only reference correcting two
-source/catalog type errors. `typecheckReference` adds its own base, commit, tree,
-patch, patch hash and installed-catalog hash without replacing the runtime pin:
+## Retired patch and need assessment
 
-| Item | Exact value |
-| --- | --- |
-| Checkout | `/home/osso/.worktrees/pi-oracle-typecheck-532f7d12` |
-| Base/sole parent | `532f7d12cd19235081bd4d6e425bde185652d86f` |
-| Reference commit | `16a52a4df1b412e1adcc183b64880a2e625b5418` |
-| Reference tree | `2373941ed92e62e2d136f098da19c55c65bbb5c9` |
-| Patch SHA-256 | `2436061a2cf24c9b68e8f77e25957835ea6d5f7ed2864f8131d5835c134b7940` |
-
-Patch: [oracle-typecheck-532f7d12.patch](patches/oracle-typecheck-532f7d12.patch).
-It changes exactly three type annotations across two files:
-
-- `cloudflare-ai-gateway.ts`: supply `createProvider`'s explicit
-  `"anthropic-messages" | "openai-completions" | "openai-responses"` generic.
-  Its inferred catalog union otherwise rejects the existing completions entry
-  (TS2353 at original line 19).
-- `opencode-go.ts`: add `"google-generative-ai"` to the return `Provider` and
-  `createProvider` generic unions. The locked catalog already contains that API
-  (TS2322 at original line 13). No stream implementation is added, no catalog
-  model is removed, and existing missing-stream behavior is unchanged.
-
-The regression test transpiles each original/corrected file with the same
-installed TypeScript `transpileModule` options (`target=ES2022`, `module=ESNext`,
-`sourceMap=false`, `inlineSourceMap=false`, same filename), then compares emitted
-JavaScript **bytes**. A type-only claim does not rest on changed filenames.
-
-## Reproducible setup
-
-Run from the pi-rust checkout:
+The old two-file type-only [patch](patches/oracle-typecheck-532f7d12.patch) cannot be applied to the new pin. Read-only `git apply --check` returned exit 1:
 
 ```text
-node oracle/typecheck-reference.mjs setup
-node oracle/typecheck-reference.mjs check
+error: patch failed: packages/ai/src/providers/cloudflare-ai-gateway.ts:6
+error: packages/ai/src/providers/cloudflare-ai-gateway.ts: patch does not apply
+error: patch failed: packages/ai/src/providers/opencode-go.ts:2
+error: packages/ai/src/providers/opencode-go.ts: patch does not apply
 ```
 
-`setup` creates a separate local shared clone of the original, checks out the
-exact base, applies only the tracked patch, and makes the deterministic local
-reference commit. Author/committer: `Pi Oracle Reference
-<oracle-reference@example.invalid>`; both dates:
-`2026-10-20T00:00:00+00:00`; subject:
-`Type-only oracle reference for locked provider catalog`. Nothing is committed,
-pushed, merged or changed in the original checkout or `/home/osso/Repos/pi`.
-The shared clone needs the original object store to remain available. Keep this
-reference alive for subsequent verification/integration.
+No replacement patch or semantic source edit was attempted. A targeted strict no-emit compiler probe using `buildSourceTsconfig` on the new coding-agent public index plus its tracked `utils/highlight-js-lib-index.d.ts` passed, exit 0. The old provider errors TS2353/TS2322 are absent. Therefore an equivalent patched reference is not needed for that compiler boundary. The first index-only probe exposed TS7016 because its temporary config omitted the source's ambient declaration; the shared builder now includes source `packages/*/src/**/*.d.ts`, without suppressing diagnostics or changing declarations.
 
-Dependencies are reused through explicit root/package `node_modules` symlinks;
-no install/build/refresh runs. Model JSON is copied, not symlinked or regenerated.
-The reference's tracked tsconfigs remain independent editable files, not links to
-the original. No new dependency is required. The catalog digest is SHA-256 over
-all filenames sorted lexically, each followed by NUL, exact file bytes, then NUL
-(including `.manifest.json` and the existing Kimi supplement). Both installed
-snapshots must match `typecheckReference.modelCatalogSha256`:
-`6857c86845b47766339bdf35a5f3e98373b28a31f5eb1c0719a04d679ad44705`.
-The existing `modelCatalog` metadata remains unchanged.
+Probe commands/file sets and full outputs: `/tmp/pi-rust-repin-infra/typecheck-new-pin-{probe,with-declarations}.log`; detailed command ledger: `/tmp/pi-rust-repin-infra/ledger.md`. Reproducible regression: `oracle/typecheck-reference.test.mjs` compiles the public index with the same builder, then proves a concrete invalid fixture still yields exactly TS2322. Fixture mutation tests reject wrong HEAD, dirty catalog and absent compiler. `oracle/repin-infra.test.mjs` proves lock-selected type-import resolution with a real compiler and rejects a string-to-number mutation.
 
-`check` and every typeproof use one shared helper,
-`oracle/typecheck-reference.mjs`. It validates original HEAD/clean source,
-reference HEAD/sole parent/tree/clean source, patch SHA-256, byte-exact
-`git diff --binary --full-index --unified=6 <base> HEAD`, dependency link destinations and
-both catalog digests. Git reads disable optional locks. Dependency symlinks are
-checked separately because upstream directory-only ignores do not ignore them.
-Missing references fail with setup instructions; no fallback selects the original.
-Stale, dirty or wrong-base checkouts fail rather than being reset automatically.
-To rebuild, remove only the disposable reference after checking ownership, then
-run setup; never reset or clean the original.
+## Protected invocation
 
-## Strict compiler boundary
+From the Rust checkout:
 
-Generated configs inherit the selected reference's root/base options and
-package-to-source mappings, made absolute for temporary configs. Package exports
-point to absent `dist/*.d.ts`; paths target real `src`, not API declaration stubs.
-Installed `tsgo` (`7.0.0-dev.20260120.1`), TypeScript and `@types` remain reused.
+```text
+python3 scripts/test-sandbox.py -- node oracle/typecheck-reference.mjs check
+python3 scripts/test-sandbox.py -- node --test oracle/typecheck-reference.test.mjs oracle/repin-infra.test.mjs oracle/session-name-reference.test.mjs
+python3 scripts/test-sandbox.py -- ./run-tests.sh oracle
+```
 
-Checks are strict **no-emit**. Absolute `.ts` fixture imports use
-`allowImportingTsExtensions`; `rewriteRelativeImportExtensions` is disabled
-because fixtures are never emitted. Existing `skipLibCheck` is inherited, not
-expanded to hide source/fixture errors. No diagnostic suppression, `skipErrors`,
-`noCheck`, emit-on-error, model filtering, or catalog refresh is used.
+The last command is a gate, not part of this slice's focused proof. Existing public API, diagnostic-count/span, negative fixture and runtime-value assertions remain unchanged; source API differences must fail discovery, not be weakened. `run-tests.sh oracle` validates source selection before compiler checks. All generated fixture/config files stay in private `TMPDIR`; repository source is read-only. Compiler options inherit the frozen source, use no-emit, preserve strictness and existing `skipLibCheck`, and resolve absent package `dist` exports through source mappings. `@pi-oracle-source/*` is a type-only import mapping into the selected tree; missing source modules remain failures.
 
-`typecheck-report.mjs` propagates numeric exits, launch errors and signals with
-both diagnostic streams intact. Negative proofs retain expected-error directives
-and compiler-API assertions on exact diagnostic codes/counts/spans; public-index
-export, declaration-origin, property and API-shape assertions are unchanged.
-Original source diagnostics are not reclassified as expected negatives.
+Cargo runs outside the runtime namespace; compiled tests enter the mandatory runner guard. Never put Cargo itself inside the read-only guard. The guard hides host HOME/config/state/providers, supplies private state and loopback-only networking, and mounts only this checkout, common source and required runtime inputs. It does not inject `PI_OFFLINE`; offline proofs set it explicitly. Existing private-devpts, capability-drop, parent-watchdog and nested-guard behavior is unchanged.
 
-## Protected-runner integration
+## Phase 0 proof boundary
 
-Pinned patch comparison explicitly selects six context lines, matching the locked patch bytes; it must not inherit host Git `diff.context`. Protected preflight at `de1cc57` exposed that implicit host dependency: 6 Node tests passed, 5 failed before compiler checks (`/tmp/pi-rust-batch-a-guard-verification/REPORT.md`). The patch/reference/catalog hashes and all diagnostic checks remain unchanged. Regression `locked reference verification ignores inherited diff context` checks actual reference acceptance with context 0 and 20; its initial RED is retained in `/tmp/pi-rust-batch-a-oracle-fix/diff-context-red.log`.
-
-Protected oracle configuration and dynamic compiler fixtures are created only in private `TMPDIR`; the repository-relative negative fixture is tracked at `oracle/fixtures/invalid-typecheck.ts`. Its compiler error/path assertion remains intact, without writing into the read-only checkout. Actual protected RED after the context fix: 19/20 Node tests passed; the repository-fixture write failed with EROFS. A separate exact runner `mktemp` operation also failed EROFS. Logs: `/tmp/pi-rust-batch-a-oracle-fix/{protected-oracle-temp-red,config-location-red}.log`.
-
-Run final integration in two phases: `python3 scripts/test-sandbox.py -- ./run-tests.sh oracle`, then Cargo outside the runtime namespace (`cargo test --workspace --all-targets`), whose compiled tests enter the mandatory Cargo runner guard. Do not place Cargo itself inside the runtime guard: checkout/cache are read-only and Cargo is absent from its restricted PATH. No writable-checkout or unsandboxed fallback is introduced.
-
-The runtime guard does not inject `PI_OFFLINE`; it preserves an explicitly
-supplied value. Injected fetch/npm/git tests exercise normal product behavior
-inside loopback-only networking. Startup proofs requiring application offline
-mode must set it themselves. Private devpts is established after loopback
-bootstrap and capability dropping; nested guards retain private temporary files
-and a fresh proc mount for namespace setup.
-
-## Development proof ledger
-
-| Command | Exact scope | Result |
-| --- | --- | --- |
-| `node --test oracle/typecheck-report.test.mjs` | Original filtering helper at `432cf07` plus regressions | RED: 7 failed, 1 passed |
-| `node --test --test-name-pattern=no-emit oracle/typecheck-report.test.mjs` | Before no-emit config repair | RED: TS2877 |
-| `./run-tests.sh oracle` | Strict gate repair `6a0295a`, before this slice | 9/9 regressions; entrypoints pass; public-index exit 2, exactly the two original provider errors; later proofs not reached |
-| `node --test oracle/typecheck-reference.test.mjs` | New regression before implementation | RED: missing separately pinned `typecheckReference` metadata |
-| `node --test oracle/typecheck-reference.test.mjs` | Shared helper/setup and one boundary regression, before caller wiring/additional cases | GREEN: 1/1; original compiler exit 2 with exactly TS2353/TS2322; corrected reference exit 0; both JS byte comparisons pass; missing/dirty/stale/wrong-base references rejected |
-
-| `node --test oracle/typecheck-reference.test.mjs oracle/typecheck-report.test.mjs` | `95254cf` | New reference regressions 3/3 pass; existing reporter regressions 7/9 pass, two negative fixture failures expose the reporter test caller's obsolete generator argument |
-| `node oracle/default-thinking-level-typecheck.mjs` | `95254cf` | PASS, exit 0; selected-reference compiler check followed by original-source runtime fixture |
-| `cargo fmt --check` | `95254cf` implementation, before commit | PASS, exit 0 |
-
-| `node --test oracle/typecheck-report.test.mjs` | `a50a719` | GREEN: 9/9, including both retained negative fixture assertions |
-| `node oracle/coding-agent-truncation-constants-typecheck.mjs` | `a50a719` | RED: its existing literal original-pin assertion compared the selected reference commit against the original commit |
-
-The reporter caller uses the new generator signature and selected reference,
-retaining every diagnostic assertion. The truncation proof's literal pin now
-checks `typecheckReference.baseCommit`; the shared helper separately checks both
-actual HEADs. Its API/diagnostic/runtime assertions remain unchanged, with a new
-subprocess regression.
-
-| Command | Exact scope | Result |
-| --- | --- | --- |
-| `node --test --test-name-pattern=truncation oracle/typecheck-reference.test.mjs` | `b36bcb8` | GREEN: 1/1; exact types/aliases, retained negative diagnostics and original-source runtime imports pass |
-| `cargo fmt --check` | Before each implementation/fix commit (`95254cf`, `a50a719`, `b36bcb8`) | PASS, exit 0 each |
-
-The three earlier reference tests at `95254cf` remain valid: subsequent code
-changes touch only the reporter test caller and truncation pin check/new test.
-Reporter regressions pass 9/9 at `a50a719`. Documentation-only follow-ups do not
-invalidate those results. Formatters: installed Biome on new helper/tests and
-updated generator/reporter test; unrelated existing whole-file formatting was
-left unchanged.
-Full `./run-tests.sh oracle` and `./run-tests.sh all` are reserved for the independent
-verifier; no new full-gate, broad Rust, lint, build, deployment or final-acceptance
-pass is claimed by this slice.
+Focused infrastructure regressions pass; no acceptance, broad discovery, clippy or readability claim is made. Main owns one discovery after merge: `cargo test --workspace --all-targets --no-fail-fast` through the configured Cargo runner. [Coverage](coverage.md) retains pending proof labels and product deltas. Runtime path/import blockers are recorded in [re-pin infrastructure](repin-infra.md), not repaired through product semantic changes.

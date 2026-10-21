@@ -1,32 +1,9 @@
-# Session-name v15 oracle
+# Session-name oracle
 
-Approved reference: [source-lock.json](source-lock.json).
-The general [source lock](source-lock.json) remains unchanged.
+Session-name tests now use the [common frozen source](source-lock.json), not a separately prepared c248b0067 checkout. That ancestor's old approval is to re-validate against 4f9e6f8a4; current source identity is not behavior proof.
 
-Prepare once from this checkout, without modifying either reference repository:
+`run-tests.sh all` and `differential` run `oracle/session-name-reference.mjs` before Cargo. The read-only preflight checks the common locked HEAD, tsx, tsconfig and tracked `packages/ai/src/models.generated.ts`. Missing/mismatched inputs fail immediately; no clone, install, catalog generation or alternate source is attempted. Prepare the frozen source/dependencies explicitly; never recreate the old source. All Node commands run through `python3 scripts/test-sandbox.py -- ...`.
 
-```text
-git clone --shared --no-checkout /home/osso/Repos/pi target/session-name-oracle
-git -C target/session-name-oracle checkout --detach c248b0067c9fc3fa438f967f826c222875c54834
-ln -s /home/osso/.worktrees/pi-rust-source-532f7d12/node_modules target/session-name-oracle/node_modules
-ln -s /home/osso/.worktrees/pi-rust-source-532f7d12/packages/ai/src/providers/data target/session-name-oracle/packages/ai/src/providers/data
-```
+`session-names:packages/...` remains a test module selector, but `TsOracle::spawn` strips the prefix and uses the same common source lock as every other selector. Process-group teardown and parent watchdog remain unchanged. `oracle/session-name-reference.test.mjs` proves missing/wrong-HEAD failures before Cargo and valid/missing-environment preflights.
 
-`./run-tests.sh all` and `differential` run `node oracle/session-name-reference.mjs`
-before Cargo (and before the type gate for `all`). This read-only preflight requires
-the locked HEAD, tsx, tsconfig and model-data directory; missing/mismatched fixtures
-fail immediately with this setup document, never clone, edit or select another pin.
-Run it directly after the explicit setup above. Each isolated worktree needs its own
-`target/session-name-oracle`; canonical preparation does not prepare sibling targets.
-`node --test oracle/session-name-reference.test.mjs` proves missing/wrong-HEAD
-runner failures occur before Cargo and checks valid/missing-environment preflights.
-
-`TsOracle::spawn` accepts `session-names:packages/...` for this explicit reference.
-It verifies the checkout's full commit SHA, then uses the same process-group teardown
-and parent watchdog as every other oracle. DB schema/name differentials compare all
-fields in source order; only generated timestamps and fixture paths are substituted.
-
-`cross_implementation_control_db` creates its v15 fixture through real TypeScript,
-checks the schema version before Rust opens it, writes a name through Rust, then
-reads it back through TypeScript. Legacy v14 SQL fixtures are separate. No test
-opens or copies the user's live state/config directories.
+`cross_implementation_control_db` creates its fixture through real TypeScript, checks schema version before Rust opens it, writes a name through Rust, then reads it through TypeScript. Existing v14 SQL fixtures remain separate. No test opens or copies live state/config. Differential assertions are unchanged; re-pin discovery is pending main-thread integration.

@@ -1,6 +1,6 @@
 # Metadata-authoritative session names
 
-Session display names follow the authorized [c248b0067 reference](../porting/session-name-source-lock.json), replacing the pinned v14 duplicate store. Behavioral mappings live in the [control DB](../porting/traceability/session-control-db.md), [manager](../porting/traceability/session-manager.md), and [autoname](../porting/traceability/session-autoname.md) traceability docs.
+Session display names follow the authorized [common source pin](../porting/source-lock.json) (former c248b0067 approval to re-validate against 4f9e6f8a4), replacing the pinned v14 duplicate store. Behavioral mappings live in the [control DB](../porting/traceability/session-control-db.md), [manager](../porting/traceability/session-manager.md), and [autoname](../porting/traceability/session-autoname.md) traceability docs.
 
 ## What it must do
 
