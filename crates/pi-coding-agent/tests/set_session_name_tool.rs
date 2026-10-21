@@ -350,13 +350,15 @@ async fn real_extension_api_persists_publishes_events_and_never_requests_a_title
     let factory = Arc::new(move |api: &pi_coding_agent::core::extensions::ExtensionApi| {
         let recorded = Arc::clone(&recorded);
         let result = session_autoname_extension(api).and_then(|()| {
-            api.on_session_info_changed(move |event, _ctx| {
-                let recorded = Arc::clone(&recorded);
-                Box::pin(async move {
-                    recorded.lock().unwrap().push(event.name);
-                    Ok(None)
-                }) as pi_ai::request::BoxFuture<'static, _>
-            })
+            api.on_session_info_changed(
+                move |event: pi_coding_agent::core::extensions::types::SessionInfoChangedEvent, _ctx| {
+                    let recorded = Arc::clone(&recorded);
+                    Box::pin(async move {
+                        recorded.lock().unwrap().push(event.name);
+                        Ok(None)
+                    }) as pi_ai::request::BoxFuture<'static, _>
+                },
+            )
             .map_err(HandlerError::new)
         });
         Box::pin(async move { result }) as pi_ai::request::BoxFuture<'static, _>
@@ -390,6 +392,7 @@ async fn real_extension_api_persists_publishes_events_and_never_requests_a_title
         })
         .await;
     let tool = session
+        .extension_runner()
         .get_tool_definition("set_session_name")
         .expect("tool exposed through session registry");
     for name in ["First title", "Renamed title"] {
