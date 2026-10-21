@@ -4,7 +4,7 @@ Pinned source: `packages/coding-agent/extensions/openai-remote-compact/src/index
 `532f7d12cd19235081bd4d6e425bde185652d86f`.
 Rust: `crates/pi-coding-agent/src/bundled_extensions/openai_remote_compact.rs`.
 Focused tests: `crates/pi-coding-agent/tests/openai_remote_compact.rs` (2),
-`crates/pi-coding-agent/tests/differential_openai_remote_compact.rs` (15 differential cases).
+`crates/pi-coding-agent/tests/differential_openai_remote_compact.rs` (helper matrix and numeric-key budget regression).
 
 | TypeScript source | Contract | Rust and proof |
 |---|---|---|
@@ -37,6 +37,11 @@ before JS stringify; request-header traversal handles header names, not JSON
 record budget allocation. Remaining traversals are arrays, typed collections,
 or cloned records with named-field updates. No other object traversal consumes
 a shared budget. Evidence: `/tmp/pi-rust-core-c-fixes/ledger.md`.
+
+C3 RED and production-reversion mutation each fail the full-output comparison;
+GREEN passes both test functions. Pinned TS retains A×300000 and B×99908.
+Mutation restoration is byte-identical to the tested implementation. Required
+`cargo fmt --check` and two-crate all-target Clippy (`-D warnings`) pass.
 
 ## Gaps
 

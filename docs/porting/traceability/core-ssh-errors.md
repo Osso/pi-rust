@@ -106,6 +106,12 @@ panic, with exact `timeout:1e+100` / `timeout:2147483.648`, and complete results
 are compared with the pinned TS example. Fake SSH only; three-second test guard.
 Node delay proof and limits: [JS compatibility](js-compat.md#node-timers).
 RED/GREEN/mutation commands: `/tmp/pi-rust-core-c-fixes/ledger.md`.
+C1 RED and production-reversion mutation hit the three-second guard; GREEN
+passes the complete nine-scenario differential (1 test). Timer unit tests pass
+2/2 and pinned-runtime delay differential passes 1/1. Mutation restoration is
+byte-identical to the tested implementation. Required formatting and two-crate
+all-target Clippy (`-D warnings`) pass. Manual changed-line Rust/TS readability
+review found no new suppression, fallback, or control-flow complexity issue.
 
 ## Isolation and source quirks
 
