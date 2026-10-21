@@ -736,6 +736,12 @@ pub trait SessionMutationTarget: Send + Sync {
 /// `ViewedSessionMutationTarget`: adds the registry and scoped models the
 /// interactive session viewer exposes.
 pub trait ViewedSessionMutationTarget: SessionMutationTarget {
+    /// Source `setModel(model, "set", thinkingLevel)` applies effort in the same model selection.
+    fn set_model_with_thinking_level(
+        &self,
+        model: Model,
+        thinking_level: Option<pi_agent_core::harness::types::ThinkingLevel>,
+    ) -> BoxFuture<'static, Result<bool, HandlerError>>;
     fn model_registry(&self) -> Arc<crate::core::model_registry::ModelRegistry>;
     fn scoped_models(&self) -> Vec<crate::core::model_resolver::ScopedModel>;
 }

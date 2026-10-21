@@ -55,6 +55,14 @@ impl pi_coding_agent::core::extensions::types::SessionMutationTarget for TestMut
 }
 
 impl pi_coding_agent::core::extensions::types::ViewedSessionMutationTarget for TestMutationTarget {
+    fn set_model_with_thinking_level(
+        &self,
+        _model: pi_ai::types::Model,
+        _level: Option<pi_agent_core::harness::types::ThinkingLevel>,
+    ) -> BoxFuture<'static, Result<bool, HandlerError>> {
+        Box::pin(async { panic!("this selected-view fixture does not exercise model+effort selection") })
+    }
+
     fn model_registry(&self) -> Arc<pi_coding_agent::core::model_registry::ModelRegistry> {
         Arc::clone(&self.model_registry)
     }

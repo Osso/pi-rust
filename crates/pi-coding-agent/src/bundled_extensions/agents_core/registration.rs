@@ -271,7 +271,7 @@ fn register_jobs_command(pi: &ExtensionApi, registration: &AgentsCoreRegistratio
     );
 }
 
-fn tool_definition(
+pub(super) fn tool_definition(
     name: &str,
     label: &str,
     description: &str,
@@ -492,6 +492,11 @@ pub fn register_agents_core_tools(pi: &ExtensionApi, options: &MultiAgentExtensi
     register_wait_agents_tool(pi, &registration);
     register_cancel_agent_tool(pi, &registration);
     register_steer_agent_tool(pi, &registration);
+    super::agent_model_tool::register_set_agent_model_tool(
+        pi,
+        Arc::clone(&registration.store),
+        registration.runtime_handles.clone(),
+    )?;
     Ok(())
 }
 
