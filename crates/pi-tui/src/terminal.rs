@@ -7,7 +7,7 @@
 //! with [`Terminal::poll_events`].
 
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, channel};
@@ -224,6 +224,71 @@ fn write_log_path() -> Option<PathBuf> {
     Some(path)
 }
 
+fn read_stdin_chunks(
+    sender: std::sync::mpsc::Sender<Vec<u8>>,
+    errors: std::sync::mpsc::Sender<std::io::Error>,
+    stop: Arc<AtomicBool>,
+) {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+    let stdin = std::io::stdin();
+    let mut descriptors = [PollFd::new(&stdin, PollFlags::IN)];
+    let timeout = Timespec {
+        tv_sec: 0,
+        tv_nsec: 10_000_000,
+    };
+    let mut buffer = [0_u8; 4096];
+    while !stop.load(Ordering::Relaxed) {
+        match poll(&mut descriptors, Some(&timeout)) {
+            Ok(0) | Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => {
+                let _ = errors.send(error.into());
+                break;
+            }
+            Ok(_) => {}
+        }
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        match rustix::io::read(&stdin, &mut buffer) {
+            Ok(0) => break,
+            Ok(count) => {
+                if sender.send(buffer[..count].to_vec()).is_err() {
+                    break;
+                }
+            }
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => {
+                let _ = errors.send(error.into());
+                break;
+            }
+        }
+    }
+}
+
+fn decode_stdin_chunk(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
+    pending.extend_from_slice(chunk);
+    let mut decoded = String::new();
+    while !pending.is_empty() {
+        match std::str::from_utf8(pending) {
+            Ok(text) => {
+                decoded.push_str(text);
+                pending.clear();
+            }
+            Err(error) => {
+                let valid = error.valid_up_to();
+                decoded.push_str(std::str::from_utf8(&pending[..valid]).expect("validated UTF-8 prefix"));
+                pending.drain(..valid);
+                let Some(invalid) = error.error_len() else {
+                    break;
+                };
+                decoded.push(char::REPLACEMENT_CHARACTER);
+                pending.drain(..invalid);
+            }
+        }
+    }
+    decoded
+}
+
 fn open_stdin_raw() -> Result<Termios, TerminalRawModeError> {
     let stdin = std::io::stdin();
     let original = tcgetattr(&stdin).map_err(|error| TerminalRawModeError::new(true, error.to_string()))?;
@@ -291,12 +356,14 @@ pub struct ProcessTerminal {
     read_errors: Option<Receiver<std::io::Error>>,
     pending_errors: Vec<TerminalIoError>,
     reader_stop: Option<Arc<AtomicBool>>,
+    reader_thread: Option<std::thread::JoinHandle<()>>,
     kitty_protocol_active: bool,
     modify_other_keys_active: bool,
     keyboard_protocol_pushed: bool,
     keyboard_protocol_negotiation_buffer: String,
     keyboard_protocol_flush_deadline: Option<Instant>,
     stdin_buffer: Option<StdinBuffer>,
+    stdin_utf8_buffer: Vec<u8>,
     pending_events: Vec<TerminalEvent>,
     last_size: Option<(u16, u16)>,
     progress_active: bool,
@@ -320,12 +387,14 @@ impl ProcessTerminal {
             read_errors: None,
             pending_errors: Vec::new(),
             reader_stop: None,
+            reader_thread: None,
             kitty_protocol_active: false,
             modify_other_keys_active: false,
             keyboard_protocol_pushed: false,
             keyboard_protocol_negotiation_buffer: String::new(),
             keyboard_protocol_flush_deadline: None,
             stdin_buffer: None,
+            stdin_utf8_buffer: Vec::new(),
             pending_events: Vec::new(),
             last_size: None,
             progress_active: false,
@@ -572,27 +641,9 @@ impl ProcessTerminal {
         let (error_sender, error_receiver) = channel::<std::io::Error>();
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
-        std::thread::spawn(move || {
-            let mut stdin = std::io::stdin();
-            let mut buffer = [0_u8; 4096];
-            while !thread_stop.load(Ordering::Relaxed) {
-                match stdin.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(count) => {
-                        if sender.send(buffer[..count].to_vec()).is_err() {
-                            break;
-                        }
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(error) => {
-                        // The receiver is gone once the terminal stopped; the
-                        // reader ends either way.
-                        let _ = error_sender.send(error);
-                        break;
-                    }
-                }
-            }
-        });
+        self.reader_thread = Some(std::thread::spawn(move || {
+            read_stdin_chunks(sender, error_sender, thread_stop)
+        }));
         self.input_handler = Some(receiver);
         self.read_errors = Some(error_receiver);
         self.reader_stop = Some(stop);
@@ -613,7 +664,10 @@ impl ProcessTerminal {
         };
         let chunks: Vec<Vec<u8>> = receiver.try_iter().collect();
         for chunk in chunks {
-            let text = String::from_utf8_lossy(&chunk).into_owned();
+            let text = decode_stdin_chunk(&mut self.stdin_utf8_buffer, &chunk);
+            if text.is_empty() {
+                continue;
+            }
             if let Some(buffer) = self.stdin_buffer.as_mut() {
                 let events = buffer.process(&text);
                 self.dispatch_stdin_events(events);
@@ -665,7 +719,11 @@ enum KeyboardProtocolRead {
 
 impl Terminal for ProcessTerminal {
     fn start(&mut self) -> Result<(), TerminalRawModeError> {
-        self.was_raw = Some(open_stdin_raw()?);
+        self.was_raw = if rustix::termios::isatty(std::io::stdin()) {
+            Some(open_stdin_raw()?)
+        } else {
+            None
+        };
         self.publish_terminal_restore();
         self.write(BRACKETED_PASTE_ENABLE);
         self.last_size = terminal_size();
@@ -690,8 +748,12 @@ impl Terminal for ProcessTerminal {
             buffer.destroy();
         }
         self.stdin_buffer = None;
+        self.stdin_utf8_buffer.clear();
         if let Some(stop) = self.reader_stop.take() {
             stop.store(true, Ordering::Relaxed);
+        }
+        if let Some(thread) = self.reader_thread.take() {
+            thread.join().expect("stdin reader must stop before restart");
         }
         self.input_handler = None;
         self.read_errors = None;
