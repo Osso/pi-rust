@@ -10,12 +10,13 @@ Rust authority: `crates/pi-ai/src/utils/validation.rs`; helper modules
 `validation_regex.rs`, `validation_formats.rs`, `validation_idna.rs`, and
 `validation_hash.rs` implement frozen dependent-engine semantics.
 
-On production revision `019e13b4`, sandboxed `cargo test -p pi-ai --test validation
---test differential_validation` passes 28 units and five differential tests. Test-only
-revision `1933a5db` extends and passes the lossless differential without changing
-production code. `lossless_utf16_validation_matches_frozen_typescript` has 227 cases:
+On production revision `679e73d9`, sandboxed `cargo test -p pi-ai --test validation
+--test differential_validation` passes 28 units and six differential tests.
+`lossless_utf16_validation_matches_frozen_typescript` has 227 cases:
 117 text/schema combinations; 16 raw-key/pattern/ref/enum/hash cases; 31 TypeBox
 coercions (including non-Unicode record matching); 63 format cases (valid, invalid, lone surrogate for each of 21 defaults).
+A separate 20-case raw-wire differential covers positive/negative overflow numbers
+across plain/TypeBox number, integer, string, boolean and null schemas.
 `cargo check -p pi-ai --lib` and package formatting pass without warnings.
 Evidence and code hashes: `/tmp/pi-rust-repin-lossless-validation/proof-ledger.json`
 and `mutants.json`. No downstream build, clippy, broad suite, or independent gate
@@ -31,6 +32,7 @@ was run in this slice; this is not whole-module parity.
 | `uniqueItems` FNV/TextEncoder replacement quirk | Distinct/equal surrogate objects | faithfully preserved source quirk |
 | Schema/argument JS numeric-key order | Direct raw-schema unit + differential received JSON | passing |
 | Unmatched-surrogate pointer/anchor resolution | URL-USVString temporary conversion; pointer fails, matching anchor succeeds | passing |
+| Overflow binary64 arguments | Raw `±1e400` oracle requests; finite type guards, skipped numeric keywords, string coercion | passing 20-case differential |
 | Nested TypeBox conversion kinds | `Tool` still has one root marker | unresolved, unchanged API gap |
 
 The previous repair removed optional-null deletion and union prechecks; its
@@ -87,8 +89,10 @@ worktree. Raw observations: `/tmp/pi-rust-repin-validation/boundary-source.jsonl
 On `019e13b4`, the lossless differential kills eight independent behavioral
 mutants: argument replacement, path replacement, wrong regex flags, raw-unit
 length, skipped TypeBox conversion, inverted format check, raw-surrogate hashing,
-and rejected backreferences. Every mutant was restored; logs and SHA-256 hashes
-are in `/tmp/pi-rust-repin-lossless-validation/mutants.json`.
+and rejected backreferences. A ninth mutant at `679e73d9` reinstates the wrong
+non-finite type/keyword guards and is killed by the raw-wire differential. Every
+mutant was restored; logs and SHA-256 hashes are in
+`/tmp/pi-rust-repin-lossless-validation/mutants.json`.
 
 
 On implementation `6ec5193f`, the new 50-case differential test detects both old
