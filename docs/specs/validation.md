@@ -9,12 +9,15 @@ Trace: [validation](../porting/traceability/validation.md).
 - `validateToolCall` selects the first tool with an equal name; missing tools report
   `Tool "<name>" not found`. Validation uses the call name in errors.
 - Validation clones arguments. Explicit optional null properties are not deleted.
-  TypeBox conversion mutates the clone; its root replacement return is discarded.
-- Plain-schema coercion follows `allOf`, then `anyOf`, then `oneOf`, then declared
+  Source calls `Value.Convert` on the clone and discards its root replacement
+  return, then obtains/compiles the validator before plain-schema coercion.
+  Conversion dispatch depends on per-node hidden kinds, not JSON `type` alone.
+- Plain-schema coercion runs only for an object schema without the root
+  `Symbol.for("TypeBox.Kind")` marker. It follows `allOf`, then `anyOf`, then `oneOf`, then declared
   types, object properties/additional properties, and array items.
 - Each `anyOf`/`oneOf` candidate starts from a fresh clone, is coerced and checked
   in declaration order. An already-valid later arm does not bypass an earlier
-  coercible arm. No valid candidate leaves the original value unchanged.
+  coercible arm. If no candidate validates, the original value is unchanged.
 - TypeBox string conversion turns null into `"null"`; plain string coercion turns
   null into `""`. Enum validation follows conversion/coercion. Invalid optional
   enum values are errors, not absent properties.

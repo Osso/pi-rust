@@ -6,6 +6,10 @@ Spec: [shared validation](../../specs/validation.md).
 
 ## Re-pin status — bounded repair, not whole-module parity
 
+- Repairs through `f86144ba` are integrated by canonical merge `8d9bb557`.
+  Independent model-tool verification by agent41 remains pending in
+  `/tmp/pi-rust-repin-validation-model-verify`; no current model-tool acceptance
+  proof is claimed before the report.
 - Removed the old pre-conversion optional-null deletion pass; source has no such pass.
 - Removed plain union coercion's already-valid-arm precheck. Source coerces and checks
   cloned candidates in declaration order (`coerceWithUnionSchema`, lines 193–204).
@@ -15,7 +19,8 @@ Spec: [shared validation](../../specs/validation.md).
   arguments. RED observed before production changes (24 new-case mismatches).
 - The prior 68-case differential matrix is not current-pin whole-module proof:
   `plain-union-types` now exposes a TS nullable-array compiler exception. Classification
-  is pending; no waiver, runtime-input exclusion, or source-bug choice is made here.
+  is pending with the user; 118 schema cases currently record 117 matches and this
+  one known failure. No waiver, runtime-input exclusion, or source-bug choice is made here.
 - Historical claims below describe the previous implementation, not fresh proof of
   every engine branch. Wider gaps remain unresolved, even if older text says unused.
 Rust: `crates/pi-ai/src/utils/validation.rs`.
@@ -58,7 +63,9 @@ worktree. Raw observations: `/tmp/pi-rust-repin-validation/boundary-source.jsonl
   source validation invokes it at `validation.ts:294`. Rust `types.rs:744,773`
   stores a JSON schema and only one root `typebox_kind` boolean. A per-node
   conversion-kind tree associated with `TypeBoxSchema` is the narrow proposed API
-  change; ownership/authorization is required before implementation.
+  change; ownership/authorization is required before implementation. The literal
+  hidden-kind evidence and candidate API are recorded in
+  `/tmp/pi-rust-repin-validation/API-PACKET.md`; that proposal is not an approved API.
 - Pattern `^(a)\\1$`, input `{value:"aa"}`: TS accepts; Rust rejects the pattern.
   Source validation delegates to `Compile` (`validation.ts:246–254`). Regex engine
   work is outside this bounded repair; no unsupported-pattern waiver is assumed.

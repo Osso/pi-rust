@@ -10,4 +10,4 @@ Source: `packages/coding-agent/extensions/agents-core/src/agent-model-tool.ts` a
 
 No legacy waivers renewed. Native extensions remain Rust-native under the project extension policy. Typed core APIs exclude invalid JavaScript runtime types; JSON tool arguments remain schema-validated.
 
-Integration: bounded tool work through `58301d0a` merged via `128df8af`. Full tool acceptance remains blocked by shared-validator argument-admission mismatch; no whole agent-session parity claim. Proof and exact pending boundaries: [traceability](../porting/traceability/agent-model-tool.md).
+Integration: bounded tool work through `58301d0a` merged via `128df8af`. Shared-validator optional-null and union-order repairs are integrated by `8d9bb557` (through `f86144ba`). Independent model-tool verification by agent41 is pending in `/tmp/pi-rust-repin-validation-model-verify`; the historical admission RED is not a current result, and no current acceptance proof or whole agent-session parity is claimed. Proof and exact pending boundaries: [traceability](../porting/traceability/agent-model-tool.md).
