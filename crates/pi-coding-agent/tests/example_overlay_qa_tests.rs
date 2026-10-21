@@ -529,7 +529,13 @@ fn normalize_timestamps(value: &mut Value) {
     match value {
         Value::String(s) => {
             let pattern = regex::Regex::new(r"\[\d{1,2}:\d{2}:\d{2} [AP]M\]").unwrap();
-            *s = pattern.replace_all(s, "[<local-time>]").into_owned();
+            if pattern.is_match(s) {
+                // Source virtual time and native wall time differ in hour digits, so padLine's
+                // padding before the closing border differs by that width too.
+                let padding = regex::Regex::new(" +(\x1b\\[[0-9;]*m│\x1b\\[39m)$").unwrap();
+                let stamped = pattern.replace_all(s, "[<local-time>]");
+                *s = padding.replace(&stamped, " <pad>$1").into_owned();
+            }
         }
         Value::Array(items) => {
             for item in items {
@@ -559,4 +565,32 @@ async fn stack_mounts_later_layers_at_absolute_four_hundred_ms_deadlines() {
         elapsed >= std::time::Duration::from_millis(790) && elapsed < std::time::Duration::from_millis(1050),
         "stack elapsed {elapsed:?}"
     );
+}
+
+// Post-pin TS 4f9e6f8a4; pinned TS throws RangeError for the negative fill repeat at widths <= 3.
+#[tokio::test]
+async fn stack_renders_clamped_fill_rows_at_width_three() {
+    let script = json!({"width":3,"steps":[{"key":"\r"}]});
+    let request = json!({"command":"overlay-stack","scripts":[script, script, script]});
+    let result = native(&request).await;
+    let sgr = regex::Regex::new("\x1b\\[[0-9;]*m").unwrap();
+    let frames = result["calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|call| call[0] == "frames")
+        .map(|call| {
+            call[1]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|line| sgr.replace_all(line.as_str().unwrap(), "").into_owned())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let (truncated, empty) = ("│.│", "│ │");
+    let mut frame = vec!["╭─╮", truncated, truncated, empty];
+    frame.extend([truncated; 5]);
+    frame.extend([empty, truncated, "╰─╯"]);
+    assert_eq!(frames, vec![frame; 6]);
 }
