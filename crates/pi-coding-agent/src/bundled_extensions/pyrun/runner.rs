@@ -278,7 +278,8 @@ impl PyrunRunnerClient {
             return Err(PyrunRunnerError::new("Pyrun evaluation aborted"));
         }
         let process = self.ensure_process().await?;
-        let payload = serde_json::to_string(&params).map_err(|error| PyrunRunnerError::new(error.to_string()))?;
+        let value = serde_json::to_value(&params).map_err(|error| PyrunRunnerError::new(error.to_string()))?;
+        let payload = pi_js_compat::js_json::stringify(&value);
         let (sender, receiver) = oneshot::channel();
         let generation = process.generation;
         let abort_task = signal.map(|signal| {
@@ -655,6 +656,7 @@ async fn handle_stdout_line(
                 }
             };
             let mut stdin = stdin.lock().await;
+            let payload = pi_js_compat::js_json::stringify(&payload);
             let _ = stdin.write_all(format!("{payload}\n").as_bytes()).await;
             let _ = stdin.flush().await;
         }

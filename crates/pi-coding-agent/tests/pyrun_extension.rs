@@ -139,6 +139,36 @@ print(json.dumps({"type": "completed", "executed": params["code"], "console": ["
 }
 
 #[tokio::test]
+async fn runner_requests_and_bridge_replies_use_javascript_json() {
+    let dir = temp_dir("js-wire");
+    write_runner(
+        &dir,
+        "fake-pyrun",
+        r#"
+import json, sys
+request = sys.stdin.readline().strip()
+print(json.dumps({"type":"pi_request", "method":"echo", "params":{}}), flush=True)
+reply = sys.stdin.readline().strip()
+print(json.dumps({"type":"completed", "value":[request,reply]}), flush=True)
+"#,
+    );
+    let runner = runner_for(&dir);
+    let mut input = params("x");
+    input.pi = Some(serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap());
+    let handler = Arc::new(|_: PiRequest| {
+        Box::pin(async { Ok(Some(serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap())) })
+            as pi_coding_agent::core::extensions::types::BoxFuture<
+                'static,
+                Result<Option<Value>, pi_coding_agent::core::extensions::types::HandlerError>,
+            >
+    });
+    let result = runner.evaluate(input, None, None, Some(handler)).await.unwrap();
+    let wire = result.value.unwrap();
+    assert!(wire[0].as_str().unwrap().contains(r#""pi":{"1":1,"2":2}"#), "{wire}");
+    assert_eq!(wire[1], r#"{"result":{"1":1,"2":2}}"#);
+}
+
+#[tokio::test]
 async fn responds_to_pi_requests_over_the_same_stdin() {
     let dir = temp_dir("pi-request");
     write_runner(

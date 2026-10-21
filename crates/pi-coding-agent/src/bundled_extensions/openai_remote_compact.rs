@@ -368,7 +368,8 @@ async fn post_openai_compact(
     signal: Option<tokio_util::sync::CancellationToken>,
 ) -> Result<Value, HandlerError> {
     let request_headers = build_openai_request_headers(model, api_key, headers)?;
-    let body = serde_json::to_vec(payload).map_err(|error| HandlerError::new(error.to_string()))?;
+    let value = serde_json::to_value(payload).map_err(|error| HandlerError::new(error.to_string()))?;
+    let body = pi_js_compat::js_json::stringify(&value).into_bytes();
     let fetch = pi_ai::http::default_fetch();
     let response = fetch
         .fetch(
@@ -409,6 +410,66 @@ fn parse_openai_compact_response(text: &str) -> Value {
 #[cfg(test)]
 mod js_value_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn http_body_uses_javascript_json() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/compact", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 4096];
+            let body = loop {
+                let count = socket.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+                let text = String::from_utf8_lossy(&request);
+                if let Some((headers, body)) = text.split_once("\r\n\r\n") {
+                    let length = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.to_lowercase()
+                                .strip_prefix("content-length: ")
+                                .and_then(|s| s.parse::<usize>().ok())
+                        })
+                        .unwrap();
+                    if body.len() == length {
+                        break body.to_owned();
+                    }
+                }
+            };
+            let response = r#"{"2":2.0,"1":1.0}"#;
+            write!(
+                socket,
+                "HTTP/1.1 400 Bad Request\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response.len(),
+                response
+            )
+            .unwrap();
+            body
+        });
+        let model: Model = serde_json::from_value(json!({
+            "id":"gpt", "name":"gpt", "provider":"openai", "api":"openai-responses", "baseUrl":"http://localhost",
+            "reasoning":false, "input":["text"], "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":1000,"maxTokens":100
+        })).unwrap();
+        let payload = OpenAiCompactPayload {
+            model: "gpt".into(),
+            input: vec![serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap()],
+            instructions: String::new(),
+            tools: Vec::new(),
+            parallel_tool_calls: false,
+        };
+        let error = post_openai_compact(&endpoint, &payload, &model, None, None, None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.message, r#"OpenAI remote compaction failed (400): {"1":1,"2":2}"#);
+        let body = server.join().unwrap();
+        assert!(body.contains(r#""input":[{"1":1,"2":2}]"#), "{body}");
+    }
 
     #[test]
     fn error_fallback_uses_javascript_json() {

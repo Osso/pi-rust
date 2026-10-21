@@ -750,6 +750,42 @@ async fn settle_cancelled_pyrun_candidate(
     ))
 }
 
+#[cfg(test)]
+mod js_value_tests {
+    use super::*;
+
+    #[test]
+    fn persisted_js_equivalent_params_do_not_report_a_collision() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("output.log");
+        std::fs::write(
+            &output,
+            "{\"kind\":\"result\",\"result\":{\"type\":\"completed\",\"value\":42}}\n",
+        )
+        .unwrap();
+        let params: super::super::runner::CanonicalPyrunEvalParams =
+            serde_json::from_str(r#"{"code":"x","pi":{"2":2.0,"1":1.0}}"#).unwrap();
+        let data = serde_json::from_value(serde_json::json!({
+            "activationPath":"activation", "artifacts":{"directory":directory.path(),"outputPath":output},
+            "bridgeRequestPath":"requests", "bridgeResponsePath":"responses", "controlDbPath":"db", "foregroundCompletionPath":"completion",
+            "params":params, "runnerAddress":{"sessionId":"s","agentId":"job"}, "runnerOptions":{},
+            "runnerProcessIdentity":{"pid":123,"startTimeTicks":1}, "sessionPath":"session", "startedAt":1,
+            "supervisorProcessIdentity":{"pid":124,"startTimeTicks":1}, "toolCallId":"call"
+        })).unwrap();
+        let path = directory.path().join("launch.json");
+        super::super::detached_runner::write_detached_pyrun_launch_manifest(path.to_str().unwrap(), &data).unwrap();
+        let candidate = read_pyrun_manifest_candidate(directory.path().to_str().unwrap())
+            .unwrap()
+            .unwrap();
+        let restored = restore_pyrun_candidate(candidate, &params, "call", "job");
+        assert!(
+            matches!(restored, Ok(RestoredRunner::Terminal(_))),
+            "{}",
+            restored.err().map_or_else(String::new, |error| error.message)
+        );
+    }
+}
+
 fn restore_pyrun_candidate(
     candidate: PyrunManifestCandidate,
     expected_params: &super::runner::CanonicalPyrunEvalParams,
