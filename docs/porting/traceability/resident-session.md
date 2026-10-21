@@ -31,13 +31,17 @@ Original historical RED artifact remains unchanged: `/tmp/pi-rust-repin-resident
 
 | Matrix | Concrete coverage | Proof |
 |---|---|---|
-| Delta reciprocal files/metadata | Both roles × 8 complete snapshots | 16 comparisons, zero mismatches at `d7371ee6` |
-| Delta paired own-PID | Both roles × 13 complete snapshots | 26 comparisons, zero mismatches at `d7371ee6` |
-| Delta owned dead/non-Pi children | Supervisor × 2 complete snapshots | 2 comparisons, zero mismatches at `d7371ee6` |
-| Independent selection/liveness | Both roles × 23 cases; paths/files/types and missing-live metadata | 46 cells, zero mismatches at `d7371ee6` |
-| Selector integrity | Missing checkout, wrong HEAD, wrong module SHA256 | 3 tests GREEN at `1cc90dbc`; unchanged commit/hash/module inputs |
+| Delta reciprocal files/metadata | Both roles × 8 complete snapshots | 16 comparisons, zero mismatches at `62ed12e8` |
+| Delta paired own-PID | Both roles × 13 complete snapshots | 26 comparisons, zero mismatches at `62ed12e8` |
+| Delta owned dead/non-Pi children | Supervisor × 2 complete snapshots | 2 comparisons, zero mismatches at `62ed12e8` |
+| Independent selection/liveness | Both roles × 23 cases; paths/files/types and missing-live metadata | 46 cells, zero mismatches at `62ed12e8` |
+| Selector integrity | Missing checkout, wrong HEAD, wrong module SHA256 | 3 tests GREEN in ordinary target at `62ed12e8` |
 
-Those positive proofs used the now-retired explicit alias runner. Ordinary-runner integration, exact frozen contract and sandbox regression proof are pending the focused post-commit run. No broad acceptance or TS type-gate claim.
+Ordinary mandatory-runner proof at `62ed12e8`: **20 tests pass, zero fail, zero ignored**. Includes all four delta matrices (zero differences), all three frozen matrices (exactly the 42 recorded differences), six comparator regressions, three selector integrity regressions, existing 46-cell frozen selection, 11-case NUL, seven filesystem errors and invalid DB. The historical alias-runner positive proof at `d7371ee6` is superseded for runtime integration, not discarded.
+
+Sandbox proof at `8aeec134`: **10 tests pass**. Covers five actual Git/hash/absence validations, actual read-only locked-checkout visibility, nested entropy/devices, installed standalone Python, ripgrep isolation and private state/loopback-only networking. The prior 9/10 run exposed a test assumption: a bind-mounted launcher loses its symlink identity, so the test now selects the installed standalone Python from the launcher's actual shebang. No guard isolation was relaxed. Only this test changed after resident GREEN; resident proof remains valid.
+
+Logs: `/tmp/pi-rust-repin-resident-session/ordinary-resident-green.log`, `ordinary-sandbox-green-final.log`. No broad workspace acceptance, clippy/check or new TS type-gate claim.
 
 TDD: initial missing-API RED was E0432, **no runtime assertion reached**. Later snapshot RED exposed the source regex discrepancy. New delta reciprocal entrypoint before selection failed on exactly 14 rows; selector tests failed before validation. Exact-frozen comparator tests failed before implementation for missing/extra/altered differences, common-row reordering, file changes and required difference preservation. Sandbox lock regressions failed before validation on absent checkout, wrong HEAD, changed/missing module and verified-path exposure. Logs/commands: `/tmp/pi-rust-repin-resident-session/{REPORT.md,ledger.md}`.
 
@@ -45,6 +49,6 @@ Eight original runtime mutants were killed against previously GREEN selectors/er
 
 ## Error boundaries and limits
 
-Local POSIX lexical join/resolve preserve relative `..`; no shared path refactor. Source-proven NUL validation uses a minimal shared `pi-js-compat` TypeError helper, with UTF-16 quotes/control/multiline/truncation and no IO fields. An owned-file VT EEXIST regression exposed the shared `\\v` versus Node `\\x0B` inspector root; one authorized shared escape fix, no context callback. Prior NUL 11-case, filesystem 7-case and NodeFs 6-test proofs remain recorded.
+Local POSIX lexical join/resolve preserve relative `..`; no shared path refactor. Source-proven NUL validation uses a minimal shared `pi-js-compat` TypeError helper, with UTF-16 quotes/control/multiline/truncation and no IO fields. An owned-file VT EEXIST regression exposed the shared `\\v` versus Node `\\x0B` inspector root; one authorized shared escape fix, no context callback. NUL 11-case and filesystem 7-case proofs reran GREEN in the ordinary resident target. Shared NodeFs 6-test proof remains valid on unchanged implementation; no redundant rerun.
 
 Approved 2026-10-21: Unix-only preparation API/helpers (`cfg(unix)`); existing public predicate stays cross-platform. Windows preparation is a gap; Linux proof is not macOS execution. No clippy/check, broad suite, final acceptance, delegation, push, merge, deployment or live services in this continuation.
