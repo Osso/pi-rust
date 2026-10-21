@@ -1,7 +1,7 @@
 # Orchestrator ipc-server
 
 Source: `packages/orchestrator/src/ipc/server.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/ipc/server.rs`.
-Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
+Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
 
 | Export/branch | Behavioral proof |
 | --- | --- |
@@ -13,3 +13,7 @@ Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
 Approved delta: [f11463802 lock](../delta-lock.json), server SHA256 `392a5982cdd40ba6880bc314d8cbc077f8b5467874ef7f7cb77b682fc0fbfe5d`. Frozen source remains selected for the exact stall discrepancy assertion; only the explicit delta test sets `PI_APPROVED_DELTA=1`. Ordinary requests still close after one response.
 
 Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.
+
+## Verifier correction (2026-10-21)
+
+Accepted work now outlives client disconnect; shared JS trim handles frames. Verifier regressions and Unicode frame matrix tracked; renewed proof pending, not an unconditional done claim.

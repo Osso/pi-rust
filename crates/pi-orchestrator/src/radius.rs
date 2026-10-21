@@ -174,6 +174,9 @@ impl RadiusPresence {
         };
         let response = self.fetch.fetch(request, None).await.map_err(|e| e.to_string())?;
         let status = response.status;
+        if (200..300).contains(&status) && !read_json {
+            return Ok(Value::Null);
+        }
         let text = read_body_text(response.body).await.map_err(|e| e.to_string())?;
         if !(200..300).contains(&status) {
             return Err(RadiusError {

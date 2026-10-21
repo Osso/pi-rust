@@ -3,6 +3,7 @@
 Port of frozen `packages/orchestrator/src/ipc/client.ts`. Native boundary decisions and proof scope: [Q3 proof](../porting/orchestrator-proof.md).
 
 ## What it must do
+- [x] Frame padding uses ECMAScript String.trim, not Rust Unicode trim.
 - [x] sendIpcRequest: TS client→Rust server and Rust client→frozen TS server; first JSONL response and fragment buffering: ipc.rs.
 - [x] connect/read/EOF failure: ENOENT/ECONNREFUSED/EACCES/read ECONNRESET exact Node text and EOF message: errors.rs/ipc.rs.
 - [x] response parse and socket write diagnostics: shared JS parser and Node stream error helpers; malformed request/pipe-write fixtures cover common helpers.

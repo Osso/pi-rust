@@ -30,7 +30,7 @@ pub async fn send_ipc_request(path: &Path, request: &Value) -> Result<Value, Str
         }
         buffer.push_str(&String::from_utf8_lossy(&chunk[..count]));
         if let Some(end) = buffer.find('\n') {
-            let line = buffer[..end].trim();
+            let line = pi_js_compat::string::js_trim(&buffer[..end]);
             if !line.is_empty() {
                 return parse_response_line(line);
             }

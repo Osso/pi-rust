@@ -1,7 +1,7 @@
 # Orchestrator rpc-process
 
 Source: `packages/orchestrator/src/rpc-process.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/rpc_process.rs`.
-Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
+Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
 
 | Export/branch | Behavioral proof |
 | --- | --- |
@@ -13,3 +13,7 @@ Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
 Duplicate in-flight IDs intentionally keep the overwritten original resolver pending through disposal; orphan senders release only with instance lifetime. Malformed child JSON propagates to serve fatal cleanup without an invented immediate rejection. Both preserve parent-approved frozen behavior.
 
 Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.
+
+## Verifier correction (2026-10-21)
+
+Exit state/notifications/disposal follow child exit, independently of inherited-pipe EOF. Verifier regression and Unicode child-frame matrix tracked; renewed proof pending, not an unconditional done claim.

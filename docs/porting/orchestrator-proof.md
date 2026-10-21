@@ -17,9 +17,9 @@ All 13 frozen orchestrator source modules have Rust counterparts in `crates/pi-o
 | [types](traceability/orchestrator-types.md) | done | all five concrete serde wire values in foundation |
 | [storage](traceability/orchestrator-storage.md) | done | absent, present, delete idempotence, corrupt JSON, TS→Rust→TS bytes: foundation/differential |
 | [ipc-protocol](traceability/orchestrator-ipc-protocol.md) | done | JS number and integer-key order, LF framing, cast-only success and SyntaxError messages: foundation/differential + IPC errors |
-| [ipc-client](traceability/orchestrator-ipc-client.md) | done | TS client→Rust server and Rust client→frozen TS server; first JSONL response and fragment buffering: ipc.rs |
-| [ipc-server](traceability/orchestrator-ipc-server.md) | done | bidirectional IPC, live rejection, stale removal, bind and unlink error identity: ipc/errors |
-| [rpc-process](traceability/orchestrator-rpc-process.md) | done | native spawn method; sibling pi --mode rpc and cwd proved by copied embedding test with sandbox fake sibling |
+| [ipc-client](traceability/orchestrator-ipc-client.md) | partial | TS client→Rust server and Rust client→frozen TS server; first JSONL response and fragment buffering: ipc.rs |
+| [ipc-server](traceability/orchestrator-ipc-server.md) | partial | bidirectional IPC, live rejection, stale removal, bind and unlink error identity: ipc/errors |
+| [rpc-process](traceability/orchestrator-rpc-process.md) | partial | native spawn method; sibling pi --mode rpc and cwd proved by copied embedding test with sandbox fake sibling |
 | [handler](traceability/orchestrator-handler.md) | partial | frozen full child lifecycle differential; unknown status/stop/rpc/rpc_stream fixtures: supervisor |
 | [supervisor](traceability/orchestrator-supervisor.md) | partial | native runtime shares one supervisor and weak Radius coordinator; spawn/list/status/stop persistence and frozen lifecycle differential |
 | [radius](traceability/orchestrator-radius.md) | partial | URL/credential precedence native tests; actual fake-fetch frozen registration differential; coding-agent AuthStorage reused |
@@ -49,3 +49,7 @@ Both ordinary TS-client→Rust-server and Rust-client→TS-server paths run in t
 - This is bounded conformance, not measured statement/branch coverage or exhaustive mutation coverage. Type-only TS records use concrete serde/storage shape proof rather than runtime imports of erased declarations.
 - Automated readability/complexity executables are unavailable. Manual line/outline audit found small over-30-line dispatcher/retry/setup functions; recorded in the report, not claimed clean. No warning/lint suppressions were added.
 - No clippy, broad workspace test suite, independent delegation, push, merge, deployment or live network/state was used, per the slice constraints.
+
+## Verifier corrections (2026-10-21)
+
+The prior IPC client/server and RPC process done claims are withdrawn: 5 done / 8 partial. Probe RED reproduced child-exit delay, disconnected-work cancellation, BOM framing rejection and successful Radius body errors. Fixes use child exit before reader EOF, a detached accepted-work queue, shared `pi_js_compat::string::js_trim`, and status-only success for maybePost. Renewed proof is recorded separately; the original ledger above is historical, not current acceptance.

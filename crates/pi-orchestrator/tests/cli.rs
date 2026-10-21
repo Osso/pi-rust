@@ -178,7 +178,7 @@ async fn rpc_stream_only_forwards_complete_jsonl_stdin_lines() {
         }
         all_requests
     });
-    let input = &b"\n{\"type\":\"abort\",\"id\":\"complete\"}\n{\"type\":\"get_state\",\"id\":\"incomplete\"}"[..];
+    let input = "\u{feff}\u{a0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\n\u{feff}{\"type\":\"abort\",\"id\":\"complete\"}\u{feff}\n{\"type\":\"get_state\",\"id\":\"incomplete\"}".as_bytes();
     let mut stdout = vec![];
     let mut stderr = vec![];
     assert_eq!(

@@ -234,6 +234,8 @@ fn attach_readers(
     let stderr_task = tokio::spawn(read_stderr(inner.clone(), stderr));
     tokio::spawn(async move {
         let status = child.wait().await;
+        // Node's exit event is independent of EOF on descendant-inherited pipes.
+        finish_exit(&inner, status);
         let output_result = stdout_task.await;
         if let Err(error) = output_result.unwrap_or_else(|e| Err(e.to_string())) {
             eprintln!("RPC stdout: {error}");
@@ -241,7 +243,6 @@ fn attach_readers(
         if let Err(error) = stderr_task.await {
             eprintln!("RPC stderr reader: {error}");
         }
-        finish_exit(&inner, status);
     });
 }
 
@@ -272,8 +273,9 @@ async fn read_stdout(inner: &Inner, mut stdout: tokio::process::ChildStdout) -> 
             return Ok(());
         }
         for line in decoder.push_bytes(&chunk[..count]) {
-            if !line.trim().is_empty() {
-                dispatch_line(inner, line.trim())?;
+            let line = pi_js_compat::string::js_trim(&line);
+            if !line.is_empty() {
+                dispatch_line(inner, line)?;
             }
         }
     }
@@ -285,10 +287,10 @@ fn dispatch_line(inner: &Inner, line: &str) -> Result<(), String> {
         let mut state = inner.state.lock().unwrap();
         match value["type"].as_str() {
             Some("response") => {
-                if let Some(id) = value["id"].as_str().filter(|v| !v.is_empty()) {
-                    if let Some(sender) = state.pending.remove(id) {
-                        let _ = sender.send(Ok(value.clone()));
-                    }
+                if let Some(id) = value["id"].as_str().filter(|v| !v.is_empty())
+                    && let Some(sender) = state.pending.remove(id)
+                {
+                    let _ = sender.send(Ok(value.clone()));
                 }
                 vec![]
             }

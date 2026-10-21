@@ -3,6 +3,7 @@
 Port of frozen `packages/orchestrator/src/cli.ts`. Native boundary decisions and proof scope: [Q3 proof](../porting/orchestrator-proof.md).
 
 ## What it must do
+- [x] rpc-stream stdin uses ECMAScript String.trim before parsing complete lines.
 - [x] printHelp; package version; no args/help/version/unknown/usage: actual frozen subprocess stdout/stderr/exit codes compared byte-for-byte: cli.
 - [x] getFlagValue; list/spawn/status/stop/rpc; printResponse: first-flag semantics, default cwd and JSON request/pretty response bytes compared to frozen: cli.
 - [x] rpcStream: frozen/native complete JSONL stdin, blank lines, unterminated EOF tail, stdout/stderr and exit 0: cli.

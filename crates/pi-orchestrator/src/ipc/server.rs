@@ -105,7 +105,7 @@ async fn remove_stale_socket(path: &Path) -> Result<(), String> {
 fn take_line(buffer: &mut String) -> Option<String> {
     loop {
         let end = buffer.find('\n')?;
-        let line = buffer[..end].trim().to_owned();
+        let line = pi_js_compat::string::js_trim(&buffer[..end]).to_owned();
         buffer.drain(..=end);
         if !line.is_empty() {
             return Some(line);
@@ -178,23 +178,17 @@ async fn serve_rpc_stream(
         .write_all(encode_message(&response).as_bytes())
         .await
         .map_err(|e| e.to_string())?;
-    let _worker = RequestWorker(queue_stream_requests(stream, queued, sender_for_errors));
+    // The accepted request queue outlives the socket, like the frozen Promise chain.
+    queue_stream_requests(stream, queued, sender_for_errors);
     enqueue_complete_requests(&mut buffer, &requests)?;
     pump_stream_socket(&mut socket, &mut buffer, &requests, &mut receiver).await
-}
-
-struct RequestWorker(JoinHandle<()>);
-impl Drop for RequestWorker {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
 }
 
 fn queue_stream_requests(
     stream: Arc<dyn RpcStream>,
     mut queued: mpsc::UnboundedReceiver<String>,
     responses: mpsc::UnboundedSender<Value>,
-) -> JoinHandle<()> {
+) {
     tokio::spawn(async move {
         while let Some(line) = queued.recv().await {
             let result = match parse_request_line(&line) {
@@ -205,7 +199,7 @@ fn queue_stream_requests(
                 let _ = responses.send(error_response(error));
             }
         }
-    })
+    });
 }
 
 fn enqueue_complete_requests(buffer: &mut String, requests: &mpsc::UnboundedSender<String>) -> Result<(), String> {

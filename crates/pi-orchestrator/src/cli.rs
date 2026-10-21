@@ -187,7 +187,7 @@ async fn forward_complete_line(socket: &mut tokio::net::UnixStream, bytes: &[u8]
         return Ok(true);
     }
     let text = String::from_utf8_lossy(bytes);
-    let line = text.trim();
+    let line = pi_js_compat::string::js_trim(&text);
     if !line.is_empty() {
         let request = parse_request_line(line)?;
         socket

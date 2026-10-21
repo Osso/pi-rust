@@ -3,6 +3,7 @@
 Port of frozen `packages/orchestrator/src/rpc-process.ts`. Native boundary decisions and proof scope: [Q3 proof](../porting/orchestrator-proof.md).
 
 ## What it must do
+- [x] Notify exit and complete disposal on child exit without waiting for inherited stdout/stderr EOF. Child frame padding uses ECMAScript String.trim.
 - [x] RpcProcessInstance/createRpcProcessInstance: native spawn method; sibling pi --mode rpc and cwd proved by copied embedding test with sandbox fake sibling.
 - [x] send; handleLine; handleUiResponse; pending requests: concurrent IDs, events/UI routing, duplicate ID orphan lifetime, exit/disposal errors, EOF-tail and Node UTF-8 decoding: rpc_process.
 - [x] setUiRequestHandler/onEvent/onExit and unsubscribes: frozen Set identity, repeated callback deduplication and unsubscribe counts: rpc_process; raw supervisor stream tests.
