@@ -10,7 +10,6 @@ use serde_json::{Value, json};
 pub(crate) fn run() {
     let mut oracle = oracle::TsOracle::spawn("error-body-oracle.ts", "packages/ai/src");
     compare_errors(&mut oracle);
-    compare_values(&mut oracle);
     compare_truncation(&mut oracle);
 }
 

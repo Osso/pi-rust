@@ -27,4 +27,6 @@ The old unit assertion `truncate_error_text("a🙈b", 2) == "a... [truncated 2 c
 
 Source runtime unknown values, lone-surrogate input/output strings, toJSON/cycles and SDK field runtime behavior remain bounded public API questions, not invented class/SDK exclusions. The frozen module contains no brand checks except `instanceof Error`; JSON field selection follows the literal predicates. See spec for standing typed-limit policy applicability and numeric source limit behavior. No new exclusion or waiver is approved in this slice.
 
+Three one-at-a-time native mutations were killed by actual-source tests: rejecting arrays changed `["parsed"]` into `response`; replacing JS trim with Rust trim retained BOM; swapping status/statusCode returned 402 instead of 0. Each patch and failing output was saved, then the native file restored byte-for-byte to its committed content. Value fixtures run once in their dedicated source test, not again in the baseline group.
+
 Development evidence, exact revisions and mutation results are recorded in `/tmp/pi-rust-repin-ai-error-body/{REPORT.md,ledger.md}`; no broad discovery/test run, check/clippy/readability/final gate, delegation, push, deploy or live-state action is part of this slice.
