@@ -977,3 +977,28 @@ fn source_legacy_v1_read_only_migrates_context_without_mutating_original() {
     assert_eq!(std::fs::read(path).unwrap(), bytes);
     assert_eq!(manager.get_header().unwrap().version, Some(3.0));
 }
+
+#[tokio::test]
+async fn legacy_v1_raw_receipt_survives_in_memory_migration_and_export() {
+    use pi_coding_agent::core::export_html::{ExportOptions, export_from_file};
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"legacy1":true,"splitSurrogate":true}),
+    );
+    let path = created["path"].as_str().unwrap();
+    let before = std::fs::read(path).unwrap();
+    let expected = call(&mut ts, json!({"op":"receiptTokens","path":path}));
+    let output = tmp.path().join("legacy-raw.html").display().to_string();
+    export_from_file(path, Some(ExportOptions::from_output_path(&output)))
+        .await
+        .unwrap();
+    assert_eq!(
+        call(&mut ts, json!({"op":"exportReceiptTokens","path":output})),
+        expected
+    );
+    assert_eq!(std::fs::read(path).unwrap(), before);
+}
