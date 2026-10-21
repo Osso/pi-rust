@@ -282,25 +282,25 @@ async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effo
     let started = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
     let observed = Arc::new(Mutex::new(Vec::new()));
+    let first_signal = Arc::new(Mutex::new(None));
     let response = |hold: bool| {
         let started = started.clone();
         let release = release.clone();
         let observed = observed.clone();
+        let first_signal = first_signal.clone();
         FauxResponseStep::Factory(Arc::new(move |_context, options, _state, model| {
             let started = started.clone();
             let release = release.clone();
             let observed = observed.clone();
+            let first_signal = first_signal.clone();
             Box::pin(async move {
                 let options = options.expect("request options");
                 observed.lock().unwrap().push((model.id, options.reasoning));
                 if hold {
+                    *first_signal.lock().unwrap() = options.stream.request.signal.clone();
                     started.notify_one();
                     release.notified().await;
                 }
-                assert!(
-                    !options.stream.request.signal.as_ref().unwrap().is_cancelled(),
-                    "setter cancelled held request"
-                );
                 Ok(faux_assistant_message("done", FauxAssistantMessageOptions::default()))
             })
         }))
@@ -330,6 +330,13 @@ async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effo
         bundled::HarnessOptions::new("/fixture"),
     )
     .await;
+    let published = Arc::new(Mutex::new(Vec::new()));
+    let published_for_listener = published.clone();
+    let _subscription = fixture.store.subscribe_agent_updates(move |_previous, current| {
+        if current.id == "child" {
+            published_for_listener.lock().unwrap().push(current.model.clone());
+        }
+    });
     let result = (definition.execute)(
         "change".into(),
         json!({"agentId":"child", "provider":" \u{feff}faux\u{a0}", "modelId":" new ", "thinkingLevel":"ultra"}),
@@ -343,7 +350,20 @@ async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effo
         result.details,
         Some(json!({"agentId":"child","provider":"faux","modelId":"new","thinkingLevel":"high"}))
     );
+    let publication_states = published.lock().unwrap().clone();
+    assert!(!publication_states.is_empty(), "effective model must be published");
+    assert!(
+        publication_states
+            .iter()
+            .all(|model| serde_json::to_value(model).unwrap()
+                == json!({"providerId":"faux","modelId":"new","thinkingLevel":"high"})),
+        "every published model must already contain effective clamped effort: {publication_states:?}"
+    );
     assert!(!pending.is_finished(), "held request must remain in flight");
+    assert!(
+        !first_signal.lock().unwrap().as_ref().unwrap().is_cancelled(),
+        "setter cancelled held request"
+    );
     assert_eq!(
         *observed.lock().unwrap(),
         vec![("old".into(), Some(pi_ai::types::ThinkingLevel::Low))]
@@ -515,6 +535,15 @@ async fn source_owned_state_and_fresh_native_state_are_readable_by_same_source_a
         let path = fixture._dir.path().join("control.db");
         let session = fixture._dir.path().join("parent.session");
         let read = json!({"op":"read","db":path,"session":session,"agentId":"child"});
+        let mut manifest = oracle.request(&json!({"op":"manifest","db":path}));
+        assert_eq!(manifest["userVersion"], 15);
+        manifest["direction"] = json!(if source_created {
+            "TS-create/Rust-mutate/same-TS-read"
+        } else {
+            "fresh-Rust-create/Rust-mutate/TS-read"
+        });
+        manifest["initial"] = oracle.request(&read);
+        manifest["observations"] = json!([]);
         assert_eq!(
             oracle.request(&read),
             serde_json::to_value(fixture.store.get_agent("child").unwrap()).unwrap()
@@ -560,7 +589,19 @@ async fn source_owned_state_and_fresh_native_state_are_readable_by_same_source_a
                 "model metadata must preserve lifecycle revision"
             );
             assert_eq!(fixture.store.get_selected_agent_id().as_deref(), Some("viewed"));
+            manifest["observations"].as_array_mut().unwrap().push(source_read);
         }
+        use sha2::Digest;
+        manifest["initialSha256"] = json!(format!(
+            "{:x}",
+            sha2::Sha256::digest(serde_json::to_vec(&manifest["initial"]).unwrap())
+        ));
+        let proof = std::path::PathBuf::from(std::env::var("PI_CODING_AGENT_DIR").unwrap()).join(format!(
+            "agent-model-manifest-{}.json",
+            if source_created { "source" } else { "native" }
+        ));
+        std::fs::write(&proof, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+        println!("fixture manifest: {}", proof.display());
     }
 }
 

@@ -48,6 +48,17 @@ async function main(): Promise<void> {
     }
 
     async function execute(request: any) {
+        if (request.op === "manifest") {
+            const { createHash } = await import("node:crypto");
+            const { readFileSync } = await import("node:fs");
+            return {
+                sourceRevision: "4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d",
+                generator: "oracle/agent-model-tool-oracle.ts",
+                sourceSha256: createHash("sha256").update(readFileSync(source)).digest("hex"),
+                capturedAt: new Date().toISOString(),
+                userVersion: db.withControlDb(request.db, (database: any) => database.prepare("PRAGMA user_version").get().user_version),
+            };
+        }
         if (request.op === "read") return db.readMultiAgentAgent(request.db, request.session, request.agentId);
         if (request.op === "create") {
             for (const agent of request.agents) db.bootstrapMultiAgentAgent(request.db, request.session, agent.id, agent);
