@@ -72,6 +72,50 @@ fn canonical_status_mutations_preserve_source_utf16_body_and_distinct_unknown_ke
 }
 
 #[test]
+fn routing_existing_source_mailbox_preserves_raw_utf16_fields() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("control.sqlite").display().to_string();
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let wire = format!(
+        r#"[{},"/fixture/s","m",{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","unknown":{{"\ud800":"high","�":"replacement"}}}}]"#,
+        serde_json::to_string(&path).unwrap()
+    );
+    source_call(&mut source, "upsertMultiAgentMailboxMessage", &wire);
+    let original = persisted_raw(&mut source, &path);
+    let input = EnqueueRuntimeMailboxMessageInput {
+        recipient_host: None,
+        recipient: RuntimeMailboxAddress {
+            session_id: "to".into(),
+            agent_id: None,
+        },
+        sender: RuntimeMailboxAddress {
+            session_id: "from".into(),
+            agent_id: None,
+        },
+        kind: RuntimeMailboxMessageKind::Message,
+        store_ref: RuntimeMailboxStoreRef {
+            session_path: "/fixture/s".into(),
+            message_id: "m".into(),
+        },
+    };
+    let id = enqueue_runtime_mailbox_message(&path, &input).unwrap();
+    assert_eq!(enqueue_runtime_mailbox_message(&path, &input).unwrap(), id);
+    let routed = persisted_raw(&mut source, &path);
+    for key in ["body", "unknown"] {
+        let key = js_json::JsString::from(key);
+        assert_eq!(
+            routed.get(&key),
+            original.get(&key),
+            "routing must preserve raw field {key:?}"
+        );
+    }
+    assert_eq!(
+        routed.get(&js_json::JsString::from("recipientSessionId")),
+        Some(&JsValue::String(js_json::JsString::from("to")))
+    );
+}
+
+#[test]
 fn source_sql_bind_keys_and_raw_receipts_have_distinct_utf16_identity_on_recovery() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("control.sqlite").display().to_string();
