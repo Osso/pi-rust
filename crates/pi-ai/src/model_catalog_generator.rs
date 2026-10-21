@@ -105,6 +105,7 @@ pub fn get_models_dev_cost(cost: &JsValue) -> Result<JsValue, GeneratorError> {
             }
             let context = field(tier, "tier");
             receiver_types::optional_object(context, "models.dev cost.tiers.tier")?;
+            receiver_types::optional_field(context, "type", "models.dev cost.tiers.tier.type", "string")?;
             if !equal(field(context, "type"), "context") {
                 continue;
             }
@@ -144,15 +145,13 @@ fn common_model(id: &JsString, model: &JsValue, provider: &str) -> Result<JsValu
     receiver_types::model(model)?;
     receiver_types::optional_object(field(model, "cost"), "models.dev cost")?;
     receiver_types::optional_object(field(model, "limit"), "models.dev limit")?;
+    let reasoning = receiver_types::reasoning(model, provider, id)?;
     let id = JsValue::String(id.clone());
     Ok(object([
         ("id", id.clone()),
         ("name", fallback(field(model, "name"), id)),
         ("provider", text(provider)),
-        (
-            "reasoning",
-            JsValue::Bool(field(model, "reasoning") == &JsValue::Bool(true)),
-        ),
+        ("reasoning", JsValue::Bool(reasoning)),
         (
             "input",
             if includes(field(field(model, "modalities"), "input"), "image") {
@@ -178,7 +177,7 @@ pub fn process_baseten_models(provider: &JsValue) -> Result<JsValue, GeneratorEr
     let mut models = Vec::new();
     for (id, model) in receiver_types::model_entries(provider)? {
         receiver_types::model(model)?;
-        if equal(field(model, "status"), "deprecated") {
+        if receiver_types::deprecated(model)? {
             continue;
         }
         let is_glm = ["zai-org/GLM-5.2", "zai-org/GLM-5.2-Fast"]
@@ -294,7 +293,7 @@ pub fn process_fireworks_models(provider: &JsValue) -> Result<JsValue, Generator
     let mut models = Vec::new();
     for (id, model) in receiver_types::model_entries(provider)? {
         receiver_types::model(model)?;
-        if field(model, "tool_call") != &JsValue::Bool(true) {
+        if !receiver_types::tool_call(model)? {
             continue;
         }
         validate_modalities(model)?;
@@ -647,6 +646,8 @@ fn transform_http_models(data: &JsValue, gateway: bool) -> Result<JsValue, Gener
         }
         if gateway {
             receiver_types::gateway_consumed_fields(model, tags)?;
+        } else {
+            receiver_types::router_consumed_fields(model, tags)?;
         }
         let modality = field(field(model, "architecture"), "modality");
         if !gateway && !matches!(modality, JsValue::Null | JsValue::Array(_) | JsValue::String(_)) {

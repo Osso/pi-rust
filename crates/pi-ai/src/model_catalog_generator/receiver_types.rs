@@ -20,6 +20,54 @@ pub(super) fn model_entries(provider: &JsValue) -> Result<Vec<(&JsString, &JsVal
 pub(super) fn model(value: &JsValue) -> Result<(), GeneratorError> {
     emission_types::expect(value, "models.dev model", "object")
 }
+pub(super) fn optional_field(value: &JsValue, key: &str, label: &str, kind: &str) -> Result<(), GeneratorError> {
+    let value = field(value, key);
+    if matches!(value, JsValue::Null) {
+        return Ok(());
+    }
+    emission_types::expect(value, label, kind)
+}
+pub(super) fn tool_call(value: &JsValue) -> Result<bool, GeneratorError> {
+    model(value)?;
+    optional_field(value, "tool_call", "models.dev tool_call", "boolean")?;
+    Ok(field(value, "tool_call") == &JsValue::Bool(true))
+}
+pub(super) fn deprecated(value: &JsValue) -> Result<bool, GeneratorError> {
+    optional_field(value, "status", "models.dev status", "string")?;
+    Ok(equal(field(value, "status"), "deprecated"))
+}
+pub(super) fn reasoning(value: &JsValue, provider: &str, id: &JsString) -> Result<bool, GeneratorError> {
+    let forced = match provider {
+        "kimi-coding" => id == &JsString::from("k3"),
+        "moonshotai" | "moonshotai-cn" => id == &JsString::from("kimi-k3"),
+        _ => false,
+    };
+    if forced {
+        return Ok(true);
+    }
+    optional_field(value, "reasoning", "models.dev reasoning", "boolean")?;
+    Ok(field(value, "reasoning") == &JsValue::Bool(true))
+}
+pub(super) fn provider_npm(value: &JsValue) -> Result<&JsValue, GeneratorError> {
+    let provider = field(value, "provider");
+    optional_object(provider, "models.dev model.provider")?;
+    optional_field(provider, "npm", "models.dev provider.npm", "string")?;
+    Ok(field(provider, "npm"))
+}
+fn string_entries(value: &JsValue, label: &str) -> Result<(), GeneratorError> {
+    if matches!(value, JsValue::Array(values) if values.iter().any(|value| !matches!(value, JsValue::String(_)))) {
+        return Err(GeneratorError::type_error(&format!("{label} entries must be strings")));
+    }
+    Ok(())
+}
+pub(super) fn router_consumed_fields(model: &JsValue, tags: &JsValue) -> Result<(), GeneratorError> {
+    string_entries(tags, "OpenRouter supported_parameters")?;
+    let architecture = field(model, "architecture");
+    optional_object(architecture, "OpenRouter architecture")?;
+    string_entries(field(architecture, "modality"), "OpenRouter modality")?;
+    optional_object(field(model, "pricing"), "OpenRouter pricing")?;
+    optional_object(field(model, "top_provider"), "OpenRouter top_provider")
+}
 pub(super) fn modalities(value: &JsValue, key: &str) -> Result<(), GeneratorError> {
     let modalities = field(value, "modalities");
     optional_object(modalities, "models.dev modalities")?;
@@ -50,9 +98,7 @@ pub(super) fn option_kind(value: &JsValue) -> Result<&JsValue, GeneratorError> {
     Ok(kind)
 }
 pub(super) fn gateway_consumed_fields(model: &JsValue, tags: &JsValue) -> Result<(), GeneratorError> {
-    if matches!(tags, JsValue::Array(values) if values.iter().any(|value| !matches!(value, JsValue::String(_)))) {
-        return Err(GeneratorError::type_error("AI Gateway tags entries must be strings"));
-    }
+    string_entries(tags, "AI Gateway tags")?;
     let pricing = field(model, "pricing");
     optional_object(pricing, "AI Gateway pricing")?;
     for key in ["input", "output", "input_cache_read", "input_cache_write"] {
