@@ -27,7 +27,14 @@ async function main(){
      let done=false;const component=factory({requestRender:()=>trace.push(["requestRender"])},{},{},()=>{done=true;trace.push(["done"]);});
      const render=()=>{for(const width of item.widths){let frame:any;try{frame=component.render(width);}catch(error:any){frame={error:`${error.name}: ${error.message}`};}trace.push(["render",width,frame]);}};render();
      for(const step of item.steps){if(step.op==="key")component.handleInput(step.key);else if(step.op==="ticks"){for(let i=0;i<step.count;i++)advance(step.ms??100);}else if(step.op==="invalidate")component.invalidate();else throw new Error("unknown fixture op");render();}
-     if(!done)throw new Error("script must close custom component");component.dispose();return undefined;
+     if(item.disposeRunning){
+      if(done)throw new Error("dispose must precede Done");
+      const frame=component.render(item.widths[0]),requests=trace.length;
+      component.dispose();advance(2000);
+      if(trace.length!==requests||JSON.stringify(component.render(item.widths[0]))!==JSON.stringify(frame))throw new Error("dispose leaked game ticks/render requests");
+      if(done)throw new Error("dispose must not call Done");
+     }else{if(!done)throw new Error("script must close custom component");component.dispose();}
+     return undefined;
     }} as any,item.mode??"tui");
     await runner.getCommand(source.endsWith("/snake.ts")?"snake":"invaders").handler("",runner.createCommandContext());
    }

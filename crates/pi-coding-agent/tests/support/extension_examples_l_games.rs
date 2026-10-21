@@ -192,8 +192,31 @@ impl ExtensionUiContext for Ui {
                         render(width.as_u64().unwrap() as usize);
                     }
                 }
-                assert!(*completed.lock().unwrap(), "script must close custom component");
-                component.dispose();
+                if item["disposeRunning"] == true {
+                    assert!(!*completed.lock().unwrap(), "dispose must be tested before any Done");
+                    let width = item["widths"][0].as_u64().unwrap() as usize;
+                    let frame = component.render(width);
+                    let requests = trace.lock().unwrap().len();
+                    assert!(
+                        trace.lock().unwrap().iter().any(|call| call[0] == "requestRender"),
+                        "game must tick before disposal"
+                    );
+                    component.dispose();
+                    for _ in 0..40 {
+                        tokio::time::advance(Duration::from_millis(50)).await;
+                        tokio::task::yield_now().await;
+                    }
+                    assert_eq!(
+                        trace.lock().unwrap().len(),
+                        requests,
+                        "dispose must stop render requests on the game runtime"
+                    );
+                    assert_eq!(component.render(width), frame, "dispose must stop game ticks");
+                    assert!(!*completed.lock().unwrap(), "dispose must not call Done");
+                } else {
+                    assert!(*completed.lock().unwrap(), "script must close custom component");
+                    component.dispose();
+                }
                 Ok(None)
             })
         })
@@ -273,14 +296,6 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             .await
             .unwrap();
     }
-    let before = trace.lock().unwrap().len();
-    tokio::time::advance(Duration::from_secs(2)).await;
-    tokio::task::yield_now().await;
-    assert_eq!(
-        trace.lock().unwrap().len(),
-        before,
-        "disposed game must not leave active intervals"
-    );
     let entries: Vec<_> = manager
         .lock()
         .unwrap()

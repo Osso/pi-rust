@@ -36,11 +36,16 @@ used by tests. Explicit registration only; no dynamic/autoload entry.
 | `274-304`: alien points/high score, player lives, shields, removals after all collisions | `check_collisions` | Alien hit/victory, player game-over/restart, shield destruction, out-of-range bullets, multiple simultaneous hits |
 | `306-377`: paused close/resume, ESC save, Q clear, press/release movement/fire, restart/next level | `handle_input` | Complete action transcripts and snapshots, paused close does not append, restart clears saved entry, owned saves unchanged |
 | `379-523`: cache/invalidation, exact ANSI sprites/header/footer, visible-width box padding and UTF-16 line padding | `render`, `render_frame`, `cell`, formatting helpers | Complete ANSI arrays at 24/64/90 columns, repeated-width cache, invalidation, paused/game-over/victory frames |
-| `525-560`: disposal, command metadata/mode guard, reverse full-session save lookup | `dispose/Drop`, factory | RPC notification; saved reloads; after disposal advance 2 seconds with no renders |
+| `525-560`: disposal, command metadata/mode guard, reverse full-session save lookup | `dispose/Drop`, factory | RPC notification; saved reloads; `dispose_running_game_stops_ticks_on_its_own_runtime_without_quit` disposes a ticking game without Escape/Q, retains its component and game runtime, advances 40 × 50ms, checks unchanged frames, no render requests and no Done |
 
-All five differential tests pass. Native inputs pass through a real pi-tui host,
-not directly to the game; pinned inputs pass through real TS TUI/VirtualTerminal
-in the existing invaders oracle. Native game input host is thread-local across
+The original five differential tests cover gameplay. A separate dispose-only differential (also added for Snake) observes cancellation on the same private UI runtime, not the outer runtime after thread teardown. Removing only `dispose()`'s stop fails the native assertion (Snake 22 vs 3 trace entries; Invaders 45 vs 5). Proof logs: `/tmp/pi-rust-ui-fidelity/{p4-red-mutations,p4-invaders-clean-mutation}.log`.
+
+ Native inputs pass through a real pi-tui host,
+not directly to the game. `oracle/extension-examples-l-games-oracle.ts`
+calls the pinned component's `handleInput` directly with a minimal
+`requestRender` host; it does not instantiate a TS TUI/VirtualTerminal.
+The comparison therefore covers native release filtering plus game behavior,
+not source-host routing. Native game input host is thread-local across
 awaits (the extension UI future is Send); renderer flushing is deliberately
 separate from explicit frame capture. Core production adapter forwarding has its
 own real-interactive-mode proof above. Read/write snapshot fixtures use the
