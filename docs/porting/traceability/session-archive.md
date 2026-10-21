@@ -11,6 +11,6 @@ Frozen source: `packages/coding-agent/extensions/session-archive/src/index.ts` a
 | delete declined/confirmed, confirmation title/body, shutdown request | `execute_session_command`, `confirm_delete` | same differential, real deletion and metadata absence on quit |
 | deferred archive after final write, compressed file and relocated metadata | `run_quit_action` | archive test appends after command, then verifies archived transcript contains final text |
 | quit-only, consume once, nonquit clears pending action | `register_quit_handler` | repeated quit; reload then quit preserves transcript |
-| wrapped errors emitted to stderr after stopped UI | `run_quit_action`, shutdown handler | source-faithful implementation inspected; direct stderr-capture branch proof not added |
+| wrapped errors emitted to stderr after stopped UI | `run_quit_action`, shutdown handler | `session_archive_shutdown_errors_match_frozen_stderr`: subprocess captures exact frozen/native archive and delete failure text |
 
-Initial registration differential RED; eight command-target tests GREEN at `3d4e6a32`. Quit-gate inversion mutant killed by file-state assertion. No immediate metadata-only archival remains. [Deletion trace](session-delete.md), [storage trace](session-archive-storage.md), [proof limits](../session-archive-history-proof.md).
+Initial registration differential RED; ten command-target tests GREEN at `d6b4bed5` (one subprocess entry point). Quit-gate inversion mutant killed by file-state assertion. No immediate metadata-only archival remains. [Deletion trace](session-delete.md), [storage trace](session-archive-storage.md), [proof limits](../session-archive-history-proof.md).
