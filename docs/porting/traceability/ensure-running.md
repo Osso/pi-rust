@@ -11,3 +11,5 @@ Reference: `4f9e6f8a4`, `supervisor/ensure-running.ts`.
 | terminate verification; process launch | `terminate_supervisor`, `launch_supervisor` | compiled only; no live services allowed |
 
 No row promoted to done yet. External `setsid` approved by parent 2026-10-21; no fallback.
+
+Q16 six-case frozen startup trace matrix now covers ready reuse, absent launch, external mismatch, managed replacement, zero-timeout, and launch error using process fakes. Versions are explicit fixture parameters for that algorithm matrix; the separate unignored exact-version assertion fails (Rust 0.84.1 vs frozen 0.80.3). No raw-output parity claim.

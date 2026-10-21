@@ -23,3 +23,7 @@ Proof: behavioral socket tests in `crates/pi-coding-agent/tests/request_wake.rs`
 ## Discrepancies
 
 None.
+
+## Q16 revalidation
+
+Current proof and remaining gaps: [slice ledger](../q16-supervisor-runtime-proof.md), [related module](supervisor-main.md).
