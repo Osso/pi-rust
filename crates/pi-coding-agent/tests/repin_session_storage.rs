@@ -552,6 +552,10 @@ fn source_escaped_surrogate_receipt_remains_a_persisted_message() {
         2,
         "source-valid escaped receipt must not drop the message"
     );
+    assert_eq!(
+        pi_coding_agent::core::session_manager::parse_session_entries(&std::fs::read_to_string(path).unwrap()).len(),
+        2
+    );
     let mut manager = SessionManager::open(path, None, None).unwrap();
     let first = manager.get_entries()[0].id().unwrap().to_owned();
     let id = manager

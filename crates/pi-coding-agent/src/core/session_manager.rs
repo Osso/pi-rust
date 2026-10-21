@@ -933,8 +933,7 @@ pub fn parse_session_entries(content: &str) -> Vec<FileEntry> {
         .trim()
         .split('\n')
         .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .map(parse_file_entry_value)
+        .filter_map(|line| parse_session_file_entry(line).ok())
         .collect()
 }
 
