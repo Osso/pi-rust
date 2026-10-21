@@ -26,12 +26,18 @@ fn timeout_delays_match_pinned_node_runtime() {
         "1e103",
     ];
     let mut oracle = oracle::TsOracle::spawn("node-timers-oracle.ts", "packages/coding-agent/src/index.ts");
-    let expected = oracle.request(&json!(values));
+    let response = oracle.request(&json!(values));
+    let expected: Vec<f64> = response
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|delay| delay.as_f64().unwrap())
+        .collect();
     let actual: Vec<f64> = values
         .iter()
         .map(|value| normalize_timeout_delay(parse_number(value)))
         .collect();
-    assert_eq!(json!(actual), expected);
+    assert_eq!(actual, expected);
     assert_eq!(normalize_timeout_delay(1.9), 1.9);
     assert_eq!(normalize_timeout_delay(2_147_483_647.0), 2_147_483_647.0);
 }
