@@ -49,6 +49,33 @@ fn agent_message(message: pi_ai::types::UserMessage) -> AgentMessage {
 }
 
 #[tokio::test]
+async fn does_not_resume_tools_from_failed_restored_assistants() {
+    for reason in [StopReason::Error, StopReason::Aborted] {
+        let mut restored = tool_use(vec![AssistantContent::ToolCall(tool_call(
+            "pending",
+            "lookup",
+            json!({}),
+        ))]);
+        restored.stop_reason = reason;
+        let tool = TestTool::no_args("lookup", || panic!("failed assistant tools must not execute"));
+        let stream = agent_loop_continue(
+            context(vec![restored.into()], vec![Arc::new(tool)]),
+            config(),
+            None,
+            Some(scripted_stream_fn(vec![Script::message(text_assistant("recovered"))])),
+        )
+        .unwrap();
+        let (events, result) = collect_events(stream).await;
+        assert!(result.is_ok());
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, AgentEvent::ToolExecutionStart { .. }))
+        );
+    }
+}
+
+#[tokio::test]
 async fn emits_events_with_agent_message_types() {
     let stream = agent_loop(
         vec![agent_message(user("Hello"))],

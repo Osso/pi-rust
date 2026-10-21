@@ -58,6 +58,81 @@ async fn uses_configured_default_when_stream_fn_is_omitted() {
 }
 
 #[tokio::test]
+async fn preserves_streamed_partial_on_abort_without_duplicate_start() {
+    let partial = text_assistant("already delivered");
+    let partial_hook = partial.clone();
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(Arc::new(move |_, _, _| {
+            let partial = partial_hook.clone();
+            Box::pin(async move {
+                let (sender, stream) = create_assistant_message_event_stream();
+                sender.push(AssistantMessageEvent::Start { partial });
+                std::mem::forget(sender);
+                stream
+            })
+        })),
+        ..Default::default()
+    })
+    .unwrap();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    agent.subscribe(message_listener(Arc::clone(&events)));
+    let abort_agent = agent.clone();
+    agent.subscribe(Arc::new(move |event, _| {
+        if matches!(
+            event,
+            AgentEvent::MessageStart {
+                message: AgentMessage::Assistant(_)
+            }
+        ) {
+            abort_agent.abort();
+        }
+        Box::pin(async { Ok(()) })
+    }));
+    agent.prompt("start").await.unwrap();
+    let messages = agent.messages();
+    let failure = messages.last().unwrap().as_assistant().unwrap();
+    assert_eq!(failure.content, partial.content);
+    assert_eq!(failure.stop_reason, StopReason::Aborted);
+    let starts = events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                AgentEvent::MessageStart {
+                    message: AgentMessage::Assistant(_)
+                }
+            )
+        })
+        .count();
+    assert_eq!(starts, 1);
+}
+
+#[tokio::test]
+async fn reset_clears_state_during_active_run_without_aborting_it() {
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(scripted_stream_fn(vec![Script::message(text_assistant("ok"))])),
+        ..Default::default()
+    })
+    .unwrap();
+    let reset_agent = agent.clone();
+    agent.subscribe(Arc::new(move |event, _| {
+        if matches!(event, AgentEvent::ModelRequestStart) {
+            reset_agent.follow_up(user_message("later"));
+            reset_agent.reset().unwrap();
+            assert!(reset_agent.messages().is_empty());
+            assert!(!reset_agent.is_streaming());
+            assert!(!reset_agent.has_queued_messages());
+            assert!(!reset_agent.signal().unwrap().is_cancelled());
+        }
+        Box::pin(async { Ok(()) })
+    }));
+    agent.prompt("start").await.unwrap();
+    assert_eq!(agent.messages().len(), 1);
+}
+
+#[tokio::test]
 async fn creates_agent_with_default_state() {
     let agent = Agent::new(AgentOptions {
         stream_fn: Some(scripted_stream_fn(Vec::new())),

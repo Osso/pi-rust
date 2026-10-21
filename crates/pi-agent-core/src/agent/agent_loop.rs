@@ -238,7 +238,8 @@ fn resolve_stream_fn(stream_fn: Option<StreamFn>) -> Result<StreamFn, AgentError
     }
 }
 
-fn restored_pending_tool_message(messages: &[AgentMessage]) -> Option<AssistantMessage> {
+/// Returns the trailing assistant batch reduced to calls without a tool result.
+pub fn restored_pending_tool_message(messages: &[AgentMessage]) -> Option<AssistantMessage> {
     let mut completed_tool_call_ids = std::collections::BTreeSet::new();
     for message in messages.iter().rev() {
         match message {
@@ -247,6 +248,9 @@ fn restored_pending_tool_message(messages: &[AgentMessage]) -> Option<AssistantM
                 continue;
             }
             AgentMessage::Assistant(assistant) => {
+                if matches!(assistant.stop_reason, StopReason::Aborted | StopReason::Error) {
+                    return None;
+                }
                 let pending_ids: std::collections::BTreeSet<&str> = assistant
                     .content
                     .iter()

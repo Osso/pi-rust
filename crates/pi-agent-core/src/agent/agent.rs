@@ -536,9 +536,6 @@ impl Agent {
     }
 
     pub fn reset(&self) -> Result<(), AgentError> {
-        if self.active_run_lock().is_some() {
-            return Err(AgentError::already_processing_reset());
-        }
         {
             let mut state = self.state_lock();
             state.messages.clear();
@@ -653,11 +650,19 @@ impl Agent {
     ) -> Result<(), AgentError> {
         let mut listener_error = None;
         if let Err(error) = result {
-            let failure = self.build_failure_message(&error, signal.is_cancelled());
-            let events = [
-                AgentEvent::MessageStart {
+            let partial = self
+                .state_lock()
+                .streaming_message
+                .clone()
+                .filter(|message| message.as_assistant().is_some());
+            let failure = self.build_failure_message(&error, signal.is_cancelled(), partial.as_ref());
+            let mut events = Vec::new();
+            if partial.is_none() {
+                events.push(AgentEvent::MessageStart {
                     message: failure.clone(),
-                },
+                });
+            }
+            events.extend([
                 AgentEvent::MessageEnd {
                     message: failure.clone(),
                 },
@@ -668,7 +673,7 @@ impl Agent {
                 AgentEvent::AgentEnd {
                     messages: vec![failure],
                 },
-            ];
+            ]);
             for event in events {
                 if let Err(error) = self.process_events(event).await {
                     listener_error = Some(error);
@@ -683,7 +688,7 @@ impl Agent {
         }
     }
 
-    fn build_failure_message(&self, error: &AgentError, aborted: bool) -> AgentMessage {
+    fn build_failure_message(&self, error: &AgentError, aborted: bool, partial: Option<&AgentMessage>) -> AgentMessage {
         let state = self.state_lock();
         let mut message = AssistantMessage::empty(
             state.model.api.clone(),
@@ -692,6 +697,9 @@ impl Agent {
             pi_ai::request::now_millis(),
         );
         message.content = vec![pi_ai::types::AssistantContent::Text(TextContent::new(""))];
+        if let Some(partial) = partial.and_then(AgentMessage::as_assistant) {
+            message = partial.clone();
+        }
         message.stop_reason = if aborted {
             StopReason::Aborted
         } else {

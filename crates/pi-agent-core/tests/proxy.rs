@@ -110,7 +110,7 @@ async fn collect(
 }
 
 #[tokio::test]
-async fn preserves_tool_call_metadata_received_only_on_toolcall_end() {
+async fn reconstructs_tool_call_from_deltas_without_trusting_end_payload() {
     let requests = Arc::new(Mutex::new(Vec::new()));
     let body = sse(&[
         json!({"type": "start"}),
@@ -159,7 +159,7 @@ async fn preserves_tool_call_metadata_received_only_on_toolcall_end() {
     let AssistantMessageEvent::ToolCallEnd { tool_call, .. } = end_event else {
         unreachable!()
     };
-    assert_eq!(tool_call.namespace.as_deref(), Some("dynamic_tools"));
+    assert_eq!(tool_call.namespace, None);
     assert_eq!(result.content.len(), 1);
     let pi_ai::types::AssistantContent::ToolCall(tool_call) = &result.content[0] else {
         panic!("expected tool call content");
@@ -168,7 +168,7 @@ async fn preserves_tool_call_metadata_received_only_on_toolcall_end() {
         serde_json::to_value(&tool_call.arguments).unwrap(),
         json!({"value": "hello"})
     );
-    assert_eq!(tool_call.namespace.as_deref(), Some("dynamic_tools"));
+    assert_eq!(tool_call.namespace, None);
     assert_eq!(result.stop_reason, StopReason::ToolUse);
 
     let request = requests.lock().unwrap().first().cloned().expect("one request");

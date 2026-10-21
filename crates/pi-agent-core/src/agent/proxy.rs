@@ -61,7 +61,6 @@ pub enum ProxyAssistantMessageEvent {
     },
     ToolcallEnd {
         content_index: usize,
-        tool_call: ToolCall,
     },
     Done {
         reason: DoneReason,
@@ -274,10 +273,7 @@ fn process_proxy_event(
         ProxyAssistantMessageEvent::ToolcallDelta { content_index, delta } => {
             process_toolcall_delta(state, content_index, delta).map(Some)
         }
-        ProxyAssistantMessageEvent::ToolcallEnd {
-            content_index,
-            tool_call,
-        } => process_toolcall_end(state, content_index, tool_call),
+        ProxyAssistantMessageEvent::ToolcallEnd { content_index } => process_toolcall_end(state, content_index),
         ProxyAssistantMessageEvent::Done { reason, usage } => process_done(state, reason, usage).map(Some),
         ProxyAssistantMessageEvent::Error {
             reason,
@@ -417,20 +413,11 @@ fn process_toolcall_delta(
 fn process_toolcall_end(
     state: &mut PartialState,
     content_index: usize,
-    tool_call: ToolCall,
 ) -> Result<Option<AssistantMessageEvent>, String> {
-    let is_tool_call = matches!(
-        state.content.get(content_index),
-        Some(Some(AssistantContent::ToolCall(_)))
-    );
-    if !is_tool_call {
+    let Some(Some(AssistantContent::ToolCall(tool_call))) = state.content.get(content_index) else {
         return Ok(None);
-    }
-    set_slot(
-        &mut state.content,
-        content_index,
-        Some(AssistantContent::ToolCall(tool_call.clone())),
-    )?;
+    };
+    let tool_call = tool_call.clone();
     state.partial_json.remove(&content_index);
     state.sync();
     Ok(Some(AssistantMessageEvent::ToolCallEnd {
