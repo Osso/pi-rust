@@ -37,13 +37,33 @@ fn value_args(value: Value) -> ToolCall {
 }
 
 fn validate(tool: &Tool, tool_call: &ToolCall) -> Value {
-    validate_tool_arguments(tool, tool_call).expect("arguments must validate")
+    validate_tool_arguments(tool, tool_call)
+        .expect("arguments must validate")
+        .to_serde()
+        .expect("scalar fixture")
 }
 
 fn validation_message(tool: &Tool, tool_call: &ToolCall) -> String {
     validate_tool_arguments(tool, tool_call)
         .expect_err("arguments must fail validation")
         .to_string()
+}
+
+#[test]
+fn lossless_schema_checks_use_javascript_numeric_property_order() {
+    use pi_ai::utils::validation::schema_error_lines;
+    use pi_js_compat::js_json::parse_lossless;
+    let schema =
+        parse_lossless(r#"{"type":"object","properties":{"10":{"type":"number"},"2":{"type":"number"}}}"#).unwrap();
+    let args = parse_lossless(r#"{"10":"x","2":"y"}"#).unwrap();
+    let lines = schema_error_lines(&schema, &args);
+    assert_eq!(lines, vec!["  - 2: must be number", "  - 10: must be number"]);
+}
+
+#[test]
+fn patterns_support_javascript_backreferences() {
+    let tool = plain_value_schema(json!({"type":"string", "pattern":r"^(a)\1$"}));
+    assert_eq!(validate(&tool, &value_args(json!("aa"))), json!({"value":"aa"}));
 }
 
 #[test]
@@ -369,7 +389,7 @@ fn validate_tool_call_validates_matching_tools() {
         "properties": { "count": { "type": "number" } }
     }))];
     let call = tool_call(object([("count", json!("7"))]));
-    assert_eq!(validate_tool_call(&tools, &call).unwrap(), json!({ "count": 7 }));
+    assert_eq!(validate_tool_call(&tools, &call).unwrap(), json!({ "count": 7 }).into());
 }
 
 #[test]
@@ -378,7 +398,7 @@ fn validation_error_exposes_its_message() {
     let error: ValidationError = validate_tool_arguments(&tool, &tool_call(object([]))).unwrap_err();
     assert!(error.message().starts_with("Validation failed for tool \"echo\":"));
     let dynamic: &dyn std::error::Error = &error;
-    assert_eq!(dynamic.to_string(), error.message());
+    assert_eq!(error.message(), &dynamic.to_string());
 }
 
 #[test]

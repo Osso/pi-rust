@@ -21,16 +21,49 @@ Trace: [validation](../porting/traceability/validation.md).
 - TypeBox string conversion turns null into `"null"`; plain string coercion turns
   null into `""`. Enum validation follows conversion/coercion. Invalid optional
   enum values are errors, not absent properties.
+- Overflow JSON numbers remain binary64 infinities in arguments. Number/integer
+  checks reject them with the frozen type error; numeric constraints skip non-finite
+  values. String coercion uses JavaScript spelling (`Infinity`, `-Infinity`).
 - Validation errors retain source ordering, paths, messages, and original received
   arguments. Caller-owned arguments remain unchanged on success and failure.
+
+## Lossless value boundary
+
+- `validate_arguments(&JsValue schema, &JsValue arguments, bool typebox_kind,
+  &str tool_name)` is the validation/coercion authority and returns `JsValue`.
+  Arguments, object keys, schema string literals, issue paths and error messages
+  retain UTF-16 units. Argument storage, coercion and output never round-trip through
+  serde values or replace unmatched surrogates. Temporary frozen URL/hash encoding
+  behavior is explicit below.
+- Tool entrypoints return `JsValue`; checkpoint `ToolCall` still has scalar JSON
+  storage and adapts losslessly into this authority. The content lane replaces that
+  input construction once `ToolCall.arguments` becomes `JsObject`.
+- `schema_error_lines(&JsValue, &JsValue)` returns `Vec<JsString>`.
+  `ValidationError::message()` returns exact `&JsString`; `Display` shows scalar
+  messages directly and JSON-escapes messages containing unmatched surrogates.
+- RegExp preserves frozen flags: `pattern`/`patternProperties` use Unicode mode;
+  conversion/additional-properties patterns use non-Unicode UTF-16-unit mode. Length checks retain
+  the frozen TypeBox grapheme algorithm, not Rust scalar or byte length.
 
 ## Current proof boundary
 
 This re-pin repairs optional-null normalization and declared union-arm coercion
-order. It does not establish whole-module parity. The current-pin nullable-array
-compiler throw, nested TypeBox metadata representation, JavaScript regular
-expressions, and other engine limitations remain unresolved in the traceability
-document. Direct core calls with non-object arguments or primitive schemas are
+order. It does not establish whole-module parity. Nullable-array handling follows
+its approved guarded-source delta. Nested TypeBox metadata representation and other
+engine limitations remain explicit in the traceability document. Direct core calls with non-object arguments or primitive schemas are
 outside the standing typed-core input policy: frozen `ToolCall.arguments` is
 `Record<string, any>` and `Tool.parameters` extends `TSchema` (`types.ts:378,478–481`).
 This does not exclude raw persisted JSON or valid nested JSON values.
+
+## Frozen format and hashing behavior
+
+The default TypeBox format registry is enforced, including unknown-format success,
+Unicode/IDN hostnames, dates/times, IPs, pointers, URI/IRI, and ECMAScript regex formats.
+Unmatched surrogates stay intact through NFC normalization. WHATWG URL checks and
+reference resolution convert temporary parse input to USVString as the frozen
+constructor does; unmatched-surrogate anchors can consequently alias.
+
+`uniqueItems` uses frozen FNV-1a hashing, not structural equality. Its TextEncoder
+step replaces unmatched surrogates: distinct lone-surrogate strings can therefore
+hash identically and count as duplicates. This source quirk is deliberately preserved
+without modifying stored arguments; object keys are sorted by UTF-16 for hashing.

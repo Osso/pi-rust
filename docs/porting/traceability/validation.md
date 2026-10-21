@@ -4,34 +4,41 @@ Source: complete `packages/ai/src/utils/validation.ts` (324 lines) read at
 `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
 Spec: [shared validation](../../specs/validation.md).
 
-## Re-pin status — bounded repair, not whole-module parity
+## Lossless migration proof (2026-10-21)
 
-- Repairs through `f86144ba` are integrated by canonical merge `8d9bb557`.
-  Independent proof at `8d9bb557` passed 26 units, the 50-case differential,
-  9 model-tool tests and 5 viewed-target tests. Validation clippy/fmt passed;
-  model clippy stopped on six control-library diagnostics. Exact scope and
-  remaining gaps: `/tmp/pi-rust-repin-validation-model-verify/REPORT.md`.
-- Removed the old pre-conversion optional-null deletion pass; source has no such pass.
-- Removed plain union coercion's already-valid-arm precheck. Source coerces and checks
-  cloned candidates in declaration order (`coerceWithUnionSchema`, lines 193–204).
-- New differential test `optional_nulls_and_union_order_match_the_frozen_source`
-  covers 50 cases: optional/required primitive, enum, nullable, array and object nulls;
-  anyOf/oneOf ordering and rejected-candidate isolation; exact set_agent_model-shaped
-  arguments. RED observed before production changes (24 new-case mismatches).
-- The prior 68-case differential matrix is not current-pin whole-module proof:
-  `plain-union-types` now exposes a TS nullable-array compiler exception. Classification
-  is pending with the user; 118 schema cases currently record 117 matches and this
-  one known failure. No waiver, runtime-input exclusion, or source-bug choice is made here.
-- Historical claims below describe the previous implementation, not fresh proof of
-  every engine branch. Wider gaps remain unresolved, even if older text says unused.
-Rust: `crates/pi-ai/src/utils/validation.rs`.
+Rust authority: `crates/pi-ai/src/utils/validation.rs`; helper modules
+`validation_regex.rs`, `validation_formats.rs`, `validation_idna.rs`, and
+`validation_hash.rs` implement frozen dependent-engine semantics.
 
-Differential oracle: `oracle/validation-oracle.ts` (builds TypeBox schemas with the pinned
-`Type.*` builders or passes plain JSON, calls the real `validateToolArguments`/`validateToolCall`).
-Tests: `crates/pi-ai/tests/validation.rs` (26 behavioral cases), `crates/pi-ai/tests/differential_validation.rs`
-(68 prior schema/argument cases, 50 new null/order cases, 3 lookup cases).
-Differentials compare complete values or exact error messages; the nullable-array case
-is still a known failing comparison.
+On production revision `679e73d9`, sandboxed `cargo test -p pi-ai --test validation
+--test differential_validation` passes 28 units and six differential tests.
+`lossless_utf16_validation_matches_frozen_typescript` has 227 cases:
+117 text/schema combinations; 16 raw-key/pattern/ref/enum/hash cases; 31 TypeBox
+coercions (including non-Unicode record matching); 63 format cases (valid, invalid, lone surrogate for each of 21 defaults).
+A separate 20-case raw-wire differential covers positive/negative overflow numbers
+across plain/TypeBox number, integer, string, boolean and null schemas.
+`cargo check -p pi-ai --lib` and package formatting pass without warnings.
+Evidence and code hashes: `/tmp/pi-rust-repin-lossless-validation/proof-ledger.json`
+and `mutants.json`. No downstream build, clippy, broad suite, or independent gate
+was run in this slice; this is not whole-module parity.
+
+| Lossless capability | Evidence | Status |
+|---|---|---|
+| `JsValue` arguments/results, nested UTF-16 strings and distinct keys | Complete result or exact `JsString` error comparisons; source/Rust caller snapshots | passing targeted differential |
+| Raw issue paths, required names, property-name messages and received JSON | Lone high/low surrogate fixtures; direct `schema_error_lines` assertion | passing |
+| JS regex backreferences/lookbehind and raw UTF-16 patterns | Repeated lone-surrogate captures, `aa`, lookbehind over `x` + lone unit; pair/lone-unit patterns | prior regex gap closed for these constructs |
+| Frozen regex flags and length algorithm | Unicode `pattern`/`patternProperties`; non-Unicode conversion/additionalProperties; TypeBox grapheme min/max over pairs/lone units | passing targeted differential |
+| All default formats; unknown format succeeds | 21 × valid/invalid/lone-surrogate fixtures | implemented; not exhaustive per-format conformance |
+| `uniqueItems` FNV/TextEncoder replacement quirk | Distinct/equal surrogate objects | faithfully preserved source quirk |
+| Schema/argument JS numeric-key order | Direct raw-schema unit + differential received JSON | passing |
+| Unmatched-surrogate pointer/anchor resolution | URL-USVString temporary conversion; pointer fails, matching anchor succeeds | passing |
+| Overflow binary64 arguments | Raw `±1e400` oracle requests; finite type guards, skipped numeric keywords, string coercion | passing 20-case differential |
+| Nested TypeBox conversion kinds | `Tool` still has one root marker | unresolved, unchanged API gap |
+
+The previous repair removed optional-null deletion and union prechecks; its
+50-case null/order matrix still passes. Nullable-array source throw is an
+**approved delta**, independently tested via the selected guarded source.
+Historical proof artifacts referenced below may be absent on this host.
 
 ## Current-pin source branch matrix
 
@@ -67,9 +74,8 @@ worktree. Raw observations: `/tmp/pi-rust-repin-validation/boundary-source.jsonl
   change; ownership/authorization is required before implementation. The literal
   hidden-kind evidence and candidate API are recorded in
   `/tmp/pi-rust-repin-validation/API-PACKET.md`; that proposal is not an approved API.
-- Pattern `^(a)\\1$`, input `{value:"aa"}`: TS accepts; Rust rejects the pattern.
-  Source validation delegates to `Compile` (`validation.ts:246–254`). Regex engine
-  work is outside this bounded repair; no unsupported-pattern waiver is assumed.
+- The previous backreference mismatch (`^(a)\\1$` on `aa`) is closed by the
+  lossless ECMAScript engine and covered by a unit plus the 227-case differential.
 - Direct core argument `1` and schema `false` probes are outside the standing
   typed-core invalid-JavaScript-input policy, not required API-widening gaps.
   Frozen `types.ts:378` requires `ToolCall.arguments: Record<string, any>`;
@@ -79,6 +85,15 @@ worktree. Raw observations: `/tmp/pi-rust-repin-validation/boundary-source.jsonl
   nulls, schema kinds, regular-expression strings, or escaped UTF-16 JSON values.
 
 ## Behavioral mutation proof
+
+On `019e13b4`, the lossless differential kills eight independent behavioral
+mutants: argument replacement, path replacement, wrong regex flags, raw-unit
+length, skipped TypeBox conversion, inverted format check, raw-surrogate hashing,
+and rejected backreferences. A ninth mutant at `679e73d9` reinstates the wrong
+non-finite type/keyword guards and is killed by the raw-wire differential. Every
+mutant was restored; logs and SHA-256 hashes are in
+`/tmp/pi-rust-repin-lossless-validation/mutants.json`.
+
 
 On implementation `6ec5193f`, the new 50-case differential test detects both old
 behaviors independently: reinstating optional-null stripping fails 16 cases;
@@ -93,15 +108,18 @@ restored. Logs and exact source hashes are in
   same fact with a hidden `~kind` string property, which a `serde_json::Value` cannot carry.
   `typebox_kind` gates only the `Value.Convert` pass. Nested origin is not represented;
   that is an unresolved parity boundary, not a new exclusion.
-- `validate_tool_arguments` / `validate_tool_call` return `Result<Value, ValidationError>`.
-  `ValidationError` implements `Display`/`Error` with the exact TypeScript `Error.message`.
+- `validate_arguments(&JsValue, &JsValue, bool, &str)` is the single validation
+  authority. Tool entrypoints return `Result<JsValue, ValidationError>`.
+  `ValidationError::message()` returns exact `&JsString`; scalar `Display` stays
+  unchanged and unmatched-surrogate display uses JSON escapes.
+  `schema_error_lines(&JsValue, &JsValue)` returns `Vec<JsString>`.
 - Coercion is modeled with an in-place/replacement enum (`Conversion::{InPlace, Replaced}`) to mirror
   JavaScript's reference semantics: object/record conversion mutates the argument map, primitive and
   union conversion replaces the value, and `validateToolArguments` discards the root replacement.
 - Validation is a hand-written JSON-Schema engine (no crate reproduces TypeBox's messages, ordering,
   instance paths, or `maxErrors`). Numbers in messages and in `JSON.stringify(…, null, 2)` use
-  `pi_js_compat::number::js_number_to_string`; converted JSON numbers are canonicalized to integers when
-  integral so `Value` equality and serialization match JavaScript.
+  `pi_js_compat::number::js_number_to_string`; argument and converted numbers use binary64 in `JsValue`; shared lossless JSON
+  formatting provides JavaScript number spelling.
 - `Issues` carries a limit: the root context stops at TypeBox's default `maxErrors = 8`; scratch
   contexts used by `anyOf`/`oneOf`/`if`/`properties`/`additionalProperties` are unlimited and truncate
   only when merged into the root, matching `ErrorContext` vs `AccumulatedErrorContext`.
@@ -111,14 +129,14 @@ restored. Logs and exact source hashes are in
 | TypeScript | Rust | Test |
 |---|---|---|
 | `validateToolCall` | `validate_tool_call` | `validate_tool_call_reports_unknown_tool_names`, `validate_tool_call_validates_matching_tools`, differential `tool_call_lookup_matches_the_pinned_typescript_module` |
-| `validateToolArguments` | `validate_tool_arguments` | 26 behavioral tests + 68 differential cases |
+| `validateToolArguments` | `validate_arguments`, `validate_tool_arguments` | 28 units; existing matrices plus 227 lossless cases |
 | no normalization in current source | removed old `normalize_optional_nulls` | new 50-case null/order matrix; `optional_nulls_are_converted_without_deleting_properties` |
 | `Value.Convert` (`FromType` dispatch) | `convert` + `convert_*` + `try_*` | `typebox-*` differential cases, including `typebox-bigint-like-strings` |
 | `CheckSchema` inside keywords | `check` (standalone sub-schema) / `check_with` (caller schema stack) | `plain-contains-ref`, `plain-not-ref`, `plain-any-of-ref`, `plain-additional-properties-ref` |
 | `coerceWithJsonSchema` | `coerce_into`, `coerce_union`, `coerce_primitive_by_type` | `plain-*` differential cases, `plain_schemas_use_ajv_compatible_primitive_coercions` |
 | `getValidator` cache | none (stateless engine) | n/a — no observable behavior |
 | `formatValidationPath` | `Issue::path` | `required_paths_include_the_first_missing_property`, `plain-path-formatting` |
-| error message + `JSON.stringify(args, null, 2)` | `json_stringify_pretty`, `write_json_string` | `error_messages_list_every_failing_keyword_in_engine_order`, `received_arguments_are_pretty_printed_with_javascript_number_formatting`, `plain-number-formatting*`, `plain-string-escaping` |
+| error message + `JSON.stringify(args, null, 2)` | `JsString` assembly, shared `stringify_lossless_pretty` | `error_messages_list_every_failing_keyword_in_engine_order`, `received_arguments_are_pretty_printed_with_javascript_number_formatting`, `plain-number-formatting*`, `plain-string-escaping` |
 
 ## Engine coverage
 
@@ -131,7 +149,7 @@ keywords; number keywords; ref/const/enum/if/not/allOf/anyOf/oneOf):
 - `items` (sized and unsized), `prefixItems`, `additionalItems`, `contains`, `minContains`,
   `maxContains`, `minItems`, `maxItems`, `uniqueItems`.
 - `minLength`/`maxLength` using TypeBox's grapheme-cluster counting (UTF-16 units, ZWJ, regional
-  indicators, variation selectors), `pattern` (Rust `regex`), `format` (gap).
+  indicators, variation selectors), `pattern` (ECMAScript `regress` with source flags), all default `format` checks.
 - `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` (TypeBox tolerance).
 - `$ref` (JSON Pointer, `#anchor`/`$anchor`/`$dynamicAnchor`, `$id` exact match, `$defs` cyclic
   contexts), boolean schemas, `const`, `enum`, `if`/`then`/`else`, `not`, `allOf`, `anyOf`, `oneOf`.
@@ -140,14 +158,13 @@ keywords; number keywords; ref/const/enum/if/not/allOf/anyOf/oneOf):
 
 ## Gaps
 
-- `format`: not enforced (unknown formats pass, matching TypeBox's registry fallback). Pi tool schemas
-  in `packages/*/src` never use `format`; registered formats (`email`, `uuid`, `date-time`, …) would
-  diverge. Reason: no in-repo consumer; revisit with MCP schema parity.
+- Dynamic registration/clearing of TypeBox format callbacks is not represented;
+  the frozen default registry is implemented. Unknown default-registry keys pass.
 - `$recursiveRef`, `$dynamicRef`, `unevaluatedItems`, `unevaluatedProperties`, `~refine`: not used by
   any Pi tool schema. `~refine` carries JavaScript functions, which cannot be represented in JSON.
-- JavaScript-only regular-expression constructs (lookbehind, backreferences) in `pattern` /
-  `patternProperties`: Rust `regex` rejects them; a rejected pattern is treated as non-matching.
-  Pi tool schemas only use `^.*$`-style patterns.
+- Invalid pattern-schema compilation exceptions are not modeled as a separate
+  error phase: invalid ECMAScript patterns become non-matches. Backreferences and
+  lookbehind are supported; broader RegExp conformance is not claimed.
 - Relative `$id` URI resolution beyond exact `$id`/`$ref` string equality (TypeBox uses WHATWG URL
   pathname comparison). Pi schemas use `$id: "Node"` with `$ref: "Node"` and JSON-Pointer fragments.
 - `Value.Convert` resolves union-arm refs against its conversion `$defs` context in TypeScript; the
@@ -158,13 +175,6 @@ keywords; number keywords; ref/const/enum/if/not/allOf/anyOf/oneOf):
 - Nested `Type.Unsafe` nodes are converted as TypeBox nodes because origin is recorded per tool, not
   per node. `StringEnum` is the only in-repo `Type.Unsafe` use and its observable behavior matches;
   an `Unsafe({type:"integer"})` node with `"42.9"` would truncate in Rust where TypeScript fails.
-
-## Current-pin discrepancy awaiting classification
-
-`plain-union-types` uses `{type:["array","null"],items:{type:"string"}}`
-for property `c`, receiving `null`. The actual frozen module throws
-`Cannot read properties of null (reading 'every')`; Rust currently accepts it.
-The existing differential test remains red rather than silently dropping this case.
 
 ## Historical discrepancies (re-validation required)
 

@@ -1122,3 +1122,270 @@ fn nullable_array_matches_approved_delta_6d2363e6() {
         assert_eq!(actual, normalized_expected(expected), "{case}");
     }
 }
+
+#[test]
+fn lossless_utf16_validation_matches_frozen_typescript() {
+    use pi_ai::utils::validation::{schema_error_lines, validate_arguments};
+    use pi_js_compat::js_json;
+    use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
+
+    let strings = [
+        r#""\ud800""#,
+        r#""\udc00""#,
+        r#""\ud800\udc00""#,
+        r#""😀""#,
+        r#""\ud800x""#,
+        r#""\ufffd""#,
+        r#""aa""#,
+        r#""x\ud800""#,
+        r#""\ud800\ud800""#,
+    ];
+    let schemas = [
+        json!({"type":"string"}),
+        json!({"type":"string", "minLength":2}),
+        json!({"type":"string", "maxLength":1}),
+        json!({"type":"string", "pattern":"^.$"}),
+        json!({"type":"string", "pattern":"^..$"}),
+        json!({"type":"string", "pattern":r"^[\uD800-\uDBFF]$"}),
+        json!({"type":"string", "pattern":r"^(.)\1$"}),
+        json!({"type":"string", "pattern":r"(?<=x)."}),
+        json!({"type":"number"}),
+        json!({"anyOf":[{"type":"number"},{"type":"string"}]}),
+        json!({"type":"string", "format":"email"}),
+        json!({"type":"string", "format":"uuid"}),
+        json!({"type":"string", "format":"unknown-format"}),
+    ];
+    let mut fixtures = Vec::new();
+    for (index, string) in strings.iter().enumerate() {
+        for (schema_index, schema) in schemas.iter().enumerate() {
+            let value = parse_lossless(string).unwrap();
+            fixtures.push(
+                js_json!({"name":format!("utf16-{index}-{schema_index}"), "kind":"plain",
+                "schema":{"type":"object","properties":{"value":schema},"required":["value"]},
+                "arguments":{"value":value}}),
+            );
+        }
+    }
+    for (name, schema, arguments) in [
+        (
+            "unicode-pattern-property",
+            r#"{"type":"object","patternProperties":{"^.$":{"type":"number"}}}"#,
+            r#"{"😀":"x"}"#,
+        ),
+        (
+            "nonunicode-additional-property",
+            r#"{"type":"object","patternProperties":{"^.$":{"type":"number"}},"additionalProperties":false}"#,
+            r#"{"😀":5}"#,
+        ),
+        (
+            "numeric-property-order",
+            r#"{"type":"object","properties":{"10":{"type":"number"},"2":{"type":"number"},"\ud800":{"type":"number"}}}"#,
+            r#"{"10":"x","2":"y","\ud800":"z"}"#,
+        ),
+        (
+            "surrogate-reference",
+            r##"{"type":"object","properties":{"value":{"$ref":"#/$defs/\ud800"}},"$defs":{"\ud800":{"type":"number"}}}"##,
+            r#"{"value":"x"}"#,
+        ),
+        (
+            "surrogate-anchor",
+            r##"{"type":"object","properties":{"value":{"$ref":"#\ud800"}},"$defs":{"a":{"$anchor":"\ud800","type":"number"}}}"##,
+            r#"{"value":"x"}"#,
+        ),
+        (
+            "surrogate-pattern",
+            r#"{"type":"object","properties":{"value":{"type":"string","pattern":"^\ud800$"}}}"#,
+            r#"{"value":"\ud800"}"#,
+        ),
+        (
+            "surrogate-pattern-error",
+            r#"{"type":"object","properties":{"value":{"type":"string","pattern":"^\ud800$"}}}"#,
+            r#"{"value":"\udc00"}"#,
+        ),
+        (
+            "surrogate-path",
+            r#"{"type":"object","additionalProperties":{"type":"number"},"patternProperties":{"^.":{"type":"number"}}}"#,
+            r#"{"\ud800":"x"}"#,
+        ),
+        (
+            "surrogate-property",
+            r#"{"type":"object","properties":{"\ud800":{"type":"number"}}}"#,
+            r#"{"\ud800":"42"}"#,
+        ),
+        (
+            "surrogate-required",
+            r#"{"type":"object","required":["\ud800"]}"#,
+            r#"{}"#,
+        ),
+        (
+            "surrogate-property-name",
+            r#"{"type":"object","propertyNames":{"pattern":"^[a-z]$"}}"#,
+            r#"{"\ud800":1}"#,
+        ),
+        (
+            "surrogate-const",
+            r#"{"type":"object","properties":{"value":{"const":"\ud800"}}}"#,
+            r#"{"value":"\ud800"}"#,
+        ),
+        (
+            "distinct-surrogate-enum",
+            r#"{"type":"object","properties":{"value":{"enum":["\ud800","\ufffd"]}}}"#,
+            r#"{"value":"\udc00"}"#,
+        ),
+        (
+            "distinct-surrogate-keys",
+            r#"{"type":"object","additionalProperties":{"type":"number"}}"#,
+            r#"{"\ud800":"42","\udc00":"3","�":"4"}"#,
+        ),
+        (
+            "surrogate-unique",
+            r#"{"type":"object","properties":{"value":{"type":"array","uniqueItems":true}}}"#,
+            r#"{"value":[{"x":"\ud800"},{"x":"\udc00"}]}"#,
+        ),
+        (
+            "surrogate-duplicate",
+            r#"{"type":"object","properties":{"value":{"type":"array","uniqueItems":true}}}"#,
+            r#"{"value":[{"x":"\ud800"},{"x":"\ud800"}]}"#,
+        ),
+    ] {
+        fixtures.push(js_json!({"name":name,"kind":"plain","schema":parse_lossless(schema).unwrap(),"arguments":parse_lossless(arguments).unwrap()}));
+    }
+    fixtures.push(js_json!({"name":"nonunicode-record-conversion","kind":"typebox",
+        "schema":{"t":"object","properties":{"value":{"t":"record","key":{"t":"string","options":{"pattern":"^..$"}},"value":{"t":"number"}}}},
+        "arguments":{"value":{"😀":"42"}}}));
+    for text in [
+        r#""\ud800""#,
+        r#"" 42 ""#,
+        r#""TRUE""#,
+        r#""123n""#,
+        r#""\uFEFF42\u00a0""#,
+        r#""\ud80042""#,
+    ] {
+        for kind in ["number", "integer", "boolean", "string", "null"] {
+            fixtures.push(js_json!({"name":format!("typebox-{kind}-{text}"), "kind":"typebox",
+                "schema":{"t":"object","properties":{"value":{"t":kind}}},"arguments":{"value":parse_lossless(text).unwrap()}}));
+        }
+    }
+    for (format, valid, invalid) in [
+        ("date", "2024-02-29", "2023-02-29"),
+        ("time", "23:59:60Z", "25:00:00Z"),
+        ("date-time", "2024-02-29T23:59:60Z", "2024-02-30T12:00:00Z"),
+        ("duration", "P1Y2M3DT4H5M6S", "P"),
+        ("email", "a@example.com", "a..b@example.com"),
+        ("idn-email", "é@例子.测试", "x@\u{d7ff} "),
+        ("hostname", "example.com", "bad_host"),
+        ("idn-hostname", "éxample。com", "bad host"),
+        ("ipv4", "192.168.1.1", "192.168.001.1"),
+        ("ipv6", "::ffff:192.0.2.1", "1::2::3"),
+        ("iri", "https://例子.测试/", ":invalid"),
+        ("iri-reference", "路径/文件", "bad path"),
+        ("json-pointer", "/a~1b", "/a~2b"),
+        ("json-pointer-uri-fragment", "#/a%20b", "#/a%"),
+        ("regex", "^(a)\\1$", "["),
+        ("relative-json-pointer", "1/a", "01/a"),
+        ("uri", "https://example.com/a%20b", "https://example.com/a%"),
+        ("uri-reference", "../a", "a b"),
+        ("uri-template", "https://example.com/{+path}", "{path:0}"),
+        ("url", "https://example.com/", "http://127.0.0.1/"),
+        ("uuid", "12345678-1234-1234-1234-123456789abc", "bad-uuid"),
+    ] {
+        for value in [
+            JsValue::from(json!(valid)),
+            JsValue::from(json!(invalid)),
+            parse_lossless(r#""\ud800""#).unwrap(),
+        ] {
+            fixtures.push(js_json!({"name":format!("format-{format}-{value:?}"),"kind":"plain",
+                "schema":{"type":"object","properties":{"value":{"type":"string","format":format}}},"arguments":{"value":value}}));
+        }
+    }
+    let mut oracle = oracle::TsOracle::spawn("validation-oracle.ts", "packages/ai/src/utils/validation.ts");
+    let response = oracle.request_lossless(&js_json!({"id":1,"operation":"validate_tool_arguments","cases":fixtures}));
+    assert_eq!(response["ok"], JsValue::Bool(true), "{response:?}");
+    let results = response["output"]["results"].as_array().unwrap();
+    assert_eq!(results.len(), fixtures.len());
+    let mut mismatches = Vec::new();
+    for (fixture, expected) in fixtures.iter().zip(results) {
+        let schema = if fixture["kind"] == js_json!("plain") {
+            &fixture["schema"]
+        } else {
+            &expected["schemas"][0]
+        };
+        let arguments = &fixture["arguments"];
+        let before = arguments.clone();
+        let result = validate_arguments(schema, arguments, fixture["kind"] == js_json!("typebox"), "echo");
+        let actual = match result {
+            Ok(value) => js_json!({"ok":true,"value":value}),
+            Err(error) => js_json!({"ok":false,"message":error.message()}),
+        };
+        let expected_value = if expected["ok"] == JsValue::Bool(true) {
+            js_json!({"ok":true,"value":expected["value"]})
+        } else {
+            js_json!({"ok":false,"message":expected["error"]["message"]})
+        };
+        assert_eq!(arguments, &before);
+        assert_eq!(expected["argumentsAfter"], *arguments);
+        if actual != expected_value {
+            mismatches.push(format!("{:?}: Rust {actual:?}; TS {expected_value:?}", fixture["name"]));
+        }
+    }
+    let lines = schema_error_lines(
+        &parse_lossless(r#"{"type":"object","properties":{"\ud800":{"type":"number"}}}"#).unwrap(),
+        &parse_lossless(r#"{"\ud800":"x"}"#).unwrap(),
+    );
+    assert_eq!(
+        lines,
+        vec![JsString::join(
+            [
+                JsString::from("  - "),
+                JsString::from_utf16(vec![0xd800]),
+                JsString::from(": must be number")
+            ],
+            ""
+        )]
+    );
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+}
+
+#[test]
+fn overflow_numbers_match_frozen_validation() {
+    use pi_ai::utils::validation::validate_arguments;
+    use pi_js_compat::js_json;
+    use pi_js_compat::js_json::{JsValue, parse_lossless};
+    let mut fixtures = Vec::new();
+    let mut wire_cases = Vec::new();
+    for kind in ["plain", "typebox"] {
+        for schema_type in ["number", "integer", "string", "boolean", "null"] {
+            for literal in ["1e400", "-1e400"] {
+                let schema = if kind == "plain" {
+                    json!({"type":"object","properties":{"value":{"type":schema_type,"maximum":10}}})
+                } else {
+                    json!({"t":"object","properties":{"value":{"t":schema_type,"options":{"maximum":10}}}})
+                };
+                let arguments = format!(r#"{{"value":{literal}}}"#);
+                wire_cases.push(format!(r#"{{"name":"{kind}-{schema_type}-{literal}","kind":"{kind}","schema":{schema},"arguments":{arguments}}}"#));
+                fixtures.push((kind, parse_lossless(&arguments).unwrap()));
+            }
+        }
+    }
+    let request = format!(
+        r#"{{"id":1,"operation":"validate_tool_arguments","cases":[{}]}}"#,
+        wire_cases.join(",")
+    );
+    let mut oracle = oracle::TsOracle::spawn("validation-oracle.ts", "packages/ai/src/utils/validation.ts");
+    let response = oracle.request_raw_json(&request);
+    assert_eq!(response["ok"], JsValue::Bool(true));
+    let results = response["output"]["results"].as_array().unwrap();
+    assert_eq!(results.len(), fixtures.len());
+    for ((kind, arguments), expected) in fixtures.iter().zip(results) {
+        let actual = match validate_arguments(&expected["schemas"][0], arguments, *kind == "typebox", "echo") {
+            Ok(value) => js_json!({"ok":true,"value":value}),
+            Err(error) => js_json!({"ok":false,"message":error.message()}),
+        };
+        let normalized = if expected["ok"] == JsValue::Bool(true) {
+            js_json!({"ok":true,"value":expected["value"]})
+        } else {
+            js_json!({"ok":false,"message":expected["error"]["message"]})
+        };
+        assert_eq!(actual, normalized, "{kind}: {arguments:?}");
+    }
+}
