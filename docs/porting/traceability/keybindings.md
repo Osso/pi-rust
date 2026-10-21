@@ -15,8 +15,8 @@ Source: `packages/tui/src/keybindings.ts` (325 lines, pinned revision in
 | `TUI_KEYBINDINGS` | `tui_keybindings()` | every keybinding test |
 | `KeybindingConflict` | `KeybindingConflict` (`PartialEq`) | conflict tests |
 | `KeybindingsManager` | `KeybindingsManager` | all tests |
-| `setKeybindings` | `set_keybindings` | not directly tested; process-wide singleton, see gap |
-| `getKeybindings` | `get_keybindings` | not directly tested; process-wide singleton, see gap |
+| `setKeybindings` | `set_keybindings` | global identity test |
+| `getKeybindings` | `get_keybindings` | global identity test |
 
 ## Branches
 
@@ -36,7 +36,7 @@ Source: `packages/tui/src/keybindings.ts` (325 lines, pinned revision in
 | `setUserBindings` rebuilds | `set_user_bindings` | `set_user_bindings_rebuilds_keys_and_conflicts` |
 | `getUserBindings` shallow-copies | `get_user_bindings` | `ignores_user_bindings_*` |
 | `getResolvedBindings` single key → scalar, else array | `get_resolved_bindings` returns `Vec` for both cases (typed core excludes the union) | `resolved_bindings_include_every_definition_in_order` |
-| lazy global manager creation | `get_keybindings` via `OnceLock<Mutex<Option<_>>>` | gap: no test mutates the process-wide registry to avoid cross-test interference |
+| lazy global manager creation | `get_keybindings` via `OnceLock<Mutex<Option<_>>>` | `global_registry_holders_share_mutation_and_replacement_identity` |
 
 ## Differential
 
@@ -54,9 +54,7 @@ and two-way conflict. It compares `getKeys` for every definition,
 - `KeyId | KeyId[]` is typed as `Vec<KeyId>`; the typed core excludes the JS union.
 - `getResolvedBindings` returns a key list for both one-key and multi-key actions
   instead of `string | string[]`.
-- `getKeybindings` returns a clone instead of a shared mutable singleton. The global
-  registry is not exercised because tests run in parallel and the source behavior is
-  process-global.
+- `getKeybindings` returns an Arc-backed manager handle; all holders share mutable bindings. Replacing the registry preserves old-holder identity, matching frozen JS object references. `global_registry_holders_share_mutation_and_replacement_identity` proves both boundaries in its own isolated process.
 
 ## Order audit
 
@@ -67,3 +65,5 @@ are preserved. No reordering remains.
 ## Q1 re-pin audit (2026-10-21)
 
 Reference: immutable `4f9e6f8a4`. Frozen defaults contain 32 actions; later historyPrevious/historyNext/altScreen actions and ctrl+home/end/pageUp/pageDown aliases removed. Seven-config differential RED then GREEN. Module proof pending final focused gate.
+
+Q1 parent-directed closure: immutable definitions and mutable resolved state are Arc-owned. `KeybindingsManager::clone` preserves identity rather than copying data; no consumer API migration or component edit required. RED `/tmp/q1-global-red.log`, GREEN `/tmp/q1-global-green.log`.

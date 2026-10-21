@@ -78,3 +78,23 @@ fn keybinding_resolution_matches_typescript() {
         );
     }
 }
+
+#[test]
+fn global_registry_holders_share_mutation_and_replacement_identity() {
+    use pi_tui::keybindings::{get_keybindings, set_keybindings};
+    let mut installed = KeybindingsManager::new(tui_keybindings(), Vec::new());
+    set_keybindings(installed.clone());
+    let mut first = get_keybindings();
+    let second = get_keybindings();
+    first.set_user_bindings(vec![("tui.input.submit".into(), vec!["ctrl+x".into()])]);
+    assert!(second.matches("\x18", "tui.input.submit"));
+    assert!(installed.matches("\x18", "tui.input.submit"));
+    installed.set_user_bindings(Vec::new());
+    assert_eq!(first.get_keys("tui.input.submit"), vec!["enter"]);
+    set_keybindings(KeybindingsManager::new(
+        tui_keybindings(),
+        vec![("tui.input.submit".into(), vec!["ctrl+y".into()])],
+    ));
+    assert_eq!(get_keybindings().get_keys("tui.input.submit"), vec!["ctrl+y"]);
+    assert_eq!(first.get_keys("tui.input.submit"), vec!["enter"]);
+}
