@@ -99,7 +99,11 @@ class SandboxTests(unittest.TestCase):
     def test_installed_standalone_python_starts_with_hash_randomization(self):
         executable = shutil.which("pyrun-jsonl")
         self.assertIsNotNone(executable, "pyrun-jsonl is required for real-runner proof")
-        python = Path(executable).resolve().parent / "python"
+        # Binding the installed launcher into a parent guard dereferences its
+        # symlink. Its shebang still names the actual standalone interpreter.
+        shebang = Path(executable).read_text().splitlines()[0]
+        self.assertTrue(shebang.startswith("#!/"), "pyrun-jsonl must name its interpreter")
+        python = Path(shebang.removeprefix("#!"))
         self.run_guard([str(python), "-c", "import os; assert len(os.urandom(32)) == 32; print(hash('entropy'))"])
 
     def test_ripgrep_is_available_without_exposing_other_host_tools(self):
