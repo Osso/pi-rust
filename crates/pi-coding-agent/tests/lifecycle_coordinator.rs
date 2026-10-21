@@ -69,7 +69,7 @@ fn create_coordinator_with(
     .expect("register listener");
     LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.to_owned(),
-        create_agent_id: Arc::new(create_agent_id),
+        create_agent_id: Arc::new(move || Ok(create_agent_id())),
         now: Arc::new(|| NOW.to_owned()),
         process_identity: identity,
         session_path: session_path.to_owned(),
@@ -102,12 +102,14 @@ fn create_running_child(
     coordinator: &LifecycleCoordinator,
     input: SpawnAgent,
 ) -> CreateMultiAgentChildWithRuntimeOwnershipResult {
-    let prepared = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: input,
-        agent_id: None,
-        detached: None,
-        result: None,
-    });
+    let prepared = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: input,
+            agent_id: None,
+            detached: None,
+            result: None,
+        })
+        .unwrap();
     coordinator
         .commit_running_child(&prepared, "supervisor-session", &current_identity(), None)
         .expect("commit child")
@@ -466,12 +468,14 @@ fn blocks_parent_recovery_until_active_descendants_are_terminal() {
         format!("agent-{value}")
     });
     let dead = test_process_identity("dead-parent-runtime");
-    let parent = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: child_input(None),
-        agent_id: None,
-        detached: None,
-        result: None,
-    });
+    let parent = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: child_input(None),
+            agent_id: None,
+            detached: None,
+            result: None,
+        })
+        .unwrap();
     let parent = coordinator
         .commit_running_child(&parent, "supervisor-session", &dead, None)
         .expect("parent");
@@ -482,12 +486,14 @@ fn blocks_parent_recovery_until_active_descendants_are_terminal() {
     else {
         panic!("parent");
     };
-    let child = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: child_input(Some(&parent_agent.id)),
-        agent_id: None,
-        detached: None,
-        result: None,
-    });
+    let child = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: child_input(Some(&parent_agent.id)),
+            agent_id: None,
+            detached: None,
+            result: None,
+        })
+        .unwrap();
     coordinator
         .commit_running_child(&child, "supervisor-session", &dead, None)
         .expect("child");
@@ -512,12 +518,14 @@ fn blocks_parent_recovery_until_active_descendants_are_terminal() {
 fn recovers_a_dead_child_owned_by_a_prior_session_incarnation() {
     let (_directory, db) = temp_db();
     let coordinator = create_coordinator(&db, SESSION_PATH);
-    let prepared = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: child_input(None),
-        agent_id: None,
-        detached: None,
-        result: None,
-    });
+    let prepared = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: child_input(None),
+            agent_id: None,
+            detached: None,
+            result: None,
+        })
+        .unwrap();
     let created = coordinator
         .commit_running_child(
             &prepared,
@@ -552,12 +560,14 @@ fn recovers_a_dead_child_owned_by_a_prior_session_incarnation() {
 fn settles_a_cancelling_child_to_aborted_on_dead_owner_recovery() {
     let (_directory, db) = temp_db();
     let coordinator = create_coordinator(&db, SESSION_PATH);
-    let prepared = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: child_input(None),
-        agent_id: None,
-        detached: None,
-        result: None,
-    });
+    let prepared = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: child_input(None),
+            agent_id: None,
+            detached: None,
+            result: None,
+        })
+        .unwrap();
     let created = coordinator
         .commit_running_child(
             &prepared,
@@ -722,12 +732,14 @@ fn orders_accepted_cancellation_before_completion_and_deduplicates_acknowledgeme
 fn does_not_persist_a_child_until_construction_succeeds() {
     let (_directory, db) = temp_db();
     let coordinator = create_coordinator(&db, SESSION_PATH);
-    let prepared = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: child_input(None),
-        agent_id: None,
-        detached: None,
-        result: None,
-    });
+    let prepared = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: child_input(None),
+            agent_id: None,
+            detached: None,
+            result: None,
+        })
+        .unwrap();
     assert_eq!(prepared.id, "agent-child");
     assert_eq!(prepared.lifecycle, AgentLifecycle::Running);
     assert_eq!(prepared.revision, 1);
@@ -746,12 +758,14 @@ fn does_not_persist_a_child_until_construction_succeeds() {
 fn persists_interrupted_construction_as_failed_without_ownership() {
     let (_directory, db) = temp_db();
     let coordinator = create_coordinator(&db, SESSION_PATH);
-    let prepared = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: child_input(None),
-        agent_id: None,
-        detached: None,
-        result: None,
-    });
+    let prepared = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: child_input(None),
+            agent_id: None,
+            detached: None,
+            result: None,
+        })
+        .unwrap();
     let failed = coordinator
         .commit_failed_child(
             &prepared,
@@ -786,12 +800,14 @@ fn uses_a_preallocated_artifact_identity_without_consuming_another_id() {
         captured.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         "generated".to_owned()
     });
-    let prepared = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: child_input(None),
-        agent_id: Some("preallocated-job".to_owned()),
-        detached: None,
-        result: None,
-    });
+    let prepared = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: child_input(None),
+            agent_id: Some("preallocated-job".to_owned()),
+            detached: None,
+            result: None,
+        })
+        .unwrap();
     assert_eq!(prepared.id, "preallocated-job");
     coordinator
         .commit_running_child(&prepared, "supervisor-session", &current_identity(), None)
@@ -845,12 +861,14 @@ fn rejects_child_and_attachment_creation_beneath_a_terminal_parent() {
 fn rejects_a_missing_parent_without_committing_child_or_ownership() {
     let (_directory, db) = temp_db();
     let coordinator = create_coordinator(&db, SESSION_PATH);
-    let prepared = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: child_input(Some("missing-parent")),
-        agent_id: None,
-        detached: None,
-        result: None,
-    });
+    let prepared = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: child_input(Some("missing-parent")),
+            agent_id: None,
+            detached: None,
+            result: None,
+        })
+        .unwrap();
     let result = coordinator
         .commit_running_child(&prepared, "supervisor-session", &current_identity(), None)
         .expect("commit");
@@ -942,12 +960,14 @@ fn ownership_identity_requires_the_current_process_and_session_path() {
 fn detach_mark_allows_a_foreign_owner_process() {
     let (_directory, db) = temp_db();
     let coordinator = create_coordinator(&db, SESSION_PATH);
-    let prepared = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: child_input(None),
-        agent_id: None,
-        detached: None,
-        result: None,
-    });
+    let prepared = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: child_input(None),
+            agent_id: None,
+            detached: None,
+            result: None,
+        })
+        .unwrap();
     let created = coordinator
         .commit_running_child(&prepared, "supervisor-session", &test_process_identity("runner"), None)
         .expect("create");

@@ -253,35 +253,37 @@ fn seed_child(store: &Arc<MultiAgentStore>, test: &TestDir, id: &str, transcript
     let coordinator =
         pi_coding_agent::bundled_extensions::agents_core::lifecycle_runtime::create_lifecycle_coordinator(store)
             .expect("coordinator");
-    let prepared = coordinator.prepare_child(
-        &pi_coding_agent::core::lifecycle_coordinator::PrepareChildCommandInput {
-            spawn: pi_coding_agent::core::multi_agent_store::SpawnAgent {
-                parent_id: Some("main".to_owned()),
-                display_name: "Child".to_owned(),
-                agent_type: "explore".to_owned(),
-                origin: None,
-                cwd: test.cwd.clone(),
-                permission: pi_coding_agent::core::multi_agent_store::AgentPermission {
-                    policy: "on-request".to_owned(),
-                    inherited_from: None,
-                    narrowed: true,
+    let prepared = coordinator
+        .prepare_child(
+            &pi_coding_agent::core::lifecycle_coordinator::PrepareChildCommandInput {
+                spawn: pi_coding_agent::core::multi_agent_store::SpawnAgent {
+                    parent_id: Some("main".to_owned()),
+                    display_name: "Child".to_owned(),
+                    agent_type: "explore".to_owned(),
+                    origin: None,
+                    cwd: test.cwd.clone(),
+                    permission: pi_coding_agent::core::multi_agent_store::AgentPermission {
+                        policy: "on-request".to_owned(),
+                        inherited_from: None,
+                        narrowed: true,
+                    },
+                    worktree: None,
+                    model: None,
+                    account: None,
+                    slot: None,
+                    transcript: Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
+                        session_id: transcript_session.to_owned(),
+                        path: Some(format!("/tmp/{transcript_session}.jsonl")),
+                    }),
+                    event_stream: None,
+                    worker: None,
                 },
-                worktree: None,
-                model: None,
-                account: None,
-                slot: None,
-                transcript: Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-                    session_id: transcript_session.to_owned(),
-                    path: Some(format!("/tmp/{transcript_session}.jsonl")),
-                }),
-                event_stream: None,
-                worker: None,
+                agent_id: Some(id.to_owned()),
+                detached: None,
+                result: None,
             },
-            agent_id: Some(id.to_owned()),
-            detached: None,
-            result: None,
-        },
-    );
+        )
+        .unwrap();
     let created = coordinator
         .commit_running_child(
             &prepared,
