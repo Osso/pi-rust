@@ -1,7 +1,7 @@
 //! Settings storage and typed accessors (`core/settings-manager.ts`).
 //!
 //! Setters update effective settings immediately and enqueue immutable scoped write snapshots.
-//! `flush` settles earlier writes in FIFO order; native task-completion boundaries must call it.
+//! Shared mutation guards schedule a FIFO drain on release; `flush` synchronously settles earlier writes.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,9 +37,49 @@ pub type Settings = Map<String, Value>;
 /// The settings handle owned by `AgentSession` and shared with the interactive mode.
 pub type SharedSettingsManager = Arc<Mutex<SettingsManager>>;
 
-/// Locks the shared settings handle, recovering the guard from a poisoned mutex.
-pub fn lock_settings_manager(handle: &SharedSettingsManager) -> std::sync::MutexGuard<'_, SettingsManager> {
-    handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+/// A shared mutation boundary. Releasing it schedules pending persistence after unlocking.
+pub struct SettingsManagerGuard<'a> {
+    handle: &'a SharedSettingsManager,
+    guard: Option<std::sync::MutexGuard<'a, SettingsManager>>,
+}
+
+impl std::ops::Deref for SettingsManagerGuard<'_> {
+    type Target = SettingsManager;
+
+    fn deref(&self) -> &Self::Target {
+        self.guard.as_deref().expect("settings guard held until drop")
+    }
+}
+
+impl std::ops::DerefMut for SettingsManagerGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.guard.as_deref_mut().expect("settings guard held until drop")
+    }
+}
+
+impl Drop for SettingsManagerGuard<'_> {
+    fn drop(&mut self) {
+        if self.pending_writes.is_empty() || self.drain_scheduled {
+            return;
+        }
+        self.drain_scheduled = true;
+        let handle = Arc::clone(self.handle);
+        drop(self.guard.take());
+        // Synchronous callers need no Tokio runtime. The task retains the manager until drained.
+        std::thread::spawn(move || {
+            let mut manager = handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            manager.flush();
+            manager.drain_scheduled = false;
+        });
+    }
+}
+
+/// Locks shared settings, recovering poisoning and scheduling queued writes when released.
+pub fn lock_settings_manager(handle: &SharedSettingsManager) -> SettingsManagerGuard<'_> {
+    SettingsManagerGuard {
+        handle,
+        guard: Some(handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner)),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -487,6 +527,7 @@ pub struct SettingsManager {
     project_settings_load_error: Option<String>,
     errors: Vec<SettingsError>,
     pending_writes: Vec<PendingSettingsWrite>,
+    drain_scheduled: bool,
 }
 
 impl std::fmt::Debug for SettingsManager {
@@ -547,6 +588,7 @@ impl SettingsManager {
             project_settings_load_error: project_load.error,
             errors,
             pending_writes: Vec::new(),
+            drain_scheduled: false,
         };
         manager.global_settings = global_load.settings;
         manager.project_settings = project_load.settings;

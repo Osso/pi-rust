@@ -5,7 +5,7 @@ Rust: `crates/pi-coding-agent/src/core/settings_manager.rs`. Governing [contract
 
 ## Current status
 
-**TODO, not whole-module parity.** Phase1 has source-aligned settings contracts and new isolated proofs. Targeted GREEN: 27 native tests and 4 differential tests (15 manager scenarios, bidirectional stale/concurrent writer fixture, three queued-ordering cases, 14 direct helper inputs). Four independent production mutants killed: recursive overlay, zero percentage, fractional retry milliseconds, and synchronous global save. Each was restored before final formatting; see proof ledger for commands/artifacts. Main caller/export integration imported as e2d89154; automatic save pumping remains pending. Old-pin proof is not repin evidence.
+**TODO, not whole-module parity.** Phase1 has source-aligned settings contracts and new isolated proofs. Targeted GREEN: 27 native tests and 4 differential tests (15 manager scenarios, bidirectional stale/concurrent writer fixture, three queued-ordering cases, 14 direct helper inputs). Four independent production mutants killed: recursive overlay, zero percentage, fractional retry milliseconds, and synchronous global save. Each was restored before final formatting; see proof ledger for commands/artifacts. Main caller/export integration imported as e2d89154; shared save pumping is implemented by `SettingsManagerGuard` with focused development proof tracked below; full-module parity remains open. Old-pin proof is not repin evidence.
 
 Main explicitly stages these unchanged old-only APIs until coupled consumer deletion: `get/set_tui_mode`, `get/set_fullscreen_exit_output`, `get/set_fullscreen_scrollbar`, `get/set_show_cache_miss_notices`, `get/set_mermaid_rendering_mode`, `FullscreenExitOutput`, `MermaidRenderingMode`, `MarkdownSettings.mermaid`, `PackageFilter.autoload`. No new alternate behavior is introduced; existing extra behavior is not counted as parity.
 
@@ -174,8 +174,12 @@ All 70 frozen getters/is methods are observed in `snapshot`; all 53 setters have
 - Settings module has no retry scheduling, percentage-triggered compaction, idle scheduling, transcript suppression, or relay startup. B2/B3/relay proof remains TODO.
 - Rust JSON boundary cannot represent `NaN`/infinities; direct JS-invalid runtime types and non-object root documents are not claimed equivalent. Typed core exclusion is tracked in project rules.
 - Error scope/throw behavior is compared. New retry/percentage errors use JavaScript string conversion; existing timeout errors still use JSON serialization for object values.
-- RED same-turn setter/external-write/flush mismatch reproduced at e2d89154 + fixture correction (`red-queued-ordering.txt`). Setters now queue scoped snapshots; mutable `flush` drains FIFO and `reload` first flushes. Automatic native task-completion pumping is still required from main-owned consumers; no automatic persistence parity claim yet.
+- RED same-turn setter/external-write/flush mismatch reproduced at e2d89154 + fixture correction (`red-queued-ordering.txt`). Setters now queue scoped snapshots; mutable `flush` drains FIFO and `reload` first flushes. Shared guard release now schedules an owned FIFO worker without a runtime dependency. AgentSession's persistent setters/accessor, interactive shared-lock consumers, and package-manager adapter use this boundary. Standalone mutable managers and raw mutex locks do not self-schedule; explicit `flush`/`reload` retain synchronous barrier behavior.
 - Configured external editor is observed. Environment defaults are sandbox-isolated; broader host-locale/environment branches are not established by these fixtures.
+
+## Shared-drain slice (2026-10-21)
+
+`tests/settings_manager_drain.rs` exercises the production `SharedSettingsManager` plus `lock_settings_manager` boundary with instrumented real file storage and bounded channel completion, never sleep-only timing. Cases: guard release without flush/runtime plus owner-drop lifetime and fresh-manager reconstruction; global/project/global immutable FIFO snapshots; real storage failure recorded once while later scope continues; synchronous flush with no replay after scheduled owner exits; execution-time project trust rejection. Initial RED: four automatic cases fail (no scheduling); existing explicit flush case passes. Implementation GREEN and semantic mutants are recorded in `/tmp/pi-rust-repin-settings-drain/ledger.md`; no whole-module coverage promotion or final verification implied.
 
 ## Proof ledger
 
