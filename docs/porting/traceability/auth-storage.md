@@ -6,11 +6,11 @@ Reference: frozen `4f9e6f8a4`, `packages/coding-agent/src/core/auth-storage.ts`,
 
 ## Integration status
 
-Auth refresh continuation branch `repin/auth-refresh` restores the blocked patch and adds the approved delta and lossless boundary. This is not whole-module or provider-protocol parity. Final acceptance/clippy are parent-owned and not run here.
+Auth refresh continuation branch `repin/auth-refresh` restores the blocked patch and adds the approved delta and lossless boundary. Verifier fixes preserve public UTF-16 key returns, Node header error codes, and overlapping in-memory refreshes. Requested focused sandbox tests, workspace/all-targets check and strict selected-target clippy pass; no independent verification delegated. This is not whole-module or provider-protocol parity.
 
 Patch provenance: `/tmp/pi-rust-repin-auth/blocked-public-refresh.patch`, SHA256 `787716f8000793de4adc221973300b99336f868c5a111dd7a963df655a6abb53`, baseline `51f6e772`. Hash and `git apply --check` succeeded before restoration. The disabled all-sync-fails branch was replaced, not retained. Prior partial integration and historical proofs: [restore](/tmp/pi-rust-repin-auth/RESTORE.md), [partial report](/tmp/pi-rust-repin-auth/REPORT.md), [partial verification](/tmp/pi-rust-repin-auth/VERIFY-PARTIAL.md).
 
-Current commands, revisions, exact counts, mutations, and remaining failures: `/tmp/pi-rust-repin-auth-refresh/REPORT.md`. The requested workspace/all-targets compile check passes with zero warnings; touched differential targets are not all green.
+Current commands, revisions, exact counts, mutations, and remaining failures: `/tmp/pi-rust-repin-auth-refresh/REPORT.md`. The requested workspace/all-targets compile check passes with zero warnings; all selected auth_phase1/registry/provider-boundary tests pass (Anthropic required a bounded serial retry after a callback-port collision). Historical touched differential targets are not all green and were not rerun for these fixes.
 
 ## Current capability matrix
 
