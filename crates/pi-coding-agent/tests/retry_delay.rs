@@ -23,6 +23,13 @@ fn normalize(value: f64) -> Value {
 fn number_argument(value: f64) -> String {
     if value == 0.0 && value.is_sign_negative() {
         "-0".to_owned()
+    } else if value.is_infinite() {
+        if value.is_sign_positive() {
+            "Infinity"
+        } else {
+            "-Infinity"
+        }
+        .to_owned()
     } else {
         value.to_string()
     }
