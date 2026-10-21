@@ -181,6 +181,60 @@ pub fn apply_self_restart_request(parsed: &mut Args, handoff: Option<&SelfRestar
     parsed.messages = Vec::new();
 }
 
+/// Persist results for unfinished calls before appending the restart notice.
+pub fn resolve_restart_interrupted_tool_calls(manager: &mut SessionManager) -> Result<(), SessionManagerError> {
+    use pi_agent_core::agent::{AgentMessage, restored_pending_tool_message};
+    use pi_ai::types::{AssistantContent, TextContent, ToolResultContent, ToolResultMessage, ToolResultRole};
+    let Some(pending) = restored_pending_tool_message(&manager.build_session_context().messages) else {
+        return Ok(());
+    };
+    let jobs = match (manager.get_metadata_control_db_path(), manager.get_session_file()) {
+        (Some(db), Some(path)) => crate::core::session_control_db::read_multi_agent_state(db, path)
+            .map_err(|error| SessionManagerError::new(error.to_string()))?
+            .map(|state| state.agents)
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    for part in pending.content {
+        let AssistantContent::ToolCall(call) = part else {
+            continue;
+        };
+        let job = jobs.iter().find(|job| {
+            job["detached"].as_bool() == Some(true) && job["worker"]["toolCallId"].as_str() == Some(call.id.as_str())
+        });
+        let (text, details, is_error) = match job {
+            Some(job) => {
+                let id = job["id"].as_str().unwrap_or_default();
+                (
+                    format!(
+                        "Moved to background as job {id} during a Pi restart; its result arrives as a job notification."
+                    ),
+                    Some(serde_json::json!({"backgroundJobId":id,"type":"detached"})),
+                    false,
+                )
+            }
+            None if call.name == "restart_self" => ("Pi restarted.".to_owned(), None, false),
+            None => (
+                "Interrupted by a Pi restart before it finished; rerun it if still needed.".to_owned(),
+                None,
+                true,
+            ),
+        };
+        manager.append_message(AgentMessage::ToolResult(ToolResultMessage {
+            role: ToolResultRole::Tag,
+            tool_call_id: call.id,
+            tool_name: call.name,
+            content: vec![ToolResultContent::Text(TextContent::new(text))],
+            details,
+            usage: None,
+            added_tool_names: None,
+            is_error,
+            timestamp: now_millis(),
+        }))?;
+    }
+    Ok(())
+}
+
 /// `appendSelfRestartNotice`.
 pub fn append_self_restart_notice(
     session_manager: &mut SessionManager,

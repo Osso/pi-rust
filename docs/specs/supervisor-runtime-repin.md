@@ -19,3 +19,5 @@ Supervisor startup probes version, coalesces local startup by resolved DB path, 
 Supervisor clients ensure startup before computing request deadlines/posting rows. Startup errors return bounded error responses. Pre-abort never starts/posts; abort during polling or retry wakes promptly, sender-fenced cancels any posted request, and notifies the wake socket only when cancellation changed the row. Cancelled rows return stored error reasons. Default polling is 300ms.
 
 Automatic idle/completion reviews pass non-generic continue instructions through a stateless veto. Accept preserves instructions; rejection, invalid decision or evaluation failure substitutes the generic continuation and appends hidden policy feedback. Cancellation propagates rather than becoming veto feedback. Generic continuation and other response/request kinds bypass the veto.
+
+Restart recovery appends a result for every unanswered call in the restored pending assistant batch: detached jobs point to background notifications, restart_self succeeds, and other calls report interruption. Already answered calls are not repeated; results precede the restart notice.
