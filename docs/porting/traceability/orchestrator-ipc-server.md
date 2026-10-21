@@ -14,3 +14,6 @@ Rust: `crates/pi-orchestrator/src/ipc/server.rs`. Coverage remains todo until fi
 Streaming concurrency: `session_events_are_written_while_rpc_command_is_pending` reproduces the Rust draft buffering regression (RED); independent sequential command worker now permits socket writes during pending RPCs, matching frozen callback behavior. Targeted GREEN pending.
 
 Additional `tests/errors.rs` Unix pipe differentials: ENOENT/ECONNREFUSED/EACCES connect, libuv missing-parent bind→EACCES, bind permission, stale-file unlink permission, read ECONNRESET; normal Server.close unlinks listening socket but preserves established stream requests. Native draft failed these boundaries before shared Node diagnostics and explicit stop-accepting lifecycle corrections.
+
+## Approved post-pin coalesced-line delta (2026-10-21)
+User classifies frozen coalesced-frame handling as a TS bug. `rust_client_to_frozen_ts_server_pins_approved_coalesced_discrepancy` keeps the exact common-pin stall assertion. Native `approved_delta_*` tests require immediate ordered drain after handshake, multiple buffered frames and blank-prefix handling. Ordinary request connections still end after their one response. Rust RED reproduced both stalls before the fix. Immutable TS delta commit/checkout and delta-lock entry are parent-owned and pending; no alternate TS source is selected or changed here.

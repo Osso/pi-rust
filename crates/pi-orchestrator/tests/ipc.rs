@@ -114,7 +114,7 @@ async fn frozen_ts_client_to_rust_server() {
     server.close().await;
 }
 #[tokio::test]
-async fn rust_client_to_frozen_ts_server_and_coalesced_stream_boundary() {
+async fn rust_client_to_frozen_ts_server_pins_approved_coalesced_discrepancy() {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("orchestrator.sock");
@@ -132,9 +132,6 @@ async fn rust_client_to_frozen_ts_server_and_coalesced_stream_boundary() {
     pin_coalesced_boundary(&path).await;
     child.kill().await.unwrap();
     child.wait().await.unwrap();
-    let server = start_ipc_server(&path, Arc::new(Handler)).await.unwrap();
-    pin_coalesced_boundary(&path).await;
-    server.close().await;
     async fn pin_coalesced_boundary(path: &std::path::Path) {
         let socket = tokio::net::UnixStream::connect(path).await.unwrap();
         let (read, mut write) = socket.into_split();
@@ -264,4 +261,58 @@ async fn ipc_handler_errors_unknown_stream_and_client_eof() {
         )
     );
     task.await.unwrap();
+}
+
+#[tokio::test]
+async fn approved_delta_drains_coalesced_handshake_and_all_complete_stream_requests() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("socket");
+    let server = start_ipc_server(&path, Arc::new(Handler)).await.unwrap();
+    for prefix in ["", "\n  \n"] {
+        let socket = tokio::net::UnixStream::connect(&path).await.unwrap();
+        let (read, mut write) = socket.into_split();
+        let mut reader = BufReader::new(read);
+        let mut line = String::new();
+        let payload = format!(
+            "{prefix}{{\"type\":\"rpc_stream\",\"instanceId\":\"i\"}}\n{{\"type\":\"get_state\",\"id\":\"one\"}}\n\n{{\"type\":\"abort\",\"id\":\"two\"}}\n"
+        );
+        write.write_all(payload.as_bytes()).await.unwrap();
+        for expected in ["rpc_ready", "one", "two"] {
+            line.clear();
+            tokio::time::timeout(std::time::Duration::from_millis(200), reader.read_line(&mut line))
+                .await
+                .expect("complete coalesced frames must drain without another data event")
+                .unwrap();
+            let response: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(
+                if expected == "rpc_ready" {
+                    &response["type"]
+                } else {
+                    &response["id"]
+                },
+                expected
+            );
+        }
+    }
+    server.close().await;
+}
+#[tokio::test]
+async fn approved_delta_skips_blank_initial_lines_without_stalling_plain_request() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("socket");
+    let server = start_ipc_server(&path, Arc::new(Handler)).await.unwrap();
+    let mut socket = tokio::net::UnixStream::connect(&path).await.unwrap();
+    socket.write_all(b"\n  \n{\"type\":\"list\"}\n").await.unwrap();
+    let mut output = String::new();
+    tokio::time::timeout(
+        std::time::Duration::from_millis(200),
+        socket.read_to_string(&mut output),
+    )
+    .await
+    .expect("blank prefixes must not stall complete request")
+    .unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&output).unwrap()["type"], "list_result");
+    server.close().await;
 }

@@ -1,4 +1,4 @@
-//! Unix JSONL server, including the frozen initial-data-event buffering boundary.
+//! Unix JSONL server with the approved post-pin coalesced-frame drain fix.
 use super::protocol::{encode_message, error_response, parse_request_line};
 use pi_ai::request::BoxFuture;
 use serde_json::Value;
@@ -103,10 +103,14 @@ async fn remove_stale_socket(path: &Path) -> Result<(), String> {
 }
 
 fn take_line(buffer: &mut String) -> Option<String> {
-    let end = buffer.find('\n')?;
-    let line = buffer[..end].trim().to_owned();
-    buffer.drain(..=end);
-    Some(line)
+    loop {
+        let end = buffer.find('\n')?;
+        let line = buffer[..end].trim().to_owned();
+        buffer.drain(..=end);
+        if !line.is_empty() {
+            return Some(line);
+        }
+    }
 }
 
 async fn serve_connection(mut socket: UnixStream, handler: Arc<dyn IpcRequestHandler>) -> Result<(), String> {
@@ -121,9 +125,6 @@ async fn serve_connection(mut socket: UnixStream, handler: Arc<dyn IpcRequestHan
         let Some(line) = take_line(&mut buffer) else {
             continue;
         };
-        if line.is_empty() {
-            continue;
-        }
         let request = match parse_request_line(&line) {
             Ok(request) => request,
             Err(error) => return send_and_end(socket, error_response(error)).await,
@@ -178,6 +179,7 @@ async fn serve_rpc_stream(
         .await
         .map_err(|e| e.to_string())?;
     let _worker = RequestWorker(queue_stream_requests(stream, queued, sender_for_errors));
+    enqueue_complete_requests(&mut buffer, &requests)?;
     pump_stream_socket(&mut socket, &mut buffer, &requests, &mut receiver).await
 }
 
@@ -206,6 +208,13 @@ fn queue_stream_requests(
     })
 }
 
+fn enqueue_complete_requests(buffer: &mut String, requests: &mpsc::UnboundedSender<String>) -> Result<(), String> {
+    while let Some(line) = take_line(buffer) {
+        requests.send(line).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 async fn pump_stream_socket(
     socket: &mut UnixStream,
     buffer: &mut String,
@@ -222,10 +231,7 @@ async fn pump_stream_socket(
                 let count = result.map_err(|e| e.to_string())?;
                 if count == 0 { return Ok(()); }
                 buffer.push_str(&String::from_utf8_lossy(&chunk[..count]));
-                // Frozen boundary: buffered stream lines are drained only on a new data event.
-                while let Some(line) = take_line(buffer) {
-                    if !line.is_empty() { requests.send(line).map_err(|e| e.to_string())?; }
-                }
+                enqueue_complete_requests(buffer, requests)?;
             }
         }
     }
