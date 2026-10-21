@@ -12,7 +12,7 @@ use std::{
     },
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncReadExt, AsyncWriteExt},
     process::{ChildStdin, Command},
     sync::{oneshot, watch},
 };
@@ -23,7 +23,7 @@ type Pending = oneshot::Sender<Result<Value, String>>;
 #[derive(Default)]
 struct State {
     exited: bool,
-    stderr: String,
+    stderr: Vec<u8>,
     next_id: u64,
     pending: HashMap<String, Pending>,
     // Frozen Map replacement loses the old resolver: retain it, unsettled, until instance drop.
@@ -108,7 +108,10 @@ impl RpcProcessInstance {
         let id = {
             let mut state = self.0.state.lock().unwrap();
             if state.exited {
-                return Err(format!("RPC process is not running. Stderr: {}", state.stderr));
+                return Err(format!(
+                    "RPC process is not running. Stderr: {}",
+                    String::from_utf8_lossy(&state.stderr)
+                ));
             }
             let id = if let Some(id) = command.get("id").filter(|v| !v.is_null()) {
                 id.as_str().ok_or("RPC id must be a string")?.to_owned()
@@ -231,12 +234,7 @@ async fn read_stderr(inner: Arc<Inner>, mut stderr: tokio::process::ChildStderr)
     loop {
         match stderr.read(&mut bytes).await {
             Ok(0) => return,
-            Ok(count) => inner
-                .state
-                .lock()
-                .unwrap()
-                .stderr
-                .push_str(&String::from_utf8_lossy(&bytes[..count])),
+            Ok(count) => inner.state.lock().unwrap().stderr.extend_from_slice(&bytes[..count]),
             Err(error) => {
                 eprintln!("RPC stderr: {error}");
                 return;
@@ -245,14 +243,24 @@ async fn read_stderr(inner: Arc<Inner>, mut stderr: tokio::process::ChildStderr)
     }
 }
 
-async fn read_stdout(inner: &Inner, stdout: tokio::process::ChildStdout) -> Result<(), String> {
-    let mut lines = BufReader::new(stdout).lines();
-    while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-        if !line.trim().is_empty() {
-            dispatch_line(inner, &line)?;
+async fn read_stdout(inner: &Inner, mut stdout: tokio::process::ChildStdout) -> Result<(), String> {
+    let mut decoder = pi_coding_agent::modes::rpc::JsonlLineDecoder::new();
+    let mut chunk = [0; 8192];
+    loop {
+        let count = stdout
+            .read(&mut chunk)
+            .await
+            .map_err(|error| pi_js_compat::node_fs::node_stream_error_record(&error, "read").message)?;
+        // Frozen orchestrator discards the unterminated tail (unlike the shared reader's end()).
+        if count == 0 {
+            return Ok(());
+        }
+        for line in decoder.push_bytes(&chunk[..count]) {
+            if !line.trim().is_empty() {
+                dispatch_line(inner, line.trim())?;
+            }
         }
     }
-    Ok(())
 }
 
 fn dispatch_line(inner: &Inner, line: &str) -> Result<(), String> {
@@ -295,9 +303,12 @@ fn finish_exit(inner: &Inner, status: std::io::Result<std::process::ExitStatus>)
                     .signal()
                     .map(pi_coding_agent::utils::child_process::signal_name)
                     .unwrap_or("null".into()),
-                state.stderr
+                String::from_utf8_lossy(&state.stderr)
             ),
-            Err(e) => format!("RPC process error: {e}. Stderr: {}", state.stderr),
+            Err(e) => format!(
+                "RPC process error: {e}. Stderr: {}",
+                String::from_utf8_lossy(&state.stderr)
+            ),
         };
         reject_pending(&mut state, &error);
         (error, state.exits.values().cloned().collect::<Vec<_>>())

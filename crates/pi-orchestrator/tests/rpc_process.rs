@@ -175,3 +175,38 @@ async fn native_sibling_pi_receives_rpc_mode_and_working_directory() {
         json!({"argv":["--mode","rpc"],"cwd":cwd})
     );
 }
+
+#[tokio::test]
+async fn child_jsonl_eof_and_utf8_decoding_match_frozen_node_streams() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
+    let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+    let dir = tempfile::tempdir().unwrap();
+    let fake = root.join("oracle/orchestrator-rpc-fake.mjs");
+    let mut expected = vec![];
+    let mut actual = vec![];
+    for case in ["unterminated", "invalid_utf8", "stderr_utf8"] {
+        let output = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
+            .arg("--tsconfig")
+            .arg(source.join("tsconfig.json"))
+            .arg(root.join("oracle/orchestrator-rpc-oracle.mjs"))
+            .arg(source)
+            .arg(&fake)
+            .arg(case)
+            .output()
+            .await
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        expected.push(serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap());
+        let mut command = tokio::process::Command::new("node");
+        command.arg(&fake);
+        let rpc = RpcProcessInstance::spawn_command(&mut command, dir.path()).unwrap();
+        actual.push(match rpc.send(json!({"type":case,"id":"frame"})).await {
+            Ok(response) => json!({"response":response}),
+            Err(error) => json!({"error":error}),
+        });
+        rpc.dispose().await.unwrap();
+    }
+    assert_eq!(actual, expected);
+}

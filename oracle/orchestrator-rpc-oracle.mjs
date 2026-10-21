@@ -14,6 +14,14 @@ if (process.argv[4] === "duplicate") {
     process.stdout.write(`${JSON.stringify({before,after,command:response.command})}\n`);
     process.exit(0);
 }
+if (["unterminated","invalid_utf8","stderr_utf8"].includes(process.argv[4])) {
+    let output;
+    try { output = { response: await rpc.send({type:process.argv[4],id:"frame"}) }; }
+    catch(error) { output = { error:error.message }; }
+    await rpc.dispose();
+    process.stdout.write(`${JSON.stringify(output)}\n`);
+    process.exit(0);
+}
 const events = [], ui = [];
 rpc.onEvent((v) => events.push(v));
 rpc.setUiRequestHandler((v) => ui.push(v));

@@ -17,3 +17,5 @@ Approved frozen discrepancies (parent 2026-10-21): duplicate in-flight ID retain
 Signal error formatting reuses coding-agent child-process helper. Real child SIGKILL regression fails with numeric 9 before correction; expected frozen signal=SIGKILL.
 
 `tests/errors.rs` differentials reproduce native diagnostic mismatches first: directory read, invalid parent, mkdir-through-file, rm-directory, missing/non-executable/directory executable, absent/file/NUL cwd, and closed child stdin. Shared pi-js-compat Node FS/spawn/pipe-write formatters now retain originating syscall/errno; no JS stacks fabricated. Stdin pipe errors also reach the approved fatal cleanup channel.
+
+`child_jsonl_eof_and_utf8_decoding_match_frozen_node_streams` reproduces draft EOF-tail resolution, invalid UTF-8 rejection and split-stderr codepoint corruption. Reuses coding-agent JsonlLineDecoder for newline-only stdout with Node replacement decoding; drops unterminated EOF tail like frozen. Stderr retains bytes and decodes once for error text, preserving split characters.
