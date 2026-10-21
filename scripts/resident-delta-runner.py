@@ -31,7 +31,9 @@ def main():
     # starting its oracle. The sole writable outer mount is private proof state.
     argv = [
         "/usr/bin/bwrap", "--die-with-parent", "--ro-bind", "/", "/",
-        "--proc", "/proc", "--bind", str(state), str(state),
+        # A read-only root mount marks inherited device nodes nodev. Supply
+        # private usable bootstrap devices for the mandatory guard's own --dev.
+        "--dev", "/dev", "--proc", "/proc", "--bind", str(state), str(state),
         "--tmpfs", "/opt", "--ro-bind", str(checkout), pin["sandboxAlias"],
         "--", "/usr/bin/python3", str(ROOT / "scripts/test-sandbox.py"),
         "--", *sys.argv[1:],
