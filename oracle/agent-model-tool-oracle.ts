@@ -10,9 +10,6 @@ async function main(): Promise<void> {
     const src = join(dirname(source), "../../../src");
     const { MultiAgentStore } = await import(pathToFileURL(join(src, "core/multi-agent-store.ts")).href);
     const db = await import(pathToFileURL(join(src, "core/session-control-db.ts")).href);
-    const { createRequire } = await import("node:module");
-    const require = createRequire(source);
-    const Value = await import(pathToFileURL(require.resolve("typebox/value")).href);
     
     function metadata(definition: any) {
         return { name: definition.name, label: definition.label, description: definition.description,
@@ -65,6 +62,13 @@ async function main(): Promise<void> {
         // Boundary fixture for source validation/errors; real Rust live sessions supply runtime proof.
         for (const id of request.live ?? []) sessions.set(id, {});
         let target: any;
+        if (request.op === "emptyModel") {
+            sessions.set(request.params.agentId, {
+                model: undefined, thinkingLevel: "off", modelRegistry: {}, scopedModels: [],
+                setModel: async () => { throw new Error("unexpected model selection in empty-model fixture"); },
+                setThinkingLevel(level: string) { this.thinkingLevel = level; },
+            });
+        }
         if (request.op === "success") {
             target = await createLiveTarget(store, request.params.agentId, request.cwd);
             sessions.set(request.params.agentId, target);
@@ -72,7 +76,13 @@ async function main(): Promise<void> {
         let definition: any;
         tool.registerSetAgentModelTool({ registerTool: (value: any) => { definition = value; } }, store, sessions);
         if (request.op === "metadata") return metadata(definition);
-        if (request.op === "validate") return request.cases.map((params: any) => Value.Check(definition.parameters, params));
+        if (request.op === "validate") {
+            const { validateToolArguments } = await import(pathToFileURL(join(src, "../../ai/src/utils/validation.ts")).href);
+            return request.cases.map((params: any) => {
+                try { return { arguments: validateToolArguments(definition, { id: "fixture", name: definition.name, arguments: params }) }; }
+                catch (error) { return { error: (error as Error).message }; }
+            });
+        }
         try {
             const result = await definition.execute("fixture-call", request.params);
             return { result, selected: store.getSelectedAgentId() ?? null, ...(target ? { model: store.getAgent(request.params.agentId).model } : {}) };

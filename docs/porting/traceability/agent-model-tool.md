@@ -9,12 +9,14 @@ Rust: `bundled_extensions/agents_core/agent_model_tool.rs`; exact registration i
 | `registerSetAgentModelTool`, complete schema and registration metadata | `set_agent_model::registers_agent_model_tool_without_approval` compares real frozen factory metadata | TS differential |
 | `readRequestedModel`: absent/blank pair, half pair, at least one change; validation before lookup | `errors_and_order_match_frozen_registered_tool` | TS differential |
 | `resolveLiveAgentMutationTarget`: missing, background-before-inactive, inactive, missing live session | same error differential | TS differential |
-| `hasMutationSurface`: no mutation target | pending focused fixture | Pending |
+| `hasMutationSurface`: no mutation target; optional absent model | `missing_mutation_surface_and_absent_model_properties_match_source`; remaining structural properties are required by Rust trait | TS differential |
 | `setAgentModel`: model+effort, JS whitespace, clamped effective result, selected-agent preservation | `live_request_keeps_old_model_next_request_uses_effective_model_and_effort` | Native live AgentSession + faux provider |
 | Current request unchanged, no cancellation; next request receives new model/effective effort | same held-request test records provider inputs | Native runtime boundary |
 | Source direct setters publish effective metadata; child settings unchanged | same test observes store and global settings | Native in-memory |
-| Effort-only, model-only, unknown model, all effort literals, schema admission | pending focused differential | Pending |
-| Optional model result properties | conditional Rust output follows source; no runtime fixture yet | Pending |
-| Ownership/revision rejection and TS-created state → Rust mutation → same TS read; reciprocal fresh Rust state → TS read | pending dedicated fixtures | Pending |
+| Effort-only, model-only, model+effort, unknown model, all effort literals and nonreasoning clamp | `live_effective_results_and_effort_literals_match_frozen_session` (13 cases) uses source factory with real source AgentSession setters | TS differential |
+| Optional provider/model result properties and `SetAgentModelDetails` | `missing_mutation_surface_and_absent_model_properties_match_source` compares omitted properties and no-model text | TS differential |
+| Ownership rejection and lifecycle revision preserved | `mismatched_persisted_owner_rejects_model_and_effort_before_live_mutation`; real source-created process-owned state, unchanged live model/effort and same TS reader | Cross-runtime SQLite boundary |
+| TS-created state → Rust registered tool mutation → same TS reader; reciprocal fresh Rust state → same TS reader | `source_owned_state_and_fresh_native_state_are_readable_by_same_source_after_tool_mutation` covers both directions, model+effort and effort-only | Cross-runtime SQLite boundary |
+| Schema runtime argument admission (14 cases) | `schema_argument_admission_matches_source_validation`: 12 agree; optional null provider/model and null effort disagree in existing shared `pi-ai` validator | BLOCKED shared validator alignment |
 
-Three targeted tests pass at initial implementation. This document does not promote broad agents-core or central coverage. Governing contract: [spec](../../specs/set-agent-model.md).
+Current targeted result: seven passing tests, one failing shared-validator differential. Frozen source validator retains/coerces optional null strings and rejects null effort; existing Rust validator strips optional nulls. No workaround or waiver applied. This document does not promote broad agents-core or central coverage. Governing contract: [spec](../../specs/set-agent-model.md).

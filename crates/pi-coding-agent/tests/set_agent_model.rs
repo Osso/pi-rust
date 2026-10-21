@@ -121,6 +121,11 @@ struct LiveFixture {
 }
 
 async fn live_fixture() -> LiveFixture {
+    live_fixture_with_persistence(None).await
+}
+
+async fn live_fixture_with_persistence(persistence: Option<(&mut oracle::TsOracle, bool, &str)>) -> LiveFixture {
+    let persisted = persistence.is_some();
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().display().to_string();
     let faux = faux_provider(RegisterFauxProviderOptions {
@@ -159,6 +164,9 @@ async fn live_fixture() -> LiveFixture {
     ] {
         store.publish_lifecycle_coordinator_snapshot(&snapshot).unwrap();
     }
+    if let Some((oracle, source_created, owner_session)) = persistence {
+        seed_owned_store(oracle, source_created, owner_session, &dir, &store);
+    }
     store.select_agent_view("viewed");
     let settings = Arc::new(Mutex::new(SettingsManager::in_memory(
         Default::default(),
@@ -176,6 +184,7 @@ async fn live_fixture() -> LiveFixture {
         control_db_path: Some(dir.path().join("control.db").display().to_string()),
         multi_agent_store: Some(store.clone()),
         multi_agent_agent_id: Some("child".into()),
+        multi_agent_parent_session_id: persisted.then(|| "fixture-parent".to_owned()),
         disable_runtime_coordination_inbound: true,
         ..Default::default()
     })
@@ -196,6 +205,74 @@ async fn live_fixture() -> LiveFixture {
         handles,
         settings,
     }
+}
+
+struct Persistence {
+    db: String,
+    session: String,
+}
+impl pi_coding_agent::core::multi_agent_store::SessionPersistence for Persistence {
+    fn metadata_control_db_path(&self) -> Option<String> {
+        Some(self.db.clone())
+    }
+    fn session_file(&self) -> Option<String> {
+        Some(self.session.clone())
+    }
+}
+
+fn seed_owned_store(
+    oracle: &mut oracle::TsOracle,
+    source_created: bool,
+    owner_session: &str,
+    dir: &tempfile::TempDir,
+    store: &MultiAgentStore,
+) {
+    use pi_coding_agent::core::session_control_db as db;
+    let path = dir.path().join("control.db").display().to_string();
+    let session = dir.path().join("parent.session").display().to_string();
+    let mut child = agent("child", "running", "explore");
+    child.revision = 1;
+    child.model = Some(pi_coding_agent::core::multi_agent_store::AgentModel {
+        provider_id: "faux".into(),
+        model_id: "old".into(),
+        thinking_level: Some("low".into()),
+    });
+    let viewed = agent("viewed", "running", "explore");
+    let identity: pi_coding_agent::core::runtime_process::ProcessIdentity =
+        serde_json::from_str(&db::get_runtime_process_instance_id().unwrap()).unwrap();
+    if source_created {
+        let result = oracle.request(
+            &json!({"op":"create", "db":path, "session":session, "agents":[viewed], "input":{
+                "sessionPath":session, "agentId":"child", "processIdentity":identity,
+                "owner":{"sessionId":owner_session,"agentId":null}, "nowIso":child.updated_at, "agent":child
+            }}),
+        );
+        assert_eq!(result["ok"], true, "{result}");
+    } else {
+        db::bootstrap_multi_agent_agent(&path, &session, "viewed", &serde_json::to_value(viewed).unwrap()).unwrap();
+        let result = db::create_multi_agent_child_with_runtime_ownership(
+            &path,
+            &db::CreateMultiAgentChildWithRuntimeOwnershipInput {
+                session_path: session.clone(),
+                agent_id: "child".into(),
+                process_identity: identity,
+                owner: db::MultiAgentRuntimeOwnerIdentity {
+                    session_id: owner_session.into(),
+                    agent_id: None,
+                },
+                now_iso: child.updated_at.clone(),
+                agent: child,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            result,
+            db::CreateMultiAgentChildWithRuntimeOwnershipResult::Ok { .. }
+        ));
+    }
+    store
+        .restore_from_session_manager(&Persistence { db: path, session })
+        .unwrap();
 }
 
 #[tokio::test]
@@ -295,6 +372,341 @@ async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effo
         serde_json::to_value(fixture.settings.lock().unwrap().get_global_settings()).unwrap(),
         "child mutation must not change global defaults"
     );
+}
+
+struct BoundaryChild(Option<Arc<dyn pi_coding_agent::core::extensions::types::ViewedSessionMutationTarget>>);
+impl pi_coding_agent::bundled_extensions::agents_core::shared::ChildAgentSession for BoundaryChild {
+    fn messages(&self) -> Vec<pi_agent_core::agent::types::AgentMessage> {
+        Vec::new()
+    }
+    fn prompt(&self, _text: String) -> pi_ai::request::BoxFuture<'static, Result<(), String>> {
+        Box::pin(async { panic!("boundary fixture must not prompt") })
+    }
+    fn transcript(&self) -> Option<pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata> {
+        None
+    }
+    fn session_mutation_target(
+        &self,
+    ) -> Option<Arc<dyn pi_coding_agent::core::extensions::types::ViewedSessionMutationTarget>> {
+        self.0.clone()
+    }
+}
+struct EmptyModelTarget {
+    level: Mutex<ThinkingLevel>,
+    registry: Arc<pi_coding_agent::core::model_registry::ModelRegistry>,
+}
+impl pi_coding_agent::core::extensions::types::SessionMutationTarget for EmptyModelTarget {
+    fn model(&self) -> Option<pi_ai::types::Model> {
+        None
+    }
+    fn thinking_level(&self) -> ThinkingLevel {
+        *self.level.lock().unwrap()
+    }
+    fn set_model(
+        &self,
+        _model: pi_ai::types::Model,
+    ) -> pi_ai::request::BoxFuture<'static, Result<bool, pi_coding_agent::core::extensions::types::HandlerError>> {
+        Box::pin(async { panic!("unexpected model selection") })
+    }
+    fn set_thinking_level(
+        &self,
+        level: ThinkingLevel,
+    ) -> Result<(), pi_coding_agent::core::extensions::types::HandlerError> {
+        *self.level.lock().unwrap() = level;
+        Ok(())
+    }
+}
+impl pi_coding_agent::core::extensions::types::ViewedSessionMutationTarget for EmptyModelTarget {
+    fn set_model_with_thinking_level(
+        &self,
+        _model: pi_ai::types::Model,
+        _level: Option<ThinkingLevel>,
+    ) -> pi_ai::request::BoxFuture<'static, Result<bool, pi_coding_agent::core::extensions::types::HandlerError>> {
+        Box::pin(async { panic!("unexpected model selection") })
+    }
+    fn model_registry(&self) -> Arc<pi_coding_agent::core::model_registry::ModelRegistry> {
+        self.registry.clone()
+    }
+    fn scoped_models(&self) -> Vec<pi_coding_agent::core::model_resolver::ScopedModel> {
+        Vec::new()
+    }
+}
+
+#[tokio::test]
+async fn missing_mutation_surface_and_absent_model_properties_match_source() {
+    let fixture = live_fixture().await;
+    let mut oracle = oracle::TsOracle::spawn(
+        "agent-model-tool-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src/agent-model-tool.ts",
+    );
+    let extension = registered(MultiAgentExtensionOptions {
+        store: Some(fixture.store.clone()),
+        runtime_handles: Some(fixture.handles.clone()),
+        ..Default::default()
+    })
+    .await;
+    let definition = extension
+        .read()
+        .tools
+        .get("set_agent_model")
+        .unwrap()
+        .definition
+        .clone();
+    let harness = bundled::Harness::new(
+        vec![extension],
+        create_extension_runtime(),
+        bundled::HarnessOptions::new("/fixture"),
+    )
+    .await;
+    let params = json!({"agentId":"child", "thinkingLevel":"medium"});
+    fixture
+        .handles
+        .sessions
+        .lock()
+        .unwrap()
+        .insert("child".into(), Arc::new(BoundaryChild(None)));
+    let error = (definition.execute)(
+        "fixture".into(),
+        params.clone(),
+        None,
+        None,
+        harness.runner.create_context(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        json!({"error":error.message,"selected":"viewed"}),
+        oracle.request(
+            &json!({"params":params,"agents":fixture.store.list_agents(),"selected":"viewed","live":["child"]})
+        )
+    );
+    fixture.handles.sessions.lock().unwrap().insert(
+        "child".into(),
+        Arc::new(BoundaryChild(Some(Arc::new(EmptyModelTarget {
+            level: Mutex::new(ThinkingLevel::Off),
+            registry: Arc::new(fixture.child.model_registry().clone()),
+        })))),
+    );
+    let result = (definition.execute)(
+        "fixture".into(),
+        params.clone(),
+        None,
+        None,
+        harness.runner.create_context(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        json!({"result":result,"selected":"viewed"}),
+        oracle.request(
+            &json!({"op":"emptyModel","params":params,"agents":fixture.store.list_agents(),"selected":"viewed"})
+        )
+    );
+}
+
+#[tokio::test]
+async fn source_owned_state_and_fresh_native_state_are_readable_by_same_source_after_tool_mutation() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "agent-model-tool-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src/agent-model-tool.ts",
+    );
+    for source_created in [true, false] {
+        let fixture = live_fixture_with_persistence(Some((&mut oracle, source_created, "fixture-parent"))).await;
+        let path = fixture._dir.path().join("control.db");
+        let session = fixture._dir.path().join("parent.session");
+        let read = json!({"op":"read","db":path,"session":session,"agentId":"child"});
+        assert_eq!(
+            oracle.request(&read),
+            serde_json::to_value(fixture.store.get_agent("child").unwrap()).unwrap()
+        );
+        let extension = registered(MultiAgentExtensionOptions {
+            store: Some(fixture.store.clone()),
+            runtime_handles: Some(fixture.handles.clone()),
+            ..Default::default()
+        })
+        .await;
+        let definition = extension
+            .read()
+            .tools
+            .get("set_agent_model")
+            .unwrap()
+            .definition
+            .clone();
+        let harness = bundled::Harness::new(
+            vec![extension],
+            create_extension_runtime(),
+            bundled::HarnessOptions::new("/fixture"),
+        )
+        .await;
+        for params in [
+            json!({"agentId":"child","provider":"faux","modelId":"plain","thinkingLevel":"ultra"}),
+            json!({"agentId":"child","thinkingLevel":"high"}),
+        ] {
+            let result = (definition.execute)("fixture".into(), params, None, None, harness.runner.create_context())
+                .await
+                .unwrap();
+            assert_eq!(result.details.as_ref().unwrap()["thinkingLevel"], "off");
+            let source_read = oracle.request(&read);
+            assert_eq!(
+                source_read,
+                serde_json::to_value(fixture.store.get_agent("child").unwrap()).unwrap()
+            );
+            assert_eq!(
+                source_read["model"],
+                json!({"providerId":"faux","modelId":"plain","thinkingLevel":"off"})
+            );
+            assert_eq!(
+                source_read["revision"], 1,
+                "model metadata must preserve lifecycle revision"
+            );
+            assert_eq!(fixture.store.get_selected_agent_id().as_deref(), Some("viewed"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn mismatched_persisted_owner_rejects_model_and_effort_before_live_mutation() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "agent-model-tool-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src/agent-model-tool.ts",
+    );
+    let fixture = live_fixture_with_persistence(Some((&mut oracle, true, "different-owner"))).await;
+    let read = json!({"op":"read","db":fixture._dir.path().join("control.db"),"session":fixture._dir.path().join("parent.session"),"agentId":"child"});
+    let before = oracle.request(&read);
+    let extension = registered(MultiAgentExtensionOptions {
+        store: Some(fixture.store.clone()),
+        runtime_handles: Some(fixture.handles.clone()),
+        ..Default::default()
+    })
+    .await;
+    let definition = extension
+        .read()
+        .tools
+        .get("set_agent_model")
+        .unwrap()
+        .definition
+        .clone();
+    let harness = bundled::Harness::new(
+        vec![extension],
+        create_extension_runtime(),
+        bundled::HarnessOptions::new("/fixture"),
+    )
+    .await;
+    for params in [
+        json!({"agentId":"child","provider":"faux","modelId":"new","thinkingLevel":"medium"}),
+        json!({"agentId":"child","thinkingLevel":"high"}),
+    ] {
+        let error = (definition.execute)("fixture".into(), params, None, None, harness.runner.create_context())
+            .await
+            .unwrap_err();
+        assert_eq!(error.message, "Persisted agent child metadata update was rejected");
+        assert_eq!(fixture.child.model().id, "old");
+        assert_eq!(fixture.child.thinking_level(), ThinkingLevel::Low);
+        assert_eq!(oracle.request(&read), before);
+    }
+}
+
+#[tokio::test]
+async fn schema_argument_admission_matches_source_validation() {
+    let extension = registered(MultiAgentExtensionOptions::default()).await;
+    let definition = extension
+        .read()
+        .tools
+        .get("set_agent_model")
+        .unwrap()
+        .definition
+        .clone();
+    let mut oracle = oracle::TsOracle::spawn(
+        "agent-model-tool-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src/agent-model-tool.ts",
+    );
+    let mut cases = vec![
+        json!({}),
+        json!({"agentId":"child", "extra":true}),
+        json!({"agentId":"child", "thinkingLevel":"invalid"}),
+        json!({"agentId":1, "provider":null, "modelId":null}),
+        json!({"agentId":"child", "thinkingLevel":null}),
+        json!({"agentId":"child", "provider":false, "modelId":7}),
+    ];
+    for level in ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] {
+        cases.push(json!({"agentId":"child", "thinkingLevel":level}));
+    }
+    let expected = oracle.request(&json!({"op":"validate", "cases":cases}));
+    let tool = pi_ai::types::Tool {
+        name: definition.name.clone(),
+        description: definition.description,
+        parameters: definition.parameters,
+        typebox_kind: true,
+        constrained_sampling: None,
+    };
+    let actual: Vec<_> = cases
+        .iter()
+        .map(|params| {
+            let call = pi_ai::types::ToolCall::new("fixture", "set_agent_model", params.as_object().unwrap().clone());
+            match pi_ai::utils::validation::validate_tool_arguments(&tool, &call) {
+                Ok(args) => json!({"arguments":args}),
+                Err(error) => json!({"error":error.to_string()}),
+            }
+        })
+        .collect();
+    assert_eq!(json!(actual), expected);
+}
+
+#[tokio::test]
+async fn live_effective_results_and_effort_literals_match_frozen_session() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "agent-model-tool-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src/agent-model-tool.ts",
+    );
+    let mut cases = vec![
+        json!({"provider":"faux", "modelId":"new"}),
+        json!({"provider":"faux", "modelId":"plain", "thinkingLevel":"high"}),
+        json!({"provider":"faux", "modelId":"unknown"}),
+        json!({"provider":"faux", "modelId":"new", "thinkingLevel":"medium"}),
+        json!({"provider":"  ", "modelId":"\u{feff}", "thinkingLevel":"low"}),
+    ];
+    for level in ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] {
+        cases.push(json!({"thinkingLevel":level}));
+    }
+    for mut params in cases {
+        params["agentId"] = json!("child");
+        let fixture = live_fixture().await;
+        let extension = registered(MultiAgentExtensionOptions {
+            store: Some(fixture.store.clone()),
+            runtime_handles: Some(fixture.handles.clone()),
+            ..Default::default()
+        })
+        .await;
+        let definition = extension
+            .read()
+            .tools
+            .get("set_agent_model")
+            .unwrap()
+            .definition
+            .clone();
+        let harness = bundled::Harness::new(
+            vec![extension],
+            create_extension_runtime(),
+            bundled::HarnessOptions::new("/fixture"),
+        )
+        .await;
+        let expected = oracle.request(&json!({"op":"success", "cwd":fixture._dir.path(), "params":params, "agents":fixture.store.list_agents(), "selected":"viewed"}));
+        let actual = match (definition.execute)(
+            "fixture".into(),
+            params.clone(),
+            None,
+            None,
+            harness.runner.create_context(),
+        )
+        .await
+        {
+            Ok(result) => {
+                json!({"result":result,"selected":fixture.store.get_selected_agent_id(), "model":fixture.store.get_agent("child").unwrap().model})
+            }
+            Err(error) => json!({"error":error.message,"selected":fixture.store.get_selected_agent_id()}),
+        };
+        assert_eq!(actual, expected, "{params}");
+    }
 }
 
 #[tokio::test]
