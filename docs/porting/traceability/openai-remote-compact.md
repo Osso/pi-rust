@@ -4,7 +4,7 @@ Pinned source: `packages/coding-agent/extensions/openai-remote-compact/src/index
 `532f7d12cd19235081bd4d6e425bde185652d86f`.
 Rust: `crates/pi-coding-agent/src/bundled_extensions/openai_remote_compact.rs`.
 Focused tests: `crates/pi-coding-agent/tests/openai_remote_compact.rs` (2),
-`crates/pi-coding-agent/tests/differential_openai_remote_compact.rs` (helper matrix and numeric-key budget regression).
+`crates/pi-coding-agent/tests/differential_openai_remote_compact.rs` (2: helper matrix and numeric-key budget regression).
 
 | TypeScript source | Contract | Rust and proof |
 |---|---|---|
@@ -23,6 +23,8 @@ Focused tests: `crates/pi-coding-agent/tests/openai_remote_compact.rs` (2),
 | `postOpenAICompact`, `parseOpenAICompactResponse`, `formatOpenAIError` | POST via `Fetch`, JSON fallback, status error text | `post_openai_compact`; HTTP through `pi_ai::http::default_fetch` |
 
 ## Numeric-key budget traversal
+
+Merged in `bfa26e91` (implementation `1a987641`, proof `1bfb1e6a`).
 
 `truncateReducibleText` (`index.ts:535-552`) consumes a shared budget in
 `Object.entries` order. Native `truncate_reducible_text` uses
@@ -52,10 +54,7 @@ Mutation restoration is byte-identical to the tested implementation. Required
 
 ## Discrepancies
 
-- `String.prototype.slice` truncates UTF-16 code units and can split a surrogate pair; Rust strings cannot
-  hold lone surrogates, so `utf16_prefix` replaces a split pair with U+FFFD. Only reachable when a text
-  truncation boundary lands mid-surrogate. Approved deviation, user October 20, 2026 (“Approve like
-  truncateLine”); recorded in [compatibility](../../specs/compatibility.md#out-of-scope).
+- Split-surrogate truncation follows the [approved remote-compaction String boundary](../../specs/compatibility.md#out-of-scope), recorded in `18512b55`.
 
 ## JS-value boundary regression (2026-10-20)
 

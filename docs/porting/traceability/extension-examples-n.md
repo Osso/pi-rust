@@ -43,9 +43,12 @@ scope input exclude invalid JavaScript runtime types, not valid string values.
 
 ## Batch N fidelity corrections (F1–F4, U3)
 
+Merged in `69696cba`: subagent fixes `2f83d590`, RPC lifecycle/UTF-8
+`7c8cef28`, process-reaping assertions `648a7a5c`, traceability `6a9b435e`.
+
 | Pinned behavior | Native correction | Behavioral proof |
 |---|---|---|
-| subagent index.ts:549–551 global replacement expands `$$`, `$&`, prefix/suffix per original match; capture references stay literal | `run_chain` calls `pi_js_compat::string::replace_global` | `example_subagent::modes_dispatch_and_streaming_match_pinned_real_extension_runtime`: first child emits all four escapes plus `$1`; second task has two placeholders; complete results and streaming snapshots compare to pinned TS |
+| subagent index.ts:549–551 global replacement | `run_chain` calls [shared replacement helper](js-compat.md#global-nonempty-literal-replacement) | `example_subagent::modes_dispatch_and_streaming_match_pinned_real_extension_runtime`: first child emits all four escapes plus `$1`; second task has two placeholders; complete results and streaming snapshots compare to pinned TS |
 | subagent index.ts:1008–1014 running parallel row uses warning hourglass before failure check | `render::result` running icon branch | `running_parallel_renderer_matches_pinned`: running partial result with exitCode -1, empty messages; pinned rendered lines compare |
 | subagent index.ts:38–42,63 decimal ties use `toFixed` at all three sites | token k/M and cost call existing `number::to_fixed` | `usage_decimal_ties_match_pinned`: input 1250 → ↑1.3k, output 1250000 → ↓1.3M, cost 0.03125 → $0.0313; expanded/collapsed single/chain/parallel corpus |
 | RPC idle Escape stops UI, sends SIGTERM, returns without waiting; child exit ends client independently of descendant pipe EOF | `run` selects child status and reads stderr incrementally; no pipe-reader task or EOF join | native `idle_escape_returns_without_waiting_for_sigterm_ignoring_child` and `child_exit_returns_while_grandchild_keeps_both_pipes_open`: two-second bound; fixture children/grandchild killed, reaped and PID absence asserted, including failure cleanup |
@@ -117,8 +120,9 @@ pumped on its UI thread; no Rc objects cross threads.
 
 `example_rpc_extension_ui` executes the complete pinned program with real pinned
 Input/SelectList/Container; fake terminal scheduling, child transport and clock
-allow deterministic snapshots. Only import.meta.url is replaced by its unchanged
-source URL before transpilation. It does not spawn the pinned client child.
+allow deterministic snapshots. `import.meta.url` is replaced by its unchanged source URL before transpilation;
+stdout delivery uses real Node readline over private PassThrough bytes. It does
+not spawn the pinned client child.
 Separate native tests spawn private Python fixture binaries and the existing
 `example-rpc-demo-harness` Cargo binary. The latter runs real native AgentSession,
 RPC transport, loader/registry/ExtensionRunner and shipped rpc-demo factory:
@@ -134,7 +138,7 @@ receives Ctrl+D rather than silently correcting this pinned behavior.
 
 Approved String boundary projection: RPC OutputLog slices and subagent preview
 slices project split UTF-16 pairs to U+FFFD before passing text to native String
-core components, per compatibility.md:177. Native tests assert this explicitly.
+core components, per the [approved String boundary](../../specs/compatibility.md#out-of-scope). Native tests assert this explicitly.
 Subagent Text padding therefore differs for this excluded lone-surrogate case;
 ordinary scalar render fixtures retain full line differential proof.
 

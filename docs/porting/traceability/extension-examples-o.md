@@ -4,7 +4,12 @@ Pinned source: `532f7d12`, `packages/coding-agent/examples/extensions/doom-overl
 Worktree: `/home/osso/.worktrees/pi-rust-ext-examples-o`; branch `port/ext-examples-o`.
 Merged master `04f51ba` before implementation, as instructed. No core APIs changed.
 
-## Capability matrix
+## Historical batch O capability matrix
+
+The stop conditions below describe the original helper slice, not current
+coverage. Component/index ports, key-release support, WAD read errors and expanded
+helper proof subsequently landed; [batch Q](extension-examples-q.md) owns their
+current capability and test matrix.
 
 | Source | Native file under `crates/pi-coding-agent/examples/extensions/doom_overlay/` | State / proof |
 | --- | --- | --- |
@@ -22,7 +27,7 @@ native module directory, cwd and HOME in place of TS module/process globals, and
 `ensure_wad_file` accepts the existing `pi_ai::request::Fetch` boundary (the host
 may pass `pi_ai::http::default_fetch()`).
 
-## Exact stop condition
+## Historical stop condition
 
 Pinned `doom-component.ts:54`: `wantsKeyRelease = true`. Its input handler
 `:83–101` needs releases to call `engine.pushKey(false, key)`. The native
@@ -47,6 +52,8 @@ separate core key-release slice (main-thread instruction); revisit in a later
 slice after that API lands.
 
 ## U1 zero-padded gzip correction
+
+Implemented in `2f83d590`, merged in `69696cba`; proof recorded in `6a9b435e`.
 
 | Pinned behavior | Native correction | Proof |
 |---|---|---|
@@ -85,9 +92,8 @@ external runtime waivers in [coverage](../coverage.md). Wrapper logic is
 separable: the host supplies a `Box<dyn DoomModule>` via `init_with_module`.
 This is not a default engine backend or a workaround for missing extension APIs.
 Its partial status preserves the distinction between proven wrapper logic and
-absent runtime loading. Native WAD read errors currently use Rust I/O strings,
-not Node error identity/message formatting; this path is unproven, not claimed
-as full error parity. ABI fixtures assume valid native addresses/dimensions.
+absent runtime loading. Native WAD read-error record proof is recorded in the later
+[batch Q matrix](extension-examples-q.md). ABI fixtures assume valid native addresses/dimensions.
 
 The key oracle imports the unchanged pinned mapper and actual pinned pi-tui.
 WAD and engine oracles transpile complete pinned modules into a VM: only
@@ -102,7 +108,7 @@ inside cargo's mandatory test sandbox.
 
 ### Approved String boundary
 
-[Compatibility policy](../../specs/compatibility.md#out-of-scope), line 177:
+[Compatibility policy](../../specs/compatibility.md#out-of-scope):
 “Lone-surrogate input supplied directly to existing `String`-typed core APIs”.
 The mapper retains raw `JsString` units. Only calls to pi-tui's existing
 `matches_key` / `parse_key` UTF-8 APIs project lone units to U+FFFD. The explicit

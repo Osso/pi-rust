@@ -100,12 +100,16 @@ Independent number/date/JSON/coercion/collation/filesystem tests, check/Clippy a
 
 ## Node timers
 
+Added in `1a987641`, merged in `bfa26e91`; numeric delay comparison corrected
+in `ada305f4`.
+
 `src/node_timers.rs::normalize_timeout_delay(f64)` models Node's numeric timer
 constructor delay after caller-side ToNumber: outside inclusive
 `1..=2147483647` (including NaN/infinity) becomes 1ms; otherwise unchanged,
 including fractions. No JavaScript invalid-type coercion API or warning emission
-is introduced. `tests/node_timers.rs` covers both branches and endpoint/fraction
-cases; `tests/differential_node_timers.rs` observes the pinned runtime's actual
+is introduced. `tests/node_timers.rs` (2 tests) covers both branches and endpoint/fraction
+cases; `tests/differential_node_timers.rs::timeout_delays_match_pinned_node_runtime`
+(1 test) observes the pinned runtime's actual
 scheduled `Timeout._idleTimeout`, clearing timers immediately. This deterministic
 runtime-field observation is parent-approved; callback timing/sub-ms scheduling
 precision is not claimed. SSH provides the public behavioral timeout proof:
@@ -141,9 +145,11 @@ and `pi-js-compat` unit tests.
 
 ### Global nonempty literal replacement
 
+Added in `2f83d590`, merged in `69696cba`.
+
 | Source behavior | Rust helper | Proof |
 |---|---|---|
-| Global nonempty literal-pattern replacement with no captures; `$$`, `$&`, prefix and suffix expand relative to each original match; `$1` remains literal | `string::replace_global`, reuses `expand_replacement`; nonempty search precondition explicit | `tests/string_replace.rs::globally_expands_against_each_original_match`: two matches with distinct original prefixes/suffixes, no match, replacement containing matched text; `example_subagent` additionally compares actual chained child tasks/results to pinned TS |
+| Global nonempty literal-pattern replacement with no captures; `$$`, `$&`, prefix and suffix expand relative to each original match; `$1` remains literal | `string::replace_global`, reuses `expand_replacement`; nonempty search precondition explicit | `tests/string_replace.rs::globally_expands_against_each_original_match`: two matches with distinct original prefixes/suffixes, no match, replacement containing matched text; [subagent proof](extension-examples-n.md#batch-n-fidelity-corrections-f1f4-u3) compares actual chained child tasks/results to pinned TS |
 
 This narrow helper does not claim empty-pattern UTF-16 regex or capture-group
 semantics. `string-RED.log` used the existing first-only helper as the behavioral

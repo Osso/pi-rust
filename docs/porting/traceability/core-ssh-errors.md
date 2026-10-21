@@ -94,6 +94,9 @@ No `ExtensionUiComponent`/`ExtensionUiTuiBackend` trait changed.
 
 ## SSH timer normalization
 
+Merged in `bfa26e91`: implementation `1a987641`, numeric delay comparison
+`ada305f4`, proof `1bfb1e6a`.
+
 `ssh.ts:88-106` multiplies truthy timeout seconds by 1000 and schedules a Node
 timer. `wait_for_remote` uses shared `pi_js_compat::node_timers` normalization:
 non-finite, below-1ms and above-2147483647ms delays schedule 1ms; valid fractions
@@ -104,11 +107,10 @@ Original seconds remain in the `timeout:<value>` error, using JS number spelling
 including `1e100` and `2147483.648` seconds. Each must reject promptly without
 panic, with exact `timeout:1e+100` / `timeout:2147483.648`, and complete results
 are compared with the pinned TS example. Fake SSH only; three-second test guard.
-Node delay proof and limits: [JS compatibility](js-compat.md#node-timers).
+Node delay helper contract, proof and limits: [JS compatibility](js-compat.md#node-timers).
 RED/GREEN/mutation commands: `/tmp/pi-rust-core-c-fixes/ledger.md`.
 C1 RED and production-reversion mutation hit the three-second guard; GREEN
-passes the complete nine-scenario differential (1 test). Timer unit tests pass
-2/2 and pinned-runtime delay differential passes 1/1. Mutation restoration is
+passes the complete nine-scenario differential (1 test). Mutation restoration is
 byte-identical to the tested implementation. Required formatting and two-crate
 all-target Clippy (`-D warnings`) pass. Manual changed-line Rust/TS readability
 review found no new suppression, fallback, or control-flow complexity issue.
@@ -148,7 +150,7 @@ Detailed commands, exact revisions, exit codes, and complete logs:
 | Pre-abort behavioral RED/GREEN | `13-preabort-red.log` / `15-lifecycle-green.log`: lost pre-abort output, then pass |
 | Existing local tests | `04-core-green.log`: 33/0 across custom errors, read, edit/write, ls and real Node filesystem-error targets |
 | Expanded core and existing differentials | `30-core-final.log`: 6/0 across two custom-error tests and existing read/edit-write/ls differential targets |
-| Complete SSH differential + real TUI | `18-sigterm-green.log`: 1/0, nine scenarios; final `33-final-fixtures.log`: 3/0 including both custom-error tests and exact ANSI SSH status; executable example unchanged since `e31407b1` |
+| Complete SSH differential + real TUI | `18-sigterm-green.log`: 1/0, nine scenarios; final `33-final-fixtures.log`: 3/0 including both custom-error tests and exact ANSI SSH status; historical example revision `e31407b1`, before the timer correction above |
 | Core mutation | `17-core-mutation.log`: all 11 independently reached changed propagation sites rejected in one aggregate run; exact originals restored |
 | SSH mutations | `19`–`29`: 11/11 rejected: flag, path, base64, MIME, SSH error, user-bash, timeout, abort, pre-abort, SIGTERM, prompt; exact originals restored |
 

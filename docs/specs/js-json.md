@@ -17,7 +17,7 @@
 
 ## JS-visible serde boundaries
 
-Use the shared `stringify`/`stringify_pretty` writer whenever serde-backed arbitrary JSON is embedded in text, persisted, measured for a storage/context cap, or used as a deduplication key. Typed records first convert through `serde_json::to_value`, retaining their declared field order and serialization errors. Plain-object enumeration uses `object_entries`; JS Map registries retain insertion order.
+Use the shared `stringify`/`stringify_pretty` writer whenever serde-backed arbitrary JSON is embedded in text, persisted, measured for a storage/context cap, or used as a deduplication key. Typed records first convert through `serde_json::to_value`, retaining their declared field order and serialization errors. Caller property insertion order for typed session messages is an [approved semantic-JSON exception](compatibility.md#out-of-scope), not a byte-order guarantee. Plain-object enumeration uses `object_entries`, including shared-budget traversal in [remote compaction](../porting/traceability/openai-remote-compact.md#numeric-key-budget-traversal); JS Map registries retain insertion order.
 
 ### Decision: egress, not ingress (2026-10-20)
 
