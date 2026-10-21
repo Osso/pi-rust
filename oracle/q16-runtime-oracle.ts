@@ -1,6 +1,23 @@
 import { runOracle, requireCases } from "./coding-agent-utils-oracle-support.ts";
 
 void runOracle(async (api, request) => {
+	if (request.operation === "startupScenario") {
+		const { pathToFileURL } = await import("node:url");
+		const { dirname, join } = await import("node:path");
+		const { VERSION } = await import(pathToFileURL(join(dirname(process.argv[2]), "..", "config.ts")).href);
+		const results = [];
+		for (const raw of requireCases(request)) {
+			const input = raw as {scenario:string;db:string};
+			const trace: string[] = [];
+			const ready = {version:VERSION,pid:123,executable:"/fake/pi",instanceId:"new",managedBy:"pi",ready:true};
+			let resident: unknown = input.scenario === "ready" ? ready : input.scenario === "external" || input.scenario === "replace" ? {...ready,version:"old",instanceId:"old",managedBy:input.scenario === "external" ? "external" : "pi"} : undefined;
+			try {
+				const result = await (api.ensureSupervisorRunning as (...args: unknown[]) => Promise<unknown>)({controlDbPath:input.db,pollIntervalMs:1,startupTimeoutMs:input.scenario === "timeout" ? 0 : 100,launchInvocation:{command:"/fake/pi",args:["supervisor"],cwd:"/fake",env:{}}},{probe:async()=>{trace.push("probe");return resident;},launch:async()=>{trace.push("launch");if(input.scenario === "launch-error") throw new Error("fake launch error");resident=ready;},terminate:async()=>{trace.push("terminate");resident=undefined;}});
+				results.push({result,trace});
+			} catch(error) {results.push({error:error instanceof Error ? error.message : String(error),trace});}
+		}
+		return results;
+	}
 	if (request.operation === "openResident") {
 		const { readdirSync } = await import("node:fs");
 		const { basename, join } = await import("node:path");

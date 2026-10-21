@@ -661,6 +661,10 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_runtime::ModelRunt
     .expect("runtime");
     runtime.register_native_provider(Arc::clone(&faux.provider));
     runtime
+        .get_available(None, Default::default())
+        .await
+        .expect("fake provider availability");
+    runtime
 }
 
 #[tokio::test]

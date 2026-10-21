@@ -121,6 +121,10 @@ async fn run_rust(dir: &str) -> Value {
     .await
     .expect("runtime");
     runtime.register_native_provider(Arc::clone(&faux.provider));
+    runtime
+        .get_available(None, Default::default())
+        .await
+        .expect("fake provider availability");
     let mut manager = SessionManager::create(
         dir,
         Some(&session_dir),
