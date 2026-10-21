@@ -327,6 +327,27 @@ fn transcript_temporaries() -> std::collections::BTreeSet<std::path::PathBuf> {
 }
 #[test]
 fn spool_callback_and_corruption_failures_cleanup_private_files() {
+    // Observe only this probe's temporary root, not concurrent readers' spools.
+    if std::env::var_os("PI_STORAGE_CLEANUP_CHILD").is_none() {
+        let private = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "spool_callback_and_corruption_failures_cleanup_private_files",
+                "--nocapture",
+            ])
+            .env("PI_STORAGE_CLEANUP_CHILD", "1")
+            .env("TMPDIR", private.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     use pi_coding_agent::core::session_manager::SessionManagerError;
     use pi_coding_agent::core::session_transcript_spool::with_seekable_session_transcript;
     use std::os::unix::fs::PermissionsExt;
@@ -592,4 +613,58 @@ fn uncompressed_inactive_tree_and_archived_list_context_are_source_equivalent() 
         assert_eq!(json!(actual), call(&mut ts, json!({"op":"list","cwd":dir,"dir":dir})));
     }
     assert!(pi_coding_agent::core::session_manager::find_most_recent_session(&dir, None).is_none());
+}
+
+#[test]
+fn unknown_summary_unpaired_keys_and_values_survive_rewrite_and_fork() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"compacted":true,"splitExtra":true}),
+    );
+    let path = created["path"].as_str().unwrap();
+    let expected = call(&mut ts, json!({"op":"extraTokens","path":path}));
+    let mut manager = SessionManager::open(path, None, None).unwrap();
+    let entry = manager
+        .get_entries()
+        .into_iter()
+        .find(|e| e.entry_type() == "compaction")
+        .unwrap();
+    manager
+        .update_compaction_summary(entry.id().unwrap(), "rewritten")
+        .unwrap();
+    assert_eq!(call(&mut ts, json!({"op":"extraTokens","path":path})), expected);
+    let fork = SessionManager::fork_from(path, &dir, Some(&dir), None, None).unwrap();
+    assert_eq!(
+        call(&mut ts, json!({"op":"extraTokens","path":fork.get_session_file()})),
+        expected
+    );
+}
+#[tokio::test]
+async fn escaped_receipt_html_export_retains_source_raw_utf16_tokens() {
+    use pi_coding_agent::core::export_html::{ExportOptions, export_from_file};
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let db = tmp.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"splitSurrogate":true}),
+    );
+    let path = created["path"].as_str().unwrap();
+    let expected = call(&mut ts, json!({"op":"receiptTokens","path":path}));
+    call(&mut ts, json!({"op":"archive","db":db,"path":path}));
+    let output = tmp.path().join("raw.html").display().to_string();
+    export_from_file(path, Some(ExportOptions::from_output_path(&output)))
+        .await
+        .unwrap();
+    assert_eq!(
+        call(&mut ts, json!({"op":"exportReceiptTokens","path":output})),
+        expected
+    );
+    assert!(!std::path::Path::new(path).exists());
 }

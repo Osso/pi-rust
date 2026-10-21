@@ -22,10 +22,21 @@ async function handle(r: any) {
    m.appendMessage({role:"user",content:"newest",timestamp:4});
   }
   if(r.splitSurrogate)for(const entry of m.getEntries())if(entry.type==="message")entry.mailboxStoreRefs=[{sessionPath:String.fromCharCode(0xd800),messageId:"surrogate"}];
+  if(r.splitExtra)for(const entry of m.getEntries())if(entry.type==="compaction"){entry[String.fromCharCode(0xd800)]={value:String.fromCharCode(0xdc00)};entry.usage={[String.fromCharCode(0xdc00)]:String.fromCharCode(0xd800)};}
   if("legacyUsage" in r) for(const entry of m.getEntries())if(entry.type==="compaction")entry.usage=r.legacyUsage;
   if ("rawRefs" in r) for(const entry of m.getEntries()) if(entry.type==="message") entry.mailboxStoreRefs=r.rawRefs;
   m.persistForRecovery();
   return {path:m.getSessionFile(), id:m.getSessionId()};
+ }
+ if(r.op === "extraTokens") {
+  const entry=manager.SessionManager.openReadOnly(r.path).getEntries().find((e:any)=>e.type==="compaction");
+  return JSON.stringify([entry[String.fromCharCode(0xd800)],entry.usage]);
+ }
+ if(r.op === "exportReceiptTokens") {
+  const html=readFileSync(r.path,"utf8");const marker='<script id="session-data" type="application/json">';
+  const start=html.indexOf(marker)+marker.length;const end=html.indexOf("</script>",start);
+  const data=JSON.parse(Buffer.from(html.slice(start,end),"base64").toString("utf8"));
+  return JSON.stringify(data.entries.find((e:any)=>e.type==="message").mailboxStoreRefs);
  }
  if(r.op === "receiptTokens") {
   const acceptance=await import(pathToFileURL(join(root,"runtime-mailbox-transcript.ts")).href);
