@@ -5,6 +5,7 @@ Frozen `packages/coding-agent/extensions/agents-core/src/question-relay-tools.ts
 | Frozen symbols / branches | Native | Proof |
 |---|---|---|
 | registerQuestionRelayTools, createChildAwareAskQuestionsTool | register_question_relay_tools | exact full 12-tool metadata differential; child/main dispatch |
+| runtime.registerAgentsMailboxTools includes both relay tools | runtime::register_agents_mailbox_tools | standalone registration regression (was 2 vs frozen 4); same shared store and source insertion order |
 | isChildRuntime, explicit boolean check | context identity/requires-ID; parse_params | missing_identity_explicit_blocking_and_direct_child_route_are_enforced |
 | answerMessageId, formatQuestion, formatParentQuestionRequest, sendQuestionsToParent | same private helpers, existing contact_parent transport | child_nonblocking_relays_formatted_request_and_correlates_answers; child-blocking cancellation |
 | askParent nonblocking / cancellation | ask_parent, wait_for_answer | queued/requestId; sent request survives cancellation |

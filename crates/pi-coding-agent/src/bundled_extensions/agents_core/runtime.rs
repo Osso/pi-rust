@@ -665,16 +665,16 @@ pub fn register_agents_mailbox_tools(
     options: &MultiAgentExtensionOptions,
 ) -> Result<(), HandlerError> {
     let store = resolve_multi_agent_store(options);
-    super::mailbox_runtime::register_mailbox_tools(pi, store, options.on_session_message_sent.clone())
-        .map_err(HandlerError::new)
+    super::mailbox_runtime::register_mailbox_tools(pi, store.clone(), options.on_session_message_sent.clone())
+        .map_err(HandlerError::new)?;
+    super::question_relay_tools::register_question_relay_tools(pi, store)
 }
 
 pub fn multi_agent_extension(pi: &ExtensionApi, options: &MultiAgentExtensionOptions) -> Result<(), HandlerError> {
     let store = resolve_multi_agent_store(options);
     let mut shared_options = options.clone();
-    shared_options.store = Some(store.clone());
+    shared_options.store = Some(store);
     super::registration::register_agents_core_tools(pi, &shared_options)?;
     register_agent_viewer_tools(pi, &shared_options)?;
-    register_agents_mailbox_tools(pi, &shared_options)?;
-    super::question_relay_tools::register_question_relay_tools(pi, store)
+    register_agents_mailbox_tools(pi, &shared_options)
 }

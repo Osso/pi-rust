@@ -815,6 +815,35 @@ async fn request_handler_returns_last_session_message_summary() {
 }
 
 #[tokio::test]
+async fn mailbox_registration_includes_question_relay_tools() {
+    let extension = load_extension_from_factory(
+        Arc::new(move |pi| {
+            let result = pi_coding_agent::bundled_extensions::agents_core::runtime::register_agents_mailbox_tools(
+                pi,
+                &MultiAgentExtensionOptions::default(),
+            );
+            Box::pin(async move { result })
+        }),
+        "/repo",
+        Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
+        create_extension_runtime(),
+        "<mailbox-registration>",
+    )
+    .await
+    .unwrap();
+    let names = extension.read().tools.keys().cloned().collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "send_agent_message",
+            "contact_parent",
+            "ask_questions",
+            "answer_question"
+        ]
+    );
+}
+
+#[tokio::test]
 async fn registration_exposes_the_source_tools_and_commands() {
     let test = test_dir();
     let store = store_with_persistence(&test);
