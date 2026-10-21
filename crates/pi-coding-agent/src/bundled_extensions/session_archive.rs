@@ -111,7 +111,8 @@ async fn run_quit_action(action: QuitAction) -> Result<(), String> {
         QuitAction::Delete(session) => match delete_session_tree(&session.path, Some(&session.db)).await {
             crate::core::session_delete::SessionDeleteResult::Success { .. } => Ok(()),
             crate::core::session_delete::SessionDeleteResult::Failure { error, .. } => {
-                Err(format!("Failed to delete session: {error}"))
+                // Final stderr is a Node UTF-8 output boundary; public deletion values remain UTF-16.
+                Err(format!("Failed to delete session: {}", error.to_utf8_lossy()))
             }
         },
     }

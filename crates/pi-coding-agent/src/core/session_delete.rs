@@ -2,7 +2,8 @@
 use std::path::Path;
 use std::process::Stdio;
 
-use serde::Serialize;
+use pi_js_compat::js_json::{JsString, JsValue, stringify_lossless};
+use serde::{Serialize, Serializer};
 use tokio::io::AsyncReadExt;
 
 use super::session_control_db::{list_descendant_session_paths, remove_sessions_metadata};
@@ -11,12 +12,28 @@ use super::tools::node_fs::node_fs_error;
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum SessionDeleteResult {
-    Success { ok: bool, method: &'static str },
-    Failure { ok: bool, error: String },
+    Success {
+        ok: bool,
+        method: &'static str,
+    },
+    Failure {
+        ok: bool,
+        #[serde(serialize_with = "serialize_error")]
+        error: JsString,
+    },
 }
 
 fn failure(error: String) -> SessionDeleteResult {
-    SessionDeleteResult::Failure { ok: false, error }
+    SessionDeleteResult::Failure {
+        ok: false,
+        error: JsString::from(error.as_str()),
+    }
+}
+
+fn serialize_error<S: Serializer>(error: &JsString, serializer: S) -> Result<S::Ok, S::Error> {
+    let json = stringify_lossless(&JsValue::String(error.clone()));
+    let raw = serde_json::value::RawValue::from_string(json).map_err(serde::ser::Error::custom)?;
+    raw.serialize(serializer)
 }
 
 pub async fn delete_session_tree(path: &str, db: Option<&str>) -> SessionDeleteResult {
@@ -47,7 +64,7 @@ async fn delete_tree_files(path: &str, db: Option<&str>, deleted: &mut Vec<Strin
     let mut method = "trash";
     for batch in chunk_session_paths(&paths) {
         match delete_session_batch(batch, deleted).await {
-            SessionDeleteResult::Failure { error, .. } => return failure(error),
+            result @ SessionDeleteResult::Failure { .. } => return result,
             SessionDeleteResult::Success { method: "unlink", .. } => method = "unlink",
             _ => {}
         }
@@ -83,30 +100,51 @@ async fn delete_session_batch(paths: &[String], deleted: &mut Vec<String>) -> Se
     for path in remaining {
         if let Err(error) = tokio::fs::remove_file(path).await {
             let error = node_fs_error(&error, "unlink", path);
-            return failure(match trash_error {
-                Some(trash) => format!("{error} (trash: {trash})"),
-                None => error,
-            });
+            let mut units: Vec<u16> = error.encode_utf16().collect();
+            if let Some(trash) = trash_error {
+                units.extend(" (trash: ".encode_utf16());
+                units.extend_from_slice(trash.units());
+                units.push(u16::from(b')'));
+            }
+            return SessionDeleteResult::Failure {
+                ok: false,
+                error: JsString::from_utf16(units),
+            };
         }
         deleted.push(path.clone());
     }
     SessionDeleteResult::Success { ok: true, method }
 }
 
-async fn trash_session_files(paths: &[String]) -> Option<String> {
-    let child = tokio::process::Command::new("trash")
-        .arg("--")
-        .args(paths)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn();
+fn spawn_trash(paths: &[String]) -> std::io::Result<tokio::process::Child> {
+    let spawn = |command: &mut tokio::process::Command| {
+        command
+            .arg("--")
+            .args(paths)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+    };
+    let result = spawn(&mut tokio::process::Command::new("trash"));
+    match result {
+        // Node/libuv uses execvp: an executable text file without a shebang runs under /bin/sh.
+        // Only ENOEXEC selects this path; positional arguments never become shell source.
+        Err(error) if error.raw_os_error() == Some(rustix::io::Errno::NOEXEC.raw_os_error()) => {
+            spawn(tokio::process::Command::new("/bin/sh").args(["-c", "exec trash \"$@\"", "trash"]))
+        }
+        other => other,
+    }
+}
+
+async fn trash_session_files(paths: &[String]) -> Option<JsString> {
+    let child = spawn_trash(paths);
     let mut child = match child {
         Ok(child) => child,
         Err(error) => {
             let diagnostic = node_fs_error(&error, "spawn", "trash");
             let code = diagnostic.split(':').next().unwrap_or_default();
-            return Some(format!("spawn trash {code}"));
+            return Some(JsString::from(format!("spawn trash {code}").as_str()));
         }
     };
     let stderr = child.stderr.take().expect("trash stderr is piped");
@@ -114,7 +152,7 @@ async fn trash_session_files(paths: &[String]) -> Option<String> {
     match (status, stderr) {
         (Ok(status), _) if status.success() => None,
         (Ok(status), Ok(stderr)) => Some(format_trash_error(status, &stderr)),
-        (Err(error), _) | (_, Err(error)) => Some(error.to_string()),
+        (Err(error), _) | (_, Err(error)) => Some(JsString::from(error.to_string().as_str())),
     }
 }
 
@@ -133,21 +171,34 @@ async fn read_stderr_prefix(mut stderr: tokio::process::ChildStderr) -> std::io:
     }
 }
 
-fn format_trash_error(status: std::process::ExitStatus, stderr: &[u8]) -> String {
+fn format_trash_error(status: std::process::ExitStatus, stderr: &[u8]) -> JsString {
     let prefix = String::from_utf8_lossy(stderr)
         .encode_utf16()
         .take(200)
         .collect::<Vec<_>>();
-    let text = String::from_utf16_lossy(&prefix);
-    let first_line = pi_js_compat::string::js_trim(&text)
-        .split('\n')
+    let first_line = trim_utf16(&prefix)
+        .split(|unit| *unit == u16::from(b'\n'))
         .next()
         .unwrap_or_default();
     if first_line.is_empty() {
-        format!("trash exited with {}", exit_status_text(status))
+        JsString::from(format!("trash exited with {}", exit_status_text(status)).as_str())
     } else {
-        first_line.to_owned()
+        JsString::from_utf16(first_line.to_vec())
     }
+}
+
+fn trim_utf16(units: &[u16]) -> &[u16] {
+    use pi_js_compat::string::is_js_whitespace_unit;
+    let start = units
+        .iter()
+        .position(|unit| !is_js_whitespace_unit(*unit))
+        .unwrap_or(units.len());
+    let rest = &units[start..];
+    let end = rest
+        .iter()
+        .rposition(|unit| !is_js_whitespace_unit(*unit))
+        .map_or(0, |index| index + 1);
+    &rest[..end]
 }
 
 fn exit_status_text(status: std::process::ExitStatus) -> String {

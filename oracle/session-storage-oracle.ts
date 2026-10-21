@@ -67,7 +67,12 @@ async function handle(r: any) {
   const previousPath=process.env.PATH;
   try {
    if(r.pathEnv!==undefined)process.env.PATH=r.pathEnv;
-   return await deletion.deleteSessionTree(r.path,r.db);
+   const result = await deletion.deleteSessionTree(r.path,r.db);
+   if (r.utf16) {
+    if (result.ok) throw new Error("expected deletion failure");
+    return {json:JSON.stringify(result),units:Array.from({length:result.error.length},(_,i)=>result.error.charCodeAt(i))};
+   }
+   return result;
   } finally { process.env.PATH=previousPath; }
  }
  if (r.op === "archive") return archive.archivePersistedSession(r.db, r.path);

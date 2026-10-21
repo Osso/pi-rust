@@ -11,7 +11,16 @@ async fn delete_worker() {
     };
     let db = std::env::var("DELETE_DB").ok();
     let result = delete_session_tree(&path, db.as_deref()).await;
-    std::fs::write(format!("{path}.result"), serde_json::to_vec(&result).unwrap()).unwrap();
+    let output = if std::env::var_os("DELETE_UTF16").is_some() {
+        let units: Vec<u16> = match &result {
+            pi_coding_agent::core::session_delete::SessionDeleteResult::Failure { error, .. } => error.units().to_vec(),
+            _ => panic!("expected deletion failure"),
+        };
+        json!({"json":serde_json::to_string(&result).unwrap(),"units":units})
+    } else {
+        serde_json::to_value(&result).unwrap()
+    };
+    std::fs::write(format!("{path}.result"), serde_json::to_vec(&output).unwrap()).unwrap();
 }
 
 #[test]
@@ -202,6 +211,56 @@ fn frozen_tree_deletion_batches_long_paths_and_cleans_partial_metadata() {
             assert_eq!(actual_rows, vec![unrelated.display().to_string()]);
         }
     }
+}
+
+#[test]
+fn trash_without_shebang_matches_node_execution() {
+    assert_trash_diagnostic_matches_frozen("exit 7\n", false);
+}
+
+#[test]
+fn trash_split_surrogate_preserves_public_utf16() {
+    assert_trash_diagnostic_matches_frozen(
+        "#!/usr/bin/python3\nimport sys;sys.stderr.write('x'*199+'😀');sys.exit(1)\n",
+        true,
+    );
+}
+
+fn assert_trash_diagnostic_matches_frozen(script: &str, utf16: bool) {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let trash = root.path().join("trash");
+    std::fs::write(&trash, script).unwrap();
+    std::fs::set_permissions(&trash, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = root.path().join("blocked");
+    std::fs::create_dir(&path).unwrap();
+    let mut oracle = TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let expected = oracle.request(&json!({"op":"delete","path":path,"pathEnv":root.path(),"utf16":utf16}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let mut worker = std::process::Command::new(std::env::current_exe().unwrap());
+    worker
+        .args(["--exact", "delete_worker"])
+        .env("DELETE_FIXTURE", &path)
+        .env("PATH", root.path());
+    if utf16 {
+        worker.env("DELETE_UTF16", "1");
+    }
+    let output = worker.output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let actual: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(format!("{}.result", path.display())).unwrap()).unwrap();
+    if utf16 {
+        let units = expected["output"]["units"].as_array().unwrap();
+        assert_eq!(&units[units.len() - 3..], &[json!(120), json!(55357), json!(41)]);
+    } else {
+        assert!(
+            expected["output"]["error"]
+                .as_str()
+                .unwrap()
+                .ends_with("(trash: trash exited with 7)")
+        );
+    }
+    assert_eq!(actual, expected["output"]);
 }
 
 #[test]
