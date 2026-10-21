@@ -15,7 +15,12 @@ pub fn calculate_retry_delay_ms(attempt: f64, base_delay_ms: f64, max_backoff_ms
 
 fn js_min(left: f64, right: f64) -> f64 {
     if left.is_nan() || right.is_nan() {
-        f64::NAN
+        return f64::NAN;
+    }
+    let both_zero = left == 0.0 && right == 0.0;
+    let has_negative_zero = left.is_sign_negative() || right.is_sign_negative();
+    if both_zero && has_negative_zero {
+        -0.0
     } else {
         left.min(right)
     }
