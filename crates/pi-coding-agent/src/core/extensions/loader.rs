@@ -392,7 +392,7 @@ impl ExtensionRegistry {
         let Some(factory) = self.get(&resolved_path).or_else(|| self.get(extension_path)).cloned() else {
             return Err(ExtensionLoadError {
                 path: extension_path.to_owned(),
-                error: format!("Extension does not export a valid factory function: {extension_path}"),
+                error: format!("Extension does not export a valid factory function: {extension_path}").into(),
             });
         };
         time(&format!("{extension_path} module import"), TimingLabel::Extensions);
