@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 const SOURCE_MODULE: &str = "packages/coding-agent/src/modes/interactive/components/session-selector-search.ts";
 
-fn session(id: &str, modified: i64, all_messages_text: &str) -> SessionInfo {
+fn session(id: &str, modified: i64, first_message: &str) -> SessionInfo {
     SessionInfo {
         path: format!("/tmp/{id}.jsonl"),
         id: id.to_owned(),
@@ -24,8 +24,7 @@ fn session(id: &str, modified: i64, all_messages_text: &str) -> SessionInfo {
         created: 0,
         modified,
         message_count: 1,
-        first_message: "(no messages)".to_owned(),
-        all_messages_text: all_messages_text.to_owned(),
+        first_message: first_message.to_owned(),
     }
 }
 
@@ -52,7 +51,7 @@ fn search_cases() -> Vec<Value> {
                 "name": session.name,
                 "cwd": session.cwd,
                 "messageCount": session.message_count,
-                "allMessagesText": session.all_messages_text,
+                "firstMessage": session.first_message,
                 "modified": session.modified,
             })).collect::<Vec<_>>(),
             "query": query,
@@ -61,6 +60,13 @@ fn search_cases() -> Vec<Value> {
         }));
     };
 
+    push(
+        "not-later-message",
+        &base,
+        "re:obsolete later-message needle",
+        "recent",
+        "all",
+    );
     push("phrase", &base, "\"node cve\"", "recent", "all");
     push("literal-chair", &base, "chair", "recent", "all");
     push("literal-chair-relevance", &base, "chair", "relevance", "all");
@@ -136,8 +142,7 @@ fn rust_sessions(value: &Value) -> Vec<SessionInfo> {
             created: 0,
             modified: session["modified"].as_i64().unwrap(),
             message_count: session["messageCount"].as_u64().unwrap() as usize,
-            first_message: "(no messages)".to_owned(),
-            all_messages_text: session["allMessagesText"].as_str().unwrap().to_owned(),
+            first_message: session["firstMessage"].as_str().unwrap().to_owned(),
         })
         .collect()
 }

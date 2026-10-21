@@ -38,6 +38,18 @@ class SandboxTests(unittest.TestCase):
         python = Path(executable).resolve().parent / "python"
         self.run_guard([str(python), "-c", "import os; assert len(os.urandom(32)) == 32; print(hash('entropy'))"])
 
+    def test_ripgrep_is_available_without_exposing_other_host_tools(self):
+        probe = (
+            "import pathlib,subprocess,tempfile; "
+            "directory=pathlib.Path(tempfile.mkdtemp()); "
+            "fixture=directory/'search.txt'; fixture.write_text('needle\\n'); "
+            "result=subprocess.run(['rg','needle',str(fixture)],capture_output=True,text=True,check=True); "
+            "assert result.stdout == 'needle\\n'; "
+            "assert not pathlib.Path('/home/osso/.cargo/bin/cargo').exists(); "
+            "assert not pathlib.Path('/home/osso/.config/pi').exists()"
+        )
+        self.run_guard(["/usr/bin/python3", "-c", probe])
+
     def test_host_state_hidden_and_network_is_loopback_only(self):
         probe = (
             "import json,os,pathlib,subprocess; "

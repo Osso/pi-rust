@@ -9,7 +9,9 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_ai::utils::uuid::random_uuid;
 use serde_json::Value;
 
-use crate::core::session_manager::{FileEntry, KnownSessionEntry, SessionEntry, SessionMessageEntry};
+use crate::core::session_manager::{
+    FileEntry, KnownSessionEntry, SessionEntry, SessionMessageEntry, parse_session_file_entry,
+};
 use crate::utils::iso_time;
 
 /// Maximum UTF-8 byte length persisted for a tool result's content.
@@ -131,9 +133,9 @@ fn cap_tool_result_content(content: &[TextOrImageContent]) -> Vec<TextOrImageCon
 }
 
 fn serialized_entry_bytes(entry: &SessionMessageEntry) -> usize {
-    serde_json::to_value(KnownSessionEntry::Message(entry.clone()))
-        .map(|value| pi_js_compat::js_json::stringify(&value).len())
-        .unwrap_or(0)
+    serde_json::to_string(&KnownSessionEntry::Message(entry.clone()))
+        .expect("lossless session message entry serialization must succeed")
+        .len()
 }
 
 fn build_tool_result_candidate(
@@ -246,12 +248,15 @@ fn serialize_entry(entry: &SessionEntry) -> String {
     match entry {
         SessionEntry::Known(KnownSessionEntry::Message(message)) => {
             let (truncated, _) = truncate_session_message_entry(message);
-            serde_json::to_value(KnownSessionEntry::Message(truncated))
+            serde_json::to_string(&KnownSessionEntry::Message(truncated))
         }
-        _ => serde_json::to_value(entry),
+        _ => serde_json::to_string(entry),
     }
-    .map(|value| pi_js_compat::js_json::stringify(&value))
-    .unwrap_or_default()
+    .map(|json| {
+        let value = pi_js_compat::js_json::parse_lossless(&json).expect("typed entry serialization is valid JSON");
+        pi_js_compat::js_json::stringify_lossless(&value)
+    })
+    .expect("session entry must serialize")
 }
 
 /// Serialize one session entry while applying persistence-only tool-result truncation.
@@ -343,11 +348,8 @@ fn read_session_file_for_migration(file_path: &str) -> SessionFileParseResult {
         if line.trim().is_empty() {
             continue;
         }
-        match serde_json::from_str::<Value>(line) {
-            Ok(value) => entries.push(
-                serde_json::from_value::<FileEntry>(value)
-                    .unwrap_or_else(|_| FileEntry::Entry(SessionEntry::Unknown(serde_json::Map::new()))),
-            ),
+        match parse_session_file_entry(line) {
+            Ok(entry) => entries.push(entry),
             Err(_) => return SessionFileParseResult::Malformed,
         }
     }

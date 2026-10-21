@@ -1193,9 +1193,7 @@ fn register_agent_goal_handlers(
                             }
                         },
                         schedule_retry: |goal| empty_for_retry.schedule(ctx.clone(), goal),
-                        schedule_error_status: |message: &str| {
-                            error_for_status.schedule(ctx.clone(), message);
-                        },
+                        schedule_error_status: |message: &str| error_for_status.schedule(ctx.clone(), message),
                         report_skipped: |message: &str| {
                             let _ = status_for_report.append(ctx_for_report.clone(), message, None);
                         },

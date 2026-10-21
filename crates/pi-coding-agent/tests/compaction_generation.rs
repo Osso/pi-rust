@@ -133,7 +133,7 @@ fn compaction_entry(provider_native: Option<ProviderNativeContext>) -> Compactio
         summary: "OpenAI native compaction stored in session entry details.".to_owned(),
         first_kept_entry_id: "message-2".to_owned(),
         tokens_before: 42_000.0,
-        usage: None,
+        extra: Default::default(),
         duration_ms: None,
         details: Some(Box::new(json!({"type": "openai-remote-compaction"}))),
         provider_native: provider_native.map(Box::new),

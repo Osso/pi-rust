@@ -4,6 +4,10 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 
 ## What it must do
 
+- [x] Session selectors search only id/name/firstMessage/cwd at frozen4f9e6f8a4; SessionInfo must not retain a whole-transcript text accumulator ([traceability](../porting/traceability/session-manager.md)).
+- [x] Resume discovery consumes control-owned listResumeSessionMetadata: only an entirely empty metadata table permits filesystem fallback, never a scoped-empty result. Exclude exact resident IDs and slash/backslash path segments ([predicate](../porting/traceability/resident-session.md)); preparation/cleanup remains pending.
+- [x] Preserve raw receipt/summary extras through legacy migration/export and tool-output file migration without Value detours; entry-byte sizing serializes losslessly and never treats serialization failure as zero ([tool-output proof](../porting/traceability/session-tool-output.md)).
+
 - [x] Refuse differential proof when the source worktree is not at the pinned commit.
 - [x] Execute the real pinned TypeScript functions through the worktree-local `tsx` runtime.
 - [x] Send identical fixtures to TypeScript and Rust and compare normalized values and errors.

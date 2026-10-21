@@ -87,25 +87,15 @@ struct SessionFooterData {
 }
 
 fn add_entry_usage(totals: &mut UsageTotals, entry: &SessionEntry) {
-    match entry {
-        SessionEntry::Known(KnownSessionEntry::Message(message)) => match message.message.as_ref() {
-            pi_agent_core::agent::AgentMessage::Assistant(assistant) => {
-                add_usage_to_totals(totals, &assistant.usage);
-            }
-            pi_agent_core::agent::AgentMessage::ToolResult(result) => {
-                if let Some(usage) = &result.usage {
-                    add_usage_to_totals(totals, usage);
-                }
-            }
-            _ => {}
-        },
-        SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => {
-            if let Some(usage) = &entry.usage {
-                add_usage_to_totals(totals, usage);
-            }
+    let SessionEntry::Known(KnownSessionEntry::Message(message)) = entry else {
+        return;
+    };
+    match message.message.as_ref() {
+        pi_agent_core::agent::AgentMessage::Assistant(assistant) => {
+            add_usage_to_totals(totals, &assistant.usage);
         }
-        SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => {
-            if let Some(usage) = &entry.usage {
+        pi_agent_core::agent::AgentMessage::ToolResult(result) => {
+            if let Some(usage) = &result.usage {
                 add_usage_to_totals(totals, usage);
             }
         }

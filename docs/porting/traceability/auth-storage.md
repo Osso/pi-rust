@@ -1,6 +1,37 @@
 # auth-storage traceability
 
-Pinned source: `packages/coding-agent/src/core/auth-storage.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Current source: `packages/coding-agent/src/core/auth-storage.ts` at frozen `4f9e6f8a4`.
+
+## Integration status
+
+Verified integration state: 2026-10-21. Canonical merge `4cb53c3143c0da5850242aa47629a001cfe69737` retains `51f6e772630fb455424ac721c1eae3a2f5647d57`, octal-fixture correction `4376b988`, and documentation correction `ba172341`. This is partial integration, not whole-module parity or a new waiver.
+
+Retained-head evidence: 13 auth cases (one process-helper no-op; 12 substantive top-level cases) and one registry case passed. The later `4376b988` exact octal-only `auth_phase1` clippy run exited 0, fixing the earlier non-octal-permissions diagnostic; it is not a pass for the earlier multi-target auth clippy gate. Manual readability debt remains reported, not clean. Proof details and limitations: [partial verification](/tmp/pi-rust-repin-auth/VERIFY-PARTIAL.md).
+
+The original auth worktree/branch was cleaned after merge. External patch SHA256 `787716f8000793de4adc221973300b99336f868c5a111dd7a963df655a6abb53` remains unapplied and not integration-ready; [restore provenance](/tmp/pi-rust-repin-auth/RESTORE.md) records its exact baseline and restrictions. Historical handoff wording in [REPORT.md](/tmp/pi-rust-repin-auth/REPORT.md) describes the pre-merge checkpoint, not a still-existing worktree.
+
+## Phase1 revalidation
+
+- `auth_phase1::sync_auth_contender_cannot_steal_three_second_live_async_lock`: actual healthy async holder; sync auth caller must use 30s stale, not global default.
+- `auth_phase1::compromised_callback_cannot_write_under_lost_lock`: remove owned fixture lock during callback, allow 15s heartbeat to detect loss, then return write; write must be rejected.
+- Async acquisition matches frozen retry count/min/max/factor; cancellation is a Rust-only boundary.
+- `auth_phase1_modes::auth_creates_all_parent_directories_private`: nested parent creation must use 0700 for every newly created level, not chmod only the leaf. Auth file creation uses mode 0600 on open; chmod failures propagate instead of being suppressed.
+- Public native source surface: `get`, `get_all`, `set`, `remove`, `has`, `has_auth`, `get_provider_env`, runtime overrides, status, `drain_errors`, `login`, `logout`, OAuth listing. `get_api_key`/refresh are segregated into an external blocked WIP patch pending sourcebug classification; absent from integration head. Frozen `list()` is temporarily named `list_providers()` to avoid colliding with obsolete trait `list(options)` callers.
+- `auth_phase1_public`: TS public set → Rust read/set → TS reload and reverse OAuth update; accountId/email/sentinel extras, provider env, unrelated raw provider entries, modes, reload/error recovery, runtime precedence, ordering.
+- `auth_phase1_process`: actual healthy TS process and Rust process, sync contenders at 3s and beyond 15s, observed mtime heartbeat, post-release acquisition; kill owned process group then age only its lock fixture to test stale recovery.
+- External blocked WIP `auth_phase1_rotation`: fake provider returns B from consumed A, injected callback-return-before-write cancellation/write error/actual heartbeat compromise; rescue success, concurrent unrelated changes preserved, fresh TS process sees B, subsequent refresh consumes B→C, refresh error without rescue, failed rescue with successful subsequent reload. Ordinary cases proved before segregation; NOT implemented in offered partial head.
+- `auth_source_discrepancy`: frozen TS successful API-key return despite persisted A when all sync operations fail after rotation; exact in-memory B/error ordering reproduced. Native refresh/get-api-key implementation removed to an external blocked patch pending user classification, not silently preserved/fixed; integration head has no production placeholder.
+- Existing CredentialStore/read-only/shared-revision code remains obsolete compilation scaffolding, not current-pin parity evidence. No OAuth rescue was added to generic `modify`. Historical proof inventory below must not be read as revalidated.
+
+## Remaining current-pin boundaries
+
+- `auth_phase1_errors`: exact EISDIR public error, Node UTF-8 replacement decoding, untouched raw UTF-16 provider keys/values preserved byte-equivalently to source during unrelated public set via lossless merge.
+- Raw UTF-16 preservation applies to persisted untouched entries, not the current `Value`-based public getter or typed OAuth credential adapter. Lone-surrogate public get/list and touched OAuth extra fields remain unsupported without a lossless public boundary; no waiver approved.
+- Constructor still has obsolete shared-revision scaffolding; source per-instance reload semantics and native consumer removal remain pending integration. In-memory backend retains obsolete serialized-chain semantics pending whole-module completion.
+- Source `getApiKey`, `refreshOAuthTokenWithLock`, error/reload/rescue branches absent from partial head; blocked WIP patch and proof ledger under `/tmp/pi-rust-repin-auth`.
+- Login/provider callbacks, registry restore/order/error branches and built-in flows still need full differential proof; [registry trace](oauth-registry.md) separates tracked fake-provider evidence from external builtin mappings and records the old-flow bridge discrepancy. No whole-module done claim.
+
+## Historical pre-repin inventory (not current-pin proof)
 Rust: `crates/pi-coding-agent/src/core/auth_storage.rs`.
 
 Cross-implementation proof (`tests/auth_storage_cross_process.rs`, `oracle/auth-storage-oracle.ts`):
@@ -28,14 +59,14 @@ Focused tests: `tests/auth_storage.rs` (16 cases, ports of `test/auth-storage.te
 | `auth-storage.ts:538-552` | `list` returns metadata in JavaScript key order | `list` via `js_json::object_entries`; delete/list test |
 | `auth-storage.ts:554-570` | `readStoredCredential` one-off read | `read_stored_credential`; `stored_credentials_can_be_read_without_resolving` |
 
-## Representation decisions
+## Historical representation decisions (not current-pin proof)
 
 - `auth.json` is held as `serde_json::Map` (insertion-ordered) so untouched providers keep their bytes
   and key order; only the modified provider is replaced.
 - `serde_json::Map::remove` is a swap-remove (it moves the last entry into the removed slot), while V8
   `delete` preserves order. The port uses `shift_remove`; the cross-process delete test pins this.
 
-## Gaps
+## Historical gaps
 
 - `AuthStorage` re-serializes a credential returned by `modify` through `serde_json`, so unknown extra
   fields on an api-key credential are dropped and OAuth extras follow the struct order
@@ -43,11 +74,11 @@ Focused tests: `tests/auth_storage.rs` (16 cases, ports of `test/auth-storage.te
   shape exactly. Recorded as a typed-boundary discrepancy.
 - `with_lock_async` jitter uses wall-clock nanos instead of `Math.random()`; only affects retry spacing.
 
-## Discrepancies
+## Historical discrepancies
 
 - None observed in file bytes for the ported operations (modify/delete/read/list).
 
-## Proof inventory
+## Historical proof inventory
 
 - Focused cases: 16.
 - Cross-implementation: 2 scenarios (byte parity + four read/write directions, both lock directions).

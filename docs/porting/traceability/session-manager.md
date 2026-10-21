@@ -1,6 +1,6 @@
 # coding-agent session-manager traceability
 
-Pinned source: `packages/coding-agent/src/core/session-manager.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Historical baseline: `packages/coding-agent/src/core/session-manager.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`. Current target is the [common source lock](../source-lock.json); only the explicitly recorded frozen4f9 deltas below have renewed bounded evidence, not the entire historical matrix.
 
 Rust module: `crates/pi-coding-agent/src/core/session_manager.rs`.
 Focused tests: `crates/pi-coding-agent/tests/session_manager.rs` (39).
@@ -17,7 +17,7 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 | Entry interfaces (`message`, `thinking_level_change`, `model_change`, `compaction`, `branch_summary`, `custom`, `custom_message`, `label`, `session_info`) | camelCase wire records with exact field order and omitted `undefined` | `KnownSessionEntry` + per-entry structs; differential `41000` byte comparison |
 | `SessionEntry` / `FileEntry` | known entries plus preserved unknown shapes | `SessionEntry::{Known,Unknown}` / `FileEntry::{Header,Entry}`; unknown fixture in `41000` |
 | `SessionContext` | `{messages, thinkingLevel, model}` | `SessionContext`; `builds_context_without_compaction` |
-| `SessionInfo` | path/id/cwd/name/archived/parent/created/modified/counts/text | `SessionInfo` (`created`/`modified` are epoch ms); `session_info_listing_uses_message_timestamps_and_skips_extension_prompts` |
+| `SessionInfo` | path/id/cwd/name/archived/parent/created/modified/counts/firstMessage only | `SessionInfo` (`created`/`modified` are epoch ms); `session_info_listing_uses_message_timestamps_and_skips_extension_prompts` |
 | `SessionTreeNode` | entry/children/label/labelTimestamp | `SessionTreeNode`; `tree_traversal_and_branching`, `labels_and_tree_nodes` |
 | `assertValidSessionId` | anchored `[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?` | `assert_valid_session_id`; `validates_session_ids` |
 | `migrateSessionEntries` | v1→v2 id/parent chain + `firstKeptEntryIndex`; v2→v3 `hookMessage`→`custom` | `migrate_session_entries`; `migrates_v1_entries_and_is_idempotent`, differential `41050` |
@@ -47,7 +47,7 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 | `updateCompactionSummary` | trim, non-empty, drop provider-native fields, restore on write failure | `update_compaction_summary`; two focused tests |
 | `getLeafId/getLeafEntry/getEntry/getChildren/getLabel/getBranch/buildContextEntries/buildSessionContext/getHeader/getEntries/getTree` | traversal and defensive copies | same-named methods; tree/label tests |
 | `branch/resetLeaf/branchWithSummary/createBranchedSession` | leaf pointer, branch summary, path extraction with label rewiring | same-named methods; `tree_traversal_and_branching`, `branched_session_*` tests |
-| `SessionManager.list/listArchived/listAll` | metadata-backed fast path (control-db order, cwd/dir/archive scope, subagent exclusion), else directory scan plus metadata cache, cwd filter, subagent exclusion, modified-desc sort | `list` / `list_archived` / `list_all`; `lists_sessions_scoped_by_cwd`, `metadata_backed_listing_prefers_control_db_and_excludes_subagents`, `metadata_listing_scopes_by_cwd_and_returns_control_db_order` |
+| `SessionManager.list/listArchived/listAll` | metadata-backed fast path (control-db order, cwd/dir/archive scope, subagent/resident exclusion); populated-but-scoped-empty index returns empty without scanning/cache; only absent/empty index permits directory scan plus metadata cache, cwd filter, subagent/resident exclusion, modified-desc sort | `list` / `list_archived` / `list_all`; `lists_sessions_scoped_by_cwd`, `metadata_backed_listing_prefers_control_db_and_excludes_subagents`, `metadata_listing_scopes_by_cwd_and_returns_control_db_order` |
 | `SessionManager.open` | resolves the header before construction; a persisted header keeps id/cwd/parent, a missing or empty file regenerates identity like the source | `open`; `open_preserves_a_freshly_persisted_header`, `reads_files_and_headers`, `rewrites_empty_files_and_rejects_non_session_files` |
 | `getDefaultSessionDirPath` private helper | resolved cwd + agent dir | `get_default_session_dir_path` (public in Rust) |
 
@@ -86,3 +86,41 @@ DB; the name therefore stays unset and display name uses `Session <id>`. This sl
 a new metadata lookup to that unchanged source path.
 
 Empty-file initialization returns after `new_session`/header recovery without rehydrating stale metadata, matching the source early return. RED→GREEN proof: `opening_an_empty_file_resets_names_without_restoring_stale_metadata`.
+
+## Frozen4f9e6f8a4 storage delta (pending whole-module proof)
+
+Archive-aware header/load/explicit-info/fork; filesystem resume discovery remains plain-only; mutable open/setSessionFile resolves stale path before guard; openReadOnly loads/migrates/indexes in memory without metadata writes. Message receipt field retains raw JSON including null and omission. Existing persist_for_recovery remains available; fsync/typed append are available and proved against the frozen receipt scanner; runtime claim/CAS integration remains owner work. Codec/fork trace: repin_session_storage. No crash-safe runtime delivery claim.
+
+Receipt proof: source creates real records, mutates exposed entry refs to null/empty/string/object/valid arrays, persists; Rust retained compaction rewrite; same TS reads exact raw values. New typed append + persist_for_recovery + fsync consumed by same frozen acceptance scan; initial RED scan[] missed ref. No DB claim/CAS proof.
+
+Bounded reverse scan now defers inactive payload loading until an uncompacted tree requires forward full read. Resource behavioral RED: real TS manager writes24 inactive3.5MiB Unicode records; fresh Rust child VmHWM delta114380KiB exceeded64MiB cap. Frozen source uses hasInactiveEntries, not retained inactive records. Compacted manager must retain only active cutoff plus chunk/largest-record memory.
+
+Late truncation mutation: TS-generated210KiB Unicode archive minus final2bytes → frozen header null; prior Rust direct first-line stream returned header. Header now uses seekable full decode validation, and manager/fork share one outer spool before plaintext scan. Test `late_truncated_archive_header_does_not_hide_decode_failure`.
+
+Full loader is now fallible (`Result<Vec<FileEntry>,SessionManagerError>`), missing path only yields empty; IO/decode errors propagate. Plain line streaming64/1MiB boundaries, archive uses full seekable spool; malformed records skipped. `load_session_context_entries` exports source header/context pair and requires existing actual filename; dynamic fixture tests source stale alias error vs explicit archive success without classifying it a defect. Parent-agent journal compile adapter propagates new error; old-pin-only journal still scheduled removal by owning lane.
+
+Pin-only summary accounting removed: CompactionEntry/BranchSummaryEntry now preserve unknown incoming properties through generic flattened extra map; no typed usage field or append option/branch argument. `unknown_legacy_summary_usage_survives_without_a_typed_accounting_contract` source persists string-valued unknown usage; prior typed parse made compaction unknown and rewrite rejected it (RED). Authorized minimal AgentSession coupling removal drops branch-summary stats special case and summary usage propagation; tool-result/other stats remain unmodified and not claimed parity.
+
+Mechanical source-absent read adaptation: footer add_entry_usage no longer reads typed compaction/branch-summary usage (two arms removed); frozen footer115–124 assistant-only loop is evidence. Existing tool-result accounting arm intentionally remains pending owning accounting lane.
+
+Mutable suffix guard now uses source archive predicate `.zst` (not only `.jsonl.zst`); actual source mutable open of missing arbitrary.zst rejects, prior Rust allocated identity (RED). Read-only generic-zst recursion not classified or duplicated.
+
+Historical raw-wire RED: source-generated escaped lone-surrogate mailbox path remained a message in TS while Value decoding dropped it. Resolved by the narrow lossless receipt/summary-extra parser and subsequent legacy Unknown carrier; not covered by the session-name waiver.
+
+Audit correction via dynamic frozen API: filesystem list/listAll/continue-recent scan only.jsonl (source1240,1277); archive-aware exported buildSessionInfo is distinct from resume population. Restored plain-only filename filters; public build_session_info decodes explicit archives. `uncompressed_inactive_tree_and_archived_list_context_are_source_equivalent` covers plain+archived tree/context, explicit info and filesystem list; initial RED incorrectly widened Rust list returnedarchive vs TS[]. No source bug/waiver.
+
+Narrow raw-wire implementation: receipt values and unknown summary properties are extracted from existing lossless JsValue AST before checked serde decode of remaining typed record; generic extra keys retain JsString, including unpaired UTF16. Known-entry and summary serializers emit lossless RawValue tokens; persistence and HTML payload serialize directly then normalize losslessly. No global TextContent/details/name representation change. Native raw field wrapper replaces Option<Value>; typed append signature unchanged. Existing serdeValue direct projections cannot represent unpaired strings and fail rather than corrupting them.
+
+Lossless regression proofs now cover source escaped receipt load/append/rewrite/fork and source unknown unpaired summary keys/values rewrite/fork; archive HTML export payload parsed by same TS retains exact receipt tokens. Focused20-test batch at ef263439+new fixtures:19 passed; one cleanup test observed concurrent readers tempdirs, not own leak. Probe now runs in its own child TMPDIR to measure only its own lifecycle. Hard90 worker proof remains valid (spool source unchanged).
+
+`parseSessionEntries` public in-memory path now shares the same lossless receipt/summary-extra parser; expanded source escaped-receipt test caught old Value-only path dropping message (RED1 vs2). No raw receipts are routed through Value before extraction in owned manager/history entrypoint paths.
+
+Legacyv1 actual source fixture drops entry IDs/parents before persistence. `source_legacy_v1_read_only_migrates_context_without_mutating_original` reproduced Rust empty context vs TS user message. Migrated Unknown records now reify their newly valid typed shapes before context/indexing; original bytes remain unchanged during read-only load. Legacy raw-field retention is covered by the subsequent receipt/summary export proofs below; no legacy/raw waiver inferred.
+
+Legacy/raw carrier now retains ordinary Map fields plus lossless receipt/summary extras in UnknownSessionEntry. Legacy ID/role changes edit only the ordinary map; reification serializes directly then shares the lossless parser, never converts raw fields through Value. Exact e1f7ab6b legacy receipt export RED reused;78fe6f2e focused GREEN. Legacy summary export proof additionally kills the Unknown-extra-dropping mutant (null/null vs source escaped UTF16 key/value tokens); restored-carrier GREEN1785172c; the focused storage integration also passes30/30 (unchanged hard90 boundary excluded under prior valid proof). One session_tool_output Unknown(Map::new().into()) constructor adaptation; no global content type rewrite. Public generic serde Decode still uses checked Value and is not claimed lossless; production manager/history use parse_session_file_entry. Active tool-output migration now shares that parser (b514ca25; source fixture RED then GREEN4403306e). No production direct FileEntry/SessionEntry serde decode remains; KnownSessionEntry::from_value receives fields after lossless extraction.
+
+Authorized frozen selector delta: SessionInfo has first_message only; removed source-absent all_messages_text and total-transcript accumulator. Counts/activity still scan all records; text extraction stops after first non-extension user prompt. Selector matches id/name/first_message/cwd exactly source line28. Actual-source differential not-later-message RED before production (e1f7ab6b), GREENf0675811.
+
+Metadata listing now consumes canonical control API (c7248cac via0063fe60): absent table alone returns None; populated-but-filtered-empty returns Some(empty) without filesystem scan/cache. Scope resolves cwd and directory prefix exactly at consumer boundary; DB owns query/subagent/order semantics. Actual-source scoped-empty RED at0063fe60, GREEN12b382a9. No duplicated SQL or compatibility query path.
+
+Bounded merged evidence and unresolved consumer/classification limits: [session storage integration](session-storage-integration.md). No fresh gate or whole-module promotion.

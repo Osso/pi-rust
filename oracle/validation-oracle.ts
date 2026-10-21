@@ -178,9 +178,9 @@ function execute(request: Request, api: ValidationApi, typebox: TypeboxApi["Type
 				request.operation === "validate_tool_call"
 					? api.validateToolCall(tools, toolCall)
 					: api.validateToolArguments(tools[0], toolCall);
-			return { name: testCase.name, ok: true, value, schemas };
+			return { name: testCase.name, ok: true, value, schemas, argumentsAfter: testCase.arguments };
 		} catch (error) {
-			return { name: testCase.name, ok: false, error: normalizeError(error), schemas };
+			return { name: testCase.name, ok: false, error: normalizeError(error), schemas, argumentsAfter: testCase.arguments };
 		}
 	});
 	return { id: request.id, ok: true, output: { results } };

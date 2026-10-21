@@ -97,7 +97,7 @@ fn get_session_search_text(session: &SessionInfo) -> String {
         "{} {} {} {}",
         session.id,
         session.name.as_deref().unwrap_or_default(),
-        session.all_messages_text,
+        session.first_message,
         session.cwd
     )
 }

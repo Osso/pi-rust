@@ -1,36 +1,33 @@
 # providers/all traceability
 
-Pinned source: `packages/ai/src/providers/all.ts` at
-`532f7d12cd19235081bd4d6e425bde185652d86f`.
+Current literal catalog proof: [37-module boundary](providers-models.md). The three direct catalog lookups plus the separately authorized factory ID/order inventory are covered at the common pin; factory/whole-barrel rows below retain historical proof and are not promoted.
+
+Current source: `packages/ai/src/providers/all.ts` at [the common pin](../source-lock.json).
+Rows not explicitly re-proven below retain historical `532f7d12cd19235081bd4d6e425bde185652d86f` evidence only.
 Rust: `crates/pi-ai/src/providers/all.rs`.
 Tests: `crates/pi-ai/tests/providers.rs`,
 `crates/pi-ai/tests/differential_providers.rs`.
 
 | TypeScript | Rust | Proof |
 |---|---|---|
-| `getBuiltinModel(provider, modelId)` | `get_builtin_model` | `catalog_keeps_ts_generated_order_and_metadata`, differential catalog |
-| `getBuiltinProviders()` | `get_builtin_providers()` | `builtin_provider_order_matches_all_ts_without_codex`, differential catalog |
-| `getBuiltinModels(provider)` | `get_builtin_models` | differential catalog (all 40 providers) |
-| `getBuiltinModelDataUrl(provider)` | `get_builtin_model_data_url` | `catalog_helpers_report_manifest_metadata` |
-| `getBuiltinModelDataGeneratedAt()` | `get_builtin_model_data_generated_at` | `catalog_helpers_report_manifest_metadata`, differential catalog |
-| `builtinProviders()` | `builtin_providers()` | `builtin_provider_order_matches_all_ts`, `provider_metadata_matches_the_ts_factories`, differential provider descriptors |
+| `getBuiltinModel(provider, modelId)` value lookup only | `get_builtin_model` | `differential_chat_catalog`: every literal lookup, unknown IDs; mutable alias/reference contract TODO |
+| `getBuiltinProviders()` ordered data keys only | `get_builtin_providers()` | `differential_chat_catalog`: all 36 ordered source keys |
+| `getBuiltinModels(provider)` ordered values only | `get_builtin_models` | `differential_chat_catalog`: all 1058 values/order; mutable alias/reference contract TODO |
+| source-absent data URL | deleted | no production consumers |
+| source-absent timestamp | retained staged model_runtime dependency only | no frozen-source parity; see [catalog boundary](providers-models.md) |
+| `builtinProviders()` ID/order only | `builtin_providers()` inventory | new `differential_provider_inventory` actual-source RED (old baseten panic) → GREEN; order mutant killed; factory/auth/protocol whole parity remains TODO |
 | `builtinModels(options?)` | `builtin_models(options)` | `builtin_models_registers_every_builtin_provider_with_models` |
 | `builtinImagesProviders()` | `builtin_images_providers()` | `builtin_images_providers_and_models_register_openrouter` |
 | `builtinImagesModels(options?)` | `builtin_images_models(options)` | same |
 
 ## Branch notes
 
-- `builtinProviders()` constructs fresh instances in the TypeScript array order;
-  the Rust vec keeps that order, including `openai-codex` and `openai-codex-gc`
-  after `openai`.
-- `builtinModels` registers every provider on a fresh `Models` collection;
-  Radius registers with an empty catalog (dynamic only).
+- Artifact-deletion coupling re-pins only builtin provider ID/order inventory: 36 source entries including default/GC/Team Codex; removes baseten/qwen/radius entries. Existing generic Codex factory handles Team without a protocol/auth rewrite.
+- Whole builtinModels/factory behavior and mutable catalog alias contracts retain TODO coverage; historical tests above do not establish new-pin parity.
 
-## Gaps
+## Staged APIs
 
-- `getBuiltinModelDataUrl` returns the `file://` URL of the embedded
-  `data/providers/<provider>.json`; Rust has no generated per-provider module.
-  The helper is dev-only and untested in TypeScript.
+Source-absent data-URL helper deleted. Timestamp helper retained only for the coding-agent model_runtime consumer; returns None without invented source metadata.
 
 ## Discrepancies
 

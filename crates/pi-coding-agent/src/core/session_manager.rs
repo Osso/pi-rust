@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -15,7 +15,7 @@ use pi_agent_core::harness::messages::{
     CompactionSummaryOptions, CustomMessageContent, create_branch_summary_message, create_compaction_summary_message,
     create_custom_message,
 };
-use pi_ai::types::{ProviderNativeContext, TextOrImageContent, Usage, UserContent};
+use pi_ai::types::{ProviderNativeContext, TextOrImageContent, UserContent};
 use pi_ai::utils::uuid::{random_uuid, uuidv7};
 use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
@@ -23,14 +23,16 @@ use serde_json::{Map, Value};
 
 use crate::config::{get_agent_dir, get_sessions_dir};
 use crate::core::permissions::presets::SandboxProfileName;
+use crate::core::resident_session::is_resident_session;
 use crate::core::session_control_db::{
-    SessionMetadata, WritableSessionMetadata, clear_session_sandbox_profile, list_active_session_metadata,
-    list_archived_session_metadata, list_session_metadata, normalize_session_name, read_session_goal,
+    ResumeSessionMetadataOptions, SessionMetadata, WritableSessionMetadata, clear_session_sandbox_profile,
+    list_resume_session_metadata, list_session_metadata, normalize_session_name, read_session_goal,
     read_session_metadata, read_session_name_state, read_session_sandbox_profile, write_session_goal,
     write_session_metadata, write_session_model, write_session_name, write_session_sandbox_profile,
     write_session_thinking_level,
 };
 use crate::core::session_tool_output::serialize_session_entry_for_persistence;
+use crate::core::session_transcript::{create_session_transcript_read_stream, read_session_transcript_path};
 use crate::utils::iso_time;
 use crate::utils::paths::{PathInputOptions, normalize_path, process_cwd, resolve_path};
 
@@ -66,6 +68,15 @@ impl std::error::Error for SessionManagerError {}
 
 fn control_db_error(cause: impl std::fmt::Display) -> SessionManagerError {
     error(cause.to_string())
+}
+
+fn assert_unarchived_session_file(path: &str) -> Result<(), SessionManagerError> {
+    if super::session_archive_storage::is_archived_session_file(path) {
+        return Err(error(format!(
+            "Archived session requires a control database restore before opening: {path}"
+        )));
+    }
+    Ok(())
 }
 
 fn error(message: impl Into<String>) -> SessionManagerError {
@@ -231,6 +242,46 @@ pub struct NewSessionOptions {
     pub subagent_name: Option<String>,
 }
 
+/// JSON stored at an untyped persistence boundary, retaining UTF-16 strings/keys.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedJsonValue(pi_js_compat::js_json::JsValue);
+impl Serialize for PersistedJsonValue {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serialize_lossless(&self.0, serializer)
+    }
+}
+impl<'de> Deserialize<'de> for PersistedJsonValue {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        Ok(Self(pi_js_compat::js_json::JsValue::from(&value)))
+    }
+}
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PersistedJsonObject(pi_js_compat::js_json::JsObject);
+impl<'de> Deserialize<'de> for PersistedJsonObject {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let map = Map::<String, Value>::deserialize(deserializer)?;
+        Ok(Self(
+            map.into_iter()
+                .map(|(k, v)| (k.as_str().into(), pi_js_compat::js_json::JsValue::from(&v)))
+                .collect(),
+        ))
+    }
+}
+fn serialize_lossless<S: serde::Serializer>(
+    value: &pi_js_compat::js_json::JsValue,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let raw = serde_json::value::RawValue::from_string(pi_js_compat::js_json::stringify_lossless(value))
+        .map_err(serde::ser::Error::custom)?;
+    raw.serialize(serializer)
+}
+fn deserialize_receipt_value<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<PersistedJsonValue>, D::Error> {
+    PersistedJsonValue::deserialize(deserializer).map(Some)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMessageEntry {
@@ -238,6 +289,13 @@ pub struct SessionMessageEntry {
     pub parent_id: Option<String>,
     pub timestamp: String,
     pub message: Box<AgentMessage>,
+    /// Raw persisted receipt value; None omits the key, Some(Null) preserves it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_receipt_value"
+    )]
+    pub mailbox_store_refs: Option<PersistedJsonValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -259,7 +317,7 @@ pub struct ModelChangeEntry {
     pub model_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompactionEntry {
     pub id: String,
@@ -269,8 +327,8 @@ pub struct CompactionEntry {
     pub first_kept_entry_id: String,
     #[serde(serialize_with = "js_number::serialize")]
     pub tokens_before: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Box<Usage>>,
+    #[serde(flatten)]
+    pub extra: PersistedJsonObject,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "js_number::serialize_option"
@@ -291,7 +349,7 @@ pub struct CompactionEntry {
     pub first_kept_entry_index: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchSummaryEntry {
     pub id: String,
@@ -301,8 +359,8 @@ pub struct BranchSummaryEntry {
     pub summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Box<Usage>>,
+    #[serde(flatten)]
+    pub extra: PersistedJsonObject,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_hook: Option<bool>,
 }
@@ -352,8 +410,77 @@ pub struct SessionInfoEntry {
     pub name: Option<String>,
 }
 
+fn insert_serialized<T: Serialize + ?Sized>(
+    object: &mut pi_js_compat::js_json::JsObject,
+    key: &str,
+    value: &T,
+) -> Result<(), String> {
+    let json = serde_json::to_string(value).map_err(|e| e.to_string())?;
+    let parsed = pi_js_compat::js_json::parse_lossless(&json).map_err(|e| e.to_string())?;
+    object.insert(key.into(), parsed);
+    Ok(())
+}
+impl CompactionEntry {
+    fn lossless_object(&self) -> Result<pi_js_compat::js_json::JsObject, String> {
+        let mut object = pi_js_compat::js_json::JsObject::new();
+        insert_serialized(&mut object, "id", &self.id)?;
+        insert_serialized(&mut object, "parentId", &self.parent_id)?;
+        insert_serialized(&mut object, "timestamp", &self.timestamp)?;
+        insert_serialized(&mut object, "summary", &self.summary)?;
+        insert_serialized(&mut object, "firstKeptEntryId", &self.first_kept_entry_id)?;
+        insert_serialized(&mut object, "tokensBefore", &self.tokens_before)?;
+        object.extend(self.extra.0.clone());
+        if let Some(value) = &self.duration_ms {
+            insert_serialized(&mut object, "durationMs", value)?;
+        }
+        if let Some(value) = &self.details {
+            insert_serialized(&mut object, "details", value)?;
+        }
+        if let Some(value) = &self.provider_native {
+            insert_serialized(&mut object, "providerNative", value)?;
+        }
+        if let Some(value) = &self.from_hook {
+            insert_serialized(&mut object, "fromHook", value)?;
+        }
+        if let Some(value) = &self.first_kept_entry_index {
+            insert_serialized(&mut object, "firstKeptEntryIndex", value)?;
+        }
+        Ok(object)
+    }
+}
+impl Serialize for CompactionEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let object = self.lossless_object().map_err(serde::ser::Error::custom)?;
+        serialize_lossless(&pi_js_compat::js_json::JsValue::Object(object), serializer)
+    }
+}
+impl BranchSummaryEntry {
+    fn lossless_object(&self) -> Result<pi_js_compat::js_json::JsObject, String> {
+        let mut object = pi_js_compat::js_json::JsObject::new();
+        insert_serialized(&mut object, "id", &self.id)?;
+        insert_serialized(&mut object, "parentId", &self.parent_id)?;
+        insert_serialized(&mut object, "timestamp", &self.timestamp)?;
+        insert_serialized(&mut object, "fromId", &self.from_id)?;
+        insert_serialized(&mut object, "summary", &self.summary)?;
+        if let Some(value) = &self.details {
+            insert_serialized(&mut object, "details", value)?;
+        }
+        object.extend(self.extra.0.clone());
+        if let Some(value) = &self.from_hook {
+            insert_serialized(&mut object, "fromHook", value)?;
+        }
+        Ok(object)
+    }
+}
+impl Serialize for BranchSummaryEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let object = self.lossless_object().map_err(serde::ser::Error::custom)?;
+        serialize_lossless(&pi_js_compat::js_json::JsValue::Object(object), serializer)
+    }
+}
+
 /// Closed set of known session entry shapes.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum KnownSessionEntry {
     Message(SessionMessageEntry),
@@ -367,24 +494,96 @@ pub enum KnownSessionEntry {
     SessionInfo(SessionInfoEntry),
 }
 
+impl Serialize for KnownSessionEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let (tag, json) = match self {
+            Self::Message(entry) => ("message", serde_json::to_string(entry)),
+            Self::ThinkingLevelChange(entry) => ("thinking_level_change", serde_json::to_string(entry)),
+            Self::ModelChange(entry) => ("model_change", serde_json::to_string(entry)),
+            Self::Compaction(entry) => ("compaction", serde_json::to_string(entry)),
+            Self::BranchSummary(entry) => ("branch_summary", serde_json::to_string(entry)),
+            Self::Custom(entry) => ("custom", serde_json::to_string(entry)),
+            Self::CustomMessage(entry) => ("custom_message", serde_json::to_string(entry)),
+            Self::Label(entry) => ("label", serde_json::to_string(entry)),
+            Self::SessionInfo(entry) => ("session_info", serde_json::to_string(entry)),
+        };
+        let json = json.map_err(serde::ser::Error::custom)?;
+        let fields = pi_js_compat::js_json::parse_lossless(&json).map_err(serde::ser::Error::custom)?;
+        let pi_js_compat::js_json::JsValue::Object(fields) = fields else {
+            return Err(serde::ser::Error::custom("session entry must be an object"));
+        };
+        let mut object = pi_js_compat::js_json::JsObject::new();
+        object.insert("type".into(), pi_js_compat::js_json::JsValue::String(tag.into()));
+        object.extend(fields);
+        serialize_lossless(&pi_js_compat::js_json::JsValue::Object(object), serializer)
+    }
+}
+
+/// An untyped record awaiting migration or an unknown entry shape. Ordinary
+/// fields remain editable by legacy ID/role migration; wire-only fields bypass Value.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct UnknownSessionEntry {
+    fields: Map<String, Value>,
+    mailbox_store_refs: Option<PersistedJsonValue>,
+    summary_extra: PersistedJsonObject,
+}
+
+impl From<Map<String, Value>> for UnknownSessionEntry {
+    fn from(fields: Map<String, Value>) -> Self {
+        Self {
+            fields,
+            ..Self::default()
+        }
+    }
+}
+impl std::ops::Deref for UnknownSessionEntry {
+    type Target = Map<String, Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.fields
+    }
+}
+impl std::ops::DerefMut for UnknownSessionEntry {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.fields
+    }
+}
+impl<'de> Deserialize<'de> for UnknownSessionEntry {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Map::<String, Value>::deserialize(deserializer).map(Self::from)
+    }
+}
+impl Serialize for UnknownSessionEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut object = pi_js_compat::js_json::JsObject::new();
+        for (key, value) in &self.fields {
+            object.insert(key.as_str().into(), pi_js_compat::js_json::JsValue::from(value));
+        }
+        if let Some(receipt) = &self.mailbox_store_refs {
+            object.insert("mailboxStoreRefs".into(), receipt.0.clone());
+        }
+        object.extend(self.summary_extra.0.clone());
+        serialize_lossless(&pi_js_compat::js_json::JsValue::Object(object), serializer)
+    }
+}
+
 /// One session entry. Unknown `type` values are preserved as raw JSON objects.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SessionEntry {
     Known(KnownSessionEntry),
-    Unknown(Map<String, Value>),
+    Unknown(UnknownSessionEntry),
 }
 
 impl SessionEntry {
-    fn from_value(value: Value) -> Self {
+    pub(crate) fn from_value(value: Value) -> Self {
         match serde_json::from_value::<KnownSessionEntry>(value.clone()) {
             Ok(entry) => Self::Known(entry),
             Err(_) => match value {
-                Value::Object(object) => Self::Unknown(object),
+                Value::Object(object) => Self::Unknown(object.into()),
                 other => {
                     let mut object = Map::new();
                     object.insert("value".to_owned(), other);
-                    Self::Unknown(object)
+                    Self::Unknown(object.into())
                 }
             },
         }
@@ -624,7 +823,6 @@ pub struct SessionInfo {
     pub modified: i64,
     pub message_count: usize,
     pub first_message: String,
-    pub all_messages_text: String,
 }
 
 /// Progress callback: `(loaded, total)`.
@@ -643,7 +841,6 @@ pub enum ForkEntrySelection {
 pub struct CompactionAppendOptions {
     pub details: Option<Value>,
     pub from_hook: Option<bool>,
-    pub usage: Option<Usage>,
     pub duration_ms: Option<f64>,
     pub provider_native: Option<ProviderNativeContext>,
 }
@@ -769,6 +966,14 @@ pub fn migrate_to_current_version(entries: &mut [FileEntry]) -> bool {
     if version < 3.0 {
         migrate_v2_to_v3(entries);
     }
+    // Legacy records acquire their required IDs/parent links during migration.
+    // Reify those records before typed context projection, never on disk here.
+    for entry in entries {
+        if let FileEntry::Entry(SessionEntry::Unknown(object)) = entry {
+            let serialized = serde_json::to_string(object).expect("untyped session record serialization must succeed");
+            *entry = parse_session_file_entry(&serialized).expect("migrated session record must remain valid JSON");
+        }
+    }
     true
 }
 
@@ -783,8 +988,7 @@ pub fn parse_session_entries(content: &str) -> Vec<FileEntry> {
         .trim()
         .split('\n')
         .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .map(parse_file_entry_value)
+        .filter_map(|line| parse_session_file_entry(line).ok())
         .collect()
 }
 
@@ -1212,7 +1416,82 @@ fn parse_session_entry_line(line: &str) -> Option<FileEntry> {
     if line.trim().is_empty() {
         return None;
     }
-    serde_json::from_str::<Value>(line).ok().map(parse_file_entry_value)
+    parse_session_file_entry(line).ok()
+}
+
+/// Extract only untyped persistence fields losslessly; other typed strings still
+/// cross the existing checked serde boundary, never a lossy projection.
+pub(crate) fn parse_session_file_entry(line: &str) -> Result<FileEntry, SessionManagerError> {
+    use pi_js_compat::js_json::{JsObject, JsString, JsValue, parse_lossless, stringify_lossless};
+    let mut value = parse_lossless(line).map_err(control_db_error)?;
+    let mut receipt = None;
+    let mut extra = JsObject::new();
+    if let JsValue::Object(object) = &mut value {
+        let tag = object.get(&JsString::from("type")).and_then(|v| match v {
+            JsValue::String(s) => s.to_utf8().ok(),
+            _ => None,
+        });
+        if tag.as_deref() == Some("message") {
+            receipt = object
+                .shift_remove(&JsString::from("mailboxStoreRefs"))
+                .map(PersistedJsonValue);
+        }
+        let fields: Option<&[&str]> = match tag.as_deref() {
+            Some("compaction") => Some(&[
+                "type",
+                "id",
+                "parentId",
+                "timestamp",
+                "summary",
+                "firstKeptEntryId",
+                "tokensBefore",
+                "durationMs",
+                "details",
+                "providerNative",
+                "fromHook",
+                "firstKeptEntryIndex",
+            ]),
+            Some("branch_summary") => Some(&[
+                "type",
+                "id",
+                "parentId",
+                "timestamp",
+                "fromId",
+                "summary",
+                "details",
+                "fromHook",
+            ]),
+            _ => None,
+        };
+        if let Some(fields) = fields {
+            let keys = object
+                .keys()
+                .filter(|k| k.to_utf8().ok().is_none_or(|k| !fields.contains(&k.as_str())))
+                .cloned()
+                .collect::<Vec<_>>();
+            for key in keys {
+                if let Some(value) = object.shift_remove(&key) {
+                    extra.insert(key, value);
+                }
+            }
+        }
+    }
+    let typed: Value = serde_json::from_str(&stringify_lossless(&value)).map_err(control_db_error)?;
+    let mut entry = parse_file_entry_value(typed);
+    match &mut entry {
+        FileEntry::Entry(SessionEntry::Known(known)) => match known {
+            KnownSessionEntry::Message(entry) => entry.mailbox_store_refs = receipt,
+            KnownSessionEntry::Compaction(entry) => entry.extra = PersistedJsonObject(extra),
+            KnownSessionEntry::BranchSummary(entry) => entry.extra = PersistedJsonObject(extra),
+            _ => {}
+        },
+        FileEntry::Entry(SessionEntry::Unknown(unknown)) => {
+            unknown.mailbox_store_refs = receipt;
+            unknown.summary_extra = PersistedJsonObject(extra);
+        }
+        FileEntry::Header(_) => {}
+    }
+    Ok(entry)
 }
 
 fn decode_utf8_lossy(bytes: &[u8]) -> String {
@@ -1220,31 +1499,69 @@ fn decode_utf8_lossy(bytes: &[u8]) -> String {
 }
 
 /// Load every entry from a session file, skipping malformed lines.
-pub fn load_entries_from_file(file_path: &str) -> Vec<FileEntry> {
-    let Ok(resolved_path) = normalize(file_path) else {
-        return Vec::new();
-    };
-    let Ok(bytes) = fs::read(&resolved_path) else {
-        return Vec::new();
-    };
-
-    let content = decode_utf8_lossy(&bytes);
-    let entries: Vec<FileEntry> = content.split('\n').filter_map(parse_session_entry_line).collect();
-
-    let Some(first) = entries.first() else {
-        return entries;
-    };
-    match first {
-        FileEntry::Header(header) if !header.id.is_empty() => entries,
-        _ => Vec::new(),
+pub fn load_entries_from_file(file_path: &str) -> Result<Vec<FileEntry>, SessionManagerError> {
+    let source = read_session_transcript_path(&normalize(file_path)?);
+    if !Path::new(&source).exists() {
+        return Ok(Vec::new());
     }
+    super::session_transcript_spool::with_seekable_session_transcript(&source, |plain| {
+        let file = File::open(plain).map_err(control_db_error)?;
+        let mut entries = Vec::new();
+        for line in BufReader::with_capacity(SESSION_READ_BUFFER_SIZE, file).split(b'\n') {
+            let line = line.map_err(control_db_error)?;
+            if let Some(entry) = parse_session_entry_line(&decode_utf8_lossy(&line)) {
+                entries.push(entry);
+            }
+        }
+        if entries.first().is_some_and(|e| !matches!(e, FileEntry::Header(_))) {
+            entries.clear();
+        }
+        Ok(entries)
+    })
+}
+
+pub struct LoadedSessionContextEntries {
+    pub header: SessionHeader,
+    pub entries: Vec<SessionEntry>,
+}
+/// Current context projection; source requires an existing actual filename here.
+pub fn load_session_context_entries(file_path: &str) -> Result<LoadedSessionContextEntries, SessionManagerError> {
+    let source = resolve(file_path)?;
+    if !Path::new(&source).exists() {
+        return Err(error(format!("Session file does not exist: {source}")));
+    }
+    let mut loaded = load_session_file_entries(&source)?.file_entries;
+    if !matches!(loaded.first(), Some(FileEntry::Header(_))) {
+        return Err(error(format!("Session file has no valid header: {source}")));
+    }
+    migrate_to_current_version(&mut loaded);
+    let FileEntry::Header(header) = loaded.remove(0) else {
+        unreachable!("validated header");
+    };
+    let entries = loaded
+        .into_iter()
+        .filter_map(|e| match e {
+            FileEntry::Entry(entry) => Some(entry),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    Ok(LoadedSessionContextEntries {
+        header,
+        entries: build_context_entries(&entries, LeafSelection::Last),
+    })
 }
 
 fn read_first_line(file_path: &str) -> Option<String> {
-    let mut file = File::open(file_path).ok()?;
+    super::session_transcript_spool::with_seekable_session_transcript(file_path, |plain| {
+        Ok(read_plain_first_line(plain))
+    })
+    .ok()
+    .flatten()
+}
+fn read_plain_first_line(file_path: &str) -> Option<String> {
+    let mut file = create_session_transcript_read_stream(file_path).ok()?;
     let mut chunks: Vec<u8> = Vec::new();
     let mut buffer = [0_u8; HEADER_READ_BUFFER_SIZE];
-    let mut position = 0_u64;
     loop {
         let bytes_read = file.read(&mut buffer).ok()?;
         if bytes_read == 0 {
@@ -1258,8 +1575,6 @@ fn read_first_line(file_path: &str) -> Option<String> {
             }
             None => {
                 chunks.extend_from_slice(bytes);
-                position += bytes_read as u64;
-                let _ = file.seek(SeekFrom::Start(position));
             }
         }
     }
@@ -1330,7 +1645,7 @@ pub fn find_most_recent_session(session_dir: &str, cwd: Option<&str>) -> Option<
 // =============================================================================
 
 struct ReverseSessionScan {
-    all_entries: Vec<SessionEntry>,
+    has_inactive_entries: bool,
     active_path: Vec<SessionEntry>,
     is_reading_leaf: bool,
     required_parent_id: Option<String>,
@@ -1353,7 +1668,7 @@ struct LoadedCurrentVersionSession {
 impl ReverseSessionScan {
     fn new() -> Self {
         Self {
-            all_entries: Vec::new(),
+            has_inactive_entries: false,
             active_path: Vec::new(),
             is_reading_leaf: true,
             required_parent_id: None,
@@ -1382,13 +1697,13 @@ fn parse_reverse_session_entry(
     if line.trim().is_empty() {
         return Ok(None);
     }
-    match serde_json::from_str::<Value>(line) {
-        Ok(value) => {
+    match parse_session_file_entry(line) {
+        Ok(parsed) => {
             scan.allow_incomplete_trailing_entry = false;
-            if value.get("type").and_then(Value::as_str) == Some("session") {
-                return Ok(None);
+            match parsed {
+                FileEntry::Header(_) => Ok(None),
+                FileEntry::Entry(entry) => Ok(Some(entry)),
             }
-            Ok(Some(SessionEntry::from_value(value)))
         }
         Err(_) if scan.allow_incomplete_trailing_entry => {
             scan.allow_incomplete_trailing_entry = false;
@@ -1412,10 +1727,10 @@ fn cwd_from_changed_entry(entry: &SessionEntry) -> Option<String> {
 fn scan_session_entry_reverse(scan: &mut ReverseSessionScan, entry: SessionEntry) -> bool {
     let entry_id = entry.id().unwrap_or_default().to_owned();
     let parent_id = entry.parent_id().map(str::to_owned);
-    scan.all_entries.push(entry.clone());
 
     let is_active_entry = scan.is_reading_leaf || scan.required_parent_id.as_deref() == Some(entry_id.as_str());
     if !is_active_entry {
+        scan.has_inactive_entries = true;
         return false;
     }
 
@@ -1489,7 +1804,7 @@ fn read_current_version_session_entries(
     file: &mut File,
     file_size: u64,
     file_path: &str,
-) -> Result<LoadedSessionEntries, SessionManagerError> {
+) -> Result<Option<LoadedSessionEntries>, SessionManagerError> {
     let mut scan = ReverseSessionScan::new();
     let mut position = file_size;
     let mut pending: Vec<u8> = Vec::new();
@@ -1509,7 +1824,7 @@ fn read_current_version_session_entries(
 
         let (remaining, loaded) = scan_complete_reverse_lines(&mut scan, &pending, file_path)?;
         if let Some(loaded) = loaded {
-            return Ok(loaded);
+            return Ok(Some(loaded));
         }
         pending = remaining;
     }
@@ -1518,48 +1833,52 @@ fn read_current_version_session_entries(
     if let Some(entry) = parse_reverse_session_entry(&mut scan, &first_line, file_path)?
         && scan_session_entry_reverse(&mut scan, entry)
     {
-        return Ok(scan.loaded_active_slice());
+        return Ok(Some(scan.loaded_active_slice()));
     }
     validate_complete_reverse_scan(&scan, file_path)?;
-    if scan.found_first_kept_entry {
-        return Ok(scan.loaded_active_slice());
+    if scan.found_first_kept_entry || !scan.has_inactive_entries {
+        return Ok(Some(scan.loaded_active_slice()));
     }
-    let mut entries = std::mem::take(&mut scan.all_entries);
-    entries.reverse();
-    Ok(LoadedSessionEntries {
-        entries,
-        preceding_cwd: None,
-    })
+    Ok(None)
 }
 
 fn load_current_version_entries_from_file(
     file_path: &str,
     header: SessionHeader,
 ) -> Result<LoadedCurrentVersionSession, SessionManagerError> {
-    let mut file = File::open(file_path).map_err(|error| SessionManagerError::new(error.to_string()))?;
-    let file_size = file
-        .metadata()
-        .map_err(|error| SessionManagerError::new(error.to_string()))?
-        .len();
-    let loaded = read_current_version_session_entries(&mut file, file_size, file_path)?;
-    let mut file_entries = vec![FileEntry::Header(header)];
-    file_entries.extend(loaded.entries.into_iter().map(FileEntry::Entry));
-    Ok(LoadedCurrentVersionSession {
-        file_entries,
-        preceding_cwd: loaded.preceding_cwd,
+    super::session_transcript_spool::with_seekable_session_transcript(file_path, |plain| {
+        let mut file = File::open(plain).map_err(|error| SessionManagerError::new(error.to_string()))?;
+        let file_size = file
+            .metadata()
+            .map_err(|error| SessionManagerError::new(error.to_string()))?
+            .len();
+        let Some(loaded) = read_current_version_session_entries(&mut file, file_size, file_path)? else {
+            return Ok(LoadedCurrentVersionSession {
+                file_entries: load_entries_from_file(plain)?,
+                preceding_cwd: None,
+            });
+        };
+        let mut file_entries = vec![FileEntry::Header(header)];
+        file_entries.extend(loaded.entries.into_iter().map(FileEntry::Entry));
+        Ok(LoadedCurrentVersionSession {
+            file_entries,
+            preceding_cwd: loaded.preceding_cwd,
+        })
     })
 }
 
 fn load_session_file_entries(file_path: &str) -> Result<LoadedCurrentVersionSession, SessionManagerError> {
-    let header = read_session_header(file_path);
-    if header.as_ref().and_then(|header| header.version) == Some(CURRENT_SESSION_VERSION)
-        && let Some(header) = header
-    {
-        return load_current_version_entries_from_file(file_path, header);
-    }
-    Ok(LoadedCurrentVersionSession {
-        file_entries: load_entries_from_file(file_path),
-        preceding_cwd: None,
+    super::session_transcript_spool::with_seekable_session_transcript(file_path, |plain| {
+        let header = read_session_header(plain);
+        if header.as_ref().and_then(|header| header.version) == Some(CURRENT_SESSION_VERSION)
+            && let Some(header) = header
+        {
+            return load_current_version_entries_from_file(plain, header);
+        }
+        Ok(LoadedCurrentVersionSession {
+            file_entries: load_entries_from_file(plain)?,
+            preceding_cwd: None,
+        })
     })
 }
 
@@ -1571,7 +1890,6 @@ fn load_session_file_entries(file_path: &str) -> Result<LoadedCurrentVersionSess
 struct SessionInfoAccumulator {
     message_count: usize,
     first_message: String,
-    all_messages_text: String,
     last_activity_time: Option<i64>,
 }
 
@@ -1673,22 +1991,17 @@ fn apply_session_info_entry(accumulator: &mut SessionInfoAccumulator, entry: &Se
     }
 
     let role = message_entry.message.role();
-    if role != "user" && role != "assistant" {
+    if role != "user"
+        || message_input_source(&message_entry.message) == Some("extension")
+        || !accumulator.first_message.is_empty()
+    {
         return;
     }
     let text = extract_text_content(&message_entry.message);
     if text.is_empty() {
         return;
     }
-    accumulator.all_messages_text = if accumulator.all_messages_text.is_empty() {
-        text.clone()
-    } else {
-        format!("{} {}", accumulator.all_messages_text, text)
-    };
-    let is_user_prompt = role == "user" && message_input_source(&message_entry.message) != Some("extension");
-    if accumulator.first_message.is_empty() && is_user_prompt {
-        accumulator.first_message = text;
-    }
+    accumulator.first_message = text;
 }
 
 fn finish_session_info(
@@ -1718,11 +2031,10 @@ fn finish_session_info(
         } else {
             accumulator.first_message
         },
-        all_messages_text: accumulator.all_messages_text,
     }
 }
 
-fn build_session_info(file_path: &str) -> Option<SessionInfo> {
+pub fn build_session_info(file_path: &str) -> Option<SessionInfo> {
     let metadata = fs::metadata(file_path).ok()?;
     let fallback_modified = metadata
         .modified()
@@ -1730,12 +2042,12 @@ fn build_session_info(file_path: &str) -> Option<SessionInfo> {
         .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|elapsed| elapsed.as_millis() as i64)
         .unwrap_or(0);
-    let content = fs::read(file_path).ok()?;
-    let content = decode_utf8_lossy(&content);
+    let content = BufReader::new(create_session_transcript_read_stream(file_path).ok()?);
     let mut header: Option<SessionHeader> = None;
     let mut accumulator = SessionInfoAccumulator::default();
-    for line in content.split('\n') {
-        let line = line.strip_suffix('\r').unwrap_or(line);
+    for line in content.split(b'\n') {
+        let line = decode_utf8_lossy(&line.ok()?);
+        let line = line.strip_suffix('\r').unwrap_or(&line);
         let Some(entry) = parse_session_entry_line(line) else {
             continue;
         };
@@ -1831,14 +2143,7 @@ fn list_default_session_root(progress: Option<&mut dyn FnMut(usize, usize)>) -> 
 }
 
 fn load_fork_source_entries(source_path: &str) -> Result<Vec<FileEntry>, SessionManagerError> {
-    let source_header = read_session_header(source_path);
-    let entries = match source_header.as_ref().and_then(|header| header.version) {
-        Some(version) if version == CURRENT_SESSION_VERSION => {
-            let header = source_header.clone().expect("header was checked");
-            load_current_version_entries_from_file(source_path, header)?.file_entries
-        }
-        _ => load_entries_from_file(source_path),
-    };
+    let entries = load_session_file_entries(source_path)?.file_entries;
     if entries.is_empty() {
         return Err(error(format!(
             "Cannot fork: source session file is empty or invalid: {source_path}"
@@ -2180,7 +2485,8 @@ impl SessionManager {
         session_dir: Option<&str>,
         cwd_override: Option<&str>,
     ) -> Result<Self, SessionManagerError> {
-        let resolved_path = resolve(path)?;
+        let resolved_path = read_session_transcript_path(&resolve(path)?);
+        assert_unarchived_session_file(&resolved_path)?;
         let header = read_session_header(&resolved_path);
         let cwd = match cwd_override {
             Some(cwd) => cwd.to_owned(),
@@ -2200,6 +2506,36 @@ impl SessionManager {
         if let Some(cwd_override) = cwd_override {
             manager.cwd = resolve(cwd_override)?;
         }
+        Ok(manager)
+    }
+
+    /// Inspect a transcript without restoration, migration writes or metadata mutation.
+    pub fn open_read_only(path: &str, session_dir: Option<&str>) -> Result<Self, SessionManagerError> {
+        let source = read_session_transcript_path(&resolve(path)?);
+        let loaded = load_session_file_entries(&source)?;
+        let Some(FileEntry::Header(header)) = loaded.file_entries.first() else {
+            return Err(error(format!("Invalid session file: {source}")));
+        };
+        let cwd = loaded
+            .preceding_cwd
+            .as_deref()
+            .or(header.cwd.as_deref())
+            .map(str::to_owned)
+            .unwrap_or_else(process_cwd);
+        let id = header.id.clone();
+        let dir = session_dir.map(str::to_owned).unwrap_or_else(|| {
+            Path::new(&source)
+                .parent()
+                .unwrap_or(Path::new("."))
+                .display()
+                .to_string()
+        });
+        let mut manager = Self::new(&cwd, &dir, None, false, None)?;
+        manager.session_file = Some(source);
+        manager.session_id = id;
+        manager.file_entries = loaded.file_entries;
+        migrate_to_current_version(&mut manager.file_entries);
+        manager.build_index();
         Ok(manager)
     }
 
@@ -2269,7 +2605,11 @@ impl SessionManager {
 
     /// Switch to a different session file (resume and branching).
     pub fn set_session_file(&mut self, session_file: &str) -> Result<(), SessionManagerError> {
-        self.session_file = Some(resolve(session_file)?);
+        let source = read_session_transcript_path(&resolve(session_file)?);
+        if self.persist {
+            assert_unarchived_session_file(&source)?;
+        }
+        self.session_file = Some(source);
         self.reset_session_name_state();
         let Some(current) = self.session_file.clone() else {
             return Ok(());
@@ -2865,7 +3205,24 @@ impl SessionManager {
     }
 
     pub fn append_message(&mut self, message: AgentMessage) -> Result<String, SessionManagerError> {
+        self.append_message_with_mailbox_store_refs(message, None)
+    }
+
+    pub fn append_message_with_mailbox_store_refs(
+        &mut self,
+        message: AgentMessage,
+        mailbox_store_refs: Option<&[super::session_control_db::RuntimeMailboxStoreRef]>,
+    ) -> Result<String, SessionManagerError> {
+        let mailbox_store_refs = mailbox_store_refs
+            .map(|refs| {
+                let json = serde_json::to_string(refs).map_err(control_db_error)?;
+                pi_js_compat::js_json::parse_lossless(&json)
+                    .map(PersistedJsonValue)
+                    .map_err(control_db_error)
+            })
+            .transpose()?;
         let entry = SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+            mailbox_store_refs,
             id: generate_id(&self.by_id),
             parent_id: self.leaf_id.clone(),
             timestamp: self.timestamp(),
@@ -2910,7 +3267,7 @@ impl SessionManager {
             summary: summary.to_owned(),
             first_kept_entry_id: first_kept_entry_id.to_owned(),
             tokens_before,
-            usage: options.usage.map(Box::new),
+            extra: PersistedJsonObject::default(),
             duration_ms: options.duration_ms,
             details: options.details.map(Box::new),
             provider_native: options.provider_native.map(Box::new),
@@ -3099,7 +3456,6 @@ impl SessionManager {
         summary: &str,
         details: Option<Value>,
         from_hook: Option<bool>,
-        usage: Option<Usage>,
     ) -> Result<String, SessionManagerError> {
         if let Some(branch_from_id) = branch_from_id
             && !self.by_id.contains_key(branch_from_id)
@@ -3114,7 +3470,7 @@ impl SessionManager {
             from_id: branch_from_id.unwrap_or("root").to_owned(),
             summary: summary.to_owned(),
             details,
-            usage: usage.map(Box::new),
+            extra: PersistedJsonObject::default(),
             from_hook,
         }));
         self.append_entry(entry)
@@ -3193,6 +3549,21 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Synchronize the recipient transcript before the caller commits mailbox delivery.
+    /// This does not claim or acknowledge any mailbox row.
+    pub fn fsync(&self) -> Result<(), SessionManagerError> {
+        let path = self
+            .session_file
+            .as_deref()
+            .ok_or_else(|| error("Cannot fsync an in-memory session"))?;
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .and_then(|file| file.sync_all())
+            .map_err(control_db_error)
+    }
+
     /// List sessions for a directory, preferring control-db metadata when present.
     pub fn list(
         cwd: &str,
@@ -3209,7 +3580,7 @@ impl SessionManager {
             MetadataScope {
                 cwd: Some(cwd),
                 dir: Some(&dir),
-                archived: Some(false),
+                archived: false,
             },
         )? {
             return Ok(sessions);
@@ -3243,7 +3614,7 @@ impl SessionManager {
             MetadataScope {
                 cwd: None,
                 dir: dir.as_deref(),
-                archived: Some(true),
+                archived: true,
             },
         )?
         .unwrap_or_default())
@@ -3262,7 +3633,7 @@ impl SessionManager {
                 MetadataScope {
                     cwd: None,
                     dir: Some(&dir),
-                    archived: Some(false),
+                    archived: false,
                 },
             )? {
                 return Ok(sessions);
@@ -3278,7 +3649,7 @@ impl SessionManager {
             MetadataScope {
                 cwd: None,
                 dir: None,
-                archived: Some(false),
+                archived: false,
             },
         )? {
             return Ok(sessions);
@@ -3293,7 +3664,7 @@ impl SessionManager {
 struct MetadataScope<'a> {
     cwd: Option<&'a str>,
     dir: Option<&'a str>,
-    archived: Option<bool>,
+    archived: bool,
 }
 
 fn session_info_from_metadata(metadata: &SessionMetadata) -> SessionInfo {
@@ -3308,43 +3679,7 @@ fn session_info_from_metadata(metadata: &SessionMetadata) -> SessionInfo {
         modified: pi_js_compat::date::date_parse_millis(&metadata.modified_at).unwrap_or(0),
         message_count: usize::try_from(metadata.message_count).unwrap_or(0),
         first_message: metadata.first_message.clone(),
-        // Shared metadata no longer stores transcript search text.
-        all_messages_text: String::new(),
     }
-}
-
-fn metadata_matches_session_dir(metadata: &SessionMetadata, dir: &str) -> Result<bool, SessionManagerError> {
-    Ok(normalize(&metadata.session_path)?.starts_with(&format!("{}/", normalize(dir)?)))
-}
-
-fn list_scoped_session_metadata(
-    control_db_path: &str,
-    scope: MetadataScope<'_>,
-) -> Result<Vec<SessionMetadata>, SessionManagerError> {
-    let sessions = match scope.archived {
-        Some(true) => list_archived_session_metadata(control_db_path).map_err(control_db_error)?,
-        Some(false) => list_active_session_metadata(control_db_path).map_err(control_db_error)?,
-        None => list_session_metadata(control_db_path).map_err(control_db_error)?,
-    };
-    let resolved_cwd = match scope.cwd {
-        Some(cwd) => Some(resolve(cwd)?),
-        None => None,
-    };
-    let mut scoped = Vec::new();
-    for metadata in sessions {
-        if let Some(dir) = scope.dir
-            && !metadata_matches_session_dir(&metadata, dir)?
-        {
-            continue;
-        }
-        if let Some(cwd) = resolved_cwd.as_deref()
-            && !session_cwd_matches(Some(&metadata.cwd), cwd)
-        {
-            continue;
-        }
-        scoped.push(metadata);
-    }
-    Ok(scoped)
 }
 
 fn list_metadata_sessions(
@@ -3354,24 +3689,42 @@ fn list_metadata_sessions(
     let Some(control_db_path) = control_db_path else {
         return Ok(None);
     };
-    if list_session_metadata(control_db_path)
+    let cwd = scope.cwd.filter(|cwd| !cwd.is_empty()).map(resolve).transpose()?;
+    let session_path_prefix = scope
+        .dir
+        .filter(|dir| !dir.is_empty())
+        .map(|dir| {
+            let mut prefix = normalize(dir)?;
+            if !prefix.ends_with(std::path::MAIN_SEPARATOR) {
+                prefix.push(std::path::MAIN_SEPARATOR);
+            }
+            Ok::<_, SessionManagerError>(prefix)
+        })
+        .transpose()?;
+    let options = ResumeSessionMetadataOptions {
+        archived: scope.archived,
+        cwd,
+        session_path_prefix,
+    };
+    Ok(list_resume_session_metadata(control_db_path, &options)
         .map_err(control_db_error)?
-        .is_empty()
-    {
-        return Ok(None);
-    }
-    let resume_sessions: Vec<SessionInfo> = list_scoped_session_metadata(control_db_path, scope)?
-        .iter()
-        .filter(|metadata| metadata.is_subagent != Some(true))
-        .map(session_info_from_metadata)
-        .collect();
-    Ok((!resume_sessions.is_empty()).then_some(resume_sessions))
+        .map(|metadata| {
+            metadata
+                .iter()
+                .map(session_info_from_metadata)
+                .filter(|session| !is_resident_session(session))
+                .collect()
+        }))
 }
 
 fn exclude_known_subagent_sessions(
     control_db_path: Option<&str>,
     sessions: Vec<SessionInfo>,
 ) -> Result<Vec<SessionInfo>, SessionManagerError> {
+    let sessions: Vec<_> = sessions
+        .into_iter()
+        .filter(|session| !is_resident_session(session))
+        .collect();
     let Some(control_db_path) = control_db_path else {
         return Ok(sessions);
     };

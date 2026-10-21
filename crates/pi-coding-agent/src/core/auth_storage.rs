@@ -24,8 +24,7 @@ use pi_js_compat::js_json;
 const AUTH_FILE_MODE: u32 = 0o600;
 const SYNC_LOCK_ATTEMPTS: usize = 10;
 const SYNC_LOCK_DELAY: Duration = Duration::from_millis(20);
-const ASYNC_LOCK_STALE_MS: u64 = 30_000;
-const ASYNC_LOCK_MAX_DELAY_MS: u64 = 2_000;
+const AUTH_LOCK_STALE_MS: u64 = 30_000;
 
 /// Failure of a storage backend or of parsing `auth.json`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,12 +102,6 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_millis() as u64)
-}
-
 /// `FileAuthStorageBackend`: JSON file plus `proper-lockfile`.
 pub struct FileAuthStorageBackend {
     auth_path: String,
@@ -132,10 +125,20 @@ impl FileAuthStorageBackend {
         if directory.exists() {
             return Ok(());
         }
-        std::fs::create_dir_all(directory)
-            .map_err(|error| StorageError::new(format!("Failed to create {}: {error}", directory.display())))?;
-        set_mode(directory, 0o700);
-        Ok(())
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(directory).map_err(|error| {
+            StorageError::new(pi_js_compat::node_fs::node_fs_error(
+                &error,
+                "mkdir",
+                &directory.to_string_lossy(),
+            ))
+        })
     }
 
     fn ensure_file_exists(&self) -> Result<(), StorageError> {
@@ -150,9 +153,9 @@ impl FileAuthStorageBackend {
         if !Path::new(&self.auth_path).exists() {
             return Ok(None);
         }
-        std::fs::read_to_string(&self.auth_path)
-            .map(Some)
-            .map_err(|error| StorageError::new(format!("Failed to read auth.json: {error}")))
+        std::fs::read(&self.auth_path)
+            .map(|bytes| Some(String::from_utf8_lossy(&bytes).into_owned()))
+            .map_err(|error| StorageError::new(pi_js_compat::node_fs::node_read_error(&error, &self.auth_path)))
     }
 
     fn write_next(&self, next: Option<String>) -> Result<(), StorageError> {
@@ -165,6 +168,7 @@ impl FileAuthStorageBackend {
     fn acquire_sync_with_retry(&self) -> Result<crate::utils::lockfile::LockGuard, StorageError> {
         let options = LockOptions {
             realpath: false,
+            stale_ms: AUTH_LOCK_STALE_MS,
             ..LockOptions::default()
         };
         let mut last_error = None;
@@ -184,17 +188,16 @@ impl FileAuthStorageBackend {
         )))
     }
 
-    /// `acquireLockAsync`: bounded retries with exponential backoff until the stale deadline.
+    /// Frozen `proper-lockfile` options: ten retries, randomized 100ms–10s exponential delays.
     async fn acquire_async(
         &self,
         signal: Option<CancellationToken>,
-    ) -> Result<crate::utils::lockfile::LockGuard, StorageError> {
-        let deadline = now_millis() + ASYNC_LOCK_STALE_MS;
+    ) -> Result<(crate::utils::lockfile::LockGuard, Arc<Mutex<Option<String>>>), StorageError> {
         let compromised: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let options = LockOptions {
             realpath: false,
             retries: 0,
-            stale_ms: ASYNC_LOCK_STALE_MS,
+            stale_ms: AUTH_LOCK_STALE_MS,
             on_compromised: Some({
                 let compromised = Arc::clone(&compromised);
                 Arc::new(move |error| {
@@ -215,16 +218,12 @@ impl FileAuthStorageBackend {
                     if let Some(message) = compromised.lock().unwrap().clone() {
                         return Err(StorageError::new(message));
                     }
-                    return Ok(guard);
+                    return Ok((guard, compromised));
                 }
-                Err(error) if error.code == LockErrorCode::Locked => {
-                    let remaining = deadline.saturating_sub(now_millis());
-                    if remaining == 0 {
-                        return Err(StorageError::new(error.to_string()));
-                    }
-                    let base_delay = (10u64.saturating_mul(1u64 << retry.min(8))).min(ASYNC_LOCK_MAX_DELAY_MS / 2);
+                Err(error) if error.code == LockErrorCode::Locked && retry < 10 => {
+                    let base_delay = 100u64.saturating_mul(1u64 << retry);
                     retry += 1;
-                    let delay = jittered_delay(base_delay).min(remaining);
+                    let delay = jittered_delay(base_delay).min(10_000);
                     if let Some(signal) = &signal {
                         tokio::select! {
                             () = tokio::time::sleep(Duration::from_millis(delay)) => {}
@@ -245,12 +244,12 @@ impl FileAuthStorageBackend {
     }
 }
 
-/// `baseDelay * (1 + Math.random())`, bounded by the caller's remaining time.
+/// `Math.round(baseDelay * (1 + Math.random()))`; caller applies the retry cap.
 fn jittered_delay(base_ms: u64) -> u64 {
     let entropy = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.subsec_nanos() as u64);
-    base_ms.saturating_add((base_ms as f64 * (entropy % 1_000) as f64 / 1_000.0) as u64)
+    (base_ms as f64 * (1.0 + (entropy % 1_000_000) as f64 / 1_000_000.0)).round() as u64
 }
 
 impl AuthStorageBackend for FileAuthStorageBackend {
@@ -261,8 +260,7 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         let current = self.read_current()?;
         let next = operation(current.as_deref())?;
         self.write_next(next)?;
-        let _ = guard.release();
-        Ok(())
+        guard.release().map_err(|error| StorageError::new(error.to_string()))
     }
 
     fn with_lock_async(
@@ -275,13 +273,20 @@ impl AuthStorageBackend for FileAuthStorageBackend {
             check_aborted(signal.as_ref())?;
             self.ensure_parent_dir()?;
             self.ensure_file_exists()?;
-            let guard = self.acquire_async(signal.clone()).await?;
+            let (guard, compromised) = self.acquire_async(signal.clone()).await?;
+            let check_compromised = || match lock(&compromised).clone() {
+                Some(message) => Err(StorageError::new(message)),
+                None => Ok(()),
+            };
             let outcome = async {
                 check_aborted(signal.as_ref())?;
+                check_compromised()?;
                 let current = self.read_current()?;
                 let next = operation(current).await?;
+                check_compromised()?;
                 check_aborted(signal.as_ref())?;
-                self.write_next(next)
+                self.write_next(next)?;
+                check_compromised()
             }
             .await;
             let _ = guard.release();
@@ -291,19 +296,26 @@ impl AuthStorageBackend for FileAuthStorageBackend {
 }
 
 fn write_auth_file(path: &str, content: &str) -> Result<(), StorageError> {
-    std::fs::write(path, content).map_err(|error| StorageError::new(format!("Failed to write auth.json: {error}")))?;
-    set_mode(Path::new(path), AUTH_FILE_MODE);
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(AUTH_FILE_MODE);
+    }
+    options
+        .open(path)
+        .and_then(|mut file| file.write_all(content.as_bytes()))
+        .map_err(|error| StorageError::new(pi_js_compat::node_fs::node_fs_error(&error, "open", path)))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(AUTH_FILE_MODE))
+            .map_err(|error| StorageError::new(pi_js_compat::node_fs::node_fs_error(&error, "chmod", path)))?;
+    }
     Ok(())
 }
-
-#[cfg(unix)]
-fn set_mode(path: &Path, mode: u32) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
-}
-
-#[cfg(not(unix))]
-fn set_mode(_path: &Path, _mode: u32) {}
 
 /// `InMemoryAuthStorageBackend`: one JSON string guarded by an async chain.
 #[derive(Default)]
@@ -359,15 +371,55 @@ impl AuthStorageBackend for InMemoryAuthStorageBackend {
     }
 }
 
-type AuthStorageData = Map<String, Value>;
+pub type AuthStorageData = Map<String, Value>;
 
 fn parse_auth_data(content: Option<&str>) -> Result<AuthStorageData, StorageError> {
-    let Some(content) = content else {
+    let Some(content) = content.filter(|content| !content.is_empty()) else {
         return Ok(Map::new());
     };
     match js_json::parse(content).map_err(|error| StorageError::new(error.to_string()))? {
         Value::Object(object) => Ok(object),
         _ => Ok(Map::new()),
+    }
+}
+
+/// Merge raw UTF-16 JSON before encoding; untouched providers/keys must not cross serde's lossy string boundary.
+fn serialize_provider_change(
+    current: Option<&str>,
+    provider: &str,
+    credential: Option<&Value>,
+) -> Result<String, StorageError> {
+    let parsed = match current.filter(|text| !text.is_empty()) {
+        Some(text) => js_json::parse_lossless(text).map_err(|error| StorageError::new(error.to_string()))?,
+        None => js_json::JsValue::Object(js_json::JsObject::new()),
+    };
+    let mut object = match parsed {
+        js_json::JsValue::Object(object) => object,
+        _ => js_json::JsObject::new(),
+    };
+    let key = js_json::JsString::from(provider);
+    if let Some(credential) = credential {
+        let encoded = serde_json::to_string(credential).map_err(|error| StorageError::new(error.to_string()))?;
+        object.insert(
+            key,
+            js_json::parse_lossless(&encoded).map_err(|error| StorageError::new(error.to_string()))?,
+        );
+    } else {
+        object.shift_remove(&key);
+    }
+    Ok(js_json::stringify_lossless_pretty(&js_json::JsValue::Object(object)))
+}
+
+fn oauth_value(credential: pi_ai::oauth::OAuthCredentials) -> Result<Value, StorageError> {
+    serde_json::to_value(Credential::OAuth(credential)).map_err(|error| StorageError::new(error.to_string()))
+}
+fn json_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(v) => *v,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
     }
 }
 
@@ -536,7 +588,25 @@ type SharedReadState = Option<(String, Arc<Mutex<ReadState>>)>;
 static SHARED_READ_STATE: OnceLock<Mutex<SharedReadState>> = OnceLock::new();
 
 /// Credential storage backed by a JSON file (`AuthStorage`).
+#[derive(Default)]
+struct SourceAuthState {
+    data: AuthStorageData,
+    runtime_overrides: std::collections::HashMap<String, String>,
+    load_error: Option<StorageError>,
+    errors: Vec<StorageError>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct AuthStatus {
+    pub configured: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
 pub struct AuthStorage {
+    source_state: Arc<Mutex<SourceAuthState>>,
     storage: Arc<dyn AuthStorageBackend>,
     auth_path: Option<String>,
     read_state: Arc<Mutex<ReadState>>,
@@ -580,7 +650,12 @@ impl AuthStorage {
                 reload: None,
             })),
         };
+        let source_data = lock(&read_state).data.clone();
         let store = Self {
+            source_state: Arc::new(Mutex::new(SourceAuthState {
+                data: source_data,
+                ..Default::default()
+            })),
             storage,
             auth_path,
             read_state,
@@ -604,6 +679,141 @@ impl AuthStorage {
         Self::from_storage(backend)
     }
 
+    /// Frozen public API: raw stored credential, without config resolution or refresh.
+    pub fn get(&self, provider: &str) -> Option<Value> {
+        lock(&self.source_state).data.get(provider).cloned()
+    }
+    pub fn get_all(&self) -> AuthStorageData {
+        lock(&self.source_state).data.clone()
+    }
+    /// Named separately until obsolete CredentialStore::list(options) consumers are removed.
+    pub fn list_providers(&self) -> Vec<String> {
+        ordered_provider_ids(&lock(&self.source_state).data)
+    }
+    pub fn has(&self, provider: &str) -> bool {
+        lock(&self.source_state).data.contains_key(provider)
+    }
+    pub fn get_provider_env(&self, provider: &str) -> Option<std::collections::HashMap<String, String>> {
+        let credential = self.get(provider)?;
+        if credential_type(&credential) != Some("api_key") {
+            return None;
+        }
+        serde_json::from_value(credential.get("env")?.clone()).ok()
+    }
+    pub fn set_runtime_api_key(&self, provider: &str, api_key: &str) {
+        lock(&self.source_state)
+            .runtime_overrides
+            .insert(provider.to_owned(), api_key.to_owned());
+    }
+    pub fn remove_runtime_api_key(&self, provider: &str) {
+        lock(&self.source_state).runtime_overrides.remove(provider);
+    }
+    pub fn has_auth(&self, provider: &str) -> bool {
+        let source = lock(&self.source_state);
+        source.runtime_overrides.contains_key(provider)
+            || source.data.get(provider).is_some_and(json_truthy)
+            || pi_ai::env_api_keys::get_env_api_key(provider, None).is_some()
+    }
+    pub fn get_auth_status(&self, provider: &str) -> AuthStatus {
+        let source = lock(&self.source_state);
+        if source.data.get(provider).is_some_and(json_truthy) {
+            return AuthStatus {
+                configured: true,
+                source: Some("stored".to_owned()),
+                label: None,
+            };
+        }
+        if source.runtime_overrides.contains_key(provider) {
+            return AuthStatus {
+                configured: false,
+                source: Some("runtime".to_owned()),
+                label: Some("--api-key".to_owned()),
+            };
+        }
+        if let Some(label) = pi_ai::env_api_keys::find_env_keys(provider, None).and_then(|keys| keys.into_iter().next())
+        {
+            return AuthStatus {
+                configured: false,
+                source: Some("environment".to_owned()),
+                label: Some(label),
+            };
+        }
+        AuthStatus {
+            configured: false,
+            source: None,
+            label: None,
+        }
+    }
+    fn record_error(&self, error: StorageError) {
+        lock(&self.source_state).errors.push(error);
+    }
+    pub fn drain_errors(&self) -> Vec<StorageError> {
+        std::mem::take(&mut lock(&self.source_state).errors)
+    }
+    fn persist_provider_change(
+        &self,
+        provider: &str,
+        credential: Option<Value>,
+    ) -> Result<AuthStorageData, StorageError> {
+        if lock(&self.source_state).load_error.is_some() {
+            self.reload();
+        }
+        let load_error = lock(&self.source_state).load_error.clone();
+        if let Some(error) = load_error {
+            let error = StorageError::new(format!(
+                "Cannot update auth storage because it could not be loaded: {error}"
+            ));
+            self.record_error(error.clone());
+            return Err(error);
+        }
+        let mut persisted = None;
+        let result = self.storage.with_lock(Box::new(|current| {
+            let content = serialize_provider_change(current, provider, credential.as_ref())?;
+            let mut merged = parse_auth_data(current)?;
+            if let Some(credential) = credential {
+                merged.insert(provider.to_owned(), credential);
+            } else {
+                merged.shift_remove(provider);
+            }
+            persisted = Some(merged);
+            Ok(Some(content))
+        }));
+        if let Err(error) = result {
+            self.record_error(error.clone());
+            return Err(error);
+        }
+        lock(&self.source_state).load_error = None;
+        Ok(persisted.expect("successful backend must call operation"))
+    }
+    pub fn set(&self, provider: &str, credential: Value) -> Result<(), StorageError> {
+        let persisted = self.persist_provider_change(provider, Some(credential))?;
+        lock(&self.source_state).data = persisted;
+        Ok(())
+    }
+    pub fn remove(&self, provider: &str) -> Result<(), StorageError> {
+        let persisted = self.persist_provider_change(provider, None)?;
+        lock(&self.source_state).data = persisted;
+        Ok(())
+    }
+    pub fn logout(&self, provider: &str) -> Result<(), StorageError> {
+        self.remove(provider)
+    }
+    pub async fn login(
+        &self,
+        provider_id: &str,
+        callbacks: Arc<dyn pi_ai::oauth::OAuthLoginCallbacks>,
+    ) -> Result<(), StorageError> {
+        let provider = pi_ai::oauth::get_oauth_provider(provider_id)
+            .ok_or_else(|| StorageError::new(format!("Unknown OAuth provider: {provider_id}")))?;
+        let credential = provider
+            .login(callbacks)
+            .await
+            .map_err(|error| StorageError::new(error.to_string()))?;
+        self.set(provider_id, oauth_value(credential)?)
+    }
+    pub fn get_oauth_providers(&self) -> Vec<Arc<dyn pi_ai::oauth::OAuthProviderInterface>> {
+        pi_ai::oauth::get_oauth_providers()
+    }
     fn current_revision(&self) -> Option<String> {
         self.auth_path.as_deref().and_then(get_file_revision)
     }
@@ -621,14 +831,29 @@ impl AuthStorage {
             *captured.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((parsed, revision));
             Ok(None)
         }));
-        if result.is_err() {
+        if let Err(error) = result {
+            let mut source = lock(&self.source_state);
+            source.load_error = Some(error.clone());
+            source.errors.push(error);
             return;
         }
         let captured = outcome.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
-        if let Some((Ok(data), revision)) = captured {
-            let mut state = lock(&state);
-            state.data = data;
-            state.revision = revision;
+        if let Some((parsed, revision)) = captured {
+            match parsed {
+                Ok(data) => {
+                    let mut source = lock(&self.source_state);
+                    source.data = data.clone();
+                    source.load_error = None;
+                    let mut state = lock(&state);
+                    state.data = data;
+                    state.revision = revision;
+                }
+                Err(error) => {
+                    let mut source = lock(&self.source_state);
+                    source.load_error = Some(error.clone());
+                    source.errors.push(error);
+                }
+            }
         }
     }
 

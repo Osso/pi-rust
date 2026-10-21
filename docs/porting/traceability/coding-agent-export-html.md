@@ -4,7 +4,7 @@ Rust: `crates/pi-coding-agent/src/core/export_html/index.rs` (templates embedded
 from `src/core/export_html/templates/`). Tests: `tests/export_html.rs`,
 `tests/differential_export_html.rs`.
 
-Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Historical export proof: commit `532f7d12cd19235081bd4d6e425bde185652d86f`. Current target is the [common source lock](../source-lock.json); frozen4f9 storage-edge evidence below does not renew this entire historical export matrix.
 
 ## Exported surface
 
@@ -74,3 +74,7 @@ TypeScript object is likewise single-threaded. `ToolRenderContext.args` is
 ## JS-value boundary regression (2026-10-20)
 
 Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).
+
+Frozen storage edge: `repin_session_storage::export_uses_read_only_stale_archive_and_legacy_source` covers archive/stale export and legacy source immutability; initial RED File not found on stale path.
+
+Bounded merged evidence and unresolved consumer/classification limits: [session storage integration](session-storage-integration.md). No fresh gate or whole-module promotion.

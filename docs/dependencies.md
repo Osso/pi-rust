@@ -23,14 +23,16 @@ All direct dependencies are exact-pinned.
 
 ### `pi-coding-agent`
 
+- `zstd = 0.14.3` (exact `=0.14.3`) — compresses archived session transcripts and supplies frame decoding for transcript reads, validation, restore and the native seekable-spool worker; completed-frame handling follows the [transcript trace](porting/traceability/session-transcript.md).
+
 - `flate2 = 1.0.34` (exact; already locked transitively) — opt-in Doom WAD helper uses `MultiGzDecoder` for Node `gunzipSync`, including concatenated gzip members.
 
 - Auth commands, config-value reference/environment-status helpers, `ParsedSkillBlock`/`parse_skill_block`, the focused direct-module CLI `Mode` value, the focused direct-module `isValidThinkingLevel` predicate, and the tool-output persistence constants use only the Rust standard library beyond the existing exact local `pi-agent-core` type dependency. `MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES` uses `usize` only as a narrow exception for the exact TypeScript numeric literal used as a byte limit; this does not generalize JavaScript `number` mappings.
 - `pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }` — shared JS-semantics helpers (`locale_compare`, minimatch) used by `core::model_resolver` and provider attribution; avoids duplicate collation/glob implementations.
 - `pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }` — supplies the typed `ThinkingLevel` used by the direct-module default constant and the shared `format_size` implementation used by coding-agent's package-visible wrapper. Request `13185` changes no dependency version or lock entry.
 - `serde = 1.0.229` — exposes the typed serialization contract used by RPC JSONL records and `GitSource` wire values (`derive` feature).
-- `tempfile = 3.27.0` — creates the private `pi-editor-*` directory for the interactive external editor (`mkdtempSync` equivalent); the mode is set to 0700 to match Node.
-- `serde_json = 1.0.151` (`preserve_order`, `float_roundtrip`) — produces compact semantic JSON before the LF record delimiter, represents parsed frontmatter values, preserves insertion order for byte-identical `settings.json` output (`js_json::stringify_pretty`), and keeps session-entry key order and decimal floats byte-compatible with TypeScript `JSON.stringify`/`JSON.parse`.
+- `tempfile = 3.27.0` (exact `=3.27.0`) — creates the private `pi-editor-*` directory for the interactive external editor (`mkdtempSync` equivalent; 0700) and private session-transcript spool directories; spool output is exclusively created with mode 0600.
+- `serde_json = 1.0.151` (exact `=1.0.151`; `preserve_order`, `float_roundtrip`, `raw_value`) — `raw_value` emits lossless receipt/unknown-summary JSON tokens without projecting escaped UTF-16 through `Value`; generic serde wrappers remain checked, not lossless. Also produces compact semantic JSON before the LF record delimiter, represents parsed frontmatter values, preserves insertion order for byte-identical `settings.json` output (`js_json::stringify_pretty`), and keeps session-entry key order and decimal floats byte-compatible with TypeScript `JSON.stringify`/`JSON.parse`.
 - `indexmap = 2.14.2` — insertion-ordered `IndexMap` for the unknown CLI flags that TypeScript stores in a `Map`, preserving first-insertion order with last-value-wins replacement.
 - `regex = 1.13.1` — compiles the pinned ANSI compatibility pattern in `utils::ansi`, the three pinned `supports-color` patterns in `utils::chalk`, and the changelog version header match used by the condensed startup notice.
 - `utils::chalk` needs no dependency: `std::io::IsTerminal` supplies TTY detection, replacing `node:tty`.
@@ -189,3 +191,7 @@ The SQLite slice also relies on the pinned TypeScript toolchain (`tsx`) through 
 
 
 Session-name v15 slice adds no dependencies. `pi-js-compat` supplies JS whitespace/trim and UTF-16 slicing with Node SQLite UTF-8 replacement semantics for generated session titles.
+
+`pi-coding-agent`: direct `zstd = "=0.14.3"` (existing lock version), frozen `.jsonl.zst` transcript decoding and archive storage.
+
+`pi-coding-agent` enables existing exact `serde_json` dependency `raw_value` feature only to emit validated lossless JsValue receipt/summary-extra JSON tokens (including escaped UTF16 strings/keys) without projecting through serde Value.

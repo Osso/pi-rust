@@ -276,6 +276,78 @@ fn agent_event_name(event: &pi_agent_core::agent::types::AgentEvent) -> &'static
     }
 }
 
+fn retry_completion_response() -> pi_ai::types::AssistantMessage {
+    faux_assistant_message(
+        vec![pi_ai::providers::faux::faux_tool_call(
+            "end_turn",
+            serde_json::Map::from_iter([("reason".to_owned(), json!("done"))]),
+            Some("retry-complete".to_owned()),
+        )],
+        FauxAssistantMessageOptions::default(),
+    )
+}
+
+#[tokio::test]
+async fn repin_settings_retry_delay_grows_with_attempt() {
+    let settings = serde_json::from_value(json!({
+        "retry": {"enabled": true, "maxRetries": 3, "baseDelayMs": 10,
+                  "maxBackoffMs": 80, "provider": {"maxRetries": 0}}
+    }))
+    .unwrap();
+    let fixture = fixture_with(settings, Vec::new(), None, Some(Vec::new())).await;
+    let delays = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = Arc::clone(&delays);
+    fixture.session.subscribe(Arc::new(move |event| {
+        if let AgentSessionEvent::AutoRetryStart(retry) = event {
+            observed.lock().unwrap().push(retry.delay_ms);
+        }
+    }));
+    let retry_error = faux_assistant_message(
+        "",
+        FauxAssistantMessageOptions {
+            stop_reason: Some(pi_ai::types::StopReason::Error),
+            error_message: Some("overloaded_error: server overloaded".to_owned()),
+            ..Default::default()
+        },
+    );
+    fixture.faux.set_responses(vec![
+        retry_error.clone().into(),
+        retry_error.into(),
+        retry_completion_response().into(),
+    ]);
+    fixture.session.prompt("retry", PromptOptions::default()).await.unwrap();
+    let delays = delays.lock().unwrap();
+    assert_eq!(delays.len(), 2, "two session retries must occur");
+    assert!((8.0..=12.0).contains(&delays[0]), "first delay: {}", delays[0]);
+    assert!((16.0..=24.0).contains(&delays[1]), "second delay: {}", delays[1]);
+}
+
+#[tokio::test]
+async fn repin_settings_invalid_compaction_threshold_rejects_before_next_request() {
+    let settings = serde_json::from_value(json!({"compaction": {"thresholdPercent": 101}})).unwrap();
+    let fixture = fixture_with(settings, Vec::new(), None, Some(Vec::new())).await;
+    let first_answer = faux_assistant_message("first answer without end_turn", FauxAssistantMessageOptions::default());
+    fixture
+        .faux
+        .set_responses(vec![first_answer.into(), retry_completion_response().into()]);
+    let error = fixture
+        .session
+        .prompt("invalid settings", PromptOptions::default())
+        .await
+        .expect_err("invalid compaction setting must fail before the next provider request");
+    assert!(
+        error
+            .to_string()
+            .contains("Invalid compaction.thresholdPercent setting"),
+        "{error}"
+    );
+    assert_eq!(
+        fixture.faux.get_pending_response_count(),
+        1,
+        "second provider response was not consumed"
+    );
+}
+
 #[tokio::test]
 async fn prompt_persists_user_and_assistant_messages() {
     let fixture = fixture().await;
@@ -788,7 +860,9 @@ async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
         now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".to_owned())),
     }));
-    store.publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"));
+    store
+        .publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"))
+        .expect("publish child lifecycle");
     let activities = Arc::new(std::sync::Mutex::new(Vec::new()));
     let recorded = Arc::clone(&activities);
     let _subscription = store.subscribe_agent_updates(move |_previous, current| {
@@ -890,11 +964,10 @@ async fn binds_extension_relocation_handlers_on_the_session() {
 }
 
 #[tokio::test]
-async fn runtime_mailbox_delivery_prompts_the_session_and_marks_the_message_delivered() {
+async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_row() {
     use pi_coding_agent::core::session_control_db::{
         EnqueueStoredRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind,
-        RuntimeMailboxMessageStatus, RuntimeMailboxStoreRef, enqueue_stored_runtime_mailbox_message,
-        list_runtime_mailbox_messages,
+        RuntimeMailboxStoreRef, enqueue_stored_runtime_mailbox_message, list_runtime_mailbox_messages,
     };
 
     let fixture = fixture_with_multi_agent(
@@ -915,6 +988,7 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_marks_the_message_deli
         message_id: "mailbox-1".to_owned(),
         session_path: session_file,
     };
+    let created_at = pi_coding_agent::utils::iso_time::now_iso_string();
     enqueue_stored_runtime_mailbox_message(
         &control_db_path,
         &EnqueueStoredRuntimeMailboxMessageInput {
@@ -928,13 +1002,14 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_marks_the_message_deli
             },
             kind: RuntimeMailboxMessageKind::Message,
             store_ref,
+            recipient_host: None,
             message: json!({
                 "id": "mailbox-1",
                 "fromAgentId": "parent",
                 "kind": "message",
                 "status": "pending",
-                "createdAt": "2026-06-21T00:00:00.000Z",
-                "updatedAt": "2026-06-21T00:00:00.000Z",
+                "createdAt": created_at,
+                "updatedAt": created_at,
                 "body": "hello from parent",
             }),
             updated_at: None,
@@ -980,8 +1055,7 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_marks_the_message_deli
     assert!(user_text.contains("hello from parent"), "{user_text}");
 
     let rows = list_runtime_mailbox_messages(&control_db_path).expect("mailbox rows");
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].status, RuntimeMailboxMessageStatus::Delivered);
+    assert!(rows.is_empty(), "accepted mailbox row must be removed: {rows:?}");
 }
 
 #[tokio::test]
@@ -2431,7 +2505,9 @@ async fn thinking_phase_deadline_reports_the_child_subject() {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
         now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".to_owned())),
     }));
-    store.publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"));
+    store
+        .publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"))
+        .expect("publish child lifecycle");
     let fixture = fixture_with_multi_agent(
         Default::default(),
         Vec::new(),
@@ -2515,7 +2591,9 @@ async fn activity_publication_errors_fail_the_agent_run() {
     use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
-    store.publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"));
+    store
+        .publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"))
+        .expect("publish child lifecycle");
     store.set_persistence_session_manager(Some(&FakePersistence));
     let fixture = fixture_with_multi_agent(
         Default::default(),

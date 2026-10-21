@@ -224,7 +224,8 @@ pub fn restore_compacted_parent_agent_records(
         };
         session_file.to_owned()
     };
-    let persisted_agent_ids = read_active_parent_agent_ids_from_entries(&load_entries_from_file(&session_file));
+    let entries = load_entries_from_file(&session_file).map_err(|cause| HandlerError::new(cause.to_string()))?;
+    let persisted_agent_ids = read_active_parent_agent_ids_from_entries(&entries);
     let persisted_missing_journal_agents: Vec<AgentSnapshot> = missing_journal_agents
         .into_iter()
         .filter(|agent| persisted_agent_ids.contains(&agent.id))
