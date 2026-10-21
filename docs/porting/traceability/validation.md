@@ -7,9 +7,10 @@ Spec: [shared validation](../../specs/validation.md).
 ## Re-pin status — bounded repair, not whole-module parity
 
 - Repairs through `f86144ba` are integrated by canonical merge `8d9bb557`.
-  Independent model-tool verification by agent41 remains pending in
-  `/tmp/pi-rust-repin-validation-model-verify`; no current model-tool acceptance
-  proof is claimed before the report.
+  Independent proof at `8d9bb557` passed 26 units, the 50-case differential,
+  9 model-tool tests and 5 viewed-target tests. Validation clippy/fmt passed;
+  model clippy stopped on six control-library diagnostics. Exact scope and
+  remaining gaps: `/tmp/pi-rust-repin-validation-model-verify/REPORT.md`.
 - Removed the old pre-conversion optional-null deletion pass; source has no such pass.
 - Removed plain union coercion's already-valid-arm precheck. Source coerces and checks
   cloned candidates in declaration order (`coerceWithUnionSchema`, lines 193–204).
@@ -160,7 +161,7 @@ keywords; number keywords; ref/const/enum/if/not/allOf/anyOf/oneOf):
 
 ## Current-pin discrepancy awaiting classification
 
-`plain-union-types` uses `{type:["array","null"],items:{type:"number"}}`
+`plain-union-types` uses `{type:["array","null"],items:{type:"string"}}`
 for property `c`, receiving `null`. The actual frozen module throws
 `Cannot read properties of null (reading 'every')`; Rust currently accepts it.
 The existing differential test remains red rather than silently dropping this case.
