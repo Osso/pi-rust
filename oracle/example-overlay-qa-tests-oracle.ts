@@ -58,7 +58,30 @@ async function run(request:any) {
   calls.push(['options',serial(options.overlayOptions)]);
   const snapshot=(width:number)=>calls.push(['frames',component.render(width),panels.map(p=>({options:serial(p.options),hidden:p.hidden,lines:p.component.render(p.options.width??34)}))]);
   snapshot(script.width??60);
-  for(const step of script.steps??[]){if(step.proc?.exitBeforeTail!==undefined)pendingTail=step.proc.exitBeforeTail;if(step.releaseTail){procHooks.stdout(Buffer.from(pendingTail!));procHooks.close();}if(step.running&&component.render(script.width??60).join('\n').includes('✓ Done'))throw new Error('exit must not finish before stdio closes');if(step.proc){if(step.proc.stdout!==undefined)procHooks.stdout(Buffer.from(step.proc.stdout));if(step.proc.stderr!==undefined)procHooks.stderr(Buffer.from(step.proc.stderr));if(step.proc.close)procHooks.close();}if(step.dispose)component.dispose?.();if(step.ms)advance(step.ms);if(step.key!==undefined||step.units){const target=step.panel===undefined?component:panels[step.panel].component;target.handleInput((step.key??String.fromCharCode(...step.units)).toWellFormed());}snapshot(step.width??script.width??60);}
+  for (const step of script.steps ?? []) {
+   if (step.proc?.exitBeforeTail !== undefined) pendingTail = step.proc.exitBeforeTail;
+   if (step.releaseTail) {
+    if (pendingTail === undefined) throw new Error('no pending final process output');
+    procHooks.stdout(Buffer.from(pendingTail));
+    procHooks.close();
+   }
+   if (step.running) {
+    const finished = component.render(script.width ?? 60).join('\n').includes('✓ Done');
+    if (finished) throw new Error('exit must not finish before stdio closes');
+   }
+   if (step.proc) {
+    if (step.proc.stdout !== undefined) procHooks.stdout(Buffer.from(step.proc.stdout));
+    if (step.proc.stderr !== undefined) procHooks.stderr(Buffer.from(step.proc.stderr));
+    if (step.proc.close) procHooks.close();
+   }
+   if (step.dispose) component.dispose?.();
+   if (step.ms) advance(step.ms);
+   if (step.key !== undefined || step.units) {
+    const target = step.panel === undefined ? component : panels[step.panel].component;
+    target.handleInput((step.key ?? String.fromCharCode(...step.units)).toWellFormed());
+   }
+   snapshot(step.width ?? script.width ?? 60);
+  }
   component.invalidate();component.dispose?.();cloned?.dispose?.();
   calls.push(['requests',requests]);
   calls.push(['done',completed,value,doneCount]);
