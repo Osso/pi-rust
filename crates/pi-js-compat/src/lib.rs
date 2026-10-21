@@ -9,6 +9,7 @@ pub mod base64;
 pub mod collator;
 pub mod date;
 pub mod js_json;
+mod js_json_macros;
 pub mod minimatch;
 pub mod node_fs;
 pub mod node_timers;

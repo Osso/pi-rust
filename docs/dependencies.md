@@ -140,3 +140,5 @@ Session-name v15 slice adds no dependencies. `pi-js-compat` supplies JS whitespa
 `pi-coding-agent`: direct `zstd = "=0.14.3"` (existing lock version), frozen `.jsonl.zst` transcript decoding and archive storage.
 
 `pi-coding-agent` enables existing exact `serde_json` dependency `raw_value` feature only to emit validated lossless JsValue receipt/summary-extra JSON tokens (including escaped UTF16 strings/keys) without projecting through serde Value.
+
+Q18: `crates/pi-js-compat/src/js_json_macros.rs` adapts the token grammar from the already-pinned serde_json 1.0.151 `src/macros.rs` under its MIT license (permission text retained inline). Needed because `serde_json::json!` eagerly projects string expressions into scalar-only Value and cannot build arbitrary UTF-16 provider bodies. No new dependency.

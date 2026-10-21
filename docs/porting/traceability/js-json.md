@@ -89,3 +89,5 @@ Shared JS stringify/object enumeration is used at this module's audited observab
 | `deserialize_present` optional property adapter | `js_json_serde`: omitted versus null versus nested surrogate value |
 
 RED: missing serde trait implementations (compile rejection). GREEN: three sandbox tests at `/tmp/pi-rust-repin-lossless-content/serde-green.log`. JSON-only serde limitation is explicit in the shared spec.
+
+Q18 construction: `js_json!` uses the serde_json 1.0.151 token grammar with JsValue/JsObject output and lossless expression serialization. `js_json_serde::lossless_json_macro_builds_nested_values_without_serde_value_projection` covers nested arrays/objects, dynamic lone-surrogate keys, lone-surrogate values and null/bool/number output. RED/GREEN: `/tmp/pi-rust-repin-lossless-content/macro-{red,green}.log` (six shared serde tests pass).

@@ -42,6 +42,17 @@ fn object_fields_and_scalar_serde_value_inputs_are_exact() {
 }
 
 #[test]
+fn lossless_json_macro_builds_nested_values_without_serde_value_projection() {
+    let key = JsString::from_utf16(vec![0xd800]);
+    let text = JsString::from_utf16(vec![0xdfff]);
+    let value = pi_js_compat::js_json!({ (key): [text, {"null":null,"bool":true}], "number": 1.0 });
+    assert_eq!(
+        stringify_lossless(&value),
+        r#"{"\ud800":["\udfff",{"null":null,"bool":true}],"number":1}"#
+    );
+}
+
+#[test]
 fn serde_preserves_utf16_strings_keys_and_nested_values() {
     let source = r#"{"\ud800":["\udfff",{"text":"a\ud800b","null":null}],"pair":"\ud83d\ude00"}"#;
     let expected = parse_lossless(source).unwrap();
