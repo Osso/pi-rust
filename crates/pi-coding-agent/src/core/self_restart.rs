@@ -125,6 +125,16 @@ impl Default for SelfRestartWaitDependencies {
     }
 }
 
+#[cfg(test)]
+mod process_probe_tests {
+    #[test]
+    fn self_restart_wait_treats_permission_errors_as_dead_like_frozen() {
+        assert!(super::process_signal_probe_alive(Ok(())));
+        assert!(!super::process_signal_probe_alive(Err(rustix::io::Errno::PERM)));
+        assert!(!super::process_signal_probe_alive(Err(rustix::io::Errno::SRCH)));
+    }
+}
+
 fn process_is_alive(pid: u32) -> bool {
     let Ok(pid) = i32::try_from(pid)
         .ok()
@@ -133,10 +143,11 @@ fn process_is_alive(pid: u32) -> bool {
     else {
         return false;
     };
-    matches!(
-        rustix::process::test_kill_process(pid),
-        Ok(()) | Err(rustix::io::Errno::PERM)
-    )
+    process_signal_probe_alive(rustix::process::test_kill_process(pid))
+}
+
+fn process_signal_probe_alive(result: Result<(), rustix::io::Errno>) -> bool {
+    result.is_ok()
 }
 
 fn now_millis() -> i64 {

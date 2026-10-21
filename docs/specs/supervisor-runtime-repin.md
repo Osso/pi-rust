@@ -33,3 +33,5 @@ Supervisor request/console processing propagates failures instead of dropping th
 Evaluation cancellation listens across compaction, prompt execution and instruction review, not just while prompting. It aborts the session and then awaits evaluator settlement; cancelled compaction must not start a new prompt.
 
 Architect specs use Node-compatible UTF-8 decoding (replacement characters for malformed bytes), including index discovery. Realpath/read failures retain Node syscall/path messages. Absolute project paths do not consult cwd, and relative paths never fall back to `/` on cwd failure.
+
+Self-restart parent waiting treats every failed signal-zero probe, including EPERM, as not alive, matching frozen defaultIsProcessAlive rather than the separate runtime-process liveness policy.

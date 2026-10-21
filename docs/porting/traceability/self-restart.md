@@ -42,3 +42,5 @@ concurrent environment readers (root cause and proof in
 `q16_runtime_repin` differentially proves empty-session rejection against frozen `consumeSelfRestartRequest`; `restart_clears_model_overrides` proves provider/model/thinking reset. Remaining restart exports are not yet revalidated. RED logs: `/tmp/pi-rust-repin-supervisor-runtime/red-runtime-leaves.log`, `red-model-overrides.log`.
 
 Q16 `resolveRestartInterruptedToolCalls`: `q16_runtime_repin::restart_pending_results_match_frozen` compares tool results with frozen in-memory SessionManager and checks idempotence. Detached-job persisted-state branch still needs a fixture. Entry-point invocation belongs to Q14.
+
+Q16 default wait probe: extracted the unchanged syscall-result predicate, observed the EPERM assertion fail, then changed the predicate to success-only. Focused raw-syscall-result RED/GREEN avoids changing host process permissions. Runtime-process still intentionally treats EPERM as alive, matching its separate frozen function.
