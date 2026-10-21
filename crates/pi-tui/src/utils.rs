@@ -370,15 +370,16 @@ impl AnsiCodeTracker {
         if !ansi_code.ends_with('m') {
             return;
         }
-        let Some(params) = ansi_code
-            .strip_prefix("\x1b[")
-            .and_then(|value| value.strip_suffix('m'))
-        else {
+        let Some(params) = ansi_code.split("\x1b[").skip(1).find_map(|value| {
+            let end = value.find('m')?;
+            let params = &value[..end];
+            params
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || byte == b';')
+                .then_some(params)
+        }) else {
             return;
         };
-        if !params.bytes().all(|byte| byte.is_ascii_digit() || byte == b';') {
-            return;
-        }
         if params.is_empty() || params == "0" {
             self.reset();
             return;

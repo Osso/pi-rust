@@ -28,3 +28,11 @@ Debug dump filenames contain current epoch milliseconds and a nondeterministic b
 ## Pending numeric classification
 
 Frozen lines 1154-1170 parse positive CSI cell-size numbers without a u32 bound. `ESC[6;4294967296;20t` is consumed in frozen (`inputs: []`); Rust currently forwards it because Q2's CellDimensions is u32. Parent explicitly deferred widening that public image API to Q2/user numeric-domain classification. Exact frozen/Rust observations: `/tmp/pi-rust-repin-tui-core/wide-cell-{frozen,rust}.log`. Coverage remains **partial**, not done.
+
+## Verifier closures (2026-10-21)
+
+F1: frame commit owns its RefCell guard and drops it before stop; `verifier_regressions::overwidth_stops_terminal_before_descriptive_panic` asserts descriptive width panic, end-of-content move, cursor-show, terminal-stop bytes, and stopped rendering. Shared main-screen/flow callers no longer retain an outer frame borrow.
+
+F2: `RenderRegion::try_render` attempts the region write without scheduling; `render_region::try_render_*` proves success, disposed/cleared failure and no root-render side effect versus request_render. Deferred legacy handles return false without scheduling.
+
+F3: Container/TuiBase remove only the first Rc-identical child. F4: listener registration deduplicates Rc pointer identity, duplicate subscriptions share an unsubscribe ID, and dispatch follows the live insertion-ordered registry including additions/removals. F5: absent an explicit test override, TERMUX_VERSION is checked dynamically and empty means false. Behavioral proof: `verifier_regressions` duplicate-child, callback-identity/live-dispatch and Termux fixtures derived from verifier probes.

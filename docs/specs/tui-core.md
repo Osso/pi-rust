@@ -21,3 +21,7 @@ The global keybinding manager preserves shared mutation identity across returned
 Real terminal lifetimes preserve partial UTF8 across OS reads, reclaim the old stdin worker before restart, skip unavailable raw-mode operations for redirected stdin and extend drain idle time on raw data even if consumed as a protocol response. These contracts are proved against frozen using private sandbox PTYs/pipes, not a live terminal.
 
 [Current proof and pending numeric domains](../porting/q1-tui-core-proof.md).
+
+## Core identity and failure contracts
+
+Overwidth changed-line errors restore end-of-content position, show the cursor and stop the terminal before propagating the descriptive error. RenderRegion.try_render never schedules a root render when it fails. Removing a child removes only its first identical reference. Input/color callbacks use Rc-pointer identity (JS function identity), deduplicate registration, and follow live Set iteration order. TERMUX_VERSION is dynamically read and only nonempty values enable its height-resize policy. Nested/restarted CSI extraction retains the frozen unanchored SGR match and carries its style across wraps.

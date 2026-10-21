@@ -118,6 +118,36 @@ pub struct Container {
     children: Vec<ComponentRef>,
 }
 
+// Callback IDs preserve insertion order; Rc identity matches JS function identity.
+fn register_listener<T: ?Sized>(
+    listeners: &RefCell<Vec<(usize, Rc<T>)>>,
+    next_id: &Cell<usize>,
+    listener: Rc<T>,
+) -> usize {
+    let mut listeners = listeners.borrow_mut();
+    if let Some((id, _)) = listeners
+        .iter()
+        .find(|(_, registered)| Rc::ptr_eq(registered, &listener))
+    {
+        return *id;
+    }
+    let id = next_id.get();
+    next_id.set(id + 1);
+    listeners.push((id, listener));
+    id
+}
+
+fn next_listener<T: ?Sized>(
+    listeners: &RefCell<Vec<(usize, Rc<T>)>>,
+    previous_id: Option<usize>,
+) -> Option<(usize, Rc<T>)> {
+    listeners
+        .borrow()
+        .iter()
+        .find(|(id, _)| previous_id.is_none_or(|previous| *id > previous))
+        .cloned()
+}
+
 impl Container {
     pub fn new() -> Self {
         Self::default()
@@ -138,7 +168,9 @@ impl Container {
     }
 
     pub fn remove_child(&mut self, component: &ComponentRef) {
-        self.children.retain(|child| !same_component(child, component));
+        if let Some(index) = self.children.iter().position(|child| same_component(child, component)) {
+            self.children.remove(index);
+        }
     }
 
     pub fn clear(&mut self) {
@@ -503,6 +535,16 @@ impl RenderRegion {
         }
     }
 
+    /// Attempt a partial update without scheduling a root render on failure.
+    pub fn try_render(&self) -> bool {
+        match &self.writer {
+            RegionWriter::Immediate(renderer) => renderer
+                .upgrade()
+                .is_some_and(|renderer| renderer.try_render_region(&self.state)),
+            RegionWriter::Deferred(_) => false,
+        }
+    }
+
     pub fn request_render(&self) -> bool {
         match &self.writer {
             RegionWriter::Immediate(renderer) => match renderer.upgrade() {
@@ -687,7 +729,7 @@ struct TuiBaseInner {
     focus_reporting_enabled: Cell<bool>,
     show_hardware_cursor: Cell<bool>,
     clear_on_shrink: Cell<bool>,
-    termux_session: Cell<bool>,
+    termux_session: Cell<Option<bool>>,
     debug_redraw: Cell<Option<bool>>,
     full_redraw_count: Cell<usize>,
     stopped: Cell<bool>,
@@ -738,7 +780,7 @@ impl TuiBase {
                 show_hardware_cursor.unwrap_or_else(|| environment_flag("PI_HARDWARE_CURSOR")),
             ),
             clear_on_shrink: Cell::new(environment_flag("PI_CLEAR_ON_SHRINK")),
-            termux_session: Cell::new(pi_js_compat::process_env::get("TERMUX_VERSION").is_some()),
+            termux_session: Cell::new(None),
             debug_redraw: Cell::new(None),
             full_redraw_count: Cell::new(0),
             stopped: Cell::new(false),
@@ -801,7 +843,7 @@ impl TuiBase {
 
     /// Explicit override for the source's `TERMUX_VERSION` environment check.
     pub fn set_termux_session(&self, enabled: bool) {
-        self.inner.termux_session.set(enabled);
+        self.inner.termux_session.set(Some(enabled));
     }
 
     /// Explicit override for the source's `PI_DEBUG_REDRAW` environment check.
@@ -810,7 +852,10 @@ impl TuiBase {
     }
 
     fn is_termux_session(&self) -> bool {
-        self.inner.termux_session.get()
+        self.inner
+            .termux_session
+            .get()
+            .unwrap_or_else(|| pi_js_compat::process_env::get("TERMUX_VERSION").is_some_and(|value| !value.is_empty()))
     }
 
     fn debug_redraw(&self) -> bool {
@@ -833,10 +878,10 @@ impl TuiBase {
     }
 
     pub fn remove_child(&self, component: &ComponentRef) {
-        self.inner
-            .children
-            .borrow_mut()
-            .retain(|child| !same_component(child, component));
+        let mut children = self.inner.children.borrow_mut();
+        if let Some(index) = children.iter().position(|child| same_component(child, component)) {
+            children.remove(index);
+        }
     }
 
     pub fn clear_children(&self) {
@@ -932,10 +977,7 @@ impl TuiBase {
     }
 
     pub fn add_input_listener(&self, listener: TuiInputListener) -> usize {
-        let id = self.inner.next_listener_id.get();
-        self.inner.next_listener_id.set(id + 1);
-        self.inner.input_listeners.borrow_mut().push((id, listener));
-        id
+        register_listener(&self.inner.input_listeners, &self.inner.next_listener_id, listener)
     }
 
     pub fn remove_input_listener(&self, id: usize) {
@@ -946,13 +988,11 @@ impl TuiBase {
     }
 
     pub fn on_terminal_color_scheme_change(&self, listener: ColorSchemeListener) -> usize {
-        let id = self.inner.next_listener_id.get();
-        self.inner.next_listener_id.set(id + 1);
-        self.inner
-            .terminal_color_scheme_listeners
-            .borrow_mut()
-            .push((id, listener));
-        id
+        register_listener(
+            &self.inner.terminal_color_scheme_listeners,
+            &self.inner.next_listener_id,
+            listener,
+        )
     }
 
     pub fn remove_terminal_color_scheme_listener(&self, id: usize) {
@@ -1241,8 +1281,9 @@ impl TuiBase {
         let Some(scheme) = parse_terminal_color_scheme_report(data) else {
             return false;
         };
-        let listeners = self.inner.terminal_color_scheme_listeners.borrow().clone();
-        for (_, listener) in listeners {
+        let mut previous_id = None;
+        while let Some((id, listener)) = next_listener(&self.inner.terminal_color_scheme_listeners, previous_id) {
+            previous_id = Some(id);
             listener(scheme);
         }
         self.prune_settled_color_scheme_queries();
@@ -1284,21 +1325,20 @@ impl TuiBase {
             return;
         }
 
-        let listeners = self.inner.input_listeners.borrow().clone();
         let mut current = data.to_string();
-        if !listeners.is_empty() {
-            for (_, listener) in listeners {
-                let result = listener(&current);
-                if result.consume {
-                    return;
-                }
-                if let Some(rewritten) = result.data {
-                    current = rewritten;
-                }
-            }
-            if current.is_empty() {
+        let mut previous_id = None;
+        while let Some((id, listener)) = next_listener(&self.inner.input_listeners, previous_id) {
+            previous_id = Some(id);
+            let result = listener(&current);
+            if result.consume {
                 return;
             }
+            if let Some(rewritten) = result.data {
+                current = rewritten;
+            }
+        }
+        if previous_id.is_some() && current.is_empty() {
+            return;
         }
         let data = current.as_str();
 
@@ -2693,7 +2733,12 @@ pub(crate) struct CommitFrame<'a> {
     pub(crate) allow_full_render: bool,
 }
 
-pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState, frame: CommitFrame<'_>) -> bool {
+pub(crate) fn commit_rendered_frame(
+    base: &TuiBase,
+    frame_state: &RefCell<RenderFrameState>,
+    frame: CommitFrame<'_>,
+) -> bool {
+    let mut state = frame_state.borrow_mut();
     let CommitFrame {
         variant,
         new_lines,
@@ -2727,7 +2772,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
         if !allow_full_render {
             return false;
         }
-        full_render(base, state, new_lines, cursor_pos, width, height, false);
+        full_render(base, &mut state, new_lines, cursor_pos, width, height, false);
         return true;
     }
     if width_changed {
@@ -2741,7 +2786,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
         if !allow_full_render {
             return false;
         }
-        full_render(base, state, new_lines, cursor_pos, width, height, true);
+        full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
         return true;
     }
     if height_changed && !base.is_termux_session() {
@@ -2755,7 +2800,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
         if !allow_full_render {
             return false;
         }
-        full_render(base, state, new_lines, cursor_pos, width, height, true);
+        full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
         return true;
     }
     if base.get_clear_on_shrink() && new_lines.len() < state.max_lines_rendered && !base.has_overlay_entries() {
@@ -2769,7 +2814,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
         if !allow_full_render {
             return false;
         }
-        full_render(base, state, new_lines, cursor_pos, width, height, true);
+        full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
         return true;
     }
     if variant.check_upward_shrink
@@ -2795,9 +2840,9 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             if !allow_full_render {
                 return false;
             }
-            full_render(base, state, new_lines, cursor_pos, width, height, true);
+            full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
         } else {
-            repaint_visible_window(base, state, &frame, upward);
+            repaint_visible_window(base, &mut state, &frame, upward);
         }
         return true;
     }
@@ -2835,7 +2880,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
     let append_start = appended_lines && first_changed == state.previous_lines.len() as i64 && first_changed > 0;
 
     if first_changed == -1 {
-        position_hardware_cursor(base, state, cursor_pos, new_lines.len());
+        position_hardware_cursor(base, &mut state, cursor_pos, new_lines.len());
         state.previous_viewport_top = prev_viewport_top;
         state.previous_height = height as i64;
         return true;
@@ -2855,7 +2900,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
                     new_lines.len(),
                     height,
                 );
-                full_render(base, state, new_lines, cursor_pos, width, height, true);
+                full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
                 return true;
             }
             let mut buffer = String::from("\x1b[?2026h");
@@ -2883,7 +2928,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
                     new_lines.len(),
                     height,
                 );
-                full_render(base, state, new_lines, cursor_pos, width, height, true);
+                full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
                 return true;
             }
             let clear_start_offset = usize::from(!new_lines.is_empty());
@@ -2905,7 +2950,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             state.cursor_row = target_row;
             state.hardware_cursor_row = target_row;
         }
-        position_hardware_cursor(base, state, cursor_pos, new_lines.len());
+        position_hardware_cursor(base, &mut state, cursor_pos, new_lines.len());
         state.previous_lines = new_lines.to_vec();
         state.previous_kitty_image_ids = collect_kitty_image_ids(new_lines);
         state.previous_width = width as i64;
@@ -2925,7 +2970,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             new_lines.len(),
             height,
         );
-        full_render(base, state, new_lines, cursor_pos, width, height, true);
+        full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
         return true;
     }
 
@@ -2985,7 +3030,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
                     new_lines.len(),
                     height,
                 );
-                full_render(base, state, new_lines, cursor_pos, width, height, true);
+                full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
                 return true;
             }
             buffer.push_str("\x1b[2K");
@@ -3001,6 +3046,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
         buffer.push_str("\x1b[2K");
         if !image && visible_width(line) > width {
             let crash_path = write_crash_log(base, width, index as usize, new_lines);
+            drop(state);
             base.stop(TuiStopOptions::default());
             panic!(
                 "Rendered line {index} exceeds terminal width ({} > {width}).\n\nThis is likely caused by a custom TUI component not truncating its output.\nUse visibleWidth() to measure and truncateToWidth() to truncate lines.\n\nDebug log written to: {}",
@@ -3027,7 +3073,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
     }
     buffer.push_str("\x1b[?2026l");
     write_render_debug(
-        state,
+        &state,
         &frame,
         RenderDebug {
             first_changed,
@@ -3045,7 +3091,7 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
     state.hardware_cursor_row = final_cursor_row;
     state.max_lines_rendered = state.max_lines_rendered.max(new_lines.len());
     state.previous_viewport_top = prev_viewport_top.max(final_cursor_row - height as i64 + 1);
-    position_hardware_cursor(base, state, cursor_pos, new_lines.len());
+    position_hardware_cursor(base, &mut state, cursor_pos, new_lines.len());
     state.previous_lines = new_lines.to_vec();
     state.previous_kitty_image_ids = collect_kitty_image_ids(new_lines);
     state.previous_width = width as i64;
@@ -3363,16 +3409,19 @@ impl TuiRenderer {
     }
 
     fn request_render_region(&self, state: &RenderRegionStateRef) -> bool {
-        let flow = state.borrow().flow_layout;
-        let rendered = match flow {
-            Some(_) => self.write_flow_render_region(state),
-            None => self.write_render_region(state),
-        };
-        if rendered {
+        if self.try_render_region(state) {
             return true;
         }
         self.base.request_render(false);
         false
+    }
+
+    fn try_render_region(&self, state: &RenderRegionStateRef) -> bool {
+        let flow = state.borrow().flow_layout;
+        match flow {
+            Some(_) => self.write_flow_render_region(state),
+            None => self.write_render_region(state),
+        }
     }
 
     fn write_fixed_cell(&self, state: &Rc<RefCell<FixedCellState>>) -> bool {
@@ -3449,12 +3498,13 @@ impl TuiRenderer {
         let Some(updates) = self.plan_flow_render_state_updates(state, layout, &frame) else {
             return false;
         };
-        let mut render_frame = self.frame.borrow_mut();
-        let width = render_frame.previous_width as usize;
-        let height = render_frame.previous_height as usize;
+        let (width, height) = {
+            let frame = self.frame.borrow();
+            (frame.previous_width as usize, frame.previous_height as usize)
+        };
         if !commit_rendered_frame(
             &self.base,
-            &mut render_frame,
+            &self.frame,
             crate::tui::CommitFrame {
                 variant: CommitVariant {
                     check_upward_shrink: false,
@@ -3469,7 +3519,6 @@ impl TuiRenderer {
         ) {
             return false;
         }
-        drop(render_frame);
         self.apply_flow_render_state_updates(state, updates);
         true
     }
@@ -3902,10 +3951,9 @@ impl RendererApi for TuiRenderer {
         }
         let cursor_pos = self.base.extract_cursor_position(&mut new_lines, height);
         self.base.apply_line_resets(&mut new_lines);
-        let mut frame = self.frame.borrow_mut();
         if commit_rendered_frame(
             &self.base,
-            &mut frame,
+            &self.frame,
             crate::tui::CommitFrame {
                 variant: CommitVariant {
                     check_upward_shrink: true,
