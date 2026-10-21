@@ -615,7 +615,9 @@ fn scenarios() -> Vec<Scenario> {
         },
         Scenario {
             name: "invalid-stored-values",
-            global: Some(),
+            global: Some(
+                r#"{"tuiMode":"other","outputPad":2,"markdown":{"mermaid":"sometimes","codeBlockIndent":"\t"},"httpIdleTimeoutMs":-1,"websocketConnectTimeoutMs":"disabled","fullscreenExitOutput":"nothing","fullscreenScrollbar":"sometimes","terminal":{"imageWidthCells":-5,"showImages":false},"editorPaddingX":9,"autocompleteMaxVisible":1,"enabledModels":[],"agents":{"explore":{"model":"faux/explore","thinkingLevel":"minimal"}},"thinkingBudgets":{"low":10},"warnings":{"anthropicExtraUsage":false},"permissionPromptTool":"mcp__x"}"#,
+            ),
             project: None,
             steps: vec![json!({"op": "flush"})],
         },

@@ -24,7 +24,7 @@ Main explicitly stages these unchanged old-only APIs until coupled consumer dele
 | `SettingsScope`, `SettingsManagerCreateOptions`, `SettingsError` | native enum/options/error record | scope observations, trusted/untrusted reads and drained error scopes |
 | `SettingsStorage`, `FileSettingsStorage`, `InMemorySettingsStorage` | native trait, file and memory backends | isolated file tests plus native in-memory/from-storage tests; lock retry policy source-inspected, not new timing proof |
 | `SettingsManager.create/fromStorage/inMemory` | corresponding native constructors | file and memory tests |
-| `reload`, `applyOverrides`, `flush`, `drainErrors` | corresponding native methods | differential reload/error recovery, overrides, post-flush files; queued-save same-turn ordering regression under investigation |
+| `reload`, `applyOverrides`, `flush`, `drainErrors` | corresponding native methods | differential reload/error recovery, overrides, post-flush files; FIFO queued snapshot, same-turn setter/external-write ordering regression |
 
 ## Getter/setter observations
 
@@ -164,7 +164,7 @@ All 70 frozen getters/is methods are observed in `snapshot`; all 53 setters have
 | agents/retry.provider/permissionRules.allow | global/project concrete grandchildren; arrays/null/session overrides | invalid non-object JS runtime values outside declared types not universally modeled |
 | Unknown properties + competing writes | `settings_manager_bidirectional_stale_writers_preserve_unknown_fields`: persistent TS/Rust managers, raw producer, both directions; overlapping process writes to distinct terminal children | after-flush observations do not prove automatic native event-loop drain |
 | Unchanged migrations | differential `migrations`; native legacy preset/package cases | malformed JS-only values not exhaustive |
-| Scope precedence/trust/errors | differential `project-trust`, `approval-sandbox`, `reload-errors-and-recovery`; native blocked writes | queued trust revocation before drain needs same-turn queue alignment |
+| Scope precedence/trust/errors | differential `project-trust`, `approval-sandbox`, `reload-errors-and-recovery`; native blocked writes | execution-time trust recheck and failed-task draining covered by queued-ordering scenarios |
 | Defaults/new validation | differential `repin-validation-and-catalog`, native exact error tests | retry runtime policy not settings parity |
 | Literal shellPath | native `shell_path_is_literal`, differential paths | no shell consumer claim |
 | Idle/hide flags | new getters/setters, defaults and bidirectional effective flags | scheduler/transcript consumers TODO |
@@ -174,7 +174,7 @@ All 70 frozen getters/is methods are observed in `snapshot`; all 53 setters have
 - Settings module has no retry scheduling, percentage-triggered compaction, idle scheduling, transcript suppression, or relay startup. B2/B3/relay proof remains TODO.
 - Rust JSON boundary cannot represent `NaN`/infinities; direct JS-invalid runtime types and non-object root documents are not claimed equivalent. Typed core exclusion is tracked in project rules.
 - Error scope/throw behavior is compared. New retry/percentage errors use JavaScript string conversion; existing timeout errors still use JSON serialization for object values.
-- Existing synchronous writes/no-op flush are **not** an accepted new-pin deviation. Dedicated same-turn setter/external-write/flush regression is being reproduced; module remains TODO until source ordering is addressed or user explicitly classifies it.
+- RED same-turn setter/external-write/flush mismatch reproduced at e2d89154 + fixture correction (`red-queued-ordering.txt`). Setters now queue scoped snapshots; mutable `flush` drains FIFO and `reload` first flushes. Automatic native task-completion pumping is still required from main-owned consumers; no automatic persistence parity claim yet.
 - Configured external editor is observed. Environment defaults are sandbox-isolated; broader host-locale/environment branches are not established by these fixtures.
 
 ## Proof ledger
