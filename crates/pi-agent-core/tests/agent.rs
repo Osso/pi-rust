@@ -255,6 +255,8 @@ async fn forwards_frozen_agent_callbacks_and_mutable_provider_configuration() {
             options.stream.request.on_payload.is_some(),
             options.stream.request.on_response.is_some(),
             options.stream.on_retry.is_some(),
+            options.thinking_budgets.and_then(|budgets| budgets.low),
+            options.stream.request.max_retry_delay_ms,
         ));
         Box::pin(async {
             let (sender, stream) = create_assistant_message_event_stream();
@@ -266,6 +268,23 @@ async fn forwards_frozen_agent_callbacks_and_mutable_provider_configuration() {
         })
     }));
     agent.prompt("hello").await.unwrap();
+    agent.set_on_payload(None);
+    agent.set_on_response(None);
+    agent.set_on_retry(None);
+    agent.set_get_api_key(None);
+    agent.set_thinking_budgets(Some(pi_ai::types::ThinkingBudgets {
+        low: Some(42.0),
+        ..Default::default()
+    }));
+    agent.set_max_retry_delay_ms(Some(123.0));
+    let prepared = Arc::new(AtomicBool::new(false));
+    let prepared_hook = prepared.clone();
+    agent.set_prepare_next_turn(Some(Arc::new(move |signal| {
+        prepared_hook.store(signal.is_some(), Ordering::SeqCst);
+        Box::pin(async { Ok(None) })
+    })));
+    agent.prompt("again").await.unwrap();
+    assert!(prepared.load(Ordering::SeqCst));
     let observed = observed.lock().unwrap();
     assert_eq!(
         observed[0],
@@ -274,7 +293,21 @@ async fn forwards_frozen_agent_callbacks_and_mutable_provider_configuration() {
             Some("new-key".into()),
             true,
             true,
-            true
+            true,
+            None,
+            None
+        )
+    );
+    assert_eq!(
+        observed[1],
+        (
+            vec![pi_ai::types::Message::User(user("converted"))],
+            None,
+            false,
+            false,
+            false,
+            Some(42.0),
+            Some(123.0)
         )
     );
 }
