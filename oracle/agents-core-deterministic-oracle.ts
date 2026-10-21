@@ -3,7 +3,6 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { runInThisContext } from "node:vm";
-import ts from "typescript";
 
 type RequestId = string | number | null;
 
@@ -272,6 +271,7 @@ function readSourceModulePath(): string {
 // Frozen runtime.ts now owns the private helpers formerly split across modules.
 // Expose declarations in a compiled in-memory copy; the frozen checkout stays immutable.
 function loadFrozenModule<T>(file: string, privateExports: string[]): T {
+	const ts = createRequire(file)("typescript") as typeof import("typescript");
 	const source = readFileSync(file, "utf8");
 	const exposed = `${source}\nexport { ${privateExports.join(", ")} };\n`;
 	const compiled = ts.transpileModule(exposed, {
