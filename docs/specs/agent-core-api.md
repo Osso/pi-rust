@@ -12,6 +12,7 @@ Reference: immutable `4f9e6f8a4`, `packages/agent-core/src/{agent-loop,agent,typ
 - Stop hooks receive turn context only, not an additional abort signal.
 - Proxy `toolcall_end` carries only `contentIndex`; finalize the tool call reconstructed from start/delta events, ignoring extra end-event fields.
 
+- Agent constructor exposes onPayload/onResponse/onRetry rather than an unrestricted stream-options bag. Mutable provider functions, callbacks, budgets and retry cap use Rust setters; each run snapshots provider configuration. Existing prepareNextTurn wrappers read the current hook after turn listeners, preserving context-hook precedence.
 - Agent listeners use live set iteration and deduplicate identical listeners. Await each listener; log rejection and continue without failing the run. Low-level event sinks still propagate rejection.
 - The default stream uses `pi-ai/compat.streamSimple`; no process-global stream registration API exists.
 - Stop hooks observe context replaced by `prepareNextTurn`, including restored tool batches.

@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use pi_ai::request::{BoxFuture, SimpleStreamOptions};
+use pi_ai::request::{BoxFuture, OnPayload, OnResponse, OnRetry, SimpleStreamOptions};
 use pi_ai::types::{
     AssistantMessage, ImageContent, Message, Model, ModelCost, ModelCostRates, StopReason, TextContent,
     TextOrImageContent, ThinkingBudgets, Transport, UserContent, UserMessage, UserRole,
@@ -103,8 +103,9 @@ pub struct AgentOptions {
     pub transport: Option<Transport>,
     pub max_retry_delay_ms: Option<f64>,
     pub tool_execution: Option<ToolExecutionMode>,
-    /// Provider options forwarded to each request (callbacks, headers, temperature, ...).
-    pub stream_options: Option<SimpleStreamOptions>,
+    pub on_payload: Option<OnPayload>,
+    pub on_response: Option<OnResponse>,
+    pub on_retry: Option<OnRetry>,
 }
 
 /// Options for [`Agent::continue_run`].
@@ -196,10 +197,10 @@ struct AgentInner {
     steering_queue: Arc<Mutex<PendingMessageQueue>>,
     follow_up_queue: Arc<Mutex<PendingMessageQueue>>,
     active_run: Mutex<Option<ActiveRun>>,
-    convert_to_llm: ConvertToLlm,
-    transform_context: Option<TransformContext>,
-    stream_function: StreamFn,
-    get_api_key: Option<GetApiKey>,
+    convert_to_llm: Mutex<ConvertToLlm>,
+    transform_context: Mutex<Option<TransformContext>>,
+    stream_function: Mutex<StreamFn>,
+    get_api_key: Mutex<Option<GetApiKey>>,
     before_tool_call: Mutex<Option<BeforeToolCallHook>>,
     after_tool_call: Mutex<Option<AfterToolCallHook>>,
     should_stop_after_turn: Mutex<Option<ShouldStopAfterTurnHook>>,
@@ -221,6 +222,10 @@ pub struct Agent {
 
 impl Agent {
     pub fn new(options: AgentOptions) -> Result<Self, AgentError> {
+        let mut stream_options = SimpleStreamOptions::default();
+        stream_options.stream.request.on_payload = options.on_payload;
+        stream_options.stream.request.on_response = options.on_response;
+        stream_options.stream.on_retry = options.on_retry;
         let stream_function = options.stream_fn.unwrap_or_else(default_stream_fn);
         let initial = options.initial_state.unwrap_or_default();
         let state = AgentState {
@@ -247,12 +252,14 @@ impl Agent {
                     options.follow_up_mode.unwrap_or(QueueMode::OneAtATime),
                 ))),
                 active_run: Mutex::new(None),
-                convert_to_llm: options
-                    .convert_to_llm
-                    .unwrap_or_else(|| Arc::new(default_convert_to_llm) as ConvertToLlm),
-                transform_context: options.transform_context,
-                stream_function,
-                get_api_key: options.get_api_key,
+                convert_to_llm: Mutex::new(
+                    options
+                        .convert_to_llm
+                        .unwrap_or_else(|| Arc::new(default_convert_to_llm) as ConvertToLlm),
+                ),
+                transform_context: Mutex::new(options.transform_context),
+                stream_function: Mutex::new(stream_function),
+                get_api_key: Mutex::new(options.get_api_key),
                 before_tool_call: Mutex::new(options.before_tool_call),
                 after_tool_call: Mutex::new(options.after_tool_call),
                 should_stop_after_turn: Mutex::new(options.should_stop_after_turn),
@@ -263,7 +270,7 @@ impl Agent {
                 transport: Mutex::new(options.transport.unwrap_or(Transport::Auto)),
                 max_retry_delay_ms: Mutex::new(options.max_retry_delay_ms),
                 tool_execution: Mutex::new(options.tool_execution.unwrap_or(ToolExecutionMode::Parallel)),
-                stream_options: Mutex::new(options.stream_options.unwrap_or_default()),
+                stream_options: Mutex::new(stream_options),
             }),
         })
     }
@@ -348,7 +355,96 @@ impl Agent {
 
     /// The configured stream function (`streamFn`).
     pub fn stream_fn(&self) -> StreamFn {
-        Arc::clone(&self.inner.stream_function)
+        self.inner
+            .stream_function
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub fn set_stream_fn(&self, stream_fn: StreamFn) {
+        *self
+            .inner
+            .stream_function
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = stream_fn;
+    }
+
+    pub fn set_convert_to_llm(&self, convert: ConvertToLlm) {
+        *self
+            .inner
+            .convert_to_llm
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = convert;
+    }
+
+    pub fn set_transform_context(&self, transform: Option<TransformContext>) {
+        *self
+            .inner
+            .transform_context
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = transform;
+    }
+
+    pub fn set_get_api_key(&self, get_api_key: Option<GetApiKey>) {
+        *self
+            .inner
+            .get_api_key
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = get_api_key;
+    }
+
+    pub fn set_prepare_next_turn(&self, hook: Option<PrepareNextTurnSignalHook>) {
+        *self
+            .inner
+            .prepare_next_turn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = hook;
+    }
+
+    pub fn set_on_payload(&self, callback: Option<OnPayload>) {
+        self.inner
+            .stream_options
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .stream
+            .request
+            .on_payload = callback;
+    }
+
+    pub fn set_on_response(&self, callback: Option<OnResponse>) {
+        self.inner
+            .stream_options
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .stream
+            .request
+            .on_response = callback;
+    }
+
+    pub fn set_on_retry(&self, callback: Option<OnRetry>) {
+        self.inner
+            .stream_options
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .stream
+            .on_retry = callback;
+    }
+
+    pub fn set_thinking_budgets(&self, budgets: Option<ThinkingBudgets>) {
+        *self
+            .inner
+            .thinking_budgets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = budgets;
+    }
+
+    pub fn set_max_retry_delay_ms(&self, delay: Option<f64>) {
+        *self
+            .inner
+            .max_retry_delay_ms
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = delay;
     }
 
     /// Current state snapshot.
@@ -603,7 +699,7 @@ impl Agent {
             config,
             self.event_sink(),
             Some(signal.clone()),
-            Some(self.inner.stream_function.clone()),
+            Some(self.stream_fn()),
         )
         .await;
         self.finish_run_with(result, &signal).await
@@ -619,7 +715,7 @@ impl Agent {
             config,
             self.event_sink(),
             Some(signal.clone()),
-            Some(self.inner.stream_function.clone()),
+            Some(self.stream_fn()),
         )
         .await;
         self.finish_run_with(result, &signal).await
@@ -732,18 +828,22 @@ impl Agent {
     }
 
     fn create_loop_config(&self, skip_initial_steering_poll: bool) -> AgentLoopConfig {
-        let run_signal = self.signal();
         let (get_steering_messages, get_follow_up_messages) = self.build_queue_hooks(skip_initial_steering_poll);
         let state = self.state_lock();
 
         AgentLoopConfig {
             model: state.model.clone(),
             stream_options: self.build_stream_options(state.thinking_level),
-            convert_to_llm: Arc::clone(&self.inner.convert_to_llm),
-            transform_context: self.inner.transform_context.clone(),
-            get_api_key: self.inner.get_api_key.clone(),
+            convert_to_llm: self
+                .inner
+                .convert_to_llm
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone(),
+            transform_context: self.hook(&self.inner.transform_context),
+            get_api_key: self.hook(&self.inner.get_api_key),
             should_stop_after_turn: self.hook(&self.inner.should_stop_after_turn),
-            prepare_next_turn: self.build_prepare_next_turn_hook(run_signal),
+            prepare_next_turn: self.build_prepare_next_turn_hook(),
             get_steering_messages,
             get_follow_up_messages,
             tool_execution: *self
@@ -786,23 +886,27 @@ impl Agent {
         stream_options
     }
 
-    fn build_prepare_next_turn_hook(&self, run_signal: Option<CancellationToken>) -> Option<PrepareNextTurnHook> {
-        let prepare_next_turn_with_context = self.hook(&self.inner.prepare_next_turn_with_context);
-        let prepare_next_turn = self.hook(&self.inner.prepare_next_turn);
-        match (prepare_next_turn_with_context.as_ref(), prepare_next_turn.as_ref()) {
-            (Some(with_context), _) => {
-                let with_context = Arc::clone(with_context);
-                Some(
-                    Arc::new(move |context: PrepareNextTurnContext| with_context(context, run_signal.clone()))
-                        as PrepareNextTurnHook,
-                )
-            }
-            (None, Some(signal_only)) => {
-                let signal_only = Arc::clone(signal_only);
-                Some(Arc::new(move |_: PrepareNextTurnContext| signal_only(run_signal.clone())) as PrepareNextTurnHook)
-            }
-            (None, None) => None,
+    fn build_prepare_next_turn_hook(&self) -> Option<PrepareNextTurnHook> {
+        if self.hook(&self.inner.prepare_next_turn_with_context).is_none()
+            && self.hook(&self.inner.prepare_next_turn).is_none()
+        {
+            return None;
         }
+        let agent = self.clone();
+        Some(Arc::new(move |context: PrepareNextTurnContext| {
+            let with_context = agent.hook(&agent.inner.prepare_next_turn_with_context);
+            let signal_only = agent.hook(&agent.inner.prepare_next_turn);
+            let signal = agent.signal();
+            Box::pin(async move {
+                if let Some(hook) = with_context {
+                    return hook(context, signal).await;
+                }
+                if let Some(hook) = signal_only {
+                    return hook(signal).await;
+                }
+                Ok(None)
+            })
+        }))
     }
 
     fn build_queue_hooks(

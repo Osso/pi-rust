@@ -181,6 +181,105 @@ async fn listener_errors_do_not_interrupt_other_listeners_or_the_run() {
 }
 
 #[tokio::test]
+async fn prepare_next_turn_reads_replaced_hook_after_turn_listeners() {
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    let prompts_hook = prompts.clone();
+    let responses = scripted_stream_fn(vec![
+        Script::message(tool_use(vec![AssistantContent::ToolCall(tool_call(
+            "call",
+            "lookup",
+            json!({}),
+        ))])),
+        Script::message(text_assistant("done")),
+    ]);
+    let agent = Agent::new(AgentOptions {
+        initial_state: Some(pi_agent_core::AgentInitialState {
+            tools: Some(vec![Arc::new(TestTool::no_args("lookup", || text_result("found")))]),
+            ..Default::default()
+        }),
+        prepare_next_turn_with_context: Some(Arc::new(|_, _| Box::pin(async { Ok(None) }))),
+        stream_fn: Some(Arc::new(move |model, context, options| {
+            prompts_hook.lock().unwrap().push(context.system_prompt.clone());
+            responses(model, context, options)
+        })),
+        ..Default::default()
+    })
+    .unwrap();
+    let control = agent.clone();
+    agent.subscribe(Arc::new(move |event, _| {
+        if matches!(event, AgentEvent::TurnEnd { .. }) {
+            control.set_prepare_next_turn_with_context(Some(Arc::new(|turn, _| {
+                Box::pin(async move {
+                    let mut context = turn.context;
+                    context.system_prompt = "replaced hook".into();
+                    Ok(Some(pi_agent_core::AgentLoopTurnUpdate {
+                        context: Some(context),
+                        model: None,
+                        thinking_level: None,
+                    }))
+                })
+            })));
+        }
+        Box::pin(async { Ok(()) })
+    }));
+    agent.prompt("hello").await.unwrap();
+    assert_eq!(prompts.lock().unwrap()[1].as_deref(), Some("replaced hook"));
+}
+
+#[tokio::test]
+async fn forwards_frozen_agent_callbacks_and_mutable_provider_configuration() {
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let observed_hook = observed.clone();
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(scripted_stream_fn(Vec::new())),
+        on_payload: Some(Arc::new(|payload, _| Box::pin(async move { Ok(Some(payload)) }))),
+        on_response: Some(Arc::new(|_, _| Box::pin(async { Ok(()) }))),
+        on_retry: Some(Arc::new(|_, _| {})),
+        ..Default::default()
+    })
+    .unwrap();
+    agent.set_transform_context(Some(Arc::new(|_, _| {
+        Box::pin(async { Ok(vec![user_message("transformed")]) })
+    })));
+    agent.set_convert_to_llm(Arc::new(|messages| {
+        Box::pin(async move {
+            assert_eq!(messages[0], user_message("transformed"));
+            Ok(vec![pi_ai::types::Message::User(user("converted"))])
+        })
+    }));
+    agent.set_get_api_key(Some(Arc::new(|_| Box::pin(async { Some("new-key".into()) }))));
+    agent.set_stream_fn(Arc::new(move |_, context, options| {
+        observed_hook.lock().unwrap().push((
+            context.messages,
+            options.stream.request.api_key,
+            options.stream.request.on_payload.is_some(),
+            options.stream.request.on_response.is_some(),
+            options.stream.on_retry.is_some(),
+        ));
+        Box::pin(async {
+            let (sender, stream) = create_assistant_message_event_stream();
+            sender.push(AssistantMessageEvent::Done {
+                reason: pi_ai::types::DoneReason::Stop,
+                message: text_assistant("new stream"),
+            });
+            stream
+        })
+    }));
+    agent.prompt("hello").await.unwrap();
+    let observed = observed.lock().unwrap();
+    assert_eq!(
+        observed[0],
+        (
+            vec![pi_ai::types::Message::User(user("converted"))],
+            Some("new-key".into()),
+            true,
+            true,
+            true
+        )
+    );
+}
+
+#[tokio::test]
 async fn creates_agent_with_default_state() {
     let agent = Agent::new(AgentOptions {
         stream_fn: Some(scripted_stream_fn(Vec::new())),
