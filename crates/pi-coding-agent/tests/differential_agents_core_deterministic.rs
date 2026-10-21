@@ -272,7 +272,11 @@ async fn registration_metadata_matches_the_pinned_typescript_registration() {
     let actual = json!({"commands": commands, "tools": tools});
     let expected_tools = expected["tools"].as_array().expect("tools");
     let actual_tools = actual["tools"].as_array().expect("tools");
-    assert_eq!(expected_tools.len(), actual_tools.len(), "tool count");
+    assert_eq!(
+        expected_tools.len(),
+        actual_tools.len(),
+        "tool count\nexpected={expected}\nactual={actual}"
+    );
     for (index, expected_tool) in expected_tools.iter().enumerate() {
         assert_eq!(
             expected_tool, &actual_tools[index],
