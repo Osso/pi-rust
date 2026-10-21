@@ -25,7 +25,8 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 - [x] Filter delivered legacy outbox rows, migrate missing parent/obsolete search columns, merge legacy counters, strip artifact fields and enforce live-owner migration quiescence.
 - [x] Match SQLite cleanup at controlled exactly24h/24h−1ms and expire missing/null/non-text/invalid births.
 - [x] Preserve legacy live process identities without incarnation; supersession requires both nonces.
-- [ ] Finish full group reverse-init/mutation proof and lossless persisted receipt strings.
+- [x] Preserve escaped lone-surrogate receipt values/keys and malformed ref elements losslessly; compare raw refs with JS property/strict-equality semantics.
+- [ ] Finish full group reverse-init/mutation proof and source limit0 classification.
 
 ## How it works
 

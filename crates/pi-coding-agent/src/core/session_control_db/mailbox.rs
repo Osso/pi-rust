@@ -508,16 +508,12 @@ fn recover_runtime_mailbox_claim(
             .as_ref()
             .and_then(|listener| listener.session_path.as_deref()),
     )?;
+    let expected = pi_js_compat::js_json::JsValue::from(
+        &serde_json::json!({"sessionPath":candidate.row.session_path,"messageId":candidate.row.message_id}),
+    );
     let mut accepted = false;
     for reference in refs {
-        if reference.is_null() {
-            return Err(ControlDbError::new(
-                "Cannot read properties of null (reading 'sessionPath')",
-            ));
-        }
-        if reference.get("sessionPath").and_then(Value::as_str) == Some(candidate.row.session_path.as_str())
-            && reference.get("messageId").and_then(Value::as_str) == Some(candidate.row.message_id.as_str())
-        {
+        if crate::core::runtime_mailbox_transcript::mailbox_store_refs_equal(&reference, &expected)? {
             accepted = true;
             break;
         }

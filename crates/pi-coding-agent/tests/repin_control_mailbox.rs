@@ -213,3 +213,41 @@ fn frozen_source_limit_zero_discrepancy_fixture() {
         "source bug repro, not approved Rust contract"
     );
 }
+
+#[test]
+fn lone_surrogate_receipt_does_not_alias_a_replacement_character_db_key() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("control.sqlite").display().to_string();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut data = input("surrogate");
+    data["storeRef"]["sessionPath"] = json!("/fixture/�/source.jsonl");
+    let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
+        .as_i64()
+        .unwrap();
+    let owner_identity = serde_json::from_str(
+        step(&mut ts, "registerSelf", json!([db, address(), null]))
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        call(&mut ts, "claimRuntimeMailboxMessages", json!([db, address(), 20]))[0]["status"],
+        "claimed"
+    );
+    let wire = r#"{"mailboxStoreRefs":[{"sessionPath":"/fixture/\ud800/source.jsonl","messageId":"surrogate"}]}"#;
+    let path = step(&mut ts, "createReceipt", json!([t.path().join("receipt"), wire, true]));
+    step(&mut ts, "registerSelf", json!([db, address(), path]));
+    drop(ts);
+    fixture_process::wait_for_owned_fixture_exit(&owner_identity);
+    register(&db, path.as_str());
+    assert_eq!(
+        read_runtime_mailbox_message(&db, id).unwrap().unwrap().status,
+        RuntimeMailboxMessageStatus::Pending,
+        "different UTF16 identities must not falsely delete the claim"
+    );
+    let mut peer = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    assert_eq!(
+        call(&mut peer, "readRuntimeMailboxMessage", json!([db, id]))["status"],
+        "pending"
+    );
+}

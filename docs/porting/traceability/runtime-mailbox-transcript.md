@@ -5,9 +5,11 @@ Frozen source: [4f9e6f8a4](../source-lock.json). Rust: `core/runtime_mailbox_tra
 | Export / branch | Rust / proof |
 |---|---|
 | `RUNTIME_MAILBOX_ACCEPTANCE_CUSTOM_TYPE` | Same string; recovery custom-entry fixture. |
-| `mailboxStoreRefsEqual` | Typed field equality; recovery compares raw persisted fields without eager validation. |
-| `readAcceptedRuntimeMailboxStoreRefs` | Whole transcript, source ordering, complete LF records only, messages and custom receipts, no active-branch restriction. `repin_runtime_mailbox_transcript` compares actual TS helper against raw `[{}]`, null record error, partial final valid JSON, malformed complete JSON, inactive-branch refs and custom refs. |
+| `mailboxStoreRefsEqual` | `(&JsValue,&JsValue) -> Result<bool,ControlDbError>`: JS property access/null errors, strict primitive/reference equality and UTF16 string identity; no eager field validation. |
+| `readAcceptedRuntimeMailboxStoreRefs` | `Option<&str> -> Result<Vec<pi_js_compat::js_json::JsValue>,ControlDbError>`: lossless JSON strings/keys/numbers, whole transcript, source ordering, complete LF records only, message/custom refs, inactive branches. Actual TS helper fixtures cover raw `[{}]`, null and malformed complete records, ignored valid partial final JSON, lone surrogates and distinct surrogate/U+FFFD keys, all malformed ref array elements and JS string iteration. |
 | Undefined/empty/missing file | Empty refs; missing file does not synthesize acceptance. |
 | Other read/parse errors | Propagated before DB recovery mutation. No eager schema validation of persisted refs. |
+
+Lossless follow-up: actual TS `SessionManager.create/appendMessage/appendCustomEntry/persistForRecovery` emits escaped lone-surrogate receipts. Legacy serde reader RED replaced those units and collapsed distinct keys; noniterable collection error wording also differed. `transcript-lossless-green.log` GREEN12 (mailbox8 / transcript4). Rust lossless wire output equals the same TS process's helper output. Dead-claim recovery proves a lone-surrogate receipt cannot alias a U+FFFD SQLite key and falsely delete a claim. No UTF-8 lossy conversion is used on JSON refs; filesystem byte decoding remains the explicit Node-equivalent boundary.
 
 DB recovery tests use an owned TS oracle process to create and claim canonical rows, kill that fixture owner, then replace registration with Rust. Complete receipt removes dead claim rather than requeue. This is not proof that runtime append/fsync callers persist receipts crash-safely; those caller boundaries remain separate work.
