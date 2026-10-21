@@ -54,16 +54,17 @@ async function run(request:any) {
   calls.push(['options',serial(options.overlayOptions)]);
   const snapshot=(width:number)=>calls.push(['frames',component.render(width),panels.map(p=>({options:serial(p.options),hidden:p.hidden,lines:p.component.render(p.options.width??34)}))]);
   snapshot(script.width??60);
-  for(const step of script.steps??[]){if(step.ms)advance(step.ms);if(step.key!==undefined){const target=step.panel===undefined?component:panels[step.panel].component;target.handleInput(step.key.toWellFormed());}snapshot(step.width??script.width??60);}
+  for(const step of script.steps??[]){if(step.ms)advance(step.ms);if(step.key!==undefined||step.units){const target=step.panel===undefined?component:panels[step.panel].component;target.handleInput((step.key??String.fromCharCode(...step.units)).toWellFormed());}snapshot(step.width??script.width??60);}
   component.invalidate();component.dispose?.();
   calls.push(['done',completed,value]);
+  if(script.delay)await new Promise<void>(resolve=>schedule(resolve,script.delay));
   return value;
  }};
  runner.setUIContext(ui,'tui');
  const command=runner.getCommand(request.command);
  const promise=command.handler('',runner.createCommandContext());
  // Stacked custom calls are started before each source sleep; advance only after they register.
- for(let i=0;i<5;i++){await Promise.resolve();advance(400);}
+ for(let i=0;i<100;i++){await Promise.resolve();advance(100);}
  await promise;
  return {commands:[...extension.commands].map(([name,c]:any)=>[name,c.description]),calls};
 }

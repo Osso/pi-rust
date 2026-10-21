@@ -222,8 +222,9 @@ impl ExtensionUiContext for Ui {
         opts: Option<ExtensionUiCustomOptions>,
     ) -> BoxFuture<'a, Result<Option<Value>, String>> {
         let script = self.scripts.lock().unwrap().pop_front().unwrap_or(json!({}));
+        let delay = script["delay"].as_u64().unwrap_or(0);
         let calls = self.calls.clone();
-        ui_thread::run(move || {
+        let work = ui_thread::run(move || {
             Box::pin(async move {
                 PANELS.with(|ps| ps.borrow_mut().clear());
                 let result = Rc::new(RefCell::new(None));
@@ -257,7 +258,10 @@ impl ExtensionUiContext for Ui {
                             tokio::task::yield_now().await;
                         }
                     }
-                    if let Some(key) = step["key"].as_str() {
+                    let projected = step["units"].as_array().map(|units| {
+                        String::from_utf16_lossy(&units.iter().map(|u| u.as_u64().unwrap() as u16).collect::<Vec<_>>())
+                    });
+                    if let Some(key) = step["key"].as_str().or(projected.as_deref()) {
                         if let Some(index) = step["panel"].as_u64() {
                             let p = PANELS.with(|ps| ps.borrow()[index as usize].clone());
                             p.component.handle_input(key);
@@ -281,6 +285,11 @@ impl ExtensionUiContext for Ui {
                 PANELS.with(|ps| ps.borrow_mut().clear());
                 Ok(result.flatten())
             })
+        });
+        Box::pin(async move {
+            let result = work.await;
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            result
         })
     }
 }
@@ -328,7 +337,7 @@ async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
         "example-overlay-qa-tests-oracle.ts",
         "packages/coding-agent/examples/extensions/overlay-qa-tests.ts",
     );
-    let fixtures = vec![
+    let mut fixtures = vec![
         json!({"command":"overlay-animation","scripts":[{"steps":[{"key":"\u{001b}"}]}]}),
         json!({"command":"overlay-anchors","scripts":[{"steps":[{"key":" "}]},{"steps":[{"key":"\r"}]}]}),
         json!({"command":"overlay-margins","scripts":[{"steps":[{"key":" "}]},{"steps":[{"key":" "}]},{"steps":[{"key":" "}]},{"steps":[{"key":" "}]},{"steps":[{"key":"\u{001b}"}]}]}),
@@ -343,9 +352,25 @@ async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
         json!({"command":"overlay-focus","scripts":[{"steps":[{"panel":0,"key":"hello"},{"panel":0,"key":"\u{001b}[D"},{"panel":0,"key":"\r"},{"panel":0,"key":"\t"},{"panel":1,"key":"\u{001b}[Z"},{"panel":0,"key":"\u{001b}"},{"panel":1,"key":"\u{0004}"},{"panel":2,"key":"\u{001b}"}]}]}),
         json!({"command":"overlay-streaming","scripts":[{"steps":[{"key":"\t"},{"panel":0,"key":"z"},{"panel":0,"key":"\t"},{"panel":1,"key":"\t"},{"panel":2,"key":"\t"},{"key":"\u{001b}"}]}]}),
     ];
+    for (command, count) in [("overlay-anchors", 9), ("overlay-margins", 5), ("overlay-percent", 5)] {
+        let mut scripts = (0..count)
+            .map(|_| json!({"width":9,"steps":[{"key":"\x1b[C"}]}))
+            .collect::<Vec<_>>();
+        scripts.push(json!({"steps":[{"key":"\x1b"}]}));
+        fixtures.push(json!({"command":command,"scripts":scripts}));
+    }
+    fixtures.extend([
+        json!({"command":"overlay-animation","scripts":[{"steps":[{"ms":1100},{"width":1},{"width":7},{"key":"\x03"},{"ms":100}]}]}),
+        json!({"command":"overlay-passive","scripts":[{"steps":[{"ms":61000},{"units":[55296]},{"key":"\x7f"},{"key":"\x03"},{"ms":1000}]}]}),
+        json!({"command":"overlay-streaming","scripts":[{"steps":[{"ms":5000},{"key":"\t"},{"panel":0,"key":"A"},{"panel":0,"key":"é"},{"panel":0,"key":"🚀"},{"panel":0,"key":"\x7f"},{"panel":0,"key":"\x03"},{"ms":500}]}]}),
+        json!({"command":"overlay-focus","scripts":[{"width":12,"steps":[{"panel":0,"key":"é🚀中"},{"panel":0,"key":"\x7f"},{"panel":0,"key":"\x1b[C"},{"panel":0,"key":"\x1b[A"},{"panel":0,"key":"\x1b[B"},{"panel":0,"key":"\x1b[Z"},{"panel":2,"key":"\x03"}]}]}),
+        json!({"command":"overlay-stack","scripts":[{"delay":1100,"steps":[{"key":"\r"}]},{"delay":600,"steps":[{"key":"\r"}]},{"delay":100,"steps":[{"key":"\r"}]}]}),
+    ]);
     for request in fixtures {
-        let expected = oracle.request(&request);
-        let actual = native(&request).await;
+        let mut expected = oracle.request(&request);
+        let mut actual = native(&request).await;
+        normalize_timestamps(&mut expected);
+        normalize_timestamps(&mut actual);
         if actual != expected {
             std::fs::write(
                 std::env::temp_dir().join("overlay-qa-actual.json"),
@@ -359,5 +384,25 @@ async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
             .unwrap();
             panic!("differential mismatch: {request}; /tmp/overlay-qa-{{actual,expected}}.json");
         }
+    }
+}
+
+fn normalize_timestamps(value: &mut Value) {
+    match value {
+        Value::String(s) => {
+            let pattern = regex::Regex::new(r"\[\d{1,2}:\d{2}:\d{2} [AP]M\]").unwrap();
+            *s = pattern.replace_all(s, "[<local-time>]").into_owned();
+        }
+        Value::Array(items) => {
+            for item in items {
+                normalize_timestamps(item);
+            }
+        }
+        Value::Object(items) => {
+            for item in items.values_mut() {
+                normalize_timestamps(item);
+            }
+        }
+        _ => {}
     }
 }
