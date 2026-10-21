@@ -65,6 +65,7 @@ fn tool_result_message(tool_call_id: &str, text: &str) -> AgentMessage {
 
 fn message_entry(id: &str, parent_id: Option<&str>, message: AgentMessage) -> SessionEntry {
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: id.to_owned(),
         parent_id: parent_id.map(str::to_owned),
         timestamp: "2025-01-01T00:00:00Z".to_owned(),

@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -241,6 +241,10 @@ pub struct NewSessionOptions {
     pub subagent_name: Option<String>,
 }
 
+fn deserialize_receipt_value<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(deserializer).map(Some)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMessageEntry {
@@ -248,6 +252,13 @@ pub struct SessionMessageEntry {
     pub parent_id: Option<String>,
     pub timestamp: String,
     pub message: Box<AgentMessage>,
+    /// Raw persisted receipt value; None omits the key, Some(Null) preserves it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_receipt_value"
+    )]
+    pub mailbox_store_refs: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -386,7 +397,7 @@ pub enum SessionEntry {
 }
 
 impl SessionEntry {
-    fn from_value(value: Value) -> Self {
+    pub(crate) fn from_value(value: Value) -> Self {
         match serde_json::from_value::<KnownSessionEntry>(value.clone()) {
             Ok(entry) => Self::Known(entry),
             Err(_) => match value {
@@ -1543,17 +1554,19 @@ fn load_current_version_entries_from_file(
     file_path: &str,
     header: SessionHeader,
 ) -> Result<LoadedCurrentVersionSession, SessionManagerError> {
-    let mut file = File::open(file_path).map_err(|error| SessionManagerError::new(error.to_string()))?;
-    let file_size = file
-        .metadata()
-        .map_err(|error| SessionManagerError::new(error.to_string()))?
-        .len();
-    let loaded = read_current_version_session_entries(&mut file, file_size, file_path)?;
-    let mut file_entries = vec![FileEntry::Header(header)];
-    file_entries.extend(loaded.entries.into_iter().map(FileEntry::Entry));
-    Ok(LoadedCurrentVersionSession {
-        file_entries,
-        preceding_cwd: loaded.preceding_cwd,
+    super::session_transcript_spool::with_seekable_session_transcript(file_path, |plain| {
+        let mut file = File::open(plain).map_err(|error| SessionManagerError::new(error.to_string()))?;
+        let file_size = file
+            .metadata()
+            .map_err(|error| SessionManagerError::new(error.to_string()))?
+            .len();
+        let loaded = read_current_version_session_entries(&mut file, file_size, file_path)?;
+        let mut file_entries = vec![FileEntry::Header(header)];
+        file_entries.extend(loaded.entries.into_iter().map(FileEntry::Entry));
+        Ok(LoadedCurrentVersionSession {
+            file_entries,
+            preceding_cwd: loaded.preceding_cwd,
+        })
     })
 }
 
@@ -1737,12 +1750,12 @@ fn build_session_info(file_path: &str) -> Option<SessionInfo> {
         .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|elapsed| elapsed.as_millis() as i64)
         .unwrap_or(0);
-    let content = fs::read(file_path).ok()?;
-    let content = decode_utf8_lossy(&content);
+    let content = BufReader::new(create_session_transcript_read_stream(file_path).ok()?);
     let mut header: Option<SessionHeader> = None;
     let mut accumulator = SessionInfoAccumulator::default();
-    for line in content.split('\n') {
-        let line = line.strip_suffix('\r').unwrap_or(line);
+    for line in content.split(b'\n') {
+        let line = decode_utf8_lossy(&line.ok()?);
+        let line = line.strip_suffix('\r').unwrap_or(&line);
         let Some(entry) = parse_session_entry_line(line) else {
             continue;
         };
@@ -1778,7 +1791,7 @@ fn list_sessions_from_dir(
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
-            name.ends_with(".jsonl")
+            super::session_transcript::is_session_transcript_file(&name)
                 .then(|| PathBuf::from(dir).join(name).display().to_string())
         })
         .collect();
@@ -1814,7 +1827,7 @@ fn list_default_session_root(progress: Option<&mut dyn FnMut(usize, usize)>) -> 
         };
         for file in dir_entries.flatten() {
             let name = file.file_name().to_string_lossy().into_owned();
-            if name.ends_with(".jsonl") {
+            if super::session_transcript::is_session_transcript_file(&name) {
                 files.push(dir.join(name).display().to_string());
             }
         }
@@ -2208,6 +2221,36 @@ impl SessionManager {
         if let Some(cwd_override) = cwd_override {
             manager.cwd = resolve(cwd_override)?;
         }
+        Ok(manager)
+    }
+
+    /// Inspect a transcript without restoration, migration writes or metadata mutation.
+    pub fn open_read_only(path: &str, session_dir: Option<&str>) -> Result<Self, SessionManagerError> {
+        let source = read_session_transcript_path(&resolve(path)?);
+        let loaded = load_session_file_entries(&source)?;
+        let Some(FileEntry::Header(header)) = loaded.file_entries.first() else {
+            return Err(error(format!("Invalid session file: {source}")));
+        };
+        let cwd = loaded
+            .preceding_cwd
+            .as_deref()
+            .or(header.cwd.as_deref())
+            .map(str::to_owned)
+            .unwrap_or_else(process_cwd);
+        let id = header.id.clone();
+        let dir = session_dir.map(str::to_owned).unwrap_or_else(|| {
+            Path::new(&source)
+                .parent()
+                .unwrap_or(Path::new("."))
+                .display()
+                .to_string()
+        });
+        let mut manager = Self::new(&cwd, &dir, None, false, None)?;
+        manager.session_file = Some(source);
+        manager.session_id = id;
+        manager.file_entries = loaded.file_entries;
+        migrate_to_current_version(&mut manager.file_entries);
+        manager.build_index();
         Ok(manager)
     }
 
@@ -2878,6 +2921,7 @@ impl SessionManager {
 
     pub fn append_message(&mut self, message: AgentMessage) -> Result<String, SessionManagerError> {
         let entry = SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+            mailbox_store_refs: None,
             id: generate_id(&self.by_id),
             parent_id: self.leaf_id.clone(),
             timestamp: self.timestamp(),

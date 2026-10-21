@@ -1145,6 +1145,7 @@ fn daxnuts_reveals_image_and_text_over_time() {
 
 fn user_entry(id: &str, parent_id: Option<&str>, content: &str) -> SessionEntry {
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: id.to_owned(),
         parent_id: parent_id.map(str::to_owned),
         timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
@@ -1165,6 +1166,7 @@ fn assistant_entry(id: &str, parent_id: Option<&str>, text: &str) -> SessionEntr
     ))];
     message.stop_reason = StopReason::Stop;
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: id.to_owned(),
         parent_id: parent_id.map(str::to_owned),
         timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
@@ -1184,6 +1186,7 @@ fn tool_only_assistant_entry(id: &str, parent_id: Option<&str>) -> SessionEntry 
     ))];
     message.stop_reason = StopReason::ToolUse;
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: id.to_owned(),
         parent_id: parent_id.map(str::to_owned),
         timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
@@ -1193,6 +1196,7 @@ fn tool_only_assistant_entry(id: &str, parent_id: Option<&str>) -> SessionEntry 
 
 fn tool_result_entry(id: &str, parent_id: Option<&str>, tool_call_id: &str, text: &str) -> SessionEntry {
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: id.to_owned(),
         parent_id: parent_id.map(str::to_owned),
         timestamp: "2026-01-01T00:00:00.000Z".to_owned(),

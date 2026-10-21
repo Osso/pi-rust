@@ -86,3 +86,7 @@ DB; the name therefore stays unset and display name uses `Session <id>`. This sl
 a new metadata lookup to that unchanged source path.
 
 Empty-file initialization returns after `new_session`/header recovery without rehydrating stale metadata, matching the source early return. RED→GREEN proof: `opening_an_empty_file_resets_names_without_restoring_stale_metadata`.
+
+## Frozen4f9e6f8a4 storage delta (pending whole-module proof)
+
+Archive-aware header/load/list/fork; mutable open/setSessionFile resolves stale path before guard; openReadOnly loads/migrates/indexes in memory without metadata writes. Message receipt field retains raw JSON including null and omission. Existing persist_for_recovery remains available; fsync/typed append integration pending. Codec/fork trace: repin_session_storage. No crash-safe runtime delivery claim.

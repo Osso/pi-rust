@@ -11,7 +11,13 @@ const history = await import(pathToFileURL(join(root, "session-history.ts")).hre
 async function handle(r: any) {
  if (r.op === "create") {
   const m = manager.SessionManager.create(r.cwd, r.dir);
-  m.appendMessage({role:"user",content:r.text ?? "hello 😀漢字",timestamp:1}, r.refs);
+  const first=m.appendMessage({role:"user",content:r.text ?? "hello 😀漢字",timestamp:1}, r.refs);
+  if(r.compacted){
+   const kept=m.appendMessage({role:"user",content:"kept",timestamp:2},r.refs);
+   m.branch(first);m.appendMessage({role:"user",content:"inactive",timestamp:3});m.branch(kept);
+   m.appendCompaction("summary",kept,123);
+   m.appendMessage({role:"user",content:"newest",timestamp:4});
+  }
   m.persistForRecovery();
   return {path:m.getSessionFile(), id:m.getSessionId()};
  }

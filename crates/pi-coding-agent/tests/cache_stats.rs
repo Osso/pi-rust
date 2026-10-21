@@ -66,6 +66,7 @@ fn assistant(options: Options) -> AgentMessage {
 
 fn entry(message: AgentMessage) -> SessionEntry {
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: "x".to_owned(),
         parent_id: None,
         timestamp: String::new(),

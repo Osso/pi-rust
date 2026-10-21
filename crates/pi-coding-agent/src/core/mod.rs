@@ -127,3 +127,4 @@ pub use system_prompt::BuildSystemPromptOptions;
 
 pub mod session_archive_storage;
 pub mod session_transcript;
+pub mod session_transcript_spool;

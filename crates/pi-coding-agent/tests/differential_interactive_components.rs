@@ -1179,6 +1179,7 @@ fn tree_entries_user(
     use pi_ai::types::{UserContent, UserMessage, UserRole};
     use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, SessionMessageEntry};
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: id.to_owned(),
         parent_id: parent.map(str::to_owned),
         timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
@@ -1204,6 +1205,7 @@ fn tree_entries_assistant(
     message.content = vec![AssistantContent::Text(TextContent::new(text))];
     message.stop_reason = StopReason::Stop;
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        mailbox_store_refs: None,
         id: id.to_owned(),
         parent_id: parent.map(str::to_owned),
         timestamp: "2026-01-01T00:00:00.000Z".to_owned(),

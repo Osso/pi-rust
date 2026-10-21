@@ -2,6 +2,10 @@
 mod oracle;
 use pi_coding_agent::core::session_manager::{SessionManager, load_entries_from_file, read_session_header};
 use serde_json::{Value, json};
+fn configure_worker() {
+    let binary = std::path::Path::new(env!("CARGO_BIN_EXE_pi"));
+    pi_js_compat::process_env::set("PI_PACKAGE_DIR", binary.parent().unwrap().to_str().unwrap());
+}
 fn call(ts: &mut oracle::TsOracle, mut request: Value) -> Value {
     request["id"] = json!(1);
     let response = ts.request(&request);
@@ -10,6 +14,7 @@ fn call(ts: &mut oracle::TsOracle, mut request: Value) -> Value {
 }
 #[test]
 fn frozen_archive_stale_path_never_allocates_identity_or_masks_history() {
+    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -31,6 +36,7 @@ fn frozen_archive_stale_path_never_allocates_identity_or_masks_history() {
 
 #[test]
 fn frozen_archived_fork_preserves_message_receipts() {
+    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -50,6 +56,7 @@ fn frozen_archived_fork_preserves_message_receipts() {
 #[test]
 fn rust_archive_restores_with_frozen_ts_and_exact_bytes() {
     use pi_coding_agent::core::session_archive_storage::{archive_persisted_session, restore_archived_session};
+    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
