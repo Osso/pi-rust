@@ -2,6 +2,10 @@
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
+Notification-policy validation: `repin_control_validation` RED2→GREEN2 rejects null/string/number/array/object suppression values before DB setup and rejects invalid persisted policy at the restore boundary, matching TS errors. Typed input exclusions do not hide raw disk payloads.
+
+Mutation negative control at `12acddd6`: disabling only expected-payload equality makes the real-peer-update CAS test fail at stale delivery rejection; restoring byte-identical mailbox source (SHA256 `72c1365c1b9e8d7ff7d9f243fd4b54b783523c439569113483c55695064d66f9`) makes it pass. Mutation never committed/deployed. All 127 frozen exported function names have native counterparts by source inventory; this is not 127 behavioral proofs.
+
 Reciprocal proof: `repin_control_reciprocal.rs` GREEN6 starts fresh Rust public producers, then the same frozen TS initializes/reads, Rust mutates and the same TS reads again. Covers mailbox retry/claim/fail/delete, owned agent model/terminal/peer-ack replay, channel/cursor reserved-key coexistence, cancelled supervisor fencing, unchanged incoming/history/health/counters and archive failure after relocation rolling back metadata/counter moves.
 
 `mailbox-order-cas-proof.log` GREEN13 adds actual TS upsert after a Rust claim/read snapshot (stale delivery CAS rejects), foreign claimant release/fail/delete fences, malformed complete receipt after an earlier matching ref aborts before deletion, and raw null-ref short-circuit ordering. Two tests reproduce TS discrepancies only, not accepted Rust contracts: limit0 and empty optional recipientHost retry.

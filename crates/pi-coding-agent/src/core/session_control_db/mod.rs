@@ -613,6 +613,13 @@ pub(crate) fn validate_persisted_agent_payload(data: &Map<String, Value>, contex
             )));
         }
     }
+    if let Some(policy) = data.get("suppressTerminalNotification")
+        && !policy.is_boolean()
+    {
+        return Err(ControlDbError::new(format!(
+            "Invalid persisted suppressTerminalNotification at {context}: expected a boolean"
+        )));
+    }
     if let Some(permission) = data.get("permission") {
         let Value::Object(permission) = permission else {
             return Err(ControlDbError::new(format!(
