@@ -120,15 +120,14 @@ async fn validation_handshake_routes_and_acks_match_frozen() {
 async fn paired_streams_retry_lost_ack_without_resurrecting_deleted_mailbox() {
     use pi_coding_agent::core::host_relay_store::*;
     use pi_coding_agent::core::session_control_db::*;
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::io::AsyncWriteExt;
     let temp = tempfile::tempdir().unwrap();
     let a = temp.path().join("a.sqlite").display().to_string();
     let b = temp.path().join("b.sqlite").display().to_string();
     let input:EnqueueStoredRuntimeMailboxMessageInput=serde_json::from_value(json!({"kind":"message","recipientHost":"peer","recipient":{"sessionId":"r","agentId":null},"sender":{"sessionId":"s","agentId":null},"storeRef":{"sessionPath":"/s","messageId":"m"},"message":{"id":"m","kind":"message","status":"pending","fromAgentId":"main","toAgentId":"main","body":"once"}})).unwrap();
     enqueue_stored_runtime_mailbox_message(&a, &input).unwrap();
     let (left, right) = tokio::io::duplex(65536);
-    let (read, mut write) = tokio::io::split(right);
-    let mut lines = BufReader::new(read).lines();
+    let (_read, mut write) = tokio::io::split(right);
     let stop = CancellationToken::new();
     let relay = run_host_relay(
         left,
@@ -162,7 +161,6 @@ async fn paired_streams_retry_lost_ack_without_resurrecting_deleted_mailbox() {
         assert!(list_runtime_mailbox_messages(&b).unwrap().is_empty());
         assert_eq!(list_runtime_mailbox_messages(&a).unwrap().len(), 1);
         stop.cancel();
-        let _ = lines.next_line();
     };
     let (result, ()) = tokio::join!(relay, action);
     assert_eq!(result, Ok(()));

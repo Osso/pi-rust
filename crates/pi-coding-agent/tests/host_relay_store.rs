@@ -331,10 +331,9 @@ fn text_validation_preserves_utf16_like_frozen() {
         for nullable in [false, true] {
             let name = if nullable { "nullableText" } else { "requireText" };
             let actual = if nullable {
-                nullable_text(Some(&value), "fixture")
-                    .map(|v| v.map(|s| JsValue::String(s.into())).unwrap_or(JsValue::Null))
+                nullable_text(Some(&value), "fixture").map(|v| v.map(JsValue::String).unwrap_or(JsValue::Null))
             } else {
-                require_text(Some(&value), "fixture").map(|s| JsValue::String(s.into()))
+                require_text(Some(&value), "fixture").map(JsValue::String)
             };
             let expected = ts.request(&json!({"op":"store","fn":name,"args":format!("[{wire},\"fixture\"]")}));
             match actual {
