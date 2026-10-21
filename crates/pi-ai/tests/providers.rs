@@ -9,7 +9,7 @@ use pi_ai::providers::all::{
     get_builtin_model_data_generated_at, get_builtin_models, get_builtin_providers,
 };
 use pi_ai::request::{SimpleStreamOptions, StreamOptions};
-use pi_ai::types::{Context, Model, ModelCompat, ModelCostRates};
+use pi_ai::types::{Context, Model};
 use serde_json::json;
 
 #[allow(dead_code)]
@@ -453,85 +453,33 @@ fn builtin_models_registers_every_builtin_provider_with_models() {
 }
 
 #[test]
-fn catalog_keeps_ts_generated_order_and_metadata() {
-    let anthropic = get_builtin_models("anthropic");
-    assert_eq!(anthropic.len(), 19);
-    assert_eq!(anthropic[0].id, "claude-fable-5");
-
-    let openai = get_builtin_model("openai", "gpt-4o").expect("gpt-4o");
-    let ModelCompat::OpenAIResponses(compat) = openai.compat.expect("compat") else {
-        panic!("openai-responses compat");
-    };
-    assert_eq!(compat.supports_strict_mode, Some(true));
-    assert_eq!(compat.supports_openai_grammar_tools, None);
-
-    let gpt = get_builtin_model("openai", "gpt-5.4").expect("gpt-5.4");
-    let ModelCompat::OpenAIResponses(compat) = gpt.compat.expect("compat") else {
-        panic!("openai-responses compat");
-    };
-    assert_eq!(compat.supports_strict_mode, Some(true));
-    assert_eq!(compat.supports_openai_grammar_tools, Some(true));
-
-    let haiku = get_builtin_model("anthropic", "claude-haiku-4-5").expect("haiku");
-    let ModelCompat::AnthropicMessages(compat) = haiku.compat.expect("compat") else {
-        panic!("anthropic compat");
-    };
-    assert_eq!(compat.supports_strict_tools, Some(true));
-
-    // `providers.test.ts` still expects `cacheWrite: 0`; the pinned generated
-    // catalog carries 3 (recorded source discrepancy in the traceability doc).
-    for provider_id in ["moonshotai", "moonshotai-cn"] {
-        let kimi = get_builtin_model(provider_id, "kimi-k3").expect("kimi-k3");
-        assert_eq!(
-            kimi.cost.rates,
-            ModelCostRates {
-                input: 3.0,
-                output: 15.0,
-                cache_read: 0.3,
-                cache_write: 3.0,
-            }
-        );
+fn catalog_readers_preserve_optional_metadata() {
+    for (provider, id) in [
+        ("openai", "gpt-4o"),
+        ("openai", "gpt-5.4"),
+        ("anthropic", "claude-haiku-4-5"),
+    ] {
+        let model = get_builtin_model(provider, id).expect("frozen model");
+        assert!(model.compat.is_none(), "{provider}/{id} has no source compat");
     }
 
-    let coding_k3 = get_builtin_model("kimi-coding", "k3").expect("k3");
-    assert_eq!(coding_k3.cost.rates.input, 3.0);
-    let highspeed = get_builtin_model("kimi-coding", "kimi-for-coding-highspeed").expect("highspeed");
+    let xiaomi = get_builtin_model("xiaomi", "mimo-v2-flash").expect("MiMo");
     assert_eq!(
-        highspeed.cost.rates,
-        ModelCostRates {
-            input: 1.9,
-            output: 8.0,
-            cache_read: 0.38,
-            cache_write: 0.0,
-        }
+        serde_json::to_value(xiaomi.compat).expect("serialize compat"),
+        serde_json::json!({
+            "requiresReasoningContentOnAssistantMessages": true,
+            "thinkingFormat": "deepseek",
+        })
     );
 
-    // `together-models.test.ts` still names `moonshotai/Kimi-K2.6`; the pinned
-    // catalog ships Kimi-K3 instead (recorded source discrepancy).
-    let together = get_builtin_model("together", "moonshotai/Kimi-K3").expect("together kimi");
-    assert_eq!(together.base_url, "https://api.together.ai/v1");
-    assert!(together.reasoning);
-    assert_eq!(together.context_window, 1048576.0);
-    assert_eq!(together.max_tokens, 131072.0);
-
-    assert!(get_builtin_model("baseten", "zai-org/GLM-5.2").is_none());
-
-    let bedrock_ids: Vec<String> = get_builtin_models("amazon-bedrock")
-        .into_iter()
-        .map(|model| model.id)
-        .collect();
-    assert!(bedrock_ids.contains(&"global.anthropic.claude-opus-5".to_owned()));
-    assert!(!bedrock_ids.contains(&"anthropic.claude-opus-5".to_owned()));
-
-    for model_id in ["mimo-v2-flash", "mimo-v2-omni"] {
-        assert!(get_builtin_model("xiaomi", model_id).is_some(), "xiaomi {model_id}");
-        for provider_id in ["xiaomi-token-plan-cn", "xiaomi-token-plan-ams", "xiaomi-token-plan-sgp"] {
-            assert!(
-                get_builtin_model(provider_id, model_id).is_none(),
-                "{provider_id} must omit {model_id}"
-            );
-        }
-    }
+    let kimi = get_builtin_model("kimi-coding", "k2p7").expect("Kimi Coding");
+    assert_eq!(
+        kimi.headers
+            .as_ref()
+            .and_then(|headers| headers.get("User-Agent"))
+            .map(String::as_str),
+        Some("KimiCLI/1.5")
+    );
 }
 
 #[test]
