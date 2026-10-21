@@ -79,7 +79,8 @@ fn test_dir() -> TestDir {
 
 fn store_with_persistence(test: &TestDir) -> Arc<MultiAgentStore> {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".to_owned())),
+        // Frozen multi-agent-store.ts:939-945 persists before enqueue; DB expiry uses Date.now().
+        now: Some(Arc::new(pi_coding_agent::utils::iso_time::now_iso_string)),
     }));
     store.set_persistence_session_manager(Some(&TestPersistence {
         control_db_path: test.control_db_path.clone(),
@@ -844,6 +845,7 @@ async fn registration_exposes_the_source_tools_and_commands() {
             "contact_parent",
             "list_agents",
             "send_agent_message",
+            "set_agent_model",
             "spawn_agent",
             "steer_agent",
             "wait_agent",
@@ -975,8 +977,8 @@ async fn jobs_command_lists_background_agents() {
         "agentType": "background",
         "lifecycle": "running",
         "revision": 1,
-        "createdAt": "2026-06-21T00:00:00.000Z",
-        "updatedAt": "2026-06-21T00:00:00.000Z",
+        "createdAt": pi_coding_agent::utils::iso_time::now_iso_string(),
+        "updatedAt": pi_coding_agent::utils::iso_time::now_iso_string(),
         "cwd": "/repo",
         "permission": {"policy": "on-request", "narrowed": true}
     }))

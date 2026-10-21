@@ -9,11 +9,16 @@ use pi_coding_agent::core::multi_agent_store::{
 };
 use pi_coding_agent::core::session_control_db::{list_runtime_mailbox_listeners, read_multi_agent_state};
 
-const NOW: &str = "2026-06-21T00:00:00.000Z";
+// Frozen session-control-db.ts retention uses Date.now(), including restore.
+fn fresh_time() -> String {
+    static NOW: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(pi_coding_agent::utils::iso_time::now_iso_string);
+    NOW.clone()
+}
 
 fn new_store() -> MultiAgentStore {
     MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(|| NOW.to_owned())),
+        now: Some(Arc::new(|| fresh_time())),
     })
 }
 
@@ -26,8 +31,8 @@ fn scout_input(parent: Option<&str>) -> AgentSnapshot {
         origin: None,
         lifecycle: AgentLifecycle::Running,
         revision: 1,
-        created_at: NOW.to_owned(),
-        updated_at: NOW.to_owned(),
+        created_at: fresh_time(),
+        updated_at: fresh_time(),
         cwd: "/repo".to_owned(),
         worktree: None,
         model: None,
