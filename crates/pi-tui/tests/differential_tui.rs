@@ -11,7 +11,6 @@ use pi_tui::tui::{
     Component, ComponentRef, FixedCell, Focusable, OverlayAnchor, OverlayHandle, OverlayMargin, OverlayOptions,
     SizeValue, TuiExt, TuiRenderer, component,
 };
-use pi_tui::tui_main_screen::TuiMainScreen;
 use serde_json::{Value, json};
 use virtual_terminal::concrete;
 
@@ -68,115 +67,67 @@ impl Focusable for ScenarioComponent {
     }
 }
 
-enum TuiHandle {
-    Main(Rc<TuiMainScreen>),
-    Renderer(Rc<TuiRenderer>),
-}
+struct TuiHandle(Rc<TuiRenderer>);
 
 impl TuiHandle {
     fn add_child(&self, component: ComponentRef) {
-        match self {
-            TuiHandle::Main(tui) => tui.add_child(component),
-            TuiHandle::Renderer(tui) => tui.add_child(component),
-        }
+        self.0.add_child(component)
     }
 
     fn start(&self) {
-        match self {
-            TuiHandle::Main(tui) => tui.start().unwrap(),
-            TuiHandle::Renderer(tui) => tui.start().unwrap(),
-        }
+        self.0.start().unwrap()
     }
 
     fn stop(&self) {
-        match self {
-            TuiHandle::Main(tui) => tui.stop(),
-            TuiHandle::Renderer(tui) => tui.stop(),
-        }
+        self.0.stop()
     }
 
     fn wait(&self) {
-        match self {
-            TuiHandle::Main(tui) => tui.flush_pending(),
-            TuiHandle::Renderer(tui) => tui.flush_pending(),
-        }
+        self.0.flush_pending()
     }
 
     fn process_events(&self) {
-        match self {
-            TuiHandle::Main(tui) => tui.process_events(),
-            TuiHandle::Renderer(tui) => tui.process_events(),
-        }
+        self.0.process_events()
     }
 
     fn render_now(&self, force: bool) {
-        match self {
-            TuiHandle::Main(tui) => tui.render_now(force),
-            TuiHandle::Renderer(tui) => tui.render_now(force),
-        }
+        self.0.render_now(force)
     }
 
     fn request_render(&self, force: bool) {
-        match self {
-            TuiHandle::Main(tui) => tui.request_render(force),
-            TuiHandle::Renderer(tui) => tui.request_render(force),
-        }
+        self.0.request_render(force)
     }
 
     fn set_focus(&self, component: Option<ComponentRef>) {
-        match self {
-            TuiHandle::Main(tui) => tui.set_focus(component),
-            TuiHandle::Renderer(tui) => tui.set_focus(component),
-        }
+        self.0.set_focus(component)
     }
 
     fn show_overlay(&self, component: ComponentRef, options: OverlayOptions) -> OverlayHandle {
-        match self {
-            TuiHandle::Main(tui) => tui.show_overlay(component, Some(options)),
-            TuiHandle::Renderer(tui) => tui.show_overlay(component, Some(options)),
-        }
+        self.0.show_overlay(component, Some(options))
     }
 
     fn hide_overlay(&self) {
-        match self {
-            TuiHandle::Main(tui) => tui.hide_overlay(),
-            TuiHandle::Renderer(tui) => tui.hide_overlay(),
-        }
+        self.0.hide_overlay()
     }
 
     fn create_fixed_cell(&self) -> Option<FixedCell> {
-        match self {
-            TuiHandle::Main(_) => None,
-            TuiHandle::Renderer(tui) => Some(tui.create_fixed_cell()),
-        }
+        Some(self.0.create_fixed_cell())
     }
 
     fn full_redraws(&self) -> usize {
-        match self {
-            TuiHandle::Main(tui) => tui.full_redraws(),
-            TuiHandle::Renderer(tui) => tui.full_redraws(),
-        }
+        self.0.full_redraws()
     }
 
     fn set_show_hardware_cursor(&self, enabled: bool) {
-        match self {
-            TuiHandle::Main(tui) => tui.set_show_hardware_cursor(enabled),
-            TuiHandle::Renderer(tui) => tui.set_show_hardware_cursor(enabled),
-        }
+        self.0.set_show_hardware_cursor(enabled)
     }
 
     fn set_clear_on_shrink(&self, enabled: bool) {
-        match self {
-            TuiHandle::Main(tui) => tui.set_clear_on_shrink(enabled),
-            TuiHandle::Renderer(tui) => tui.set_clear_on_shrink(enabled),
-        }
+        self.0.set_clear_on_shrink(enabled)
     }
 
     fn set_termux_session(&self, enabled: bool) {
-        match self {
-            TuiHandle::Main(tui) => tui.set_termux_session(enabled),
-            TuiHandle::Renderer(tui) => tui.set_termux_session(enabled),
-        }
+        self.0.set_termux_session(enabled)
     }
 
     fn focus_setter(self: &Rc<Self>) -> Rc<dyn Fn(Option<ComponentRef>)> {
@@ -239,16 +190,11 @@ fn overlay_options(value: &Value) -> OverlayOptions {
 }
 
 fn run_scenario(scenario: &Value) -> Value {
-    let kind = scenario["kind"].as_str().unwrap();
     let columns = scenario["columns"].as_u64().unwrap() as usize;
     let rows = scenario["rows"].as_u64().unwrap() as usize;
     let (terminal, handle) = concrete(columns, rows);
     terminal.borrow_mut().set_capture_cursor_writes(true);
-    let tui = if kind == "renderer" {
-        TuiHandle::Renderer(TuiRenderer::new(handle))
-    } else {
-        TuiHandle::Main(TuiMainScreen::new(handle))
-    };
+    let tui = TuiHandle(TuiRenderer::new(handle));
     if let Some(enabled) = scenario.get("showHardwareCursor").and_then(Value::as_bool) {
         tui.set_show_hardware_cursor(enabled);
     }
@@ -265,6 +211,7 @@ fn run_scenario(scenario: &Value) -> Value {
     let focus_flags: FocusFlags = Rc::new(RefCell::new(Vec::new()));
     let mut overlay_handles: Vec<OverlayHandle> = Vec::new();
     let mut fixed_cells: Vec<FixedCell> = Vec::new();
+    let mut background_queries = Vec::new();
 
     for step in scenario["steps"].as_array().unwrap() {
         match step["kind"].as_str().unwrap() {
@@ -371,6 +318,9 @@ fn run_scenario(scenario: &Value) -> Value {
                 fixed_cells[index].update(step["update"].as_str().unwrap_or(""));
             }
             "stop" => tui.stop(),
+            "query_background" => {
+                background_queries.push(tui.0.query_terminal_background_color(std::time::Duration::ZERO))
+            }
             "snapshot" => {}
             other => panic!("unsupported scenario step: {other}"),
         }
@@ -402,6 +352,7 @@ fn run_scenario(scenario: &Value) -> Value {
         "writes": writes,
         "fullRedraws": tui.full_redraws(),
         "components": component_output,
+        "background": background_queries.iter().map(|query| query.result().flatten().map(|rgb| json!({"r": rgb.r, "g": rgb.g, "b": rgb.b}))).collect::<Vec<_>>(),
         "focus": focus,
     })
 }
@@ -441,6 +392,7 @@ fn assert_scenario(oracle: &mut TsOracle, scenario: Value) {
     assert_eq!(actual["fullRedraws"], expected["fullRedraws"], "scenario: {scenario}");
     assert_eq!(actual["components"], expected["components"], "scenario: {scenario}");
     assert_eq!(actual["focus"], expected["focus"], "scenario: {scenario}");
+    assert_eq!(actual["background"], expected["background"], "scenario: {scenario}");
 }
 
 #[test]
@@ -621,4 +573,40 @@ fn tui_render_scenarios_match_typescript_byte_streams() {
     for scenario in scenarios {
         assert_scenario(&mut oracle, scenario);
     }
+}
+
+#[test]
+fn frozen_query_timeout_consumes_late_replies() {
+    let mut oracle = TsOracle::spawn("tui-core-oracle.ts", "packages/tui/src");
+    assert_scenario(
+        &mut oracle,
+        json!({"kind":"renderer", "columns":20,"rows":5,"steps":[
+            {"kind":"add","lines":["base"],"focusable":true}, {"kind":"focus","component":0},
+            {"kind":"start"},{"kind":"wait"},{"kind":"query_background"},{"kind":"wait"},
+            {"kind":"send_input","data":"\u{1b}]11;#ffffff\u{7}"},{"kind":"wait"},{"kind":"stop"}
+        ]}),
+    );
+}
+
+#[test]
+fn frozen_overlay_margins_and_input_frames() {
+    let mut oracle = TsOracle::spawn("tui-core-oracle.ts", "packages/tui/src");
+    for options in [json!({"margin":10}), json!({"margin":{"left":40,"top":8},"width":4})] {
+        assert_scenario(
+            &mut oracle,
+            json!({"kind":"renderer", "columns":20,"rows":5,"steps":[
+                {"kind":"add","lines":["base"],"focusable":true},{"kind":"add","lines":["modal"]},
+                {"kind":"start"},{"kind":"wait"},{"kind":"overlay","component":1,"options":options},
+                {"kind":"wait"},{"kind":"stop"}
+            ]}),
+        );
+    }
+    assert_scenario(
+        &mut oracle,
+        json!({"kind":"renderer", "columns":20,"rows":5,"steps":[
+            {"kind":"add","lines":["base"],"focusable":true},{"kind":"focus","component":0},
+            {"kind":"start"},{"kind":"wait"},{"kind":"send_input","data":"\u{1b}[6;+10;20t"},
+            {"kind":"wait"},{"kind":"stop"}
+        ]}),
+    );
 }

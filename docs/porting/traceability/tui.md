@@ -119,3 +119,9 @@ start/stop.
 ## Extension fullscreen fixed cells
 
 `FixedCellWriter::Alternate` reaches the live alternate-screen TuiBase for deferred render requests and disposal, matching inherited TS TuiBase.createFixedCell. See [alternate screen](tui-alt-screen.md).
+
+## Q1 re-pin audit (2026-10-21)
+
+Frozen `tui.ts` defines one concrete `TUI`, not the later TuiBase/TuiMainScreen hierarchy. `TuiRenderer` is the mapped implementation; internal alternate/main-screen variants remain for out-of-scope Q13 consumers. Differential scenarios now import only the frozen module and drive `requestRender` plus settling (frozen has no `renderNow`).
+
+Reproduced and ported: upward content shrink repaints the visible window in place without replaying scrollback (images retain full-render path); expired OSC11 queries remain queued so late replies are consumed in request order; oversized overlay margins use the exact frozen min-then-max clamp (old reverse clamp caused runaway allocation); cell-size frames require digits, not Rust's permissive leading `+`. Full-stream RED/GREEN records: `/tmp/q1-tui-{red2,red-query,red-query-margin,green1,green2}.log`. Final module gate pending.

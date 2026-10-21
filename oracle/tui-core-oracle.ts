@@ -267,9 +267,8 @@ function overlayOptions(value: Record<string, unknown>): unknown {
 
 async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): Promise<unknown> {
 	const tuiModule = (await loadApi(sourceDirectory, "tui.ts")) as Record<string, any>;
-	const mainModule = (await loadApi(sourceDirectory, "tui-main-screen.ts")) as Record<string, any>;
 	const terminal = new CaptureTerminal(request.columns, request.rows);
-	const tui = request.kind === "renderer" ? new tuiModule.TUI(terminal) : new mainModule.TuiMainScreen(terminal);
+	const tui = new tuiModule.TUI(terminal);
 	if (request.showHardwareCursor !== undefined) tui.setShowHardwareCursor(request.showHardwareCursor);
 	if (request.clearOnShrink !== undefined) tui.setClearOnShrink(request.clearOnShrink);
 	if (request.termux === true) process.env.TERMUX_VERSION = "1";
@@ -277,6 +276,7 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 	const tuiRef: { current?: { setFocus(component: unknown): void } } = { current: tui };
 	const components: ScenarioComponent[] = [];
 	const overlayHandles: Array<{ hide(): void }> = [];
+	const backgroundQueries: Array<Promise<unknown>> = [];
 	const fixedCells: Array<{ place(row: number, col: number): void; update(value: string): boolean }> = [];
 	let nextComponent = 0;
 
@@ -302,7 +302,8 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 				await settle();
 				break;
 			case "render_now":
-				tui.renderNow(Boolean(step.force));
+				tui.requestRender(Boolean(step.force));
+				await settle();
 				break;
 			case "request_render":
 				tui.requestRender(Boolean(step.force));
@@ -350,6 +351,9 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 			case "stop":
 				tui.stop();
 				break;
+			case "query_background":
+				backgroundQueries.push(tui.queryTerminalBackgroundColor({ timeoutMs: 0 }));
+				break;
 			case "snapshot":
 				break;
 			default:
@@ -365,6 +369,7 @@ async function tuiScenario(request: ScenarioRequest, sourceDirectory: string): P
 			inputs: component.inputs,
 			focused: Boolean((component as unknown as { focused?: boolean }).focused),
 		})),
+		background: await Promise.all(backgroundQueries),
 		focus: components.findIndex((component) => Boolean((component as unknown as { focused?: boolean }).focused)),
 	};
 }

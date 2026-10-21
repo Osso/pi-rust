@@ -1133,25 +1133,12 @@ impl TuiBase {
 
     fn settle_terminal_queries(&self) {
         let now = Instant::now();
-        loop {
-            let expired = {
-                let mut queries = self.inner.pending_osc11_queries.borrow_mut();
-                match queries.front() {
-                    Some(query) if now >= query.borrow().deadline => queries.pop_front(),
-                    _ => None,
-                }
-            };
-            let Some(query) = expired else {
-                break;
-            };
+        for query in self.inner.pending_osc11_queries.borrow().iter() {
             let mut query = query.borrow_mut();
-            if !query.settled {
+            if !query.settled && now >= query.deadline {
                 query.settled = true;
                 query.result = Some(None);
             }
-            self.inner
-                .pending_osc11_replies
-                .set(self.inner.pending_osc11_replies.get().saturating_sub(1));
         }
         let now = Instant::now();
         let expired: Vec<Rc<RefCell<ColorSchemeQueryState>>> = {
@@ -1270,6 +1257,10 @@ impl TuiBase {
         let (Some(height), Some(width), None) = (parts.next(), parts.next(), parts.next()) else {
             return false;
         };
+        let valid_digits = |value: &str| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit());
+        if !valid_digits(height) || !valid_digits(width) {
+            return false;
+        }
         let (Ok(height_px), Ok(width_px)) = (height.parse::<u32>(), width.parse::<u32>()) else {
             return false;
         };
@@ -2098,11 +2089,11 @@ impl TuiBase {
         let row = row + options.offset_y.unwrap_or(0);
         let col = col + options.offset_x.unwrap_or(0);
         let row = row
-            .max(margin_top)
-            .min(term_height as i64 - margin_bottom - effective_height as i64);
+            .min(term_height as i64 - margin_bottom - effective_height as i64)
+            .max(margin_top);
         let col = col
-            .max(margin_left)
-            .min(term_width as i64 - margin_right - width as i64);
+            .min(term_width as i64 - margin_right - width as i64)
+            .max(margin_left);
 
         OverlayLayout {
             width: width as usize,
@@ -2608,6 +2599,28 @@ fn full_render(
     state.previous_height = height as i64;
 }
 
+fn repaint_visible_window(base: &TuiBase, state: &mut RenderFrameState, frame: &CommitFrame<'_>, top: i64) {
+    let end = (top as usize + frame.height).min(frame.new_lines.len());
+    let visible = &frame.new_lines[top as usize..end];
+    let lines = visible
+        .iter()
+        .map(|line| format!("\x1b[2K{line}"))
+        .collect::<Vec<_>>()
+        .join("\r\n");
+    base.terminal()
+        .borrow_mut()
+        .write(&format!("\x1b[?2026h\x1b[H{lines}\x1b[J\x1b[?2026l"));
+    state.cursor_row = (frame.new_lines.len() as i64 - 1).max(0);
+    state.hardware_cursor_row = top + (visible.len() as i64 - 1).max(0);
+    state.max_lines_rendered = frame.new_lines.len();
+    state.previous_viewport_top = top;
+    position_hardware_cursor(base, state, frame.cursor_pos, frame.new_lines.len());
+    state.previous_lines = frame.new_lines.to_vec();
+    state.previous_kitty_image_ids = collect_kitty_image_ids(frame.new_lines);
+    state.previous_width = frame.width as i64;
+    state.previous_height = frame.height as i64;
+}
+
 pub(crate) struct CommitFrame<'a> {
     pub(crate) variant: CommitVariant,
     pub(crate) new_lines: &'a [String],
@@ -2692,14 +2705,25 @@ pub(crate) fn commit_rendered_frame(base: &TuiBase, state: &mut RenderFrameState
             prev_viewport_top,
         )
     {
-        log_redraw(
-            base,
-            &format!("content shrink moved viewport up ({prev_viewport_top} -> {upward})"),
-            state.previous_lines.len(),
-            new_lines.len(),
-            height,
-        );
-        full_render(base, state, new_lines, cursor_pos, width, height, true);
+        let visible_end = (upward as usize + height).min(new_lines.len());
+        let has_images = new_lines[upward as usize..visible_end]
+            .iter()
+            .any(|line| is_image_line(line));
+        if has_images {
+            log_redraw(
+                base,
+                &format!("content shrink moved viewport up ({prev_viewport_top} -> {upward})"),
+                state.previous_lines.len(),
+                new_lines.len(),
+                height,
+            );
+            if !allow_full_render {
+                return false;
+            }
+            full_render(base, state, new_lines, cursor_pos, width, height, true);
+        } else {
+            repaint_visible_window(base, state, &frame, upward);
+        }
         return true;
     }
 
