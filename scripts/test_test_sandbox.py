@@ -118,6 +118,18 @@ class SandboxTests(unittest.TestCase):
         )
         self.run_guard(["/usr/bin/python3", "-c", probe])
 
+    def test_fd_is_available_without_exposing_other_host_tools(self):
+        probe = (
+            "import pathlib,subprocess,tempfile; "
+            "directory=pathlib.Path(tempfile.mkdtemp()); "
+            "(directory/'needle.txt').write_text('fixture'); "
+            "result=subprocess.run(['fd','--type','f','needle',str(directory)],capture_output=True,text=True,check=True); "
+            "assert result.stdout.strip() == str(directory/'needle.txt'); "
+            "assert not pathlib.Path('/home/osso/.cargo/bin/cargo').exists(); "
+            "assert not pathlib.Path('/home/osso/.config/pi').exists()"
+        )
+        self.run_guard(["/usr/bin/python3", "-c", probe])
+
     def test_host_state_hidden_and_network_is_loopback_only(self):
         probe = (
             "import json,os,pathlib,subprocess; "
