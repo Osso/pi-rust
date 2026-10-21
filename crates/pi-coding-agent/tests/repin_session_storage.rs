@@ -240,3 +240,53 @@ fn rust_append_receipt_is_read_by_frozen_complete_record_acceptance_scan() {
         serde_json::to_value(refs).unwrap()
     );
 }
+
+fn peak_rss_kib() -> u64 {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap();
+    status
+        .lines()
+        .find(|l| l.starts_with("VmHWM:"))
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+#[test]
+fn storage_memory_probe_child() {
+    let Some(path) = std::env::var_os("PI_STORAGE_MEMORY_PROBE") else {
+        return;
+    };
+    configure_worker();
+    let before = peak_rss_kib();
+    let manager = SessionManager::open_read_only(path.to_str().unwrap(), None).unwrap();
+    assert_eq!(manager.get_entries().len(), 3);
+    let delta = peak_rss_kib().saturating_sub(before);
+    assert!(
+        delta < 64 * 1024,
+        "compacted inactive payload retention exceeded64MiB: {delta}KiB"
+    );
+}
+#[test]
+fn compacted_reverse_loading_does_not_retain_large_inactive_payloads() {
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().display().to_string();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(
+        &mut ts,
+        json!({"op":"create","dir":dir,"cwd":dir,"compacted":true,"inactiveCount":24,"largeInactive":true}),
+    );
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "storage_memory_probe_child", "--nocapture"])
+        .env("PI_STORAGE_MEMORY_PROBE", created["path"].as_str().unwrap())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

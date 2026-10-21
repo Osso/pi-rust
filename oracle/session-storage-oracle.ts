@@ -14,7 +14,9 @@ async function handle(r: any) {
   const first=m.appendMessage({role:"user",content:r.text ?? "hello 😀漢字",timestamp:1}, r.refs);
   if(r.compacted){
    const kept=m.appendMessage({role:"user",content:"kept",timestamp:2},r.refs);
-   m.branch(first);m.appendMessage({role:"user",content:"inactive",timestamp:3});m.branch(kept);
+   m.branch(first);
+   for(let i=0;i<(r.inactiveCount??1);i++)m.appendMessage({role:"user",content:r.largeInactive?"漢😀".repeat(512*1024):"inactive",timestamp:3});
+   m.branch(kept);
    m.appendCompaction("summary",kept,123);
    m.appendMessage({role:"user",content:"newest",timestamp:4});
   }

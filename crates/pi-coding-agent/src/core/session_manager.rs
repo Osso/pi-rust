@@ -1348,7 +1348,7 @@ pub fn find_most_recent_session(session_dir: &str, cwd: Option<&str>) -> Option<
 // =============================================================================
 
 struct ReverseSessionScan {
-    all_entries: Vec<SessionEntry>,
+    has_inactive_entries: bool,
     active_path: Vec<SessionEntry>,
     is_reading_leaf: bool,
     required_parent_id: Option<String>,
@@ -1371,7 +1371,7 @@ struct LoadedCurrentVersionSession {
 impl ReverseSessionScan {
     fn new() -> Self {
         Self {
-            all_entries: Vec::new(),
+            has_inactive_entries: false,
             active_path: Vec::new(),
             is_reading_leaf: true,
             required_parent_id: None,
@@ -1430,10 +1430,10 @@ fn cwd_from_changed_entry(entry: &SessionEntry) -> Option<String> {
 fn scan_session_entry_reverse(scan: &mut ReverseSessionScan, entry: SessionEntry) -> bool {
     let entry_id = entry.id().unwrap_or_default().to_owned();
     let parent_id = entry.parent_id().map(str::to_owned);
-    scan.all_entries.push(entry.clone());
 
     let is_active_entry = scan.is_reading_leaf || scan.required_parent_id.as_deref() == Some(entry_id.as_str());
     if !is_active_entry {
+        scan.has_inactive_entries = true;
         return false;
     }
 
@@ -1507,7 +1507,7 @@ fn read_current_version_session_entries(
     file: &mut File,
     file_size: u64,
     file_path: &str,
-) -> Result<LoadedSessionEntries, SessionManagerError> {
+) -> Result<Option<LoadedSessionEntries>, SessionManagerError> {
     let mut scan = ReverseSessionScan::new();
     let mut position = file_size;
     let mut pending: Vec<u8> = Vec::new();
@@ -1527,7 +1527,7 @@ fn read_current_version_session_entries(
 
         let (remaining, loaded) = scan_complete_reverse_lines(&mut scan, &pending, file_path)?;
         if let Some(loaded) = loaded {
-            return Ok(loaded);
+            return Ok(Some(loaded));
         }
         pending = remaining;
     }
@@ -1536,18 +1536,13 @@ fn read_current_version_session_entries(
     if let Some(entry) = parse_reverse_session_entry(&mut scan, &first_line, file_path)?
         && scan_session_entry_reverse(&mut scan, entry)
     {
-        return Ok(scan.loaded_active_slice());
+        return Ok(Some(scan.loaded_active_slice()));
     }
     validate_complete_reverse_scan(&scan, file_path)?;
-    if scan.found_first_kept_entry {
-        return Ok(scan.loaded_active_slice());
+    if scan.found_first_kept_entry || !scan.has_inactive_entries {
+        return Ok(Some(scan.loaded_active_slice()));
     }
-    let mut entries = std::mem::take(&mut scan.all_entries);
-    entries.reverse();
-    Ok(LoadedSessionEntries {
-        entries,
-        preceding_cwd: None,
-    })
+    Ok(None)
 }
 
 fn load_current_version_entries_from_file(
@@ -1560,7 +1555,12 @@ fn load_current_version_entries_from_file(
             .metadata()
             .map_err(|error| SessionManagerError::new(error.to_string()))?
             .len();
-        let loaded = read_current_version_session_entries(&mut file, file_size, file_path)?;
+        let Some(loaded) = read_current_version_session_entries(&mut file, file_size, file_path)? else {
+            return Ok(LoadedCurrentVersionSession {
+                file_entries: load_entries_from_file(plain),
+                preceding_cwd: None,
+            });
+        };
         let mut file_entries = vec![FileEntry::Header(header)];
         file_entries.extend(loaded.entries.into_iter().map(FileEntry::Entry));
         Ok(LoadedCurrentVersionSession {
