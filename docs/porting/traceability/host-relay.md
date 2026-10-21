@@ -13,4 +13,4 @@ Frozen: `packages/coding-agent/src/core/host-relay.ts`, common pin `4f9e6f8a4`. 
 | Input/output failure, cleanup | CLI/fake-SSH TERM and protocol failures; dedicated injected I/O-error tests pending |
 | runRelayServe / CLI dispatch | real `pi relay serve` process with no provider credentials, hello then EOF succeeds; RED before implementation returned No models available |
 
-Focused GREEN: `/tmp/pi-rust-repin-host-relay/green-fourth.log`. Mutation/final check evidence: lane report. No live transports.
+Current proof: [relay proof ledger](../host-relay-proof.md). No live transports.

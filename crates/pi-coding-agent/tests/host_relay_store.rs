@@ -127,9 +127,11 @@ fn custom_kind_survives_frozen_queue_native_import_and_frozen_read() {
         panic!("mailbox expected")
     };
     import_relay_mailbox(&b, "origin", &message).unwrap();
-    let read = call(&mut ts, "db", "listRuntimeMailboxMessages", json!([b]));
-    let read: Value = serde_json::from_str(&read).unwrap();
-    assert_eq!(read[0]["kind"], "custom");
+    let read = ts.request(&json!({"op":"raw","path":b,"args":"SELECT data FROM multi_agent_mailbox_messages"}));
+    assert_eq!(read["ok"], true, "{read}");
+    let rows: Value = serde_json::from_str(read["wire"].as_str().unwrap()).unwrap();
+    let canonical: Value = serde_json::from_str(rows[0]["data"].as_str().unwrap()).unwrap();
+    assert_eq!(canonical["kind"], "custom");
     let before = with_control_db(&b, |db| {
         Ok(
             db.query_row("SELECT data FROM multi_agent_mailbox_messages", [], |row| {
