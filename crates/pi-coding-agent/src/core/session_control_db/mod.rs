@@ -1022,18 +1022,32 @@ pub(crate) fn parse_canonical_mailbox_payload(row: &RuntimeMailboxRow) -> Result
     Ok(message)
 }
 
+pub(crate) fn parse_canonical_mailbox_payload_lossless(
+    row: &RuntimeMailboxRow,
+) -> Result<js_json::JsObject, ControlDbError> {
+    let context = format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
+    parse_stored_json_object_lossless(&row.data, &context)
+}
+
+pub(crate) fn parse_stored_json_object_lossless(
+    value: &str,
+    context: &str,
+) -> Result<js_json::JsObject, ControlDbError> {
+    let parsed = js_json::parse_lossless(value)
+        .map_err(|_| ControlDbError::new(format!("Invalid persisted JSON at {context}")))?;
+    let js_json::JsValue::Object(message) = parsed else {
+        return Err(ControlDbError::new(format!("Invalid persisted object at {context}")));
+    };
+    Ok(message)
+}
+
 /// Mutate the original canonical UTF-16 payload, never a typed/public projection.
 /// The public mailbox projection migration is separate from this persistence boundary.
 pub(crate) fn serialize_canonical_mailbox_mutation(
     row: &RuntimeMailboxRow,
     mutate: impl FnOnce(&mut js_json::JsObject),
 ) -> Result<String, ControlDbError> {
-    let context = format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
-    let parsed = js_json::parse_lossless(&row.data)
-        .map_err(|_| ControlDbError::new(format!("Invalid persisted JSON at {context}")))?;
-    let js_json::JsValue::Object(mut message) = parsed else {
-        return Err(ControlDbError::new(format!("Invalid persisted object at {context}")));
-    };
+    let mut message = parse_canonical_mailbox_payload_lossless(row)?;
     mutate(&mut message);
     Ok(js_json::stringify_lossless(&js_json::JsValue::Object(message)))
 }
@@ -1041,31 +1055,21 @@ pub(crate) fn serialize_canonical_mailbox_mutation(
 pub(crate) fn write_canonical_mailbox_payload(
     db: &Connection,
     id: i64,
-    message: &Map<String, Value>,
+    message: &js_json::JsObject,
     updated_at: &str,
 ) -> Result<(), ControlDbError> {
     let updated = db.execute(
         "UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ? WHERE rowid = ?",
-        params![js_json::stringify(&Value::Object(message.clone())), updated_at, id],
+        params![
+            js_json::stringify_lossless(&js_json::JsValue::Object(message.clone())),
+            updated_at,
+            id
+        ],
     )?;
     if updated != 1 {
         return Err(ControlDbError::new(format!("Canonical mailbox mutation lost row {id}")));
     }
     Ok(())
-}
-
-pub(crate) fn compare_and_write_canonical_mailbox_payload(
-    db: &Connection,
-    row: &RuntimeMailboxRow,
-    message: &Map<String, Value>,
-    updated_at: &str,
-) -> Result<bool, ControlDbError> {
-    compare_and_write_serialized_canonical_mailbox_payload(
-        db,
-        row,
-        &js_json::stringify(&Value::Object(message.clone())),
-        updated_at,
-    )
 }
 
 pub(crate) fn compare_and_write_serialized_canonical_mailbox_payload(

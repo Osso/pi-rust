@@ -149,6 +149,65 @@ fn taking_owned_steer_claims_message_and_advances_agent_atomically() {
 }
 
 #[test]
+fn raw_writer_owned_steering_claim_preserves_source_payload() {
+    use pi_js_compat::js_json::{self, JsString, JsValue};
+    let (_temporary, path, mut source, _identity, _owner, now) = fixture(false);
+    let wire = format!(
+        r#"[{},{{"recipient":{{"sessionId":"child-session","agentId":"child"}},"sender":{{"sessionId":"owner","agentId":null}},"kind":"steer","storeRef":{{"sessionPath":"/fixture/s","messageId":"steer"}},"message":{{"id":"steer","fromAgentId":"main","toAgentId":"child","kind":"steer","status":"pending","createdAt":{},"updatedAt":{},"body":"before\ud800after","unknown":{{"\ud800":"high","�":"replacement"}}}}}}]"#,
+        serde_json::to_string(&path).unwrap(),
+        serde_json::to_string(&now).unwrap(),
+        serde_json::to_string(&now).unwrap()
+    );
+    let response =
+        source.request(&json!({"id":1,"steps":[{"op":"callWire","args":["enqueueStoredRuntimeMailboxMessage",wire]}]}));
+    assert_eq!(response["output"][0]["ok"], true, "{response}");
+    let raw_before = source.request(
+        &json!({"id":1,"steps":[{"op":"fixtureSql","args":[path,"SELECT data FROM multi_agent_mailbox_messages",[]]}]}),
+    );
+    assert_eq!(raw_before["output"][0]["ok"], true, "{raw_before}");
+    let JsValue::Object(before) =
+        js_json::parse_lossless(raw_before["output"][0]["value"][0]["data"].as_str().unwrap()).unwrap()
+    else {
+        panic!("canonical object")
+    };
+    let recipient = RuntimeMailboxAddress {
+        session_id: "child-session".into(),
+        agent_id: Some("child".into()),
+    };
+    assert_eq!(
+        take_runtime_mailbox_messages_for_delivery(&path, &recipient, |_| true, 1)
+            .unwrap()
+            .len(),
+        1
+    );
+    let raw_after = source.request(
+        &json!({"id":1,"steps":[{"op":"fixtureSql","args":[path,"SELECT data FROM multi_agent_mailbox_messages",[]]}]}),
+    );
+    assert_eq!(raw_after["output"][0]["ok"], true, "{raw_after}");
+    let JsValue::Object(after) =
+        js_json::parse_lossless(raw_after["output"][0]["value"][0]["data"].as_str().unwrap()).unwrap()
+    else {
+        panic!("canonical object")
+    };
+    for key in ["body", "unknown"] {
+        let key = JsString::from(key);
+        assert_eq!(
+            after.get(&key),
+            before.get(&key),
+            "atomic steering claim preserves raw field {key:?}"
+        );
+    }
+    assert_eq!(
+        after.get(&JsString::from("status")),
+        Some(&JsValue::String(JsString::from("claimed")))
+    );
+    assert_eq!(
+        call(&mut source, "readMultiAgentAgent", json!([path, "/fixture/s", "child"]))["revision"],
+        2
+    );
+}
+
+#[test]
 fn repeated_cancellation_can_add_suppression_without_second_cancel_command() {
     let (_t, db, mut ts, identity, owner, now) = fixture(false);
     assert_eq!(

@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::{
     ControlDbError, parse_stored_json_object, require_string_field, to_runtime_mailbox_message_kind,
@@ -730,7 +730,7 @@ fn migrate_legacy_multi_agent_payload_table(
         "UPDATE {table} SET data = ?, updated_at = ? WHERE session_path = ? AND {id_column} = ?"
     ))?;
     for (session_path, id, data) in rows {
-        let Ok(parsed) = js_json::parse(&data) else {
+        let Ok(parsed) = js_json::parse_lossless(&data) else {
             // Leave malformed payloads for the normal restore validator to report with row context.
             continue;
         };
@@ -738,7 +738,7 @@ fn migrate_legacy_multi_agent_payload_table(
         if !changed {
             continue;
         }
-        update.execute(params![js_json::stringify(&migrated), now, session_path, id])?;
+        update.execute(params![js_json::stringify_lossless(&migrated), now, session_path, id])?;
     }
     Ok(())
 }
@@ -776,9 +776,10 @@ fn create_legacy_artifact_field_triggers(db: &Connection) -> Result<(), ControlD
     Ok(())
 }
 
-fn strip_legacy_artifact_fields(value: &Value) -> (Value, bool) {
+fn strip_legacy_artifact_fields(value: &js_json::JsValue) -> (js_json::JsValue, bool) {
+    use js_json::{JsObject, JsString, JsValue};
     match value {
-        Value::Array(items) => {
+        JsValue::Array(items) => {
             let mut changed = false;
             let migrated = items
                 .iter()
@@ -789,16 +790,16 @@ fn strip_legacy_artifact_fields(value: &Value) -> (Value, bool) {
                 })
                 .collect();
             if changed {
-                (Value::Array(migrated), true)
+                (JsValue::Array(migrated), true)
             } else {
                 (value.clone(), false)
             }
         }
-        Value::Object(object) => {
+        JsValue::Object(object) => {
             let mut changed = false;
-            let mut migrated = serde_json::Map::new();
+            let mut migrated = JsObject::new();
             for (key, nested) in object {
-                if key == "artifactIds" || key == "artifactRefs" {
+                if key == &JsString::from("artifactIds") || key == &JsString::from("artifactRefs") {
                     changed = true;
                     continue;
                 }
@@ -807,7 +808,7 @@ fn strip_legacy_artifact_fields(value: &Value) -> (Value, bool) {
                 migrated.insert(key.clone(), value);
             }
             if changed {
-                (Value::Object(migrated), true)
+                (JsValue::Object(migrated), true)
             } else {
                 (value.clone(), false)
             }
@@ -917,7 +918,19 @@ fn migrate_legacy_runtime_mailbox_row(
         },
         store_ref,
     };
+    let mut updated = super::parse_canonical_mailbox_payload_lossless(&canonical)?;
+    assert_runtime_mailbox_routing(&updated, &input)?;
     let routed = add_runtime_mailbox_routing(&message, &input)?;
+    for key in [
+        "recipientSessionId",
+        "recipientAgentId",
+        "senderSessionId",
+        "senderAgentId",
+    ] {
+        if let Some(value) = routed.get(key) {
+            updated.insert(js_json::JsString::from(key), js_json::JsValue::from(value));
+        }
+    }
     if routed.get("status").and_then(Value::as_str) == Some("delivered") || row.status == "delivered" {
         db.execute(
             "DELETE FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",
@@ -927,8 +940,7 @@ fn migrate_legacy_runtime_mailbox_row(
     }
     let canonical_status = to_runtime_mailbox_message_status(&require_string_field(&routed, "status", &context)?);
     let status = migrated_mailbox_status(row, canonical_status);
-    let mut updated = routed.clone();
-    apply_migrated_mailbox_fields(&mut updated, &routed, row, status, now_iso);
+    apply_migrated_mailbox_fields(&mut updated, row, status, now_iso);
     write_canonical_mailbox_payload(
         db,
         canonical.id,
@@ -956,37 +968,41 @@ fn migrated_mailbox_status(
 }
 
 fn apply_migrated_mailbox_fields(
-    updated: &mut Map<String, Value>,
-    routed: &Map<String, Value>,
+    updated: &mut js_json::JsObject,
     row: &LegacyRuntimeMailboxRow,
     status: super::RuntimeMailboxMessageStatus,
     now_iso: &str,
 ) {
-    updated.insert(
-        "createdAt".to_owned(),
-        match routed.get("createdAt") {
-            Some(Value::String(value)) => Value::String(value.clone()),
-            _ => Value::String(row.created_at.clone()),
-        },
-    );
-    updated.insert("status".to_owned(), Value::String(status_name(status).to_owned()));
-    updated.insert(
-        "updatedAt".to_owned(),
-        Value::String(if row.updated_at.is_empty() {
-            now_iso.to_owned()
-        } else {
-            row.updated_at.clone()
-        }),
-    );
-    updated.remove("claimedAt");
-    updated.remove("claimantProcessIdentity");
-    if status == super::RuntimeMailboxMessageStatus::Failed {
+    use js_json::{JsString, JsValue};
+    if !matches!(updated.get(&JsString::from("createdAt")), Some(JsValue::String(_))) {
         updated.insert(
-            "error".to_owned(),
-            match routed.get("error") {
-                Some(Value::String(value)) => Value::String(value.clone()),
-                _ => row.error.clone().map(Value::String).unwrap_or(Value::Null),
-            },
+            JsString::from("createdAt"),
+            JsValue::String(JsString::from(row.created_at.as_str())),
+        );
+    }
+    updated.insert(
+        JsString::from("status"),
+        JsValue::String(JsString::from(status_name(status))),
+    );
+    updated.insert(
+        JsString::from("updatedAt"),
+        JsValue::String(JsString::from(if row.updated_at.is_empty() {
+            now_iso
+        } else {
+            &row.updated_at
+        })),
+    );
+    updated.shift_remove(&JsString::from("claimedAt"));
+    updated.shift_remove(&JsString::from("claimantProcessIdentity"));
+    if status == super::RuntimeMailboxMessageStatus::Failed
+        && !matches!(updated.get(&JsString::from("error")), Some(JsValue::String(_)))
+    {
+        updated.insert(
+            JsString::from("error"),
+            row.error
+                .as_deref()
+                .map(|text| JsValue::String(JsString::from(text)))
+                .unwrap_or(JsValue::Null),
         );
     }
 }
@@ -1003,7 +1019,11 @@ pub(crate) fn add_runtime_mailbox_routing(
     message: &serde_json::Map<String, Value>,
     input: &super::EnqueueRuntimeMailboxMessageInput,
 ) -> Result<serde_json::Map<String, Value>, ControlDbError> {
-    assert_runtime_mailbox_routing(message, input)?;
+    let lossless = message
+        .iter()
+        .map(|(key, value)| (js_json::JsString::from(key.as_str()), js_json::JsValue::from(value)))
+        .collect();
+    assert_runtime_mailbox_routing(&lossless, input)?;
     let mut routed = message.clone();
     if let Some(host) = &input.recipient_host {
         routed.insert("recipientHost".into(), Value::String(host.clone()));
@@ -1033,30 +1053,28 @@ pub(crate) fn add_runtime_mailbox_routing(
 }
 
 pub(crate) fn assert_runtime_mailbox_routing(
-    message: &serde_json::Map<String, Value>,
+    message: &js_json::JsObject,
     input: &super::EnqueueRuntimeMailboxMessageInput,
 ) -> Result<(), ControlDbError> {
-    let has_routing = matches!(message.get("recipientSessionId"), Some(Value::String(_)));
-    if !has_routing {
+    use js_json::{JsString, JsValue};
+    let field = |key: &str| message.get(&JsString::from(key));
+    let text = |text: &str| JsValue::String(JsString::from(text));
+    let nullable_text = |value: Option<&str>| value.map(text).unwrap_or(JsValue::Null);
+    if !matches!(field("recipientSessionId"), Some(JsValue::String(_))) {
         return Ok(());
     }
-    let same_recipient = message.get("recipientSessionId") == Some(&Value::String(input.recipient.session_id.clone()))
-        && message.get("recipientAgentId")
-            == Some(
-                &input
-                    .recipient
-                    .agent_id
-                    .clone()
-                    .map(Value::String)
-                    .unwrap_or(Value::Null),
-            );
-    let same_sender = message.get("senderSessionId") == Some(&Value::String(input.sender.session_id.clone()))
-        && message.get("senderAgentId")
-            == Some(&input.sender.agent_id.clone().map(Value::String).unwrap_or(Value::Null));
-    let same_kind = message.get("kind") == Some(&Value::String(kind_name(input.kind).to_owned()));
+    let same_recipient = field("recipientSessionId") == Some(&text(&input.recipient.session_id))
+        && field("recipientAgentId") == Some(&nullable_text(input.recipient.agent_id.as_deref()));
+    let same_sender = field("senderSessionId") == Some(&text(&input.sender.session_id))
+        && field("senderAgentId") == Some(&nullable_text(input.sender.agent_id.as_deref()));
+    let same_kind = field("kind") == Some(&text(kind_name(input.kind)));
     let host = gethostname::gethostname().to_string_lossy().into_owned();
-    let same_host = message.get("recipientHost").and_then(Value::as_str).unwrap_or(&host)
-        == input.recipient_host.as_deref().unwrap_or(&host);
+    let default_host = text(&host);
+    let previous_host = match field("recipientHost") {
+        None | Some(JsValue::Null) => &default_host,
+        Some(value) => value,
+    };
+    let same_host = previous_host == &text(input.recipient_host.as_deref().unwrap_or(&host));
     if same_recipient && same_sender && same_kind && same_host {
         return Ok(());
     }

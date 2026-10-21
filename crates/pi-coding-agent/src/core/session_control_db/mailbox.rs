@@ -11,9 +11,9 @@ use super::{
     MultiAgentRuntimeOwnershipRow, RUNTIME_MAILBOX_REGISTRATION_MAX_ATTEMPTS, RUNTIME_MAILBOX_ROUTING_MAX_ATTEMPTS,
     RuntimeMailboxAddress, RuntimeMailboxListener, RuntimeMailboxListenerRow, RuntimeMailboxMessage,
     RuntimeMailboxMessageStatus, RuntimeMailboxRegistrationOptions, RuntimeMailboxRow,
-    compare_and_write_canonical_mailbox_payload, compare_and_write_serialized_canonical_mailbox_payload,
-    get_runtime_process_instance_id, multi_agent_runtime_ownership_rows_equal, parse_canonical_mailbox_payload,
-    parse_process_identity, parse_stored_json_object, process_identity_is_alive, read_canonical_mailbox_row_by_id,
+    compare_and_write_serialized_canonical_mailbox_payload, get_runtime_process_instance_id,
+    multi_agent_runtime_ownership_rows_equal, parse_canonical_mailbox_payload, parse_process_identity,
+    parse_stored_json_object, process_identity_is_alive, read_canonical_mailbox_row_by_id,
     read_canonical_mailbox_row_by_store_ref, read_multi_agent_runtime_ownership_row, read_runtime_mailbox_listener_row,
     require_string_field, runtime_mailbox_agent_id_key, runtime_mailbox_listener_rows_equal,
     runtime_mailbox_message_from_canonical_row, session_health_rows_equal, to_runtime_mailbox_message_status,
@@ -88,14 +88,33 @@ fn route_runtime_mailbox_message(
         );
         let message = parse_stored_json_object(&row.data, &context)?;
         validate_mailbox_payload(&Value::Object(message.clone()), &context)?;
+        assert_runtime_mailbox_routing(&super::parse_canonical_mailbox_payload_lossless(&row)?, input)?;
         let routed = add_runtime_mailbox_routing(&message, input)?;
-        if js_json::stringify(&Value::Object(routed.clone())) == row.data {
+        let serialized = super::serialize_canonical_mailbox_mutation(&row, |canonical| {
+            for key in [
+                "recipientHost",
+                "recipientSessionId",
+                "recipientAgentId",
+                "senderSessionId",
+                "senderAgentId",
+            ] {
+                if let Some(value) = routed.get(key) {
+                    canonical.insert(JsString::from(key), JsValue::from(value));
+                }
+            }
+        })?;
+        if serialized == row.data {
             return Ok(RoutedMailboxMessage {
                 id: row.id,
                 listener: None,
             });
         }
-        if !compare_and_write_canonical_mailbox_payload(db, &row, &routed, &crate::utils::iso_time::now_iso_string())? {
+        if !compare_and_write_serialized_canonical_mailbox_payload(
+            db,
+            &row,
+            &serialized,
+            &crate::utils::iso_time::now_iso_string(),
+        )? {
             continue;
         }
         return Ok(RoutedMailboxMessage {
@@ -254,7 +273,7 @@ fn validate_existing_stored_runtime_mailbox_message(
         )));
     }
     assert_runtime_mailbox_routing(
-        &previous,
+        &super::parse_canonical_mailbox_payload_lossless(existing)?,
         &EnqueueRuntimeMailboxMessageInput {
             recipient_host: input.recipient_host.clone(),
             recipient: input.recipient.clone(),
@@ -303,14 +322,14 @@ fn strip_runtime_mailbox_delivery_state(
     serialized: &str,
     omit_defaulted_birth: bool,
 ) -> Result<String, ControlDbError> {
-    let mut message = parse_stored_json_object(serialized, "runtime_mailbox_identity")?;
+    let mut message = super::parse_stored_json_object_lossless(serialized, "runtime_mailbox_identity")?;
     for key in ["claimedAt", "claimantProcessIdentity", "error", "status", "updatedAt"] {
-        message.remove(key);
+        message.shift_remove(&JsString::from(key));
     }
     if omit_defaulted_birth {
-        message.remove("createdAt");
+        message.shift_remove(&JsString::from("createdAt"));
     }
-    Ok(js_json::stringify(&Value::Object(message)))
+    Ok(js_json::stringify_lossless(&JsValue::Object(message)))
 }
 
 /// `readRuntimeMailboxMessageForDelivery`.

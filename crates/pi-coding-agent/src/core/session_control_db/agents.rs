@@ -18,7 +18,7 @@ use crate::core::multi_agent_store::{
     AgentFileReference, AgentLifecycle, AgentMailboxMessage, AgentSnapshot, MailboxMessageKindValue,
     MailboxMessageStatusValue, SteeringCheckpoint, is_active_lifecycle,
 };
-use pi_js_compat::js_json;
+use pi_js_compat::js_json::{self, JsString, JsValue};
 
 const MULTI_AGENT_CREATION_MAX_ATTEMPTS: usize = 3;
 const MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS: usize = 3;
@@ -1197,18 +1197,24 @@ pub(super) fn persist_steering_delivery(
             return Ok(false);
         }
         let message_updated = if let Some((_, candidate)) = mailbox {
-            let mut claimed = candidate.data.clone();
-            claimed.insert("status".into(), Value::String("claimed".into()));
-            claimed.insert("claimedAt".into(), Value::String(input.updated_at.clone()));
-            claimed.insert(
-                "claimantProcessIdentity".into(),
-                Value::String(super::get_runtime_process_instance_id()?.to_owned()),
-            );
-            claimed.insert("updatedAt".into(), Value::String(input.updated_at.clone()));
-            usize::from(super::compare_and_write_canonical_mailbox_payload(
+            let process_identity = super::get_runtime_process_instance_id()?;
+            let serialized = super::serialize_canonical_mailbox_mutation(&candidate.row, |claimed| {
+                claimed.insert(JsString::from("status"), JsValue::String(JsString::from("claimed")));
+                for key in ["claimedAt", "updatedAt"] {
+                    claimed.insert(
+                        JsString::from(key),
+                        JsValue::String(JsString::from(input.updated_at.as_str())),
+                    );
+                }
+                claimed.insert(
+                    JsString::from("claimantProcessIdentity"),
+                    JsValue::String(JsString::from(process_identity)),
+                );
+            })?;
+            usize::from(super::compare_and_write_serialized_canonical_mailbox_payload(
                 db,
                 &candidate.row,
-                &claimed,
+                &serialized,
                 &input.updated_at,
             )?)
         } else {
@@ -3092,20 +3098,25 @@ fn update_multi_agent_mailbox_message_status(
         else {
             return Ok(false);
         };
-        let Some(mut parsed) = super::parse_json_object(&row.data) else {
+        let Some(parsed) = super::parse_json_object(&row.data) else {
             return Ok(false);
         };
         if parsed.get("status").and_then(Value::as_str) != Some("pending") {
             return Ok(false);
         }
         let now = crate::utils::iso_time::now_iso_string();
-        parsed.insert("status".to_owned(), Value::String(status.to_owned()));
-        parsed.insert("updatedAt".to_owned(), Value::String(now.clone()));
-        if let Some(error) = error {
-            parsed.insert("error".to_owned(), Value::String(error.to_owned()));
-        }
+        let serialized = super::serialize_canonical_mailbox_mutation(&row, |updated| {
+            updated.insert(JsString::from("status"), JsValue::String(JsString::from(status)));
+            updated.insert(
+                JsString::from("updatedAt"),
+                JsValue::String(JsString::from(now.as_str())),
+            );
+            if let Some(error) = error {
+                updated.insert(JsString::from("error"), JsValue::String(JsString::from(error)));
+            }
+        })?;
         with_immediate_transaction(db, |db| {
-            super::compare_and_write_canonical_mailbox_payload(db, &row, &parsed, &now)
+            super::compare_and_write_serialized_canonical_mailbox_payload(db, &row, &serialized, &now)
         })
     })
 }
