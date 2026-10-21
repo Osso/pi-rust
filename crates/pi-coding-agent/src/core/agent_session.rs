@@ -4470,10 +4470,7 @@ impl AgentSession {
 
     fn is_known_slash_command(&self, text: &JsString) -> bool {
         let name = slash_command_name(text).strip_prefix("/").expect("slash prefix");
-        if builtin_slash_commands()
-            .iter()
-            .any(|command| name == command.name.as_str())
-        {
+        if builtin_slash_commands().iter().any(|command| name == command.name) {
             return true;
         }
         if let Some(skill_name) = name.strip_prefix("skill:") {
