@@ -116,6 +116,21 @@ fn fixture(root: &str, role: &str, case: &str) -> Value {
             f["metadata"] = json!([]);
         }
         "scandir-error" => f["mode"] = json!(0o000),
+        "parent-permission-error" => {
+            f["agentDir"] = json!(format!("{root}/blocked/missing"));
+            f["entries"] = json!([{"path": format!("{root}/blocked"), "kind": "dir"}]);
+            f["metadata"] = json!([]);
+            f["permissions"] = json!([{"path": format!("{root}/blocked"), "mode": 0o555}]);
+        }
+        "symlink-loop-error" => {
+            f["agentDir"] = json!(format!("{root}/loop"));
+            f["entries"] = json!([{"path": format!("{root}/loop"), "kind": "symlink", "target": "loop"}]);
+            f["metadata"] = json!([]);
+        }
+        "symlink-file-error" => {
+            f["entries"] = json!([{"path": format!("{root}/plain")}, {"path": dir, "kind": "symlink", "target": format!("{root}/plain")}]);
+            f["metadata"] = json!([]);
+        }
         _ => {}
     }
     f
@@ -193,6 +208,11 @@ fn normalized(value: Value, root: &str) -> Value {
 }
 
 fn restore_permissions(f: &Value) {
+    if let Some(entries) = f["permissions"].as_array() {
+        for entry in entries {
+            fs::set_permissions(entry["path"].as_str().unwrap(), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
     if f.get("mode").is_some() {
         fs::set_permissions(
             format!(
@@ -323,7 +343,15 @@ fn source_owned_dead_and_live_non_pi_children_are_not_resident_runtimes() {
 #[test]
 fn actual_source_filesystem_errors_and_metadata_before_unlink_order() {
     let mut oracle = oracle();
-    for case in ["mkdir-error", "ancestor-error", "scandir-error", "unlink-error"] {
+    for case in [
+        "mkdir-error",
+        "ancestor-error",
+        "scandir-error",
+        "unlink-error",
+        "parent-permission-error",
+        "symlink-loop-error",
+        "symlink-file-error",
+    ] {
         let mut messages = Vec::new();
         for native in [false, true] {
             let temp = tempfile::tempdir().unwrap();
