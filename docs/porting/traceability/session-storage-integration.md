@@ -1,8 +1,8 @@
 # Bounded session storage integration evidence
 
-Target: [common source lock](../source-lock.json), frozen `4f9e6f8a4` read-only. Audited integration: `5989c9a20bc6cea40f9adf70559a8e9132d7962f`, containing storage head `a0eb3b888bbd796f39934c39de77b56cbfcfb9f1`. Evidence is inherited, not a fresh integration gate. Independent verifier49 remains pending at `/tmp/pi-rust-repin-session-storage-verify`.
+Target: [common source lock](../source-lock.json), frozen `4f9e6f8a4` read-only. Audited integration: `5989c9a20bc6cea40f9adf70559a8e9132d7962f`, containing storage head `a0eb3b888bbd796f39934c39de77b56cbfcfb9f1`. Independent bounded verification at `5989c9a2` passed 30 storage tests, the source search differential and byte serializer. Initial four lint failures were fixed by `0c414850`; exact targeted clippy passed at docs-only successor `e5d6c244`. Full scope, commands and limits: `/tmp/pi-rust-repin-session-storage-verify/REPORT.md`. This is not whole-module acceptance.
 
-Provenance: `/tmp/pi-rust-repin-session-storage/REPORT.md` and `ledger.md`. Commands below ran in the storage worktree with its configured test runner, not in the docs worktree.
+Provenance: `/tmp/pi-rust-repin-session-storage/REPORT.md` and `ledger.md`. Inherited commands below ran in the storage worktree with its configured test runner. Fresh verification ran in canonical; the two post-fix history regressions and footer usage regression also passed there after `0c414850` (`post-lint-*.log` beside the independent report). The full 30-test target was not repeated for those mechanical cleanup changes.
 
 | Exact scope | Recorded command / revision | Evidence and limits |
 |---|---|---|
@@ -24,6 +24,6 @@ Provenance: `/tmp/pi-rust-repin-session-storage/REPORT.md` and `ledger.md`. Comm
 | Resident preparation/live cleanup; archive CLI, idle, deletion and mutable restore callers | OPEN; storage and predicate proofs do not prove these consumers. |
 | Durable mailbox acceptance | OPEN: serialized markers, append, persist and fsync do not prove runtime claim/CAS/duplicate-suppression wiring. |
 | Packaged SDK/release worker layout | OPEN; private package test layout is not distribution proof. |
-| Whole-module/final gate | OPEN; no renewed whole-module completion, broad checks, clippy, readability or final acceptance evidence here. |
+| Whole-module/final gate | OPEN; focused tests and targeted clippy passed, but no broad or final acceptance. Manual readability findings remain; numerical metrics unavailable. |
 
 Compatibility additions are provenance only, not blanket approval of these open boundaries. Existing [compatibility spec](../../specs/compatibility.md) remains outside this audit's edit ownership.
