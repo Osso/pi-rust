@@ -381,3 +381,81 @@ fn invalid_control_database_propagates_after_mkdir_before_file_deletion() {
         );
     }
 }
+
+// File/path/liveness proof is independent of the explicitly failing metadata regex
+// fixtures above. All metadata rows, including backslash cases, remain in these trees.
+#[test]
+fn independent_selection_unicode_relative_types_and_paired_liveness() {
+    let mut oracle = oracle();
+    for role in ["architect", "supervisor"] {
+        for case in [
+            "empty",
+            "ordinary",
+            "unicode",
+            "relative",
+            "self-existing",
+            "self-missing",
+            "self-unmatched",
+            "self-directory",
+            "self-relative",
+            "self-outside",
+            "self-extension",
+            "self-symlink-dir",
+            "self-agent",
+            "no-path",
+            "dead",
+            "nonpi",
+        ] {
+            let mut outputs = Vec::new();
+            for native in [false, true] {
+                let temp = tempfile::tempdir().unwrap();
+                let root = temp.path().display().to_string();
+                let f = fixture(&root, role, case);
+                // Source/native own-PID cases are paired, never interchanged.
+                // Other source-created trees feed native; native trees feed TS.
+                if (native && !case.starts_with("self-") && case != "no-path")
+                    || case == "dead"
+                    || case == "nonpi"
+                    || (!native && (case.starts_with("self-") || case == "no-path"))
+                {
+                    success(&mut oracle, "seed", &f);
+                } else {
+                    seed_native(&f);
+                }
+                let prepared = if native {
+                    prepare_native(&f)
+                } else {
+                    request(&mut oracle, "prepare", &f)
+                };
+                assert_eq!(prepared["ok"], true, "{role}/{case}: {prepared}");
+                let entries = success(&mut oracle, "inspect", &f)["entries"].clone();
+                outputs.push(normalized(json!({"prepared": prepared, "entries": entries}), &root));
+            }
+            assert_eq!(outputs[0], outputs[1], "{role}/{case}: concrete paths/files/types");
+            let expected = match case {
+                "empty" => format!("{role}.jsonl"),
+                "unicode" => format!("\u{e000}_{role}.jsonl"),
+                "self-existing" | "self-relative" => format!("100_{role}.jsonl"),
+                "self-missing" => format!("missing_{role}.jsonl"),
+                "self-unmatched" => "unmatched.jsonl".to_owned(),
+                "self-directory" => format!("z_{role}.jsonl"),
+                _ => format!("900_{role}.jsonl"),
+            };
+            assert!(
+                outputs[0]["prepared"]["value"]["sessionPath"]
+                    .as_str()
+                    .unwrap()
+                    .ends_with(&expected),
+                "{case}: {}",
+                outputs[0]
+            );
+            if case == "empty" {
+                assert_eq!(
+                    outputs[0]["entries"],
+                    json!([]),
+                    "canonical path selected without creating contents"
+                );
+            }
+        }
+    }
+}
