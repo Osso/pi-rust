@@ -317,6 +317,9 @@ pub struct SpawnAgent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentMailboxMessage {
+    /// Canonical DB delivery returns its original payload; store copyMessage drops these fields.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<String>,
@@ -927,6 +930,7 @@ impl MultiAgentStore {
     ) -> Result<AgentMailboxMessage, MultiAgentStoreError> {
         let timestamp = self.now();
         Ok(AgentMailboxMessage {
+            extra: serde_json::Map::new(),
             body: Some(input.body.clone()),
             created_at: timestamp.clone(),
             file_refs: validate_file_refs(input.file_refs.as_deref(), "steer_agent")?,
@@ -1505,6 +1509,7 @@ impl MultiAgentStore {
         };
         let timestamp = self.now();
         let message = AgentMailboxMessage {
+            extra: serde_json::Map::new(),
             id: self.create_message_id()?,
             thread_id: input.thread_id.clone(),
             from_agent_id: current.id.clone(),
@@ -1556,6 +1561,7 @@ impl MultiAgentStore {
         }
         let timestamp = self.now();
         let message = AgentMailboxMessage {
+            extra: serde_json::Map::new(),
             id: self.create_message_id()?,
             thread_id: input.thread_id.clone(),
             from_agent_id: MAIN_THREAD_AGENT_ID.to_owned(),
@@ -1617,6 +1623,7 @@ impl MultiAgentStore {
         }
         let timestamp = self.now();
         let message = AgentMailboxMessage {
+            extra: serde_json::Map::new(),
             id: self.create_message_id()?,
             thread_id: input.thread_id.clone(),
             from_agent_id: current.id.clone(),
@@ -1655,6 +1662,7 @@ impl MultiAgentStore {
     ) -> Result<AgentMailboxMessage, MultiAgentStoreError> {
         let timestamp = self.now();
         let message = AgentMailboxMessage {
+            extra: serde_json::Map::new(),
             file_refs: validate_file_refs(input.file_refs.as_deref(), "record_outbound_session_message")?,
             body: Some(input.body.clone()),
             created_at: timestamp.clone(),
@@ -2043,6 +2051,7 @@ impl MultiAgentStore {
             return Ok(());
         }
         let message = AgentMailboxMessage {
+            extra: serde_json::Map::new(),
             body: Some(body),
             created_at: timestamp.clone(),
             from_agent_id: agent.id.clone(),
@@ -2405,11 +2414,13 @@ pub fn copy_agent(agent: &AgentNode) -> AgentNode {
 }
 
 pub fn copy_message(message: &AgentMailboxMessage) -> AgentMailboxMessage {
-    message.clone()
+    let mut copied = message.clone();
+    copied.extra.clear();
+    copied
 }
 
 fn copy_file_refs(refs: Option<&[AgentFileReference]>) -> Option<Vec<AgentFileReference>> {
-    validate_file_refs(refs, "file_reference_copy").ok().flatten()
+    refs.map(<[AgentFileReference]>::to_vec)
 }
 
 fn copy_transcript(

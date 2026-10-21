@@ -321,6 +321,7 @@ impl LifecycleCoordinator {
             Some(crate::core::session_control_db::agents::DetachedCancellation {
                 output_label: input.output_label.clone(),
                 reason: input.reason.clone(),
+                suppress_terminal_notification: None,
             }),
             false,
         )

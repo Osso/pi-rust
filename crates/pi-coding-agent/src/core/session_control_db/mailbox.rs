@@ -416,10 +416,21 @@ struct RuntimeMailboxAuthoritySnapshot {
     ownership: Option<MultiAgentRuntimeOwnershipRow>,
 }
 
-struct RuntimeMailboxCandidate {
+pub(super) struct RuntimeMailboxCandidate {
     authority: RuntimeMailboxAuthoritySnapshot,
-    data: Map<String, Value>,
-    row: RuntimeMailboxRow,
+    pub(super) data: Map<String, Value>,
+    pub(super) row: RuntimeMailboxRow,
+}
+
+pub(super) fn candidate_authority_is_current(
+    db: &Connection,
+    recipient: &RuntimeMailboxAddress,
+    candidate: &RuntimeMailboxCandidate,
+) -> Result<bool, ControlDbError> {
+    Ok(runtime_mailbox_authority_snapshots_equal(
+        &candidate.authority,
+        &read_runtime_mailbox_authority_snapshot(db, recipient, &candidate.row.session_path)?,
+    ))
 }
 
 /// `recoverDeadRuntimeMailboxClaims`.
@@ -574,7 +585,57 @@ fn deliver_runtime_mailbox_candidate(
     candidate: &RuntimeMailboxCandidate,
     now_iso: &str,
 ) -> Result<Option<RuntimeMailboxMessage>, ControlDbError> {
+    if candidate.data.get("kind").and_then(Value::as_str) == Some("steer") && candidate.authority.ownership.is_some() {
+        return deliver_runtime_mailbox_steering_candidate(db, recipient, candidate, now_iso);
+    }
     claim_runtime_mailbox_candidate(db, recipient, candidate, now_iso)
+}
+
+fn deliver_runtime_mailbox_steering_candidate(
+    db: &Connection,
+    recipient: &RuntimeMailboxAddress,
+    candidate: &RuntimeMailboxCandidate,
+    now_iso: &str,
+) -> Result<Option<RuntimeMailboxMessage>, ControlDbError> {
+    let Some(ownership) = &candidate.authority.ownership else {
+        return Ok(None);
+    };
+    let (Some(process_identity), Some(owner_session_id)) = (&ownership.process_identity, &ownership.owner_session_id)
+    else {
+        return Ok(None);
+    };
+    if process_identity.is_empty() || owner_session_id.is_empty() {
+        return Ok(None);
+    }
+    let input = super::CommitMultiAgentSteeringDeliveryInput {
+        agent_id: ownership.agent_id.clone(),
+        message_id: candidate.row.message_id.clone(),
+        owner: super::MultiAgentRuntimeOwnerIdentity {
+            agent_id: ownership.owner_agent_id.clone(),
+            session_id: owner_session_id.clone(),
+        },
+        process_identity: parse_process_identity(process_identity)?,
+        requested_lifecycle: "running".into(),
+        session_path: candidate.row.session_path.clone(),
+        updated_at: now_iso.to_owned(),
+    };
+    let Ok(plan) = super::agents::read_steering_delivery_plan(db, &input)? else {
+        return Ok(None);
+    };
+    if plan.message_data != candidate.row.data {
+        return Ok(None);
+    }
+    if !super::agents::persist_steering_delivery(db, &input, &plan, Some((recipient, candidate)))? {
+        return Ok(None);
+    }
+    let mut claimed = candidate.data.clone();
+    claimed.insert("status".into(), Value::String("claimed".into()));
+    claimed.insert("claimedAt".into(), Value::String(now_iso.into()));
+    claimed.insert("updatedAt".into(), Value::String(now_iso.into()));
+    Ok(Some(runtime_mailbox_message_from_canonical_row(
+        &candidate.row,
+        &claimed,
+    )?))
 }
 
 fn read_runtime_mailbox_authority_snapshot(

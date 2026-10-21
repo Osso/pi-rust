@@ -20,7 +20,9 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 - [x] Expire in-memory mailbox at exactly24h, evict peer-deleted rows, and consume/remove while returning the original message snapshot.
 - [x] Enforce store terminal-notification suppression; preserve activity `detail` and publish model/current activity under exact DB ownership.
 - [x] Sweep expired retained-connection messages on the source minute timer; default null birth once and project unknown runtime status to failed.
-- [ ] Prove steering delivery, detached finalization replay/suppression and remaining whole-store branches.
+- [x] Consume direct steering or atomically claim runtime steering with its lifecycle advance; roll back both writes on message CAS failure.
+- [x] Honor suppression in detached finalization/dead recovery and preserve finalization replay after outbox deletion; persist same-lifecycle cancellation suppression without duplicate commands.
+- [ ] Finish schema migration/reverse-init proof, remaining exports and whole-store reset/error branches.
 
 ## How it works
 

@@ -258,6 +258,7 @@ pub struct CommitMultiAgentLifecycleMutationInput {
 pub struct DetachedCancellation {
     pub output_label: String,
     pub reason: Option<String>,
+    pub suppress_terminal_notification: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -882,6 +883,7 @@ fn build_steering_mailbox_message(
     message_id: &str,
 ) -> Result<AgentMailboxMessage, ControlDbError> {
     Ok(AgentMailboxMessage {
+        extra: serde_json::Map::new(),
         body: Some(input.body.clone()),
         created_at: input.updated_at.clone(),
         file_refs: input.file_refs.clone(),
@@ -1041,14 +1043,13 @@ pub fn commit_multi_agent_detach_mark(
 // Steering delivery
 // ---------------------------------------------------------------------------
 
-struct SteeringDeliveryPlan {
+pub(super) struct SteeringDeliveryPlan {
     agent_data: String,
-    message_data: String,
+    pub(super) message_data: String,
     process_identity_data: String,
     updated_agent: AgentSnapshot,
     updated_agent_data: String,
     updated_message: AgentMailboxMessage,
-    updated_message_data: String,
 }
 
 /// `commitMultiAgentSteeringDelivery`.
@@ -1062,7 +1063,7 @@ pub fn commit_multi_agent_steering_delivery(
                 Ok(plan) => plan,
                 Err(error) => return Ok(CommitMultiAgentSteeringDeliveryResult::Err { error }),
             };
-            let persisted = with_immediate_transaction(db, |db| persist_steering_delivery(db, input, &plan))?;
+            let persisted = persist_steering_delivery(db, input, &plan, None)?;
             if persisted {
                 return Ok(CommitMultiAgentSteeringDeliveryResult::Ok {
                     agent: Box::new(plan.updated_agent),
@@ -1076,7 +1077,7 @@ pub fn commit_multi_agent_steering_delivery(
     })
 }
 
-fn read_steering_delivery_plan(
+pub(super) fn read_steering_delivery_plan(
     db: &Connection,
     input: &CommitMultiAgentSteeringDeliveryInput,
 ) -> Result<Result<SteeringDeliveryPlan, SteeringCommandError>, ControlDbError> {
@@ -1102,8 +1103,15 @@ fn read_steering_delivery_plan(
     }
     let message_data: Option<String> = db
         .query_row(
-            "SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-            params![input.session_path, input.message_id],
+            &format!(
+                "SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND {} > ?",
+                super::retention::MAILBOX_CREATED_AT_MS_SQL
+            ),
+            params![
+                input.session_path,
+                input.message_id,
+                super::retention::mailbox_cutoff_ms()
+            ],
             |row| row.get(0),
         )
         .optional()?;
@@ -1114,7 +1122,7 @@ fn read_steering_delivery_plan(
         "multi_agent_mailbox_messages:{}#{}",
         input.session_path, input.message_id
     );
-    let mut message = parse_stored_json_object(&message_data, &message_context)?;
+    let message = parse_stored_json_object(&message_data, &message_context)?;
     validate_mailbox_payload(&Value::Object(message.clone()), &message_context)?;
     let is_steering_message = message.get("kind").and_then(Value::as_str) == Some("steer");
     let addressed_to_agent = message.get("toAgentId").and_then(Value::as_str) == Some(input.agent_id.as_str());
@@ -1127,8 +1135,6 @@ fn read_steering_delivery_plan(
     updated_agent_object.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
     let updated_agent: AgentSnapshot = serde_json::from_value(Value::Object(updated_agent_object))
         .map_err(|error| ControlDbError::new(error.to_string()))?;
-    message.insert("status".to_owned(), Value::String("delivered".to_owned()));
-    message.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
     let updated_message: AgentMailboxMessage = serde_json::from_value(Value::Object(message.clone()))
         .map_err(|error| ControlDbError::new(error.to_string()))?;
     Ok(Ok(SteeringDeliveryPlan {
@@ -1136,19 +1142,31 @@ fn read_steering_delivery_plan(
         message_data,
         process_identity_data: serialize_process_identity(&input.process_identity),
         updated_agent_data: super::serialize_agent(&updated_agent)?,
-        updated_message_data: js_json::stringify(&Value::Object(message)),
         updated_agent,
         updated_message,
     }))
 }
 
-fn persist_steering_delivery(
+pub(super) fn persist_steering_delivery(
     db: &Connection,
     input: &CommitMultiAgentSteeringDeliveryInput,
     plan: &SteeringDeliveryPlan,
+    mailbox: Option<(&RuntimeMailboxAddress, &super::mailbox::RuntimeMailboxCandidate)>,
 ) -> Result<bool, ControlDbError> {
-    let agent_updated = db.execute(
-        "UPDATE multi_agent_agents SET data = ?, updated_at = ?
+    with_immediate_transaction(db, |db| {
+        if super::is_mailbox_message_expired(
+            Some(&plan.updated_message.created_at),
+            pi_js_compat::date::js_now_millis(),
+        ) {
+            return Ok(false);
+        }
+        if let Some((recipient, candidate)) = mailbox
+            && !super::mailbox::candidate_authority_is_current(db, recipient, candidate)?
+        {
+            return Ok(false);
+        }
+        let agent_updated = db.execute(
+            "UPDATE multi_agent_agents SET data = ?, updated_at = ?
 		 WHERE session_path = ? AND agent_id = ? AND data = ?
 		 AND EXISTS (
 			SELECT 1 FROM multi_agent_runtime_owners
@@ -1159,43 +1177,54 @@ fn persist_steering_delivery(
 			SELECT 1 FROM multi_agent_mailbox_messages
 			WHERE session_path = ? AND message_id = ? AND data = ?
 		 )",
-        params![
-            plan.updated_agent_data,
-            input.updated_at,
-            input.session_path,
-            input.agent_id,
-            plan.agent_data,
-            input.session_path,
-            input.agent_id,
-            plan.process_identity_data,
-            input.owner.session_id,
-            input.owner.agent_id,
-            input.session_path,
-            input.message_id,
-            plan.message_data
-        ],
-    )?;
-    if agent_updated != 1 {
-        return Ok(false);
-    }
-    let message_updated = db.execute(
-        "UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
-		 WHERE session_path = ? AND message_id = ? AND data = ?",
-        params![
-            plan.updated_message_data,
-            input.updated_at,
-            input.session_path,
-            input.message_id,
-            plan.message_data
-        ],
-    )?;
-    if message_updated != 1 {
-        return Err(ControlDbError::new(format!(
-            "Steering message changed during delivery {}#{}",
-            input.session_path, input.message_id
-        )));
-    }
-    Ok(true)
+            params![
+                plan.updated_agent_data,
+                input.updated_at,
+                input.session_path,
+                input.agent_id,
+                plan.agent_data,
+                input.session_path,
+                input.agent_id,
+                plan.process_identity_data,
+                input.owner.session_id,
+                input.owner.agent_id,
+                input.session_path,
+                input.message_id,
+                plan.message_data
+            ],
+        )?;
+        if agent_updated != 1 {
+            return Ok(false);
+        }
+        let message_updated = if let Some((_, candidate)) = mailbox {
+            let mut claimed = candidate.data.clone();
+            claimed.insert("status".into(), Value::String("claimed".into()));
+            claimed.insert("claimedAt".into(), Value::String(input.updated_at.clone()));
+            claimed.insert(
+                "claimantProcessIdentity".into(),
+                Value::String(super::get_runtime_process_instance_id()?.to_owned()),
+            );
+            claimed.insert("updatedAt".into(), Value::String(input.updated_at.clone()));
+            usize::from(super::compare_and_write_canonical_mailbox_payload(
+                db,
+                &candidate.row,
+                &claimed,
+                &input.updated_at,
+            )?)
+        } else {
+            db.execute(
+                "DELETE FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND data = ?",
+                params![input.session_path, input.message_id, plan.message_data],
+            )?
+        };
+        if message_updated != 1 {
+            return Err(ControlDbError::new(format!(
+                "Steering message changed during delivery {}#{}",
+                input.session_path, input.message_id
+            )));
+        }
+        Ok(true)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1266,20 +1295,31 @@ fn read_lifecycle_mutation_plan(
         return Ok(LifecycleMutationRead::Err(LifecycleCommandError::MutationMismatch));
     }
     let current_lifecycle = agent.get("lifecycle").and_then(Value::as_str).unwrap_or("");
-    if current_lifecycle == input.requested_lifecycle {
+    let lifecycle_changed = current_lifecycle != input.requested_lifecycle;
+    let persist_suppression = input
+        .detached_cancellation
+        .as_ref()
+        .and_then(|cancellation| cancellation.suppress_terminal_notification)
+        == Some(true)
+        && agent.get("suppressTerminalNotification").and_then(Value::as_bool) != Some(true);
+    if !lifecycle_changed && !persist_suppression {
         return Ok(LifecycleMutationRead::Unchanged(agent));
     }
-    if !can_persist_lifecycle_transition_str(current_lifecycle, &input.requested_lifecycle) {
+    if lifecycle_changed && !can_persist_lifecycle_transition_str(current_lifecycle, &input.requested_lifecycle) {
         return Ok(LifecycleMutationRead::Err(LifecycleCommandError::InvalidTransition));
     }
     let revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
     let mut updated = agent;
+    if persist_suppression {
+        updated.insert("suppressTerminalNotification".into(), Value::Bool(true));
+    }
     updated.insert("lifecycle".to_owned(), Value::String(input.requested_lifecycle.clone()));
     updated.insert("revision".to_owned(), Value::from(revision));
     updated.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
     let cancellation = input
         .detached_cancellation
         .as_ref()
+        .filter(|_| lifecycle_changed)
         .map(|cancellation| build_detached_cancellation_message(input, cancellation, revision))
         .transpose()?;
     let updated_data = js_json::stringify(&Value::Object(updated.clone()));
@@ -1337,7 +1377,7 @@ fn build_detached_cancellation_message(
     cancelling_revision: i64,
 ) -> Result<(String, String), ControlDbError> {
     let message_id = format!("detached-cancel:{}:{cancelling_revision}", input.agent_id);
-    let body = js_json::stringify(&serde_json::json!({
+    let mut body = serde_json::json!({
         "command": "cancel",
         "identity": {
             "jobId": input.agent_id,
@@ -1350,9 +1390,16 @@ fn build_detached_cancellation_message(
                 .map_err(|error| ControlDbError::new(error.to_string()))?,
         },
         "reason": cancellation.reason,
-    }));
+    });
+    if cancellation.reason.is_none()
+        && let Some(body) = body.as_object_mut()
+    {
+        body.remove("reason");
+    }
+    let body = js_json::stringify(&body);
     let message = js_json::stringify(&serde_json::json!({
         "body": body,
+        "createdAt":input.updated_at,
         "fromAgentId": "main",
         "id": message_id,
         "kind": "system",
@@ -3521,7 +3568,7 @@ fn prepare_dead_runtime_recovery(
     updated_agent.insert("revision".to_owned(), Value::from(terminal_revision));
     updated_agent.insert("updatedAt".to_owned(), Value::String(now_iso.to_owned()));
     updated_agent.remove("worker");
-    let terminal_transport = if agent.get("detached").and_then(Value::as_bool) == Some(true) {
+    let terminal_transport = if should_notify_detached_job_owner(&agent) {
         Some(prepare_detached_agent_terminal_transport(
             &expected_owner.session_path,
             &expected_owner.agent_id,
@@ -3681,6 +3728,11 @@ fn release_dead_runtime_ownership_if_current(
     )? == 1)
 }
 
+pub(super) fn should_notify_detached_job_owner(agent: &Map<String, Value>) -> bool {
+    agent.get("detached").and_then(Value::as_bool) == Some(true)
+        && agent.get("suppressTerminalNotification").and_then(Value::as_bool) != Some(true)
+}
+
 pub(crate) fn prepare_detached_agent_terminal_transport(
     session_path: &str,
     agent_id: &str,
@@ -3738,6 +3790,7 @@ pub(crate) fn persist_prepared_terminal_transport(
     db: &Connection,
     transport: &PreparedTerminalTransport,
 ) -> Result<(), ControlDbError> {
+    super::retention::assert_mailbox_message_fresh(&transport.prepared.routed, &transport.prepared.context)?;
     db.execute(
         "INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 		 VALUES (?, ?, ?, ?)",

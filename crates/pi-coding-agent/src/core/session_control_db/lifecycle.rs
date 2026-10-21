@@ -258,12 +258,10 @@ fn prepare_detached_job_finalization(
     let current_lifecycle = agent.get("lifecycle").and_then(Value::as_str).unwrap_or("");
     if current_lifecycle == terminal_lifecycle {
         return Ok(Some(FinalizePreflight::Result(Box::new(detached_job_replay_result(
-            db,
             &session_path,
             terminal,
             &agent,
             agent.get("revision").and_then(Value::as_i64).unwrap_or(0),
-            &event_kind,
         )?))));
     }
     let terminal_revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
@@ -286,7 +284,7 @@ fn prepare_detached_job_finalization(
     terminal_agent.remove("worker");
     validate_persisted_agent_payload(&terminal_agent, &context)?;
     let terminal_agent_snapshot = parse_agent_snapshot(&terminal_agent, &context)?;
-    let terminal_transport = if agent.get("detached").and_then(Value::as_bool) == Some(true) {
+    let terminal_transport = if super::agents::should_notify_detached_job_owner(&agent) {
         let owner = MultiAgentRuntimeOwnerIdentity {
             agent_id: ownership.owner_agent_id.clone(),
             session_id: ownership.owner_session_id.clone().unwrap_or_default(),
@@ -342,12 +340,10 @@ fn detached_job_ownership_matches(
 }
 
 fn detached_job_replay_result(
-    db: &Connection,
     session_path: &str,
     terminal: &DetachedJobTerminalInput,
     terminal_agent: &Map<String, Value>,
     terminal_revision: i64,
-    event_kind: &str,
 ) -> Result<FinalizeDetachedJobResult, ControlDbError> {
     let lifecycle = terminal_agent
         .get("lifecycle")
@@ -360,19 +356,6 @@ fn detached_job_replay_result(
                 error: FinalizeDetachedJobError::MutationMismatch,
             });
         }
-    }
-    let outbox = db
-        .query_row(
-            "SELECT 1 FROM multi_agent_terminal_outbox
-			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?",
-            params![session_path, terminal.job_id, terminal_revision, event_kind],
-            |_| Ok(()),
-        )
-        .optional()?;
-    if outbox.is_none() {
-        return Ok(FinalizeDetachedJobResult::Err {
-            error: FinalizeDetachedJobError::MutationMismatch,
-        });
     }
     let context = format!("multi_agent_agents:{session_path}#{}", terminal.job_id);
     validate_persisted_agent_payload(terminal_agent, &context)?;

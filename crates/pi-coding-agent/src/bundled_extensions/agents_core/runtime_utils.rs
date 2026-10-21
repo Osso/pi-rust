@@ -16,6 +16,7 @@ pub fn create_failed_mailbox_message(
 ) -> AgentMailboxMessage {
     let timestamp = "1970-01-01T00:00:00.000Z".to_owned();
     AgentMailboxMessage {
+        extra: serde_json::Map::new(),
         id: String::new(),
         thread_id: None,
         from_agent_id: from_agent_id.to_owned(),
