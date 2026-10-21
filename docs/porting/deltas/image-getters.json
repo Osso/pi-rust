@@ -1,0 +1,8 @@
+{
+  "delta": "26c8050f5d9fa0caf995a6d47c145c0bfcd6e521",
+  "getters": ["single", "list"],
+  "fields": ["name", "input", "output", "cost"],
+  "frozen": {"allFieldsIsolated":false,"providerAndModelArraysIndependent":true},
+  "approved": {"allFieldsIsolated":true,"providerAndModelArraysIndependent":true},
+  "native": "immutable static borrows; owned clones permit mutation without registry effects"
+}
