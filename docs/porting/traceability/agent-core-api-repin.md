@@ -1,13 +1,13 @@
 # Slice 1: agent core API repin
 
 Verified 2026-10-21 against immutable `4f9e6f8a4`, `packages/agent-core/src/{agent-loop,agent,types,proxy,node,index}.ts`.
-Production implementation revision: `f6ff6d9f`; callback-setter assertions strengthened at `65ba541c`. Later commits update documentation only.
+Initial implementation revision: `f6ff6d9f`; callback-setter assertions strengthened at `65ba541c`. Verifier corrections are recorded below at `56ae8b4f`, integrated with master at `f1340ea5`.
 
 Module-by-module comparison: [loop](agent-loop.md), [Agent](agent.md), [types](agent-types.md), [proxy](agent-proxy.md), [node](agent-node.md), [index](agent-index.md). Requirements: [core API spec](../../specs/agent-core-api.md).
 
 ## Current evidence
 
-All Cargo invocations use the mandatory `.cargo/config.toml` runner, `CARGO_BUILD_JOBS=4`, and `CARGO_TARGET_DIR=/home/osso/.worktrees/pi-rust-repin-agent-core-api/target`. No clippy, package-wide/workspace test suite, push, merge, or delegation was run.
+All Cargo invocations use the mandatory `.cargo/config.toml` runner, `CARGO_BUILD_JOBS=4`, and `CARGO_TARGET_DIR=/home/osso/.worktrees/pi-rust-repin-agent-core-api/target`. Initial proof below predates the verifier corrections; no package-wide/workspace test suite, push, or delegation was run. The final targeted clippy and branch-local master merge are recorded below.
 
 | Scope / command | Revision/scope | Result / artifact under `/tmp/pi-rust-repin-agent-core-api/` |
 |---|---|---|
@@ -47,3 +47,22 @@ Parent directed preserving these as explicit gaps for user classification; that 
 - Existing typed exclusions include non-object tool-call argument runtime values and lone surrogate strings; shared lossless content/details work belongs to its separate lane. This slice only changes nullish after-hook value selection, not its representation.
 
 All six coverage rows remain todo. Root exports outside core (harness/session/telemetry/tools/search and consumed implementation helpers) remain for owning slices, per parent instruction. Scope and failures are not silently narrowed into a full-parity claim.
+
+## Verifier correction proof — 2026-10-21
+
+Code `56ae8b4f`; final integration `f1340ea5031157fac036f0800a7066bccd563ac3`, merging master `88b0295d8acb390a75f5d01a2acc7c8d3bb1b639`. Merge completed without conflicts; core source/tests identical to the fix commit. Frozen source remains `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
+
+| Counterexample | Test in `agent_verifier_regressions` | Proof |
+|---|---|---|
+| End-turn reminder survives new steering | `steering::steering_clears_end_turn_reminder` | Second request contains assistant + new user request only |
+| Rejected update waits forever for pending sibling | `lifetime::rejected_update_does_not_wait_for_pending_sink` | Low-level run rejects `update rejected` within the probe bound |
+| Abort drops signal-ignoring tool | `lifetime::aborted_tool_keeps_ignored_signal_side_effect` | Run rejects `Agent run aborted`; tool's later side effect still occurs |
+| Failing HTTP error-body read hides status | `proxy_body::failed_error_body_preserves_http_status` | Final error remains `Proxy error: 502 Bad Gateway` |
+
+All four tests were derived from the verifier's frozen/Rust probes and failed behaviorally before production edits (`red.log`). All four pass (`green.log` and final `core-tests.log`). Four selected production mutants each fail its regression at the behavioral assertion (`mutants.json`, `mutant-*.log`); all mutations restored byte-for-byte. This is not exhaustive mutation coverage.
+
+Tool execution now owns a Tokio task. Aborting races the JoinHandle without cancelling the task; a detached observer awaits completion, discards the late result, and logs any JoinError. The caller closes updates on race settlement. A signal-ignoring task may continue until completion or runtime shutdown; no hard-stop or indefinite runtime-lifetime guarantee is claimed. Tokio captures task panics (its panic hook may still print); they do not unwind the loop.
+
+Final gates at `f1340ea5`: **118 core tests in 14 targets** (including 35 pinned differential scenarios), **108 report-GREEN coding-agent tests in 16 targets**, **2 AgentSession image cases**, **1 real late-tool refresh case**. Every target ran through the mandatory Cargo sandbox runner with `CARGO_BUILD_JOBS=4` and the worktree-local target directory. Workspace all-targets check: exit 0, zero warnings. `cargo clippy -p pi-agent-core -j4 --all-targets -- -D warnings` and fmt: exit 0. Manual changed-line readability audit found no new actionable violations; metrics binary unavailable. Full commands/revision/results: `/tmp/pi-rust-repin-agent-core-api-fixes/final-ledger.json`; logs beside it. Subsequent documentation-only commits do not invalidate this evidence.
+
+The existing identity/sparse/iterator/typed gaps above remain unclassified; six coverage rows remain todo. Previously failing unrelated consumer targets were not rerun or claimed fixed.
