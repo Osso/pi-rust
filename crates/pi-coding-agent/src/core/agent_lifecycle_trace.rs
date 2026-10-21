@@ -72,7 +72,7 @@ fn read_ownership(db: &Connection, path: &str, id: &str) -> Result<Option<Value>
         result["owner"]["sessionId"] = json!(session);
     }
     if let Some(serialized) = process.filter(|process| !process.is_empty()) {
-        let process: Value = serde_json::from_str(&serialized).map_err(err)?;
+        let process = pi_js_compat::js_json::parse(&serialized).map_err(err)?;
         if process.is_object() && process["pid"].is_number() && process["startTimeTicks"].is_number() {
             let mut identity = json!({"pid":process["pid"],"startTimeTicks":process["startTimeTicks"]});
             optional_string(&mut identity, "incarnation", &process["incarnation"]);
@@ -208,8 +208,10 @@ fn format_ownership(ownership: Option<&Value>) -> String {
     let process = if process.is_object() {
         format!(
             "{}:{}:{}",
-            process["pid"],
-            process["startTimeTicks"],
+            pi_js_compat::number::js_number_to_string(process["pid"].as_f64().expect("numeric process pid")),
+            pi_js_compat::number::js_number_to_string(
+                process["startTimeTicks"].as_f64().expect("numeric process ticks")
+            ),
             process["incarnation"].as_str().unwrap_or("legacy")
         )
     } else {

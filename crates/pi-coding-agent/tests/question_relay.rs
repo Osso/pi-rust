@@ -446,3 +446,94 @@ async fn delivered_answer_parsing_and_unchecked_payload_fields_match_frozen() {
         assert_eq!(actual, expected, "answer body {body}");
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn blocking_child_waits_for_a_later_answer_on_the_500ms_poll() {
+    use pi_coding_agent::core::session_control_db::{RuntimeMailboxAddress, register_runtime_mailbox_listener};
+    let f = Fixture::new().await;
+    register_runtime_mailbox_listener(
+        &f.db,
+        &RuntimeMailboxAddress {
+            agent_id: Some("child".into()),
+            session_id: "session-child".into(),
+        },
+        std::process::id(),
+        None,
+        Default::default(),
+    )
+    .unwrap();
+    let waiting = tokio::spawn((f.ask.execute)(
+        "later".into(),
+        questions(true),
+        None,
+        None,
+        f.context(Some("child"), true).await,
+    ));
+    tokio::task::yield_now().await;
+    assert_eq!(
+        f.store.list_pending_mailbox_messages_for_agent("main").unwrap().len(),
+        1
+    );
+    assert!(!waiting.is_finished(), "child must block before a parent answer exists");
+    (f.answer.execute)(
+        "reply".into(),
+        json!({"agentId":"child","requestId":"later","answers":{"Choose?":"B"}}),
+        None,
+        None,
+        f.context(None, false).await,
+    )
+    .await
+    .unwrap();
+    tokio::time::advance(std::time::Duration::from_millis(499)).await;
+    tokio::task::yield_now().await;
+    assert!(!waiting.is_finished(), "poll must not run early");
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    let result = waiting.await.unwrap().unwrap();
+    assert_eq!(result.details.as_ref().unwrap()["answers"], json!({"Choose?":"B"}));
+    assert_eq!(result.details.as_ref().unwrap()["cancelled"], false);
+}
+
+#[tokio::test]
+async fn inactive_child_unavailable_mailbox_and_failed_parent_transport_are_explicit() {
+    let f = Fixture::new().await;
+    let mut child = f.store.get_agent("child").unwrap();
+    child.lifecycle = pi_coding_agent::core::multi_agent_store::AgentLifecycle::Completed;
+    f.store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
+    let error = (f.answer.execute)(
+        "reply".into(),
+        json!({"agentId":"child","requestId":"call","answers":{}}),
+        None,
+        None,
+        f.context(None, false).await,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.message, "Could not answer child: inactive (completed)");
+    child.lifecycle = pi_coding_agent::core::multi_agent_store::AgentLifecycle::Running;
+    child.transcript = None;
+    f.store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
+    let error = (f.answer.execute)(
+        "reply".into(),
+        json!({"agentId":"child","requestId":"call","answers":{}}),
+        None,
+        None,
+        f.context(None, false).await,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.message, "Could not answer child: runtime mailbox is unavailable");
+    f.store.set_persistence_session_manager(None);
+    let error = (f.ask.execute)(
+        "call".into(),
+        questions(false),
+        None,
+        None,
+        f.context(Some("child"), true).await,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.message,
+        "Could not send questions to parent: Could not contact parent: runtime mailbox transport is unavailable."
+    );
+}

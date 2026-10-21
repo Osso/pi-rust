@@ -107,4 +107,30 @@ async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership
         let actual = json!({"content":result.content,"details":result.details,"isError":result.is_error});
         assert_eq!(actual, expected, "{params}");
     }
+    for ownership in [
+        Some(r#"{"pid":100.0,"startTimeTicks":1e21}"#),
+        Some(r#"{"pid":-0,"startTimeTicks":4.5}"#),
+        None,
+    ] {
+        if let Some(process) = ownership {
+            conn.execute(
+                "UPDATE multi_agent_runtime_owners SET process_identity = ? WHERE agent_id = 'a'",
+                [process],
+            )
+            .unwrap();
+        } else {
+            conn.execute("DELETE FROM multi_agent_runtime_owners WHERE agent_id = 'a'", [])
+                .unwrap();
+        }
+        let params = json!({"agentId":"a","trace":true,"storeSessionId":"store-session"});
+        let expected = oracle.request(&json!({"agents":agents,"db":db,"params":params}));
+        let result = (tool.execute)("view".into(), params, None, None, context.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            json!({"content":result.content,"details":result.details,"isError":result.is_error}),
+            expected,
+            "ownership {ownership:?}"
+        );
+    }
 }
