@@ -11,6 +11,6 @@ Reference: unmodified `core/resident-session.ts` at `4f9e6f8a4c0065d81b10e7177b2
 
 - NUL-containing joined filesystem paths must fail before mkdir with source-equivalent TypeError / ERR_INVALID_ARG_VALUE, without syscall/errno fields. Error excerpts preserve Node quoting, control escaping, multiline inspection and the 128-UTF-16-unit limit (including split surrogates).
 
-Scope: fresh-file preparation API only, plus the minimal shared Node path-argument error formatter authorized after an actual-source mismatch. No external consumer wiring, service orchestration, shared DB/process/path implementation changes, or full-runtime ownership proof.
+Scope: fresh-file preparation API only, plus the minimal shared Node path-argument error formatter and source-proven VT-inspection root fix authorized after actual-source mismatches. No external consumer wiring, service orchestration, shared DB/process/path implementation changes, or full-runtime ownership proof.
 
 Proof status and limitations: [module traceability](../porting/traceability/resident-session.md).

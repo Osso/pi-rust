@@ -177,3 +177,22 @@ fn removed_current_directory_error_has_node_message_and_pathless_own_fields() {
         "ENOENT: process.cwd failed with error no such file or directory, the current working directory was likely removed without changing the working directory, uv_cwd"
     );
 }
+
+#[test]
+fn actual_vertical_tab_filesystem_error_console_matches_node() {
+    let directory = std::env::temp_dir().join(format!("pi-node-vt-{}", std::process::id()));
+    fs::create_dir(&directory).unwrap();
+    let fixture = Fixture(directory);
+    let file = fixture.0.join("vertical\u{b}tab");
+    fs::write(&file, "fixture").unwrap();
+    let error = fs::create_dir(&file).unwrap_err();
+    let record = node_fs_error_record(&error, "mkdir", file.to_str().unwrap());
+    let node = std::process::Command::new("node")
+        .args(["-e", r#"const fs=require('node:fs');const util=require('node:util');try{fs.mkdirSync(process.argv[1]);process.exitCode=1;}catch(e){e.stack=`${e.name}: ${e.message}\n    at fixture`;console.log(util.inspect(e).replace('\n    at fixture',''));}"#])
+        .arg(&file).output().unwrap();
+    assert!(node.status.success());
+    assert_eq!(
+        format!("{}\n", record.console_message(None)),
+        String::from_utf8(node.stdout).unwrap()
+    );
+}

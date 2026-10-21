@@ -52,23 +52,12 @@ fn inspect_path_argument(path: &str) -> String {
     if value.encode_utf16().count() > 76 {
         value
             .split_inclusive('\n')
-            .map(inspect_path_string)
+            .map(inspect_string)
             .collect::<Vec<_>>()
             .join(" +\n  ")
     } else {
-        inspect_path_string(value)
+        inspect_string(value)
     }
-}
-
-fn inspect_path_string(value: &str) -> String {
-    inspect_string_using(value, |ch, quote| {
-        // Keep the existing IO formatter unchanged; Node argument errors use hex.
-        if ch == '\u{b}' {
-            "\\x0B".to_owned()
-        } else {
-            escape_inspect_char(ch, quote)
-        }
-    })
 }
 
 /// Node Error name, message and own filesystem metadata (stack is caller-owned).
@@ -108,10 +97,6 @@ impl NodeFsError {
 
 // Node util.inspect's string quoting for native UTF-8 error properties.
 fn inspect_string(value: &str) -> String {
-    inspect_string_using(value, escape_inspect_char)
-}
-
-fn inspect_string_using(value: &str, escape: impl Fn(char, char) -> String) -> String {
     let quote = if !value.contains('\'') {
         '\''
     } else if !value.contains('"') {
@@ -121,7 +106,7 @@ fn inspect_string_using(value: &str, escape: impl Fn(char, char) -> String) -> S
     } else {
         '\''
     };
-    let escaped: String = value.chars().map(|ch| escape(ch, quote)).collect();
+    let escaped: String = value.chars().map(|ch| escape_inspect_char(ch, quote)).collect();
     format!("{quote}{escaped}{quote}")
 }
 
@@ -133,7 +118,7 @@ fn escape_inspect_char(ch: char, quote: char) -> String {
         '\t' => "\\t".into(),
         '\u{8}' => "\\b".into(),
         '\u{c}' => "\\f".into(),
-        '\u{b}' => "\\v".into(),
+        '\u{b}' => "\\x0B".into(),
         ch if ch == quote => format!("\\{ch}"),
         ch if ch <= '\u{1f}' || ('\u{7f}'..='\u{9f}').contains(&ch) => format!("\\x{:02X}", ch as u32),
         ch => ch.to_string(),
