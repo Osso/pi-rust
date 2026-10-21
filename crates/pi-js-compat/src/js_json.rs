@@ -35,6 +35,24 @@ impl JsString {
     }
 }
 
+/// Lossless JSON serde uses serde_json's raw-fragment protocol. Deserialize from JSON
+/// text/bytes, not from `serde_json::Value` or serde's buffered untagged-enum content.
+/// Other serde formats are unsupported: their string model cannot represent lone surrogates.
+impl serde::Serialize for JsString {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        JsValue::String(self.clone()).serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for JsString {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match JsValue::deserialize(deserializer)? {
+            JsValue::String(text) => Ok(text),
+            _ => Err(serde::de::Error::custom("expected a JSON string")),
+        }
+    }
+}
+
 impl From<&JsString> for JsString {
     fn from(text: &JsString) -> Self {
         text.clone()
@@ -72,6 +90,28 @@ pub enum JsValue {
     String(JsString),
     Array(Vec<JsValue>),
     Object(JsObject),
+}
+
+impl serde::Serialize for JsValue {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let raw =
+            serde_json::value::RawValue::from_string(stringify_lossless(self)).map_err(serde::ser::Error::custom)?;
+        raw.serialize(serializer)
+    }
+}
+
+/// Requires a serde_json text/bytes deserializer; see [`JsString`]'s serde contract.
+impl<'de> serde::Deserialize<'de> for JsValue {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = Box::<serde_json::value::RawValue>::deserialize(deserializer)?;
+        parse_lossless(raw.get()).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Deserialize an optional JSON property without conflating explicit null with omission.
+/// Use with `#[serde(default, deserialize_with = "deserialize_present")]`.
+pub fn deserialize_present<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<JsValue>, D::Error> {
+    serde::Deserialize::deserialize(deserializer).map(Some)
 }
 
 impl JsValue {

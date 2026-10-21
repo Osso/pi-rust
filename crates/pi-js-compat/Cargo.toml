@@ -17,7 +17,7 @@ ryu-js = "=1.0.3"
 # Serializes JavaScript numeric values through generic serde serializers.
 serde = "=1.0.229"
 # `JSON.stringify(number)` value construction for extension payloads.
-serde_json = { version = "=1.0.151", features = ["preserve_order"] }
+serde_json = { version = "=1.0.151", features = ["preserve_order", "raw_value"] }
 # Local offsets and IANA TZ lookup for Date.parse and en-US date formatting.
 jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 # `String.prototype.localeCompare` / `Intl.Collator`.

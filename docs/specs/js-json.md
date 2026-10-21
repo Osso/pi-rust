@@ -51,3 +51,7 @@ The audit has six uncertain groups (despite the brief's count of five): scanning
 - Migrating every serde caller globally. This slice covers the audited visible boundaries; legacy replacement behavior remains intentional compatibility at that API boundary, not a waiver for raw-file validator inputs.
 - Arbitrary-precision numbers: `JsValue::Number(f64)` deliberately uses JavaScript binary64, not arbitrary-precision JSON arithmetic.
 - Error excerpts containing split surrogate units retain existing UTF-8 replacement behavior; the legacy mutation oracle normalizes only such diagnostic strings. The new bounded lossless oracle does not normalize outputs.
+
+## Shared serde (Q18, 2026-10-21)
+
+`JsString` and `JsValue` implement lossless JSON serde using raw JSON fragments and the shared parser/writer. JSON text/byte deserializers preserve lone-surrogate escapes and object keys; non-JSON formats and serde buffered untagged enums are unsupported. Optional arbitrary properties use `deserialize_present` with `default`, retaining missing versus explicit null. No conversion through `Value` occurs.

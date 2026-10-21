@@ -80,3 +80,12 @@ its development RED/GREEN evidence is recorded above. No full-port claim follows
 ## JS-value boundary regression (2026-10-20)
 
 Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).
+
+## Q18 shared serde
+
+| Export/branch | Proof |
+|---|---|
+| `Serialize` / `Deserialize` for `JsString`, `JsValue` | `js_json_serde`: nested high/low surrogates, keys, valid pairs, checked UTF-8 rejection, embedded records |
+| `deserialize_present` optional property adapter | `js_json_serde`: omitted versus null versus nested surrogate value |
+
+RED: missing serde trait implementations (compile rejection). GREEN: three sandbox tests at `/tmp/pi-rust-repin-lossless-content/serde-green.log`. JSON-only serde limitation is explicit in the shared spec.
