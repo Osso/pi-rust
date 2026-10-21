@@ -186,3 +186,7 @@ The writer-lock migration-state race remains enforced in code; no deterministic 
 Quiescence errors preserve TS Set encounter order (runtime PIDs, then owner identities), not numeric sorting; `name_migration_errors_preserve_owner_pid_encounter_order` reproduces the prior Rust ordering failure with live parent/current process identities.
 
 Existing v15 databases with live lifecycle owners accept name updates without rerunning lifecycle migration or mutating running-agent payloads: `existing_v15_names_update_without_reentering_lifecycle_migrations`. Schema comparison initializes separate TS/Rust databases and compares every schema/PRAGMA field.
+
+## Approved delivery delta 8fbfcef2 (2026-10-21)
+
+`approved_mailbox_deltas` compares the guarded, hash-locked delta against native temporary databases: limit zero leaves two rows pending; limit one claims exactly one. Frozen limit zero is asserted exactly as two claimed deliveries, an approved discrepancy, not parity. RED: native delivered 2 instead of 0 (`/tmp/pi-rust-repin-delta-proofs/limit-red.log`). GREEN/mutant results recorded in the lane report. OAuth excluded.
