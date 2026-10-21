@@ -141,3 +141,5 @@ Sources (all under `packages/coding-agent/src/modes/interactive/`):
   implemented but not covered by the differential harness.
 
 Frozen4f9e6f8a4 search text: id/name/firstMessage/cwd, never subsequent messages. differential_session_search fixture now supplies firstMessage to actual pinned module and covers exclusion of obsolete later-message text (RED before production).
+
+Bounded merged evidence and unresolved consumer/classification limits: [session storage integration](session-storage-integration.md). No fresh gate or whole-module promotion.

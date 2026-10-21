@@ -1,6 +1,6 @@
 # coding-agent session-manager traceability
 
-Pinned source: `packages/coding-agent/src/core/session-manager.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Historical baseline: `packages/coding-agent/src/core/session-manager.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`. Current target is the [common source lock](../source-lock.json); only the explicitly recorded frozen4f9 deltas below have renewed bounded evidence, not the entire historical matrix.
 
 Rust module: `crates/pi-coding-agent/src/core/session_manager.rs`.
 Focused tests: `crates/pi-coding-agent/tests/session_manager.rs` (39).
@@ -47,7 +47,7 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 | `updateCompactionSummary` | trim, non-empty, drop provider-native fields, restore on write failure | `update_compaction_summary`; two focused tests |
 | `getLeafId/getLeafEntry/getEntry/getChildren/getLabel/getBranch/buildContextEntries/buildSessionContext/getHeader/getEntries/getTree` | traversal and defensive copies | same-named methods; tree/label tests |
 | `branch/resetLeaf/branchWithSummary/createBranchedSession` | leaf pointer, branch summary, path extraction with label rewiring | same-named methods; `tree_traversal_and_branching`, `branched_session_*` tests |
-| `SessionManager.list/listArchived/listAll` | metadata-backed fast path (control-db order, cwd/dir/archive scope, subagent exclusion), else directory scan plus metadata cache, cwd filter, subagent exclusion, modified-desc sort | `list` / `list_archived` / `list_all`; `lists_sessions_scoped_by_cwd`, `metadata_backed_listing_prefers_control_db_and_excludes_subagents`, `metadata_listing_scopes_by_cwd_and_returns_control_db_order` |
+| `SessionManager.list/listArchived/listAll` | metadata-backed fast path (control-db order, cwd/dir/archive scope, subagent/resident exclusion); populated-but-scoped-empty index returns empty without scanning/cache; only absent/empty index permits directory scan plus metadata cache, cwd filter, subagent/resident exclusion, modified-desc sort | `list` / `list_archived` / `list_all`; `lists_sessions_scoped_by_cwd`, `metadata_backed_listing_prefers_control_db_and_excludes_subagents`, `metadata_listing_scopes_by_cwd_and_returns_control_db_order` |
 | `SessionManager.open` | resolves the header before construction; a persisted header keeps id/cwd/parent, a missing or empty file regenerates identity like the source | `open`; `open_preserves_a_freshly_persisted_header`, `reads_files_and_headers`, `rewrites_empty_files_and_rejects_non_session_files` |
 | `getDefaultSessionDirPath` private helper | resolved cwd + agent dir | `get_default_session_dir_path` (public in Rust) |
 
@@ -89,7 +89,7 @@ Empty-file initialization returns after `new_session`/header recovery without re
 
 ## Frozen4f9e6f8a4 storage delta (pending whole-module proof)
 
-Archive-aware header/load/list/fork; mutable open/setSessionFile resolves stale path before guard; openReadOnly loads/migrates/indexes in memory without metadata writes. Message receipt field retains raw JSON including null and omission. Existing persist_for_recovery remains available; fsync/typed append are available and proved against the frozen receipt scanner; runtime claim/CAS integration remains owner work. Codec/fork trace: repin_session_storage. No crash-safe runtime delivery claim.
+Archive-aware header/load/explicit-info/fork; filesystem resume discovery remains plain-only; mutable open/setSessionFile resolves stale path before guard; openReadOnly loads/migrates/indexes in memory without metadata writes. Message receipt field retains raw JSON including null and omission. Existing persist_for_recovery remains available; fsync/typed append are available and proved against the frozen receipt scanner; runtime claim/CAS integration remains owner work. Codec/fork trace: repin_session_storage. No crash-safe runtime delivery claim.
 
 Receipt proof: source creates real records, mutates exposed entry refs to null/empty/string/object/valid arrays, persists; Rust retained compaction rewrite; same TS reads exact raw values. New typed append + persist_for_recovery + fsync consumed by same frozen acceptance scan; initial RED scan[] missed ref. No DB claim/CAS proof.
 
@@ -115,10 +115,12 @@ Lossless regression proofs now cover source escaped receipt load/append/rewrite/
 
 `parseSessionEntries` public in-memory path now shares the same lossless receipt/summary-extra parser; expanded source escaped-receipt test caught old Value-only path dropping message (RED1 vs2). No raw receipts are routed through Value before extraction in owned manager/history entrypoint paths.
 
-Legacyv1 actual source fixture drops entry IDs/parents before persistence. `source_legacy_v1_read_only_migrates_context_without_mutating_original` reproduced Rust empty context vs TS user message. Migrated Unknown records now reify their newly valid typed shapes before context/indexing; original bytes remain unchanged during read-only load. Raw untyped fields on not-yet-typed legacy records require separate retention proof; no legacy/raw waiver inferred.
+Legacyv1 actual source fixture drops entry IDs/parents before persistence. `source_legacy_v1_read_only_migrates_context_without_mutating_original` reproduced Rust empty context vs TS user message. Migrated Unknown records now reify their newly valid typed shapes before context/indexing; original bytes remain unchanged during read-only load. Legacy raw-field retention is covered by the subsequent receipt/summary export proofs below; no legacy/raw waiver inferred.
 
 Legacy/raw carrier now retains ordinary Map fields plus lossless receipt/summary extras in UnknownSessionEntry. Legacy ID/role changes edit only the ordinary map; reification serializes directly then shares the lossless parser, never converts raw fields through Value. Exact e1f7ab6b legacy receipt export RED reused;78fe6f2e focused GREEN. Legacy summary export proof additionally kills the Unknown-extra-dropping mutant (null/null vs source escaped UTF16 key/value tokens); restored-carrier GREEN1785172c; the focused storage integration also passes30/30 (unchanged hard90 boundary excluded under prior valid proof). One session_tool_output Unknown(Map::new().into()) constructor adaptation; no global content type rewrite. Public generic serde Decode still uses checked Value and is not claimed lossless; production manager/history use parse_session_file_entry. Active tool-output migration now shares that parser (b514ca25; source fixture RED then GREEN4403306e). No production direct FileEntry/SessionEntry serde decode remains; KnownSessionEntry::from_value receives fields after lossless extraction.
 
 Authorized frozen selector delta: SessionInfo has first_message only; removed source-absent all_messages_text and total-transcript accumulator. Counts/activity still scan all records; text extraction stops after first non-extension user prompt. Selector matches id/name/first_message/cwd exactly source line28. Actual-source differential not-later-message RED before production (e1f7ab6b), GREENf0675811.
 
 Metadata listing now consumes canonical control API (c7248cac via0063fe60): absent table alone returns None; populated-but-filtered-empty returns Some(empty) without filesystem scan/cache. Scope resolves cwd and directory prefix exactly at consumer boundary; DB owns query/subagent/order semantics. Actual-source scoped-empty RED at0063fe60, GREEN12b382a9. No duplicated SQL or compatibility query path.
+
+Bounded merged evidence and unresolved consumer/classification limits: [session storage integration](session-storage-integration.md). No fresh gate or whole-module promotion.
