@@ -242,3 +242,34 @@ fn empty_normalized_description_does_not_create_a_description_column() {
     );
     assert_eq!(list.render(80), ["→ alpha"]);
 }
+
+#[test]
+fn select_list_passes_signed_internal_widths_to_custom_callbacks() {
+    let calls = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = calls.clone();
+    let mut list = pi_tui::SelectList::new(
+        vec![pi_tui::SelectItem {
+            value: "alpha".into(),
+            label: "alpha".into(),
+            description: None,
+        }],
+        5,
+        pi_tui::SelectListTheme::plain(),
+        pi_tui::SelectListLayoutOptions {
+            truncate_primary: Some(Rc::new(move |context| {
+                sink.borrow_mut().push((context.max_width, context.column_width));
+                context.text.to_string()
+            })),
+            ..Default::default()
+        },
+    );
+    let lines = (0..=4).map(|width| list.render(width)).collect::<Vec<_>>();
+    assert_eq!(*calls.borrow(), [(-4, -4), (-3, -3), (-2, -2), (-1, -1), (0, 0)]);
+    let mut oracle = oracle::TsOracle::spawn("tui-components-oracle.ts", "packages/tui/src");
+    let response = oracle.request(&serde_json::json!({"id": 1, "operation":"select_list_signed"}));
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        serde_json::json!({"lines":lines,"calls":*calls.borrow()}),
+        response["output"]
+    );
+}

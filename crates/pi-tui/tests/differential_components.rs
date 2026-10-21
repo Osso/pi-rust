@@ -290,10 +290,10 @@ fn select_list_render_and_callbacks_match_typescript() {
                 .map(|value| value as usize),
             truncate_primary: case["layout"]["truncatePrimary"].as_bool().unwrap().then(|| {
                 Rc::new(|context: &SelectListTruncatePrimaryContext<'_>| {
-                    if context.text.len() <= context.max_width {
+                    if (context.text.len() as i64) <= context.max_width {
                         return context.text.to_string();
                     }
-                    let keep = context.max_width.saturating_sub(1);
+                    let keep = context.max_width.saturating_sub(1).max(0) as usize;
                     format!("{}…", &context.text[..keep.min(context.text.len())])
                 }) as Rc<dyn Fn(&SelectListTruncatePrimaryContext<'_>) -> String>
             }),

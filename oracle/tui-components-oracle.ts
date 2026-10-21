@@ -537,6 +537,17 @@ type LayoutOp =
 
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
 	switch (request.operation) {
+        case "select_list_signed": {
+            const { SelectList } = await loadApi(sourceDirectory, "components/select-list.ts") as { SelectList: any };
+            const calls: Array<[number, number]> = [];
+            const list = new SelectList([{ value: "alpha", label: "alpha" }], 5,
+                { selectedPrefix: identity, selectedText: identity, description: identity, scrollInfo: identity, noMatch: identity },
+                { truncatePrimary: (context: { maxWidth: number; columnWidth: number; text: string }) => {
+                    calls.push([context.maxWidth, context.columnWidth]);
+                    return context.text;
+                } });
+            return { lines: [0, 1, 2, 3, 4].map(width => list.render(width)), calls };
+        }
 		case "text":
 			return textOperation(request, sourceDirectory);
 		case "loader":
