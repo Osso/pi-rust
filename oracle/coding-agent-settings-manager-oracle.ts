@@ -84,6 +84,21 @@ async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir:
 			case "apply_overrides": manager.applyOverrides(step.value); break;
 			case "reload": await manager.reload(); break;
 			case "flush": await manager.flush(); break;
+			case "setter_external_write_same_turn": {
+				manager.setTheme(step.value);
+				writeFileSync(join(agentDir, "settings.json"), step.content, "utf-8");
+				await manager.flush();
+				break;
+			}
+			case "fixture_barrier": {
+				writeFileSync(join(agentDir, "barrier-ready"), "ready");
+				const deadline = Date.now() + 5000;
+				while (!existsSync(join(agentDir, "barrier-release"))) {
+					if (Date.now() >= deadline) throw new Error("fixture barrier timed out");
+					await new Promise((resolve) => setTimeout(resolve, 1));
+				}
+				break;
+			}
 			case "external_edit": {
 				const path = step.scope === "project" ? join(projectDir, ".pi", "settings.json") : join(agentDir, "settings.json");
 				writeFileSync(path, step.content, "utf-8");

@@ -270,6 +270,11 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         "apply_overrides" => manager.apply_overrides(value.as_object().expect("overrides object")),
         "reload" => manager.reload(),
         "flush" => manager.flush(),
+        "setter_external_write_same_turn" => {
+            manager.set_theme(value.as_str().unwrap());
+            fs::write(agent_dir.join("settings.json"), step["content"].as_str().unwrap()).unwrap();
+            manager.flush();
+        }
         "external_edit" => {
             let path = if step["scope"].as_str() == Some("project") {
                 project_dir.join(".pi").join("settings.json")
@@ -531,6 +536,32 @@ fn scenarios() -> Vec<Scenario> {
             ],
         },
         Scenario {
+            name: "frozen-field-catalog",
+            global: Some(
+                r#"{"relay":{"peer":"fixture-only","remoteCommand":"never-run"},"lastChangelogVersion":"0.80.3","defaultProvider":"fake","defaultModel":"fake-model","defaultThinkingLevel":"ultra","defaultCodexFastMode":"priority","transport":"auto","steeringMode":"all","followUpMode":"all","theme":"catalog","compaction":{"thresholdPercent":50,"enabled":true,"reserveTokens":1000,"keepRecentTokens":2000,"idle":false,"unknownChild":9},"branchSummary":{"reserveTokens":123,"skipPrompt":true},"retry":{"enabled":true,"maxRetries":4,"baseDelayMs":10,"maxBackoffMs":100,"provider":{"timeoutMs":5,"maxRetries":6,"maxRetryDelayMs":7}},"hideThinkingBlock":true,"hideToolOutput":true,"hideCoordinationMessages":true,"externalEditor":"fixture-editor","shellPath":"~/literal","quietStartup":true,"defaultProjectTrust":"never","shellCommandPrefix":"never-executed","npmCommand":["never-executed"],"collapseChangelog":true,"enableInstallTelemetry":false,"enableAnalytics":true,"trackingId":"synthetic-tracking-id","packages":["npm:fixture"],"extensions":["fixture.ts"],"disabledExtensions":["disabled"],"skills":["fixture-skill"],"prompts":["fixture-prompt"],"themes":["fixture-theme"],"enableSkillCommands":false,"terminal":{"showImages":false,"imageWidthCells":42,"clearOnShrink":true,"showTerminalProgress":true},"images":{"autoResize":false,"blockImages":true},"enabledModels":["fixture/model"],"doubleEscapeAction":"none","treeFilterMode":"all","thinkingBudgets":{"minimal":1,"low":2,"medium":3,"high":4},"editorPaddingX":2,"outputPad":0,"autocompleteMaxVisible":10,"showHardwareCursor":true,"markdown":{"codeBlockIndent":"    "},"warnings":{"anthropicExtraUsage":false},"agents":{"implement":{"context":"fresh","model":"fake/fixture","thinkingLevel":"high","tools":["read"]}},"sessionDir":"relative-fixture-dir","httpProxy":"http://invalid.invalid:1","httpIdleTimeoutMs":0,"websocketConnectTimeoutMs":0,"permissionPromptTool":"never-called","permissionRules":{"allow":{"read":["fixture"]}},"approvalPolicy":"on-request","approvalPreset":"llm-approved-ask","sandboxProfile":"read-only","unknownRoot":{"keep":[1,2]},"tuiMode":"fullscreen","fullscreenExitOutput":"resume-hint","fullscreenScrollbar":"hidden","showCacheMissNotices":true}"#,
+            ),
+            project: Some("{}"),
+            steps: vec![
+                json!({"op":"flush"}),
+                json!({"op":"set_compaction_enabled","value":false}),
+                json!({"op":"set_theme","value":"persisted-catalog"}),
+            ],
+        },
+        Scenario {
+            name: "migration-precedence",
+            global: Some(
+                r#"{"queueMode":"all","steeringMode":"one-at-a-time","websockets":false,"transport":"auto","skills":{"enableSkillCommands":true,"customDirectories":[]},"enableSkillCommands":false,"retry":{"maxDelayMs":10,"provider":{"maxRetryDelayMs":99,"unknownChild":1}}}"#,
+            ),
+            project: Some(
+                r#"{"retry":{"maxDelayMs":20,"provider":{"maxRetryDelayMs":null}},"skills":{"customDirectories":["project-skill"]}}"#,
+            ),
+            steps: vec![
+                json!({"op":"flush"}),
+                json!({"op":"set_theme","value":"migrated"}),
+                json!({"op":"set_project_theme_paths","value":["migrated"]}),
+            ],
+        },
+        Scenario {
             name: "migrations",
             global: Some(
                 r#"{"queueMode":"all","websockets":true,"skills":{"enableSkillCommands":false,"customDirectories":["a"]},"approvalPreset":"llm-approved","retry":{"maxDelayMs":1234}}"#,
@@ -659,6 +690,7 @@ pub(crate) fn bidirectional() {
     let ask = |oracle: &mut oracle::TsOracle, steps: Vec<Value>| {
         let response = oracle.request(&json!({"id":"bidirectional","managerKey":"shared-fixture","agentDir":agent,"projectDir":project,"steps":steps}));
         assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["output"]["errors"], json!([]), "{response}");
         response["output"]["snapshots"]
             .as_array()
             .unwrap()
@@ -762,4 +794,54 @@ pub(crate) fn bidirectional() {
     assert_eq!(final_global["retry"]["sentinel"], global["retry"]["sentinel"]);
     assert_eq!(final_global["compaction"], saved["compaction"]);
     assert_eq!(final_global["terminal"]["outOfBand"], saved["terminal"]["outOfBand"]);
+
+    // Real process overlap, not only stale sequential handles: independent children of terminal.
+    std::thread::scope(|scope| {
+        let ts_writer = scope.spawn(|| {
+            let mut steps = vec![json!({"op":"fixture_barrier"})];
+            steps.extend((0..40).map(|index| json!({"op":"set_show_terminal_progress","value":index == 39})));
+            ask(&mut oracle, steps)
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !agent.join("barrier-ready").exists() {
+            assert!(std::time::Instant::now() < deadline, "TS writer never reached barrier");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        fs::write(agent.join("barrier-release"), "release").unwrap();
+        for index in 0..40 {
+            rust.set_show_images(index == 39);
+        }
+        ts_writer.join().unwrap();
+    });
+    let ts = ask(&mut oracle, vec![json!({"op":"reload"})]);
+    rust.reload();
+    assert_eq!(snapshot(&rust), ts["snapshot"]);
+    assert!(rust.get_show_images());
+    assert!(rust.get_show_terminal_progress());
+    let concurrent: Value = serde_json::from_str(ts["globalFile"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        concurrent["terminal"]["unknownChild"],
+        saved["terminal"]["unknownChild"]
+    );
+    assert_eq!(concurrent["terminal"]["outOfBand"], saved["terminal"]["outOfBand"]);
+    assert!(rust.drain_errors().is_empty());
+}
+
+pub(crate) fn queued_write_ordering() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-settings-manager-oracle.ts",
+        "packages/coding-agent/src/core/settings-manager.ts",
+    );
+    run_scenario(
+        &mut oracle,
+        0,
+        &Scenario {
+            name: "queued-save-before-external-write-before-flush",
+            global: Some(r#"{"theme":"initial","unmodified":"initial"}"#),
+            project: None,
+            steps: vec![
+                json!({"op":"setter_external_write_same_turn","value":"setter-wins","content":r#"{"theme":"external","unmodified":"competing"}"#}),
+            ],
+        },
+    );
 }
