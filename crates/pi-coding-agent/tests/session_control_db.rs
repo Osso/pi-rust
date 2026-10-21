@@ -625,16 +625,14 @@ fn runtime_mailbox_routing_preserves_payload_order_and_identity() {
         )
         .expect("row");
     // Frozen session-control-db.ts defaults omitted creation time before routing.
-    let mut payload: serde_json::Value = serde_json::from_str(&data).expect("payload");
-    let birth = payload
-        .as_object_mut()
-        .expect("object")
-        .remove("createdAt")
-        .expect("birth");
+    let payload: serde_json::Value = serde_json::from_str(&data).expect("payload");
+    let birth = &payload["createdAt"];
     assert!(pi_js_compat::date::date_parse(birth.as_str().expect("birth string")).is_finite());
     assert_eq!(
-        pi_js_compat::js_json::stringify(&payload),
-        "{\"body\":\"hello\",\"fromAgentId\":\"main\",\"id\":\"message_1\",\"kind\":\"message\",\"status\":\"pending\",\"toAgentId\":\"main\",\"recipientSessionId\":\"recipient\",\"recipientAgentId\":null,\"senderSessionId\":\"sender\",\"senderAgentId\":null}"
+        data,
+        format!(
+            "{{\"body\":\"hello\",\"fromAgentId\":\"main\",\"id\":\"message_1\",\"kind\":\"message\",\"status\":\"pending\",\"toAgentId\":\"main\",\"createdAt\":{birth},\"recipientSessionId\":\"recipient\",\"recipientAgentId\":null,\"senderSessionId\":\"sender\",\"senderAgentId\":null}}"
+        )
     );
 
     // Re-routing the same identity is a no-op and preserves the row.
@@ -1120,7 +1118,8 @@ fn steering_mutations_require_registered_authority() {
         "message_1",
     )
     .expect("status");
-    assert_eq!(message.as_deref(), Some("delivered"));
+    // Frozen session-control-db.ts steering delivery deletes the row.
+    assert_eq!(message, None);
 }
 
 #[test]
