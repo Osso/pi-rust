@@ -1,7 +1,5 @@
 //! Opt-in native port of `border-status-editor.ts`.
-#[path = "editor_composition.rs"]
-mod editor_composition;
-use editor_composition::{ComposedEditor, EditorBehavior};
+use super::editor_composition::{ComposedEditor, EditorBehavior};
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::components::custom_editor::{CustomEditor, CustomEditorOptions};
 use pi_coding_agent::modes::interactive::theme::ThemeColor;

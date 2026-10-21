@@ -1,5 +1,7 @@
 #[path = "../examples/extensions/border_status_editor.rs"]
 mod border_status_editor;
+#[path = "../examples/extensions/editor_composition.rs"]
+mod editor_composition;
 #[path = "../examples/extensions/modal_editor.rs"]
 mod modal_editor;
 #[path = "../examples/extensions/overlay_test.rs"]

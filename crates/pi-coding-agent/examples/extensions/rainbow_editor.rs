@@ -1,7 +1,5 @@
 //! Opt-in native port of `rainbow-editor.ts`.
-#[path = "editor_composition.rs"]
-mod editor_composition;
-use editor_composition::{ComposedEditor, EditorBehavior};
+use super::editor_composition::{ComposedEditor, EditorBehavior};
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::components::custom_editor::CustomEditor;
 use pi_tui::{Component, EditorComponent};
