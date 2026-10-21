@@ -477,6 +477,12 @@ fn can_return_immediately_after_spawning_the_restarted_child() {
     .expect("spawn");
     assert_eq!(exit_code, 0);
     assert!(started.elapsed() < Duration::from_millis(200));
+    assert!(!marker.exists());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !marker.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(fs::read_to_string(&marker).expect("restarted child marker"), "done");
 }
 
 #[test]
