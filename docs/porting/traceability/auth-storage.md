@@ -82,3 +82,7 @@ Focused tests: `tests/auth_storage.rs` (16 cases, ports of `test/auth-storage.te
 
 - Focused cases: 16.
 - Cross-implementation: 2 scenarios (byte parity + four read/write directions, both lock directions).
+
+## Public refresh continuation
+
+Restored `/tmp/pi-rust-repin-auth/blocked-public-refresh.patch`, SHA256 `787716f8000793de4adc221973300b99336f868c5a111dd7a963df655a6abb53`, original baseline `51f6e772`. Applicability checked against continuation master before restoring. Replaced its disabled branch with approved delta `0c9f0390`: failed reload cannot certify memory-only rotation. `auth_phase1_rotation::failed_rotation_persistence_and_reload_never_succeed_from_memory` reproduces all failures, both throw modes, disk A/memory B, exact recorded errors. Original RED: `/tmp/pi-rust-repin-auth-refresh/red-all-fail.log`. Lossless public boundary and delta differential proof continue separately.
