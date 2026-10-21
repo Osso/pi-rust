@@ -15,9 +15,12 @@
       "commit": "26c8050f5d9fa0caf995a6d47c145c0bfcd6e521",
       "checkout": "/home/osso/.worktrees/pi-delta-26c8050f",
       "modules": {
-        "packages/coding-agent/src/core/auth-storage.ts": "31c70ee1e649059680ccd05b13ed39a2cf3a51ed70378d4df6b147458d03a55c"
-      },
-      "authPersistenceCommit": "0c9f0390"
+        "packages/coding-agent/src/core/auth-storage.ts": "31c70ee1e649059680ccd05b13ed39a2cf3a51ed70378d4df6b147458d03a55c",
+        "packages/coding-agent/src/core/session-control-db.ts": "6ab1fe1c047df72d1c9d950f2fb578e47685714d0de447ba44c1a6d0669c3c3c",
+        "packages/ai/src/utils/validation.ts": "961fd6d1b4599f0b82135406bd0841fde0fe3f9d9617bb78dfabe43f28db9be1",
+        "packages/coding-agent/src/core/session-transcript.ts": "d555142b3d24cdc1e07aee8328b087694f1bf2653ba95e0d8c5e4f2f552aada8",
+        "packages/ai/src/image-models.ts": "054f0789c463132a0df6481088157777462335e6d048d5a87ad76cf2aff5f35a"
+      }
     }
   ]
 }

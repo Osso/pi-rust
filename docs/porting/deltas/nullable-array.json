@@ -1,0 +1,16 @@
+{
+  "delta": "6d2363e6afff709e485a8292e1e37fdd00aa6d34",
+  "case": "plain-union-types",
+  "frozen": {
+    "ok": false,
+    "message": "Cannot read properties of null (reading 'every')"
+  },
+  "approved": {
+    "ok": true,
+    "value": {
+      "a": "1",
+      "b": 1,
+      "c": null
+    }
+  }
+}

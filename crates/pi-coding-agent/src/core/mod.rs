@@ -52,6 +52,7 @@ pub mod retry_delay;
 pub mod rule_store;
 pub mod runtime_coordination_format;
 pub mod runtime_credentials;
+pub mod runtime_mailbox_acceptance;
 pub mod runtime_mailbox_transcript;
 pub mod runtime_process;
 pub mod sdk;

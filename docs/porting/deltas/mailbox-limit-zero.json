@@ -1,0 +1,6 @@
+{
+  "delta": "8fbfcef2e9b1257247d6fc307775d0cf116460d9",
+  "test": "approved_mailbox_deltas",
+  "frozen": {"delivered": 2, "statuses": ["claimed", "claimed"]},
+  "approved": {"delivered": 0, "statuses": ["pending", "pending"]}
+}

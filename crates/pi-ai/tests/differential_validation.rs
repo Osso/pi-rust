@@ -872,7 +872,15 @@ fn validation_matches_the_pinned_typescript_module() {
         let kind = case["kind"].as_str().expect("case kind");
         let schema = &expected["schemas"][0];
         let actual = rust_validate(&case["arguments"], schema, kind);
-        if actual != normalized_expected(expected) {
+        if name == "plain-union-types" {
+            // Exact approved discrepancy: 6d2363e6 fixes the frozen null-array throw.
+            assert_eq!(expected["error"]["name"], "TypeError");
+            assert_eq!(
+                normalized_expected(expected),
+                json!({"ok":false,"message":"Cannot read properties of null (reading 'every')"})
+            );
+            assert_eq!(actual, json!({"ok":true,"value":{"a":"1","b":1,"c":null}}));
+        } else if actual != normalized_expected(expected) {
             mismatches.push(format!("{name}: Rust {actual}; TS {}", normalized_expected(expected)));
         }
     }
@@ -1082,4 +1090,35 @@ fn optional_nulls_and_union_order_match_the_frozen_source() {
         }
     }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+}
+
+#[test]
+fn nullable_array_matches_approved_delta_6d2363e6() {
+    let original = cases()
+        .into_iter()
+        .find(|case| case["name"] == "plain-union-types")
+        .unwrap();
+    let mut cases = vec![original.clone()];
+    for value in [json!([]), json!(["valid"]), json!([{}])] {
+        let mut case = original.clone();
+        case["arguments"]["c"] = value;
+        cases.push(case);
+    }
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
+        "validation-oracle.ts",
+        "packages/ai/src/utils/validation.ts",
+        &[("PI_APPROVED_DELTA", "1".into())],
+    );
+    let response = oracle.request(&json!({"id":1,"operation":"validate_tool_arguments","cases":cases}));
+    assert_eq!(response["ok"], true, "{response}");
+    let results = response["output"]["results"].as_array().unwrap();
+    assert_eq!(results.len(), cases.len());
+    assert_eq!(
+        normalized_expected(&results[0]),
+        json!({"ok":true,"value":{"a":"1","b":1,"c":null}})
+    );
+    for (case, expected) in cases.iter().zip(results) {
+        let actual = rust_validate(&case["arguments"], &expected["schemas"][0], "plain");
+        assert_eq!(actual, normalized_expected(expected), "{case}");
+    }
 }

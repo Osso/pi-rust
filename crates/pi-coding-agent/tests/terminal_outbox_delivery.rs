@@ -115,7 +115,8 @@ fn terminal_job(fixture: &Fixture, job_id: &str) {
             exit_code: Some(0),
             summary: Some("done".to_owned()),
         },
-        NOW,
+        // Frozen mailbox retention rejects historical terminal births.
+        &pi_coding_agent::utils::iso_time::now_iso_string(),
         None,
         None,
     )

@@ -82,6 +82,10 @@ Rust: `crates/pi-coding-agent/src/core/session_control_db/` (`mod.rs`, `schema.r
 
 The shared `control.sqlite` is opened by TypeScript and Rust processes at the same time. The historical inventory below maps intended contracts and earlier tests; it does not establish frozen-pin equivalence of every SQL statement, migration or transaction boundary.
 
+## Frozen persisted DDL refresh (2026-10-21)
+
+`cross_implementation_control_db::schema_text_and_pragmas_match_the_typescript_module` reproduced eight persisted `sqlite_master.sql` differences (50 objects on both sides): creation-age index, parent/empty-session indexes, channel creation/origin indexes, restriction-claim table, terminal-outbox table comment and default-birth trigger. Rust DDL strings now copy frozen bytes, including whitespace/comments (`session-control-db.ts` initialization and `MAILBOX_CREATED_AT_MS_SQL`). Fresh-schema cross-implementation tests pass all four cases, including byte-identical schema/PRAGMAs. A comment-only DDL mutant fails the exact schema assertion; restored. Existing DB definitions are not rewritten, matching source IF NOT EXISTS behavior. This is bounded persisted schema parity, not new SQL behavior or whole-module acceptance. Fresh fixture clocks and deleted-row/outbox assertions in `session_control_db` and `terminal_outbox_delivery` follow frozen creation-age expiry and canonical deletion.
+
 ## Schema and connection
 
 | Contract | Rust | Proof |
@@ -186,3 +190,13 @@ The writer-lock migration-state race remains enforced in code; no deterministic 
 Quiescence errors preserve TS Set encounter order (runtime PIDs, then owner identities), not numeric sorting; `name_migration_errors_preserve_owner_pid_encounter_order` reproduces the prior Rust ordering failure with live parent/current process identities.
 
 Existing v15 databases with live lifecycle owners accept name updates without rerunning lifecycle migration or mutating running-agent payloads: `existing_v15_names_update_without_reentering_lifecycle_migrations`. Schema comparison initializes separate TS/Rust databases and compares every schema/PRAGMA field.
+
+## Approved delivery delta 8fbfcef2 (2026-10-21)
+
+`approved_mailbox_deltas` compares the guarded, hash-locked delta against native temporary databases: limit zero leaves two rows pending; limit one claims exactly one. Frozen limit zero is asserted exactly as two claimed deliveries, an approved discrepancy, not parity. RED: native delivered 2 instead of 0 (`/tmp/pi-rust-repin-delta-proofs/limit-red.log`). GREEN/mutant results recorded in the lane report. OAuth excluded.
+
+## Approved empty-host delta 93b7d9af
+
+`approved_mailbox_deltas` proves source-first empty-host enqueue then native retry, native-first same-ID/no-extra-row retry, and genuine other-host conflict. Frozen retry asserts the exact canonical-routing Error. Native self-retry initially passed for the wrong reason (stored empty host); source-first RED exposed the routing mismatch. Match TS falsy omission on write and falsy-to-local comparison on retry.
+
+Bounded mutation proof: restoring the post-delivery limit check, removing empty-host comparison normalization, or persisting empty recipientHost each independently fails the focused approved-delta behavior test (3 killed mutants; exact diffs/logs `/tmp/pi-rust-repin-delta-proofs/mutants.json`). Existing `repin_control_mailbox` frozen discrepancy fixtures now assert exact claims/error and successful native counterparts. No whole-control acceptance claim.

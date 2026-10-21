@@ -1,5 +1,6 @@
 // Differential/cross-implementation oracle for the shared control database.
 // argv[2] is the pinned `packages/coding-agent/src` directory.
+import { selectApprovedModule } from "./approved-delta.mjs";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
@@ -26,7 +27,8 @@ function normalize(value: unknown): unknown {
 async function main(): Promise<void> {
 	const sourceRoot = process.argv[2];
 	if (!sourceRoot) throw new Error("control-db oracle requires the coding-agent src directory");
-	const api = (await import(pathToFileURL(`${sourceRoot}/core/session-control-db.ts`).href)) as Api;
+	const module = selectApprovedModule(`${sourceRoot}/core/session-control-db.ts`, "packages/coding-agent/src/core/session-control-db.ts");
+	const api = (await import(pathToFileURL(module).href)) as Api;
 	const sqlite = (await import(pathToFileURL(`${sourceRoot}/core/sqlite.ts`).href)) as Api;
 	const transcript = (await import(pathToFileURL(`${sourceRoot}/core/runtime-mailbox-transcript.ts`).href)) as Api;
 	const { SessionManager } = (await import(pathToFileURL(`${sourceRoot}/core/session-manager.ts`).href)) as {

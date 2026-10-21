@@ -1,7 +1,8 @@
 //! Tool capability name lists (`core/tool-capabilities.ts`).
 
-pub const CHILD_DISABLED_AGENT_TOOL_NAMES: [&str; 8] = [
+pub const CHILD_DISABLED_AGENT_TOOL_NAMES: [&str; 9] = [
     "agent_viewer",
+    "answer_question",
     "attach_session_agent",
     "close_agent",
     "list_agents",

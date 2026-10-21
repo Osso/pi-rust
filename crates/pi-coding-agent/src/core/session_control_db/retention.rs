@@ -4,9 +4,9 @@ use rusqlite::{Connection, params};
 use serde_json::{Map, Value};
 pub const MAILBOX_MESSAGE_RETENTION_MS: i64 = 86_400_000;
 pub(crate) const MAILBOX_CREATED_AT_MS_SQL: &str = "COALESCE(CASE WHEN json_valid(data) THEN
- CASE WHEN json_type(data, '$.createdAt') = 'text' THEN
- CAST(ROUND((julianday(json_extract(data, '$.createdAt')) - 2440587.5) * 86400000) AS INTEGER)
- END END, -8640000000000000)";
+	CASE WHEN json_type(data, '$.createdAt') = 'text' THEN
+	CAST(ROUND((julianday(json_extract(data, '$.createdAt')) - 2440587.5) * 86400000) AS INTEGER)
+	END END, -8640000000000000)";
 pub(crate) fn mailbox_cutoff_ms() -> i64 {
     pi_js_compat::date::js_now_millis() as i64 - MAILBOX_MESSAGE_RETENTION_MS
 }

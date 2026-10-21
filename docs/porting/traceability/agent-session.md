@@ -81,6 +81,15 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
   summarization paths with `session_before_tree`/`session_tree` and branch-summary
   attachment), fork selector, stats, context usage, `exportToJsonl`, `exportToHtml`,
   `getLastAssistantText`, `createReplacedSessionContext`.
+- Frozen `agent-session.ts:3598-3605` releases the mailbox drain immediately
+  before `_promptTurn`. Native passes ownership of the drain guard through
+  claimed delivery and drops it in `prompt_mailbox_messages` before `prompt_turn`.
+  Acceptance remains in prompt preparation; receipt persistence, canonical-row
+  deletion, and finally-style unaccepted-claim release are unchanged. Proof:
+  `agent_session_runtime_mailbox::idle_mailbox_prompt_completes_tool_result_and_next_assistant_turn`
+  runs idle delivery -> faux read call -> successful tool result -> next assistant,
+  with inbound coordination enabled and a five-second Tokio timeout. Retaining
+  the guard times out after the successful read result (RED and explicit mutant).
 - Runtime coordination: `drainRuntimeCoordination`, mailbox delivery at prompt /
   post-agent-run / after-tool-result checkpoints (steer vs prompt), extension
   `runtime_mailbox` interception, detached tool-call completion entries, shared-channel

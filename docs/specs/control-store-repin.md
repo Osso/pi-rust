@@ -1,6 +1,6 @@
 # Frozen shared control DB and store
 
-Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the common frozen pin](../porting/source-lock.json). Proof mapping: [control DB traceability](../porting/traceability/session-control-db.md).
+Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the common frozen pin](../porting/source-lock.json), except the approved zero-delivery-limit and empty-host-retry [deltas](../porting/delta-lock.json). Proof mapping: [control DB traceability](../porting/traceability/session-control-db.md).
 
 ## Integration status — 2026-10-21
 
@@ -11,7 +11,7 @@ Canonical checkpoint merge `35d6429097833d094ca448068dae07ce30c482af` integrates
 | Control/store follow-ups | This integration combines control checkpoint `2284dc6d` and newer bounded branch proofs through `056d2861` with canonical `2f620213`; earlier integration used canonical `4cb53c3143c0da5850242aa47629a001cfe69737`. Follow-up integration is not whole-module acceptance. Bounded proof: `/tmp/pi-rust-repin-control-store/{REPORT.md,ledger.md}` and linked traceability. |
 | Canonical raw JSON | Source→public regression `489d4381` remains OPEN: source-created escaped U+D800 projects as U+FFFD because public body remains `String`. Status claim/release/fail `eef3707b` and recovery `429d6033` preserve original raw JSON with bounded source-peer proof; source SQLite keys and receipt identities remain distinct. Newer branch proofs through `056d2861` cover routing/steering persistence, enqueue/routing identity, and mailbox artifact/routing migration writers. Public projection, raw enqueue inputs, store restore/serialization and scalar widening remain pending; no whole lossless-authority claim or waiver. |
 | Receipt scanner/equality | Lossless receipt scanning and raw JS equality `06620ae7` are included in integrated control checkpoint `2284dc6d`. Scanner proof does not resolve public payload egress or all canonical writers. |
-| Runtime delivery | Acceptance is currently eager, before durable fsync. Claim → receipt append → persist/fsync → fenced delete integration remains pending in the delivery lane. SQLite fixtures do not prove this boundary. |
+| Runtime delivery | Prompt/steer delivery now persists recipient receipts and fsyncs before snapshot-fenced deletion; cloned-message tracking prevents duplicate MessageEnd append. Bounded runtime proof: [acceptance trace](../porting/traceability/runtime-mailbox-acceptance.md). Tool-result delivery integration and injected crash/fsync/peer-CAS boundary proof remain pending; no whole-delivery acceptance. |
 | Model publication | Bounded model-tool work through `58301d0a` is integrated by `128df8af`; [bounded model-tool proof](../porting/traceability/agent-model-tool.md) remain distinct from control/store acceptance. Shared-validator repairs through `f86144ba` are integrated by `8d9bb557`. Independent verifier41 (`/tmp/pi-rust-repin-validation-model-verify`) reports model9/9, viewed5/5, validation26 and50-case PASS; historical admission RED is not current. Six library lint diagnostics were fixed at `2284dc6d`; the remaining model-fixture borrow was fixed by `b458d13f`, where the exact model/viewed-target clippy command passed. [Bounded proof](/tmp/pi-rust-repin-control-checkpoint-verify/REPORT.md) excludes later session integration; no whole-control gate is implied. Owned DB model/activity fixtures do not establish whole agent-session or end-to-end model parity. |
 
 ## What it must do
@@ -43,7 +43,8 @@ Canonical checkpoint merge `35d6429097833d094ca448068dae07ce30c482af` integrates
 - [x] Exercise fresh Rust→TS initialization→Rust mutation→same TS reads across mailbox, agent/outbox, channel, supervisor and base control state.
 - [x] Fence delivery against a real peer payload update; abort on malformed later complete receipts before deleting, and honor raw ref short-circuit errors.
 - [x] Prove expected-payload CAS with an explicit guard-disabled negative control and byte-identical restoration.
-- [ ] Classify source limit0 and empty-host retry branches; resolve canonical lossless JSON and run independent group acceptance.
+- [x] Honor limit zero without claims/deliveries; retry empty recipientHost with the same enqueue ID and no extra rows. Assert exact approved frozen discrepancies and match the locked delta; retain different-host rejection.
+- [ ] Resolve canonical lossless JSON and run independent group acceptance.
 - [ ] Complete group-wide schema migration/reverse-init, export and whole-store acceptance; bounded migration, reciprocal and reset/error proofs do not establish whole-module parity.
 
 ## How it works
@@ -60,7 +61,7 @@ Canonical checkpoint merge `35d6429097833d094ca448068dae07ce30c482af` integrates
 
 ## Tests asserting this spec
 
-`crates/pi-coding-agent/tests/repin_control_{schema,sessions,channel,requests,mailbox}.rs`, `repin_runtime_mailbox_transcript.rs`.
+`crates/pi-coding-agent/tests/repin_control_{schema,sessions,channel,requests,mailbox}.rs`, `repin_runtime_mailbox_transcript.rs`, `approved_mailbox_deltas.rs`.
 
 ## Known gaps (current cycle)
 
@@ -71,4 +72,4 @@ Canonical checkpoint merge `35d6429097833d094ca448068dae07ce30c482af` integrates
 
 ## Out of scope
 
-Runtime message append/fsync acceptance belongs to later delivery integration and remains a completion blocker, not an approved gap. Older runtime mark/consume callers still require durable acceptance before source-style deletion. Relay storage/transport belongs to a separate group. SQLite fixtures do not prove crash-safe recipient acceptance. Historical waivers remain pending user revalidation.
+Prompt/steer append/fsync acceptance has bounded runtime integration proof, not whole-group acceptance. Tool-result producers/persistence and injected crash/fsync/peer-CAS proofs remain completion blockers, not approved gaps. Relay storage/transport belongs to a separate group. Historical waivers remain pending user revalidation.
