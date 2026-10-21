@@ -9,7 +9,10 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 - [x] Select archive candidates without archiving; expose atomic relocation plus archive/unarchive operations.
 - [x] Resolve direct/transitive subagent paths through plain and `.zst` aliases; remove metadata in bulk.
 - [x] Assign missing mailbox birth on INSERT; enforce unique imported channel origins and restriction request IDs.
-- [ ] Match retention, canonical mailbox CAS/recovery, channel projection/cursors, supervisor cancellation, agent terminal replay/suppression/model updates and whole in-memory store contracts.
+- [x] Preserve channel origins, count origin-tagged same-session messages as pending, and advance cursors monotonically across peers.
+- [x] Expire old channel messages during DB initialization.
+- [x] Preserve cancelled supervisor status; cancel only matching sender's pending/claimed requests, clear claim token and reject late completion.
+- [ ] Match mailbox retention/CAS/recovery, retained-connection cleanup, agent terminal replay/suppression/model updates and whole in-memory store contracts.
 
 ## How it works
 
@@ -25,7 +28,7 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 
 ## Tests asserting this spec
 
-`crates/pi-coding-agent/tests/repin_control_{schema,sessions}.rs`.
+`crates/pi-coding-agent/tests/repin_control_{schema,sessions,channel,requests}.rs`.
 
 ## Known gaps (current cycle)
 

@@ -257,6 +257,11 @@ pub fn initialize_schema(db: &Connection, self_restart_process_id: Option<u32>) 
             SET data = json_set(NEW.data, '$.createdAt', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             WHERE rowid = NEW.rowid;
         END;")?;
+    let cutoff = crate::utils::iso_time::format_iso_millis(pi_js_compat::date::js_now_millis() as i64 - 86_400_000);
+    db.execute(
+        "DELETE FROM shared_channel_messages WHERE created_at <= ?",
+        params![cutoff],
+    )?;
     Ok(())
 }
 

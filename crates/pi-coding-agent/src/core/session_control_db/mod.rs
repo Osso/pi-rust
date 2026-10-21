@@ -85,11 +85,11 @@ pub use mailbox::{
 };
 pub use requests::{
     ArchitectRequest, ArchitectRequestStatus, PostArchitectRequestInput, PostSupervisorRequestInput, SupervisorRequest,
-    SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse, claim_next_supervisor_request,
-    claim_pending_architect_requests, complete_architect_request, complete_supervisor_request,
-    has_pending_supervisor_approval_request, list_pending_architect_requests, post_architect_request,
-    post_supervisor_request, read_supervisor_request, recover_supervisor_requests, renew_architect_request_claims,
-    requeue_supervisor_request,
+    SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse, cancel_supervisor_request,
+    claim_next_supervisor_request, claim_pending_architect_requests, complete_architect_request,
+    complete_supervisor_request, has_pending_supervisor_approval_request, list_pending_architect_requests,
+    post_architect_request, post_supervisor_request, read_supervisor_request, recover_supervisor_requests,
+    renew_architect_request_claims, requeue_supervisor_request,
 };
 pub use sessions::{
     LastControlMessage, SessionMetadata, SessionNameState, WritableSessionMetadata, archive_session,
@@ -179,6 +179,10 @@ pub struct RuntimeMailboxStoreRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharedChannelMessage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_id: Option<i64>,
     pub body: String,
     pub created_at: String,
     pub id: i64,
