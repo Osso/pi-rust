@@ -52,7 +52,8 @@ Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the 
 ## Known gaps (current cycle)
 
 - [ ] Finish group-wide source exports/branches and bidirectional cross-state proof. Current foundation proof is not whole-module acceptance.
-- [ ] Add failure-injected atomic relocation proof and migration fixtures.
+- [x] Add failure-injected atomic relocation proof and TS-primary migration fixtures.
+- [x] Reject nested legacy artifact insert/update in both initializers without changing the original row.
 
 ## Out of scope
 

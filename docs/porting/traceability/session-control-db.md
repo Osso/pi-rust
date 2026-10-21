@@ -8,6 +8,8 @@ Root: canonical `parse_stored_json_object` / `parse_json_object` still use legac
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
+`repin_control_schema_constraints` adds behavior-only shared-schema proof with both primary initialization orders. Native and real frozen source schemas reject nested `artifactIds`/`artifactRefs` on insert and update in both agent/mailbox tables; failed writes leave original payload/timestamp/row count unchanged, and the other initializer preserves those rows. `schema-constraints-proof.log` GREEN1; no SQL-text/trigger-name assertion or whole-schema parity inference.
+
 Whitespace pattern follow-up RED4→GREEN4 covers architect bodies, adjacent prompt-history dedup, legacy migration's original return versus trimmed stored rows, and terminal summary/error text. All native Rust trim sites in this module group now use the shared JS trim helper. Architect token renewal/completion, last-message roundtrip, sandbox identity/relocation/delete and unchanged base control rows have current bounded source-peer evidence (`whitespace-pattern-green.log`, `reciprocal-base-proof.log` GREEN8). These do not resolve the canonical JSON blocker above.
 
 Channel trim RED→GREEN: actual source public posts distinguish JS U+FEFF/NBSP whitespace from U+0085 NEL. Native post now uses the shared JS trim helper; empty U+FEFF rejects before DB mutation. `channel-trim-green.log` focused1 pass over all three cases.
