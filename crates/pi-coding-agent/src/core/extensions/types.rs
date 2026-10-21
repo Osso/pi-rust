@@ -1835,6 +1835,12 @@ pub struct BeforeAgentStartEvent {
 pub struct AgentStartEvent {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelRequestStartEvent {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelRequestEndEvent {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentEndSessionContinuation {
     CwdRelocation,
@@ -2187,6 +2193,8 @@ pub enum ExtensionEvent {
     AfterProviderResponse(AfterProviderResponseEvent),
     BeforeAgentStart(BeforeAgentStartEvent),
     AgentStart(AgentStartEvent),
+    ModelRequestStart(ModelRequestStartEvent),
+    ModelRequestEnd(ModelRequestEndEvent),
     AgentEnd(AgentEndEvent),
     AgentSettled(AgentSettledEvent),
     TurnStart(TurnStartEvent),
@@ -2229,6 +2237,8 @@ impl ExtensionEvent {
             Self::AfterProviderResponse(_) => "after_provider_response",
             Self::BeforeAgentStart(_) => "before_agent_start",
             Self::AgentStart(_) => "agent_start",
+            Self::ModelRequestStart(_) => "model_request_start",
+            Self::ModelRequestEnd(_) => "model_request_end",
             Self::AgentEnd(_) => "agent_end",
             Self::AgentSettled(_) => "agent_settled",
             Self::TurnStart(_) => "turn_start",
@@ -2642,6 +2652,8 @@ pub struct ExtensionHandlers {
     pub after_provider_response: Vec<HandlerHandle<AfterProviderResponseEvent, ()>>,
     pub before_agent_start: Vec<HandlerHandle<BeforeAgentStartEvent, BeforeAgentStartEventResult>>,
     pub agent_start: Vec<HandlerHandle<AgentStartEvent, ()>>,
+    pub model_request_start: Vec<HandlerHandle<ModelRequestStartEvent, ()>>,
+    pub model_request_end: Vec<HandlerHandle<ModelRequestEndEvent, ()>>,
     pub agent_end: Vec<HandlerHandle<AgentEndEvent, ()>>,
     pub agent_settled: Vec<HandlerHandle<AgentSettledEvent, ()>>,
     pub turn_start: Vec<HandlerHandle<TurnStartEvent, ()>>,
@@ -3084,6 +3096,19 @@ impl ExtensionApi {
 
     pub fn on_agent_start(&self, handler: impl Handler<AgentStartEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.agent_start, handler)
+    }
+
+    pub fn on_model_request_start(
+        &self,
+        handler: impl Handler<ModelRequestStartEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.model_request_start, handler)
+    }
+    pub fn on_model_request_end(
+        &self,
+        handler: impl Handler<ModelRequestEndEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.model_request_end, handler)
     }
 
     pub fn on_agent_end(&self, handler: impl Handler<AgentEndEvent, ()> + 'static) -> Result<(), String> {

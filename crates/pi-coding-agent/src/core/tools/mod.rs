@@ -1,5 +1,6 @@
 pub mod ask_architect;
 pub mod ask_questions;
+pub mod ask_questions_panel;
 pub mod ask_supervisor;
 pub mod bash;
 pub mod broadcast;

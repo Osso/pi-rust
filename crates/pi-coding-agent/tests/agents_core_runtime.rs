@@ -671,6 +671,7 @@ async fn mailbox_delivers_to_child_session_and_records_outbound_message() {
     let store = store_with_persistence(&test);
     seed_child(&store, &test, "child", "child-session");
 
+    pi_coding_agent::core::session_control_db::write_session_metadata(&test.control_db_path, &serde_json::from_value(json!({"sessionPath":format!("{}/child.jsonl",test.cwd),"id":"child-session","cwd":test.cwd,"createdAt":pi_coding_agent::utils::iso_time::now_iso_string(),"modifiedAt":pi_coding_agent::utils::iso_time::now_iso_string(),"messageCount":0,"firstMessage":""})).unwrap()).unwrap();
     let (_runner, ctx) = test_context(&test, None, None, false).await;
     let result = send_agent_message(
         &store,
@@ -680,6 +681,7 @@ async fn mailbox_delivers_to_child_session_and_records_outbound_message() {
             thread_id: None,
             to_agent_id: "child".to_owned(),
             to_session_id: Some("child-session".to_owned()),
+            to_host: None,
         },
         Some(&ctx),
         None,
@@ -813,6 +815,35 @@ async fn request_handler_returns_last_session_message_summary() {
 }
 
 #[tokio::test]
+async fn mailbox_registration_includes_question_relay_tools() {
+    let extension = load_extension_from_factory(
+        Arc::new(move |pi| {
+            let result = pi_coding_agent::bundled_extensions::agents_core::runtime::register_agents_mailbox_tools(
+                pi,
+                &MultiAgentExtensionOptions::default(),
+            );
+            Box::pin(async move { result })
+        }),
+        "/repo",
+        Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
+        create_extension_runtime(),
+        "<mailbox-registration>",
+    )
+    .await
+    .unwrap();
+    let names = extension.read().tools.keys().cloned().collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "send_agent_message",
+            "contact_parent",
+            "ask_questions",
+            "answer_question"
+        ]
+    );
+}
+
+#[tokio::test]
 async fn registration_exposes_the_source_tools_and_commands() {
     let test = test_dir();
     let store = store_with_persistence(&test);
@@ -841,6 +872,8 @@ async fn registration_exposes_the_source_tools_and_commands() {
         tool_names,
         [
             "agent_viewer",
+            "answer_question",
+            "ask_questions",
             "attach_session_agent",
             "close_agent",
             "contact_parent",
@@ -877,7 +910,7 @@ async fn registration_exposes_the_source_tools_and_commands() {
                         {"type": "string", "const": "inherit"}
                     ]
                 },
-                "displayName": {"type": "string"},
+                "displayName": {"type": "string", "description": "Short task slug shown in the agent status list, e.g. fix-footer-count (max ~24 chars)."},
                 "parentId": {"type": "string"},
                 "prompt": {"type": "string"}
             }
@@ -1133,4 +1166,74 @@ fn text(result: &AgentToolResult) -> String {
         pi_ai::types::TextOrImageContent::Text(text) => text.text.clone(),
         pi_ai::types::TextOrImageContent::Image(_) => panic!("expected text content"),
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn wait_slice_uses_latest_model_request_and_does_not_cancel_active_agents() {
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    seed_child(&store, &test, "child", "child-session");
+    let handles = create_multi_agent_runtime_handles();
+    let options = MultiAgentExtensionOptions {
+        store: Some(store.clone()),
+        runtime_handles: Some(handles.clone()),
+        ..Default::default()
+    };
+    let extension = load_extension_from_factory(
+        Arc::new(move |pi| {
+            let result = multi_agent_extension(pi, &options);
+            Box::pin(async move { result })
+        }),
+        &test.cwd,
+        Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
+        create_extension_runtime(),
+        "<wait-slice>",
+    )
+    .await
+    .unwrap();
+    let session = Arc::new(Mutex::new(
+        SessionManager::open(&test.session_path, None, None).unwrap(),
+    ));
+    let (runner, ctx) = test_context_with_extensions(&test, session, None, None, false, vec![extension]).await;
+    let mut event: pi_coding_agent::core::extensions::types::ExtensionEvent =
+        serde_json::from_value(json!({"type":"model_request_start"})).expect("model_request_start extension event");
+    runner.emit(&mut event).await;
+    *handles
+        .latest_model_request_started_at
+        .lock()
+        .unwrap()
+        .as_mut()
+        .unwrap() -= 24 * 60_000;
+    let waiting = tokio::spawn({
+        let store = store.clone();
+        let handles = handles.clone();
+        let ctx = ctx.clone();
+        async move { wait_agents(&store, &handles, None, Some(&ctx)).await.unwrap() }
+    });
+    tokio::task::yield_now().await;
+    tokio::time::advance(std::time::Duration::from_millis(60_000 + 1)).await;
+    tokio::task::yield_now().await;
+    assert!(
+        waiting.is_finished(),
+        "deadline is measured from latest model request, not from wait start"
+    );
+    let result = waiting.await.unwrap();
+    assert_eq!(result.details.unwrap(), json!({"timedOut":true}));
+    assert_eq!(store.get_agent("child").unwrap().lifecycle, AgentLifecycle::Running);
+    let mut end: pi_coding_agent::core::extensions::types::ExtensionEvent =
+        serde_json::from_value(json!({"type":"agent_end","messages":[]})).unwrap();
+    runner.emit(&mut end).await;
+    let signal = tokio_util::sync::CancellationToken::new();
+    let waiting = tokio::spawn({
+        let store = store.clone();
+        let handles = handles.clone();
+        let ctx = ctx.clone();
+        let signal = signal.clone();
+        async move { wait_agents(&store, &handles, Some(signal), Some(&ctx)).await.unwrap() }
+    });
+    tokio::task::yield_now().await;
+    tokio::time::advance(std::time::Duration::from_secs(30 * 60)).await;
+    assert!(!waiting.is_finished(), "idle wait has no foreground slice deadline");
+    signal.cancel();
+    waiting.await.unwrap();
 }

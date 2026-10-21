@@ -703,6 +703,8 @@ impl ExtensionRunner {
                 "after_provider_response" => !handlers.after_provider_response.is_empty(),
                 "before_agent_start" => !handlers.before_agent_start.is_empty(),
                 "agent_start" => !handlers.agent_start.is_empty(),
+                "model_request_start" => !handlers.model_request_start.is_empty(),
+                "model_request_end" => !handlers.model_request_end.is_empty(),
                 "agent_end" => !handlers.agent_end.is_empty(),
                 "agent_settled" => !handlers.agent_settled.is_empty(),
                 "turn_start" => !handlers.turn_start.is_empty(),
@@ -1140,6 +1142,8 @@ impl ExtensionRunner {
                 dispatch!(event, after_provider_response, "after_provider_response")
             }
             ExtensionEvent::AgentStart(event) => dispatch!(event, agent_start, "agent_start"),
+            ExtensionEvent::ModelRequestStart(event) => dispatch!(event, model_request_start, "model_request_start"),
+            ExtensionEvent::ModelRequestEnd(event) => dispatch!(event, model_request_end, "model_request_end"),
             ExtensionEvent::AgentEnd(event) => dispatch!(event, agent_end, "agent_end"),
             ExtensionEvent::AgentSettled(event) => dispatch!(event, agent_settled, "agent_settled"),
             ExtensionEvent::TurnStart(event) => dispatch!(event, turn_start, "turn_start"),

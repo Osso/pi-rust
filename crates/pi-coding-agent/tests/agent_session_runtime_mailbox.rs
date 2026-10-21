@@ -92,6 +92,13 @@ async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
 }
 
 async fn test_env(with_store: bool) -> TestEnv {
+    test_env_with_tools(with_store, Vec::new()).await
+}
+
+async fn test_env_with_tools(
+    with_store: bool,
+    custom_tool_definitions: Vec<pi_coding_agent::core::extensions::types::ToolDefinition>,
+) -> TestEnv {
     let dir = tempfile::tempdir().expect("temp dir");
     let cwd = dir.path().join("repo").display().to_string();
     std::fs::create_dir_all(&cwd).expect("cwd");
@@ -118,6 +125,7 @@ async fn test_env(with_store: bool) -> TestEnv {
         session_manager: Some(manager),
         control_db_path: Some(initial_control_db.clone()),
         multi_agent_store: store.clone(),
+        custom_tool_definitions,
         multi_agent_agent_id: with_store.then(|| "agent_1".to_owned()),
         multi_agent_parent_session_id: with_store.then_some(session_id),
         ..Default::default()
@@ -428,6 +436,86 @@ async fn rejected_unpersisted_acceptance_keeps_claim_until_finally_release() {
             .expect("retry remains")
             .status,
         RuntimeMailboxMessageStatus::Pending
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn question_tool_result_persists_receipt_before_consuming_answer() {
+    let route = Arc::new(std::sync::Mutex::new((String::new(), String::new())));
+    let target = route.clone();
+    let mut tool = pi_coding_agent::core::tools::ask_questions::create_ask_questions_tool_definition();
+    tool.name = "receive_answer".into();
+    tool.parameters = json!({"type":"object","properties":{}});
+    tool.execute = Arc::new(move |_, _, _, _, _| {
+        let (db, session) = target.lock().unwrap().clone();
+        Box::pin(async move {
+            let claims = pi_coding_agent::core::session_control_db::take_runtime_mailbox_messages_for_delivery(
+                &db,
+                &RuntimeMailboxAddress {
+                    session_id: session,
+                    agent_id: None,
+                },
+                |_| true,
+                1,
+            )
+            .unwrap();
+            assert_eq!(claims.len(), 1);
+            Ok(pi_agent_core::AgentToolResult {
+                content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+                    "Parent answered questions: A",
+                ))],
+                details: Some(
+                    json!({"runtimeMailboxDelivery":{"controlDbPath":db,"messages":[{"id":claims[0].id,"storeRef":claims[0].store_ref}]}}),
+                ),
+                usage: None,
+                added_tool_names: None,
+                is_error: None,
+                terminate: None,
+            })
+        })
+    });
+    let env = test_env_with_tools(false, vec![tool]).await;
+    *route.lock().unwrap() = (env.control_db.clone(), session_id(&env));
+    pi_coding_agent::core::session_control_db::register_runtime_mailbox_listener(
+        &env.control_db,
+        &RuntimeMailboxAddress {
+            session_id: session_id(&env),
+            agent_id: None,
+        },
+        std::process::id(),
+        Some(&session_path(&env)),
+        Default::default(),
+    )
+    .unwrap();
+    let id = enqueue_stored_message(&env, "answer", "ask_questions:child:call", None);
+    env.session.set_active_tools_by_name(&["receive_answer".into()]);
+    env.faux.set_responses(vec![
+        faux_assistant_message(
+            vec![pi_ai::providers::faux::faux_tool_call(
+                "receive_answer",
+                Default::default(),
+                Some("call".into()),
+            )],
+            Default::default(),
+        )
+        .into(),
+        faux_assistant_message("done", Default::default()).into(),
+    ]);
+    env.session.prompt("ask", PromptOptions::default()).await.unwrap();
+    let receipts = pi_coding_agent::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs(Some(
+        &session_path(&env),
+    ))
+    .unwrap();
+    assert_eq!(receipts.len(), 1, "tool result must carry durable answer receipt");
+    assert!(read_runtime_mailbox_message(&env.control_db, id).unwrap().is_none());
+    let records = std::fs::read_to_string(session_path(&env)).unwrap();
+    assert_eq!(
+        records
+            .lines()
+            .filter(|line| line.contains("\"role\":\"toolResult\""))
+            .count(),
+        1,
+        "tool result persisted once"
     );
 }
 

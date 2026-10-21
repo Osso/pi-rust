@@ -47,6 +47,7 @@ pub type SharedDispatch = Shared<BoxFuture<'static, Result<AgentSnapshot, String
 
 #[derive(Clone, Default)]
 pub struct MultiAgentRuntimeHandles {
+    pub latest_model_request_started_at: Arc<Mutex<Option<i64>>>,
     pub dispatches: Arc<Mutex<HashMap<String, SharedDispatch>>>,
     pub ownerships: Arc<Mutex<HashMap<String, Arc<OwnedAgentRuntime>>>>,
     pub sessions: Arc<Mutex<HashMap<String, Arc<dyn ChildAgentSession>>>>,
@@ -192,9 +193,7 @@ pub async fn wait_agents(
     signal: Option<CancellationToken>,
     ctx: Option<&ExtensionContext>,
 ) -> Result<AgentToolResult, HandlerError> {
-    let wake =
-        super::wait_runtime::wait_notifications_runtime(store, &runtime_handles.wait_wake_listeners, signal, ctx)
-            .await?;
+    let wake = super::wait_runtime::wait_notifications_runtime(store, runtime_handles, signal, ctx).await?;
     super::wait_runtime::consume_notifications_runtime(store, &wake, ctx, &format_agent_status)
 }
 
@@ -204,7 +203,7 @@ pub async fn wait_notifications(
     signal: Option<CancellationToken>,
     ctx: Option<&ExtensionContext>,
 ) -> Result<super::wait_runtime::WaitNotificationsWake, HandlerError> {
-    super::wait_runtime::wait_notifications_runtime(store, &runtime_handles.wait_wake_listeners, signal, ctx).await
+    super::wait_runtime::wait_notifications_runtime(store, runtime_handles, signal, ctx).await
 }
 
 pub fn consume_notifications(
@@ -623,7 +622,7 @@ pub fn register_agent_viewer_tools(
     pi.register_tool(ToolDefinition {
         name: "agent_viewer".to_owned(),
         label: "Agent Viewer".to_owned(),
-        description: "Inspect one agent by ID, with status, transcript, child IDs, and command descriptors.".to_owned(),
+        description: "Inspect one agent by ID, with status, transcript, child IDs, command descriptors, and optional historical lifecycle and descendant trace.".to_owned(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: Some(false),
@@ -655,7 +654,8 @@ fn agent_viewer_schema() -> Value {
         "properties": {
             "agentId": {"type": "string"},
             "sessionId": {"type": "string"},
-            "storeSessionId": {"type": "string"}
+            "storeSessionId": {"type": "string"},
+            "trace": {"type": "boolean"}
         }
     })
 }
@@ -665,8 +665,9 @@ pub fn register_agents_mailbox_tools(
     options: &MultiAgentExtensionOptions,
 ) -> Result<(), HandlerError> {
     let store = resolve_multi_agent_store(options);
-    super::mailbox_runtime::register_mailbox_tools(pi, store, options.on_session_message_sent.clone())
-        .map_err(HandlerError::new)
+    super::mailbox_runtime::register_mailbox_tools(pi, store.clone(), options.on_session_message_sent.clone())
+        .map_err(HandlerError::new)?;
+    super::question_relay_tools::register_question_relay_tools(pi, store)
 }
 
 pub fn multi_agent_extension(pi: &ExtensionApi, options: &MultiAgentExtensionOptions) -> Result<(), HandlerError> {

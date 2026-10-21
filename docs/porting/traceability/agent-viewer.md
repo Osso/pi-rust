@@ -9,8 +9,7 @@ Rust: `crates/pi-coding-agent/src/bundled_extensions/agent_viewer/mod.rs`.
 | delegation to `registerAgentViewerTools` | `agents_core::runtime::register_agent_viewer_tools` | same |
 | re-exported `MultiAgentExtensionOptions` | `agents_core::runtime::MultiAgentExtensionOptions` | same |
 
-The viewer tool's text/details behavior is covered in
-`docs/porting/traceability/agents-core.md` (`viewer.ts`).
+Frozen runtime.ts trace integration and whole core lifecycle trace now have same-DB/files text+JSON differential proof; see [lifecycle trace](agent-lifecycle-trace.md). Old viewer.ts proof below is historical, not complete new-pin coverage.
 
 Gaps: none specific to this factory. It depends on the agents-core
 `resolveSelectedSessionMutationTarget` gap only through unrelated interactive

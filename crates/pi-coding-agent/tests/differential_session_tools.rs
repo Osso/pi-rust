@@ -1394,9 +1394,18 @@ async fn ask_questions_tool_differential() {
     struct ScriptedUi {
         selects: Mutex<VecDeque<Option<String>>>,
         inputs: Mutex<VecDeque<Option<String>>>,
+        panel_result: Value,
     }
 
     impl ExtensionUiContext for ScriptedUi {
+        fn custom<'a>(
+            &'a self,
+            _: pi_coding_agent::core::extensions::types::ExtensionUiCustomFactory,
+            _: Option<pi_coding_agent::core::extensions::types::ExtensionUiCustomOptions>,
+        ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+            let value = self.panel_result.clone();
+            Box::pin(async move { Ok(Some(value)) })
+        }
         fn select<'a>(
             &'a self,
             _title: &str,
@@ -1476,32 +1485,46 @@ async fn ask_questions_tool_differential() {
             vec![],
         ),
     ] {
-        let ui_script = json!({
-            "selects": selects.iter().map(|value| value.map(str::to_owned)).collect::<Vec<_>>(),
-            "inputs": inputs.iter().map(|value| value.map(str::to_owned)).collect::<Vec<_>>()
-        });
-        let response = oracle.request(tool_request(
-            "core/tools/ask-questions.ts",
-            "createAskQuestionsToolDefinition",
-            params.clone(),
-            json!({ "cwd": "/repo", "uiScript": ui_script }),
-        ));
-        let ui = Arc::new(ScriptedUi {
-            selects: Mutex::new(selects.into_iter().map(|value| value.map(str::to_owned)).collect()),
-            inputs: Mutex::new(inputs.into_iter().map(|value| value.map(str::to_owned)).collect()),
-        });
-        let context =
-            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
-                .mode(ExtensionMode::Tui)
-                .ui(ui)
-                .build()
-                .await
-                .1;
-        let rust = rust_tool_result(
-            AskQuestionsTool::new()
-                .execute("tool-call".to_owned(), params, None, None, context, None)
-                .await,
-        );
-        assert_eq!(response["output"], rust, "{name}");
+        for explicit in [false, true] {
+            let mut params = params.clone();
+            if explicit {
+                params["blocking"] = json!(true);
+            }
+            let panel_result = match name {
+                "single" => json!({"answers":{"Which approach?":"Direct API"},"cancelled":false}),
+                "other" => json!({"answers":{"What should we build?":"Use a plugin"},"cancelled":false}),
+                "multi" => json!({"answers":{"Which follow-ups?":"Tests, Docs"},"cancelled":false}),
+                _ => json!({"answers":{},"cancelled":true}),
+            };
+            let ui_script = json!({
+                "panelResult": panel_result,
+                "selects": selects.iter().map(|value| value.map(str::to_owned)).collect::<Vec<_>>(),
+                "inputs": inputs.iter().map(|value| value.map(str::to_owned)).collect::<Vec<_>>()
+            });
+            let response = oracle.request(tool_request(
+                "core/tools/ask-questions.ts",
+                "createAskQuestionsToolDefinition",
+                params.clone(),
+                json!({ "cwd": "/repo", "uiScript": ui_script }),
+            ));
+            let ui = Arc::new(ScriptedUi {
+                selects: Mutex::new(selects.iter().map(|value| value.map(str::to_owned)).collect()),
+                inputs: Mutex::new(inputs.iter().map(|value| value.map(str::to_owned)).collect()),
+                panel_result,
+            });
+            let context =
+                tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
+                    .mode(ExtensionMode::Tui)
+                    .ui(ui)
+                    .build()
+                    .await
+                    .1;
+            let rust = rust_tool_result(
+                AskQuestionsTool::new()
+                    .execute("tool-call".to_owned(), params, None, None, context, None)
+                    .await,
+            );
+            assert_eq!(response["output"], rust, "{name}, explicit={explicit}");
+        }
     }
 }
