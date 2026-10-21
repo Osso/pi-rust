@@ -2,7 +2,7 @@
 
 Source: `packages/ai/src/image-models.ts` and `packages/ai/src/image-models.generated.ts`.
 Rust: `crates/pi-ai/src/image_models.rs`, `crates/pi-ai/src/image_models_generated.rs`, data `crates/pi-ai/data/image-models.json`.
-Tests: `crates/pi-ai/tests/image_models.rs` (5 behavioral), `crates/pi-ai/tests/differential_image_models.rs` (full catalog, provider list, per-provider lists, and five lookups vs pinned TS).
+Tests: `crates/pi-ai/tests/image_models.rs` (5 behavioral), `crates/pi-ai/tests/differential_image_models.rs` (full literal catalog, ordered providers/lists, all 42 union lookups and missing sentinels vs pinned TS). These cover static values only; whole helper-module parity remains **OPEN**.
 
 ## Representation
 - `IMAGE_MODELS` is embedded as the TypeScript-generated JSON (`data/image-models.json`), parsed once through `LazyLock` into `Vec<(provider, Vec<ImagesModel>)>`. `serde_json`'s `preserve_order` keeps the generated provider/model insertion order; `float_roundtrip` keeps cost values bit-identical (for example `0.19999999999999998`).
@@ -20,18 +20,11 @@ Tests: `crates/pi-ai/tests/image_models.rs` (5 behavioral), `crates/pi-ai/tests/
 | generated values (names, modalities, baseUrl, costs) | JSON data | `model_lookup_returns_generated_model_and_none_for_missing`, differential |
 
 ## Data provenance
-`data/image-models.json` is `JSON.stringify(IMAGE_MODELS, null, 2)` from the pinned source worktree:
 
-```sh
-"$SOURCE/node_modules/.bin/tsx" --tsconfig "$SOURCE/tsconfig.json" -e \
-  'import { IMAGE_MODELS } from "'"$SOURCE"'/packages/ai/src/image-models.generated.ts";
-   console.log(JSON.stringify(IMAGE_MODELS, null, 2));'
-```
-
-The catalog contains 42 OpenRouter image models at the pinned revision. This baseline remains unchanged. The separate [image catalog maintenance generator](image-catalog-generator.md) targets this native artifact; its implementation/tests do not refresh the checked-in source of truth.
+[Generated-module traceability](image-models-generated.md) owns the frozen payload, exact hashes and bounded full-record/order proof; [static catalog spec](../../specs/image-catalog.md) defines acceptance.
 
 ## Gaps
-- None.
+- Whole helper/API parity is OPEN pending user classification of mutable getter-result sharing. Frozen TS public getters return mutable model objects shared across direct lookups, list elements and static provider elements; list containers themselves are fresh. Rust static getters expose immutable references, while provider getters return owned copies. No shared-mutable fields, new API, approved deviation or source-bug classification was introduced.
 
 ## Discrepancies
-- None.
+- The concrete mutable-return counterexample is recorded in `/tmp/pi-rust-repin-image-catalog-verify/REPORT.md`; finite generated-data acceptance does not resolve it. Whole provider flow remains OPEN and unchanged by this slice.
