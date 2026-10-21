@@ -2374,7 +2374,7 @@ fn format_completion_notification_body(agent: &AgentNode) -> String {
         .result
         .as_ref()
         .and_then(|result| result.summary.as_deref())
-        .map(str::trim)
+        .map(pi_js_compat::string::js_trim)
         .filter(|summary| !summary.is_empty());
     let body = match summary {
         Some(summary) => format!("{} completed: {summary}", agent.display_name),
@@ -2387,7 +2387,7 @@ fn format_failure_notification_body(agent: &AgentNode) -> String {
     let error_message = agent
         .error
         .as_ref()
-        .map(|error| error.message.trim())
+        .map(|error| pi_js_compat::string::js_trim(&error.message))
         .filter(|message| !message.is_empty());
     let body = match error_message {
         Some(message) => format!("{} failed: {message}", agent.display_name),

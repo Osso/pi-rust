@@ -2,6 +2,10 @@
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
+Current group blocker: [canonical JSON UTF16 counterexample](session-control-db.md#blocking-canonical-json-counterexample--current-group-is-not-accepted). Lossless receipts do not make serde-backed canonical payloads or typed runtime body egress lossless. No whole-module acceptance/coverage advancement is claimed.
+
+Terminal summary/error JS trimming now has actual-source RED→GREEN proof in `repin_control_whitespace`, sharing the JS whitespace helper rather than native Unicode trim.
+
 `repin_store_persistence.rs` compares a real TS store restore/subscription probe against Rust: restore clears transition/lifecycle listener sets but retains update subscribers (RED callback counts1/1/1→GREEN0/0/1). Filesystem-blocked DB allocation/listing propagates errors without local-counter fallback; recovery starts at agent_1 and evicts absent rows. Old terminal snapshots cannot mint fresh notifications, compared with actual TS store. `store-reset-green.log`: differential operation script1 + persistence3 pass after final store changes. No broad acceptance command.
 
 `repin_multi_agent_store.rs` RED5→GREEN5 proves original snapshot returned on consume/removal, controlled relative creation age at 24h−1ms / exactly24h, peer-deleted DB rows evicted without failed-message resurrection, nested tool `detail` preserved and persisted top-level `extra.suppressTerminalNotification` enforced on terminal snapshot publication. `repin_control_agents.rs` additionally proves exact-owner model/activity updates visible to the same TS reader, wrong-owner rejection and typed `detail` roundtrip. The updated actual-source `differential_multi_agent_store` operation script passes including optional effective model publication with current activity.

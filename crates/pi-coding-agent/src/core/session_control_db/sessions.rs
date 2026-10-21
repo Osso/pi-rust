@@ -1118,7 +1118,7 @@ fn prepare_prompt_history_migration_rows(legacy_entries: &[String]) -> Vec<(Stri
     let mut rows = Vec::new();
     let mut previous_content: Option<String> = None;
     for content in legacy_entries.iter().rev() {
-        let content = content.trim();
+        let content = pi_js_compat::string::js_trim(content);
         if content.is_empty() || previous_content.as_deref() == Some(content) {
             continue;
         }
@@ -1161,7 +1161,7 @@ fn read_prompt_history_rows(db: &Connection, limit: i64) -> Result<Vec<String>, 
 }
 
 fn insert_prompt_history_entry(db: &Connection, content: &str) -> Result<(), ControlDbError> {
-    let trimmed_content = content.trim();
+    let trimmed_content = pi_js_compat::string::js_trim(content);
     if trimmed_content.is_empty() {
         return Ok(());
     }

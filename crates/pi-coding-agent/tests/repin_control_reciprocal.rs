@@ -240,3 +240,50 @@ fn archive_failure_after_relocation_rolls_back_metadata_and_shared_rows() {
         2
     );
 }
+
+#[test]
+fn last_message_roundtrip_keeps_assistant_singleton_content() {
+    let (_t, db) = temp();
+    write_last_message(&db, "assistant", "  native\n\n").unwrap();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    assert_eq!(
+        call(&mut ts, "readLastMessage", json!([db])),
+        serde_json::to_value(read_last_message(&db).unwrap().unwrap()).unwrap()
+    );
+    call(
+        &mut ts,
+        "writeLastMessage",
+        json!([db,{"role":"assistant","content":"peer content"}]),
+    );
+    assert_eq!(read_last_message(&db).unwrap().unwrap().content, "peer content");
+}
+
+#[test]
+fn sandbox_profile_identity_relocation_and_metadata_delete_match_peer() {
+    use pi_coding_agent::core::permissions::presets::SandboxProfileName;
+    let (_t, db) = temp();
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let now = pi_coding_agent::utils::iso_time::now_iso_string();
+    call(
+        &mut ts,
+        "writeSessionMetadata",
+        json!([db,{"sessionPath":"/fixture/s","id":"s","cwd":"/fixture","createdAt":now,"modifiedAt":now,"messageCount":1,"firstMessage":"body"}]),
+    );
+    write_session_sandbox_profile(&db, "/fixture/s", "s", SandboxProfileName::ReadOnly).unwrap();
+    assert_eq!(
+        call(&mut ts, "readSessionSandboxProfile", json!([db, "/fixture/s", "s"])),
+        "read-only"
+    );
+    assert!(clear_session_sandbox_profile(&db, "/fixture/s", "wrong").is_err());
+    assert_eq!(
+        call(&mut ts, "readSessionSandboxProfile", json!([db, "/fixture/s", "s"])),
+        "read-only"
+    );
+    relocate_and_archive_session(&db, "/fixture/s", "/fixture/s.zst").unwrap();
+    assert_eq!(
+        call(&mut ts, "readSessionSandboxProfile", json!([db, "/fixture/s.zst", "s"])),
+        "read-only"
+    );
+    remove_session_metadata(&db, "/fixture/s.zst").unwrap();
+    assert!(call(&mut ts, "readSessionSandboxProfile", json!([db, "/fixture/s.zst", "s"])).is_null());
+}

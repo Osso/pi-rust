@@ -8,6 +8,8 @@ Root: canonical `parse_stored_json_object` / `parse_json_object` still use legac
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
+Whitespace pattern follow-up RED4→GREEN4 covers architect bodies, adjacent prompt-history dedup, legacy migration's original return versus trimmed stored rows, and terminal summary/error text. All native Rust trim sites in this module group now use the shared JS trim helper. Architect token renewal/completion, last-message roundtrip, sandbox identity/relocation/delete and unchanged base control rows have current bounded source-peer evidence (`whitespace-pattern-green.log`, `reciprocal-base-proof.log` GREEN8). These do not resolve the canonical JSON blocker above.
+
 Channel trim RED→GREEN: actual source public posts distinguish JS U+FEFF/NBSP whitespace from U+0085 NEL. Native post now uses the shared JS trim helper; empty U+FEFF rejects before DB mutation. `channel-trim-green.log` focused1 pass over all three cases.
 
 Notification-policy validation: `repin_control_validation` RED2→GREEN2 rejects null/string/number/array/object suppression values before DB setup and rejects invalid persisted policy at the restore boundary, matching TS errors. Typed input exclusions do not hide raw disk payloads.
