@@ -5,5 +5,6 @@ pub mod ipc {
     pub mod protocol;
     pub mod server;
 }
+pub mod radius;
 pub mod rpc_process;
 pub mod types;
