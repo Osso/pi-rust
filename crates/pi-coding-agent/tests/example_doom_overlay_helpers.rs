@@ -315,6 +315,7 @@ async fn absent_home_directory_wads_and_concatenated_gzip_match_pinned() {
         "cwd-directory",
         "bundled-directory",
         "concatenated-gzip",
+        "zero-padded-gzip",
     ] {
         let temp = tempfile::tempdir().unwrap();
         let cwd = temp.path().join("cwd");
@@ -356,6 +357,9 @@ async fn absent_home_directory_wads_and_concatenated_gzip_match_pinned() {
         let first = ts.request(&json!({"kind":"gzip","bytes":b"IWAD-first".to_vec()}));
         let second = ts.request(&json!({"kind":"gzip","bytes":b"second-member".to_vec()}));
         let mut bytes: Vec<u8> = serde_json::from_value(first).unwrap();
+        if case == "zero-padded-gzip" {
+            bytes.extend([0; 10]);
+        }
         bytes.extend(serde_json::from_value::<Vec<u8>>(second).unwrap());
         let expected = ts.request(&json!({"kind":"wad-ensure","bundled":bundled,"cwd":cwd,"bytes":bytes,"status":200}));
         let calls = Arc::new(Mutex::new(Vec::new()));

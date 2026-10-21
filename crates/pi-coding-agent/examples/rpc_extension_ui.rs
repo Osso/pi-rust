@@ -472,16 +472,21 @@ pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) ->
         .spawn()
         .map_err(|e| e.to_string())?;
     let mut stderr = child.stderr.take().expect("piped stderr");
-    let errors = tokio::spawn(async move {
-        let mut bytes = vec![];
-        stderr
-            .read_to_end(&mut bytes)
-            .await
-            .map(|_| String::from_utf8_lossy(&bytes).into_owned())
-    });
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let mut errors = Vec::new();
+    let mut stderr_open = true;
+    let startup = tokio::time::sleep(std::time::Duration::from_millis(500));
+    tokio::pin!(startup);
+    loop {
+        tokio::select! {
+            biased;
+            read = stderr.read_buf(&mut errors), if stderr_open => {
+                stderr_open = read.map_err(|e| e.to_string())? != 0;
+            }
+            _ = &mut startup => break,
+        }
+    }
     if child.try_wait().map_err(|e| e.to_string())?.is_some() {
-        let stderr = errors.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+        let stderr = String::from_utf8_lossy(&errors);
         return Ok(RunOutcome {
             code: 1,
             stdout: String::new(),
@@ -495,48 +500,72 @@ pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) ->
     tui.set_focus(Some(component));
     tui.start().map_err(|e| e.to_string())?;
     let mut stdin = child.stdin.take().expect("piped stdin");
-    let mut reader = BufReader::new(child.stdout.take().expect("piped stdout")).lines();
+    let mut reader = BufReader::new(child.stdout.take().expect("piped stdout"));
+    let mut line = Vec::new();
+    let mut stdout_open = true;
     let mut input = tokio::time::interval(std::time::Duration::from_millis(16));
     let mut timer = tokio::time::Instant::now();
     let mut was_streaming = false;
-    let event_loop=async{
-  loop{
-   tokio::select!{
-    line=reader.next_line()=>{let Some(line)=line.map_err(|e|e.to_string())?else{break;};if let Ok(data)=serde_json::from_str(&line){app.borrow_mut().receive(&data);tui.request_render(false);}},
-    _ = input.tick() => {
-        tui.process_events();
-        let streaming = app.borrow().streaming;
-        if streaming && !was_streaming {
-            timer = tokio::time::Instant::now();
+    let event_loop = async {
+        loop {
+            tokio::select! {
+                biased;
+                read = reader.read_until(b'\n', &mut line), if stdout_open => {
+                    stdout_open = read.map_err(|e| e.to_string())? != 0;
+                    if let Ok(data) = serde_json::from_str(&String::from_utf8_lossy(&line)) {
+                        app.borrow_mut().receive(&data);
+                        tui.request_render(false);
+                    }
+                    line.clear();
+                }
+                read = stderr.read_buf(&mut errors), if stderr_open => {
+                    stderr_open = read.map_err(|e| e.to_string())? != 0;
+                }
+                status = child.wait() => return status.map(Some).map_err(|e| e.to_string()),
+                _ = input.tick() => {
+                    tui.process_events();
+                    let streaming = app.borrow().streaming;
+                    if streaming && !was_streaming {
+                        timer = tokio::time::Instant::now();
+                    }
+                    if streaming && timer.elapsed() >= std::time::Duration::from_millis(400) {
+                        app.borrow_mut().tick();
+                        timer = tokio::time::Instant::now();
+                        tui.request_render(false);
+                    }
+                    was_streaming = streaming;
+                    tui.flush_pending();
+                }
+            }
+            let commands = app.borrow_mut().take_commands();
+            for command in commands {
+                let mut bytes = serde_json::to_vec(&command).map_err(|e| e.to_string())?;
+                bytes.push(b'\n');
+                stdin.write_all(&bytes).await.map_err(|e| e.to_string())?;
+            }
+            if app.borrow().exit_requested() {
+                return Ok(None);
+            }
         }
-        if streaming && timer.elapsed() >= std::time::Duration::from_millis(400) {
-            app.borrow_mut().tick();
-            timer = tokio::time::Instant::now();
-            tui.request_render(false);
-        }
-        was_streaming = streaming;
-        tui.flush_pending();
-    },
-   }
-   let commands=app.borrow_mut().take_commands();for command in commands{let mut bytes=serde_json::to_vec(&command).map_err(|e|e.to_string())?;bytes.push(b'\n');stdin.write_all(&bytes).await.map_err(|e|e.to_string())?;}
-   if app.borrow().exit_requested(){if let Some(pid)=child.id().and_then(|p|rustix::process::Pid::from_raw(p as i32)){let _=rustix::process::kill_process(pid,rustix::process::Signal::TERM);}break;}
-  }Ok::<_,String>(())
- }.await;
+    }
+    .await;
     tui.flush_pending();
     tui.stop();
     if event_loop.is_err() {
-        let _ = child.start_kill();
+        child.start_kill().map_err(|e| e.to_string())?;
+        child.wait().await.map_err(|e| e.to_string())?;
     }
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    let stderr = errors.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
-    event_loop?;
-    if app.borrow().exit_requested() {
+    let Some(status) = event_loop? else {
+        if let Some(pid) = child.id().and_then(|p| rustix::process::Pid::from_raw(p as i32)) {
+            rustix::process::kill_process(pid, rustix::process::Signal::TERM).map_err(|e| e.to_string())?;
+        }
         return Ok(RunOutcome {
             code: 0,
             stdout: String::new(),
             stderr: String::new(),
         });
-    }
+    };
+    let stderr = String::from_utf8_lossy(&errors).into_owned();
     Ok(RunOutcome {
         code: status.code().unwrap_or(0),
         stdout: format!(

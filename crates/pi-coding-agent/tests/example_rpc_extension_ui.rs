@@ -7,7 +7,7 @@ use pi_tui::{
     tui::{Component, Focusable},
 };
 use serde_json::{Value, json};
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 fn operations() -> Vec<Value> {
     vec![
         json!({"input":" hello "}),
@@ -196,6 +196,140 @@ async fn native_rpc_demo_extension_round_trip_uses_real_agent_session_harness() 
     );
     assert!(terminal.borrow().stops > 0);
 }
+static LIFECYCLE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+struct ProcessCleanup {
+    directory: PathBuf,
+    subreaper: Option<rustix::process::Pid>,
+}
+impl Drop for ProcessCleanup {
+    fn drop(&mut self) {
+        use rustix::process::{Pid, Signal, WaitOptions, kill_process, waitpid};
+        let pids: Vec<_> = ["child.pid", "grandchild.pid"]
+            .iter()
+            .filter_map(|name| std::fs::read_to_string(self.directory.join(name)).ok())
+            .map(|value| Pid::from_raw(value.parse().unwrap()).unwrap())
+            .collect();
+        for pid in &pids {
+            match kill_process(*pid, Signal::KILL) {
+                Ok(()) | Err(rustix::io::Errno::SRCH) => {}
+                Err(error) => panic!("kill fixture {pid:?}: {error}"),
+            }
+        }
+        for pid in pids {
+            match waitpid(Some(pid), WaitOptions::empty()) {
+                Ok(_) | Err(rustix::io::Errno::CHILD) => {}
+                Err(error) => panic!("reap fixture {pid:?}: {error}"),
+            }
+        }
+        rustix::process::set_child_subreaper(self.subreaper).unwrap();
+    }
+}
+
+async fn run_lifetime_fixture(descendant: bool) {
+    let _serial = LIFECYCLE.lock().await;
+    let temp = tempfile::tempdir().unwrap();
+    let subreaper = rustix::process::child_subreaper().unwrap();
+    rustix::process::set_child_subreaper(Some(rustix::process::getpid())).unwrap();
+    let cleanup = ProcessCleanup {
+        directory: temp.path().into(),
+        subreaper,
+    };
+    let script = temp.path().join("lifetime.py");
+    std::fs::write(&script, if descendant {
+        "import os,pathlib,time\npathlib.Path('child.pid').write_text(str(os.getpid()))\ntime.sleep(.65)\npid=os.fork()\nif pid==0:\n pathlib.Path('grandchild.pid').write_text(str(os.getpid()))\n time.sleep(60)\nelse:\n while not pathlib.Path('grandchild.pid').exists(): time.sleep(.01)\n os._exit(0)\n"
+    } else {
+        "import os,pathlib,signal,time\nsignal.signal(signal.SIGTERM,signal.SIG_IGN)\npathlib.Path('child.pid').write_text(str(os.getpid()))\ntime.sleep(60)\n"
+    }).unwrap();
+    let terminal = Rc::new(RefCell::new(TerminalFixture::default()));
+    let input = terminal.clone();
+    let drive = async move {
+        if !descendant {
+            tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+            input.borrow_mut().events.push(TerminalEvent::Input("\x1b".into()));
+        }
+    };
+    let invocation = client::Invocation {
+        program: "python3".into(),
+        prefix: vec![script.display().to_string()],
+        extension: "fixture".into(),
+        cwd: temp.path().into(),
+    };
+    let (outcome, ()) = tokio::join!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client::run(invocation, terminal.clone())
+        ),
+        drive
+    );
+    let fixture_pids: Vec<_> = ["child.pid", "grandchild.pid"]
+        .iter()
+        .filter_map(|name| std::fs::read_to_string(temp.path().join(name)).ok())
+        .map(|value| rustix::process::Pid::from_raw(value.parse().unwrap()).unwrap())
+        .collect();
+    // Cleanup runs before asserting, including the timeout/RED path.
+    drop(cleanup);
+    assert_eq!(fixture_pids.len(), if descendant { 2 } else { 1 });
+    for pid in fixture_pids {
+        assert_eq!(rustix::process::test_kill_process(pid), Err(rustix::io::Errno::SRCH));
+    }
+    let result = outcome
+        .expect("client must not await process or inherited pipes")
+        .unwrap();
+    assert_eq!(result.code, 0);
+    assert_eq!(
+        result.stdout,
+        if descendant { "Agent exited with code 0\n" } else { "" }
+    );
+    assert!(terminal.borrow().stops > 0);
+}
+
+#[tokio::test]
+async fn idle_escape_returns_without_waiting_for_sigterm_ignoring_child() {
+    run_lifetime_fixture(false).await;
+}
+#[tokio::test]
+async fn child_exit_returns_while_grandchild_keeps_both_pipes_open() {
+    run_lifetime_fixture(true).await;
+}
+
+#[tokio::test]
+async fn invalid_utf8_stdout_line_does_not_hide_following_notification() {
+    let mut ts = oracle::TsOracle::spawn(
+        "example-rpc-extension-ui-oracle.ts",
+        "packages/coding-agent/examples/rpc-extension-ui.ts",
+    );
+    let frame = json!({"type":"extension_ui_request","method":"notify","message":"after invalid bytes"});
+    let mut raw = vec![255, 10];
+    raw.extend(serde_json::to_vec(&frame).unwrap());
+    raw.push(b'\n');
+    let expected = ts.request(&json!({"ops":[{"raw":raw}],"widths":[80]}));
+    assert!(
+        expected["steps"][0]["renders"][0]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|line| line.as_str().unwrap().contains("after invalid bytes"))
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let script = temp.path().join("invalid.py");
+    std::fs::write(&script, "import sys,time,json\ntime.sleep(.6)\nsys.stdout.buffer.write(bytes([255,10]))\nsys.stdout.buffer.flush()\nprint(json.dumps({'type':'extension_ui_request','method':'notify','message':'after invalid bytes'}),flush=True)\ntime.sleep(.2)\n").unwrap();
+    let terminal = Rc::new(RefCell::new(TerminalFixture::default()));
+    let result = client::run(
+        client::Invocation {
+            program: "python3".into(),
+            prefix: vec![script.display().to_string()],
+            extension: "fixture".into(),
+            cwd: temp.path().into(),
+        },
+        terminal.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.code, 0);
+    assert!(terminal.borrow().written.contains("after invalid bytes"));
+}
+
 #[test]
 fn utf16_clipping_projects_split_surrogate_at_string_boundary() {
     let mut app = client::RpcExtensionUi::new();

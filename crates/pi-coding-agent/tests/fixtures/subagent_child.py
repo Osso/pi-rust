@@ -8,6 +8,7 @@ with open('journal.jsonl','a') as f: f.write(json.dumps(record)+'\n')
 if args[-1]=='Task: SLOW': time.sleep(20)
 failed=args[-1]=='Task: FAIL'
 message={'role':'assistant','content':[{'type':'text','text':'done '+args[-1]}],'model':'child/model','stopReason':'error' if failed else 'end','usage':{'input':5,'output':7,'cacheRead':2,'cacheWrite':1,'totalTokens':15,'cost':{'total':0.125}}}
+if args[-1]=='Task: DOLLARS': message['content'][0]['text']="$& $$ $` $' $1"
 if failed: message['errorMessage']='fixture failure'
 if args[-1]=='Task: ZERO': message['usage']={'input':0,'output':0,'cacheRead':0,'cacheWrite':0,'totalTokens':0,'cost':{'total':0}}
 sys.stderr.write('fixture stderr')

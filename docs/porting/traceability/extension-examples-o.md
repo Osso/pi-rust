@@ -46,6 +46,17 @@ The stopped component still prevents a faithful index port. Do not wait for the
 separate core key-release slice (main-thread instruction); revisit in a later
 slice after that API lands.
 
+## U1 zero-padded gzip correction
+
+| Pinned behavior | Native correction | Proof |
+|---|---|---|
+| `wad-finder.ts:47` Node gunzip accepts a valid IWAD gzip followed by ten zero bytes | `download_wad` decodes complete gzip members with buffered `GzDecoder`, stopping at zero padding after a member; concatenated-member support retained | `example_doom_overlay_helpers::absent_home_directory_wads_and_concatenated_gzip_match_pinned`, added `zero-padded-gzip` case: exact returned path, GET calls and IWAD bytes compare to pinned TS |
+
+U1 confirmed as a defect, not a waiver: old native result was null with no WAD;
+pinned TS returned the downloaded WAD. `wad-RED.log` and `wad-mutation.log`
+reproduce that mismatch; restored target passes 7/7 (`wad-final.log`). Ledger:
+`/tmp/pi-rust-batch-n-fixes/ledger.md`. No dependency or coverage-status change.
+
 ## Source → native → behavioral tests
 
 All tests live in `crates/pi-coding-agent/tests/example_doom_overlay_helpers.rs`.

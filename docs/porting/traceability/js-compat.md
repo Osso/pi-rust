@@ -139,6 +139,18 @@ accepts them, matching Node.
 the migrated `pi-tui` differential suites (`differential_{fuzzy,latex,keys,stdin_buffer,terminal_colors,utils}`)
 and `pi-js-compat` unit tests.
 
+### Global nonempty literal replacement
+
+| Source behavior | Rust helper | Proof |
+|---|---|---|
+| Global nonempty literal-pattern replacement with no captures; `$$`, `$&`, prefix and suffix expand relative to each original match; `$1` remains literal | `string::replace_global`, reuses `expand_replacement`; nonempty search precondition explicit | `tests/string_replace.rs::globally_expands_against_each_original_match`: two matches with distinct original prefixes/suffixes, no match, replacement containing matched text; `example_subagent` additionally compares actual chained child tasks/results to pinned TS |
+
+This narrow helper does not claim empty-pattern UTF-16 regex or capture-group
+semantics. `string-RED.log` used the existing first-only helper as the behavioral
+baseline; `string-mutation.log` limits the new helper to one match and fails the
+same two-match assertion. Final target 5/5. Ledger and full logs:
+`/tmp/pi-rust-batch-n-fixes/ledger.md`. No new dependency or approved deviation.
+
 ## Migrated callers
 
 | Old path | New path |
