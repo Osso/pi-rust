@@ -271,6 +271,48 @@ pub fn node_promises_read_error(error: &io::Error, path: &str) -> String {
     node_read_error_record(error, path, NodeReadApi::PromisesReadFile).message
 }
 
+/// ChildProcess spawn errors: deferred launch failures include the executable;
+/// synchronous libuv failures (for example ENOTDIR) use the bare `spawn` syscall.
+pub fn node_spawn_error_record(error: &io::Error, program: &str) -> NodeFsError {
+    let code = node_error_code(error);
+    let deferred = matches!(code, "EACCES" | "EAGAIN" | "EMFILE" | "ENFILE" | "ENOENT");
+    let syscall = if deferred {
+        format!("spawn {program}")
+    } else {
+        "spawn".into()
+    };
+    NodeFsError {
+        name: "Error",
+        errno: error.raw_os_error().and_then(i32::checked_neg),
+        code,
+        message: format!("{syscall} {code}"),
+        syscall,
+        path: deferred.then(|| program.to_owned()),
+    }
+}
+
+/// Writable pipe callback errors use `write EPIPE`, without a filesystem path.
+pub fn node_pipe_write_error_record(error: &io::Error) -> NodeFsError {
+    let code = node_error_code(error);
+    NodeFsError {
+        name: "Error",
+        errno: error.raw_os_error().and_then(i32::checked_neg),
+        code,
+        syscall: "write".into(),
+        path: None,
+        message: format!("write {code}"),
+    }
+}
+
+/// `rmSync(path)` rejects directories without recursive mode using SystemError's
+/// message, unlike the ordinary `unlinkSync` EISDIR formatting.
+pub fn node_rm_error(error: &io::Error, path: &str) -> String {
+    if error.kind() == io::ErrorKind::IsADirectory {
+        return format!("Path is a directory: rm returned EISDIR (is a directory) {path}");
+    }
+    node_fs_error(error, "unlink", path)
+}
+
 /// Node `error.code` for an `io::Error`: the raw OS errno name first, then the
 /// `ErrorKind` mapping for errors std constructs without an errno.
 pub fn node_error_code(error: &io::Error) -> &'static str {

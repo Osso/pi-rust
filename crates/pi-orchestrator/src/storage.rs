@@ -1,9 +1,11 @@
 //! JSON persistence; unknown record fields survive read/modify/write, as in TS.
-use pi_js_compat::js_json;
+use pi_js_compat::{
+    js_json,
+    node_fs::{node_fs_error, node_read_error, node_rm_error},
+};
 use serde_json::Value;
 use std::{
     fs,
-    io::ErrorKind,
     path::{Path, PathBuf},
 };
 
@@ -12,16 +14,21 @@ pub struct Storage(pub PathBuf);
 
 impl Storage {
     fn read_json(&self, name: &str) -> Result<Option<Value>, String> {
-        let path = self.0.join(name);
-        match fs::read_to_string(&path) {
-            Ok(text) => js_json::parse(&text).map(Some).map_err(|e| e.to_string()),
-            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(format!("read {}: {e}", path.display())),
+        let path = crate::config::join_path(&self.0, name);
+        if !path.exists() {
+            return Ok(None);
         }
+        let bytes = fs::read(&path).map_err(|error| node_read_error(&error, &path.to_string_lossy()))?;
+        let text = String::from_utf8_lossy(&bytes);
+        js_json::parse(&text).map(Some).map_err(|error| error.to_string())
     }
     fn write_json(&self, name: &str, value: &Value) -> Result<(), String> {
-        fs::create_dir_all(&self.0).map_err(|e| e.to_string())?;
-        fs::write(self.0.join(name), js_json::stringify_pretty(value)).map_err(|e| e.to_string())
+        if !self.0.exists() {
+            fs::create_dir_all(&self.0).map_err(|error| node_fs_error(&error, "mkdir", &self.0.to_string_lossy()))?;
+        }
+        let path = crate::config::join_path(&self.0, name);
+        fs::write(&path, js_json::stringify_pretty(value))
+            .map_err(|error| node_fs_error(&error, "open", &path.to_string_lossy()))
     }
     pub fn load_machine(&self) -> Result<Option<Value>, String> {
         self.read_json("machine.json")
@@ -30,7 +37,11 @@ impl Storage {
         self.write_json("machine.json", machine)
     }
     pub fn delete_machine(&self) -> Result<(), String> {
-        remove_if_exists(&self.0.join("machine.json"))
+        let path = crate::config::join_path(&self.0, "machine.json");
+        if !path.exists() {
+            return Ok(());
+        }
+        fs::remove_file(&path).map_err(|error| node_rm_error(&error, &path.to_string_lossy()))
     }
     pub fn load_instances(&self) -> Result<Vec<Value>, String> {
         match self.read_json("instances.json")? {
@@ -65,9 +76,8 @@ impl Storage {
 }
 
 pub fn remove_if_exists(path: &Path) -> Result<(), String> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("remove {}: {e}", path.display())),
+    if !path.exists() {
+        return Ok(());
     }
+    fs::remove_file(path).map_err(|error| node_fs_error(&error, "unlink", &path.to_string_lossy()))
 }

@@ -69,6 +69,13 @@ impl RpcProcessInstance {
         Self::spawn_command(Command::new(sibling).args(["--mode", "rpc"]), cwd)
     }
     pub fn spawn_command(command: &mut Command, cwd: &Path) -> Result<Self, String> {
+        if let Some(error) = pi_js_compat::node_fs::node_path_argument_error(&cwd.to_string_lossy()) {
+            return Err(error
+                .message
+                .to_utf8_lossy()
+                .replacen("The argument 'path'", "The property 'options.cwd'", 1));
+        }
+        let program = command.as_std().get_program().to_string_lossy().into_owned();
         let mut child = command
             .current_dir(cwd)
             .stdin(Stdio::piped())
@@ -76,7 +83,7 @@ impl RpcProcessInstance {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| format!("RPC process error: {e}. Stderr: "))?;
+            .map_err(|error| format_spawn_error(&error, &program))?;
         let stdin = child.stdin.take().ok_or("Failed to create RPC process stdio")?;
         let stdout = child.stdout.take().ok_or("Failed to create RPC process stdio")?;
         let stderr = child.stderr.take().ok_or("Failed to create RPC process stderr")?;
@@ -128,7 +135,11 @@ impl RpcProcessInstance {
             .await
             .write_all(encode_message(value).as_bytes())
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|error| {
+                let message = pi_js_compat::node_fs::node_pipe_write_error_record(&error).message;
+                self.0.fatal.send_replace(Some(message.clone()));
+                message
+            })
     }
     pub async fn handle_ui_response(&self, response: Value) -> Result<(), String> {
         if self.0.state.lock().unwrap().exited {
@@ -175,6 +186,15 @@ impl RpcProcessInstance {
             exited.changed().await.map_err(|e| e.to_string())?;
         }
         Ok(())
+    }
+}
+
+fn format_spawn_error(error: &std::io::Error, program: &str) -> String {
+    let record = pi_js_compat::node_fs::node_spawn_error_record(error, program);
+    if record.syscall == "spawn" {
+        record.message
+    } else {
+        format!("RPC process error: {}. Stderr: ", record.message)
     }
 }
 

@@ -16,7 +16,7 @@ pub fn orchestrator_dir(env: &BTreeMap<String, String>, home: &str) -> PathBuf {
     join_path(&pi_dir, "orchestrator")
 }
 
-fn join_path(base: &std::path::Path, name: &str) -> PathBuf {
+pub(crate) fn join_path(base: &std::path::Path, name: &str) -> PathBuf {
     let combined = format!("{}/{name}", base.display());
     let absolute = combined.starts_with('/');
     let mut segments = Vec::new();

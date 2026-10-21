@@ -15,3 +15,5 @@ Packaging: parent approved native sibling `pi --mode rpc`, injectable command on
 Approved frozen discrepancies (parent 2026-10-21): duplicate in-flight ID retains the original pending resolver even after disposal; Rust orphan sender list releases only with instance lifetime. Malformed child JSON propagates through native fatal channel to serve Err/CLI exit 1, with ordinary server/supervisor/Radius/socket cleanup, not a new immediate send rejection. Real-child RED/GREEN and frozen subprocess differential fixtures cover both.
 
 Signal error formatting reuses coding-agent child-process helper. Real child SIGKILL regression fails with numeric 9 before correction; expected frozen signal=SIGKILL.
+
+`tests/errors.rs` differentials reproduce native diagnostic mismatches first: directory read, invalid parent, mkdir-through-file, rm-directory, missing/non-executable/directory executable, absent/file/NUL cwd, and closed child stdin. Shared pi-js-compat Node FS/spawn/pipe-write formatters now retain originating syscall/errno; no JS stacks fabricated. Stdin pipe errors also reach the approved fatal cleanup channel.
