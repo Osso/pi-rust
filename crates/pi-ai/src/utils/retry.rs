@@ -20,7 +20,7 @@ const NON_RETRYABLE_PROVIDER_ERROR_PATTERNS: [&str; 10] = [
     "Incomplete response returned, reason: content_filter",
 ];
 
-const RETRYABLE_PROVIDER_ERROR_PATTERNS: [&str; 43] = [
+const RETRYABLE_PROVIDER_ERROR_PATTERNS: [&str; 41] = [
     "overloaded",
     "rate.?limit",
     "too many requests",
@@ -41,9 +41,6 @@ const RETRYABLE_PROVIDER_ERROR_PATTERNS: [&str; 43] = [
     "connection.?lost",
     "other side closed",
     "fetch failed",
-    "getaddrinfo",
-    "ENOTFOUND",
-    "EAI_AGAIN",
     "upstream.?connect",
     "reset before headers",
     "socket hang up",
@@ -54,16 +51,17 @@ const RETRYABLE_PROVIDER_ERROR_PATTERNS: [&str; 43] = [
     "terminated",
     "websocket.?closed",
     "websocket.?error",
+    r"^(?:Error:\s*)?WebSocket connection to 'wss://[^'\s]+' failed: Expected 101 status\s+code$",
     "Incomplete response returned",
     "ended without",
     "stream ended before message_stop",
     "stream ended before a terminal response event",
     "http2 request did not get a response",
     "retry delay",
+    r"^Codex error: Unable to verify Daybreak Blue access\. Please try again\.(?:\nOpenAI request ID: [^\r\n]+)?$",
     "you can retry your request",
     "try your request again",
     "please retry your request",
-    "ResourceExhausted",
 ];
 
 /// Retry policy: bounded attempts with exponential backoff (`baseDelayMs * 2^(attempt-1)`).
@@ -242,7 +240,30 @@ fn retryable_pattern() -> &'static Regex {
 }
 
 fn build_provider_error_pattern(patterns: &[&str]) -> Regex {
-    Regex::new(&format!("(?i){}", patterns.join("|"))).expect("provider error patterns are valid regexes")
+    // These source patterns contain only ASCII letters. JS /i without /u does
+    // not fold non-ASCII characters into ASCII, unlike Rust's Unicode /i.
+    // JS dot consumes one UTF-16 unit (not a supplementary scalar), and its
+    // whitespace set excludes U+0085 but includes U+FEFF.
+    const JS_WHITESPACE: &str =
+        r"\x09-\x0d\x20\u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}";
+    let pattern = patterns
+        .join("|")
+        .to_ascii_lowercase()
+        .replace(".?", r"[^\r\n\u{2028}\u{2029}\u{10000}-\u{10ffff}]?")
+        .replace(r"\s", &format!("[{JS_WHITESPACE}]"));
+    Regex::new(&pattern).expect("provider error patterns are valid regexes")
+}
+
+/// Identifies the canonical Codex cybersecurity restriction, including suffixes.
+pub fn is_codex_cybersecurity_restriction(message: &AssistantMessage) -> bool {
+    const RESTRICTION: &str = "This content was flagged for possible cybersecurity risk.";
+    if message.stop_reason != StopReason::Error || message.api != "openai-codex-responses" {
+        return false;
+    }
+    let Some(error_message) = &message.error_message else {
+        return false;
+    };
+    error_message.starts_with(RESTRICTION) || error_message.starts_with(&format!("Codex error: {RESTRICTION}"))
 }
 
 /// Classifies whether a failed assistant message looks like a transient provider
@@ -254,8 +275,12 @@ pub fn is_retryable_assistant_error(message: &AssistantMessage) -> bool {
     let Some(error_message) = &message.error_message else {
         return false;
     };
-    if non_retryable_pattern().is_match(error_message) {
+    if error_message.is_empty() || is_codex_cybersecurity_restriction(message) {
         return false;
     }
-    retryable_pattern().is_match(error_message)
+    let error_message = error_message.to_ascii_lowercase();
+    if non_retryable_pattern().is_match(&error_message) {
+        return false;
+    }
+    retryable_pattern().is_match(&error_message)
 }
