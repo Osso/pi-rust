@@ -12,7 +12,7 @@ Canonical checkpoint merge `35d6429097833d094ca448068dae07ce30c482af` integrates
 | Canonical raw JSON | Intentionally RED reproducer `489d4381` on that branch: frozen TS enqueues escaped U+D800; Rust projects U+FFFD and claim rewrites the canonical body; TS reads the corrupted row. Open blocker, no waiver. |
 | Receipt scanner/equality | Lossless receipt scanning and raw JS equality `06620ae7` are not integrated. That branch fix does not resolve canonical mailbox JSON corruption. |
 | Runtime delivery | Acceptance is currently eager, before durable fsync. Claim → receipt append → persist/fsync → fenced delete integration remains pending in the delivery lane. SQLite fixtures do not prove this boundary. |
-| Model publication | Bounded model-tool work through `58301d0a` is integrated by `128df8af`; [model-tool proof and shared-validator RED](../porting/traceability/agent-model-tool.md) remain distinct from control/store acceptance. Owned DB model/activity fixtures do not establish whole agent-session or end-to-end model parity. |
+| Model publication | Bounded model-tool work through `58301d0a` is integrated by `128df8af`; [model-tool proof and pending post-validator-repair verification](../porting/traceability/agent-model-tool.md) remain distinct from control/store acceptance. Shared-validator repairs through `f86144ba` are integrated by `8d9bb557`, but the independent report is pending; the historical admission RED is not a current result. Owned DB model/activity fixtures do not establish whole agent-session or end-to-end model parity. |
 
 ## What it must do
 
