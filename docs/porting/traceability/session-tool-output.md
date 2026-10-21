@@ -19,7 +19,7 @@ Differential: `crates/pi-coding-agent/tests/differential_session_manager.rs` (`t
 
 ## Frozen lossless migration boundary
 
-`read_session_file_for_migration` now calls the existing crate-visible `parse_session_file_entry` without changing its signature/visibility. Actual source-valid escaped receipt and unpaired summary extras previously counted malformed (RED:2 malformed/0 changes vs TS1 malformed/1 change). Focused migration differential covers exact rewritten entries, raw receipt/extra tokens, immutable backup bytes, idempotence, malformed JSON and non-session counters; GREEN pending. No generic public-serde rewrite.
+`read_session_file_for_migration` now calls the existing crate-visible `parse_session_file_entry` without changing its signature/visibility. Actual source-valid escaped receipt and unpaired summary extras previously counted malformed (RED:2 malformed/0 changes vs TS1 malformed/1 change). Focused migration differential covers semantic rewritten entries via frozen Node deep equality, raw receipt/extra tokens, immutable backup bytes, idempotence, malformed JSON and non-session counters; GREEN pending. Initial post-fix comparison returned lone-surrogate fields through the Value-only oracle transport and failed there; equality now runs inside Node without projecting those fields through serde. No generic public-serde rewrite.
 
 Entry sizing directly serializes the lossless KnownSessionEntry; impossible serialization errors fail explicitly, never count as zero. Existing cap/search algorithm unchanged. The same oversized escaped-text fixture compares actual frozen truncation output, not only sizes.
 

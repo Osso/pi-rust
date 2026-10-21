@@ -1062,9 +1062,11 @@ fn source_lossless_tool_migration_preserves_receipt_summary_and_classifications(
             call(&mut ts, json!({"op":op,"path":source_path}))
         );
     }
-    let actual = call(&mut ts, json!({"op":"read","path":path}));
-    let expected = call(&mut ts, json!({"op":"read","path":source_path}));
-    assert_eq!(actual["entries"], expected["entries"]);
+    assert_eq!(
+        call(&mut ts, json!({"op":"entriesEqual","left":path,"right":source_path})),
+        true,
+        "frozen source must read semantically identical entries including raw UTF16 fields"
+    );
     assert_eq!(
         migrate_tool_result_session_files(rust_dir.to_str().unwrap(), || 1792584000000).changed_files,
         0

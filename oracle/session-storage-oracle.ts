@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline";
+import { isDeepStrictEqual } from "node:util";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
@@ -34,6 +35,7 @@ async function handle(r: any) {
   }
   return {path:m.getSessionFile(), id:m.getSessionId()};
  }
+ if(r.op === "entriesEqual")return isDeepStrictEqual(manager.SessionManager.openReadOnly(r.left).getEntries(),manager.SessionManager.openReadOnly(r.right).getEntries());
  if(r.op === "migrateTools") {
   const tools=await import(pathToFileURL(join(root,"session-tool-output.ts")).href);
   return tools.migrateToolResultSessionFiles(r.dir,()=>new Date(1792584000000));
