@@ -256,10 +256,7 @@ fn reasoning_map(options: &JsValue) -> Result<Option<JsValue>, GeneratorError> {
             JsValue::Object(option) => option.get(&JsString::from("values")),
             _ => unreachable!("checked reasoning object"),
         };
-        let Some(values) = values else {
-            continue;
-        };
-        let JsValue::Array(values) = values else {
+        let Some(JsValue::Array(values)) = values else {
             return Err(GeneratorError::type_error("models.dev effort values must be an array"));
         };
         let mut supported = vec![];

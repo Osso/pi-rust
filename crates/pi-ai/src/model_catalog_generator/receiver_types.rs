@@ -90,7 +90,7 @@ pub(super) fn option_kind(value: &JsValue) -> Result<&JsValue, GeneratorError> {
         ));
     }
     let kind = field(value, "type");
-    if !matches!(kind, JsValue::Null | JsValue::String(_)) {
+    if !matches!(kind, JsValue::String(_)) {
         return Err(GeneratorError::type_error(
             "models.dev reasoning option.type must be a string",
         ));
