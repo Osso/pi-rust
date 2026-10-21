@@ -53,8 +53,6 @@ impl Fixture {
                 modified_at: overrides.modified_at.unwrap_or("2026-01-01T00:10:00.000Z").to_owned(),
                 message_count: 1,
                 first_message: "hello".to_owned(),
-                all_messages_text: "hello".to_owned(),
-                index_message_text: None,
             },
         )
         .expect("write metadata");

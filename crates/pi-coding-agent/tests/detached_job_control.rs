@@ -87,6 +87,7 @@ fn enqueue_control(fixture: &Fixture, message_id: &str, body: serde_json::Value)
         &fixture.control_db_path,
         &EnqueueRuntimeMailboxMessageInput {
             recipient: fixture.recipient.clone(),
+            recipient_host: None,
             sender: RuntimeMailboxAddress {
                 agent_id: None,
                 session_id: "supervisor-1".to_owned(),
@@ -120,8 +121,11 @@ fn accepts_cancellation_from_the_exact_owner_process_and_consumes_the_command() 
     assert_eq!(commands[0].reason.as_deref(), Some("user requested"));
     assert_eq!(commands[0].mailbox_row_id, 1);
     let messages = list_runtime_mailbox_messages(&fixture.control_db_path).expect("messages");
-    assert_eq!(messages[0].id, 1);
-    assert_eq!(messages[0].status, RuntimeMailboxMessageStatus::Delivered);
+    // Frozen session-control-db.ts:2281-2288 deletes accepted runtime mailbox rows.
+    assert!(
+        messages.is_empty(),
+        "accepted command row must be removed: {messages:?}"
+    );
 }
 
 #[test]

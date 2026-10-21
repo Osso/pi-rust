@@ -21,13 +21,13 @@ use pi_coding_agent::core::session_control_db::{
     claim_runtime_mailbox_messages, cleanup_multi_agent_terminal_outbox, commit_multi_agent_detach_mark,
     commit_multi_agent_lifecycle_mutation, commit_multi_agent_steering_delivery, commit_multi_agent_steering_mutation,
     commit_multi_agent_terminal_mutation, complete_architect_request, complete_incoming_message,
-    complete_supervisor_request, consume_runtime_mailbox_message, create_multi_agent_child_with_runtime_ownership,
-    deliver_multi_agent_terminal_outbox, deliver_runtime_mailbox_message, enqueue_incoming_message,
-    enqueue_runtime_mailbox_message, enqueue_stored_runtime_mailbox_message, fail_incoming_message,
-    fail_runtime_mailbox_message, finalize_detached_job, get_multi_agent_mailbox_message_status,
-    has_pending_supervisor_approval_request, initialize_shared_channel_cursor_at_tail, list_active_session_metadata,
-    list_archived_session_metadata, list_pending_architect_requests, list_runtime_mailbox_listeners,
-    list_runtime_mailbox_messages, list_session_health, list_session_metadata, list_shared_channel_messages_after,
+    complete_supervisor_request, create_multi_agent_child_with_runtime_ownership, deliver_multi_agent_terminal_outbox,
+    deliver_runtime_mailbox_message, enqueue_incoming_message, enqueue_runtime_mailbox_message,
+    enqueue_stored_runtime_mailbox_message, fail_incoming_message, fail_runtime_mailbox_message, finalize_detached_job,
+    get_multi_agent_mailbox_message_status, has_pending_supervisor_approval_request,
+    initialize_shared_channel_cursor_at_tail, list_active_session_metadata, list_archived_session_metadata,
+    list_pending_architect_requests, list_runtime_mailbox_listeners, list_runtime_mailbox_messages,
+    list_session_health, list_session_metadata, list_shared_channel_messages_after,
     mark_runtime_mailbox_message_delivered, normalize_session_name, post_architect_request,
     post_shared_channel_message, post_supervisor_request, read_incoming_message_status, read_last_message,
     read_multi_agent_agent, read_multi_agent_state, read_or_migrate_prompt_history, read_prompt_history,
@@ -81,8 +81,6 @@ fn metadata(session_path: &str, id: &str, name: Option<&str>) -> WritableSession
         modified_at: "2026-06-21T00:00:00.000Z".to_owned(),
         message_count: 1,
         first_message: "hello".to_owned(),
-        all_messages_text: "hello world".to_owned(),
-        index_message_text: None,
     }
 }
 
@@ -147,6 +145,7 @@ fn stored_message(
         db,
         &EnqueueStoredRuntimeMailboxMessageInput {
             recipient: recipient.clone(),
+            recipient_host: None,
             sender: sender.clone(),
             kind: RuntimeMailboxMessageKind::Message,
             store_ref: RuntimeMailboxStoreRef {
@@ -374,7 +373,6 @@ fn generic_metadata_snapshots_preserve_dedicated_session_names() {
     write_session_name(&db, "/tmp/session-a.jsonl", Some("Alpha")).expect("name");
     let mut updated = metadata("/tmp/session-a.jsonl", "session-a", None);
     updated.message_count = 2;
-    updated.all_messages_text = "first second".to_owned();
     write_session_metadata(&db, &updated).expect("snapshot");
     assert_eq!(
         read_session_metadata(&db, "/tmp/session-a.jsonl")
@@ -553,11 +551,10 @@ fn runtime_mailbox_claim_deliver_and_consume() {
     assert_eq!(claimed[0].id, id);
 
     assert!(deliver_runtime_mailbox_message(&db, id, None).expect("deliver"));
-    assert!(consume_runtime_mailbox_message(&db, id).expect("consume"));
-    let message = read_runtime_mailbox_message(&db, id).expect("read").expect("message");
-    assert_eq!(message.status, RuntimeMailboxMessageStatus::Delivered);
-    assert!(message.delivered_at.is_some());
-    assert_eq!(list_runtime_mailbox_messages(&db).expect("list").len(), 1);
+    // Frozen session-control-db.ts:1092-1101 delivers by deleting the canonical row.
+    assert!(read_runtime_mailbox_message(&db, id).expect("read").is_none());
+    assert!(list_runtime_mailbox_messages(&db).expect("list").is_empty());
+    assert!(!deliver_runtime_mailbox_message(&db, id, None).expect("already delivered"));
 
     let second = stored_message(&db, "/sessions/sender.jsonl", "message_2", &recipient, &sender, "again");
     let _ = claim_runtime_mailbox_messages(&db, &recipient, 20).expect("claim");
@@ -571,10 +568,8 @@ fn runtime_mailbox_claim_deliver_and_consume() {
     let third = stored_message(&db, "/sessions/sender.jsonl", "message_3", &recipient, &sender, "again");
     let _ = claim_runtime_mailbox_messages(&db, &recipient, 20).expect("claim");
     mark_runtime_mailbox_message_delivered(&db, third).expect("mark delivered");
-    let message = read_runtime_mailbox_message(&db, third)
-        .expect("read")
-        .expect("message");
-    assert_eq!(message.status, RuntimeMailboxMessageStatus::Delivered);
+    // Frozen session-control-db.ts:2281-2288 also deletes rows when marking delivered.
+    assert!(read_runtime_mailbox_message(&db, third).expect("read").is_none());
 }
 
 #[test]
@@ -611,6 +606,7 @@ fn runtime_mailbox_routing_preserves_payload_order_and_identity() {
         &db,
         &EnqueueRuntimeMailboxMessageInput {
             recipient: recipient.clone(),
+            recipient_host: None,
             sender: sender.clone(),
             kind: RuntimeMailboxMessageKind::Message,
             store_ref: store_ref.clone(),
@@ -637,6 +633,7 @@ fn runtime_mailbox_routing_preserves_payload_order_and_identity() {
         &db,
         &EnqueueRuntimeMailboxMessageInput {
             recipient,
+            recipient_host: None,
             sender,
             kind: RuntimeMailboxMessageKind::Message,
             store_ref,
@@ -1016,7 +1013,7 @@ fn lifecycle_and_terminal_mutations_write_the_outbox() {
         .expect("record");
     assert_eq!(record.terminal_revision, 3);
     assert_eq!(record.attempt_count, 1);
-    assert!(deliver_multi_agent_terminal_outbox(&db, &record, "2026-06-21T00:00:04.000Z").expect("deliver"));
+    assert!(deliver_multi_agent_terminal_outbox(&db, &record).expect("deliver"));
     assert_eq!(
         cleanup_multi_agent_terminal_outbox(&db, "2026-06-21T00:00:05.000Z").expect("cleanup"),
         1
@@ -1997,19 +1994,17 @@ fn terminal_outbox_replay_is_idempotent() {
 }
 
 #[test]
-fn session_metadata_write_preserves_archived_state_and_index_flag() {
+fn session_metadata_write_preserves_archived_state() {
     let (_dir, db) = temp_db();
     write_session_metadata(&db, &metadata("/sessions/a.jsonl", "id", None)).expect("write");
     archive_session(&db, "/sessions/a.jsonl").expect("archive");
-    let mut update = metadata("/sessions/a.jsonl", "id", None);
-    update.all_messages_text = "indexed".to_owned();
-    update.index_message_text = Some(false);
+    // Frozen session-control-db.ts:2793-2857 has no text-index fields; preserves archivedAt.
+    let update = metadata("/sessions/a.jsonl", "id", None);
     write_session_metadata(&db, &update).expect("update");
     let read = read_session_metadata(&db, "/sessions/a.jsonl")
         .expect("read")
         .expect("metadata");
     assert!(read.archived_at.is_some());
-    assert_eq!(read.all_messages_text, "");
 }
 
 #[cfg(target_os = "linux")]

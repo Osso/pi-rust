@@ -77,8 +77,6 @@ fn apply_setup(control_db_path: &str, setup: &[Value]) {
                         .to_owned(),
                     message_count: step["messageCount"].as_i64().unwrap_or(1),
                     first_message: step["firstMessage"].as_str().unwrap_or("hello").to_owned(),
-                    all_messages_text: step["allMessagesText"].as_str().unwrap_or("hello").to_owned(),
-                    index_message_text: None,
                 },
             )
             .expect("write metadata"),

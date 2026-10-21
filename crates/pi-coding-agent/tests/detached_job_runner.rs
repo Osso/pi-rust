@@ -53,7 +53,7 @@ fn fixture(owner_session_id: &str) -> Fixture {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.clone(),
-        create_agent_id: Arc::new(|| "unused".to_owned()),
+        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
         now: Arc::new(|| NOW.to_owned()),
         process_identity: current_identity(),
         session_path: session_path.clone(),
@@ -177,7 +177,7 @@ fn fixture_in_root(root: &str, session_name: &str, owner_session_id: &str) -> Fi
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.clone(),
-        create_agent_id: Arc::new(|| "unused".to_owned()),
+        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
         now: Arc::new(|| NOW.to_owned()),
         process_identity: current_identity(),
         session_path: session_path.clone(),
@@ -239,7 +239,7 @@ fn preserves_retained_artifacts_when_launch_manifest_persistence_fails() {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.clone(),
-        create_agent_id: Arc::new(|| "unused".to_owned()),
+        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
         now: Arc::new(|| NOW.to_owned()),
         process_identity: current_identity(),
         session_path: session_path.clone(),
@@ -279,7 +279,7 @@ fn preserves_retained_artifacts_when_launch_manifest_persistence_fails() {
 #[test]
 fn binds_preallocated_artifacts_ownership_projection_and_exact_finalization() {
     let fixture = fixture("supervisor-1");
-    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash);
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     let artifacts = fixture.controller.create_artifacts(&job_id).expect("artifacts");
     let ownership = fixture
         .controller
@@ -344,7 +344,7 @@ fn binds_preallocated_artifacts_ownership_projection_and_exact_finalization() {
 fn finds_the_active_bash_attempt_for_a_repeated_tool_call() {
     let fixture = fixture("supervisor-1");
     let tool_call_id = "tool-retried";
-    let first_job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash);
+    let first_job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     let first_artifacts = fixture.controller.create_artifacts(&first_job_id).expect("artifacts");
     let first = fixture
         .controller
@@ -388,7 +388,7 @@ fn finds_the_active_bash_attempt_for_a_repeated_tool_call() {
         FinalizeDetachedJobResult::Ok { .. }
     ));
 
-    let current_job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash);
+    let current_job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     fixture.controller.create_artifacts(&current_job_id).expect("artifacts");
     let current = fixture
         .controller
@@ -426,7 +426,7 @@ fn finds_the_active_bash_attempt_for_a_repeated_tool_call() {
 #[test]
 fn requests_detached_cancellation_and_publishes_cancelling_state() {
     let fixture = fixture("supervisor-1");
-    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash);
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     fixture.controller.create_artifacts(&job_id).expect("artifacts");
     let ownership = register_bash(&fixture, &job_id, test_process_identity("runner"));
     let cancelled = fixture
@@ -452,7 +452,7 @@ fn requests_detached_cancellation_and_publishes_cancelling_state() {
 fn recovers_an_active_job_when_its_persisted_runner_identity_is_no_longer_alive() {
     let fixture = fixture("supervisor-1");
     register_listener(&fixture, "supervisor-1");
-    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash);
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     fixture.controller.create_artifacts(&job_id).expect("artifacts");
     let mut dead = current_identity();
     dead.start_time_ticks += 1;
@@ -480,7 +480,7 @@ fn recovers_an_active_job_when_its_persisted_runner_identity_is_no_longer_alive(
 #[test]
 fn keeps_an_active_job_running_when_its_exact_persisted_runner_identity_is_alive() {
     let fixture = fixture("supervisor-1");
-    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash);
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     fixture.controller.create_artifacts(&job_id).expect("artifacts");
     let ownership = register_bash(&fixture, &job_id, current_identity());
     let observed = fixture
@@ -498,7 +498,7 @@ fn keeps_an_active_job_running_when_its_exact_persisted_runner_identity_is_alive
 #[test]
 fn observes_and_publishes_a_terminal_snapshot_committed_by_an_external_runner() {
     let fixture = fixture("supervisor-1");
-    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash);
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     let artifacts = fixture.controller.create_artifacts(&job_id).expect("artifacts");
     let ownership = register_bash(&fixture, &job_id, test_process_identity("runner"));
     fs::write(&artifacts.output_path, "done").expect("output");

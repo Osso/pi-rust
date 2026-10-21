@@ -140,7 +140,9 @@ fn agent_selection_banner_renders_the_selected_agent() {
     let store = MultiAgentStore::new(MultiAgentStoreOptions {
         now: Some(Arc::new(|| "2026-01-01T00:00:00.000Z".to_string())),
     });
-    store.publish_lifecycle_coordinator_snapshot(&agent("agent-1", "Scout", AgentLifecycle::WaitingForInput));
+    store
+        .publish_lifecycle_coordinator_snapshot(&agent("agent-1", "Scout", AgentLifecycle::WaitingForInput))
+        .unwrap();
     store.select_agent_view("agent-1");
 
     let theme = theme();

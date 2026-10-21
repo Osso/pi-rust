@@ -52,7 +52,7 @@ fn scout_input(parent: Option<&str>) -> AgentSnapshot {
 
 fn spawn_agent(store: &MultiAgentStore, parent: Option<&str>) -> AgentSnapshot {
     let mut agent = scout_input(parent);
-    agent.id = store.allocate_agent_id_for_lifecycle_coordinator("agent");
+    agent.id = store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap();
     if let Some(persistence) = store.get_persistence_target() {
         pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent(
             &persistence.control_db_path,
@@ -62,7 +62,7 @@ fn spawn_agent(store: &MultiAgentStore, parent: Option<&str>) -> AgentSnapshot {
         )
         .expect("bootstrap");
     }
-    store.publish_lifecycle_coordinator_snapshot(&agent);
+    store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
     agent
 }
 
@@ -125,9 +125,9 @@ fn transition(
         requested,
         AgentLifecycle::Completed | AgentLifecycle::Failed | AgentLifecycle::Aborted
     ) {
-        store.publish_terminal_outbox_snapshot(&updated);
+        store.publish_terminal_outbox_snapshot(&updated).unwrap();
     } else {
-        store.publish_lifecycle_coordinator_snapshot(&updated);
+        store.publish_lifecycle_coordinator_snapshot(&updated).unwrap();
     }
     Ok(updated)
 }
@@ -258,21 +258,17 @@ fn steering_messages_move_through_pending_accepted_and_delivered() {
     };
     store.publish_lifecycle_coordinator_steering(&updated, &accepted);
     assert_eq!(
-        store.list_mailbox_messages()[0].status,
+        store.list_mailbox_messages().unwrap()[0].status,
         MailboxMessageStatusValue::Accepted
     );
 
     updated.lifecycle = AgentLifecycle::Running;
     updated.revision += 1;
-    let delivered = pi_coding_agent::core::multi_agent_store::AgentMailboxMessage {
-        status: MailboxMessageStatusValue::Delivered,
-        ..message
-    };
-    store.publish_lifecycle_coordinator_steering_delivery(&updated, &delivered);
-    assert_eq!(
-        store.list_mailbox_messages()[0].status,
-        MailboxMessageStatusValue::Delivered
-    );
+    // Frozen multi-agent-store.ts:366-368 removes delivered steering messages.
+    store
+        .publish_lifecycle_coordinator_steering_delivery(&updated, &accepted)
+        .unwrap();
+    assert!(store.list_mailbox_messages().unwrap().is_empty());
     assert_eq!(
         store.get_agent(&spawned.id).expect("agent").lifecycle,
         AgentLifecycle::Running
@@ -299,7 +295,7 @@ fn active_counts_follow_core_lifecycle_state() {
 fn pinned_slots_preserve_metadata_and_conflict_with_occupants() {
     let store = new_store();
     let mut input = scout_input(Some("root"));
-    input.id = store.allocate_agent_id_for_lifecycle_coordinator("agent");
+    input.id = store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap();
     input.account = Some(pi_coding_agent::core::multi_agent_store::AgentAccount {
         id: "account-1".to_owned(),
         budget_id: Some("budget-1".to_owned()),
@@ -324,7 +320,7 @@ fn pinned_slots_preserve_metadata_and_conflict_with_occupants() {
         base: Some("main".to_owned()),
     });
     let spawned = input.clone();
-    store.publish_lifecycle_coordinator_snapshot(&input);
+    store.publish_lifecycle_coordinator_snapshot(&input).unwrap();
 
     let pinned = store.pin_agent_slot(&spawned.id, 1, 7).expect("pin");
     let pi_coding_agent::core::multi_agent_store::AgentMetadataCommandResult::Ok(pinned) = pinned else {
@@ -376,7 +372,7 @@ fn waiting_for_input_notifications_are_recorded_once() {
         *notifications.lock().expect("notifications"),
         vec!["Scout is waiting for input."]
     );
-    let messages = store.list_mailbox_messages();
+    let messages = store.list_mailbox_messages().unwrap();
     assert_eq!(messages.len(), 1);
     assert_eq!(
         messages[0].kind,
@@ -389,8 +385,8 @@ fn waiting_for_input_notifications_are_recorded_once() {
     assert_eq!(messages[0].to_agent_id, "root");
     assert_eq!(waiting.revision, 2);
 
-    store.publish_lifecycle_coordinator_snapshot(&waiting);
-    assert_eq!(store.list_mailbox_messages().len(), 1);
+    store.publish_lifecycle_coordinator_snapshot(&waiting).unwrap();
+    assert_eq!(store.list_mailbox_messages().unwrap().len(), 1);
 }
 
 #[test]
@@ -492,14 +488,14 @@ fn direct_mailbox_messages_require_a_parent_child_relationship() {
 fn projections_are_snapshots_not_shared_state() {
     let store = new_store();
     let spawned = spawn_agent(&store, Some("root"));
-    let projection = store.get_projection_snapshot();
+    let projection = store.get_projection_snapshot().unwrap();
     assert_eq!(projection.active_count, 1);
     assert_eq!(projection.agents[0].id, spawned.id);
     assert_eq!(projection.rows[0].agent_id, spawned.id);
     assert!(projection.rows[0].active);
 
     store.select_agent_view(&spawned.id);
-    let projection = store.get_projection_snapshot();
+    let projection = store.get_projection_snapshot().unwrap();
     assert_eq!(projection.selected_agent_id, Some(spawned.id.clone()));
     assert!(projection.rows[0].selected);
 }
@@ -517,22 +513,27 @@ fn completion_and_failure_notifications_can_be_consumed() {
         duration_ms: Some(1200),
         tool_call_id: None,
     });
-    store.publish_terminal_outbox_snapshot(&agent);
-    let pending = store.list_pending_lifecycle_notifications_for_agent(
-        &completed.id,
-        pi_coding_agent::core::multi_agent_store::LifecycleNotificationLifecycle::Completed,
-    );
+    store.publish_terminal_outbox_snapshot(&agent).unwrap();
+    let pending = store
+        .list_pending_lifecycle_notifications_for_agent(
+            &completed.id,
+            pi_coding_agent::core::multi_agent_store::LifecycleNotificationLifecycle::Completed,
+        )
+        .unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(
         pending[0].body.as_deref(),
         Some("Scout completed: all done. Duration: 1200ms")
     );
-    let consumed = store.consume_completion_notifications_for_agent(&completed.id);
+    let consumed = store.consume_completion_notifications_for_agent(&completed.id).unwrap();
     assert_eq!(consumed.len(), 1);
-    assert_eq!(consumed[0].status, MailboxMessageStatusValue::Delivered);
+    // Frozen multi-agent-store.ts:539-549 returns the original message, then removes it.
+    assert_eq!(consumed[0].status, MailboxMessageStatusValue::Pending);
+    assert!(store.list_mailbox_messages().unwrap().is_empty());
     assert!(
         store
             .consume_completion_notifications_for_agent(&completed.id)
+            .unwrap()
             .is_empty()
     );
 
@@ -544,8 +545,8 @@ fn completion_and_failure_notifications_can_be_consumed() {
         message: "boom".to_owned(),
         code: None,
     });
-    store.publish_terminal_outbox_snapshot(&agent);
-    let notifications = store.consume_failure_notifications_for_agent(&failed.id);
+    store.publish_terminal_outbox_snapshot(&agent).unwrap();
+    let notifications = store.consume_failure_notifications_for_agent(&failed.id).unwrap();
     assert_eq!(notifications.len(), 1);
     assert_eq!(notifications[0].body.as_deref(), Some("Scout failed: boom"));
 }
@@ -588,10 +589,21 @@ fn outbound_session_messages_are_recorded_without_a_local_target() {
         .expect("record");
     assert_eq!(message.to_agent_id, "remote-session");
     assert_eq!(message.status, MailboxMessageStatusValue::Pending);
-    assert_eq!(store.list_pending_mailbox_messages_for_agent("remote-session").len(), 1);
-    let delivered = store.mark_mailbox_message_delivered(&message.id).expect("delivered");
-    assert_eq!(delivered.status, MailboxMessageStatusValue::Delivered);
-    assert!(store.mark_mailbox_message_delivered(&message.id).is_none());
+    assert_eq!(
+        store
+            .list_pending_mailbox_messages_for_agent("remote-session")
+            .unwrap()
+            .len(),
+        1
+    );
+    let delivered = store
+        .mark_mailbox_message_delivered(&message.id)
+        .unwrap()
+        .expect("delivered");
+    // Frozen multi-agent-store.ts:539-549 preserves the returned status and deletes the row.
+    assert_eq!(delivered.status, MailboxMessageStatusValue::Pending);
+    assert!(store.list_mailbox_messages().unwrap().is_empty());
+    assert!(store.mark_mailbox_message_delivered(&message.id).unwrap().is_none());
 }
 
 struct TestSession {
@@ -722,11 +734,11 @@ fn restore_preserves_waiting_notifications_and_mailbox_messages() {
     store.set_persistence_session_manager(Some(&session));
     let spawned = spawn_agent(&store, Some("root"));
     transition(&store, &spawned.id, 1, AgentLifecycle::WaitingForInput).expect("waiting");
-    assert_eq!(store.list_mailbox_messages().len(), 1);
+    assert_eq!(store.list_mailbox_messages().unwrap().len(), 1);
 
     let restored = new_store();
     restored.restore_from_session_manager(&session).expect("restore");
-    let messages = restored.list_mailbox_messages();
+    let messages = restored.list_mailbox_messages().unwrap();
     assert_eq!(messages.len(), 1);
     assert_eq!(
         messages[0].thread_id.as_deref(),

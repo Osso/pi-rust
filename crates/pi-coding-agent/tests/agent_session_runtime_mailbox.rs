@@ -206,6 +206,7 @@ fn enqueue_stored_message(env: &TestEnv, body: &str, message_id: &str, recipient
     enqueue_runtime_mailbox_message(
         &env.control_db,
         &EnqueueRuntimeMailboxMessageInput {
+            recipient_host: None,
             kind: RuntimeMailboxMessageKind::Message,
             recipient: RuntimeMailboxAddress {
                 agent_id: recipient_agent.map(str::to_owned),
@@ -228,6 +229,7 @@ fn enqueue_steering_transport(env: &TestEnv, message_id: &str, agent_id: &str) -
     enqueue_runtime_mailbox_message(
         &env.control_db,
         &EnqueueRuntimeMailboxMessageInput {
+            recipient_host: None,
             kind: RuntimeMailboxMessageKind::Steer,
             recipient: RuntimeMailboxAddress {
                 agent_id: Some(agent_id.to_owned()),
@@ -259,33 +261,35 @@ async fn advance(millis: u64) {
 
 fn reserve_agent(store: &Arc<MultiAgentStore>, env: &TestEnv, id: &str, parent_id: Option<&str>) -> AgentSnapshot {
     let coordinator = create_lifecycle_coordinator(store).expect("coordinator");
-    let prepared = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: SpawnAgent {
-            parent_id: Some(parent_id.unwrap_or("main").to_owned()),
-            display_name: format!("Agent {id}"),
-            agent_type: "worker".to_owned(),
-            origin: None,
-            cwd: env.cwd.clone(),
-            permission: AgentPermission {
-                policy: "on-request".to_owned(),
-                inherited_from: None,
-                narrowed: true,
+    let prepared = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: SpawnAgent {
+                parent_id: Some(parent_id.unwrap_or("main").to_owned()),
+                display_name: format!("Agent {id}"),
+                agent_type: "worker".to_owned(),
+                origin: None,
+                cwd: env.cwd.clone(),
+                permission: AgentPermission {
+                    policy: "on-request".to_owned(),
+                    inherited_from: None,
+                    narrowed: true,
+                },
+                worktree: None,
+                model: None,
+                account: None,
+                slot: None,
+                transcript: Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
+                    session_id: session_id(env),
+                    path: Some(session_path(env)),
+                }),
+                event_stream: None,
+                worker: None,
             },
-            worktree: None,
-            model: None,
-            account: None,
-            slot: None,
-            transcript: Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-                session_id: session_id(env),
-                path: Some(session_path(env)),
-            }),
-            event_stream: None,
-            worker: None,
-        },
-        agent_id: Some(id.to_owned()),
-        detached: None,
-        result: None,
-    });
+            agent_id: Some(id.to_owned()),
+            detached: None,
+            result: None,
+        })
+        .unwrap();
     let created = coordinator
         .commit_running_child(
             &prepared,
@@ -298,7 +302,7 @@ fn reserve_agent(store: &Arc<MultiAgentStore>, env: &TestEnv, id: &str, parent_i
         CreateMultiAgentChildWithRuntimeOwnershipResult::Ok { agent, .. } => *agent,
         other => panic!("unexpected child creation: {other:?}"),
     };
-    store.publish_lifecycle_coordinator_snapshot(&agent);
+    store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
     agent
 }
 
@@ -325,20 +329,15 @@ async fn polling_claims_mailbox_messages_only_after_listener_binding() {
     env.faux.set_responses(vec![
         faux_assistant_message("mailbox reply", FauxAssistantMessageOptions::default()).into(),
     ]);
+    let expected_prompt = format_runtime_mailbox_prompt(&message, &session_id(&env));
     advance(30_000).await;
-    assert_eq!(
-        user_texts(&env.session),
-        vec![format_runtime_mailbox_prompt(
-            &read_runtime_mailbox_message(&env.control_db, message_id)
-                .expect("read message")
-                .expect("message"),
-            &session_id(&env)
-        )]
+    assert_eq!(user_texts(&env.session), vec![expected_prompt]);
+    // Frozen session-control-db.ts:1092-1101 deletes delivered canonical rows.
+    assert!(
+        read_runtime_mailbox_message(&env.control_db, message_id)
+            .expect("read message")
+            .is_none()
     );
-    let message = read_runtime_mailbox_message(&env.control_db, message_id)
-        .expect("read message")
-        .expect("message");
-    assert_eq!(message.status, RuntimeMailboxMessageStatus::Delivered);
     assert_ne!(env.control_db, env.initial_control_db);
 }
 
@@ -386,6 +385,7 @@ fn enqueue_stored_message_for(
     enqueue_runtime_mailbox_message(
         &env.control_db,
         &EnqueueRuntimeMailboxMessageInput {
+            recipient_host: None,
             kind: RuntimeMailboxMessageKind::Message,
             recipient: RuntimeMailboxAddress {
                 agent_id: recipient_agent.map(str::to_owned),
@@ -457,10 +457,12 @@ async fn steering_delivery_marks_the_store_message_and_completes_the_agent() {
         .await
         .expect("prompt");
 
-    let transport = read_runtime_mailbox_message(&env.control_db, transport_id)
-        .expect("read transport")
-        .expect("transport");
-    assert_eq!(transport.status, RuntimeMailboxMessageStatus::Delivered);
+    // Frozen session-control-db.ts:1092-1101 deletes delivered canonical rows.
+    assert!(
+        read_runtime_mailbox_message(&env.control_db, transport_id)
+            .expect("read transport")
+            .is_none()
+    );
     let agent = store.get_agent("agent_1").expect("agent");
     assert_eq!(agent.lifecycle, AgentLifecycle::Completed);
     assert_eq!(
@@ -469,13 +471,12 @@ async fn steering_delivery_marks_the_store_message_and_completes_the_agent() {
     );
     let status = store
         .list_mailbox_messages()
+        .unwrap()
         .into_iter()
         .find(|candidate| candidate.id == message.id)
         .map(|candidate| candidate.status);
-    assert_eq!(
-        status,
-        Some(pi_coding_agent::core::multi_agent_store::MailboxMessageStatusValue::Delivered)
-    );
+    // Frozen multi-agent-store.ts:366-368 removes the steering projection on delivery.
+    assert_eq!(status, None);
 }
 
 #[tokio::test(start_paused = true)]
@@ -563,7 +564,7 @@ async fn steered_parent_terminal_result_waits_for_its_active_child() {
     let pi_coding_agent::core::lifecycle_coordinator::LifecycleCommandResult::Ok { agent } = finalized else {
         panic!("child finalize rejected");
     };
-    store.publish_lifecycle_coordinator_snapshot(&agent);
+    store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
 
     let parent = store.get_agent("agent_1").expect("parent");
     assert_eq!(parent.lifecycle, AgentLifecycle::Completed);

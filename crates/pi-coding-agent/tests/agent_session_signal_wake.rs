@@ -113,6 +113,7 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
     enqueue_runtime_mailbox_message(
         &control_db,
         &EnqueueRuntimeMailboxMessageInput {
+            recipient_host: None,
             kind: RuntimeMailboxMessageKind::Message,
             recipient: RuntimeMailboxAddress {
                 agent_id: None,

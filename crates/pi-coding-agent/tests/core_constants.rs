@@ -24,12 +24,15 @@ fn exposes_built_in_provider_display_names_in_source_order() {
 fn exposes_radius_and_tool_capability_constants() {
     assert_eq!(RADIUS_PROVIDER_ID, "radius");
     assert_eq!(
-        CHILD_DISABLED_AGENT_TOOL_NAMES,
+        // Frozen tool-capabilities.ts:1-11 includes both answer_question and set_agent_model.
+        CHILD_DISABLED_AGENT_TOOL_NAMES.as_slice(),
         [
             "agent_viewer",
+            "answer_question",
             "attach_session_agent",
             "close_agent",
             "list_agents",
+            "set_agent_model",
             "spawn_agent",
             "steer_agent",
             "wait_agent"

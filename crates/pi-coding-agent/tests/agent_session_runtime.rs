@@ -485,8 +485,6 @@ fn session_metadata_row(session_path: &str, id: &str, cwd: &str, name: Option<&s
         modified_at: "2026-08-23T00:00:00.000Z".to_owned(),
         message_count: 0,
         first_message: "(no messages)".to_owned(),
-        all_messages_text: String::new(),
-        index_message_text: None,
     }
 }
 

@@ -42,8 +42,6 @@ fn metadata(session_path: &str, id: &str) -> WritableSessionMetadata {
         modified_at: "2026-06-21T00:00:00.000Z".to_owned(),
         message_count: 2,
         first_message: "hello".to_owned(),
-        all_messages_text: "hello world".to_owned(),
-        index_message_text: None,
     }
 }
 

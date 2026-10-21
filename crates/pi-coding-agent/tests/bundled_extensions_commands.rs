@@ -179,8 +179,6 @@ async fn session_archive_matches_typescript() {
             modified_at: "2026-07-11T00:00:00.000Z".to_owned(),
             message_count: 1,
             first_message: "hello".to_owned(),
-            all_messages_text: "hello".to_owned(),
-            index_message_text: None,
         },
     )
     .unwrap();

@@ -304,8 +304,6 @@ async fn rejects_targets_whose_metadata_points_at_missing_session_files() {
             modified_at: "2026-07-04T00:00:00.000Z".to_owned(),
             message_count: 1,
             first_message: "stale".to_owned(),
-            all_messages_text: "stale".to_owned(),
-            index_message_text: None,
         },
     )
     .expect("write metadata");
