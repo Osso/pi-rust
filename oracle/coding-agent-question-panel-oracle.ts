@@ -31,7 +31,19 @@ async function main() {
 			panel.handleInput(key);
 			renders.push(panel.render(80).join("\n"));
 		}
-		console.log(JSON.stringify({ result, renders }));
+		const answer = result as {
+			answers: Record<string, string>;
+			cancelled: boolean;
+		};
+		const toolText = answer.cancelled
+			? "Questions cancelled"
+			: `User answered questions:\n${Object.entries(answer.answers)
+					.map(
+						([question, value]) =>
+							`- ${question} → ${value || "(no selection)"}`,
+					)
+					.join("\n")}`;
+		console.log(JSON.stringify({ result, renders, toolText }));
 	}
 }
 main().catch((error) => {

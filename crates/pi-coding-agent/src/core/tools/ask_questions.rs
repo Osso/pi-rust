@@ -138,8 +138,9 @@ pub fn question_result(params: &Value, text: impl Into<String>, answers: Value, 
 pub fn format_answers(answers: &Value) -> String {
     answers
         .as_object()
+        .map(pi_js_compat::js_json::object_entries)
+        .unwrap_or_default()
         .into_iter()
-        .flatten()
         .map(|(question, answer)| {
             let answer = answer.as_str().unwrap_or("");
             format!(

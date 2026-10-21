@@ -132,6 +132,10 @@ async fn blocking_panels_match_frozen_answers_for_real_keystrokes() {
         ),
         (json!([{"question":"Free?"}]), vec!["  answer  ", "\r"]),
         (
+            json!([{"question":"2"},{"question":"1"}]),
+            vec!["second", "\r", "first", "\r", "\r"],
+        ),
+        (
             json!([{"question":"Other?","options":[{"label":"A"},{"label":"B"}]}]),
             vec!["\u{1b}[B", "\u{1b}[B", "\r", "other", "\r"],
         ),
@@ -169,6 +173,11 @@ async fn blocking_panels_match_frozen_answers_for_real_keystrokes() {
         assert_eq!(
             result.details.as_ref().unwrap()["cancelled"],
             expected["result"]["cancelled"]
+        );
+        assert_eq!(
+            serde_json::to_value(&result.content).unwrap()[0]["text"],
+            expected["toolText"],
+            "answer enumeration for {questions}"
         );
         let strip = pi_coding_agent::utils::ansi::strip_ansi;
         let actual = ui
