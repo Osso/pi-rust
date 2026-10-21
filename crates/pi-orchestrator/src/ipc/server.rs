@@ -140,6 +140,7 @@ async fn serve_rpc_stream(
     mut buffer: String,
 ) -> Result<(), String> {
     let (sender, mut receiver) = mpsc::unbounded_channel();
+    let sender_for_errors = sender.clone();
     let on_message = Arc::new(move |message| {
         let _ = sender.send(message);
     });
@@ -147,29 +148,60 @@ async fn serve_rpc_stream(
     let Some(stream) = handler.open_rpc_stream(id, on_message) else {
         return send_and_end(socket, error_response(format!("Unknown instance: {id}"))).await;
     };
-    let close = CloseStream(stream);
+    let _close = CloseStream(stream.clone());
+    let (requests, queued) = mpsc::unbounded_channel();
     socket
         .write_all(encode_message(&response).as_bytes())
         .await
         .map_err(|e| e.to_string())?;
+    let _worker = RequestWorker(queue_stream_requests(stream, queued, sender_for_errors));
+    pump_stream_socket(&mut socket, &mut buffer, &requests, &mut receiver).await
+}
+
+struct RequestWorker(JoinHandle<()>);
+impl Drop for RequestWorker {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+fn queue_stream_requests(
+    stream: Arc<dyn RpcStream>,
+    mut queued: mpsc::UnboundedReceiver<String>,
+    responses: mpsc::UnboundedSender<Value>,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        while let Some(line) = queued.recv().await {
+            let result = match parse_request_line(&line) {
+                Ok(request) => stream.handle_request(request).await,
+                Err(error) => Err(error),
+            };
+            if let Err(error) = result {
+                let _ = responses.send(error_response(error));
+            }
+        }
+    })
+}
+
+async fn pump_stream_socket(
+    socket: &mut UnixStream,
+    buffer: &mut String,
+    requests: &mpsc::UnboundedSender<String>,
+    receiver: &mut mpsc::UnboundedReceiver<Value>,
+) -> Result<(), String> {
     let mut chunk = [0; 8192];
     loop {
         tokio::select! {
-            message = receiver.recv() => {
-                if let Some(message) = message { socket.write_all(encode_message(&message).as_bytes()).await.map_err(|e| e.to_string())?; }
+            Some(message) = receiver.recv() => {
+                socket.write_all(encode_message(&message).as_bytes()).await.map_err(|e| e.to_string())?;
             },
             result = socket.read(&mut chunk) => {
                 let count = result.map_err(|e| e.to_string())?;
                 if count == 0 { return Ok(()); }
                 buffer.push_str(&String::from_utf8_lossy(&chunk[..count]));
                 // Frozen boundary: buffered stream lines are drained only on a new data event.
-                while let Some(line) = take_line(&mut buffer) {
-                    if line.is_empty() { continue; }
-                    let result = match parse_request_line(&line) {
-                        Ok(request) => close.0.handle_request(request).await,
-                        Err(error) => Err(error),
-                    };
-                    if let Err(error) = result { socket.write_all(encode_message(&error_response(error)).as_bytes()).await.map_err(|e| e.to_string())?; }
+                while let Some(line) = take_line(buffer) {
+                    if !line.is_empty() { requests.send(line).map_err(|e| e.to_string())?; }
                 }
             }
         }

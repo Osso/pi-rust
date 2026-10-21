@@ -157,3 +157,53 @@ async fn rust_client_to_frozen_ts_server_and_coalesced_stream_boundary() {
         assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["id"], "one");
     }
 }
+
+#[tokio::test]
+async fn session_events_are_written_while_rpc_command_is_pending() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    struct Slow(OnMessage);
+    impl RpcStream for Slow {
+        fn handle_request(&self, _request: Value) -> BoxFuture<'_, Result<(), String>> {
+            Box::pin(async move {
+                (self.0)(json!({"type":"message_update"}));
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                Ok(())
+            })
+        }
+        fn close(&self) {}
+    }
+    struct SlowHandler;
+    impl IpcRequestHandler for SlowHandler {
+        fn handle(&self, _request: Value) -> BoxFuture<'_, Result<Value, String>> {
+            Box::pin(async { Ok(json!({"type":"rpc_ready","ok":true,"instance":{"id":"i"}})) })
+        }
+        fn open_rpc_stream(&self, _id: &str, on_message: OnMessage) -> Option<Arc<dyn RpcStream>> {
+            Some(Arc::new(Slow(on_message)))
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("socket");
+    let server = start_ipc_server(&path, Arc::new(SlowHandler)).await.unwrap();
+    let socket = tokio::net::UnixStream::connect(&path).await.unwrap();
+    let (read, mut write) = socket.into_split();
+    let mut reader = BufReader::new(read);
+    let mut line = String::new();
+    write
+        .write_all(b"{\"type\":\"rpc_stream\",\"instanceId\":\"i\"}\n")
+        .await
+        .unwrap();
+    reader.read_line(&mut line).await.unwrap();
+    write
+        .write_all(b"{\"type\":\"prompt\",\"message\":\"hi\"}\n")
+        .await
+        .unwrap();
+    line.clear();
+    tokio::time::timeout(std::time::Duration::from_millis(200), reader.read_line(&mut line))
+        .await
+        .expect("events must not wait for command completion")
+        .unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["type"], "message_update");
+    drop(write);
+    drop(reader);
+    server.close().await;
+}
