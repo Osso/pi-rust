@@ -8,6 +8,8 @@ Frozen `runtime.ts:402-412` and agent-viewer result constructors omit `isError`;
 
 Retired differential cases: generic `createFailedMailboxMessage` and `appendParentAgentStart` are absent from frozen non-test source; removed `failed-message` and `journal` cases are not new-pin parity evidence. Native legacy helpers/tests remain outside this bounded oracle repair. Registration still invokes real frozen exported registration functions.
 
+Current proof: deterministic helper cases pass; full registration differential remains failing (frozen 12 tools, native 10). Missing `ask_questions`/`answer_question` belong to unported `question-relay-tools.ts`. Other exact drifts: `spawn_agent.displayName` description; `wait_agent` 25-minute timeout description; `agent_viewer.trace` parameter/description; mailbox tools require frozen nonblank `body`, strict properties, remote `toHost`, descriptions/guidelines instead of native `message`. `set_agent_model` registration ordering also differs. Commands match. These remain full-module follow-ups, not waived/masked assertions.
+
 Runtime/store/lifecycle old-clock failures were expired canonical rows: frozen `multi-agent-store.ts:939-945` persists the store row before runtime enqueue (`runtime.ts:2954-3040`). Fixtures now use current birth times. Child-disabled capability includes frozen `answer_question`; `set_agent_model` was already registered natively and only missing from the old fixture expectation.
 
 Source: `packages/coding-agent/extensions/agents-core/src/*.ts` (pinned by
