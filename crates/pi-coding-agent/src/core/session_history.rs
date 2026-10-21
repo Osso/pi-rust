@@ -58,10 +58,10 @@ impl ReverseEntries {
             if self.position == 0 {
                 let line = std::mem::take(&mut self.pending);
                 let entry = parse_entry(&line);
-                if entry.is_none() {
-                    if let Some(directory) = self.directory.take() {
-                        directory.close().map_err(error)?;
-                    }
+                if entry.is_none()
+                    && let Some(directory) = self.directory.take()
+                {
+                    directory.close().map_err(error)?;
                 }
                 return Ok(entry);
             }
@@ -98,12 +98,11 @@ impl Iterator for SessionHistoryReverse {
         }
         if self.done || self.parent.is_none() || self.path.is_none() {
             self.done = true;
-            if let Some(mut transcript) = self.transcript.take() {
-                if let Some(directory) = transcript.directory.take() {
-                    if let Err(cause) = directory.close() {
-                        return Some(Err(error(cause)));
-                    }
-                }
+            if let Some(mut transcript) = self.transcript.take()
+                && let Some(directory) = transcript.directory.take()
+                && let Err(cause) = directory.close()
+            {
+                return Some(Err(error(cause)));
             }
             return None;
         }
