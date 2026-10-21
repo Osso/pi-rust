@@ -65,10 +65,19 @@ impl OAuthCredential {
             .map_err(|e| AuthError::failed(format!("Cannot hand OAuth access token to request provider: {e}")))
     }
 
-    pub fn refresh_utf8(&self) -> Result<String, AuthError> {
-        self.refresh
-            .to_utf8()
-            .map_err(|e| AuthError::failed(format!("Cannot build OAuth refresh request: {e}")))
+    /// Node HTTP header validation: tab, printable ASCII and Latin-1 only.
+    pub fn refresh_header_value(&self, header: &str) -> Result<String, AuthError> {
+        let invalid = self
+            .refresh
+            .units()
+            .iter()
+            .any(|unit| !matches!(*unit, 9 | 32..=126 | 128..=255));
+        if invalid {
+            let mut error = CallbackError::new(format!("Invalid character in header content [\"{header}\"]"));
+            error.name = "TypeError".into();
+            return Err(AuthError::Failed(error));
+        }
+        Ok(self.refresh.to_utf8().expect("validated header units are scalar"))
     }
 
     pub fn to_js_value(&self) -> JsValue {

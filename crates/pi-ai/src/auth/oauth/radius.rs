@@ -88,7 +88,10 @@ impl OAuthAuth for RadiusOAuth {
                 &[
                     ("grant_type", "refresh_token"),
                     ("client_id", OAUTH_CLIENT_ID),
-                    ("refresh_token", &credential.refresh_utf8()?),
+                    (
+                        "refresh_token",
+                        &crate::auth::oauth::support::to_form_usv_string(&credential.refresh),
+                    ),
                 ],
                 signal,
             )

@@ -102,6 +102,11 @@ pub fn random_hex(random: &dyn RandomSource, length: usize) -> String {
 }
 
 /// `URLSearchParams` / `application/x-www-form-urlencoded` encoding in pair order.
+/// Node URLSearchParams converts values to USVString at form encoding, not in stored credentials.
+pub fn to_form_usv_string(value: &pi_js_compat::js_json::JsString) -> String {
+    value.to_utf8_lossy()
+}
+
 pub fn form_encode(pairs: &[(&str, &str)]) -> String {
     let mut serializer = url::form_urlencoded::Serializer::new(String::new());
     serializer.extend_pairs(pairs.iter().copied());
@@ -202,7 +207,7 @@ async fn collect_body(mut body: Box<dyn HttpBody>) -> Result<Vec<u8>, CallbackEr
     Ok(bytes)
 }
 
-pub fn json_request(url: &str, body: &Value, accept: bool) -> HttpRequest {
+pub fn json_request(url: &str, body: impl Into<pi_js_compat::js_json::JsValue>, accept: bool) -> HttpRequest {
     let mut headers = vec![("Content-Type".to_owned(), "application/json".to_owned())];
     if accept {
         headers.push(("Accept".to_owned(), "application/json".to_owned()));
@@ -211,7 +216,7 @@ pub fn json_request(url: &str, body: &Value, accept: bool) -> HttpRequest {
         method: "POST".to_owned(),
         url: url.to_owned(),
         headers,
-        body: Some(body.to_string().into_bytes()),
+        body: Some(pi_js_compat::js_json::stringify_lossless(&body.into()).into_bytes()),
     }
 }
 

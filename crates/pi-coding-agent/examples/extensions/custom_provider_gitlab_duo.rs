@@ -192,7 +192,10 @@ impl OAuthAuth for GitlabOAuth {
                     &[
                         ("client_id", CLIENT_ID),
                         ("grant_type", "refresh_token"),
-                        ("refresh_token", &c.refresh_utf8()?),
+                        (
+                            "refresh_token",
+                            &pi_ai::auth::oauth::support::to_form_usv_string(&c.refresh),
+                        ),
                     ],
                     Some(signal),
                     "Token refresh failed",

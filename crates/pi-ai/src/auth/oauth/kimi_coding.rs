@@ -83,9 +83,14 @@ impl OAuthAuth for KimiCodingOAuth {
         let runtime = self.runtime.clone();
         let oauth_host = self.oauth_host.clone();
         Box::pin(async move {
-            refresh_token(&runtime, &oauth_host, &credential.refresh_utf8()?, signal)
-                .await
-                .map_err(|error| AuthError::failed(error.message))
+            refresh_token(
+                &runtime,
+                &oauth_host,
+                &crate::auth::oauth::support::to_form_usv_string(&credential.refresh),
+                signal,
+            )
+            .await
+            .map_err(|error| AuthError::failed(error.message))
         })
     }
 

@@ -181,6 +181,12 @@ pub fn to_js_string(value: &JsValue) -> Result<JsString, &'static str> {
     }
 }
 
+impl From<&JsValue> for JsValue {
+    fn from(value: &JsValue) -> Self {
+        value.clone()
+    }
+}
+
 impl From<Value> for JsValue {
     fn from(value: Value) -> Self {
         Self::from(&value)

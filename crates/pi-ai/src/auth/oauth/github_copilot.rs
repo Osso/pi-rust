@@ -78,7 +78,7 @@ impl OAuthAuth for GitHubCopilotOAuth {
             let enterprise_domain = copilot_enterprise_domain(&credential);
             refresh_token(
                 &runtime,
-                &credential.refresh_utf8()?,
+                &credential.refresh_header_value("Authorization")?,
                 enterprise_domain.as_deref(),
                 signal,
             )

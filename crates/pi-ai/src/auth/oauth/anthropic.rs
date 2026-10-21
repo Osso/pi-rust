@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::json;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -88,7 +88,7 @@ impl OAuthAuth for AnthropicOAuth {
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
-            refresh_anthropic(&runtime, &credential.refresh_utf8()?, signal)
+            refresh_anthropic(&runtime, &credential.refresh, signal)
                 .await
                 .map_err(|error| AuthError::failed(error.message))
         })
@@ -169,10 +169,10 @@ async fn start_anthropic_callback_server(
 async fn post_json(
     runtime: &OAuthRuntime,
     url: &str,
-    body: Value,
+    body: impl Into<pi_js_compat::js_json::JsValue>,
     signal: CancellationToken,
 ) -> Result<String, CallbackError> {
-    let request = json_request(url, &body, true);
+    let request = json_request(url, body, true);
     let response = tokio::time::timeout(REQUEST_TIMEOUT, send(&runtime.fetch, request, Some(signal)))
         .await
         .map_err(|_| CallbackError::new(ABORT_ERROR_MESSAGE))??;
@@ -370,14 +370,15 @@ fn resolve_manual_input(input: &str, verifier: &str) -> Result<(Option<String>, 
 
 async fn refresh_anthropic(
     runtime: &OAuthRuntime,
-    refresh_token: &str,
+    refresh_token: &pi_js_compat::js_json::JsString,
     signal: CancellationToken,
 ) -> Result<OAuthCredential, CallbackError> {
-    let body = json!({
-        "grant_type": "refresh_token",
-        "client_id": CLIENT_ID,
-        "refresh_token": refresh_token,
-    });
+    use pi_js_compat::js_json::{JsObject, JsValue};
+    let body = JsValue::Object(JsObject::from_iter([
+        ("grant_type".into(), JsValue::String("refresh_token".into())),
+        ("client_id".into(), JsValue::String(CLIENT_ID.into())),
+        ("refresh_token".into(), JsValue::String(refresh_token.clone())),
+    ]));
     let response_body = post_json(runtime, TOKEN_URL, body, signal).await.map_err(|error| {
         CallbackError::new(format!(
             "Anthropic token refresh request failed. url={TOKEN_URL}; details={}",

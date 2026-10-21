@@ -89,9 +89,13 @@ impl OAuthAuth for OpenAICodexOAuth {
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
-            refresh_openai_codex(&runtime, &credential.refresh_utf8()?, signal)
-                .await
-                .map_err(|error| AuthError::failed(error.message))
+            refresh_openai_codex(
+                &runtime,
+                &crate::auth::oauth::support::to_form_usv_string(&credential.refresh),
+                signal,
+            )
+            .await
+            .map_err(|error| AuthError::failed(error.message))
         })
     }
 
