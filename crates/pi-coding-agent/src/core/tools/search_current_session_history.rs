@@ -336,13 +336,12 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
                 next_cursor,
                 entries,
             };
+            let details_value = serde_json::to_value(&details).expect("search details must serialize");
             let text = if all_match_indexes.is_empty() {
                 "No matches found in current session history.".to_owned()
             } else {
-                let value = serde_json::to_value(&details).expect("search details must serialize");
-                pi_js_compat::js_json::stringify_pretty(&value)
+                pi_js_compat::js_json::stringify_pretty(&details_value)
             };
-            let details_value = serde_json::to_value(&details).expect("search details must serialize");
             Ok(text_result(text, details_value))
         })
     }
