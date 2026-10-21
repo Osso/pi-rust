@@ -189,3 +189,7 @@ The existing differential test remains red rather than silently dropping this ca
   error is emitted; Rust discards the per-key errors the same way.
 - `Value.Convert`'s `FromArray` uses `TryArray`, which always succeeds and wraps non-arrays. Rust
   wraps non-array values before converting elements.
+
+## Approved nullable-array delta 6d2363e6
+
+Native validator already returns null successfully. `differential_validation::nullable_array_matches_approved_delta_6d2363e6` explicitly selects the guarded delta and compares null, empty array, string array and invalid object members. The ordinary frozen matrix asserts exactly its TypeError (`every`) and native successful `{a:"1",b:1,c:null}` result; all other cases remain strict parity. No Rust production change.
