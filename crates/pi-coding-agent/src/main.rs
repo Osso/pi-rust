@@ -1877,7 +1877,46 @@ pub async fn run_main_or_report_error(args: &[String], options: MainOptions) -> 
     }
 }
 
+fn reject_invalid_standalone_worker_startup(args: &[String]) -> bool {
+    let parsed = parse_args(args);
+    if parsed.no_supervisor != Some(true) {
+        return false;
+    }
+    let requests_console = args.iter().any(|arg| arg == "--supervisor" || arg == "--architect");
+    let has_errors = parsed
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.kind == crate::cli::args::DiagnosticType::Error);
+    if !has_errors && !requests_console {
+        return false;
+    }
+    let diagnostics: Vec<_> = parsed
+        .diagnostics
+        .into_iter()
+        .map(|diagnostic| AgentSessionRuntimeDiagnostic {
+            diagnostic_type: diagnostic.kind.as_str().into(),
+            message: diagnostic.message,
+        })
+        .collect();
+    report_diagnostics(&diagnostics);
+    if requests_console {
+        console_error("Error: resident consoles are unavailable in standalone worker mode");
+    }
+    true
+}
+
 async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i32) -> Result<Option<i32>, String> {
+    if args == ["relay", "serve"] {
+        crate::core::host_relay::run_relay_serve().await?;
+        return Ok(None);
+    }
+    if args == ["relay", "connect"] {
+        crate::core::host_relay_resident::run_relay_connect().await?;
+        return Ok(None);
+    }
+    if reject_invalid_standalone_worker_startup(args) {
+        return Ok(Some(1));
+    }
     match parse_resident_console_args(args) {
         Ok(Some(command)) => {
             crate::cli::resident_console_command::run_resident_console_command(command).await?;
@@ -2321,6 +2360,21 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     if startup_benchmark && app_mode != AppMode::Interactive {
         console_error(&Chalk::stderr().red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
         return Ok(Some(1));
+    }
+
+    if parsed.no_supervisor != Some(true) {
+        let path = control_db_path.clone();
+        let settings = startup_settings_manager.get_global_settings();
+        tokio::spawn(async move {
+            let result = async {
+                let relay = crate::core::host_relay_resident::relay_settings_from_global(&settings)?;
+                crate::core::host_relay_resident::ensure_relay_running(&path, relay.as_ref()).await
+            }
+            .await;
+            if let Err(error) = result {
+                eprintln!("Relay startup failed: {error}");
+            }
+        });
     }
 
     refresh_rpc_model_catalogs(&model_runtime, offline_mode, app_mode);
