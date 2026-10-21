@@ -407,17 +407,19 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
                     })
                 }));
                 let runner_for_payload = Arc::clone(&extension_runner_ref);
-                options.stream.request.on_payload = Some(Arc::new(move |payload: Value, _model: Model| {
-                    let runner = lock(&runner_for_payload).clone();
-                    Box::pin(async move {
-                        match runner {
-                            Some(runner) if runner.has_handlers("before_provider_request") => {
-                                Ok(Some(runner.emit_before_provider_request(payload).await))
+                options.stream.request.on_payload = Some(Arc::new(
+                    move |payload: pi_js_compat::js_json::JsValue, _model: Model| {
+                        let runner = lock(&runner_for_payload).clone();
+                        Box::pin(async move {
+                            match runner {
+                                Some(runner) if runner.has_handlers("before_provider_request") => {
+                                    Ok(Some(runner.emit_before_provider_request(payload.into()).await))
+                                }
+                                _ => Ok(None),
                             }
-                            _ => Ok(None),
-                        }
-                    })
-                }));
+                        })
+                    },
+                ));
                 let runner_for_response = Arc::clone(&extension_runner_ref);
                 options.stream.request.on_response = Some(Arc::new(
                     move |response: pi_ai::types::ProviderResponse, _model: Model| {

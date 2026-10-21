@@ -81,7 +81,7 @@ pub struct SessionTransitionResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForkResult {
     pub cancelled: bool,
-    pub selected_text: Option<String>,
+    pub selected_text: Option<pi_js_compat::js_json::JsString>,
 }
 
 /// Session setup callback used by `newSession`.
@@ -385,11 +385,11 @@ impl AgentSessionRuntime {
         session_manager
             .append_custom_message_entry(
                 "cwd_changed",
-                pi_agent_core::harness::messages::CustomMessageContent::Text(format!(
-                    "Working directory changed from {previous_cwd} to {resolved_target}."
-                )),
+                pi_agent_core::harness::messages::CustomMessageContent::Text(
+                    format!("Working directory changed from {previous_cwd} to {resolved_target}.").into(),
+                ),
                 true,
-                Some(serde_json::Value::Object(details)),
+                Some(serde_json::Value::Object(details).into()),
             )
             .map_err(|error| error.to_string())?;
         Ok(PreparedCwdRelocation {
@@ -485,7 +485,7 @@ impl AgentSessionRuntime {
             session_manager
                 .append_custom_message_entry(
                     "self_restart",
-                    pi_agent_core::harness::messages::CustomMessageContent::Text(notice.to_owned()),
+                    pi_agent_core::harness::messages::CustomMessageContent::Text(notice.to_owned().into()),
                     true,
                     None,
                 )
@@ -992,15 +992,15 @@ pub struct DefaultRuntimeFactoryOptions {
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
 }
 
-fn user_content_text(content: &pi_ai::types::UserContent) -> String {
+fn user_content_text(content: &pi_ai::types::UserContent) -> pi_js_compat::js_json::JsString {
     match content {
         pi_ai::types::UserContent::Text(text) => text.clone(),
-        pi_ai::types::UserContent::Blocks(blocks) => blocks
-            .iter()
-            .filter_map(|block| match block {
-                pi_ai::types::UserContentBlock::Text(text) => Some(text.text.as_str()),
+        pi_ai::types::UserContent::Blocks(blocks) => pi_js_compat::js_json::JsString::join(
+            blocks.iter().filter_map(|block| match block {
+                pi_ai::types::UserContentBlock::Text(text) => Some(&text.text),
                 pi_ai::types::UserContentBlock::Image(_) => None,
-            })
-            .collect(),
+            }),
+            "",
+        ),
     }
 }

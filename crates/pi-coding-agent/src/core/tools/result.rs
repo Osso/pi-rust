@@ -2,20 +2,20 @@
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use serde_json::Value;
+use pi_js_compat::js_json::{JsString, JsValue};
 
 /// `{ content: [{ type: "text", text }], details }` with every optional field absent.
-pub fn text_result(text: impl Into<String>, details: Value) -> AgentToolResult {
+pub fn text_result(text: impl Into<JsString>, details: impl Into<JsValue>) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(details),
+        details: Some(details.into()),
         is_error: None,
         terminate: None,
     }
 }
 
 /// A text result flagged as a tool error.
-pub fn error_text_result(text: impl Into<String>, details: Value) -> AgentToolResult {
+pub fn error_text_result(text: impl Into<JsString>, details: impl Into<JsValue>) -> AgentToolResult {
     AgentToolResult {
         is_error: Some(true),
         ..text_result(text, details)
@@ -23,7 +23,7 @@ pub fn error_text_result(text: impl Into<String>, details: Value) -> AgentToolRe
 }
 
 /// A text result that ends the current turn.
-pub fn terminating_text_result(text: impl Into<String>, details: Value) -> AgentToolResult {
+pub fn terminating_text_result(text: impl Into<JsString>, details: impl Into<JsValue>) -> AgentToolResult {
     AgentToolResult {
         terminate: Some(true),
         ..text_result(text, details)

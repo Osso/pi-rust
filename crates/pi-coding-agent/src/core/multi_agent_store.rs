@@ -115,7 +115,7 @@ pub struct AgentFileReference {
 #[serde(rename_all = "camelCase")]
 pub struct AgentResult {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
+    pub summary: Option<pi_js_compat::js_json::JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_refs: Option<Vec<AgentFileReference>>,
     #[serde(skip_serializing_if = "Option::is_none")]

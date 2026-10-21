@@ -57,5 +57,5 @@ fn compaction_summary_role() -> CompactionSummaryRole {
 
 /// `isCutPointMessage`: user and assistant messages are conversational boundaries.
 pub fn is_cut_point_message(message: &AgentMessage) -> bool {
-    matches!(message.role(), "user" | "assistant")
+    message.has_role("user") || message.has_role("assistant")
 }

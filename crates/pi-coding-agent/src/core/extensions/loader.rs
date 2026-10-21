@@ -505,7 +505,10 @@ pub fn create_extension_api(
 /// Re-exported helper used by extension registries building commands.
 pub fn command_handler<F>(handler: F) -> CommandHandler
 where
-    F: Fn(String, super::types::ExtensionCommandContext) -> BoxFuture<'static, Result<(), HandlerError>>
+    F: Fn(
+            pi_js_compat::js_json::JsString,
+            super::types::ExtensionCommandContext,
+        ) -> BoxFuture<'static, Result<(), HandlerError>>
         + Send
         + Sync
         + 'static,

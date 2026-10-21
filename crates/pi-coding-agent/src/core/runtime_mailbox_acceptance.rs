@@ -104,7 +104,7 @@ impl RuntimeMailboxAcceptance {
             session
                 .append_custom_entry(
                     RUNTIME_MAILBOX_ACCEPTANCE_CUSTOM_TYPE,
-                    Some(json!({"mailboxStoreRefs": refs})),
+                    Some(pi_js_compat::js_json!({"mailboxStoreRefs": refs})),
                 )
                 .map_err(control_error)?;
         }
@@ -168,6 +168,6 @@ pub fn read_runtime_mailbox_tool_delivery(
         .details
         .as_ref()
         .and_then(|details| details.get("runtimeMailboxDelivery"))
-        .map(|delivery| serde_json::from_value(delivery.clone()).map_err(control_error))
+        .map(|delivery| pi_js_compat::js_json::from_value(delivery).map_err(control_error))
         .transpose()
 }

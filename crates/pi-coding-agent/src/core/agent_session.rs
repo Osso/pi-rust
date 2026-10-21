@@ -25,6 +25,7 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, ImageContent, InputSource, Model, ProviderHeaders, ProviderRetryEvent,
     StopReason, TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
 };
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
@@ -187,8 +188,8 @@ impl ToolDefinition {
 const SUPERVISOR_AUTO_APPROVED_READ_ONLY_TOOLS: [&str; 7] =
     ["find", "grep", "ls", "outline", "read", "references", "symbol"];
 
-fn build_allow_always_agent_prompt(cwd: &str, input: &Map<String, Value>, tool_name: &str) -> String {
-    let input = pi_js_compat::js_json::stringify_pretty(&Value::Object(input.clone()));
+fn build_allow_always_agent_prompt(cwd: &str, input: &JsObject, tool_name: &str) -> String {
+    let input = pi_js_compat::js_json::stringify_lossless_pretty(&JsValue::Object(input.clone()));
     [
         "Add a persistent allow rule for a command that was approved with Allow always in Pi.".to_owned(),
         String::new(),
@@ -358,7 +359,7 @@ pub struct SessionTokenStats {
 #[serde(rename_all = "camelCase")]
 pub struct UserMessageForForking {
     pub entry_id: String,
-    pub text: String,
+    pub text: JsString,
 }
 
 /// `ContextUsage`.
@@ -502,9 +503,9 @@ impl AgentEndEvent {
 pub struct QueueUpdateEvent {
     #[serde(rename = "type")]
     pub event_type: &'static str,
-    pub steering: Vec<String>,
+    pub steering: Vec<JsString>,
     #[serde(rename = "followUp")]
-    pub follow_up: Vec<String>,
+    pub follow_up: Vec<JsString>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -643,7 +644,7 @@ pub struct NavigateTreeOptions {
 #[serde(rename_all = "camelCase")]
 pub struct NavigateTreeResult {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub editor_text: Option<String>,
+    pub editor_text: Option<JsString>,
     pub cancelled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aborted: Option<bool>,
@@ -656,15 +657,14 @@ pub struct NavigateTreeResult {
 // =============================================================================
 
 /// `getAssistantMessageText`.
-pub fn get_assistant_message_text(message: &AssistantMessage) -> String {
-    message
-        .content
-        .iter()
-        .filter_map(|content| match content {
-            AssistantContent::Text(text) => Some(text.text.as_str()),
+pub fn get_assistant_message_text(message: &AssistantMessage) -> JsString {
+    JsString::join(
+        message.content.iter().filter_map(|content| match content {
+            AssistantContent::Text(text) => Some(&text.text),
             _ => None,
-        })
-        .collect()
+        }),
+        "",
+    )
 }
 
 /// `_isTerminalMultiAgentLifecycle`.
@@ -702,26 +702,26 @@ fn runtime_mailbox_steering_lifecycle(messages: &[AgentMessage]) -> AgentLifecyc
     }
 }
 
-fn last_runtime_mailbox_assistant_text(messages: &[AgentMessage]) -> Option<String> {
+fn last_runtime_mailbox_assistant_text(messages: &[AgentMessage]) -> Option<JsString> {
     let assistant = last_runtime_mailbox_assistant(messages)?;
-    let text = pi_js_compat::string::js_trim(&get_assistant_message_text(assistant)).to_owned();
+    let text = get_assistant_message_text(assistant).trim();
     (!text.is_empty()).then_some(text)
 }
 
-fn user_message_text(content: &UserContent) -> String {
+fn user_message_text(content: &UserContent) -> JsString {
     match content {
         UserContent::Text(text) => text.clone(),
-        UserContent::Blocks(blocks) => blocks
-            .iter()
-            .filter_map(|block| match block {
-                pi_ai::types::UserContentBlock::Text(text) => Some(text.text.as_str()),
+        UserContent::Blocks(blocks) => JsString::join(
+            blocks.iter().filter_map(|block| match block {
+                pi_ai::types::UserContentBlock::Text(text) => Some(&text.text),
                 pi_ai::types::UserContentBlock::Image(_) => None,
-            })
-            .collect(),
+            }),
+            "",
+        ),
     }
 }
 
-fn find_last_user_text(messages: &[AgentMessage]) -> Option<String> {
+fn find_last_user_text(messages: &[AgentMessage]) -> Option<JsString> {
     for message in messages.iter().rev() {
         let AgentMessage::User(user) = message else {
             continue;
@@ -751,8 +751,8 @@ fn is_allowed_session_tool(name: &str, allowed: Option<&HashSet<String>>, exclud
 fn normalize_message_content(message: AgentMessage) -> AgentMessage {
     match message {
         AgentMessage::Custom(mut object) => {
-            if object.get("content").is_some_and(Value::is_null) {
-                object.insert("content".to_owned(), Value::Array(Vec::new()));
+            if object.get("content").is_some_and(JsValue::is_null) {
+                object.insert("content".to_owned().into(), Value::Array(Vec::new()).into());
             }
             AgentMessage::Custom(object)
         }
@@ -830,7 +830,7 @@ pub fn should_continue_interrupted_session(messages: &[AgentMessage]) -> bool {
         let is_self_restart = matches!(
             message,
             AgentMessage::Custom(object)
-                if object.get("customType").and_then(Value::as_str) == Some("self_restart")
+                if object.get("customType").and_then(JsValue::as_string) == Some(&JsString::from("self_restart"))
         );
         if !is_self_restart {
             break;
@@ -918,8 +918,8 @@ struct Inner {
     event_listeners: Mutex<Vec<(u64, AgentSessionEventListener)>>,
     next_listener_id: AtomicU64,
     agent_subscription: Mutex<Option<u64>>,
-    steering_messages: Mutex<Vec<String>>,
-    follow_up_messages: Mutex<Vec<String>>,
+    steering_messages: Mutex<Vec<JsString>>,
+    follow_up_messages: Mutex<Vec<JsString>>,
     last_assistant_turn_fingerprint: Mutex<Option<String>>,
     duplicate_turn_guard_injected: AtomicBool,
     duplicate_turn_loop_detected: AtomicBool,
@@ -987,7 +987,7 @@ struct Inner {
 #[derive(Clone)]
 struct PendingSteeringTerminal {
     lifecycle: crate::core::multi_agent_store::AgentLifecycle,
-    summary: Option<String>,
+    summary: Option<JsString>,
 }
 
 struct ActiveTool {
@@ -1102,7 +1102,7 @@ pub struct DetachedToolCallCompletionEntryData {
     pub agent_id: String,
     pub lifecycle: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
+    pub summary: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -1162,7 +1162,11 @@ fn is_runtime_mailbox_message_due(message: &RuntimeMailboxMessage, options: Drai
     }
 }
 
-fn runtime_mailbox_user_message(text: &str, images: &[ImageContent], source: Option<InputSource>) -> AgentMessage {
+fn runtime_mailbox_user_message(
+    text: impl Into<JsString>,
+    images: &[ImageContent],
+    source: Option<InputSource>,
+) -> AgentMessage {
     let mut content = vec![TextOrImageContent::Text(TextContent::new(text))];
     content.extend(images.iter().cloned().map(TextOrImageContent::Image));
     AgentMessage::User(UserMessage {
@@ -1984,7 +1988,7 @@ impl AgentSession {
         &self,
         event: &ToolCallEvent,
         runner: &ExtensionRunner,
-        args: Arc<Mutex<Value>>,
+        args: Arc<Mutex<JsValue>>,
     ) -> Option<crate::core::permissions::orchestrator::ApprovalReviewer> {
         let permission_prompt_tool = self.resolve_permission_prompt_tool();
         if !runner.has_approval_reviewers() && permission_prompt_tool.is_none() && !runner.has_handlers("tool_call") {
@@ -2020,7 +2024,7 @@ impl AgentSession {
                             let result = tool
                                 .execute(
                                     format!("permission-prompt:{tool_use_id}"),
-                                    params,
+                                    params.into(),
                                     None,
                                     Arc::new(|_| {}),
                                     None,
@@ -2129,7 +2133,7 @@ impl AgentSession {
                     .as_ref()
                     .map(|reason| format!("\nReason: {reason}"))
                     .unwrap_or_default();
-                let input = pi_js_compat::js_json::stringify_pretty(&Value::Object(event.input.clone()));
+                let input = pi_js_compat::js_json::stringify_lossless_pretty(&JsValue::Object(event.input.clone()));
                 let title = format!("Approve {}?{reason_text}\n{input}", event.tool_name.as_str());
                 let selection = ui
                     .select(
@@ -2175,7 +2179,9 @@ impl AgentSession {
         });
         let tool_call_id = format!("allow-always:{}", event.tool_call_id);
         tokio::spawn(async move {
-            let result = tool.execute(tool_call_id, params, None, Arc::new(|_| {}), None).await;
+            let result = tool
+                .execute(tool_call_id, params.into(), None, Arc::new(|_| {}), None)
+                .await;
             if let Err(error) = result {
                 eprintln!("Failed to spawn allow-always agent: {error}");
             }
@@ -2185,7 +2191,7 @@ impl AgentSession {
     fn create_tool_approval_llm_reviewer(
         &self,
         event: &ToolCallEvent,
-        current_user_request: Option<String>,
+        current_user_request: Option<JsString>,
     ) -> Option<crate::core::permissions::orchestrator::ApprovalReviewer> {
         let approval_preset = lock(&self.inner.settings_manager).get_approval_preset();
         if approval_preset != ApprovalPresetName::LlmApprovedDeny
@@ -2218,22 +2224,21 @@ impl AgentSession {
                         return Err(crate::core::extensions::types::HandlerError::new(error.to_string()));
                     }
                 };
-                let mut payload = Map::new();
+                let mut payload = JsObject::new();
                 payload.insert(
-                    "activeGoal".to_owned(),
-                    active_goal.map(Value::String).unwrap_or(Value::Null),
+                    "activeGoal".into(),
+                    active_goal
+                        .map(|goal| JsValue::String(goal.into()))
+                        .unwrap_or(JsValue::Null),
                 );
                 payload.insert(
-                    "currentUserRequest".to_owned(),
-                    current_user_request.map(Value::String).unwrap_or(Value::Null),
+                    "currentUserRequest".into(),
+                    current_user_request.map(JsValue::String).unwrap_or(JsValue::Null),
                 );
-                payload.insert("input".to_owned(), Value::Object(event.input.clone()));
-                payload.insert("preset".to_owned(), Value::String(approval_preset.as_str().to_owned()));
-                payload.insert("toolCallId".to_owned(), Value::String(event.tool_call_id.clone()));
-                payload.insert(
-                    "toolName".to_owned(),
-                    Value::String(event.tool_name.as_str().to_owned()),
-                );
+                payload.insert("input".into(), JsValue::Object(event.input.clone()));
+                payload.insert("preset".into(), JsValue::String(approval_preset.as_str().into()));
+                payload.insert("toolCallId".into(), JsValue::String(event.tool_call_id.clone().into()));
+                payload.insert("toolName".into(), JsValue::String(event.tool_name.as_str().into()));
                 let request = crate::supervisor::client::RequestSupervisorDecisionInput {
                     control_db_path,
                     kind: crate::core::session_control_db::SupervisorRequestKind::ApprovalReview,
@@ -2658,15 +2663,15 @@ impl AgentSession {
             let Some(existing) = custom.data.as_ref() else {
                 return false;
             };
-            existing.get("agentId").and_then(Value::as_str) == Some(data.agent_id.as_str())
-                && existing.get("toolCallId").and_then(Value::as_str) == Some(data.tool_call_id.as_str())
+            existing.get("agentId").and_then(JsValue::as_string) == Some(&JsString::from(&data.agent_id))
+                && existing.get("toolCallId").and_then(JsValue::as_string) == Some(&JsString::from(&data.tool_call_id))
         });
         if already_recorded {
             return;
         }
         if let Err(error) = lock(&self.inner.session_manager).append_custom_entry(
             DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE,
-            Some(serde_json::to_value(&data).unwrap_or(Value::Null)),
+            Some(pi_js_compat::js_json::to_value(&data).expect("mailbox delivery serializes")),
         ) {
             eprintln!("Failed to record detached tool call completion: {error}");
         }
@@ -2780,7 +2785,7 @@ impl AgentSession {
             .then(|| last_runtime_mailbox_assistant_text(messages))
             .flatten();
         for agent_id in &agent_ids {
-            if self.complete_runtime_mailbox_steered_agent(agent_id, lifecycle, summary.as_deref()) {
+            if self.complete_runtime_mailbox_steered_agent(agent_id, lifecycle, summary.as_ref()) {
                 continue;
             }
             if !is_terminal_multi_agent_lifecycle(lifecycle) {
@@ -2801,7 +2806,7 @@ impl AgentSession {
         &self,
         agent_id: &str,
         lifecycle: AgentLifecycle,
-        summary: Option<&str>,
+        summary: Option<&JsString>,
     ) -> bool {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
             return false;
@@ -2832,7 +2837,7 @@ impl AgentSession {
         &self,
         agent_id: &str,
         lifecycle: AgentLifecycle,
-        summary: Option<String>,
+        summary: Option<JsString>,
     ) {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
             return;
@@ -2868,7 +2873,7 @@ impl AgentSession {
                 continue;
             }
             lock(&self.inner.runtime_mailbox_pending_terminal).shift_remove(&agent_id);
-            if !self.complete_runtime_mailbox_steered_agent(&agent_id, pending.lifecycle, pending.summary.as_deref()) {
+            if !self.complete_runtime_mailbox_steered_agent(&agent_id, pending.lifecycle, pending.summary.as_ref()) {
                 lock(&self.inner.runtime_mailbox_pending_terminal).insert(agent_id, pending);
             }
         }
@@ -3204,7 +3209,7 @@ impl AgentSession {
         if options.trigger_if_idle && !self.is_streaming() {
             Box::pin(self.send_custom_message(
                 "shared_channel",
-                CustomMessageContent::Text(prompt.to_owned()),
+                CustomMessageContent::Text(prompt.to_owned().into()),
                 true,
                 None,
                 true,
@@ -3213,11 +3218,11 @@ impl AgentSession {
             .await?;
             return Ok(false);
         }
-        lock(&self.inner.follow_up_messages).push(prompt.to_owned());
+        lock(&self.inner.follow_up_messages).push(prompt.into());
         self.emit_queue_update();
         self.inner.agent.follow_up(create_custom_message(
             "shared_channel",
-            CustomMessageContent::Text(prompt.to_owned()),
+            CustomMessageContent::Text(prompt.to_owned().into()),
             true,
             None,
             now_millis(),
@@ -3880,8 +3885,9 @@ impl AgentSession {
         };
         match message {
             AgentMessage::Custom(object) => {
-                let is_shared_channel = object.get("customType").and_then(Value::as_str) == Some("shared_channel");
-                let Some(content) = object.get("content").and_then(Value::as_str) else {
+                let is_shared_channel =
+                    object.get("customType").and_then(JsValue::as_string) == Some(&JsString::from("shared_channel"));
+                let Some(content) = object.get("content").and_then(JsValue::as_string) else {
                     return;
                 };
                 if !is_shared_channel {
@@ -3955,7 +3961,11 @@ impl AgentSession {
         let Some(control_db_path) = &self.inner.control_db_path else {
             return;
         };
-        let _ = crate::core::session_control_db::write_last_message(control_db_path, "assistant", &content);
+        let _ = crate::core::session_control_db::write_last_message(
+            control_db_path,
+            "assistant",
+            &encode_node_utf8(&content),
+        );
     }
 
     fn persist_completed_message(
@@ -4219,10 +4229,12 @@ impl AgentSession {
     }
 
     /// Sends a prompt to the agent.
-    pub async fn prompt(&self, text: &str, options: PromptOptions) -> Result<(), AgentSessionError> {
+    pub async fn prompt(&self, text: impl Into<JsString>, options: PromptOptions) -> Result<(), AgentSessionError> {
+        let text = text.into();
+        let text = &text;
         self.drain_terminal_outbox_projections();
         let expand = options.expand_prompt_templates.unwrap_or(true);
-        if expand && text.starts_with('/') {
+        if expand && text.starts_with("/") {
             if self.try_execute_extension_command(text).await {
                 self.record_handled_slash_command_history(text);
                 if let Some(preflight) = &options.preflight_result {
@@ -4250,7 +4262,7 @@ impl AgentSession {
 
     async fn prompt_turn(
         &self,
-        text: &str,
+        text: &JsString,
         options: PromptOptions,
         guard: tokio::sync::MutexGuard<'_, ()>,
         mailbox_messages: Option<&[RuntimeMailboxMessage]>,
@@ -4288,7 +4300,7 @@ impl AgentSession {
 
     async fn prompt_turn_inner(
         &self,
-        text: &str,
+        text: &JsString,
         options: &PromptOptions,
         mailbox_messages: Option<&[RuntimeMailboxMessage]>,
     ) -> Result<Option<Vec<AgentMessage>>, AgentSessionError> {
@@ -4321,7 +4333,11 @@ impl AgentSession {
         Ok(Some(messages))
     }
 
-    async fn prepare_prompt_input(&self, text: &str, options: &PromptOptions) -> Option<(String, Vec<ImageContent>)> {
+    async fn prepare_prompt_input(
+        &self,
+        text: &JsString,
+        options: &PromptOptions,
+    ) -> Option<(JsString, Vec<ImageContent>)> {
         let mut current_text = text.to_owned();
         let mut current_images = options.images.clone();
         match self
@@ -4355,7 +4371,7 @@ impl AgentSession {
 
     async fn queue_prompt_if_streaming(
         &self,
-        text: &str,
+        text: &JsString,
         images: &[ImageContent],
         options: &PromptOptions,
         mailbox_messages: Option<&[RuntimeMailboxMessage]>,
@@ -4396,7 +4412,7 @@ impl AgentSession {
 
     async fn build_prompt_messages(
         &self,
-        text: &str,
+        text: &JsString,
         images: &[ImageContent],
         options: &PromptOptions,
     ) -> Vec<AgentMessage> {
@@ -4450,12 +4466,8 @@ impl AgentSession {
         messages
     }
 
-    fn is_known_slash_command(&self, text: &str) -> bool {
-        let command_name = slash_command_name(text);
-        let name = command_name.trim_start_matches('/');
-        if builtin_slash_commands().iter().any(|command| command.name == name) {
-            return true;
-        }
+    fn is_known_slash_command(&self, text: &JsString) -> bool {
+        let (name, _) = split_prompt_command(text);
         if let Some(skill_name) = name.strip_prefix("skill:") {
             return self
                 .inner
@@ -4463,21 +4475,21 @@ impl AgentSession {
                 .get_skills()
                 .skills
                 .iter()
-                .any(|skill| skill.name == skill_name);
+                .any(|skill| skill_name == skill.name.as_str());
         }
-        self.prompt_templates().iter().any(|template| template.name == name)
+        self.prompt_templates()
+            .iter()
+            .any(|template| name == template.name.as_str())
     }
 
-    fn expand_skill_command(&self, text: &str) -> String {
+    fn expand_skill_command(&self, text: &JsString) -> JsString {
         let Some(rest) = text.strip_prefix("/skill:") else {
             return text.to_owned();
         };
-        let (skill_name, args) = match rest.split_once(' ') {
-            Some((name, args)) => (name, args.trim()),
-            None => (rest, ""),
-        };
+        let (skill_name, args) = split_at_first_space(&rest);
+        let args = args.trim();
         let skills = self.inner.resource_loader.get_skills().skills;
-        let Some(skill) = skills.iter().find(|skill| skill.name == skill_name) else {
+        let Some(skill) = skills.iter().find(|skill| skill_name == skill.name.as_str()) else {
             return text.to_owned();
         };
         match std::fs::read_to_string(&skill.file_path) {
@@ -4490,9 +4502,9 @@ impl AgentSession {
                     skill.name, skill.file_path, skill.base_dir, body
                 );
                 if args.is_empty() {
-                    skill_block
+                    skill_block.into()
                 } else {
-                    format!("{skill_block}\n\n{args}")
+                    JsString::from(skill_block) + "\n\n" + args
                 }
             }
             Err(_) => text.to_owned(),
@@ -4500,8 +4512,10 @@ impl AgentSession {
     }
 
     /// Queues a steering message while the agent is running.
-    pub async fn steer(&self, text: &str, images: &[ImageContent]) -> Result<(), AgentSessionError> {
-        if text.starts_with('/') {
+    pub async fn steer(&self, text: impl Into<JsString>, images: &[ImageContent]) -> Result<(), AgentSessionError> {
+        let text = text.into();
+        let text = &text;
+        if text.starts_with("/") {
             self.throw_if_extension_command(text)?;
         }
         let mut expanded = self.expand_skill_command(text);
@@ -4521,8 +4535,10 @@ impl AgentSession {
     }
 
     /// Queues a follow-up message delivered after the agent finishes.
-    pub async fn follow_up(&self, text: &str, images: &[ImageContent]) -> Result<(), AgentSessionError> {
-        if text.starts_with('/') {
+    pub async fn follow_up(&self, text: impl Into<JsString>, images: &[ImageContent]) -> Result<(), AgentSessionError> {
+        let text = text.into();
+        let text = &text;
+        if text.starts_with("/") {
             self.throw_if_extension_command(text)?;
         }
         let mut expanded = self.expand_skill_command(text);
@@ -4531,20 +4547,20 @@ impl AgentSession {
         Ok(())
     }
 
-    fn throw_if_extension_command(&self, text: &str) -> Result<(), AgentSessionError> {
-        let command_name = match text.find(' ') {
-            Some(space_index) => &text[1..space_index],
-            None => &text[1..],
+    fn throw_if_extension_command(&self, text: &JsString) -> Result<(), AgentSessionError> {
+        let (command_name, _) = split_prompt_command(text);
+        let Some(name) = command_name.to_utf8().ok() else {
+            return Ok(());
         };
-        if self.runner().get_command(command_name).is_some() {
+        if self.runner().get_command(&name).is_some() {
             return Err(AgentSessionError::new(format!(
-                "Extension command \"/{command_name}\" cannot be queued. Use prompt() or execute the command when not streaming."
+                "Extension command \"/{name}\" cannot be queued. Use prompt() or execute the command when not streaming."
             )));
         }
         Ok(())
     }
 
-    async fn queue_steer(&self, text: &str, images: &[ImageContent], source: Option<InputSource>) {
+    async fn queue_steer(&self, text: &JsString, images: &[ImageContent], source: Option<InputSource>) {
         lock(&self.inner.steering_messages).push(text.to_owned());
         self.emit_queue_update();
         let mut content = vec![TextOrImageContent::Text(TextContent::new(text))];
@@ -4561,7 +4577,7 @@ impl AgentSession {
         }));
     }
 
-    async fn queue_follow_up(&self, text: &str, images: &[ImageContent], source: Option<InputSource>) {
+    async fn queue_follow_up(&self, text: &JsString, images: &[ImageContent], source: Option<InputSource>) {
         lock(&self.inner.follow_up_messages).push(text.to_owned());
         self.emit_queue_update();
         let mut content = vec![TextOrImageContent::Text(TextContent::new(text))];
@@ -4581,7 +4597,7 @@ impl AgentSession {
         custom_type: &str,
         content: CustomMessageContent,
         display: bool,
-        details: Option<Value>,
+        details: Option<JsValue>,
         trigger_turn: bool,
         deliver_as: Option<StreamingBehavior>,
     ) -> Result<(), AgentSessionError> {
@@ -4607,7 +4623,7 @@ impl AgentSession {
         custom_type: &str,
         content: CustomMessageContent,
         display: bool,
-        details: Option<Value>,
+        details: Option<JsValue>,
     ) {
         lock(&self.inner.pending_next_turn_messages).push(create_custom_message(
             custom_type,
@@ -4670,7 +4686,7 @@ impl AgentSession {
                         pi_ai::types::UserContentBlock::Image(image) => images.push(image),
                     }
                 }
-                (text_parts.join("\n"), images)
+                (JsString::join(text_parts, "\n"), images)
             }
         };
         self.prompt(
@@ -4688,7 +4704,7 @@ impl AgentSession {
     }
 
     /// Clears all queued messages and returns them.
-    pub fn clear_queue(&self) -> (Vec<String>, Vec<String>) {
+    pub fn clear_queue(&self) -> (Vec<JsString>, Vec<JsString>) {
         let steering = std::mem::take(&mut *lock(&self.inner.steering_messages));
         let follow_up = std::mem::take(&mut *lock(&self.inner.follow_up_messages));
         self.inner.agent.clear_all_queues();
@@ -4714,11 +4730,11 @@ impl AgentSession {
         }
     }
 
-    pub fn get_steering_messages(&self) -> Vec<String> {
+    pub fn get_steering_messages(&self) -> Vec<JsString> {
         lock(&self.inner.steering_messages).clone()
     }
 
-    pub fn get_follow_up_messages(&self) -> Vec<String> {
+    pub fn get_follow_up_messages(&self) -> Vec<JsString> {
         lock(&self.inner.follow_up_messages).clone()
     }
 
@@ -5237,7 +5253,7 @@ struct CompactedContextEstimate {
 
 fn estimate_compacted_context_tokens(
     messages: &[AgentMessage],
-    summary: &str,
+    summary: &JsString,
     tokens_before: f64,
     compacted_result_tokens: Option<f64>,
 ) -> CompactedContextEstimate {
@@ -5252,7 +5268,7 @@ fn estimate_compacted_context_tokens(
     }
 }
 
-fn create_compaction_summary_probe(summary: &str, tokens_before: f64) -> AgentMessage {
+fn create_compaction_summary_probe(summary: &JsString, tokens_before: f64) -> AgentMessage {
     pi_agent_core::harness::messages::create_compaction_summary_message(
         summary,
         tokens_before,
@@ -5320,23 +5336,33 @@ fn normalize_prompt_guidelines(guidelines: &[String]) -> Vec<String> {
     unique
 }
 
-fn slash_command_name(text: &str) -> String {
-    let rest = text.strip_prefix('/').unwrap_or(text);
-    let name = rest.split_whitespace().next().unwrap_or("");
-    format!("/{name}")
+fn split_at_first_space(text: &JsString) -> (JsString, JsString) {
+    let units = text.units();
+    let end = units.iter().position(|unit| *unit == 0x20).unwrap_or(units.len());
+    let rest_start = (end + 1).min(units.len());
+    (
+        JsString::from_utf16(units[..end].to_vec()),
+        JsString::from_utf16(units[rest_start..].to_vec()),
+    )
+}
+
+fn split_prompt_command(text: &JsString) -> (JsString, JsString) {
+    let (name, args) = split_at_first_space(text);
+    (name.strip_prefix("/").unwrap_or(name), args)
+}
+
+fn slash_command_name(text: &JsString) -> String {
+    let (name, _) = split_prompt_command(text);
+    pi_js_compat::js_json::stringify_lossless(&JsValue::String(JsString::from("/") + name))
 }
 
 fn duplicate_fingerprint(message: &AssistantMessage) -> String {
     let text = get_assistant_message_text(message);
-    let stop_reason = serde_json::to_value(message.stop_reason).unwrap_or(Value::Null);
-    let mut object = Map::new();
-    object.insert("text".to_owned(), Value::String(text));
-    object.insert("stopReason".to_owned(), stop_reason);
-    Value::Object(object).to_string()
+    pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json!({"text":text,"stopReason":message.stop_reason}))
 }
 
-fn write_back_tool_input(args: &Arc<Mutex<Value>>, input: &Map<String, Value>) {
-    *args.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Value::Object(input.clone());
+fn write_back_tool_input(args: &Arc<Mutex<JsValue>>, input: &JsObject) {
+    *args.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = JsValue::Object(input.clone());
 }
 
 fn is_permission_prompt_protocol_tool(name: &str, parameters: &Value) -> bool {
@@ -5383,18 +5409,26 @@ fn is_duplicate_turn_guard_message(message: &AgentMessage) -> bool {
 
 fn append_custom_agent_message(
     manager: &mut SessionManager,
-    object: &Map<String, Value>,
+    object: &JsObject,
 ) -> Result<Option<String>, SessionManagerError> {
-    let custom_type = object.get("customType").and_then(Value::as_str).unwrap_or_default();
+    let custom_type = object
+        .get("customType")
+        .and_then(JsValue::as_string)
+        .cloned()
+        .unwrap_or_default();
     let content = object
         .get("content")
-        .cloned()
-        .and_then(|content| serde_json::from_value::<CustomMessageContent>(content).ok())
+        .map(pi_js_compat::js_json::from_value::<CustomMessageContent>)
+        .transpose()
+        .map_err(|error| SessionManagerError::new(error.to_string()))?
         .unwrap_or(CustomMessageContent::Blocks(Vec::new()));
-    let display = object.get("display").and_then(Value::as_bool).unwrap_or(false);
+    let display = object.get("display").and_then(JsValue::as_bool).unwrap_or(false);
     let details = object.get("details").cloned();
+    let custom_type = custom_type
+        .to_utf8()
+        .map_err(|error| SessionManagerError::new(error.to_string()))?;
     manager
-        .append_custom_message_entry(custom_type, content, display, details)
+        .append_custom_message_entry(&custom_type, content, display, details)
         .map(Some)
 }
 
@@ -6374,12 +6408,12 @@ impl AgentSession {
     ) {
         let bash_message = BashExecutionMessage {
             role: BashExecutionRole::BashExecution,
-            command: command.to_owned(),
-            output: result.output.clone(),
+            command: command.to_owned().into(),
+            output: result.output.clone().into(),
             exit_code: result.exit_code.map(f64::from),
             cancelled: result.cancelled,
             truncated: result.truncated,
-            full_output_path: result.full_output_path.clone(),
+            full_output_path: result.full_output_path.clone().map(JsString::from),
             timestamp: now_millis() as f64,
             exclude_from_context,
         };
@@ -6496,7 +6530,7 @@ impl AgentSession {
         Ok(())
     }
 
-    pub fn update_compaction_summary(&self, entry_id: &str, summary: &str) -> Result<(), AgentSessionError> {
+    pub fn update_compaction_summary(&self, entry_id: &str, summary: &JsString) -> Result<(), AgentSessionError> {
         let messages = {
             let mut manager = lock(&self.inner.session_manager);
             manager
@@ -6699,7 +6733,7 @@ impl AgentSession {
             }
         }
 
-        let mut summary_text: Option<String> = None;
+        let mut summary_text: Option<JsString> = None;
         let mut summary_details = None;
         let mut from_extension = false;
         if options.summarize == Some(true) && !entries_to_summarize.is_empty() && extension_summary.is_none() {
@@ -6739,7 +6773,7 @@ impl AgentSession {
                 return Err(error(summary_error));
             }
             summary_text = result.summary;
-            summary_details = Some(serde_json::json!({
+            summary_details = Some(pi_js_compat::js_json!({
                 "readFiles": result.read_files.unwrap_or_default(),
                 "modifiedFiles": result.modified_files.unwrap_or_default(),
             }));
@@ -6755,20 +6789,20 @@ impl AgentSession {
             {
                 let text = match message.message.as_ref() {
                     AgentMessage::User(user) => user_message_text(&user.content),
-                    _ => String::new(),
+                    _ => JsString::default(),
                 };
                 (message.parent_id.clone(), Some(text))
             }
             SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::CustomMessage(message)) => {
                 let text = match &message.content {
                     CustomMessageContent::Text(text) => text.clone(),
-                    CustomMessageContent::Blocks(blocks) => blocks
-                        .iter()
-                        .filter_map(|block| match block {
-                            TextOrImageContent::Text(text) => Some(text.text.as_str()),
+                    CustomMessageContent::Blocks(blocks) => JsString::join(
+                        blocks.iter().filter_map(|block| match block {
+                            TextOrImageContent::Text(text) => Some(&text.text),
                             TextOrImageContent::Image(_) => None,
-                        })
-                        .collect(),
+                        }),
+                        "",
+                    ),
                 };
                 (message.parent_id.clone(), Some(text))
             }
@@ -7038,7 +7072,7 @@ impl AgentSession {
     }
 
     /// Text content of the last assistant message.
-    pub fn get_last_assistant_text(&self) -> Option<String> {
+    pub fn get_last_assistant_text(&self) -> Option<JsString> {
         let last_assistant = self.messages().into_iter().rev().find(|message| {
             let AgentMessage::Assistant(assistant) = message else {
                 return false;
@@ -7063,8 +7097,8 @@ impl AgentSession {
 #[serde(rename_all = "camelCase")]
 struct BashExecutionWire<'a> {
     role: &'static str,
-    command: &'a str,
-    output: &'a str,
+    command: &'a JsString,
+    output: &'a JsString,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "pi_js_compat::number::serialize_option"
@@ -7073,7 +7107,7 @@ struct BashExecutionWire<'a> {
     cancelled: bool,
     truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    full_output_path: Option<&'a str>,
+    full_output_path: Option<&'a JsString>,
     #[serde(serialize_with = "pi_js_compat::number::serialize")]
     timestamp: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -7117,14 +7151,17 @@ fn bash_message_to_agent_message(message: &BashExecutionMessage) -> AgentMessage
         exit_code: message.exit_code,
         cancelled: message.cancelled,
         truncated: message.truncated,
-        full_output_path: message.full_output_path.as_deref(),
+        full_output_path: message.full_output_path.as_ref(),
         timestamp: message.timestamp,
         exclude_from_context: message.exclude_from_context,
     };
-    match serde_json::to_value(wire) {
-        Ok(Value::Object(object)) => AgentMessage::Custom(object),
-        _ => AgentMessage::Custom(Map::new()),
-    }
+    AgentMessage::Custom(
+        pi_js_compat::js_json::to_value(&wire)
+            .expect("bash message serializes")
+            .as_object()
+            .expect("bash message object")
+            .clone(),
+    )
 }
 
 /// Re-export used by `sdk` and `agent-session-services`.
@@ -7342,8 +7379,8 @@ impl AgentSession {
         &self,
     ) -> indexmap::IndexMap<String, crate::core::extensions::types::InternalCommandHandler> {
         let handler: crate::core::extensions::types::InternalCommandHandler =
-            Arc::new(move |args: String, ctx: ExtensionCommandContext| {
-                let model_reference = args.trim().to_owned();
+            Arc::new(move |args: JsString, ctx: ExtensionCommandContext| {
+                let model_reference = encode_node_utf8(&args.trim());
                 Box::pin(async move {
                     if model_reference.is_empty() {
                         return Ok(());
@@ -7471,7 +7508,7 @@ impl AgentSession {
                     tool_call_id: tool_call_id.clone(),
                     tool_name: tool_name.clone(),
                     args: args.clone(),
-                    partial_result: serde_json::to_value(partial_result).unwrap_or(Value::Null),
+                    partial_result: pi_js_compat::js_json::to_value(partial_result).expect("partial result serializes"),
                 });
                 runner.emit(&mut extension_event).await;
                 None
@@ -7542,17 +7579,17 @@ impl AgentSession {
         self.runner().emit(&mut event).await;
     }
 
-    async fn try_execute_extension_command(&self, text: &str) -> bool {
-        let (command_name, args) = match text.split_once(' ') {
-            Some((name, args)) => (name.trim_start_matches('/'), args),
-            None => (text.trim_start_matches('/'), ""),
-        };
-        let runner = self.runner();
-        let Some(command) = runner.get_prompt_command(command_name) else {
+    async fn try_execute_extension_command(&self, text: &JsString) -> bool {
+        let (command_name, args) = split_prompt_command(text);
+        let Some(command_name) = command_name.to_utf8().ok() else {
             return false;
         };
-        let context = self.create_command_context_for(command_name);
-        if let Err(error) = (command.handler)(args.to_owned(), context).await {
+        let runner = self.runner();
+        let Some(command) = runner.get_prompt_command(&command_name) else {
+            return false;
+        };
+        let context = self.create_command_context_for(&command_name);
+        if let Err(error) = (command.handler)(args, context).await {
             runner.emit_error(crate::core::extensions::types::ExtensionError {
                 extension_path: format!("command:{command_name}"),
                 event: "command".to_owned(),
@@ -7563,18 +7600,20 @@ impl AgentSession {
         true
     }
 
-    fn record_handled_slash_command_history(&self, text: &str) {
+    fn record_handled_slash_command_history(&self, text: &JsString) {
         let Some(control_db_path) = &self.inner.control_db_path else {
             return;
         };
-        if let Err(error) = crate::core::session_control_db::record_prompt_history_entry(control_db_path, text) {
+        if let Err(error) =
+            crate::core::session_control_db::record_prompt_history_entry(control_db_path, &encode_node_utf8(text))
+        {
             eprintln!("Failed to persist prompt history for handled slash command: {error}");
         }
     }
 
     async fn emit_extension_input(
         &self,
-        text: &str,
+        text: &JsString,
         images: &[ImageContent],
         source: Option<InputSource>,
         streaming_behavior: Option<StreamingBehavior>,
@@ -7602,7 +7641,7 @@ impl AgentSession {
 
     async fn emit_before_agent_start(
         &self,
-        text: &str,
+        text: &JsString,
         images: &[ImageContent],
         options: &BuildSystemPromptOptions,
     ) -> Option<BeforeAgentStartCombinedResult> {
@@ -7622,7 +7661,7 @@ impl AgentSession {
 fn tool_call_result_to_before(result: crate::core::extensions::types::ToolCallEventResult) -> BeforeToolCallResult {
     BeforeToolCallResult {
         block: result.block,
-        reason: result.reason,
+        reason: result.reason.map(JsString::from),
     }
 }
 
@@ -7748,7 +7787,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
     );
     let append_weak = weak.clone();
     let append_entry: crate::core::extensions::types::AppendEntryHandler =
-        Arc::new(move |custom_type: &str, data: Option<Value>| {
+        Arc::new(move |custom_type: &str, data: Option<JsValue>| {
             let Some(inner) = append_weak.upgrade() else {
                 return Ok(());
             };
@@ -7824,7 +7863,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
         });
     let call_tool_weak = weak.clone();
     let call_tool: crate::core::extensions::types::CallToolHandler = Arc::new(
-        move |name: String, params: Value, signal: Option<CancellationToken>, tool_call_id: Option<String>| {
+        move |name: String, params: JsValue, signal: Option<CancellationToken>, tool_call_id: Option<String>| {
             let Some(inner) = call_tool_weak.upgrade() else {
                 return Box::pin(async {
                     Err(crate::core::extensions::types::HandlerError::new("Session is disposed"))
@@ -7851,7 +7890,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
                     )));
                 };
                 let context = session.create_command_context_for(&name);
-                (command.handler)(args.unwrap_or_default(), context)
+                (command.handler)(args.unwrap_or_default().into(), context)
                     .await
                     .map(|()| Value::Null)
             })
@@ -8255,7 +8294,7 @@ impl AgentSession {
     async fn call_active_tool(
         &self,
         tool_name: &str,
-        params: Value,
+        params: JsValue,
         signal: Option<CancellationToken>,
         active_tool_call_id: Option<String>,
     ) -> Result<pi_agent_core::agent::types::AgentToolResult, crate::core::extensions::types::HandlerError> {
@@ -8274,8 +8313,8 @@ impl AgentSession {
         })?;
         let tool_call_id = active_tool_call_id.unwrap_or_else(|| format!("pyrun:{tool_name}:{}", now_millis()));
         let arguments = params.as_object().cloned().unwrap_or_else(|| {
-            let mut object = Map::new();
-            object.insert("value".to_owned(), params.clone());
+            let mut object = JsObject::new();
+            object.insert("value".into(), params.clone());
             object
         });
         let tool_call = AgentToolCall {
@@ -8308,7 +8347,7 @@ impl AgentSession {
         if before.as_ref().and_then(|result| result.block) == Some(true) {
             let reason = before
                 .and_then(|result| result.reason)
-                .unwrap_or_else(|| "Tool execution was blocked".to_owned());
+                .unwrap_or_else(|| "Tool execution was blocked".to_owned().into());
             return Ok(pi_agent_core::agent::types::AgentToolResult::text(reason));
         }
         let result = tool

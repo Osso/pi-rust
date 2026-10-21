@@ -1825,7 +1825,7 @@ pub struct AfterProviderResponseEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BeforeAgentStartEvent {
-    pub prompt: String,
+    pub prompt: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<ImageContent>>,
     pub system_prompt: String,
@@ -1900,7 +1900,7 @@ pub struct MessageEndEvent {
 pub struct ToolExecutionStartEvent {
     pub tool_call_id: String,
     pub tool_name: String,
-    pub args: Value,
+    pub args: JsValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1908,8 +1908,8 @@ pub struct ToolExecutionStartEvent {
 pub struct ToolExecutionUpdateEvent {
     pub tool_call_id: String,
     pub tool_name: String,
-    pub args: Value,
-    pub partial_result: Value,
+    pub args: JsValue,
+    pub partial_result: JsValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2024,7 +2024,7 @@ impl<'de> Deserialize<'de> for InputImages {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InputEvent {
-    pub text: String,
+    pub text: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<InputImages>,
     pub source: InputSource,
@@ -2474,7 +2474,7 @@ pub enum ApprovalReviewerResult {
 pub enum InputEventResult {
     Continue,
     Transform {
-        text: String,
+        text: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
         images: Option<InputImages>,
     },
@@ -2559,7 +2559,7 @@ pub struct CustomMessageValue {
 // ============================================================================
 
 pub type CommandHandler =
-    Arc<dyn Fn(String, ExtensionCommandContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(JsString, ExtensionCommandContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 
 pub type ArgumentCompletions = Arc<dyn Fn(&str) -> Option<Vec<Value>> + Send + Sync>;
 
@@ -2929,7 +2929,7 @@ pub struct ProviderActions {
 
 /// Commands owned by the runtime, addressable like extension prompt commands.
 pub type InternalCommandHandler =
-    Arc<dyn Fn(String, ExtensionCommandContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(JsString, ExtensionCommandContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 
 /// Custom provider stream handler registered by `registerProvider`.
 pub type ProviderStreamSimple = crate::core::provider_composer::StreamSimpleFn;

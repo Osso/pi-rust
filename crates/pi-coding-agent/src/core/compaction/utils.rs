@@ -12,7 +12,7 @@ pub use pi_agent_core::harness::compaction::utils::{
 };
 
 use pi_ai::types::Message;
-use serde_json::Value;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 
 /// Maximum characters for a tool call argument value in serialized summaries.
 pub const TOOL_CALL_ARGUMENT_MAX_CHARS: usize = 1000;
@@ -21,14 +21,14 @@ pub const TOOL_CALL_ARGUMENT_MAX_CHARS: usize = 1000;
 pub const TOOL_RESULT_MAX_CHARS: usize = 2000;
 
 /// Serialize LLM messages to text for summarization.
-pub fn serialize_conversation(messages: &[Message]) -> String {
+pub fn serialize_conversation(messages: &[Message]) -> JsString {
     pi_agent_core::harness::compaction::utils::serialize_conversation_with_arguments(
         messages,
         &serialize_tool_call_argument,
     )
 }
 
-fn serialize_tool_call_argument(value: &Value) -> String {
-    let serialized = pi_js_compat::js_json::stringify(value);
+fn serialize_tool_call_argument(value: &Value) -> JsString {
+    let serialized = pi_js_compat::js_json::stringify_lossless(value);
     pi_agent_core::harness::compaction::utils::truncate_for_summary(&serialized, TOOL_CALL_ARGUMENT_MAX_CHARS)
 }

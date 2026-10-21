@@ -191,7 +191,12 @@ pub fn append_self_restart_notice(
         return Ok(());
     };
     let notice = format_restart_notice(prompt, handoff.old_pid, current_pid);
-    session_manager.append_custom_message_entry("self_restart", CustomMessageContent::Text(notice), true, None)?;
+    session_manager.append_custom_message_entry(
+        "self_restart",
+        CustomMessageContent::Text(notice.into()),
+        true,
+        None,
+    )?;
     Ok(())
 }
 

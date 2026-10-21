@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use indexmap::IndexMap;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::{ImageContent, ProviderHeaders};
-use pi_js_compat::js_json::{JsObject, JsValue};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_tui::keybindings::{KeyId, KeybindingsConfig};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
@@ -1490,7 +1490,7 @@ impl ExtensionRunner {
 
     pub async fn emit_before_agent_start(
         &self,
-        prompt: &str,
+        prompt: &JsString,
         images: Option<Vec<ImageContent>>,
         system_prompt: &str,
         system_prompt_options: BuildSystemPromptOptions,
@@ -1607,7 +1607,7 @@ impl ExtensionRunner {
     /// Emit `input`; transforms chain and `handled` short-circuits.
     pub async fn emit_input(
         &self,
-        text: &str,
+        text: &JsString,
         images: Option<InputImages>,
         source: InputSource,
         streaming_behavior: Option<StreamingBehavior>,
@@ -1648,7 +1648,7 @@ impl ExtensionRunner {
             (None, None) => false,
             _ => true,
         };
-        if current_text != text || images_changed {
+        if &current_text != text || images_changed {
             InputEventResult::Transform {
                 text: current_text,
                 images: current_images,

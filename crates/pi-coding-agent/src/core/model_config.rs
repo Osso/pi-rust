@@ -47,13 +47,13 @@ impl ModelConfig {
             }
         };
 
-        let errors = schema_error_lines(&models_config_schema(), &parsed);
+        let errors = schema_error_lines(&models_config_schema().into(), &parsed.clone().into());
         if !errors.is_empty() {
             return Self {
                 providers: Map::new(),
                 error: Some(format!(
                     "Invalid models.json schema:\n{}\n\nFile: {path}",
-                    errors.join("\n")
+                    pi_js_compat::js_json::encode_node_utf8(&pi_js_compat::js_json::JsString::join(errors, "\n"))
                 )),
             };
         }

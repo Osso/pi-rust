@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use pi_agent_core::agent::AgentMessage;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_ai::utils::uuid::random_uuid;
-use serde_json::Value;
+use pi_js_compat::js_json::{JsString, JsValue as Value, encode_node_utf8};
 
 use crate::core::session_manager::{
     FileEntry, KnownSessionEntry, SessionEntry, SessionMessageEntry, parse_session_file_entry,
@@ -33,19 +33,21 @@ pub struct ToolResultSessionMigrationReport {
     pub errors: Vec<String>,
 }
 
-fn utf8_bytes(text: &str) -> usize {
-    text.len()
+fn utf8_bytes(text: impl Into<JsString>) -> usize {
+    encode_node_utf8(&text.into()).len()
 }
 
-fn utf8_prefix(text: &str, max_bytes: usize) -> String {
-    if text.len() <= max_bytes {
-        return text.to_owned();
+fn utf8_prefix(text: impl Into<JsString>, max_bytes: usize) -> JsString {
+    let text = text.into();
+    let encoded = encode_node_utf8(&text);
+    if encoded.len() <= max_bytes {
+        return text;
     }
     let mut end = max_bytes;
-    while end > 0 && !text.is_char_boundary(end) {
+    while end > 0 && !encoded.is_char_boundary(end) {
         end -= 1;
     }
-    text[..end].to_owned()
+    encoded[..end].into()
 }
 
 fn text_block(item: &TextOrImageContent) -> Option<&TextContent> {
@@ -86,7 +88,7 @@ fn cap_text_content(content: &[TextOrImageContent]) -> Vec<TextOrImageContent> {
                 }
                 let prefix = utf8_prefix(&text.text, remaining_bytes as usize);
                 remaining_bytes = 0;
-                TextOrImageContent::Text(TextContent::new(format!("{prefix}{TOOL_RESULT_TRUNCATION_MARKER}")))
+                TextOrImageContent::Text(TextContent::new(prefix + TOOL_RESULT_TRUNCATION_MARKER))
             }
         })
         .collect()
@@ -101,19 +103,14 @@ fn cap_serialized_content(content: &[TextOrImageContent]) -> Vec<TextOrImageCont
         return content.to_vec();
     }
 
-    let text = content
-        .iter()
-        .filter_map(text_block)
-        .map(|text| text.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let text = JsString::join(content.iter().filter_map(text_block).map(|text| &text.text), "\n");
     let marker = TOOL_RESULT_TRUNCATION_MARKER;
     let mut low = 0_usize;
     let mut high = utf8_bytes(&text);
-    let mut best = marker.to_owned();
+    let mut best = JsString::from(marker);
     while low <= high {
         let middle = (low + high) / 2;
-        let candidate = format!("{}{}", utf8_prefix(&text, middle), marker);
+        let candidate = utf8_prefix(&text, middle) + marker;
         let blocks = vec![TextOrImageContent::Text(TextContent::new(candidate.clone()))];
         if serialized_content_bytes(&blocks) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
             best = candidate;
@@ -165,13 +162,10 @@ fn cap_tool_result_entry(entry: &SessionMessageEntry) -> SessionMessageEntry {
         return initial_entry;
     }
 
-    let text = message
-        .content
-        .iter()
-        .filter_map(text_block)
-        .map(|text| text.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let text = JsString::join(
+        message.content.iter().filter_map(text_block).map(|text| &text.text),
+        "\n",
+    );
     let non_text_content: Vec<TextOrImageContent> = message
         .content
         .iter()
@@ -189,11 +183,9 @@ fn cap_tool_result_entry(entry: &SessionMessageEntry) -> SessionMessageEntry {
         while low <= high {
             let middle = (low + high) / 2;
             let mut content = non_text_content.clone();
-            content.push(TextOrImageContent::Text(TextContent::new(format!(
-                "{}{}",
-                utf8_prefix(&text, middle),
-                marker
-            ))));
+            content.push(TextOrImageContent::Text(TextContent::new(
+                utf8_prefix(&text, middle) + marker,
+            )));
             let candidate = build_tool_result_candidate(entry, content, details.clone());
             if serialized_entry_bytes(&candidate) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
                 best = candidate;
@@ -213,8 +205,12 @@ fn cap_tool_result_entry(entry: &SessionMessageEntry) -> SessionMessageEntry {
     let minimal_content = vec![TextOrImageContent::Text(TextContent::new(marker))];
     let mut minimal = entry.clone();
     if let AgentMessage::ToolResult(message) = minimal.message.as_mut() {
-        message.tool_call_id = utf8_prefix(&message.tool_call_id, 128);
-        message.tool_name = utf8_prefix(&message.tool_name, 128);
+        message.tool_call_id = utf8_prefix(&message.tool_call_id, 128)
+            .to_utf8()
+            .expect("UTF-8 id prefix");
+        message.tool_name = utf8_prefix(&message.tool_name, 128)
+            .to_utf8()
+            .expect("UTF-8 name prefix");
         message.content = minimal_content;
         message.details = None;
     }

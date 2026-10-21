@@ -4,6 +4,7 @@
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::TextOrImageContent;
+use pi_js_compat::js_json::{JsValue, encode_node_utf8};
 use pi_tui::{get_capabilities, get_image_dimensions, hyperlink, image_fallback};
 
 use crate::modes::interactive::theme::{Theme, ThemeColor};
@@ -21,10 +22,10 @@ pub fn shorten_path(path: &str) -> String {
 }
 
 /// `str`: strings pass through, `null`/`undefined` become `""`, other types become `null`.
-pub fn str_value(value: Option<&serde_json::Value>) -> Option<String> {
+pub fn str_value(value: Option<&JsValue>) -> Option<String> {
     match value {
-        Some(serde_json::Value::String(text)) => Some(text.clone()),
-        None | Some(serde_json::Value::Null) => Some(String::new()),
+        Some(JsValue::String(text)) => Some(encode_node_utf8(text)),
+        None | Some(JsValue::Null) => Some(String::new()),
         Some(_) => None,
     }
 }
@@ -72,7 +73,7 @@ pub fn get_text_output(result: Option<&AgentToolResult>, show_images: bool) -> S
 
     let mut output = text_blocks
         .iter()
-        .map(|text| normalize_display_text(&sanitize_binary_output(&strip_ansi(&text.text))))
+        .map(|text| normalize_display_text(&sanitize_binary_output(&strip_ansi(&encode_node_utf8(&text.text)))))
         .collect::<Vec<_>>()
         .join("\n");
 

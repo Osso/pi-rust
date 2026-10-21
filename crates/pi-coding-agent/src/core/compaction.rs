@@ -27,8 +27,8 @@ use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy, retry_assistant_call};
 use pi_ai::utils::text::{ContentText, content_text};
 use pi_ai::utils::uuid::uuidv7;
 use pi_js_compat::date::date_parse_millis;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 pub use self::utils::{
@@ -44,8 +44,8 @@ use crate::core::session_manager::{
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompactionDetails {
-    pub read_files: Vec<String>,
-    pub modified_files: Vec<String>,
+    pub read_files: Vec<JsString>,
+    pub modified_files: Vec<JsString>,
 }
 
 /// Runtime source used for a compaction, for logging.
@@ -73,7 +73,7 @@ pub struct CompactionSourceInfo {
 #[serde(rename_all = "camelCase")]
 #[serde(bound(serialize = "T: Serialize", deserialize = "T: Deserialize<'de>"))]
 pub struct CompactionResult<T = Value> {
-    pub summary: String,
+    pub summary: JsString,
     pub first_kept_entry_id: String,
     #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub tokens_before: f64,
@@ -172,12 +172,12 @@ fn extract_file_operations(
         && let Some(details) = compaction.details.as_deref()
     {
         if let Some(read_files) = details.get("readFiles").and_then(Value::as_array) {
-            for path in read_files.iter().filter_map(Value::as_str) {
+            for path in read_files.iter().filter_map(Value::as_string) {
                 file_ops.read.insert(path.to_owned());
             }
         }
         if let Some(modified_files) = details.get("modifiedFiles").and_then(Value::as_array) {
-            for path in modified_files.iter().filter_map(Value::as_str) {
+            for path in modified_files.iter().filter_map(Value::as_string) {
                 file_ops.edited.insert(path.to_owned());
             }
         }
@@ -228,14 +228,14 @@ fn get_message_from_entry_for_compaction(entry: &SessionEntry) -> Option<AgentMe
         && user.input_source == Some(pi_ai::types::InputSource::Extension)
     {
         let text = match &user.content {
-            UserContent::Text(text) => Some(text.as_str()),
+            UserContent::Text(text) => Some(text),
             UserContent::Blocks(blocks) => blocks.iter().find_map(|block| match block {
-                TextOrImageContent::Text(text) => Some(text.text.as_str()),
+                TextOrImageContent::Text(text) => Some(&text.text),
                 TextOrImageContent::Image(_) => None,
             }),
         };
         if let Some(text) = text
-            && GOAL_REMINDER_PREFIXES.iter().any(|prefix| text.starts_with(prefix))
+            && GOAL_REMINDER_PREFIXES.iter().any(|prefix| text.starts_with(*prefix))
         {
             return None;
         }
@@ -330,18 +330,18 @@ fn is_turn_start_entry(entry: &SessionEntry) -> bool {
     if entry.entry_type() != "message" {
         return false;
     }
-    matches!(
-        entry.as_message().map(|message| message.message.role()),
-        Some("user" | "bashExecution" | "custom")
-    )
+    entry.as_message().is_some_and(|entry| {
+        ["user", "bashExecution", "custom"]
+            .iter()
+            .any(|role| entry.message.has_role(role))
+    })
 }
 
 fn is_active_turn_continuation_entry(entry: &SessionEntry) -> bool {
     entry.entry_type() == "message"
-        && matches!(
-            entry.as_message().map(|message| message.message.role()),
-            Some("assistant" | "toolResult")
-        )
+        && entry
+            .as_message()
+            .is_some_and(|entry| entry.message.has_role("assistant") || entry.message.has_role("toolResult"))
 }
 
 fn find_active_turn_floor_index(entries: &[SessionEntry], start_index: usize, end_index: usize) -> Option<usize> {
@@ -692,7 +692,7 @@ pub struct GenerateSummaryWithUsageOptions<'a> {
     pub headers: Option<ProviderHeaders>,
     pub signal: Option<CancellationToken>,
     pub custom_instructions: Option<&'a str>,
-    pub previous_summary: Option<&'a str>,
+    pub previous_summary: Option<&'a JsString>,
     pub thinking_level: Option<pi_agent_core::harness::types::ThinkingLevel>,
     pub stream_fn: Option<&'a StreamFn>,
     pub env: Option<pi_ai::types::ProviderEnv>,
@@ -703,7 +703,7 @@ pub struct GenerateSummaryWithUsageOptions<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MaterializeCompactionSummaryResult {
     Aborted,
-    Summary(String),
+    Summary(JsString),
 }
 
 /// Options for [`materialize_compaction_summary`].
@@ -764,16 +764,17 @@ fn read_compaction_materialization_response(
             "Compaction summary materialization failed: {detail}"
         )));
     }
-    let summary = response
-        .content
-        .iter()
-        .filter_map(|content| match content {
-            pi_ai::types::AssistantContent::Text(text) => Some(text.text.as_str()),
-            _ => None,
-        })
-        .filter(|text| !text.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let summary = JsString::join(
+        response
+            .content
+            .iter()
+            .filter_map(|content| match content {
+                pi_ai::types::AssistantContent::Text(text) => Some(&text.text),
+                _ => None,
+            })
+            .filter(|text| !text.trim().is_empty()),
+        "\n",
+    );
     if summary.is_empty() {
         return Err(CompactionError::new(
             "Compaction summary materialization returned no text",
@@ -814,7 +815,7 @@ pub async fn materialize_compaction_summary(
     read_compaction_materialization_response(&response)
 }
 
-fn build_summary_prompt(options: &GenerateSummaryWithUsageOptions<'_>) -> String {
+fn build_summary_prompt(options: &GenerateSummaryWithUsageOptions<'_>) -> JsString {
     let summary_prompt = if options.previous_summary.is_some() {
         UPDATE_SUMMARIZATION_PROMPT
     } else {
@@ -826,10 +827,14 @@ fn build_summary_prompt(options: &GenerateSummaryWithUsageOptions<'_>) -> String
     };
     let conversation_text = serialize_conversation(&convert_to_llm(options.current_messages));
     let previous_summary_text = match options.previous_summary {
-        Some(summary) => format!("<previous-summary>\n{summary}\n</previous-summary>\n\n"),
-        None => String::new(),
+        Some(summary) => JsString::from("<previous-summary>\n") + summary + "\n</previous-summary>\n\n",
+        None => JsString::default(),
     };
-    format!("<conversation>\n{conversation_text}\n</conversation>\n\n{previous_summary_text}{focused_prompt}")
+    JsString::from("<conversation>\n")
+        + conversation_text
+        + "\n</conversation>\n\n"
+        + previous_summary_text
+        + focused_prompt
 }
 
 fn build_summary_request(options: &GenerateSummaryWithUsageOptions<'_>) -> (Context, SimpleStreamOptions) {
@@ -863,7 +868,7 @@ fn build_summary_request(options: &GenerateSummaryWithUsageOptions<'_>) -> (Cont
 /// Summary text and the provider usage that produced it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SummaryWithUsage {
-    pub text: String,
+    pub text: JsString,
     pub usage: Usage,
 }
 
@@ -896,7 +901,7 @@ async fn generate_summary_with_options<C: RetryCallbacks + ?Sized>(
 }
 
 /// Generate a summary of the conversation using the LLM.
-pub async fn generate_summary(options: &GenerateSummaryWithUsageOptions<'_>) -> Result<String, CompactionError> {
+pub async fn generate_summary(options: &GenerateSummaryWithUsageOptions<'_>) -> Result<JsString, CompactionError> {
     generate_summary_with_options(options, None::<&mut NoRetryCallbacks>)
         .await
         .map(|summary| summary.text)
@@ -924,7 +929,7 @@ pub struct CompactionPreparation {
     pub tokens_before: f64,
     /// Summary from the previous compaction, for iterative update.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_summary: Option<String>,
+    pub previous_summary: Option<JsString>,
     /// File operations extracted from `messages_to_summarize`.
     pub file_ops: FileOperations,
     pub settings: CompactionSettings,
@@ -1063,7 +1068,7 @@ fn build_history_summary_options<'a>(
         headers: options.headers.clone(),
         signal: options.signal.clone(),
         custom_instructions: options.custom_instructions,
-        previous_summary: preparation.previous_summary.as_deref(),
+        previous_summary: preparation.previous_summary.as_ref(),
         thinking_level: options.thinking_level,
         stream_fn: options.stream_fn,
         env: options.env.clone(),
@@ -1090,8 +1095,10 @@ fn build_turn_prefix_summary_request(options: &TurnPrefixSummaryRequestOptions<'
             f64::INFINITY
         });
     let conversation_text = serialize_conversation(&convert_to_llm(options.messages));
-    let prompt_text =
-        format!("<conversation>\n{conversation_text}\n</conversation>\n\n{TURN_PREFIX_SUMMARIZATION_PROMPT}");
+    let prompt_text = JsString::from("<conversation>\n")
+        + conversation_text
+        + "\n</conversation>\n\n"
+        + TURN_PREFIX_SUMMARIZATION_PROMPT;
     let message = AgentMessage::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt_text))]),
@@ -1148,7 +1155,7 @@ async fn generate_split_turn_summary<C: RetryCallbacks + ?Sized>(
     options: &CompactionSummaryOptions<'_>,
     callbacks: Option<&mut C>,
 ) -> Result<SummaryWithUsage, CompactionError> {
-    let mut history_text = "No prior history.".to_owned();
+    let mut history_text = JsString::from("No prior history.");
     let mut history_usage = None;
 
     if !preparation.messages_to_summarize.is_empty() {
@@ -1173,10 +1180,7 @@ async fn generate_split_turn_summary<C: RetryCallbacks + ?Sized>(
         callbacks,
     )
     .await?;
-    let text = format!(
-        "{history_text}\n\n---\n\n**Turn Context (split turn):**\n\n{}",
-        turn_prefix_result.text
-    );
+    let text = history_text + "\n\n---\n\n**Turn Context (split turn):**\n\n" + turn_prefix_result.text;
     let usage = match history_usage {
         Some(usage) => combine_usage(&usage, &turn_prefix_result.usage),
         None => turn_prefix_result.usage,
@@ -1205,11 +1209,7 @@ pub async fn compact<C: RetryCallbacks + ?Sized>(
     let started_at = now_millis();
     let summary_result = generate_compaction_summary(preparation, options, callbacks).await?;
     let file_lists = compute_file_lists(&preparation.file_ops);
-    let summary = format!(
-        "{}{}",
-        summary_result.text,
-        format_file_operations(&file_lists.read_files, &file_lists.modified_files)
-    );
+    let summary = summary_result.text + format_file_operations(&file_lists.read_files, &file_lists.modified_files);
 
     if preparation.first_kept_entry_id.is_empty() {
         return Err(CompactionError::new(
@@ -1234,7 +1234,7 @@ pub async fn compact<C: RetryCallbacks + ?Sized>(
         usage: Some(summary_result.usage),
         provider_native: None,
         details: Some(
-            serde_json::to_value(CompactionDetails {
+            pi_js_compat::js_json::to_value(&CompactionDetails {
                 read_files: file_lists.read_files,
                 modified_files: file_lists.modified_files,
             })

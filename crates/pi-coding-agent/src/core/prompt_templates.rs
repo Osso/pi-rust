@@ -11,6 +11,7 @@ use crate::config::package_config;
 use crate::core::source_info::{SourceInfo, SourceScope, SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::utils::frontmatter::parse_frontmatter;
 use crate::utils::paths::{PathInputOptions, resolve_path};
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::locale_compare;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -26,22 +27,22 @@ pub struct PromptTemplate {
 }
 
 /// Parses command arguments, honoring single and double quotes.
-pub fn parse_command_args(args_string: &str) -> Vec<String> {
+pub fn parse_command_args(args_string: impl Into<JsString>) -> Vec<JsString> {
     let mut args = Vec::new();
-    let mut current = String::new();
-    let mut quote: Option<char> = None;
+    let mut current = JsString::default();
+    let mut quote: Option<u16> = None;
 
-    for character in args_string.chars() {
+    for character in args_string.into().units().iter().copied() {
         match quote {
             Some(active) if character == active => quote = None,
-            Some(_) => current.push(character),
-            None if character == '"' || character == '\'' => quote = Some(character),
-            None if is_js_whitespace(character) => {
+            Some(_) => current.push_unit(character),
+            None if character == 0x22 || character == 0x27 => quote = Some(character),
+            None if char::from_u32(u32::from(character)).is_some_and(is_js_whitespace) => {
                 if !current.is_empty() {
                     args.push(std::mem::take(&mut current));
                 }
             }
-            None => current.push(character),
+            None => current.push_unit(character),
         }
     }
 
@@ -69,52 +70,65 @@ fn is_js_whitespace(character: char) -> bool {
 }
 
 /// Substitutes `$1`, `$@`, `$ARGUMENTS`, defaults, and bash-style slices.
-pub fn substitute_args(content: &str, args: &[String]) -> String {
-    let all_args = args.join(" ");
+pub fn substitute_args(content: &str, args: &[JsString]) -> JsString {
+    let all_args = JsString::join(args, " ");
     let pattern =
         Regex::new(r"\$\{([0-9]+|ARGUMENTS|@):-([^}]*)\}|\$\{@:([0-9]+)(?::([0-9]+))?\}|\$(ARGUMENTS|@|[0-9]+)")
             .expect("prompt template substitution regex is valid");
 
-    pattern
-        .replace_all(content, |captures: &regex::Captures<'_>| {
-            if let Some(target) = captures.get(1) {
-                let default_value = captures.get(2).map_or("", |value| value.as_str());
-                let value = if matches!(target.as_str(), "@" | "ARGUMENTS") {
-                    all_args.clone()
-                } else {
-                    positional_arg(args, target.as_str()).unwrap_or_default()
-                };
-                return if value.is_empty() {
-                    default_value.to_owned()
-                } else {
-                    value
-                };
-            }
+    let mut result = JsString::default();
+    let mut previous_end = 0;
+    for captures in pattern.captures_iter(content) {
+        let matched = captures.get(0).expect("regex match");
+        result.push_str(&content[previous_end..matched.start()]);
+        result.push_str(substitution_value(&captures, args, &all_args));
+        previous_end = matched.end();
+    }
+    result.push_str(&content[previous_end..]);
+    result
+}
 
-            if let Some(slice_start) = captures.get(3) {
-                let start = positional_index(slice_start.as_str());
-                if let Some(slice_length) = captures.get(4) {
-                    let length = slice_length.as_str().parse::<usize>().unwrap_or(0);
-                    let end = start.saturating_add(length).min(args.len());
-                    return args.get(start..end).map_or_else(String::new, |slice| slice.join(" "));
-                }
-                return args.get(start..).map_or_else(String::new, |slice| slice.join(" "));
-            }
+fn substitution_value(captures: &regex::Captures<'_>, args: &[JsString], all_args: &JsString) -> JsString {
+    if let Some(target) = captures.get(1) {
+        let default_value = captures.get(2).map_or("", |value| value.as_str());
+        let value = if matches!(target.as_str(), "@" | "ARGUMENTS") {
+            all_args.clone()
+        } else {
+            positional_arg(args, target.as_str()).unwrap_or_default()
+        };
+        return if value.is_empty() {
+            JsString::from(default_value)
+        } else {
+            value
+        };
+    }
 
-            let simple = captures.get(5).map_or("", |value| value.as_str());
-            if matches!(simple, "ARGUMENTS" | "@") {
-                return all_args.clone();
-            }
-            positional_arg(args, simple).unwrap_or_default()
-        })
-        .into_owned()
+    if let Some(slice_start) = captures.get(3) {
+        let start = positional_index(slice_start.as_str());
+        if let Some(slice_length) = captures.get(4) {
+            let length = slice_length.as_str().parse::<usize>().unwrap_or(0);
+            let end = start.saturating_add(length).min(args.len());
+            return args
+                .get(start..end)
+                .map_or_else(JsString::default, |slice| JsString::join(slice, " "));
+        }
+        return args
+            .get(start..)
+            .map_or_else(JsString::default, |slice| JsString::join(slice, " "));
+    }
+
+    let simple = captures.get(5).map_or("", |value| value.as_str());
+    if matches!(simple, "ARGUMENTS" | "@") {
+        return all_args.clone();
+    }
+    positional_arg(args, simple).unwrap_or_default()
 }
 
 fn positional_index(text: &str) -> usize {
     text.parse::<usize>().map_or(0, |index| index.saturating_sub(1))
 }
 
-fn positional_arg(args: &[String], text: &str) -> Option<String> {
+fn positional_arg(args: &[JsString], text: &str) -> Option<JsString> {
     let index = text.parse::<usize>().ok()?.checked_sub(1)?;
     args.get(index).cloned()
 }
@@ -303,21 +317,21 @@ fn load_templates_from_dir(dir: &Path, get_source_info: &dyn Fn(&Path) -> Source
 }
 
 /// Expands a `/template args` message when the template name matches.
-pub fn expand_prompt_template(text: &str, templates: &[PromptTemplate]) -> String {
+pub fn expand_prompt_template(text: impl Into<JsString>, templates: &[PromptTemplate]) -> JsString {
+    let text = text.into();
     if !text.starts_with('/') {
-        return text.to_owned();
+        return text;
     }
-
-    let pattern = Regex::new(r"^/(\S+)(?:\s+([\s\S]*))?$").expect("prompt template expansion regex is valid");
-    let Some(captures) = pattern.captures(text) else {
-        return text.to_owned();
+    let units = text.units();
+    let end = units
+        .iter()
+        .skip(1)
+        .position(|unit| char::from_u32(u32::from(*unit)).is_some_and(is_js_whitespace))
+        .map_or(units.len(), |index| index + 1);
+    let name = JsString::from_utf16(units[1..end].to_vec());
+    let Some(template) = templates.iter().find(|template| name == template.name.as_str()) else {
+        return text;
     };
-    let template_name = captures.get(1).map_or("", |value| value.as_str());
-    let args_string = captures.get(2).map_or("", |value| value.as_str());
-
-    let Some(template) = templates.iter().find(|template| template.name == template_name) else {
-        return text.to_owned();
-    };
-    let args = parse_command_args(args_string);
-    substitute_args(&template.content, &args)
+    let args = JsString::from_utf16(units[end..].to_vec()).trim();
+    substitute_args(&template.content, &parse_command_args(args))
 }

@@ -15,6 +15,7 @@ use pi_ai::types::{
 };
 use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy};
 use pi_ai::utils::text::{ContentText, content_text};
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
@@ -27,13 +28,13 @@ use crate::core::session_manager::{KnownSessionEntry, SessionEntry, SessionManag
 #[serde(rename_all = "camelCase")]
 pub struct BranchSummaryResult {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
+    pub summary: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub read_files: Option<Vec<String>>,
+    pub read_files: Option<Vec<JsString>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modified_files: Option<Vec<String>>,
+    pub modified_files: Option<Vec<JsString>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aborted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -44,8 +45,8 @@ pub struct BranchSummaryResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchSummaryDetails {
-    pub read_files: Vec<String>,
-    pub modified_files: Vec<String>,
+    pub read_files: Vec<JsString>,
+    pub modified_files: Vec<JsString>,
 }
 
 /// Entries prepared for branch summarization.
@@ -175,13 +176,13 @@ pub fn prepare_branch_entries(entries: &[SessionEntry], token_budget: f64) -> Br
             && !summary.from_hook.unwrap_or(false)
             && let Some(details) = summary.details.as_ref()
         {
-            if let Some(read_files) = details.get("readFiles").and_then(serde_json::Value::as_array) {
-                for path in read_files.iter().filter_map(serde_json::Value::as_str) {
+            if let Some(read_files) = details.get("readFiles").and_then(JsValue::as_array) {
+                for path in read_files.iter().filter_map(JsValue::as_string) {
                     file_ops.read.insert(path.to_owned());
                 }
             }
-            if let Some(modified_files) = details.get("modifiedFiles").and_then(serde_json::Value::as_array) {
-                for path in modified_files.iter().filter_map(serde_json::Value::as_str) {
+            if let Some(modified_files) = details.get("modifiedFiles").and_then(JsValue::as_array) {
+                for path in modified_files.iter().filter_map(JsValue::as_string) {
                     file_ops.edited.insert(path.to_owned());
                 }
             }
@@ -269,7 +270,7 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
 
     if messages.is_empty() {
         return BranchSummaryResult {
-            summary: Some("No content to summarize".to_owned()),
+            summary: Some("No content to summarize".into()),
             ..BranchSummaryResult::default()
         };
     }
@@ -281,7 +282,7 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
         (false, Some(custom)) => format!("{BRANCH_SUMMARY_PROMPT}\n\nAdditional focus: {custom}"),
         _ => BRANCH_SUMMARY_PROMPT.to_owned(),
     };
-    let prompt_text = format!("<conversation>\n{conversation_text}\n</conversation>\n\n{instructions}");
+    let prompt_text = JsString::from("<conversation>\n") + conversation_text + "\n</conversation>\n\n" + instructions;
 
     let summarization_message = AgentMessage::User(UserMessage {
         role: UserRole::Tag,
@@ -342,7 +343,7 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
     }
 
     let mut summary = content_text(ContentText::Assistant(&response.content), "\n");
-    summary = format!("{BRANCH_SUMMARY_PREAMBLE}{summary}");
+    summary = JsString::from(BRANCH_SUMMARY_PREAMBLE) + summary;
 
     let file_lists = compute_file_lists(&file_ops);
     summary.push_str(&format_file_operations(
@@ -352,7 +353,7 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
 
     BranchSummaryResult {
         summary: Some(if summary.is_empty() {
-            "No summary generated".to_owned()
+            "No summary generated".into()
         } else {
             summary
         }),
