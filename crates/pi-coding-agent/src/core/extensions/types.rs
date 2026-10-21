@@ -284,7 +284,8 @@ pub trait ExtensionUiComponent {
     fn dispose(&self) {}
 
     /// UI-local `custom` onHandle bridge (`interactive-mode.ts:3518–3520`).
-    /// Called once immediately after mounting an overlay. Unlike the shared
+    /// Called once by `custom` immediately after mounting, not by raw
+    /// `show_overlay`. Unlike the shared
     /// options callback, this hook may retain the handle in `Rc` state.
     fn on_overlay_handle(&self, _handle: Arc<dyn ExtensionUiOverlayHandle>) {}
 }
@@ -297,7 +298,7 @@ pub trait ExtensionUiTuiBackend: Send + Sync {
     fn terminal_rows(&self) -> usize;
     fn terminal_columns(&self) -> usize;
     fn mode(&self) -> pi_tui::tui::TuiMode;
-    /// UI-thread operation; source `tui.ts:showOverlay`.
+    /// UI-thread operation; source `tui.ts:439,770–862`.
     fn show_overlay(
         &self,
         component: Box<dyn ExtensionUiComponent>,
@@ -320,7 +321,7 @@ impl ExtensionUiTui {
         self.backend.request_render();
     }
 
-    /// Mount a nested overlay on the owning UI thread (`tui.ts:showOverlay`).
+    /// Mount a nested overlay on the owning UI thread (`tui.ts:439,770–862`).
     pub fn show_overlay(
         &self,
         component: Box<dyn ExtensionUiComponent>,
@@ -402,7 +403,8 @@ pub type ExtensionEditorFactory = Arc<
         + Sync,
 >;
 
-/// `done` callback passed to `custom` factories.
+/// UI-local `done` callback (`interactive-mode.ts:3486–3505`).
+/// Factory closures cross threads; their created callbacks/components do not.
 #[derive(Clone)]
 pub struct ExtensionUiDone(Arc<dyn Fn(Option<Value>)>);
 
@@ -427,6 +429,7 @@ pub trait ExtensionUiOverlayHandle {
     fn is_hidden(&self) -> bool;
     fn focus(&self);
     fn unfocus(&self);
+    /// Source `tui.ts:861`: whether this overlay's component currently owns focus.
     fn is_focused(&self) -> bool;
 }
 

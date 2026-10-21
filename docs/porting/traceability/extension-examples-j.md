@@ -7,8 +7,8 @@ Native examples are embeddable `#[path]` modules, registered explicitly through
 | Source | Native entrypoint | Proof / blocker |
 | --- | --- | --- |
 | `github-issue-autocomplete.ts` | `github_issue_autocomplete_extension` | `example_github_issue_autocomplete`: ordinary-data differential; native U+FFFD boundary regression under approved exclusion below. |
-| `question.ts` | Not shipped | Todo: dedicated form slice; host dependency resolved |
-| `questionnaire.ts` | Not shipped | Todo: dedicated form slice; host dependency resolved |
+| `question.ts` | `question_extension` (subsequent slice) | [Current form proof](core-ui-overlay.md) |
+| `questionnaire.ts` | `questionnaire_extension` (subsequent slice) | [Current form proof](core-ui-overlay.md) |
 | `rpc-demo.ts` | `rpc_demo_extension` | `example_rpc_demo`: full real-RPC protocol frame comparison |
 
 ## GitHub issue autocomplete
@@ -46,7 +46,9 @@ All ordinary JSON, Unicode, success/error, caching, completion and delegation
 fixtures remain in the full-result TS comparison. Historical RED logs 13–14
 record the now-classified boundary difference, not an open implementation blocker.
 
-## Forms deferred (not partial implementations)
+## Historical form deferral
+
+The subsequent [core UI slice](core-ui-overlay.md) supersedes this deferral. The remainder of this section describes batch J's original scope.
 
 Both pinned factories instantiate `new Editor(tui, editorTheme)`:
 `question.ts:89`, `questionnaire.ts:130`. The original blocker was missing
@@ -95,7 +97,7 @@ extension path `/fixture/rpc-demo` on both sides. No core fix or fallback added.
   Historical proof at 9fb0ead; current ordinary-data and boundary proofs follow in the ledger.
 - RPC prefill notification mutation: targeted test failed (log 12), reverted.
   RPC source remains the GREEN log-10 implementation (formatting only afterward).
-- Form examples have no implementation/tests/mutations; their host dependency is resolved, and porting is deferred.
+- Batch J shipped no form implementation/tests/mutations; the subsequent [core UI slice](core-ui-overlay.md) now owns their proof.
 - Final integration merges master only into this branch; no push, core API edits,
   live state, GitHub network calls, agents or model CLIs. Proof scope and exact
   revisions are recorded in the ledger.

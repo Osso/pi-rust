@@ -11,7 +11,7 @@ Native factories cross the extension/UI request boundary; their returned compone
 - [x] Question forms preserve selection bounds, inline Editor input, blank/back/cancel behavior, result details, renderers, wrapped ANSI output, and source cache invalidation.
 - [x] Questionnaire forms preserve single/multiple navigation, defaults, insertion-ordered answer replacement, partial cancellation, custom/blank answers, summaries, and renderers on tested normal paths.
 - [x] Existing String boundaries project unmatched UTF-16 surrogates to U+FFFD before Editor input.
-- [ ] User-approved post-pin optionless questionnaires keep index 0 on Down, ignore Enter without changing frames or answers, and still cancel on Escape.
+- [x] User-approved post-pin optionless questionnaires keep index 0 on Down, ignore Enter without changing frames or answers, and still cancel on Escape.
 
 ## How it works
 
@@ -34,7 +34,7 @@ Native factories cross the extension/UI request boundary; their returned compone
 
 ## Known gaps (current cycle)
 
-- [ ] Classify the shared existing Editor recursion defect for width-2 graphemes at layout width 1; no Editor change belongs to this slice.
+- [ ] Shared existing Editor recursion for width-2 graphemes at layout width 1 remains a confirmed defect assigned to a separate corrective slice, not an approved gap.
 
 ## Out of scope
 

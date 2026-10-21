@@ -120,8 +120,7 @@ are called by this example. Config loading failures are printed, matching TS.
 Embed via `#[path]` and register its factory explicitly. It runs git/gh and
 preloads up to 100 open issues per session; no default loading. Differential
 tests use a sandbox-local fake gh, never GitHub. Question/questionnaire forms
-remain todo for a dedicated slice; the editor-host bridge is now available.
-No partial forms or stub tests are shipped.
+are now supplied by the [core UI slice](../../../../docs/porting/traceability/core-ui-overlay.md).
 
 `rpc_demo.rs` exports `rpc_demo_extension`; register explicitly with the same
 registry pattern. Demonstrates RPC dialogs, status/widgets/title and editor
@@ -132,7 +131,20 @@ GitHub autocomplete uses the approved U+FFFD projection at the existing
 String-typed fuzzy boundary; raw lone-surrogate fuzzy fidelity is excluded.
 Ordinary fixtures retain full-result differential proof; the native boundary
 regression asserts projected matches. See
-`docs/porting/traceability/extension-examples-j.md` for the exclusion and form blockers.
+`docs/porting/traceability/extension-examples-j.md` for the exclusion and historical form blockers.
+
+## Question forms
+
+Embed `question.rs` or `questionnaire.rs`, keeping `forms.rs` beside it, then
+explicitly register `question_extension` or `questionnaire_extension` using the
+pattern above. Both tools embed the existing native Editor in a UI-local custom
+component. Nothing loads by default. Questionnaire carries the approved post-pin
+optionless-question correction; the shared width-1/wide-grapheme Editor defect
+remains separately tracked. Tests: `example_question`, `example_questionnaire`.
+
+Custom components may retain overlay handles in `on_overlay_handle`; the host
+calls this local bridge immediately after mounting. Timers capturing UI-local
+state must run on the host UI LocalSet (`spawn_local`), not a Send worker.
 
 ## Batch F examples
 
