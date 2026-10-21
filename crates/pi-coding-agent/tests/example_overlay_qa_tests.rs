@@ -278,7 +278,7 @@ impl ExtensionUiContext for Ui {
                     }
                     if let Some(event) = step.get("proc") {
                         use std::io::Write;
-                        let path = pi_js_compat::process_env::var("OVERLAY_QA_CONTROL").unwrap();
+                        let path = pi_js_compat::process_env::get("OVERLAY_QA_CONTROL").unwrap();
                         let mut control = std::fs::OpenOptions::new().append(true).open(path).unwrap();
                         writeln!(control, "{event}").unwrap();
                     }
@@ -349,7 +349,7 @@ impl ExtensionUiContext for Ui {
 }
 async fn native(request: &Value) -> Value {
     if request["command"] == "overlay-overflow" {
-        if let Some(control) = pi_js_compat::process_env::var("OVERLAY_QA_CONTROL") {
+        if let Some(control) = pi_js_compat::process_env::get("OVERLAY_QA_CONTROL") {
             std::fs::write(&control, "").unwrap();
             let _ = std::fs::remove_file(format!("{control}.pid"));
         }
@@ -495,15 +495,15 @@ while True:
     )
     .unwrap();
     std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let path = pi_js_compat::process_env::var("PATH").unwrap();
-    pi_js_compat::process_env::set("PATH", format!("{}:{path}", directory.path().display()));
+    let path = pi_js_compat::process_env::get("PATH").unwrap();
+    pi_js_compat::process_env::set("PATH", &format!("{}:{path}", directory.path().display()));
     let control = directory.path().join("control");
     std::fs::write(&control, "").unwrap();
     pi_js_compat::process_env::set("OVERLAY_QA_CONTROL", control.to_str().unwrap());
     ProcessFixture { directory, path }
 }
 async fn wait_for_process_ready() {
-    let control = pi_js_compat::process_env::var("OVERLAY_QA_CONTROL").unwrap();
+    let control = pi_js_compat::process_env::get("OVERLAY_QA_CONTROL").unwrap();
     for _ in 0..2000 {
         if std::fs::read_to_string(format!("{control}.pid")).is_ok_and(|s| !s.is_empty()) {
             return;
@@ -514,7 +514,7 @@ async fn wait_for_process_ready() {
     panic!("fixture process did not start");
 }
 async fn wait_for_process_exit() {
-    let control = pi_js_compat::process_env::var("OVERLAY_QA_CONTROL").unwrap();
+    let control = pi_js_compat::process_env::get("OVERLAY_QA_CONTROL").unwrap();
     let pid = std::fs::read_to_string(format!("{control}.pid")).unwrap();
     for _ in 0..2000 {
         if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
