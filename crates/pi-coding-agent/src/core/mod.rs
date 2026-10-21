@@ -125,4 +125,5 @@ pub use resource_loader::{
 pub use source_info::{create_source_info, create_synthetic_source_info};
 pub use system_prompt::BuildSystemPromptOptions;
 
+pub mod session_archive_storage;
 pub mod session_transcript;
