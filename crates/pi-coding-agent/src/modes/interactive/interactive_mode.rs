@@ -3312,6 +3312,7 @@ impl InteractiveMode {
                 started_at,
                 tool_call_id,
                 tool_name,
+                ..
             } => {
                 let started_at = pi_js_compat::date::date_parse(&started_at);
                 if started_at.is_nan() {

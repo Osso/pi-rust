@@ -79,6 +79,7 @@ pub enum SupervisorRequestStatus {
     Pending,
     Claimed,
     Completed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -490,10 +491,27 @@ fn supervisor_request_from_row(row: SupervisorRequestRow) -> Result<SupervisorRe
     })
 }
 
+/// `cancelSupervisorRequest`: sender-fenced cancellation clears claim ownership.
+pub fn cancel_supervisor_request(
+    control_db_path: &str,
+    request_id: i64,
+    sender_session_id: &str,
+    reason: &str,
+) -> Result<bool, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        with_immediate_transaction(db, |db| {
+            let response = js_json::stringify(&serde_json::json!({"kind":"error","reason":reason}));
+            Ok(db.execute("UPDATE supervisor_requests SET status = 'cancelled', completed_at = ?, claim_token = NULL, response_json = ?
+            WHERE id = ? AND sender_session_id = ? AND status IN ('pending','claimed')",params![crate::utils::iso_time::now_iso_string(),response,request_id,sender_session_id])? == 1)
+        })
+    })
+}
+
 fn parse_supervisor_status(value: &str) -> SupervisorRequestStatus {
     match value {
         "pending" => SupervisorRequestStatus::Pending,
         "claimed" => SupervisorRequestStatus::Claimed,
+        "cancelled" => SupervisorRequestStatus::Cancelled,
         _ => SupervisorRequestStatus::Completed,
     }
 }

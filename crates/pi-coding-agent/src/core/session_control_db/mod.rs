@@ -12,6 +12,9 @@ mod incoming;
 mod lifecycle;
 mod mailbox;
 mod requests;
+mod retention;
+use retention::{MAILBOX_CREATED_AT_MS_SQL, mailbox_cutoff_ms};
+pub use retention::{MAILBOX_MESSAGE_RETENTION_MS, is_mailbox_message_expired};
 mod schema;
 mod sessions;
 
@@ -55,8 +58,8 @@ pub use agents::{
     mark_multi_agent_mailbox_message_failed, read_multi_agent_agent, read_multi_agent_agents,
     read_multi_agent_runtime_ownership, read_multi_agent_state, reconcile_dead_detached_agent_runtimes,
     recover_dead_multi_agent_runtime, update_multi_agent_agent_activity, update_multi_agent_agent_current_activity,
-    update_multi_agent_agent_slot, update_multi_agent_agent_transcript, upsert_multi_agent_mailbox_message,
-    write_multi_agent_counters,
+    update_multi_agent_agent_model, update_multi_agent_agent_slot, update_multi_agent_agent_transcript,
+    upsert_multi_agent_mailbox_message, write_multi_agent_counters,
 };
 pub use channel::{
     advance_shared_channel_cursor, has_pending_runtime_coordination_message, initialize_shared_channel_cursor_at_tail,
@@ -66,8 +69,8 @@ pub use channel::{
 pub use health::{list_session_health, read_session_health, write_session_health};
 
 pub use incoming::{
-    claim_latest_incoming_message, complete_incoming_message, enqueue_incoming_message, fail_incoming_message,
-    read_incoming_message_status,
+    claim_codex_restriction_recovery, claim_latest_incoming_message, complete_incoming_message,
+    enqueue_incoming_message, fail_incoming_message, read_incoming_message_status,
 };
 pub use lifecycle::{
     DetachedJobOutcome, DetachedJobOwnershipIdentity, DetachedJobTerminalInput, DetachedJobTerminalOutput,
@@ -75,29 +78,33 @@ pub use lifecycle::{
 };
 pub use mailbox::{
     RuntimeMailboxListenerRecord, assert_main_session_runtime_available, claim_runtime_mailbox_messages,
-    consume_runtime_mailbox_message, consume_runtime_mailbox_message_by_store_ref, deliver_runtime_mailbox_message,
-    enqueue_runtime_mailbox_message, enqueue_stored_runtime_mailbox_message, fail_runtime_mailbox_message,
-    list_runtime_mailbox_listeners, list_runtime_mailbox_messages, mark_runtime_mailbox_message_delivered,
-    mark_runtime_mailbox_signal_keepalive_installed, read_runtime_mailbox_listener, read_runtime_mailbox_message,
+    consume_runtime_mailbox_message_by_store_ref, deliver_runtime_mailbox_message, enqueue_runtime_mailbox_message,
+    enqueue_stored_runtime_mailbox_message, enqueue_stored_runtime_mailbox_message_in_transaction,
+    fail_runtime_mailbox_message, is_known_local_session, list_runtime_mailbox_listeners,
+    list_runtime_mailbox_messages, list_runtime_mailbox_messages_for_session, mark_runtime_mailbox_message_delivered,
+    mark_runtime_mailbox_signal_keepalive_installed, notify_runtime_mailbox_recipient,
+    read_live_runtime_mailbox_session_agent_ids, read_runtime_mailbox_listener, read_runtime_mailbox_message,
     read_runtime_mailbox_message_for_delivery, recover_dead_runtime_mailbox_claims, register_runtime_mailbox_listener,
     release_runtime_mailbox_message_claim, resolve_own_main_runtime_coordination_recipient,
     retire_runtime_mailbox_listener, take_runtime_mailbox_messages_for_delivery,
 };
 pub use requests::{
     ArchitectRequest, ArchitectRequestStatus, PostArchitectRequestInput, PostSupervisorRequestInput, SupervisorRequest,
-    SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse, claim_next_supervisor_request,
-    claim_pending_architect_requests, complete_architect_request, complete_supervisor_request,
-    has_pending_supervisor_approval_request, list_pending_architect_requests, post_architect_request,
-    post_supervisor_request, read_supervisor_request, recover_supervisor_requests, renew_architect_request_claims,
-    requeue_supervisor_request,
+    SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse, cancel_supervisor_request,
+    claim_next_supervisor_request, claim_pending_architect_requests, complete_architect_request,
+    complete_supervisor_request, has_pending_supervisor_approval_request, list_pending_architect_requests,
+    post_architect_request, post_supervisor_request, read_supervisor_request, recover_supervisor_requests,
+    renew_architect_request_claims, requeue_supervisor_request,
 };
 pub use sessions::{
-    LastControlMessage, SessionMetadata, SessionNameState, WritableSessionMetadata, archive_session,
-    archive_sessions_older_than, clear_session_sandbox_profile, find_active_session_metadata_by_id,
-    find_active_session_metadata_by_name, list_active_session_metadata, list_archived_session_metadata,
-    list_session_metadata, normalize_session_name, read_last_message, read_or_migrate_prompt_history,
-    read_prompt_history, read_session_goal, read_session_metadata, read_session_name_state,
-    read_session_sandbox_profile, record_prompt_history_entry, relocate_session_control_data, remove_session_metadata,
+    EmptyMainSessionCandidate, LastControlMessage, ResumeSessionMetadataOptions, SessionMetadata, SessionNameState,
+    WritableSessionMetadata, archive_session, archive_sessions_older_than, clear_session_sandbox_profile,
+    find_active_session_metadata_by_id, find_active_session_metadata_by_name, list_active_session_metadata,
+    list_archived_session_metadata, list_descendant_session_paths, list_empty_main_session_candidates,
+    list_resume_session_metadata, list_session_metadata, list_subagent_session_paths, normalize_session_name,
+    read_last_message, read_or_migrate_prompt_history, read_prompt_history, read_session_goal, read_session_metadata,
+    read_session_name_state, read_session_sandbox_profile, record_prompt_history_entry, relocate_and_archive_session,
+    relocate_and_unarchive_session, relocate_session_control_data, remove_session_metadata, remove_sessions_metadata,
     unarchive_session, write_last_message, write_session_goal, write_session_metadata, write_session_model,
     write_session_name, write_session_sandbox_profile, write_session_thinking_level,
 };
@@ -133,7 +140,6 @@ pub enum RuntimeMailboxMessageKind {
 pub enum RuntimeMailboxMessageStatus {
     Pending,
     Claimed,
-    Delivered,
     Failed,
 }
 
@@ -150,6 +156,8 @@ pub struct RuntimeMailboxMessage {
     pub id: i64,
     pub recipient: RuntimeMailboxAddress,
     pub sender: RuntimeMailboxAddress,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_host: Option<String>,
     pub kind: RuntimeMailboxMessageKind,
     pub body: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -162,8 +170,6 @@ pub struct RuntimeMailboxMessage {
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delivered_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -178,6 +184,10 @@ pub struct RuntimeMailboxStoreRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharedChannelMessage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_id: Option<i64>,
     pub body: String,
     pub created_at: String,
     pub id: i64,
@@ -194,6 +204,8 @@ pub struct PostSharedChannelMessageInput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnqueueRuntimeMailboxMessageInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipient_host: Option<String>,
     pub recipient: RuntimeMailboxAddress,
     pub sender: RuntimeMailboxAddress,
     pub kind: RuntimeMailboxMessageKind,
@@ -204,6 +216,8 @@ pub struct EnqueueRuntimeMailboxMessageInput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnqueueStoredRuntimeMailboxMessageInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipient_host: Option<String>,
     pub recipient: RuntimeMailboxAddress,
     pub sender: RuntimeMailboxAddress,
     pub kind: RuntimeMailboxMessageKind,
@@ -306,7 +320,7 @@ pub(crate) fn optional_row<T>(result: rusqlite::Result<T>) -> Result<Option<T>, 
     }
 }
 
-pub(crate) fn with_immediate_transaction<T>(
+pub fn with_immediate_transaction<T>(
     db: &Connection,
     operation: impl FnOnce(&Connection) -> Result<T, ControlDbError>,
 ) -> Result<T, ControlDbError> {
@@ -327,6 +341,7 @@ struct RetainedControlDb {
     connection: Mutex<Option<Connection>>,
     active_calls: Mutex<usize>,
     retain_count: Mutex<usize>,
+    retention_thread: OnceLock<std::thread::Thread>,
 }
 
 fn retained_control_dbs() -> &'static Mutex<HashMap<String, Arc<RetainedControlDb>>> {
@@ -334,7 +349,7 @@ fn retained_control_dbs() -> &'static Mutex<HashMap<String, Arc<RetainedControlD
     RETAINED.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-pub(crate) fn with_control_db<T>(
+pub fn with_control_db<T>(
     control_db_path: &str,
     callback: impl FnOnce(&Connection) -> Result<T, ControlDbError>,
 ) -> Result<T, ControlDbError> {
@@ -393,6 +408,9 @@ fn close_released_control_db(control_db_path: &str, retained: &Arc<RetainedContr
         .expect("retained control db mutex")
         .remove(control_db_path);
     retained.connection.lock().expect("retained connection mutex").take();
+    if let Some(thread) = retained.retention_thread.get() {
+        thread.unpark();
+    }
 }
 
 fn create_writable_control_db(control_db_path: &str) -> Result<Connection, ControlDbError> {
@@ -422,12 +440,41 @@ fn open_retained_control_db(control_db_path: &str) -> Result<Arc<RetainedControl
         connection: Mutex::new(Some(db)),
         active_calls: Mutex::new(0),
         retain_count: Mutex::new(0),
+        retention_thread: OnceLock::new(),
     });
+    start_retention_timer(&retained, control_db_path)?;
     retained_control_dbs()
         .lock()
         .expect("retained control db mutex")
         .insert(control_db_path.to_owned(), retained.clone());
     Ok(retained)
+}
+
+fn start_retention_timer(retained: &Arc<RetainedControlDb>, control_db_path: &str) -> Result<(), ControlDbError> {
+    let weak = Arc::downgrade(retained);
+    let path = control_db_path.to_owned();
+    let worker = std::thread::Builder::new()
+        .name("control-db-retention".into())
+        .spawn(move || {
+            loop {
+                std::thread::park_timeout(std::time::Duration::from_secs(60));
+                let Some(retained) = weak.upgrade() else { break };
+                let guard = match retained.connection.lock() {
+                    Ok(guard) => guard,
+                    Err(error) => {
+                        eprintln!("Message retention cleanup failed for {path}: {error}");
+                        break;
+                    }
+                };
+                let Some(db) = guard.as_ref() else { break };
+                if let Err(error) = retention::cleanup_expired_messages(db) {
+                    eprintln!("Message retention cleanup failed for {path}: {error}");
+                }
+            }
+        })
+        .map_err(|error| ControlDbError::new(format!("Cannot start message retention timer: {error}")))?;
+    retained.retention_thread.get_or_init(|| worker.thread().clone());
+    Ok(())
 }
 
 /// `retainControlDbConnection`; dropping the returned guard releases the connection.
@@ -534,6 +581,9 @@ pub(crate) fn validate_mailbox_payload(data: &Value, context: &str) -> Result<()
         "createdAt",
         "updatedAt",
     ] {
+        if field == "createdAt" && payload.get(field) == Some(&Value::Null) {
+            continue;
+        }
         if payload.get(field).is_some() {
             require_string_field(payload, field, context)?;
         }
@@ -690,7 +740,6 @@ pub(crate) fn to_runtime_mailbox_message_status(value: &str) -> RuntimeMailboxMe
     match value {
         "pending" => RuntimeMailboxMessageStatus::Pending,
         "claimed" => RuntimeMailboxMessageStatus::Claimed,
-        "delivered" => RuntimeMailboxMessageStatus::Delivered,
         "failed" => RuntimeMailboxMessageStatus::Failed,
         _ => RuntimeMailboxMessageStatus::Failed,
     }
@@ -926,9 +975,11 @@ pub(crate) fn read_canonical_mailbox_row_by_store_ref(
     store_ref: &RuntimeMailboxStoreRef,
 ) -> Result<Option<RuntimeMailboxRow>, ControlDbError> {
     optional_row(db.query_row(
-        "SELECT rowid AS id, session_path, message_id, data, updated_at
-			 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-        params![&store_ref.session_path, &store_ref.message_id],
+        &format!(
+            "SELECT rowid AS id, session_path, message_id, data, updated_at
+			 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND {MAILBOX_CREATED_AT_MS_SQL} > ?"
+        ),
+        params![&store_ref.session_path, &store_ref.message_id, mailbox_cutoff_ms()],
         mailbox_row_from_row,
     ))
 }
@@ -938,9 +989,11 @@ pub(crate) fn read_canonical_mailbox_row_by_id(
     id: i64,
 ) -> Result<Option<RuntimeMailboxRow>, ControlDbError> {
     optional_row(db.query_row(
-        "SELECT rowid AS id, session_path, message_id, data, updated_at
-			 FROM multi_agent_mailbox_messages WHERE rowid = ?",
-        params![id],
+        &format!(
+            "SELECT rowid AS id, session_path, message_id, data, updated_at
+			 FROM multi_agent_mailbox_messages WHERE rowid = ? AND {MAILBOX_CREATED_AT_MS_SQL} > ?"
+        ),
+        params![id, mailbox_cutoff_ms()],
         mailbox_row_from_row,
     ))
 }
@@ -999,8 +1052,8 @@ pub(crate) fn compare_and_write_serialized_canonical_mailbox_payload(
     updated_at: &str,
 ) -> Result<bool, ControlDbError> {
     let updated = db.execute(
-        "UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
-			 WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ?",
+        &format!("UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
+			 WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ? AND {MAILBOX_CREATED_AT_MS_SQL} > ?"),
         params![
             serialized,
             updated_at,
@@ -1008,10 +1061,18 @@ pub(crate) fn compare_and_write_serialized_canonical_mailbox_payload(
             &row.session_path,
             &row.message_id,
             &row.data,
-            &row.updated_at
+            &row.updated_at,
+            mailbox_cutoff_ms()
         ],
     )?;
     Ok(updated == 1)
+}
+
+pub(crate) fn compare_and_delete_canonical_mailbox_payload(
+    db: &Connection,
+    row: &RuntimeMailboxRow,
+) -> Result<bool, ControlDbError> {
+    Ok(db.execute(&format!("DELETE FROM multi_agent_mailbox_messages WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ? AND {MAILBOX_CREATED_AT_MS_SQL} > ?"),params![row.id,row.session_path,row.message_id,row.data,row.updated_at,mailbox_cutoff_ms()])?==1)
 }
 
 pub(crate) fn runtime_mailbox_message_from_canonical_row(
@@ -1029,6 +1090,7 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
             agent_id: nullable_string_field(message, "senderAgentId", &context)?,
             session_id: require_string_field(message, "senderSessionId", &context)?,
         },
+        sender_host: optional_string_field(message, "senderHost", &context)?,
         kind: to_runtime_mailbox_message_kind(&require_string_field(message, "kind", &context)?),
         body: require_string_field(message, "body", &context)?,
         file_refs: parse_file_refs(message.get("fileRefs"), &context)?,
@@ -1038,16 +1100,12 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
             session_path: row.session_path.clone(),
         },
         status: to_runtime_mailbox_message_status(&require_string_field(message, "status", &context)?),
-        created_at: match message.get("createdAt") {
-            Some(Value::String(value)) => value.clone(),
-            _ => row.updated_at.clone(),
-        },
+        created_at: require_string_field(message, "createdAt", &context)?,
         updated_at: match message.get("updatedAt") {
             Some(Value::String(value)) => value.clone(),
             _ => row.updated_at.clone(),
         },
         claimed_at: optional_string_field(message, "claimedAt", &context)?,
-        delivered_at: optional_string_field(message, "deliveredAt", &context)?,
         error: optional_string_field(message, "error", &context)?,
     })
 }

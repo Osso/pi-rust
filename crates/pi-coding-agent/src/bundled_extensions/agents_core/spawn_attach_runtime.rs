@@ -302,30 +302,32 @@ fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError>
         })
         .unwrap_or("Agent")
         .to_owned();
-    let prepared = coordinator.prepare_child(&PrepareChildCommandInput {
-        spawn: SpawnAgent {
-            parent_id: input.params.parent_id.clone(),
-            display_name,
-            agent_type,
-            origin: None,
-            cwd: input.ctx.cwd()?,
-            permission: AgentPermission {
-                policy: "on-request".to_owned(),
-                inherited_from: None,
-                narrowed: true,
+    let prepared = coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: SpawnAgent {
+                parent_id: input.params.parent_id.clone(),
+                display_name,
+                agent_type,
+                origin: None,
+                cwd: input.ctx.cwd()?,
+                permission: AgentPermission {
+                    policy: "on-request".to_owned(),
+                    inherited_from: None,
+                    narrowed: true,
+                },
+                worktree: None,
+                model: profile.model_metadata,
+                account: None,
+                slot: None,
+                transcript: None,
+                event_stream: None,
+                worker: None,
             },
-            worktree: None,
-            model: profile.model_metadata,
-            account: None,
-            slot: None,
-            transcript: None,
-            event_stream: None,
-            worker: None,
-        },
-        agent_id: None,
-        detached: None,
-        result: None,
-    });
+            agent_id: None,
+            detached: None,
+            result: None,
+        })
+        .map_err(|error| HandlerError::new(error.message()))?;
     let context = match input.params.context.as_deref() {
         Some("fresh") => SpawnContext::Fresh,
         Some("inherit") => SpawnContext::Inherit,
@@ -444,7 +446,13 @@ fn commit_running_child(
             )));
         }
     };
-    input.store.publish_lifecycle_coordinator_snapshot(&agent);
+    if let Err(error) = input.store.publish_lifecycle_coordinator_snapshot(&agent) {
+        spawn.child_session.dispose();
+        return Err(Box::new(tool_result(
+            format!("spawn_agent failed: {}", error.message),
+            json!({"agent":spawn.prepared.prepared,"dispatched":false,"prompt":input.params.prompt}),
+        )));
+    }
     let runtime = Arc::new(OwnedAgentRuntime {
         abort_controller: spawn.prepared.abort_controller.clone(),
         coordinator: Arc::clone(&spawn.prepared.coordinator),
@@ -730,7 +738,9 @@ fn create_attached_agent(
         .map_err(|error| HandlerError::new(error.message()))?;
     match attached {
         CreateMultiAgentAttachmentResult::Ok { agent } => {
-            store.publish_lifecycle_coordinator_snapshot(&agent);
+            store
+                .publish_lifecycle_coordinator_snapshot(&agent)
+                .map_err(|error| HandlerError::new(error.message))?;
             Ok(Ok(*agent))
         }
         CreateMultiAgentAttachmentResult::Err { error } => Ok(Err((error.as_str().to_owned(), parent))),

@@ -1,6 +1,6 @@
 //! Cross-implementation proof for the shared control database.
 //!
-//! Authorized c248b0067 TypeScript (docs/porting/source-lock.json) and the Rust port operate on the same temporary
+//! Common frozen TypeScript (docs/porting/source-lock.json; c248b0067 is historical) and Rust operate on the same temporary
 //! `control.sqlite` file. Neither side may normalize the other's rows: reads are
 //! compared as source-ordered JSON.
 

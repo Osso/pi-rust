@@ -1016,6 +1016,7 @@ fn active_tool_activity(
         started_at: tool.started_at.clone(),
         tool_call_id: tool.tool_call_id.clone(),
         tool_name: tool.tool_name.clone(),
+        detail: None,
     })
 }
 
@@ -2375,7 +2376,11 @@ impl AgentSession {
             serde_json::from_str(instance_id).expect("runtime process identity must be valid JSON");
         let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
             control_db_path: control_db_path.clone(),
-            create_agent_id: Arc::new(move || id_store.allocate_agent_id_for_lifecycle_coordinator("agent")),
+            create_agent_id: Arc::new(move || {
+                id_store
+                    .allocate_agent_id_for_lifecycle_coordinator("agent")
+                    .map_err(|error| crate::core::sqlite::ControlDbError::new(error.message))
+            }),
             now: Arc::new(crate::utils::iso_time::now_iso_string),
             process_identity,
             session_path: persistence.session_path.clone(),
@@ -2646,7 +2651,9 @@ impl AgentSession {
             if is_steer {
                 self.mark_store_steering_delivered(message, &store_ref.message_id);
             } else {
-                store.mark_mailbox_message_delivered(&store_ref.message_id);
+                if let Err(error) = store.mark_mailbox_message_delivered(&store_ref.message_id) {
+                    eprintln!("Failed to mark mailbox message delivered: {error}");
+                }
             }
             return;
         }
@@ -2690,7 +2697,11 @@ impl AgentSession {
                 control_db_path: persistence.control_db_path.clone(),
                 create_agent_id: Arc::new({
                     let store = Arc::clone(store);
-                    move || store.allocate_agent_id_for_lifecycle_coordinator("agent")
+                    move || {
+                        store
+                            .allocate_agent_id_for_lifecycle_coordinator("agent")
+                            .map_err(|error| crate::core::sqlite::ControlDbError::new(error.message))
+                    }
                 }),
                 now: Arc::new(crate::utils::iso_time::now_iso_string),
                 process_identity: crate::bundled_extensions::agents_core::lifecycle_runtime::runtime_process_identity()
@@ -2712,7 +2723,10 @@ impl AgentSession {
         let SteeringCommandResult::Ok { agent, message } = delivered else {
             return None;
         };
-        store.publish_lifecycle_coordinator_steering_delivery(&agent, &message);
+        if let Err(error) = store.publish_lifecycle_coordinator_steering_delivery(&agent, &message) {
+            eprintln!("Failed to publish steering delivery: {error}");
+            return None;
+        }
         let mut steering = lock(&self.inner.runtime_mailbox_steering_agent_ids);
         if !steering.iter().any(|tracked| tracked == agent_id) {
             steering.push(agent_id.to_owned());
@@ -2728,7 +2742,9 @@ impl AgentSession {
                 .get_persistence_target()
                 .is_some_and(|persistence| persistence.session_path == store_ref.session_path)
         {
-            store.mark_mailbox_message_failed(&store_ref.message_id, failure);
+            if let Err(error) = store.mark_mailbox_message_failed(&store_ref.message_id, failure) {
+                eprintln!("Failed to mark mailbox message failed: {error}");
+            }
         } else {
             let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
                 return;
@@ -2911,7 +2927,11 @@ impl AgentSession {
                 control_db_path: persistence.control_db_path.clone(),
                 create_agent_id: Arc::new({
                     let store = Arc::clone(store);
-                    move || store.allocate_agent_id_for_lifecycle_coordinator("agent")
+                    move || {
+                        store
+                            .allocate_agent_id_for_lifecycle_coordinator("agent")
+                            .map_err(|error| crate::core::sqlite::ControlDbError::new(error.message))
+                    }
                 }),
                 now: Arc::new(crate::utils::iso_time::now_iso_string),
                 process_identity: crate::bundled_extensions::agents_core::lifecycle_runtime::runtime_process_identity()
@@ -3551,7 +3571,7 @@ impl AgentSession {
         ownership: Option<&crate::core::multi_agent_store::AgentCurrentActivityOwner>,
     ) -> Result<(), AgentError> {
         store
-            .publish_agent_current_activity(agent_id, activity, ownership)
+            .publish_agent_current_activity(agent_id, activity, ownership, None)
             .map(|_| ())
             .map_err(|error| AgentError::new(error.to_string()))
     }

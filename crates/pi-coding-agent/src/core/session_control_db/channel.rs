@@ -40,7 +40,7 @@ pub fn list_shared_channel_messages_after(
     with_control_db(control_db_path, |db| {
         let mut statement = db.prepare(
             "
-				SELECT id, sender_session_id, sender_agent_id, body, created_at
+				SELECT id, sender_session_id, sender_agent_id, body, created_at, origin_host, origin_id
 				FROM shared_channel_messages
 				WHERE id > ? AND id <= ?
 				ORDER BY id ASC
@@ -55,17 +55,23 @@ pub fn list_shared_channel_messages_after(
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows
             .into_iter()
-            .map(|(id, session_id, agent_id, body, created_at)| SharedChannelMessage {
-                id,
-                sender: RuntimeMailboxAddress { agent_id, session_id },
-                body,
-                created_at,
-            })
+            .map(
+                |(id, session_id, agent_id, body, created_at, origin_host, origin_id)| SharedChannelMessage {
+                    origin_host,
+                    origin_id,
+                    id,
+                    sender: RuntimeMailboxAddress { agent_id, session_id },
+                    body,
+                    created_at,
+                },
+            )
             .collect())
     })
 }
@@ -100,7 +106,7 @@ pub fn has_pending_runtime_coordination_message(
 				FROM shared_channel_messages
 				WHERE id > ?
 					AND sender_agent_id IS NULL
-					AND sender_session_id <> ?
+					AND (origin_host IS NOT NULL OR sender_session_id <> ?)
 				LIMIT 1
 				",
                 params![cursor, recipient.session_id],

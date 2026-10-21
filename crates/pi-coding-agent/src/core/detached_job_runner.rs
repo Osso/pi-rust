@@ -167,6 +167,12 @@ impl fmt::Display for DetachedJobError {
 
 impl std::error::Error for DetachedJobError {}
 
+impl From<crate::core::multi_agent_store::MultiAgentStoreError> for DetachedJobError {
+    fn from(error: crate::core::multi_agent_store::MultiAgentStoreError) -> Self {
+        Self::ControlDb(error.message)
+    }
+}
+
 impl From<std::io::Error> for DetachedJobError {
     fn from(source: std::io::Error) -> Self {
         Self::Io(source)
@@ -283,10 +289,11 @@ impl DetachedJobLifecycleController {
         }
     }
 
-    pub fn allocate_job_id(&self, agent_type: DetachedJobAgentType) -> String {
+    pub fn allocate_job_id(&self, agent_type: DetachedJobAgentType) -> Result<String, DetachedJobError> {
         self.options
             .store
             .allocate_agent_id_for_lifecycle_coordinator(agent_type.as_str())
+            .map_err(|error| DetachedJobError::ControlDb(error.message))
     }
 
     pub fn cancel(
@@ -304,7 +311,7 @@ impl DetachedJobLifecycleController {
                 reason: reason.map(str::to_owned),
             })?;
         if let LifecycleCommandResult::Ok { agent } = &cancelled {
-            self.options.store.publish_lifecycle_coordinator_snapshot(agent);
+            self.options.store.publish_lifecycle_coordinator_snapshot(agent)?;
         }
         Ok(cancelled)
     }
@@ -327,7 +334,7 @@ impl DetachedJobLifecycleController {
             ownership: ownership.control_ownership.clone(),
         })?;
         if let LifecycleCommandResult::Ok { agent } = &marked {
-            self.options.store.publish_lifecycle_coordinator_snapshot(agent);
+            self.options.store.publish_lifecycle_coordinator_snapshot(agent)?;
         }
         Ok(marked)
     }
@@ -482,7 +489,8 @@ fn reserve_detached_job(
     loop {
         let job_id = options
             .store
-            .allocate_agent_id_for_lifecycle_coordinator(agent_type.as_str());
+            .allocate_agent_id_for_lifecycle_coordinator(agent_type.as_str())
+            .map_err(|error| DetachedJobError::ControlDb(error.message))?;
         match reserve_detached_job_artifacts(&artifact_root, &job_id) {
             Ok(artifacts) => return Ok(ReservedDetachedJob { artifacts, job_id }),
             Err(DetachedJobError::ArtifactExists(_)) => continue,
@@ -511,7 +519,7 @@ fn observe_detached_job(
             agent = *recovered_agent;
         }
     }
-    options.store.publish_lifecycle_coordinator_snapshot(&agent);
+    options.store.publish_lifecycle_coordinator_snapshot(&agent)?;
     Ok(Some(agent))
 }
 
@@ -586,7 +594,7 @@ fn register_detached_job(
             duration_ms: None,
             tool_call_id: None,
         }),
-    });
+    })?;
     let created = options.coordinator.commit_running_child(
         &prepared,
         &options.owner_session_id,
@@ -603,7 +611,7 @@ fn register_detached_job(
             )));
         }
     };
-    options.store.publish_lifecycle_coordinator_snapshot(&agent);
+    options.store.publish_lifecycle_coordinator_snapshot(&agent)?;
     let Some(process_identity) = control_ownership.process_identity.clone() else {
         return Err(DetachedJobError::Launch(
             "Detached job ownership identity is incomplete".to_owned(),

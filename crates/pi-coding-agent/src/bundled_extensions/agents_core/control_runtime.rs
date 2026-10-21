@@ -365,7 +365,9 @@ async fn cancel_one_owned_agent_runtime(
             });
         }
     };
-    store.publish_lifecycle_coordinator_snapshot(&cancelling_agent);
+    store
+        .publish_lifecycle_coordinator_snapshot(&cancelling_agent)
+        .map_err(|error| HandlerError::new(error.message))?;
     abort_agent_handle_safely(store, agent_id);
     let dispatch = runtime_handles
         .dispatches

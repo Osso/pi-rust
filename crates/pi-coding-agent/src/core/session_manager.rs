@@ -2746,8 +2746,6 @@ impl SessionManager {
             modified_at: iso_time::format_iso_millis(info.modified),
             message_count: i64::try_from(info.message_count).unwrap_or(i64::MAX),
             first_message: info.first_message,
-            all_messages_text: info.all_messages_text,
-            index_message_text: Some(self.index_message_text),
         };
         write_session_metadata(control_db_path, &metadata).map_err(control_db_error)
     }
@@ -3310,7 +3308,8 @@ fn session_info_from_metadata(metadata: &SessionMetadata) -> SessionInfo {
         modified: pi_js_compat::date::date_parse_millis(&metadata.modified_at).unwrap_or(0),
         message_count: usize::try_from(metadata.message_count).unwrap_or(0),
         first_message: metadata.first_message.clone(),
-        all_messages_text: metadata.all_messages_text.clone(),
+        // Shared metadata no longer stores transcript search text.
+        all_messages_text: String::new(),
     }
 }
 
@@ -3418,8 +3417,6 @@ fn cache_session_metadata(control_db_path: Option<&str>, sessions: &[SessionInfo
                 modified_at: iso_time::format_iso_millis(session.modified),
                 message_count: i64::try_from(session.message_count).unwrap_or(i64::MAX),
                 first_message: session.first_message.clone(),
-                all_messages_text: session.all_messages_text.clone(),
-                index_message_text: None,
             },
         )
         .map_err(control_db_error)?;

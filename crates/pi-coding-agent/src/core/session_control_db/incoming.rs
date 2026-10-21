@@ -4,6 +4,18 @@ use rusqlite::{OptionalExtension, params};
 
 use super::{ControlDbError, IncomingControlMessage, with_control_db, with_immediate_transaction};
 
+/// `claimCodexRestrictionRecovery`.
+pub fn claim_codex_restriction_recovery(control_db_path: &str, user_request_id: &str) -> Result<bool, ControlDbError> {
+    if pi_js_compat::string::js_trim(user_request_id).is_empty() {
+        return Err(ControlDbError::new(
+            "Codex restriction recovery request ID must not be empty",
+        ));
+    }
+    with_control_db(control_db_path, |db| {
+        Ok(db.execute("INSERT INTO codex_restriction_recovery_claims(user_request_id,claimed_at) VALUES(?,?) ON CONFLICT(user_request_id) DO NOTHING",params![user_request_id,crate::utils::iso_time::now_iso_string()])?==1)
+    })
+}
+
 /// `enqueueIncomingMessage`.
 pub fn enqueue_incoming_message(control_db_path: &str, content: &str) -> Result<i64, ControlDbError> {
     with_control_db(control_db_path, |db| {

@@ -360,7 +360,7 @@ fn take_pending_wait_coordination(
     )
     .map_err(|error| HandlerError::new(error.message()))?;
     for message in &mailbox_messages {
-        mark_wait_mailbox_store_message_delivered(store, message);
+        mark_wait_mailbox_store_message_delivered(store, message)?;
     }
     let channel_messages = take_pending_wait_shared_channel_messages(&recipient)?;
     let mut sections: Vec<String> = mailbox_messages
@@ -376,15 +376,21 @@ fn take_pending_wait_coordination(
     Ok((!sections.is_empty()).then(|| sections.join("\n\n")))
 }
 
-fn mark_wait_mailbox_store_message_delivered(store: &MultiAgentStore, message: &RuntimeMailboxMessage) {
+fn mark_wait_mailbox_store_message_delivered(
+    store: &MultiAgentStore,
+    message: &RuntimeMailboxMessage,
+) -> Result<(), HandlerError> {
     if store
         .get_persistence_target()
         .map(|persistence| persistence.session_path)
         != Some(message.store_ref.session_path.clone())
     {
-        return;
+        return Ok(());
     }
-    store.mark_mailbox_message_delivered(&message.store_ref.message_id);
+    store
+        .mark_mailbox_message_delivered(&message.store_ref.message_id)
+        .map_err(|error| HandlerError::new(error.message))?;
+    Ok(())
 }
 
 fn take_pending_wait_shared_channel_messages(
@@ -467,6 +473,7 @@ fn list_pending_terminal_notifications(
         };
         if let Some(message) = store
             .list_pending_lifecycle_notifications_for_agent(&agent.id, lifecycle)
+            .map_err(|error| HandlerError::new(error.message))?
             .into_iter()
             .next()
         {
@@ -487,7 +494,9 @@ fn consume_pending_terminal_notifications(
         return Ok(None);
     }
     for (_, message) in &pending {
-        store.mark_mailbox_message_delivered(&message.id);
+        store
+            .mark_mailbox_message_delivered(&message.id)
+            .map_err(|error| HandlerError::new(error.message))?;
     }
     let agents: Vec<AgentSnapshot> = pending.iter().map(|(agent, _)| agent.clone()).collect();
     let messages: Vec<AgentMailboxMessage> = pending.iter().map(|(_, message)| message.clone()).collect();
