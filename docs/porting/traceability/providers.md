@@ -2,7 +2,8 @@
 
 Pinned source: `packages/ai/src/providers/<name>.ts` provider factories at
 `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-ai/src/providers/<name>.rs` (one module per TypeScript file).
+Historical evidence below uses the old pin; it is not whole-factory parity evidence for the common pin.
+Rust: `crates/pi-ai/src/providers/<name>.rs` (one module per retained TypeScript file).
 Tests: `crates/pi-ai/tests/providers.rs`,
 `crates/pi-ai/tests/differential_providers.rs`.
 
@@ -11,14 +12,47 @@ Rust uses `providers::env_key_provider` (catalog + `envApiKeyAuth`) or
 `providers::custom_provider` (custom auth/filter) and builds `ProviderApi`
 directly.
 
+## Removed old-only factories
+
+Common pin: `4f9e6f8a4` ([source lock](../source-lock.json)). Frozen
+`packages/ai/src/providers/` has none of these six modules; `all.ts`
+imports/calls none, and `index.ts` exports no such factory. Rust modules and
+`providers/mod.rs` exports were deleted, not replaced with fallbacks.
+
+| Absent frozen module | Removed Rust public symbols |
+|---|---|
+| `azure-openai-responses.ts` | `azure_openai_responses_provider` |
+| `baseten.ts` | `baseten_provider` |
+| `qwen-token-plan.ts` | `qwen_token_plan_provider` |
+| `qwen-token-plan-cn.ts` | `qwen_token_plan_cn_provider` |
+| `qwen-token-plan-individual.ts` | `qwen_token_plan_individual_provider` |
+| `radius.ts` | `RadiusProviderOptions`, `RadiusProvider`, `radius_provider`, `radius_provider_with_fetch` |
+
+Frozen `api/azure-openai-responses.ts` / `.lazy.ts` and root
+`AzureOpenAIResponsesOptions` type export still exist: Rust API, compat
+and legacy aliases remain. Baseten/Qwen/Radius have no frozen API modules;
+shared OpenAI APIs remain. Unrelated old-only Radius auth/config/pi-messages
+and model-generator contracts remain staged; this removal does not certify them.
+
+Consumer reconciliation: delete Azure-positive and Radius-factory tests;
+remove absent metadata entries and add Team to OAuth fixture, derived from
+frozen `all.ts:80-119`, `openai-codex.ts:7-20` and `auth/helpers.ts:39-52`.
+Coding-agent no longer synthesizes Radius factories from config; builtin
+reset remains, without changing staged timestamp/remote-catalog wiring.
+
+Proof boundary: baseline RED reproduces Azure's missing-catalog panic and
+stale metadata/OAuth fixtures. Focused providers/catalog/inventory tests cover
+retained inventory and behavior; workspace all-target checking covers in-repo
+consumer compilation without removed exports. Neither establishes whole-provider
+protocol parity; see [catalog traceability](providers-models.md).
+
 ## Plain `envApiKeyAuth` factories
 
-`ant-ling`, `baseten`, `cerebras`, `deepseek`, `groq`, `huggingface`,
+`ant-ling`, `cerebras`, `deepseek`, `groq`, `huggingface`,
 `minimax`, `minimax-cn`, `mistral`, `moonshotai`, `moonshotai-cn`, `nvidia`,
-`openai`, `qwen-token-plan`, `qwen-token-plan-cn`,
-`qwen-token-plan-individual`, `together`, `vercel-ai-gateway`, `xiaomi`,
+`openai`, `together`, `vercel-ai-gateway`, `xiaomi`,
 `xiaomi-token-plan-ams`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-sgp`,
-`zai`, `zai-coding-cn`, `google`, `azure-openai-responses`.
+`zai`, `zai-coding-cn`, `google`.
 
 | Contract | Rust | Proof |
 |---|---|---|
@@ -41,16 +75,16 @@ directly.
 
 - `Object.values(<PROVIDER>_MODELS)` order is preserved; models are stored in
   catalog order (`models_data`).
-- `azure-openai-responses` has a catalog and factory but is **not** part of
-  `builtinProviders`; `tests/providers.rs` asserts both facts.
+- Azure retains only its API implementation/type export at the common pin;
+  the old-only factory/catalog and factory-positive test are removed.
 - `mistral` is the only `mistral-conversations` provider; `google` is the only
   `google-generative-ai` provider.
 
 ## Gaps
 
-- `openai-codex.ts` (and `openai-codex-gc`) belong to the in-flight api-codex
-  slice; `builtin_providers()` omits them and the differential asserts exactly
-  those two ids are missing.
+- Whole-factory/auth/protocol parity must be revalidated against the common
+  pin. Frozen builtin inventory includes default/GC/Team Codex; actual-source
+  inventory differential covers IDs/order, not whole-factory semantics.
 
 ## Discrepancies
 

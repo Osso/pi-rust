@@ -18,8 +18,8 @@ resolved auth, and compatibility config from temp `models.json` + auth fixtures)
 | `CredentialSynchronizationOperation` | enum + `as_str` | `credential_sync_failure_*` |
 | `CredentialSynchronizationError` | same struct + exact message | `credential_sync_failure_*` |
 | `mergeHeaders` | `pi_ai::models::merge_headers` | `explicit_authorization_header_*` |
-| `create`: default credentials/models path/store, builtin + remote catalog, radius providers, network flag, timeout/abort composition, initial refresh | `ModelRuntime::create` | all tests; `refresh_reloads_models_json_from_disk` |
-| `configureRadiusProviders` | same | radius OAuth test (provider registration) |
+| `create`: default credentials/models path/store, builtin + remote catalog, network flag, timeout/abort composition, initial refresh | `ModelRuntime::create` | all tests; `refresh_reloads_models_json_from_disk` |
+| old-only `configureRadiusProviders` | removed factory synthesis; `reset_builtin_providers` retains builtin reset | compile dependency of [factory removal](providers.md#removed-old-only-factories); staged timestamp path untouched |
 | `providerIds` insertion order | `provider_ids` | `projects_provider_owned_names_and_auth_methods` |
 | `recomposeProvider` no-overlay / compose / error fallback | `recompose_provider` | `reports_every_provider_composition_error`, override tests |
 | `rebuildProviders`, `updateModelSnapshot` | same | every composition test |

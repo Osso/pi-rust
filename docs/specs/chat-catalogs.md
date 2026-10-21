@@ -12,4 +12,6 @@ Staged dependency: timestamp API remains solely because `pi-coding-agent/src/cor
 
 Artifact-deletion coupling: builtin provider factory ID/order inventory must match the 36 entries of frozen `providers/all.ts`, including Team, with old-only entries removed. A separate actual-source oracle checks only this inventory; factory/protocol/auth and mutable helper alias parity remain TODO.
 
+Public factory removal: frozen-absent Azure/Baseten/Qwen/Radius factories and their consumers must not remain public. Preserve Azure's frozen API implementation/type export and shared OpenAI APIs. Provider fixtures follow frozen inventory (including Codex Team), not native output. [Removal traceability](../porting/traceability/providers.md#removed-old-only-factories).
+
 Proof: [traceability](../porting/traceability/providers-models.md). Targeted development proof only; workspace gates belong to integration.

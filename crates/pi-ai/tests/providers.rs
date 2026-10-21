@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use pi_ai::images_models::ImagesModels;
-use pi_ai::models::{CreateModelsOptions, Models, MutableModels, Provider, create_models};
+use pi_ai::models::{CreateModelsOptions, Models, Provider};
 use pi_ai::providers::all::{
     builtin_images_models, builtin_images_providers, builtin_models, builtin_providers, get_builtin_model,
     get_builtin_model_data_generated_at, get_builtin_providers,
@@ -98,6 +98,8 @@ fn provider_metadata_matches_the_ts_factories() {
         api_key_auth: &'static str,
         oauth: Option<&'static str>,
     }
+    // Frozen providers/*.ts at 4f9e6f8a4; OAuth-only Codex factories are
+    // covered by the inventory and OAuth fixtures below.
     let expected = [
         Expected {
             id: "amazon-bedrock",
@@ -119,13 +121,6 @@ fn provider_metadata_matches_the_ts_factories() {
             base_url: Some("https://api.anthropic.com"),
             api_key_auth: "Anthropic API key",
             oauth: Some("Anthropic (Claude Pro/Max)"),
-        },
-        Expected {
-            id: "baseten",
-            name: "Baseten",
-            base_url: Some("https://inference.baseten.co/v1"),
-            api_key_auth: "Baseten API key",
-            oauth: None,
         },
         Expected {
             id: "cerebras",
@@ -275,34 +270,6 @@ fn provider_metadata_matches_the_ts_factories() {
             oauth: Some("OpenRouter OAuth"),
         },
         Expected {
-            id: "qwen-token-plan",
-            name: "Qwen Token Plan",
-            base_url: Some("https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"),
-            api_key_auth: "Qwen Token Plan API key",
-            oauth: None,
-        },
-        Expected {
-            id: "qwen-token-plan-cn",
-            name: "Qwen Token Plan CN",
-            base_url: Some("https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"),
-            api_key_auth: "Qwen Token Plan CN API key",
-            oauth: None,
-        },
-        Expected {
-            id: "qwen-token-plan-individual",
-            name: "Qwen Token Plan Individual",
-            base_url: Some("https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"),
-            api_key_auth: "Qwen Token Plan Individual API key",
-            oauth: None,
-        },
-        Expected {
-            id: "radius",
-            name: "Radius",
-            base_url: None,
-            api_key_auth: "Radius API key",
-            oauth: Some("Radius"),
-        },
-        Expected {
             id: "together",
             name: "Together",
             base_url: Some("https://api.together.ai/v1"),
@@ -396,6 +363,8 @@ fn oauth_subscription_flags_match_the_ts_factories() {
             ))
         })
         .collect();
+    // Frozen all.ts calls openaiCodexProvider for default/GC/Team; each
+    // shares openai-codex.ts's subscription OAuth, with no login label.
     assert_eq!(
         flags,
         vec![
@@ -408,12 +377,12 @@ fn oauth_subscription_flags_match_the_ts_factories() {
             ),
             ("openai-codex".to_owned(), true, None),
             ("openai-codex-gc".to_owned(), true, None),
+            ("openai-codex-team".to_owned(), true, None),
             (
                 "openrouter".to_owned(),
                 false,
                 Some("Sign in with OpenRouter".to_owned())
             ),
-            ("radius".to_owned(), false, None),
             (
                 "xai".to_owned(),
                 true,
@@ -443,11 +412,7 @@ fn builtin_models_registers_every_builtin_provider_with_models() {
 
     for provider in providers {
         let list = models.get_models(Some(provider.id()));
-        if provider.id() == "radius" {
-            assert!(list.is_empty(), "radius has no static catalog");
-        } else {
-            assert!(!list.is_empty(), "{} has models", provider.id());
-        }
+        assert!(!list.is_empty(), "{} has models", provider.id());
         assert!(list.iter().all(|model| model.provider == provider.id()));
     }
 }
@@ -575,17 +540,4 @@ async fn every_catalog_api_dispatches_to_an_implementation() {
             );
         }
     }
-}
-
-#[test]
-fn azure_factory_is_available_but_not_built_in() {
-    let provider = pi_ai::providers::azure_openai_responses::azure_openai_responses_provider();
-    assert_eq!(provider.id(), "azure-openai-responses");
-    assert_eq!(provider.name(), "Azure OpenAI");
-    assert!(provider.base_url().is_none());
-    assert!(!provider.get_models().is_empty());
-
-    let models = create_models(CreateModelsOptions::default());
-    models.set_provider(provider);
-    assert!(!models.get_models(Some("azure-openai-responses")).is_empty());
 }
