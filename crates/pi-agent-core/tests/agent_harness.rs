@@ -454,8 +454,6 @@ impl pi_agent_core::agent::AgentTool for EchoTool {
             Ok(pi_agent_core::agent::AgentToolResult {
                 content: Vec::new(),
                 details: None,
-                usage: None,
-                added_tool_names: None,
                 is_error: None,
                 terminate: None,
             })

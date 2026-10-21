@@ -517,8 +517,6 @@ fn detached_result(params: &PyrunEvalParams, job_id: &str, log_path: &str) -> Ag
             "executed": params.code,
             "type": "detached"
         })),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     }
@@ -549,8 +547,6 @@ fn format_terminal_agent_error(params: &PyrunEvalParams, agent: &AgentNode) -> A
             params.code
         )))],
         details: Some(json!({"error": error, "executed": params.code, "type": "error"})),
-        usage: None,
-        added_tool_names: None,
         is_error: Some(true),
         terminate: None,
     }

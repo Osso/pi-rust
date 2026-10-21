@@ -1,14 +1,5 @@
-# Traceability: `packages/agent/src/stream-fn.ts`
+# Retired public stream-fn module
 
-Rust: `crates/pi-agent-core/src/agent/stream_fn.rs`. Tests: `crates/pi-agent-core/tests/stream_fn.rs`.
+Frozen `4f9e6f8a4` has no `packages/agent-core/src/stream-fn.ts`. Agent/loop import `pi-ai/compat.streamSimple` directly.
 
-| TypeScript export | Rust item | Tests |
-|---|---|---|
-| `setDefaultStreamFn(streamFn \| undefined)` | `agent::set_default_stream_fn(Option<StreamFn>)` | `default_stream_fn_is_process_global_and_clearable` |
-| `getDefaultStreamFn()` | `agent::get_default_stream_fn() -> Result<StreamFn, AgentError>` | `default_stream_fn_errors_with_exact_message_when_unset`, `default_stream_fn_is_process_global_and_clearable` |
-
-Branches:
-
-- Unset default: returns `AgentError` with the exact TS message `No default stream function configured. Pass streamFn explicitly or call setDefaultStreamFn().`
-- Process-global storage: `OnceLock<RwLock<Option<StreamFn>>>`; tests serialize access because the value is shared process state.
-- TS throwing getter maps to `Result` (typed error) instead of a panic.
+Rust `agent/stream_fn.rs` now contains only a private compat adapter. The public module and get/set global default registry were removed. `defaults_to_compat_stream_without_registration` exercises constructor default streaming without global setup. See [Agent](agent.md) and [index](agent-index.md).

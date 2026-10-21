@@ -49,8 +49,6 @@ pub fn reload_runtime_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         "Queued /reload-runtime as a follow-up command.",
                     ))],
                     details: Some(json!({})),
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 })

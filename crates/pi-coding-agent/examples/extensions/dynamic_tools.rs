@@ -53,8 +53,6 @@ fn register_echo_tool(
                 Ok(AgentToolResult {
                     content: vec![TextOrImageContent::Text(TextContent::new(format!("{prefix}{message}")))],
                     details: Some(json!({"tool":name,"prefix":prefix})),
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 })

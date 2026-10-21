@@ -158,8 +158,6 @@ async fn execute_project_spec_tool(params: &Value) -> Result<AgentToolResult, Ha
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(content))],
         details: Some(json!({"path": spec_path})),
-        usage: None,
-        added_tool_names: None,
         is_error: None,
         terminate: None,
     })

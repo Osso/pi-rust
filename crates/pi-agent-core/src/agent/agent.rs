@@ -1,9 +1,9 @@
-//! Port of `packages/agent/src/agent.ts`.
+//! Port of `packages/agent-core/src/agent.ts`.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use pi_ai::request::{BoxFuture, SimpleStreamOptions};
+use pi_ai::request::{BoxFuture, OnPayload, OnResponse, OnRetry, SimpleStreamOptions};
 use pi_ai::types::{
     AssistantMessage, ImageContent, Message, Model, ModelCost, ModelCostRates, StopReason, TextContent,
     TextOrImageContent, ThinkingBudgets, Transport, UserContent, UserMessage, UserRole,
@@ -12,12 +12,11 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent::agent_loop::{AgentEventSink, run_agent_loop, run_agent_loop_continue};
-use crate::agent::stream_fn::get_default_stream_fn;
+use crate::agent::stream_fn::default_stream_fn;
 use crate::agent::types::{
     AfterToolCallHook, AgentContext, AgentError, AgentEvent, AgentLoopConfig, AgentLoopTurnUpdate, AgentMessage,
     AgentState, AgentTool, BeforeToolCallHook, ConvertToLlm, GetApiKey, MessageQueueHook, PrepareNextTurnContext,
-    PrepareNextTurnHook, ShouldStopAfterTurnContext, ShouldStopAfterTurnHook, StreamFn, TransformContext,
-    reasoning_for,
+    PrepareNextTurnHook, ShouldStopAfterTurnHook, StreamFn, TransformContext, reasoning_for,
 };
 use crate::harness::types::{QueueMode, ThinkingLevel, ToolExecutionMode};
 
@@ -104,8 +103,9 @@ pub struct AgentOptions {
     pub transport: Option<Transport>,
     pub max_retry_delay_ms: Option<f64>,
     pub tool_execution: Option<ToolExecutionMode>,
-    /// Provider options forwarded to each request (callbacks, headers, temperature, ...).
-    pub stream_options: Option<SimpleStreamOptions>,
+    pub on_payload: Option<OnPayload>,
+    pub on_response: Option<OnResponse>,
+    pub on_retry: Option<OnRetry>,
 }
 
 /// Options for [`Agent::continue_run`].
@@ -197,10 +197,10 @@ struct AgentInner {
     steering_queue: Arc<Mutex<PendingMessageQueue>>,
     follow_up_queue: Arc<Mutex<PendingMessageQueue>>,
     active_run: Mutex<Option<ActiveRun>>,
-    convert_to_llm: ConvertToLlm,
-    transform_context: Option<TransformContext>,
-    stream_function: StreamFn,
-    get_api_key: Option<GetApiKey>,
+    convert_to_llm: Mutex<ConvertToLlm>,
+    transform_context: Mutex<Option<TransformContext>>,
+    stream_function: Mutex<StreamFn>,
+    get_api_key: Mutex<Option<GetApiKey>>,
     before_tool_call: Mutex<Option<BeforeToolCallHook>>,
     after_tool_call: Mutex<Option<AfterToolCallHook>>,
     should_stop_after_turn: Mutex<Option<ShouldStopAfterTurnHook>>,
@@ -222,10 +222,11 @@ pub struct Agent {
 
 impl Agent {
     pub fn new(options: AgentOptions) -> Result<Self, AgentError> {
-        let stream_function = match options.stream_fn {
-            Some(stream_function) => stream_function,
-            None => get_default_stream_fn()?,
-        };
+        let mut stream_options = SimpleStreamOptions::default();
+        stream_options.stream.request.on_payload = options.on_payload;
+        stream_options.stream.request.on_response = options.on_response;
+        stream_options.stream.on_retry = options.on_retry;
+        let stream_function = options.stream_fn.unwrap_or_else(default_stream_fn);
         let initial = options.initial_state.unwrap_or_default();
         let state = AgentState {
             system_prompt: initial.system_prompt.unwrap_or_default(),
@@ -251,12 +252,14 @@ impl Agent {
                     options.follow_up_mode.unwrap_or(QueueMode::OneAtATime),
                 ))),
                 active_run: Mutex::new(None),
-                convert_to_llm: options
-                    .convert_to_llm
-                    .unwrap_or_else(|| Arc::new(default_convert_to_llm) as ConvertToLlm),
-                transform_context: options.transform_context,
-                stream_function,
-                get_api_key: options.get_api_key,
+                convert_to_llm: Mutex::new(
+                    options
+                        .convert_to_llm
+                        .unwrap_or_else(|| Arc::new(default_convert_to_llm) as ConvertToLlm),
+                ),
+                transform_context: Mutex::new(options.transform_context),
+                stream_function: Mutex::new(stream_function),
+                get_api_key: Mutex::new(options.get_api_key),
                 before_tool_call: Mutex::new(options.before_tool_call),
                 after_tool_call: Mutex::new(options.after_tool_call),
                 should_stop_after_turn: Mutex::new(options.should_stop_after_turn),
@@ -267,19 +270,23 @@ impl Agent {
                 transport: Mutex::new(options.transport.unwrap_or(Transport::Auto)),
                 max_retry_delay_ms: Mutex::new(options.max_retry_delay_ms),
                 tool_execution: Mutex::new(options.tool_execution.unwrap_or(ToolExecutionMode::Parallel)),
-                stream_options: Mutex::new(options.stream_options.unwrap_or_default()),
+                stream_options: Mutex::new(stream_options),
             }),
         })
     }
 
     /// Subscribes to lifecycle events; returns the subscription id.
     pub fn subscribe(&self, listener: AgentListener) -> u64 {
-        let id = self.inner.next_listener_id.fetch_add(1, Ordering::SeqCst);
-        self.inner
+        let mut listeners = self
+            .inner
             .listeners
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push((id, listener));
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((id, _)) = listeners.iter().find(|(_, existing)| Arc::ptr_eq(existing, &listener)) {
+            return *id;
+        }
+        let id = self.inner.next_listener_id.fetch_add(1, Ordering::SeqCst);
+        listeners.push((id, listener));
         id
     }
 
@@ -348,7 +355,96 @@ impl Agent {
 
     /// The configured stream function (`streamFn`).
     pub fn stream_fn(&self) -> StreamFn {
-        Arc::clone(&self.inner.stream_function)
+        self.inner
+            .stream_function
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub fn set_stream_fn(&self, stream_fn: StreamFn) {
+        *self
+            .inner
+            .stream_function
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = stream_fn;
+    }
+
+    pub fn set_convert_to_llm(&self, convert: ConvertToLlm) {
+        *self
+            .inner
+            .convert_to_llm
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = convert;
+    }
+
+    pub fn set_transform_context(&self, transform: Option<TransformContext>) {
+        *self
+            .inner
+            .transform_context
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = transform;
+    }
+
+    pub fn set_get_api_key(&self, get_api_key: Option<GetApiKey>) {
+        *self
+            .inner
+            .get_api_key
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = get_api_key;
+    }
+
+    pub fn set_prepare_next_turn(&self, hook: Option<PrepareNextTurnSignalHook>) {
+        *self
+            .inner
+            .prepare_next_turn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = hook;
+    }
+
+    pub fn set_on_payload(&self, callback: Option<OnPayload>) {
+        self.inner
+            .stream_options
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .stream
+            .request
+            .on_payload = callback;
+    }
+
+    pub fn set_on_response(&self, callback: Option<OnResponse>) {
+        self.inner
+            .stream_options
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .stream
+            .request
+            .on_response = callback;
+    }
+
+    pub fn set_on_retry(&self, callback: Option<OnRetry>) {
+        self.inner
+            .stream_options
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .stream
+            .on_retry = callback;
+    }
+
+    pub fn set_thinking_budgets(&self, budgets: Option<ThinkingBudgets>) {
+        *self
+            .inner
+            .thinking_budgets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = budgets;
+    }
+
+    pub fn set_max_retry_delay_ms(&self, delay: Option<f64>) {
+        *self
+            .inner
+            .max_retry_delay_ms
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = delay;
     }
 
     /// Current state snapshot.
@@ -535,10 +631,7 @@ impl Agent {
         }
     }
 
-    pub fn reset(&self) -> Result<(), AgentError> {
-        if self.active_run_lock().is_some() {
-            return Err(AgentError::already_processing_reset());
-        }
+    pub fn reset(&self) {
         {
             let mut state = self.state_lock();
             state.messages.clear();
@@ -550,7 +643,6 @@ impl Agent {
         }
         self.clear_follow_up_queue();
         self.clear_steering_queue();
-        Ok(())
     }
 
     pub async fn prompt(&self, input: impl Into<PromptInput>) -> Result<(), AgentError> {
@@ -607,7 +699,7 @@ impl Agent {
             config,
             self.event_sink(),
             Some(signal.clone()),
-            Some(self.inner.stream_function.clone()),
+            Some(self.stream_fn()),
         )
         .await;
         self.finish_run_with(result, &signal).await
@@ -623,7 +715,7 @@ impl Agent {
             config,
             self.event_sink(),
             Some(signal.clone()),
-            Some(self.inner.stream_function.clone()),
+            Some(self.stream_fn()),
         )
         .await;
         self.finish_run_with(result, &signal).await
@@ -653,11 +745,19 @@ impl Agent {
     ) -> Result<(), AgentError> {
         let mut listener_error = None;
         if let Err(error) = result {
-            let failure = self.build_failure_message(&error, signal.is_cancelled());
-            let events = [
-                AgentEvent::MessageStart {
+            let partial = self
+                .state_lock()
+                .streaming_message
+                .clone()
+                .filter(|message| message.as_assistant().is_some());
+            let failure = self.build_failure_message(&error, signal.is_cancelled(), partial.as_ref());
+            let mut events = Vec::new();
+            if partial.is_none() {
+                events.push(AgentEvent::MessageStart {
                     message: failure.clone(),
-                },
+                });
+            }
+            events.extend([
                 AgentEvent::MessageEnd {
                     message: failure.clone(),
                 },
@@ -668,7 +768,7 @@ impl Agent {
                 AgentEvent::AgentEnd {
                     messages: vec![failure],
                 },
-            ];
+            ]);
             for event in events {
                 if let Err(error) = self.process_events(event).await {
                     listener_error = Some(error);
@@ -683,7 +783,7 @@ impl Agent {
         }
     }
 
-    fn build_failure_message(&self, error: &AgentError, aborted: bool) -> AgentMessage {
+    fn build_failure_message(&self, error: &AgentError, aborted: bool, partial: Option<&AgentMessage>) -> AgentMessage {
         let state = self.state_lock();
         let mut message = AssistantMessage::empty(
             state.model.api.clone(),
@@ -692,6 +792,9 @@ impl Agent {
             pi_ai::request::now_millis(),
         );
         message.content = vec![pi_ai::types::AssistantContent::Text(TextContent::new(""))];
+        if let Some(partial) = partial.and_then(AgentMessage::as_assistant) {
+            message = partial.clone();
+        }
         message.stop_reason = if aborted {
             StopReason::Aborted
         } else {
@@ -725,18 +828,22 @@ impl Agent {
     }
 
     fn create_loop_config(&self, skip_initial_steering_poll: bool) -> AgentLoopConfig {
-        let run_signal = self.signal();
         let (get_steering_messages, get_follow_up_messages) = self.build_queue_hooks(skip_initial_steering_poll);
         let state = self.state_lock();
 
         AgentLoopConfig {
             model: state.model.clone(),
             stream_options: self.build_stream_options(state.thinking_level),
-            convert_to_llm: Arc::clone(&self.inner.convert_to_llm),
-            transform_context: self.inner.transform_context.clone(),
-            get_api_key: self.inner.get_api_key.clone(),
-            should_stop_after_turn: self.build_should_stop_hook(run_signal.clone()),
-            prepare_next_turn: self.build_prepare_next_turn_hook(run_signal),
+            convert_to_llm: self
+                .inner
+                .convert_to_llm
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone(),
+            transform_context: self.hook(&self.inner.transform_context),
+            get_api_key: self.hook(&self.inner.get_api_key),
+            should_stop_after_turn: self.hook(&self.inner.should_stop_after_turn),
+            prepare_next_turn: self.build_prepare_next_turn_hook(),
             get_steering_messages,
             get_follow_up_messages,
             tool_execution: *self
@@ -779,33 +886,27 @@ impl Agent {
         stream_options
     }
 
-    fn build_should_stop_hook(&self, run_signal: Option<CancellationToken>) -> Option<ShouldStopAfterTurnHook> {
-        self.hook(&self.inner.should_stop_after_turn).map(|hook| {
-            Arc::new(
-                move |context: ShouldStopAfterTurnContext, _: Option<CancellationToken>| {
-                    hook(context, run_signal.clone())
-                },
-            ) as ShouldStopAfterTurnHook
-        })
-    }
-
-    fn build_prepare_next_turn_hook(&self, run_signal: Option<CancellationToken>) -> Option<PrepareNextTurnHook> {
-        let prepare_next_turn_with_context = self.hook(&self.inner.prepare_next_turn_with_context);
-        let prepare_next_turn = self.hook(&self.inner.prepare_next_turn);
-        match (prepare_next_turn_with_context.as_ref(), prepare_next_turn.as_ref()) {
-            (Some(with_context), _) => {
-                let with_context = Arc::clone(with_context);
-                Some(
-                    Arc::new(move |context: PrepareNextTurnContext| with_context(context, run_signal.clone()))
-                        as PrepareNextTurnHook,
-                )
-            }
-            (None, Some(signal_only)) => {
-                let signal_only = Arc::clone(signal_only);
-                Some(Arc::new(move |_: PrepareNextTurnContext| signal_only(run_signal.clone())) as PrepareNextTurnHook)
-            }
-            (None, None) => None,
+    fn build_prepare_next_turn_hook(&self) -> Option<PrepareNextTurnHook> {
+        if self.hook(&self.inner.prepare_next_turn_with_context).is_none()
+            && self.hook(&self.inner.prepare_next_turn).is_none()
+        {
+            return None;
         }
+        let agent = self.clone();
+        Some(Arc::new(move |context: PrepareNextTurnContext| {
+            let with_context = agent.hook(&agent.inner.prepare_next_turn_with_context);
+            let signal_only = agent.hook(&agent.inner.prepare_next_turn);
+            let signal = agent.signal();
+            Box::pin(async move {
+                if let Some(hook) = with_context {
+                    return hook(context, signal).await;
+                }
+                if let Some(hook) = signal_only {
+                    return hook(signal).await;
+                }
+                Ok(None)
+            })
+        }))
     }
 
     fn build_queue_hooks(
@@ -865,6 +966,7 @@ impl Agent {
                 AgentEvent::TurnEnd { message, .. } => {
                     if let Some(assistant) = message.as_assistant()
                         && let Some(error_message) = &assistant.error_message
+                        && !error_message.is_empty()
                     {
                         state.error_message = Some(error_message.clone());
                     }
@@ -875,16 +977,23 @@ impl Agent {
         }
 
         let signal = self.signal().ok_or_else(AgentError::listener_outside_run)?;
-        let listeners: Vec<AgentListener> = self
-            .inner
-            .listeners
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .iter()
-            .map(|(_, listener)| Arc::clone(listener))
-            .collect();
-        for listener in listeners {
-            listener(event.clone(), signal.clone()).await?;
+        let mut last_id = 0;
+        loop {
+            let next = self
+                .inner
+                .listeners
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .iter()
+                .find(|(id, _)| *id > last_id)
+                .cloned();
+            let Some((id, listener)) = next else {
+                break;
+            };
+            last_id = id;
+            if let Err(error) = listener(event.clone(), signal.clone()).await {
+                eprintln!("Agent event listener error ({}): {error}", event.kind());
+            }
         }
         Ok(())
     }

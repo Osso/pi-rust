@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::{
     Agent, AgentEvent, AgentListener, AgentMessage, AgentOptions, AgentTool, AgentToolResult, ContinueOptions,
-    PromptInput, get_default_stream_fn, set_default_stream_fn,
+    PromptInput,
 };
 use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{AssistantContent, AssistantMessage, AssistantMessageEvent, StopReason, UserContent};
@@ -32,29 +32,297 @@ fn user_block_message(text: &str) -> AgentMessage {
 }
 
 #[tokio::test]
-async fn uses_configured_default_when_stream_fn_is_omitted() {
-    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _guard = LOCK.lock().await;
-    let calls = Arc::new(AtomicUsize::new(0));
-    let calls_hook = Arc::clone(&calls);
-    set_default_stream_fn(Some(Arc::new(move |_model, _context, _options| {
-        let calls_hook = Arc::clone(&calls_hook);
+async fn preserves_streamed_partial_on_abort_without_duplicate_start() {
+    let partial = text_assistant("already delivered");
+    let partial_hook = partial.clone();
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(Arc::new(move |_, _, _| {
+            let partial = partial_hook.clone();
+            Box::pin(async move {
+                let (sender, stream) = create_assistant_message_event_stream();
+                sender.push(AssistantMessageEvent::Start { partial });
+                std::mem::forget(sender);
+                stream
+            })
+        })),
+        ..Default::default()
+    })
+    .unwrap();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    agent.subscribe(message_listener(Arc::clone(&events)));
+    let abort_agent = agent.clone();
+    agent.subscribe(Arc::new(move |event, _| {
+        if matches!(
+            event,
+            AgentEvent::MessageStart {
+                message: AgentMessage::Assistant(_)
+            }
+        ) {
+            abort_agent.abort();
+        }
+        Box::pin(async { Ok(()) })
+    }));
+    agent.prompt("start").await.unwrap();
+    let messages = agent.messages();
+    let failure = messages.last().unwrap().as_assistant().unwrap();
+    assert_eq!(failure.content, partial.content);
+    assert_eq!(failure.stop_reason, StopReason::Aborted);
+    let starts = events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                AgentEvent::MessageStart {
+                    message: AgentMessage::Assistant(_)
+                }
+            )
+        })
+        .count();
+    assert_eq!(starts, 1);
+}
+
+#[tokio::test]
+async fn reset_clears_state_during_active_run_without_aborting_it() {
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(scripted_stream_fn(vec![Script::message(text_assistant("ok"))])),
+        ..Default::default()
+    })
+    .unwrap();
+    let reset_agent = agent.clone();
+    agent.subscribe(Arc::new(move |event, _| {
+        if matches!(event, AgentEvent::ModelRequestStart) {
+            reset_agent.follow_up(user_message("later"));
+            reset_agent.reset();
+            assert!(reset_agent.messages().is_empty());
+            assert!(!reset_agent.is_streaming());
+            assert!(!reset_agent.has_queued_messages());
+            assert!(!reset_agent.signal().unwrap().is_cancelled());
+        }
+        Box::pin(async { Ok(()) })
+    }));
+    agent.prompt("start").await.unwrap();
+    assert_eq!(agent.messages().len(), 1);
+}
+
+#[tokio::test]
+async fn defaults_to_compat_stream_without_registration() {
+    let agent = Agent::new(AgentOptions::default()).expect("frozen constructor has a built-in default");
+    agent.prompt("hello").await.unwrap();
+    let messages = agent.messages();
+    let failure = messages.last().unwrap().as_assistant().unwrap();
+    assert_eq!(failure.stop_reason, StopReason::Error);
+    assert!(
+        failure
+            .error_message
+            .as_ref()
+            .is_some_and(|message| message.contains("unknown"))
+    );
+}
+
+#[tokio::test]
+async fn subscriptions_use_live_set_iteration_and_deduplicate_listeners() {
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(scripted_stream_fn(vec![Script::message(text_assistant("ok"))])),
+        ..Default::default()
+    })
+    .unwrap();
+    let removed = Arc::new(Mutex::new(None));
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let control = agent.clone();
+    let removed_hook = removed.clone();
+    let observed_hook = observed.clone();
+    let first: AgentListener = Arc::new(move |event, _| {
+        if matches!(event, AgentEvent::AgentStart) {
+            control.unsubscribe(removed_hook.lock().unwrap().unwrap());
+            let observed = observed_hook.clone();
+            control.subscribe(Arc::new(move |event, _| {
+                if matches!(event, AgentEvent::AgentStart) {
+                    observed.lock().unwrap().push("added");
+                }
+                Box::pin(async { Ok(()) })
+            }));
+        }
+        Box::pin(async { Ok(()) })
+    });
+    let id = agent.subscribe(first.clone());
+    assert_eq!(agent.subscribe(first), id);
+    let observed_hook = observed.clone();
+    *removed.lock().unwrap() = Some(agent.subscribe(Arc::new(move |event, _| {
+        if matches!(event, AgentEvent::AgentStart) {
+            observed_hook.lock().unwrap().push("removed");
+        }
+        Box::pin(async { Ok(()) })
+    })));
+    agent.prompt("hello").await.unwrap();
+    assert_eq!(*observed.lock().unwrap(), vec!["added"]);
+}
+
+#[tokio::test]
+async fn listener_errors_do_not_interrupt_other_listeners_or_the_run() {
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(scripted_stream_fn(vec![Script::message(text_assistant("ok"))])),
+        ..Default::default()
+    })
+    .unwrap();
+    agent.subscribe(Arc::new(|_, _| {
+        Box::pin(async { Err(pi_agent_core::AgentError::new("listener rejected")) })
+    }));
+    let events = Arc::new(Mutex::new(Vec::new()));
+    agent.subscribe(message_listener(events.clone()));
+    agent.prompt("hello").await.unwrap();
+    assert!(matches!(
+        events.lock().unwrap().last(),
+        Some(AgentEvent::AgentEnd { .. })
+    ));
+    assert_eq!(agent.messages().len(), 2);
+    assert!(agent.error_message().is_none());
+}
+
+#[tokio::test]
+async fn prepare_next_turn_reads_replaced_hook_after_turn_listeners() {
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    let prompts_hook = prompts.clone();
+    let responses = scripted_stream_fn(vec![
+        Script::message(tool_use(vec![AssistantContent::ToolCall(tool_call(
+            "call",
+            "lookup",
+            json!({}),
+        ))])),
+        Script::message(text_assistant("done")),
+    ]);
+    let agent = Agent::new(AgentOptions {
+        initial_state: Some(pi_agent_core::AgentInitialState {
+            tools: Some(vec![Arc::new(TestTool::no_args("lookup", || text_result("found")))]),
+            ..Default::default()
+        }),
+        prepare_next_turn_with_context: Some(Arc::new(|_, _| Box::pin(async { Ok(None) }))),
+        stream_fn: Some(Arc::new(move |model, context, options| {
+            prompts_hook.lock().unwrap().push(context.system_prompt.clone());
+            responses(model, context, options)
+        })),
+        ..Default::default()
+    })
+    .unwrap();
+    let control = agent.clone();
+    agent.subscribe(Arc::new(move |event, _| {
+        if matches!(event, AgentEvent::TurnEnd { .. }) {
+            control.set_prepare_next_turn_with_context(Some(Arc::new(|turn, _| {
+                Box::pin(async move {
+                    let mut context = turn.context;
+                    context.system_prompt = "replaced hook".into();
+                    Ok(Some(pi_agent_core::AgentLoopTurnUpdate {
+                        context: Some(context),
+                        model: None,
+                        thinking_level: None,
+                    }))
+                })
+            })));
+        }
+        Box::pin(async { Ok(()) })
+    }));
+    agent.prompt("hello").await.unwrap();
+    assert_eq!(prompts.lock().unwrap()[1].as_deref(), Some("replaced hook"));
+}
+
+#[tokio::test]
+async fn forwards_frozen_agent_callbacks_and_mutable_provider_configuration() {
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let observed_hook = observed.clone();
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(scripted_stream_fn(Vec::new())),
+        on_payload: Some(Arc::new(|payload, _| Box::pin(async move { Ok(Some(payload)) }))),
+        on_response: Some(Arc::new(|_, _| Box::pin(async { Ok(()) }))),
+        on_retry: Some(Arc::new(|_, _| {})),
+        ..Default::default()
+    })
+    .unwrap();
+    agent.set_transform_context(Some(Arc::new(|_, _| {
+        Box::pin(async { Ok(vec![user_message("transformed")]) })
+    })));
+    agent.set_convert_to_llm(Arc::new(|messages| {
         Box::pin(async move {
-            calls_hook.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(messages[0], user_message("transformed"));
+            Ok(vec![pi_ai::types::Message::User(user("converted"))])
+        })
+    }));
+    agent.set_get_api_key(Some(Arc::new(|_| Box::pin(async { Some("new-key".into()) }))));
+    agent.set_stream_fn(Arc::new(move |_, context, options| {
+        observed_hook.lock().unwrap().push((
+            context.messages,
+            options.stream.request.api_key,
+            options.stream.request.on_payload.is_some(),
+            options.stream.request.on_response.is_some(),
+            options.stream.on_retry.is_some(),
+            options.thinking_budgets.and_then(|budgets| budgets.low),
+            options.stream.request.max_retry_delay_ms,
+        ));
+        Box::pin(async {
             let (sender, stream) = create_assistant_message_event_stream();
             sender.push(AssistantMessageEvent::Done {
                 reason: pi_ai::types::DoneReason::Stop,
-                message: text_assistant("fallback"),
+                message: text_assistant("new stream"),
             });
             stream
         })
+    }));
+    agent.prompt("hello").await.unwrap();
+    agent.set_on_payload(None);
+    agent.set_on_response(None);
+    agent.set_on_retry(None);
+    agent.set_get_api_key(None);
+    agent.set_thinking_budgets(Some(pi_ai::types::ThinkingBudgets {
+        low: Some(42.0),
+        ..Default::default()
+    }));
+    agent.set_max_retry_delay_ms(Some(123.0));
+    let prepared = Arc::new(AtomicBool::new(false));
+    let prepared_hook = prepared.clone();
+    agent.set_prepare_next_turn(Some(Arc::new(move |signal| {
+        prepared_hook.store(signal.is_some(), Ordering::SeqCst);
+        Box::pin(async { Ok(None) })
     })));
-    let agent = Agent::new(AgentOptions::default()).unwrap();
-    let result = agent.prompt("Hello").await;
-    set_default_stream_fn(None);
-    result.unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert!(get_default_stream_fn().is_err());
+    agent.prompt("again").await.unwrap();
+    assert!(prepared.load(Ordering::SeqCst));
+    let observed = observed.lock().unwrap();
+    assert_eq!(
+        observed[0],
+        (
+            vec![pi_ai::types::Message::User(user("converted"))],
+            Some("new-key".into()),
+            true,
+            true,
+            true,
+            None,
+            None
+        )
+    );
+    assert_eq!(
+        observed[1],
+        (
+            vec![pi_ai::types::Message::User(user("converted"))],
+            None,
+            false,
+            false,
+            false,
+            Some(42.0),
+            Some(123.0)
+        )
+    );
+}
+
+#[tokio::test]
+async fn empty_assistant_error_text_does_not_set_state_error() {
+    let mut message = text_assistant("ok");
+    message.error_message = Some(String::new());
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(scripted_stream_fn(vec![Script::message(message)])),
+        ..Default::default()
+    })
+    .unwrap();
+    agent.prompt("hello").await.unwrap();
+    assert_eq!(agent.error_message(), None);
 }
 
 #[tokio::test]
@@ -506,7 +774,7 @@ async fn abort_is_a_noop_without_an_active_run() {
 }
 
 #[tokio::test]
-async fn rejects_reset_while_processing_without_corrupting_transcript() {
+async fn reset_during_pending_response_keeps_run_reserved_and_completes() {
     let release_response = Arc::new(tokio::sync::Notify::new());
     let release_hook = Arc::clone(&release_response);
     let stream_fn: pi_agent_core::agent::StreamFn = Arc::new(move |_model, _context, _options| {
@@ -544,20 +812,10 @@ async fn rejects_reset_while_processing_without_corrupting_transcript() {
             .collect::<Vec<_>>(),
         vec!["user"]
     );
-    let error = agent.reset().unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "Agent is already processing. Wait for completion before resetting."
-    );
-    assert!(agent.is_streaming());
-    assert_eq!(
-        agent
-            .messages()
-            .iter()
-            .map(|message| message.role())
-            .collect::<Vec<_>>(),
-        vec!["user"]
-    );
+    agent.reset();
+    assert!(!agent.is_streaming());
+    assert!(agent.signal().is_some());
+    assert!(agent.messages().is_empty());
     release_response.notify_waiters();
     prompt.await.unwrap();
     assert!(!agent.is_streaming());
@@ -567,7 +825,7 @@ async fn rejects_reset_while_processing_without_corrupting_transcript() {
             .iter()
             .map(|message| message.role())
             .collect::<Vec<_>>(),
-        vec!["user", "assistant"]
+        vec!["assistant"]
     );
 }
 
@@ -814,8 +1072,6 @@ async fn forwards_should_stop_after_turn_through_agent_options() {
     let tool = TestTool::no_args("noop", || text_result("tool complete"));
     let request_count = Arc::new(AtomicUsize::new(0));
     let request_count_hook = Arc::clone(&request_count);
-    let saw_signal = Arc::new(AtomicBool::new(false));
-    let saw_signal_hook = Arc::clone(&saw_signal);
     let callback_roles = Arc::new(Mutex::new(Vec::<String>::new()));
     let callback_roles_hook = Arc::clone(&callback_roles);
     let agent = Agent::new(AgentOptions {
@@ -823,8 +1079,7 @@ async fn forwards_should_stop_after_turn_through_agent_options() {
             tools: Some(vec![Arc::new(tool)]),
             ..Default::default()
         }),
-        should_stop_after_turn: Some(Arc::new(move |context, signal| {
-            saw_signal_hook.store(signal.is_some(), Ordering::SeqCst);
+        should_stop_after_turn: Some(Arc::new(move |context| {
             *callback_roles_hook.lock().unwrap() = context
                 .context
                 .messages
@@ -859,7 +1114,6 @@ async fn forwards_should_stop_after_turn_through_agent_options() {
     .unwrap();
     agent.prompt("start").await.unwrap();
     assert_eq!(request_count.load(Ordering::SeqCst), 1);
-    assert!(saw_signal.load(Ordering::SeqCst));
     assert_eq!(
         *callback_roles.lock().unwrap(),
         vec!["user".to_owned(), "assistant".to_owned(), "toolResult".to_owned()]

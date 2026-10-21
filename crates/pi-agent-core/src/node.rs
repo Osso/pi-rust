@@ -1,4 +1,4 @@
-//! Port of `packages/agent/src/node.ts`.
+//! Port of `packages/agent-core/src/node.ts`.
 //!
 //! The Node entrypoint re-exports the crate root plus [`NodeExecutionEnv`].
 

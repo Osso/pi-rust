@@ -254,8 +254,6 @@ pub fn create_image_generation_tool_definition(options: &ImageGenerationToolOpti
                         TextOrImageContent::Image(image),
                     ],
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: None,
                     terminate: None,
                 })
