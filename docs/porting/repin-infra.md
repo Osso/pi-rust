@@ -6,7 +6,9 @@ Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` ([lock](source-lock.js
 
 The one-time new-pin discovery exposed an RPC oracle hang: its child failed importing a removed module, but the outer request reader stayed open while Rust retained its stdin writer. No response or EOF could reach Rust. The oracle now closes its request reader and pauses stdin in `finally`, preserving the failing exit and diagnostics rather than converting the import failure to success. `oracle/rpc-oracle-lifecycle.test.mjs` holds caller stdin open and injects a child import failure; it runs through the protected `run-tests.sh oracle` gate. Product adapter/import gaps remain unresolved; this repair proves error-path termination only.
 
-Discovery containment, exact owned process identities and logs: `/tmp/pi-rust-repin-infra/HANG.md`. Only that test oracle group was terminated; the original `--no-fail-fast` Cargo run continues without a retry. Final discovery evidence must distinguish compiled product revision and any later harness-only lifecycle repair.
+A distinct VM-backed RPC UI oracle swallowed the example's startup error and mocked exit without settling screen readiness. Its mock exit now rejects pending startup, and VM error diagnostics reach stderr. The second real-process lifecycle regression injects a terminal-constructor failure while retaining caller stdin. This establishes failure termination, not a working TUI fixture or RPC UI parity.
+
+Discovery containment, exact owned process identities and logs: `/tmp/pi-rust-repin-infra/{HANG.md,HANG-PATTERN.md}`. Only verified test-oracle groups were terminated; the original `--no-fail-fast` Cargo run continued without a retry. Final discovery evidence distinguishes compiled product revision and the later harness-only lifecycle repair.
 
 ## Evidence policy
 
