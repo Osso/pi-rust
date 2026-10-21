@@ -104,11 +104,9 @@ async fn trash_session_files(paths: &[String]) -> Option<String> {
     let mut child = match child {
         Ok(child) => child,
         Err(error) => {
-            return Some(if error.kind() == std::io::ErrorKind::NotFound {
-                "spawn trash ENOENT".to_owned()
-            } else {
-                format!("spawn trash {error}")
-            });
+            let diagnostic = node_fs_error(&error, "spawn", "trash");
+            let code = diagnostic.split(':').next().unwrap_or_default();
+            return Some(format!("spawn trash {code}"));
         }
     };
     let stderr = child.stderr.take().expect("trash stderr is piped");

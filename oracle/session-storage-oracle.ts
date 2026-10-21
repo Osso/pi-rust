@@ -64,7 +64,11 @@ async function handle(r: any) {
  }
  if (r.op === "delete") {
   const deletion=await import(pathToFileURL(join(root,"session-delete.ts")).href);
-  return deletion.deleteSessionTree(r.path,r.db);
+  const previousPath=process.env.PATH;
+  try {
+   if(r.pathEnv!==undefined)process.env.PATH=r.pathEnv;
+   return await deletion.deleteSessionTree(r.path,r.db);
+  } finally { process.env.PATH=previousPath; }
  }
  if (r.op === "archive") return archive.archivePersistedSession(r.db, r.path);
  if (r.op === "restore") return archive.restoreArchivedSession(r.db, r.path);

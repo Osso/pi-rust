@@ -203,3 +203,53 @@ fn frozen_tree_deletion_batches_long_paths_and_cleans_partial_metadata() {
         }
     }
 }
+
+#[test]
+fn trash_error_messages_match_frozen() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let mut oracle = TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    for (name, body) in [
+        ("permission", "pass"),
+        ("exit", "import sys;sys.exit(7)"),
+        ("signal", "import os,signal;os.kill(os.getpid(),signal.SIGTERM)"),
+        (
+            "long-stderr",
+            "import sys;print('x'*250+'\\nsecond line',file=sys.stderr);sys.exit(1)",
+        ),
+        ("success", "pass"),
+    ] {
+        let dir = root.path().join(name);
+        std::fs::create_dir(&dir).unwrap();
+        let bin = dir.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let trash = bin.join("trash");
+        std::fs::write(&trash, format!("#!/usr/bin/python3\n{body}\n")).unwrap();
+        std::fs::set_permissions(
+            &trash,
+            std::fs::Permissions::from_mode(if name == "permission" { 0o644 } else { 0o755 }),
+        )
+        .unwrap();
+        let path = dir.join("target");
+        if name == "success" {
+            std::fs::write(&path, "fixture").unwrap();
+        } else {
+            std::fs::create_dir(&path).unwrap();
+        }
+        let expected = oracle.request(&json!({"id":name,"op":"delete","path":path,"pathEnv":bin}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        if name == "success" {
+            std::fs::write(&path, "fixture").unwrap();
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "delete_worker"])
+            .env("DELETE_FIXTURE", &path)
+            .env("PATH", &bin)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let actual: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(format!("{}.result", path.display())).unwrap()).unwrap();
+        assert_eq!(actual, expected["output"], "{name}");
+    }
+}
