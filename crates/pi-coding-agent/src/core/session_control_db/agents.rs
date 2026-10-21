@@ -906,6 +906,7 @@ fn prepare_steering_mailbox_message(
     let message = build_steering_mailbox_message(input, STEERING_MESSAGE_ID_PLACEHOLDER)?;
     let message_value = serde_json::to_value(&message).map_err(|error| ControlDbError::new(error.to_string()))?;
     let mailbox_input = EnqueueStoredRuntimeMailboxMessageInput {
+        recipient_host: None,
         kind: RuntimeMailboxMessageKind::Steer,
         message: message_value,
         recipient: input.recipient.clone(),
@@ -3666,6 +3667,7 @@ pub(crate) fn prepare_detached_agent_terminal_transport(
         "updatedAt": terminal_at,
     });
     let input = EnqueueStoredRuntimeMailboxMessageInput {
+        recipient_host: None,
         kind: RuntimeMailboxMessageKind::System,
         message,
         recipient: RuntimeMailboxAddress {

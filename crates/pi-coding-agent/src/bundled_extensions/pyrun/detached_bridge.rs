@@ -181,6 +181,7 @@ fn persist_bridge_message(input: PersistBridgeMessageInput) -> Result<(), String
     enqueue_stored_runtime_mailbox_message(
         &input.control_db_path,
         &EnqueueStoredRuntimeMailboxMessageInput {
+            recipient_host: None,
             recipient: input.recipient,
             sender: input.sender,
             kind: RuntimeMailboxMessageKind::System,

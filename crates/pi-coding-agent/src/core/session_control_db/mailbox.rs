@@ -56,7 +56,13 @@ pub fn enqueue_runtime_mailbox_message(
     input: &EnqueueRuntimeMailboxMessageInput,
 ) -> Result<i64, ControlDbError> {
     let result = with_control_db(control_db_path, |db| route_runtime_mailbox_message(db, input))?;
-    notify_runtime_mailbox_listener(result.listener.as_ref());
+    if input
+        .recipient_host
+        .as_deref()
+        .is_none_or(|host| host == gethostname::gethostname().to_string_lossy())
+    {
+        notify_runtime_mailbox_listener(result.listener.as_ref());
+    }
     Ok(result.id)
 }
 
@@ -104,6 +110,7 @@ fn route_runtime_mailbox_message(
 }
 
 pub(crate) struct PreparedStoredRuntimeMailboxMessage {
+    pub(crate) defaulted_birth: bool,
     pub(crate) context: String,
     pub(crate) routed: Map<String, Value>,
     pub(crate) serialized: String,
@@ -123,16 +130,27 @@ pub(crate) fn prepare_stored_runtime_mailbox_message(
     else {
         return Err(ControlDbError::new(format!("Invalid persisted object at {context}")));
     };
+    let mut incoming = incoming;
+    let defaulted_birth = incoming.get("createdAt").is_none_or(Value::is_null);
+    if defaulted_birth {
+        incoming.insert(
+            "createdAt".into(),
+            Value::String(crate::utils::iso_time::now_iso_string()),
+        );
+    }
     let routed = add_runtime_mailbox_routing(
         &incoming,
         &EnqueueRuntimeMailboxMessageInput {
+            recipient_host: input.recipient_host.clone(),
             recipient: input.recipient.clone(),
             sender: input.sender.clone(),
             kind: input.kind,
             store_ref: input.store_ref.clone(),
         },
     )?;
+    super::retention::assert_mailbox_message_fresh(&routed, &context)?;
     Ok(PreparedStoredRuntimeMailboxMessage {
+        defaulted_birth,
         context,
         serialized: js_json::stringify(&Value::Object(routed.clone())),
         routed,
@@ -150,9 +168,18 @@ pub fn enqueue_stored_runtime_mailbox_message(
 ) -> Result<i64, ControlDbError> {
     let prepared = prepare_stored_runtime_mailbox_message(input)?;
     let result = with_control_db(control_db_path, |db| {
-        persist_stored_runtime_mailbox_message(db, input, &prepared)
+        if let Some(existing) = read_canonical_mailbox_row_by_store_ref(db, &input.store_ref)? {
+            return validate_existing_stored_runtime_mailbox_message(&existing, input, &prepared);
+        }
+        with_immediate_transaction(db, |db| persist_stored_runtime_mailbox_message(db, input, &prepared))
     })?;
-    notify_runtime_mailbox_listener(result.listener.as_ref());
+    if input
+        .recipient_host
+        .as_deref()
+        .is_none_or(|host| host == gethostname::gethostname().to_string_lossy())
+    {
+        notify_runtime_mailbox_listener(result.listener.as_ref());
+    }
     Ok(result.id)
 }
 
@@ -161,6 +188,7 @@ fn persist_stored_runtime_mailbox_message(
     input: &EnqueueStoredRuntimeMailboxMessageInput,
     prepared: &PreparedStoredRuntimeMailboxMessage,
 ) -> Result<RoutedMailboxMessage, ControlDbError> {
+    super::retention::assert_mailbox_message_fresh(&prepared.routed, &prepared.context)?;
     if let Some(existing) = read_canonical_mailbox_row_by_store_ref(db, &input.store_ref)? {
         return validate_existing_stored_runtime_mailbox_message(&existing, input, prepared);
     }
@@ -196,6 +224,7 @@ fn validate_existing_stored_runtime_mailbox_message(
     prepared: &PreparedStoredRuntimeMailboxMessage,
 ) -> Result<RoutedMailboxMessage, ControlDbError> {
     let previous = parse_stored_json_object(&existing.data, &prepared.context)?;
+    super::retention::assert_mailbox_message_fresh(&previous, &prepared.context)?;
     if !same_mailbox_message_identity(&previous, &prepared.routed, &input.store_ref.message_id) {
         return Err(ControlDbError::new(format!(
             "Mailbox message ID collision: {}#{}",
@@ -205,14 +234,15 @@ fn validate_existing_stored_runtime_mailbox_message(
     assert_runtime_mailbox_routing(
         &previous,
         &EnqueueRuntimeMailboxMessageInput {
+            recipient_host: input.recipient_host.clone(),
             recipient: input.recipient.clone(),
             sender: input.sender.clone(),
             kind: input.kind,
             store_ref: input.store_ref.clone(),
         },
     )?;
-    if strip_runtime_mailbox_delivery_state(&existing.data)?
-        != strip_runtime_mailbox_delivery_state(&prepared.serialized)?
+    if strip_runtime_mailbox_delivery_state(&existing.data, prepared.defaulted_birth)?
+        != strip_runtime_mailbox_delivery_state(&prepared.serialized, prepared.defaulted_birth)?
     {
         return Err(ControlDbError::new(format!(
             "Mailbox message ID collision: {}#{}",
@@ -247,17 +277,16 @@ pub(crate) fn same_mailbox_message_identity(
         && previous.get("threadId") == next.get("threadId")
 }
 
-fn strip_runtime_mailbox_delivery_state(serialized: &str) -> Result<String, ControlDbError> {
+fn strip_runtime_mailbox_delivery_state(
+    serialized: &str,
+    omit_defaulted_birth: bool,
+) -> Result<String, ControlDbError> {
     let mut message = parse_stored_json_object(serialized, "runtime_mailbox_identity")?;
-    for key in [
-        "claimedAt",
-        "claimantProcessIdentity",
-        "deliveredAt",
-        "error",
-        "status",
-        "updatedAt",
-    ] {
+    for key in ["claimedAt", "claimantProcessIdentity", "error", "status", "updatedAt"] {
         message.remove(key);
+    }
+    if omit_defaulted_birth {
+        message.remove("createdAt");
     }
     Ok(js_json::stringify(&Value::Object(message)))
 }
@@ -284,32 +313,27 @@ pub fn read_runtime_mailbox_message_for_delivery(
     })
 }
 
-/// `consumeRuntimeMailboxMessage`.
-pub fn consume_runtime_mailbox_message(control_db_path: &str, id: i64) -> Result<bool, ControlDbError> {
-    with_control_db(control_db_path, |db| {
-        let Some(row) = read_canonical_mailbox_row_by_id(db, id)? else {
-            return Ok(false);
-        };
-        Ok(parse_canonical_mailbox_payload(&row)?
-            .get("status")
-            .and_then(Value::as_str)
-            == Some("delivered"))
-    })
-}
-
 /// `deliverRuntimeMailboxMessage`.
 pub fn deliver_runtime_mailbox_message(
     control_db_path: &str,
     id: i64,
     expected_payload_data: Option<&str>,
 ) -> Result<bool, ControlDbError> {
-    update_claimed_canonical_mailbox_message(
-        control_db_path,
-        id,
-        expected_payload_data,
-        RuntimeMailboxMessageStatus::Delivered,
-        None,
-    )
+    with_control_db(control_db_path, |db| {
+        let Some(row) = read_canonical_mailbox_row_by_id(db, id)? else {
+            return Ok(false);
+        };
+        let message = parse_canonical_mailbox_payload(&row)?;
+        if !mailbox_host_is_local(&message)
+            || message.get("status").and_then(Value::as_str) != Some("claimed")
+            || message.get("claimantProcessIdentity").and_then(Value::as_str)
+                != Some(get_runtime_process_instance_id()?)
+            || expected_payload_data.is_some_and(|expected| expected != row.data)
+        {
+            return Ok(false);
+        }
+        with_immediate_transaction(db, |db| super::compare_and_delete_canonical_mailbox_payload(db, &row))
+    })
 }
 
 fn update_claimed_canonical_mailbox_message(
@@ -346,9 +370,6 @@ fn update_claimed_canonical_mailbox_message(
         updated.insert("updatedAt".to_owned(), Value::String(now.clone()));
         updated.remove("claimedAt");
         updated.remove("claimantProcessIdentity");
-        if status == RuntimeMailboxMessageStatus::Delivered {
-            updated.insert("deliveredAt".to_owned(), Value::String(now.clone()));
-        }
         if status == RuntimeMailboxMessageStatus::Failed {
             updated.insert(
                 "error".to_owned(),
@@ -357,7 +378,9 @@ fn update_claimed_canonical_mailbox_message(
                     .unwrap_or(Value::Null),
             );
         }
-        compare_and_write_canonical_mailbox_payload(db, &row, &updated, &now)
+        with_immediate_transaction(db, |db| {
+            compare_and_write_canonical_mailbox_payload(db, &row, &updated, &now)
+        })
     })
 }
 
@@ -371,24 +394,21 @@ pub fn consume_runtime_mailbox_message_by_store_ref(
             return Ok(0);
         };
         let message = parse_canonical_mailbox_payload(&row)?;
-        if message.get("status").and_then(Value::as_str) == Some("delivered") {
+        if !mailbox_host_is_local(&message) {
             return Ok(0);
         }
-        let now = crate::utils::iso_time::now_iso_string();
-        let mut delivered = message.clone();
-        delivered.insert("status".to_owned(), Value::String("delivered".to_owned()));
-        delivered.insert("deliveredAt".to_owned(), Value::String(now.clone()));
-        delivered.insert("updatedAt".to_owned(), Value::String(now.clone()));
-        delivered.remove("claimedAt");
-        delivered.remove("claimantProcessIdentity");
-        Ok(
-            if compare_and_write_canonical_mailbox_payload(db, &row, &delivered, &now)? {
-                1
-            } else {
-                0
-            },
-        )
+        Ok(i64::from(with_immediate_transaction(db, |db| {
+            super::compare_and_delete_canonical_mailbox_payload(db, &row)
+        })?))
     })
+}
+
+fn mailbox_host_is_local(message: &Map<String, Value>) -> bool {
+    message
+        .get("recipientHost")
+        .and_then(Value::as_str)
+        .filter(|host| !host.is_empty())
+        .is_none_or(|host| host == gethostname::gethostname().to_string_lossy())
 }
 
 struct RuntimeMailboxAuthoritySnapshot {
@@ -434,7 +454,7 @@ fn read_recoverable_runtime_mailbox_claims(
         }
         let data = parse_canonical_mailbox_payload(&row)?;
         let claimant = require_string_field(&data, "claimantProcessIdentity", "runtime_mailbox_claim")?;
-        if runtime_mailbox_claimant_is_live(authority.listener.as_ref(), &claimant) {
+        if runtime_mailbox_claimant_is_live(&claimant)? {
             continue;
         }
         candidates.push(RuntimeMailboxCandidate { authority, data, row });
@@ -448,6 +468,27 @@ fn recover_runtime_mailbox_claim(
     candidate: &RuntimeMailboxCandidate,
     now_iso: &str,
 ) -> Result<bool, ControlDbError> {
+    let refs = crate::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs(
+        candidate
+            .authority
+            .listener
+            .as_ref()
+            .and_then(|listener| listener.session_path.as_deref()),
+    )?;
+    let mut accepted = false;
+    for reference in refs {
+        if reference.is_null() {
+            return Err(ControlDbError::new(
+                "Cannot read properties of null (reading 'sessionPath')",
+            ));
+        }
+        if reference.get("sessionPath").and_then(Value::as_str) == Some(candidate.row.session_path.as_str())
+            && reference.get("messageId").and_then(Value::as_str) == Some(candidate.row.message_id.as_str())
+        {
+            accepted = true;
+            break;
+        }
+    }
     let mut pending = candidate.data.clone();
     pending.insert("status".to_owned(), Value::String("pending".to_owned()));
     pending.insert("updatedAt".to_owned(), Value::String(now_iso.to_owned()));
@@ -459,7 +500,11 @@ fn recover_runtime_mailbox_claim(
         if !runtime_mailbox_authority_snapshots_equal(&candidate.authority, &current_authority) {
             return Ok(false);
         }
-        compare_and_write_serialized_canonical_mailbox_payload(db, &candidate.row, &serialized, now_iso)
+        if accepted {
+            super::compare_and_delete_canonical_mailbox_payload(db, &candidate.row)
+        } else {
+            compare_and_write_serialized_canonical_mailbox_payload(db, &candidate.row, &serialized, now_iso)
+        }
     })
 }
 
@@ -529,26 +574,7 @@ fn deliver_runtime_mailbox_candidate(
     candidate: &RuntimeMailboxCandidate,
     now_iso: &str,
 ) -> Result<Option<RuntimeMailboxMessage>, ControlDbError> {
-    let mut delivered = candidate.data.clone();
-    delivered.insert("status".to_owned(), Value::String("delivered".to_owned()));
-    delivered.insert("deliveredAt".to_owned(), Value::String(now_iso.to_owned()));
-    delivered.insert("updatedAt".to_owned(), Value::String(now_iso.to_owned()));
-    let serialized = js_json::stringify(&Value::Object(delivered.clone()));
-    let updated = with_immediate_transaction(db, |db| {
-        let current_authority = read_runtime_mailbox_authority_snapshot(db, recipient, &candidate.row.session_path)?;
-        if !runtime_mailbox_authority_snapshots_equal(&candidate.authority, &current_authority) {
-            return Ok(false);
-        }
-        compare_and_write_serialized_canonical_mailbox_payload(db, &candidate.row, &serialized, now_iso)
-    })?;
-    if updated {
-        Ok(Some(runtime_mailbox_message_from_canonical_row(
-            &candidate.row,
-            &delivered,
-        )?))
-    } else {
-        Ok(None)
-    }
+    claim_runtime_mailbox_candidate(db, recipient, candidate, now_iso)
 }
 
 fn read_runtime_mailbox_authority_snapshot(
@@ -674,14 +700,20 @@ fn claim_runtime_mailbox_candidate(
     }
 }
 
-fn runtime_mailbox_claimant_is_live(
-    listener: Option<&RuntimeMailboxListenerRow>,
-    claimant_process_identity: &str,
-) -> bool {
-    if let Some(listener) = listener {
-        return listener.runtime_instance_id.as_deref() == Some(claimant_process_identity);
+fn runtime_mailbox_claimant_is_live(claimant_process_identity: &str) -> Result<bool, ControlDbError> {
+    let current = get_runtime_process_instance_id()?;
+    if claimant_process_identity == current {
+        return Ok(true);
     }
-    persisted_process_identity_is_live(claimant_process_identity)
+    let claimant = parse_process_identity(claimant_process_identity)?;
+    let current = parse_process_identity(current)?;
+    if claimant.pid == current.pid
+        && claimant.start_time_ticks == current.start_time_ticks
+        && claimant.incarnation != current.incarnation
+    {
+        return Ok(false);
+    }
+    Ok(persisted_process_identity_is_live(claimant_process_identity))
 }
 
 fn persisted_process_identity_is_current(value: Option<&str>) -> bool {
@@ -707,21 +739,26 @@ fn read_canonical_mailbox_rows_for_recipient(
     status: RuntimeMailboxMessageStatus,
     limit: i64,
 ) -> Result<Vec<RuntimeMailboxRow>, ControlDbError> {
-    let mut statement = db.prepare(
+    let mut statement = db.prepare(&format!(
         "SELECT rowid AS id, session_path, message_id, data, updated_at
 			 FROM multi_agent_mailbox_messages
 			 WHERE CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END = ?
 			   AND CASE WHEN json_valid(data) THEN json_extract(data, '$.recipientSessionId') END = ?
+               AND (json_extract(data,'$.recipientHost') IS NULL OR json_extract(data,'$.recipientHost') = ?)
+               AND {} > ?
 			   AND ((? IS NULL AND CASE WHEN json_valid(data) THEN json_extract(data, '$.recipientAgentId') END IS NULL)
 			        OR CASE WHEN json_valid(data) THEN json_extract(data, '$.recipientAgentId') END = ?)
 			 ORDER BY rowid ASC
 			 LIMIT ?",
-    )?;
+        super::retention::MAILBOX_CREATED_AT_MS_SQL
+    ))?;
     let rows = statement
         .query_map(
             params![
                 status_name(status),
                 recipient.session_id,
+                gethostname::gethostname().to_string_lossy(),
+                super::retention::mailbox_cutoff_ms(),
                 recipient.agent_id,
                 recipient.agent_id,
                 limit
@@ -744,7 +781,6 @@ fn status_name(status: RuntimeMailboxMessageStatus) -> &'static str {
     match status {
         RuntimeMailboxMessageStatus::Pending => "pending",
         RuntimeMailboxMessageStatus::Claimed => "claimed",
-        RuntimeMailboxMessageStatus::Delivered => "delivered",
         RuntimeMailboxMessageStatus::Failed => "failed",
     }
 }
@@ -798,7 +834,11 @@ pub fn register_runtime_mailbox_listener(
             "Runtime mailbox listener changed repeatedly while registering session {}",
             registration.recipient.session_id
         )))
-    })
+    })?;
+    if pid == std::process::id() && registration.runtime_instance_id == get_runtime_process_instance_id()? {
+        recover_dead_runtime_mailbox_claims(control_db_path, recipient)?;
+    }
+    Ok(())
 }
 
 fn prepare_runtime_mailbox_registration(
@@ -806,7 +846,7 @@ fn prepare_runtime_mailbox_registration(
     registration: &RuntimeMailboxRegistration,
 ) -> Result<RuntimeMailboxRegistrationPlan, ControlDbError> {
     let snapshot = read_runtime_mailbox_registration_snapshot(db, &registration.recipient)?;
-    let runtime_owner_changed = snapshot.listener.as_ref().is_some_and(|listener| {
+    let runtime_owner_changed = snapshot.listener.as_ref().is_none_or(|listener| {
         listener.pid != registration.pid
             || listener.runtime_instance_id.as_deref() != Some(registration.runtime_instance_id.as_str())
     });
@@ -1213,24 +1253,16 @@ pub fn runtime_mailbox_signal_keepalive_installed() -> bool {
     RUNTIME_MAILBOX_SIGNAL_KEEPALIVE_INSTALLED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
-/// `markRuntimeMailboxMessageDelivered`.
+/// `markRuntimeMailboxMessageDelivered`: caller's accepted message is fenced by its current payload.
 pub fn mark_runtime_mailbox_message_delivered(control_db_path: &str, id: i64) -> Result<(), ControlDbError> {
     with_control_db(control_db_path, |db| {
         let Some(row) = read_canonical_mailbox_row_by_id(db, id)? else {
             return Ok(());
         };
-        let message = parse_canonical_mailbox_payload(&row)?;
-        if message.get("status").and_then(Value::as_str) == Some("delivered") {
+        if !mailbox_host_is_local(&parse_canonical_mailbox_payload(&row)?) {
             return Ok(());
         }
-        let now = crate::utils::iso_time::now_iso_string();
-        let mut delivered = message.clone();
-        delivered.insert("status".to_owned(), Value::String("delivered".to_owned()));
-        delivered.insert("deliveredAt".to_owned(), Value::String(now.clone()));
-        delivered.insert("updatedAt".to_owned(), Value::String(now.clone()));
-        delivered.remove("claimedAt");
-        delivered.remove("claimantProcessIdentity");
-        compare_and_write_canonical_mailbox_payload(db, &row, &delivered, &now)?;
+        with_immediate_transaction(db, |db| super::compare_and_delete_canonical_mailbox_payload(db, &row))?;
         Ok(())
     })
 }
@@ -1269,23 +1301,40 @@ pub fn read_runtime_mailbox_message(
 
 /// `listRuntimeMailboxMessages`.
 pub fn list_runtime_mailbox_messages(control_db_path: &str) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
+    list_runtime_mailbox_messages_by_session_path(control_db_path, None)
+}
+pub fn list_runtime_mailbox_messages_for_session(
+    control_db_path: &str,
+    session_path: &str,
+) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
+    list_runtime_mailbox_messages_by_session_path(control_db_path, Some(session_path))
+}
+fn list_runtime_mailbox_messages_by_session_path(
+    control_db_path: &str,
+    session_path: Option<&str>,
+) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
     with_control_db(control_db_path, |db| {
-        let mut statement = db.prepare(
+        let mut statement = db.prepare(&format!(
             "SELECT rowid AS id, session_path, message_id, data, updated_at
 				 FROM multi_agent_mailbox_messages
 				 WHERE json_valid(data) AND json_type(data, '$.recipientSessionId') = 'text'
+                 AND (session_path = ? OR ? IS NULL) AND {} > ?
 				 ORDER BY rowid ASC",
-        )?;
+            super::retention::MAILBOX_CREATED_AT_MS_SQL
+        ))?;
         let rows = statement
-            .query_map([], |row| {
-                Ok(RuntimeMailboxRow {
-                    id: row.get(0)?,
-                    session_path: row.get(1)?,
-                    message_id: row.get(2)?,
-                    data: row.get(3)?,
-                    updated_at: row.get(4)?,
-                })
-            })?
+            .query_map(
+                params![session_path, session_path, super::retention::mailbox_cutoff_ms()],
+                |row| {
+                    Ok(RuntimeMailboxRow {
+                        id: row.get(0)?,
+                        session_path: row.get(1)?,
+                        message_id: row.get(2)?,
+                        data: row.get(3)?,
+                        updated_at: row.get(4)?,
+                    })
+                },
+            )?
             .collect::<Result<Vec<_>, _>>()?;
         let mut messages = Vec::with_capacity(rows.len());
         for row in rows {

@@ -257,11 +257,11 @@ pub fn initialize_schema(db: &Connection, self_restart_process_id: Option<u32>) 
             SET data = json_set(NEW.data, '$.createdAt', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             WHERE rowid = NEW.rowid;
         END;")?;
-    let cutoff = crate::utils::iso_time::format_iso_millis(pi_js_compat::date::js_now_millis() as i64 - 86_400_000);
-    db.execute(
-        "DELETE FROM shared_channel_messages WHERE created_at <= ?",
-        params![cutoff],
-    )?;
+    db.execute_batch(&format!(
+        "CREATE INDEX IF NOT EXISTS multi_agent_mailbox_created_at_ms_idx ON multi_agent_mailbox_messages({})",
+        super::retention::MAILBOX_CREATED_AT_MS_SQL
+    ))?;
+    super::retention::cleanup_expired_messages(db)?;
     Ok(())
 }
 
@@ -828,7 +828,7 @@ fn migrate_legacy_runtime_mailbox_messages(db: &Connection, now_iso: &str) -> Re
     let mut statement = db.prepare(
         "SELECT recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id,
 			        kind, store_session_path, store_message_id, status, created_at, updated_at,
-			        delivered_at, error
+			        error
 			 FROM runtime_mailbox_messages
 			 WHERE store_session_path IS NOT NULL AND store_message_id IS NOT NULL
 			 ORDER BY CASE status WHEN 'delivered' THEN 4 WHEN 'failed' THEN 3 WHEN 'claimed' THEN 2 ELSE 1 END DESC,
@@ -847,8 +847,7 @@ fn migrate_legacy_runtime_mailbox_messages(db: &Connection, now_iso: &str) -> Re
                 status: row.get(7)?,
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
-                delivered_at: row.get(10)?,
-                error: row.get(11)?,
+                error: row.get(10)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -882,7 +881,6 @@ struct LegacyRuntimeMailboxRow {
     status: String,
     created_at: String,
     updated_at: String,
-    delivered_at: Option<String>,
     error: Option<String>,
 }
 
@@ -895,7 +893,9 @@ fn migrate_legacy_runtime_mailbox_row(
         message_id: row.store_message_id.clone(),
         session_path: row.store_session_path.clone(),
     };
-    let Some(canonical) = super::read_canonical_mailbox_row_by_store_ref(db, &store_ref)? else {
+    // Legacy payload validation precedes retention cleanup, as in frozen TS.
+    let canonical=db.query_row("SELECT rowid,session_path,message_id,data,updated_at FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",params![store_ref.session_path,store_ref.message_id],|r|Ok(super::RuntimeMailboxRow{id:r.get(0)?,session_path:r.get(1)?,message_id:r.get(2)?,data:r.get(3)?,updated_at:r.get(4)?})).optional()?;
+    let Some(canonical) = canonical else {
         return Ok(());
     };
     let context = format!(
@@ -905,6 +905,7 @@ fn migrate_legacy_runtime_mailbox_row(
     let message = parse_stored_json_object(&canonical.data, &context)?;
     validate_mailbox_payload(&Value::Object(message.clone()), &context)?;
     let input = super::EnqueueRuntimeMailboxMessageInput {
+        recipient_host: None,
         kind: to_runtime_mailbox_message_kind(&row.kind),
         recipient: super::RuntimeMailboxAddress {
             agent_id: row.recipient_agent_id.clone(),
@@ -917,6 +918,13 @@ fn migrate_legacy_runtime_mailbox_row(
         store_ref,
     };
     let routed = add_runtime_mailbox_routing(&message, &input)?;
+    if routed.get("status").and_then(Value::as_str) == Some("delivered") || row.status == "delivered" {
+        db.execute(
+            "DELETE FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",
+            params![input.store_ref.session_path, input.store_ref.message_id],
+        )?;
+        return Ok(());
+    }
     let canonical_status = to_runtime_mailbox_message_status(&require_string_field(&routed, "status", &context)?);
     let status = migrated_mailbox_status(row, canonical_status);
     let mut updated = routed.clone();
@@ -937,10 +945,7 @@ fn migrated_mailbox_status(
     row: &LegacyRuntimeMailboxRow,
     canonical_status: super::RuntimeMailboxMessageStatus,
 ) -> super::RuntimeMailboxMessageStatus {
-    let is_terminal = matches!(
-        canonical_status,
-        super::RuntimeMailboxMessageStatus::Delivered | super::RuntimeMailboxMessageStatus::Failed
-    );
+    let is_terminal = canonical_status == super::RuntimeMailboxMessageStatus::Failed;
     if is_terminal {
         return canonical_status;
     }
@@ -975,15 +980,6 @@ fn apply_migrated_mailbox_fields(
     );
     updated.remove("claimedAt");
     updated.remove("claimantProcessIdentity");
-    if status == super::RuntimeMailboxMessageStatus::Delivered {
-        updated.insert(
-            "deliveredAt".to_owned(),
-            match routed.get("deliveredAt") {
-                Some(Value::String(value)) => Value::String(value.clone()),
-                _ => Value::String(row.delivered_at.clone().unwrap_or_else(|| row.updated_at.clone())),
-            },
-        );
-    }
     if status == super::RuntimeMailboxMessageStatus::Failed {
         updated.insert(
             "error".to_owned(),
@@ -999,7 +995,6 @@ fn status_name(status: super::RuntimeMailboxMessageStatus) -> &'static str {
     match status {
         super::RuntimeMailboxMessageStatus::Pending => "pending",
         super::RuntimeMailboxMessageStatus::Claimed => "claimed",
-        super::RuntimeMailboxMessageStatus::Delivered => "delivered",
         super::RuntimeMailboxMessageStatus::Failed => "failed",
     }
 }
@@ -1010,6 +1005,9 @@ pub(crate) fn add_runtime_mailbox_routing(
 ) -> Result<serde_json::Map<String, Value>, ControlDbError> {
     assert_runtime_mailbox_routing(message, input)?;
     let mut routed = message.clone();
+    if let Some(host) = &input.recipient_host {
+        routed.insert("recipientHost".into(), Value::String(host.clone()));
+    }
     routed.insert(
         "recipientSessionId".to_owned(),
         Value::String(input.recipient.session_id.clone()),
@@ -1056,7 +1054,10 @@ pub(crate) fn assert_runtime_mailbox_routing(
         && message.get("senderAgentId")
             == Some(&input.sender.agent_id.clone().map(Value::String).unwrap_or(Value::Null));
     let same_kind = message.get("kind") == Some(&Value::String(kind_name(input.kind).to_owned()));
-    if same_recipient && same_sender && same_kind {
+    let host = gethostname::gethostname().to_string_lossy().into_owned();
+    let same_host = message.get("recipientHost").and_then(Value::as_str).unwrap_or(&host)
+        == input.recipient_host.as_deref().unwrap_or(&host);
+    if same_recipient && same_sender && same_kind && same_host {
         return Ok(());
     }
     Err(ControlDbError::new(format!(

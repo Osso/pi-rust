@@ -12,6 +12,9 @@ mod incoming;
 mod lifecycle;
 mod mailbox;
 mod requests;
+mod retention;
+use retention::{MAILBOX_CREATED_AT_MS_SQL, mailbox_cutoff_ms};
+pub use retention::{MAILBOX_MESSAGE_RETENTION_MS, is_mailbox_message_expired};
 mod schema;
 mod sessions;
 
@@ -75,9 +78,9 @@ pub use lifecycle::{
 };
 pub use mailbox::{
     RuntimeMailboxListenerRecord, assert_main_session_runtime_available, claim_runtime_mailbox_messages,
-    consume_runtime_mailbox_message, consume_runtime_mailbox_message_by_store_ref, deliver_runtime_mailbox_message,
-    enqueue_runtime_mailbox_message, enqueue_stored_runtime_mailbox_message, fail_runtime_mailbox_message,
-    list_runtime_mailbox_listeners, list_runtime_mailbox_messages, mark_runtime_mailbox_message_delivered,
+    consume_runtime_mailbox_message_by_store_ref, deliver_runtime_mailbox_message, enqueue_runtime_mailbox_message,
+    enqueue_stored_runtime_mailbox_message, fail_runtime_mailbox_message, list_runtime_mailbox_listeners,
+    list_runtime_mailbox_messages, list_runtime_mailbox_messages_for_session, mark_runtime_mailbox_message_delivered,
     mark_runtime_mailbox_signal_keepalive_installed, read_runtime_mailbox_listener, read_runtime_mailbox_message,
     read_runtime_mailbox_message_for_delivery, recover_dead_runtime_mailbox_claims, register_runtime_mailbox_listener,
     release_runtime_mailbox_message_claim, resolve_own_main_runtime_coordination_recipient,
@@ -134,7 +137,6 @@ pub enum RuntimeMailboxMessageKind {
 pub enum RuntimeMailboxMessageStatus {
     Pending,
     Claimed,
-    Delivered,
     Failed,
 }
 
@@ -151,6 +153,8 @@ pub struct RuntimeMailboxMessage {
     pub id: i64,
     pub recipient: RuntimeMailboxAddress,
     pub sender: RuntimeMailboxAddress,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_host: Option<String>,
     pub kind: RuntimeMailboxMessageKind,
     pub body: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,8 +167,6 @@ pub struct RuntimeMailboxMessage {
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delivered_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -199,6 +201,8 @@ pub struct PostSharedChannelMessageInput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnqueueRuntimeMailboxMessageInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipient_host: Option<String>,
     pub recipient: RuntimeMailboxAddress,
     pub sender: RuntimeMailboxAddress,
     pub kind: RuntimeMailboxMessageKind,
@@ -209,6 +213,8 @@ pub struct EnqueueRuntimeMailboxMessageInput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnqueueStoredRuntimeMailboxMessageInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipient_host: Option<String>,
     pub recipient: RuntimeMailboxAddress,
     pub sender: RuntimeMailboxAddress,
     pub kind: RuntimeMailboxMessageKind,
@@ -311,7 +317,7 @@ pub(crate) fn optional_row<T>(result: rusqlite::Result<T>) -> Result<Option<T>, 
     }
 }
 
-pub(crate) fn with_immediate_transaction<T>(
+pub fn with_immediate_transaction<T>(
     db: &Connection,
     operation: impl FnOnce(&Connection) -> Result<T, ControlDbError>,
 ) -> Result<T, ControlDbError> {
@@ -339,7 +345,7 @@ fn retained_control_dbs() -> &'static Mutex<HashMap<String, Arc<RetainedControlD
     RETAINED.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-pub(crate) fn with_control_db<T>(
+pub fn with_control_db<T>(
     control_db_path: &str,
     callback: impl FnOnce(&Connection) -> Result<T, ControlDbError>,
 ) -> Result<T, ControlDbError> {
@@ -695,7 +701,6 @@ pub(crate) fn to_runtime_mailbox_message_status(value: &str) -> RuntimeMailboxMe
     match value {
         "pending" => RuntimeMailboxMessageStatus::Pending,
         "claimed" => RuntimeMailboxMessageStatus::Claimed,
-        "delivered" => RuntimeMailboxMessageStatus::Delivered,
         "failed" => RuntimeMailboxMessageStatus::Failed,
         _ => RuntimeMailboxMessageStatus::Failed,
     }
@@ -931,9 +936,11 @@ pub(crate) fn read_canonical_mailbox_row_by_store_ref(
     store_ref: &RuntimeMailboxStoreRef,
 ) -> Result<Option<RuntimeMailboxRow>, ControlDbError> {
     optional_row(db.query_row(
-        "SELECT rowid AS id, session_path, message_id, data, updated_at
-			 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-        params![&store_ref.session_path, &store_ref.message_id],
+        &format!(
+            "SELECT rowid AS id, session_path, message_id, data, updated_at
+			 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND {MAILBOX_CREATED_AT_MS_SQL} > ?"
+        ),
+        params![&store_ref.session_path, &store_ref.message_id, mailbox_cutoff_ms()],
         mailbox_row_from_row,
     ))
 }
@@ -943,9 +950,11 @@ pub(crate) fn read_canonical_mailbox_row_by_id(
     id: i64,
 ) -> Result<Option<RuntimeMailboxRow>, ControlDbError> {
     optional_row(db.query_row(
-        "SELECT rowid AS id, session_path, message_id, data, updated_at
-			 FROM multi_agent_mailbox_messages WHERE rowid = ?",
-        params![id],
+        &format!(
+            "SELECT rowid AS id, session_path, message_id, data, updated_at
+			 FROM multi_agent_mailbox_messages WHERE rowid = ? AND {MAILBOX_CREATED_AT_MS_SQL} > ?"
+        ),
+        params![id, mailbox_cutoff_ms()],
         mailbox_row_from_row,
     ))
 }
@@ -1004,8 +1013,8 @@ pub(crate) fn compare_and_write_serialized_canonical_mailbox_payload(
     updated_at: &str,
 ) -> Result<bool, ControlDbError> {
     let updated = db.execute(
-        "UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
-			 WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ?",
+        &format!("UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
+			 WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ? AND {MAILBOX_CREATED_AT_MS_SQL} > ?"),
         params![
             serialized,
             updated_at,
@@ -1013,10 +1022,18 @@ pub(crate) fn compare_and_write_serialized_canonical_mailbox_payload(
             &row.session_path,
             &row.message_id,
             &row.data,
-            &row.updated_at
+            &row.updated_at,
+            mailbox_cutoff_ms()
         ],
     )?;
     Ok(updated == 1)
+}
+
+pub(crate) fn compare_and_delete_canonical_mailbox_payload(
+    db: &Connection,
+    row: &RuntimeMailboxRow,
+) -> Result<bool, ControlDbError> {
+    Ok(db.execute(&format!("DELETE FROM multi_agent_mailbox_messages WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ? AND {MAILBOX_CREATED_AT_MS_SQL} > ?"),params![row.id,row.session_path,row.message_id,row.data,row.updated_at,mailbox_cutoff_ms()])?==1)
 }
 
 pub(crate) fn runtime_mailbox_message_from_canonical_row(
@@ -1034,6 +1051,7 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
             agent_id: nullable_string_field(message, "senderAgentId", &context)?,
             session_id: require_string_field(message, "senderSessionId", &context)?,
         },
+        sender_host: optional_string_field(message, "senderHost", &context)?,
         kind: to_runtime_mailbox_message_kind(&require_string_field(message, "kind", &context)?),
         body: require_string_field(message, "body", &context)?,
         file_refs: parse_file_refs(message.get("fileRefs"), &context)?,
@@ -1043,16 +1061,12 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
             session_path: row.session_path.clone(),
         },
         status: to_runtime_mailbox_message_status(&require_string_field(message, "status", &context)?),
-        created_at: match message.get("createdAt") {
-            Some(Value::String(value)) => value.clone(),
-            _ => row.updated_at.clone(),
-        },
+        created_at: require_string_field(message, "createdAt", &context)?,
         updated_at: match message.get("updatedAt") {
             Some(Value::String(value)) => value.clone(),
             _ => row.updated_at.clone(),
         },
         claimed_at: optional_string_field(message, "claimedAt", &context)?,
-        delivered_at: optional_string_field(message, "deliveredAt", &context)?,
         error: optional_string_field(message, "error", &context)?,
     })
 }

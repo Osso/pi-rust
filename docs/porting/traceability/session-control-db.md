@@ -2,12 +2,16 @@
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
 
+`repin_control_mailbox.rs` RED5→GREEN5: real TS missing-birth enqueue → Rust idempotent retry/collision rejection; take yields claimed, stale payload cannot delete, release/reclaim then CAS-delete is visible to same TS; foreign-host/session-ID collision cannot claim/consume; creation-age expiration ignores fresh updates; dead owned TS claimant with a complete receipt is deleted rather than requeued on Rust registration. `repin_runtime_mailbox_transcript.rs` RED→GREEN proves raw persisted refs (including `[{}]`), null/malformed complete-record errors, ignored partial final JSON and inactive-branch receipt ordering. Shared [receipt scanner](runtime-mailbox-transcript.md) is the only recovery reader.
+
+Source runtime status is pending/claimed/failed; unknown statuses project failed, not throw. `senderHost` and recipient host routing fields are represented. `markRuntimeMailboxMessageDelivered` retains its source export but now host-guards and CAS-deletes; removed `consumeRuntimeMailboxMessage` had no production caller. `takeRuntimeMailboxMessagesForDelivery` claims only; child steering special handling, retained cleanup timer, acceptance/fsync callers, bidirectional expanded CAS/migration/retention-boundary proof remain pending. No SQLite-fixture crash-safety claim.
+
 `repin_control_channel.rs` reproduces and resolves dropped origins/self-filter and initialization retention: imported same-session origins remain pending, origin fields survive TS/Rust projection, cursor decreases do not regress peer state, old relative-age TS-created rows expire on Rust initialization. Retained-connection timer still pending. `repin_control_requests.rs` reproduces cancelled→completed misprojection; resolves cancellation read, sender-fenced pending/claimed cancellation, repeat/wrong-sender rejection and token-fenced late completion. Three targeted tests pass.
 
 
 `repin_control_sessions.rs` proves real TS-created v15 → Rust read/write → same TS read/reopen, and fresh Rust → TS initialization → Rust write → TS read. Removed `all_messages_text` from schema, public metadata and producer snapshots. NULL name/explicit clear survives peer writes. Candidate archive selection does not mutate rows. Descendant/subagent exports match plain/archived parent aliases; combined relocation/archive and relocation/unarchive commit together. Bulk metadata removal matches source.
 
-`repin_control_schema.rs` proves Rust-first default INSERT birth, origin uniqueness and restriction-request uniqueness before TS initialization. Four focused tests pass; no whole-module claim. Retention cleanup/expression index, legacy payload migrations, mailbox/lifecycle/store deltas and failure-injected atomicity proof remain pending. Existing proofs below are historical, not renewed against the frozen pin. Central coverage remains unchanged.
+`repin_control_schema.rs` proves Rust-first default INSERT birth, origin uniqueness and restriction-request uniqueness before TS initialization. Four focused tests pass; no whole-module claim. Retention-boundary proof, legacy payload migration proof, remaining mailbox/lifecycle/store deltas and failure-injected atomicity proof remain pending. Existing proofs below are historical, not renewed against the frozen pin. Central coverage remains unchanged.
 
 
 Source: `packages/coding-agent/src/core/session-control-db.ts` (7047 lines) at the pinned revision.

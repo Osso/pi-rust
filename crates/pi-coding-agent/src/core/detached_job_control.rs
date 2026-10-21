@@ -163,6 +163,7 @@ pub fn enqueue_detached_job_status_request(
     enqueue_stored_runtime_mailbox_message(
         &input.control_db_path,
         &EnqueueStoredRuntimeMailboxMessageInput {
+            recipient_host: None,
             recipient: input.runner_address.clone(),
             sender: input.requester_address.clone(),
             kind: RuntimeMailboxMessageKind::System,
@@ -220,6 +221,7 @@ pub fn enqueue_detached_job_status_response(
     enqueue_stored_runtime_mailbox_message(
         &input.control_db_path,
         &EnqueueStoredRuntimeMailboxMessageInput {
+            recipient_host: None,
             recipient: input.reply_to.clone(),
             sender: input.runner_address.clone(),
             kind: RuntimeMailboxMessageKind::System,

@@ -505,6 +505,7 @@ fn enqueue_runtime_session_message(
         .get_session_id()
         .to_owned();
     let input = EnqueueRuntimeMailboxMessageInput {
+        recipient_host: None,
         kind: mailbox_kind(message.kind),
         recipient: RuntimeMailboxAddress {
             agent_id: recipient_agent_id,
@@ -592,6 +593,7 @@ fn enqueue_lifecycle_runtime_mailbox_message(
     enqueue_runtime_mailbox_message(
         &control_db_path,
         &EnqueueRuntimeMailboxMessageInput {
+            recipient_host: None,
             kind: mailbox_kind(notification.kind),
             recipient,
             sender: RuntimeMailboxAddress {
@@ -651,6 +653,7 @@ fn enqueue_runtime_mailbox_store_message(
         .get_session_id()
         .to_owned();
     let input = EnqueueRuntimeMailboxMessageInput {
+        recipient_host: None,
         kind: mailbox_kind(message.kind),
         recipient,
         sender: RuntimeMailboxAddress {
