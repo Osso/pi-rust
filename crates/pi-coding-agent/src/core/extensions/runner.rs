@@ -44,14 +44,16 @@ const RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS: &[&str] = &[
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BuiltInKeyBinding {
-    keybinding: String,
+    keybinding: JsString,
     restrict_override: bool,
 }
 
 fn build_builtin_keybindings(resolved: &KeybindingsConfig) -> IndexMap<KeyId, BuiltInKeyBinding> {
     let mut builtin = IndexMap::new();
     for (keybinding, keys) in resolved {
-        let restrict_override = RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS.contains(&keybinding.as_str());
+        let restrict_override = RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS
+            .iter()
+            .any(|reserved| keybinding == *reserved);
         for key in keys {
             let normalized = key.to_lowercase();
             if builtin
@@ -570,18 +572,19 @@ impl ExtensionRunner {
         let builtin = build_builtin_keybindings(resolved_keybindings);
         let mut extension_shortcuts: IndexMap<KeyId, ExtensionShortcut> = IndexMap::new();
 
-        let add_diagnostic = |message: String, extension_path: &str| {
+        let add_diagnostic = |message: JsString, extension_path: &str| {
             self.shortcut_diagnostics
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .push(ResourceDiagnostic {
                     diagnostic_type: ResourceDiagnosticType::Warning,
                     message: message.clone(),
-                    path: Some(extension_path.to_owned()),
+                    path: Some(extension_path.into()),
                     collision: None,
                 });
             if !self.has_ui() {
-                eprintln!("{message}");
+                // Node encodes the diagnostic only when writing it to stderr.
+                eprintln!("{}", pi_js_compat::js_json::encode_node_utf8(&message));
             }
         };
 
@@ -591,29 +594,40 @@ impl ExtensionRunner {
                 if let Some(built_in) = builtin.get(&normalized) {
                     if built_in.restrict_override {
                         add_diagnostic(
-                            format!(
-                                "Extension shortcut '{key}' from {} conflicts with built-in shortcut. Skipping.",
-                                shortcut.extension_path
-                            ),
+                            JsString::from("Extension shortcut '")
+                                + key
+                                + "' from "
+                                + &shortcut.extension_path
+                                + " conflicts with built-in shortcut. Skipping.",
                             &shortcut.extension_path,
                         );
                         continue;
                     }
                     add_diagnostic(
-                        format!(
-                            "Extension shortcut conflict: '{key}' is built-in shortcut for {} and {}. Using {}.",
-                            built_in.keybinding, shortcut.extension_path, shortcut.extension_path
-                        ),
+                        JsString::from("Extension shortcut conflict: '")
+                            + key
+                            + "' is built-in shortcut for "
+                            + &built_in.keybinding
+                            + " and "
+                            + &shortcut.extension_path
+                            + ". Using "
+                            + &shortcut.extension_path
+                            + ".",
                         &shortcut.extension_path,
                     );
                 }
 
                 if let Some(existing) = extension_shortcuts.get(&normalized) {
                     add_diagnostic(
-                        format!(
-                            "Extension shortcut conflict: '{key}' registered by both {} and {}. Using {}.",
-                            existing.extension_path, shortcut.extension_path, shortcut.extension_path
-                        ),
+                        JsString::from("Extension shortcut conflict: '")
+                            + key
+                            + "' registered by both "
+                            + &existing.extension_path
+                            + " and "
+                            + &shortcut.extension_path
+                            + ". Using "
+                            + &shortcut.extension_path
+                            + ".",
                         &shortcut.extension_path,
                     );
                 }
