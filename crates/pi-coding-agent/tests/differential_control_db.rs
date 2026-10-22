@@ -11,54 +11,66 @@ use pi_coding_agent::core::session_control_db::*;
 use pi_coding_agent::core::session_health::SessionHealthRecord;
 use pi_coding_agent::core::sqlite::create_sqlite_database;
 use pi_js_compat::js_json;
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 use tempfile::TempDir;
 
 fn temp_db() -> (TempDir, String) {
     let directory = tempfile::tempdir().expect("tempdir");
-    let path = directory.path().join("control.sqlite").display().to_string();
+    let path = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     (directory, path)
 }
 
-fn looks_like_iso(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() >= 20 && bytes[4] == b'-' && bytes[7] == b'-' && bytes[10] == b'T' && value.ends_with('Z')
+fn looks_like_iso(value: &JsString) -> bool {
+    let bytes = value.units();
+    bytes.len() >= 20
+        && bytes[4] == u16::from(b'-')
+        && bytes[7] == u16::from(b'-')
+        && bytes[10] == u16::from(b'T')
+        && value.ends_with("Z")
 }
 
 fn mask_timestamps(value: &mut Value) {
     match value {
-        Value::String(text) if looks_like_iso(text) => *text = "<timestamp>".to_owned(),
+        Value::String(text) if looks_like_iso(text) => *text = "<timestamp>".into(),
         Value::Array(items) => items.iter_mut().for_each(mask_timestamps),
         Value::Object(object) => object.values_mut().for_each(mask_timestamps),
         _ => {}
     }
 }
 
-fn arg(args: &[Value], index: usize) -> Result<&Value, String> {
-    args.get(index).ok_or_else(|| format!("missing argument {index}"))
+fn arg(args: &[Value], index: usize) -> Result<&Value, JsString> {
+    args.get(index)
+        .ok_or_else(|| format!("missing argument {index}").into())
 }
 
-fn arg_str(args: &[Value], index: usize) -> Result<&str, String> {
+fn arg_str(args: &[Value], index: usize) -> Result<&JsString, JsString> {
     arg(args, index)?
-        .as_str()
-        .ok_or_else(|| format!("argument {index} must be a string"))
+        .as_string()
+        .ok_or_else(|| format!("argument {index} must be a string").into())
 }
 
-fn arg_i64(args: &[Value], index: usize) -> Result<i64, String> {
+fn arg_i64(args: &[Value], index: usize) -> Result<i64, JsString> {
     arg(args, index)?
-        .as_i64()
-        .ok_or_else(|| format!("argument {index} must be an integer"))
+        .as_f64()
+        .map(|value| value as i64)
+        .ok_or_else(|| format!("argument {index} must be an integer").into())
 }
 
-fn to_value<T: serde::Serialize>(value: T) -> Result<Value, String> {
-    serde_json::to_value(value).map_err(|error| error.to_string())
+fn to_value<T: serde::Serialize>(value: T) -> Result<Value, JsString> {
+    js_json::to_value(&value).map_err(|error| JsString::from(error.to_string()))
 }
 
-fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
+fn execute_call(function: &str, args: &[Value]) -> Result<Value, JsString> {
     match function {
         "writeSessionMetadata" => {
             let metadata: WritableSessionMetadata =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
             write_session_metadata(arg_str(args, 0)?, &metadata).map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
@@ -75,7 +87,7 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
             to_value(list_archived_session_metadata(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?)
         }
         "writeSessionName" => {
-            write_session_name(arg_str(args, 0)?, arg_str(args, 1)?, arg(args, 2)?.as_str())
+            write_session_name(arg_str(args, 0)?, arg_str(args, 1)?, arg(args, 2)?.as_string())
                 .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
@@ -83,24 +95,28 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
             read_session_name_state(arg_str(args, 0)?, arg_str(args, 1)?)
                 .map_err(|error| error.message().to_owned())?,
         ),
-        "normalizeSessionName" => to_value(normalize_session_name(arg(args, 0)?.as_str())),
+        "normalizeSessionName" => to_value(normalize_session_name(arg(args, 0)?.as_string())),
         "writeSessionModel" => {
             write_session_model(
                 arg_str(args, 0)?,
                 arg_str(args, 1)?,
-                arg_str(args, 2)?,
-                arg_str(args, 3)?,
+                &arg_str(args, 2)?.to_utf8().expect("scalar fixture provider"),
+                &arg_str(args, 3)?.to_utf8().expect("scalar fixture model ID"),
             )
             .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
         "writeSessionThinkingLevel" => {
-            write_session_thinking_level(arg_str(args, 0)?, arg_str(args, 1)?, arg_str(args, 2)?)
-                .map_err(|error| error.message().to_owned())?;
+            write_session_thinking_level(
+                arg_str(args, 0)?,
+                arg_str(args, 1)?,
+                &arg_str(args, 2)?.to_utf8().expect("ASCII fixture thinking level"),
+            )
+            .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
         "writeSessionGoal" => {
-            write_session_goal(arg_str(args, 0)?, arg_str(args, 1)?, arg(args, 2)?.as_str())
+            write_session_goal(arg_str(args, 0)?, arg_str(args, 1)?, arg(args, 2)?.as_string())
                 .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
@@ -116,8 +132,8 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
             read_prompt_history(arg_str(args, 0)?, arg_i64(args, 1)?).map_err(|error| error.message().to_owned())?,
         ),
         "readOrMigratePromptHistory" => {
-            let entries: Vec<String> =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
+            let entries: Vec<JsString> =
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
             to_value(
                 read_or_migrate_prompt_history(arg_str(args, 0)?, &entries, arg_i64(args, 2)?)
                     .map_err(|error| error.message().to_owned())?,
@@ -127,22 +143,30 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
             let message = arg(args, 1)?;
             let role = message
                 .get("role")
-                .and_then(Value::as_str)
+                .and_then(Value::as_string)
                 .ok_or_else(|| "writeLastMessage requires role".to_owned())?;
             let content = message
                 .get("content")
-                .and_then(Value::as_str)
+                .and_then(Value::as_string)
                 .ok_or_else(|| "writeLastMessage requires content".to_owned())?;
-            write_last_message(arg_str(args, 0)?, role, content).map_err(|error| error.message().to_owned())?;
+            write_last_message(
+                arg_str(args, 0)?,
+                &role.to_utf8().expect("ASCII fixture message role"),
+                content,
+            )
+            .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
         "readLastMessage" => {
             to_value(read_last_message(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?)
         }
-        "enqueueIncomingMessage" => Ok(Value::from(
-            enqueue_incoming_message(arg_str(args, 0)?, arg_str(args, 1)?)
-                .map_err(|error| error.message().to_owned())?,
-        )),
+        "enqueueIncomingMessage" => to_value(
+            enqueue_incoming_message(
+                arg_str(args, 0)?,
+                &arg_str(args, 1)?.to_utf8().expect("ASCII fixture incoming message"),
+            )
+            .map_err(|error| error.message().to_owned())?,
+        ),
         "claimLatestIncomingMessage" => {
             to_value(claim_latest_incoming_message(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?)
         }
@@ -162,41 +186,44 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
         }
         "postSharedChannelMessage" => {
             let input: PostSharedChannelMessageInput =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
-            Ok(Value::from(
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
+            to_value(
                 post_shared_channel_message(arg_str(args, 0)?, &input).map_err(|error| error.message().to_owned())?,
-            ))
+            )
         }
         "listSharedChannelMessagesAfter" => to_value(
             list_shared_channel_messages_after(
                 arg_str(args, 0)?,
                 arg_i64(args, 1)?,
                 arg_i64(args, 2)?,
-                args.get(3).and_then(Value::as_i64).unwrap_or(i64::MAX),
+                args.get(3)
+                    .and_then(Value::as_f64)
+                    .map(|value| value as i64)
+                    .unwrap_or(i64::MAX),
             )
             .map_err(|error| error.message().to_owned())?,
         ),
-        "readSharedChannelTail" => Ok(Value::from(
-            read_shared_channel_tail(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?,
-        )),
+        "readSharedChannelTail" => {
+            to_value(read_shared_channel_tail(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?)
+        }
         "initializeSharedChannelCursorAtTail" => {
             let recipient: RuntimeMailboxAddress =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
-            Ok(Value::from(
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
+            to_value(
                 initialize_shared_channel_cursor_at_tail(arg_str(args, 0)?, &recipient)
                     .map_err(|error| error.message().to_owned())?,
-            ))
+            )
         }
         "advanceSharedChannelCursor" => {
             let recipient: RuntimeMailboxAddress =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
             advance_shared_channel_cursor(arg_str(args, 0)?, &recipient, arg_i64(args, 2)?)
                 .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
         "readSharedChannelCursor" => {
             let recipient: RuntimeMailboxAddress =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
             to_value(
                 read_shared_channel_cursor(arg_str(args, 0)?, &recipient)
                     .map_err(|error| error.message().to_owned())?,
@@ -204,10 +231,8 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
         }
         "postArchitectRequest" => {
             let input: PostArchitectRequestInput =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
-            Ok(Value::from(
-                post_architect_request(arg_str(args, 0)?, &input).map_err(|error| error.message().to_owned())?,
-            ))
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
+            to_value(post_architect_request(arg_str(args, 0)?, &input).map_err(|error| error.message().to_owned())?)
         }
         "listPendingArchitectRequests" => to_value(
             list_pending_architect_requests(arg_str(args, 0)?, arg_i64(args, 1)?)
@@ -218,7 +243,8 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
                 .map_err(|error| error.message().to_owned())?,
         ),
         "renewArchitectRequestClaims" => {
-            let ids: Vec<i64> = serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
+            let ids: Vec<i64> =
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
             renew_architect_request_claims(arg_str(args, 0)?, &ids, arg_str(args, 2)?)
                 .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
@@ -228,17 +254,15 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
                 arg_str(args, 0)?,
                 arg_i64(args, 1)?,
                 arg_str(args, 2)?,
-                args.get(3).and_then(Value::as_str),
+                args.get(3).and_then(Value::as_string),
             )
             .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
         "postSupervisorRequest" => {
             let input: PostSupervisorRequestInput =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
-            Ok(Value::from(
-                post_supervisor_request(arg_str(args, 0)?, &input).map_err(|error| error.message().to_owned())?,
-            ))
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
+            to_value(post_supervisor_request(arg_str(args, 0)?, &input).map_err(|error| error.message().to_owned())?)
         }
         "readSupervisorRequest" => to_value(
             read_supervisor_request(arg_str(args, 0)?, arg_i64(args, 1)?)
@@ -250,39 +274,43 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
         ),
         "completeSupervisorRequest" => {
             let response: SupervisorResponse =
-                serde_json::from_value(arg(args, 3)?.clone()).map_err(|error| error.to_string())?;
+                js_json::from_value(&arg(args, 3)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
             complete_supervisor_request(arg_str(args, 0)?, arg_i64(args, 1)?, arg_str(args, 2)?, &response)
                 .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
-        "hasPendingSupervisorApprovalRequest" => Ok(Value::from(
+        "hasPendingSupervisorApprovalRequest" => to_value(
             has_pending_supervisor_approval_request(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?,
-        )),
+        ),
         "recoverSupervisorRequests" => {
             recover_supervisor_requests(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
         "allocateMultiAgentCounter" => {
-            let name = match arg_str(args, 2)? {
+            let name = match arg_str(args, 2)?
+                .to_utf8()
+                .expect("ASCII fixture counter name")
+                .as_str()
+            {
                 "agent" => MultiAgentCounterName::Agent,
                 "message" => MultiAgentCounterName::Message,
-                other => return Err(format!("unknown counter {other}")),
+                other => return Err(pi_js_compat::js_format!("unknown counter {}", other)),
             };
-            Ok(Value::from(
+            to_value(
                 allocate_multi_agent_counter(arg_str(args, 0)?, arg_str(args, 1)?, name)
                     .map_err(|error| error.message().to_owned())?,
-            ))
+            )
         }
         "writeMultiAgentCounters" => {
             let counters: MultiAgentCounters =
-                serde_json::from_value(arg(args, 2)?.clone()).map_err(|error| error.to_string())?;
+                js_json::from_value(&arg(args, 2)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
             write_multi_agent_counters(arg_str(args, 0)?, arg_str(args, 1)?, &counters)
                 .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
         "writeSessionHealth" => {
             let health: SessionHealthRecord =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
             write_session_health(arg_str(args, 0)?, &health).map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
@@ -294,15 +322,15 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
         }
         "registerRuntimeMailboxListener" => {
             let recipient: RuntimeMailboxAddress =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
-            let pid = u32::try_from(arg_i64(args, 2)?).map_err(|error| error.to_string())?;
-            let session_path = arg(args, 3)?.as_str();
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
+            let pid = u32::try_from(arg_i64(args, 2)?).map_err(|error| JsString::from(error.to_string()))?;
+            let session_path = arg(args, 3)?.as_string();
             let options = arg(args, 4)?;
             let options = RuntimeMailboxRegistrationOptions {
                 runtime_instance_id: options
                     .get("runtimeInstanceId")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
+                    .and_then(Value::as_string)
+                    .map(|value| value.to_utf8().expect("ASCII fixture runtime identity")),
                 ..Default::default()
             };
             register_runtime_mailbox_listener(arg_str(args, 0)?, &recipient, pid, session_path, options)
@@ -311,7 +339,7 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
         }
         "readRuntimeMailboxListener" => {
             let recipient: RuntimeMailboxAddress =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
             to_value(
                 read_runtime_mailbox_listener(arg_str(args, 0)?, &recipient)
                     .map_err(|error| error.message().to_owned())?,
@@ -322,15 +350,15 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
         }
         "retireRuntimeMailboxListener" => {
             let recipient: RuntimeMailboxAddress =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
-            Ok(Value::from(
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
+            to_value(
                 retire_runtime_mailbox_listener(
                     arg_str(args, 0)?,
                     &recipient,
-                    u32::try_from(arg_i64(args, 2)?).map_err(|error| error.to_string())?,
+                    u32::try_from(arg_i64(args, 2)?).map_err(|error| JsString::from(error.to_string()))?,
                 )
                 .map_err(|error| error.message().to_owned())?,
-            ))
+            )
         }
         "upsertMultiAgentMailboxMessage" => {
             upsert_multi_agent_mailbox_message(arg_str(args, 0)?, arg_str(args, 1)?, arg_str(args, 2)?, arg(args, 3)?)
@@ -341,11 +369,11 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
             get_multi_agent_mailbox_message_status(arg_str(args, 0)?, arg_str(args, 1)?, arg_str(args, 2)?)
                 .map_err(|error| error.message().to_owned())?,
         ),
-        "markMultiAgentMailboxMessageDelivered" => Ok(Value::from(
+        "markMultiAgentMailboxMessageDelivered" => to_value(
             mark_multi_agent_mailbox_message_delivered(arg_str(args, 0)?, arg_str(args, 1)?, arg_str(args, 2)?)
                 .map_err(|error| error.message().to_owned())?,
-        )),
-        "markMultiAgentMailboxMessageFailed" => Ok(Value::from(
+        ),
+        "markMultiAgentMailboxMessageFailed" => to_value(
             mark_multi_agent_mailbox_message_failed(
                 arg_str(args, 0)?,
                 arg_str(args, 1)?,
@@ -353,14 +381,14 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
                 arg_str(args, 3)?,
             )
             .map_err(|error| error.message().to_owned())?,
-        )),
+        ),
         "enqueueStoredRuntimeMailboxMessage" => {
             let input: EnqueueStoredRuntimeMailboxMessageInput =
-                serde_json::from_value(arg(args, 1)?.clone()).map_err(|error| error.to_string())?;
-            Ok(Value::from(
+                js_json::from_value(&arg(args, 1)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
+            to_value(
                 enqueue_stored_runtime_mailbox_message(arg_str(args, 0)?, &input)
                     .map_err(|error| error.message().to_owned())?,
-            ))
+            )
         }
         "listRuntimeMailboxMessages" => {
             to_value(list_runtime_mailbox_messages(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?)
@@ -379,7 +407,8 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
                 .map_err(|error| error.message().to_owned())?,
         ),
         "readMultiAgentAgents" => {
-            let ids: Vec<String> = serde_json::from_value(arg(args, 2)?.clone()).map_err(|error| error.to_string())?;
+            let ids: Vec<JsString> =
+                js_json::from_value(&arg(args, 2)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
             to_value(
                 read_multi_agent_agents(arg_str(args, 0)?, arg_str(args, 1)?, &ids)
                     .map_err(|error| error.message().to_owned())?,
@@ -389,8 +418,11 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
             read_multi_agent_state(arg_str(args, 0)?, arg_str(args, 1)?).map_err(|error| error.message().to_owned())?,
         ),
         "listDetachedArtifactAgentsUpdatedAtOrBefore" => to_value(
-            list_detached_artifact_agents_updated_at_or_before(arg_str(args, 0)?, arg_str(args, 1)?)
-                .map_err(|error| error.message().to_owned())?,
+            list_detached_artifact_agents_updated_at_or_before(
+                arg_str(args, 0)?,
+                &arg_str(args, 1)?.to_utf8().expect("ASCII fixture timestamp cutoff"),
+            )
+            .map_err(|error| error.message().to_owned())?,
         ),
         "archiveSession" => {
             archive_session(arg_str(args, 0)?, arg_str(args, 1)?).map_err(|error| error.message().to_owned())?;
@@ -405,13 +437,13 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
                 .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
-        other => Err(format!("unsupported function {other}")),
+        other => Err(format!("unsupported function {other}").into()),
     }
 }
 
-fn execute_step(step: &Value) -> Result<Value, String> {
-    if step.get("op").and_then(Value::as_str) != Some("call") {
-        return Err("only call steps are supported".to_owned());
+fn execute_step(step: &Value) -> Result<Value, JsString> {
+    if step.get("op").and_then(Value::as_string) != Some(&JsString::from("call")) {
+        return Err("only call steps are supported".into());
     }
     let args = step
         .get("args")
@@ -419,13 +451,13 @@ fn execute_step(step: &Value) -> Result<Value, String> {
         .ok_or_else(|| "call args must be an array".to_owned())?;
     let function = args
         .first()
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .ok_or_else(|| "call function name missing".to_owned())?;
     let call_args = args
         .get(1)
         .and_then(Value::as_array)
         .ok_or_else(|| "call arguments missing".to_owned())?;
-    execute_call(function, call_args)
+    execute_call(&function.to_utf8().expect("ASCII fixture function name"), call_args)
 }
 
 fn metadata(session_path: &str, id: &str) -> Value {
@@ -575,7 +607,7 @@ fn operation_scripts_match_the_pinned_typescript_module() {
         "steps": script(&oracle_db),
     });
     let response = oracle.request(&request);
-    assert_eq!(response["ok"], Value::Bool(true), "oracle failed: {response}");
+    assert_eq!(response["ok"], Value::Bool(true), "oracle failed: {response:?}");
     let oracle_outputs = response["output"].as_array().expect("oracle output").clone();
     let rust_steps = script(&rust_db);
     assert_eq!(oracle_outputs.len(), rust_steps.len());
@@ -590,16 +622,16 @@ fn operation_scripts_match_the_pinned_typescript_module() {
                 mask_timestamps(&mut expected_value);
                 mask_timestamps(&mut actual_value);
                 assert_eq!(
-                    js_json::stringify(&expected_value),
-                    js_json::stringify(&actual_value),
-                    "step {index} {} mismatch",
+                    js_json::stringify_lossless(&expected_value),
+                    js_json::stringify_lossless(&actual_value),
+                    "step {index} {:?} mismatch",
                     step
                 );
             }
             (Some(Value::Bool(false)), Err(error)) => {
                 assert_eq!(
-                    expected["error"]["message"].as_str(),
-                    Some(error.as_str()),
+                    expected["error"]["message"].as_string(),
+                    Some(&error),
                     "step {index} error mismatch"
                 );
             }
@@ -621,9 +653,12 @@ fn unsupported_future_schema_errors_match() {
         "id": 9002,
         "steps": [{"op":"call","args":["readSessionHealth",[db.clone(), "missing"]]}],
     }));
-    let oracle_message = response["output"][0]["error"]["message"].as_str().unwrap().to_owned();
-    let error = read_session_health(&db, "missing").expect_err("future schema");
-    assert_eq!(error.message(), oracle_message);
+    let oracle_message = response["output"][0]["error"]["message"]
+        .as_string()
+        .unwrap()
+        .to_owned();
+    let error = read_session_health(&db, &JsString::from("missing")).expect_err("future schema");
+    assert_eq!(*error.message(), oracle_message);
 }
 
 #[test]
@@ -634,17 +669,20 @@ fn empty_channel_body_error_matches() {
         "id": 9003,
         "steps": [{"op":"call","args":["postSharedChannelMessage",[db.clone(), {"sender": {"sessionId":"x","agentId":null}, "body":"   "}]]}],
     }));
-    let oracle_message = response["output"][0]["error"]["message"].as_str().unwrap().to_owned();
+    let oracle_message = response["output"][0]["error"]["message"]
+        .as_string()
+        .unwrap()
+        .to_owned();
     let error = post_shared_channel_message(
         &db,
         &PostSharedChannelMessageInput {
             sender: RuntimeMailboxAddress {
-                session_id: "x".to_owned(),
+                session_id: "x".into(),
                 agent_id: None,
             },
-            body: "   ".to_owned(),
+            body: "   ".into(),
         },
     )
     .expect_err("empty");
-    assert_eq!(error.message(), oracle_message);
+    assert_eq!(*error.message(), oracle_message);
 }
