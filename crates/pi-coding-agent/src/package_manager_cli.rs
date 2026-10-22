@@ -1449,7 +1449,7 @@ async fn run_self_update_target(
             return Ok(());
         }
     };
-    let (plan, up_to_date_line) = self_update_plan(force, &release, &current_version.into());
+    let (plan, up_to_date_line) = self_update_plan(force, &release, &JsString::from(&current_version));
     if let Some(line) = up_to_date_line {
         outcome.stdout.push(line);
         return Ok(());
