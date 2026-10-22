@@ -35,7 +35,6 @@ use pi_js_compat::number::js_number_value;
 
 const DEFAULT_AZURE_API_VERSION: &str = "v1";
 const AZURE_TOOL_CALL_PROVIDERS: [&str; 4] = ["openai", "openai-codex", "opencode", "azure-openai-responses"];
-const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS: f64 = 16.0;
 
 /// `AzureOpenAIResponsesOptions`.
 #[derive(Debug, Clone, Default)]
@@ -231,12 +230,9 @@ pub fn build_params(
 
     if let Some(max_tokens) = stream_options
         .max_tokens
-        .filter(|max_tokens| *max_tokens != 0.0 && max_tokens.is_finite())
+        .filter(|max_tokens| *max_tokens != 0.0 && !max_tokens.is_nan())
     {
-        params.insert(
-            "max_output_tokens".into(),
-            js_number_value(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)).into(),
-        );
+        params.insert("max_output_tokens".into(), js_number_value(max_tokens).into());
     }
     if let Some(temperature) = stream_options.temperature {
         params.insert("temperature".into(), js_number_value(temperature).into());
