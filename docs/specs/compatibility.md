@@ -204,3 +204,7 @@ Keep `serde_yaml_ng`. YAML frontmatter with literal or escaped unpaired UTF-16
 units must fail explicitly in `parse_yaml_frontmatter`; no partial parse, lossy
 replacement, or silent drop. User approved recording this parity gap. Body text
 outside frontmatter remains native.
+
+## Native usage bridge requests (approved 2026-10-22)
+
+Frozen codex-usage mutates request promise fields on `claude-bridge:usage-all-request` and `claude-bridge:usage-request`. Rust exposes a synchronous claim slot through the native event bus instead: `JsValue` data, optional type-erased native context, and an optional future yielding `Result<JsValue, JsString>`. All listeners run in registration order; the last synchronous assignment wins; handler errors remain isolated and reported. Unclaimed requests retain frozen `bridge not loaded` / `Claude bridge usage handler unavailable.` behavior. See [event bus](../porting/traceability/event-bus.md) and [codex-usage](../porting/traceability/codex-usage.md).
