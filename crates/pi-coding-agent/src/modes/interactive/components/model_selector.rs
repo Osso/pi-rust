@@ -7,7 +7,7 @@ use std::time::Duration;
 use pi_ai::models::models_are_equal;
 use pi_ai::models::{ModelsRefreshOptions, ModelsRefreshResult};
 use pi_ai::types::Model;
-use pi_js_compat::locale_compare;
+use pi_js_compat::{js_format, js_json::JsString, locale_compare};
 use pi_tui::components::input::InputOptions;
 use pi_tui::tui::component;
 use pi_tui::{Component, Container, DynamicBorder, Focusable, Input, Spacer, Text, fuzzy_filter};
@@ -55,8 +55,8 @@ pub struct ModelSelectorComponent {
     model_runtime: ModelRuntime,
     on_select: Rc<dyn Fn(&Model)>,
     on_cancel: Rc<dyn Fn()>,
-    error_message: Option<String>,
-    refresh_status_message: String,
+    error_message: Option<JsString>,
+    refresh_status_message: JsString,
     refresh_status_success: bool,
     ui: Rc<dyn ModelSelectorUi>,
     scoped_models: Vec<ScopedModel>,
@@ -82,7 +82,7 @@ impl ModelSelectorComponent {
         scoped_models: Vec<ScopedModel>,
         on_select: Rc<dyn Fn(&Model)>,
         on_cancel: Rc<dyn Fn()>,
-        initial_search_input: Option<&str>,
+        initial_search_input: Option<&JsString>,
         theme: Arc<Theme>,
     ) -> Self {
         let scope = if scoped_models.is_empty() {
@@ -108,7 +108,7 @@ impl ModelSelectorComponent {
             on_select,
             on_cancel,
             error_message: None,
-            refresh_status_message: "Refreshing model catalogs…".to_string(),
+            refresh_status_message: "Refreshing model catalogs…".into(),
             refresh_status_success: false,
             ui,
             scoped_models,
@@ -216,17 +216,17 @@ impl ModelSelectorComponent {
         if self.closed {
             return;
         }
-        self.refresh_status_message.clear();
+        self.refresh_status_message = JsString::default();
         match result {
             Ok(result) => {
                 if result.aborted && timed_out {
-                    self.error_message = Some("Model refresh timed out; showing cached models.".to_string());
+                    self.error_message = Some("Model refresh timed out; showing cached models.".into());
                 } else if result.errors.len() == 1 {
                     let provider = result.errors.keys().next().cloned().unwrap_or_default();
-                    self.error_message = Some(format!("Could not refresh {provider}; showing cached models."));
+                    self.error_message = Some(js_format!("Could not refresh {}; showing cached models.", provider));
                 } else if result.errors.len() > 1 {
                     let providers: Vec<&str> = result.errors.keys().map(String::as_str).collect();
-                    self.error_message = Some(format!(
+                    self.error_message = Some(js_format!(
                         "Could not refresh {} model catalogs ({}); showing cached models.",
                         result.errors.len(),
                         providers.join(", ")
@@ -234,21 +234,21 @@ impl ModelSelectorComponent {
                 } else {
                     self.error_message = self.model_runtime.get_error();
                     if self.error_message.is_none() {
-                        self.refresh_status_message = "Model catalogs refreshed.".to_string();
+                        self.refresh_status_message = "Model catalogs refreshed.".into();
                         self.refresh_status_success = true;
                     }
                 }
                 self.load_models_from_snapshot();
-                let query = self.search_input.get_value().to_string();
+                let query = self.search_input.get_value().clone();
                 self.filter_models(&query);
                 self.ui.request_render();
             }
             Err(error) => {
-                self.refresh_status_message.clear();
+                self.refresh_status_message = JsString::default();
                 self.error_message = Some(if timed_out {
-                    "Model refresh timed out; showing cached models.".to_string()
+                    "Model refresh timed out; showing cached models.".into()
                 } else {
-                    format!("Could not refresh model catalogs: {error}")
+                    js_format!("Could not refresh model catalogs: {}", error.message())
                 });
                 self.update_list();
                 self.ui.request_render();
@@ -280,7 +280,7 @@ impl ModelSelectorComponent {
         sorted
     }
 
-    fn get_scope_text(&self) -> String {
+    fn get_scope_text(&self) -> JsString {
         let all_text = if self.scope == ModelScope::All {
             self.theme.fg(ThemeColor::Accent, "all")
         } else {
@@ -291,14 +291,16 @@ impl ModelSelectorComponent {
         } else {
             self.theme.fg(ThemeColor::Muted, "scoped")
         };
-        format!(
-            "{}{all_text}{}{scoped_text}",
+        js_format!(
+            "{}{}{}{}",
             self.theme.fg(ThemeColor::Muted, "Scope: "),
-            self.theme.fg(ThemeColor::Muted, " | ")
+            all_text,
+            self.theme.fg(ThemeColor::Muted, " | "),
+            scoped_text
         )
     }
 
-    fn get_scope_hint_text(&self) -> String {
+    fn get_scope_hint_text(&self) -> JsString {
         key_hint("tui.input.tab", "scope") + &self.theme.fg(ThemeColor::Muted, " (all/scoped)")
     }
 
@@ -317,7 +319,7 @@ impl ModelSelectorComponent {
             .iter()
             .position(|item| models_are_equal(self.current_model.as_ref(), Some(&item.model)));
         self.selected_index = current_index.unwrap_or(0);
-        let query = self.search_input.get_value().to_string();
+        let query = self.search_input.get_value().clone();
         self.filter_models(&query);
         let scope_text_value = self.get_scope_text();
         if let Some(scope_text) = &mut self.scope_text {
@@ -325,7 +327,7 @@ impl ModelSelectorComponent {
         }
     }
 
-    fn filter_models(&mut self, query: &str) {
+    fn filter_models(&mut self, query: &JsString) {
         self.filtered_models = if query.is_empty() {
             self.active_models.clone()
         } else {
@@ -335,6 +337,9 @@ impl ModelSelectorComponent {
                     provider: item.provider.clone(),
                     name: Some(item.model.name.clone()),
                 })
+                .into_iter()
+                .map(JsString::from)
+                .collect()
             })
         };
         self.selected_index = if query.is_empty() {
@@ -361,25 +366,27 @@ impl ModelSelectorComponent {
             let line = if is_selected {
                 let prefix = self.theme.fg(ThemeColor::Accent, "→ ");
                 let model_text = item.id.clone();
-                let provider_badge = self.theme.fg(ThemeColor::Muted, &format!("[{}]", item.provider));
+                let provider_badge = self.theme.fg(ThemeColor::Muted, &js_format!("[{}]", item.provider));
                 let checkmark = if is_current {
                     self.theme.fg(ThemeColor::Success, " ✓")
                 } else {
-                    String::new()
+                    JsString::default()
                 };
-                format!(
-                    "{} {provider_badge}{checkmark}",
-                    prefix + &self.theme.fg(ThemeColor::Accent, &model_text)
+                js_format!(
+                    "{} {}{}",
+                    prefix + &self.theme.fg(ThemeColor::Accent, &model_text),
+                    provider_badge,
+                    checkmark
                 )
             } else {
-                let model_text = format!("  {}", item.id);
-                let provider_badge = self.theme.fg(ThemeColor::Muted, &format!("[{}]", item.provider));
+                let model_text = js_format!("  {}", item.id);
+                let provider_badge = self.theme.fg(ThemeColor::Muted, &js_format!("[{}]", item.provider));
                 let checkmark = if is_current {
                     self.theme.fg(ThemeColor::Success, " ✓")
                 } else {
-                    String::new()
+                    JsString::default()
                 };
-                format!("{model_text} {provider_badge}{checkmark}")
+                js_format!("{} {}{}", model_text, provider_badge, checkmark)
             };
             self.list_container.add_child(component(Text::new(line, 0, 0)));
         }
@@ -387,7 +394,7 @@ impl ModelSelectorComponent {
         if start_index > 0 || end_index < self.filtered_models.len() {
             let scroll_info = self.theme.fg(
                 ThemeColor::Muted,
-                &format!("  ({}/{})", self.selected_index + 1, self.filtered_models.len()),
+                &js_format!("  ({}/{})", self.selected_index + 1, self.filtered_models.len()),
             );
             self.list_container.add_child(component(Text::new(scroll_info, 0, 0)));
         }
@@ -408,7 +415,7 @@ impl ModelSelectorComponent {
             self.list_container.add_child(component(Spacer::new(1)));
             self.list_container.add_child(component(Text::new(
                 self.theme
-                    .fg(ThemeColor::Muted, &format!("  Model Name: {}", selected.model.name)),
+                    .fg(ThemeColor::Muted, &js_format!("  Model Name: {}", selected.model.name)),
                 0,
                 0,
             )));
@@ -421,7 +428,7 @@ impl ModelSelectorComponent {
                 ThemeColor::Muted
             };
             self.list_container.add_child(component(Text::new(
-                self.theme.fg(color, &format!("  {}", self.refresh_status_message)),
+                self.theme.fg(color, &js_format!("  {}", self.refresh_status_message)),
                 0,
                 0,
             )));
@@ -466,7 +473,7 @@ impl Focusable for ModelSelectorComponent {
 }
 
 impl Component for ModelSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = self.top_border.render(width);
         lines.extend(Spacer::new(1).render(width));
         if let Some(hint_text) = &mut self.hint_text {
@@ -487,7 +494,7 @@ impl Component for ModelSelectorComponent {
         lines
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         let keybindings = pi_tui::get_keybindings();
         if keybindings.matches(data, "tui.input.tab") {
             if !self.scoped_model_items.is_empty() {
@@ -534,7 +541,7 @@ impl Component for ModelSelectorComponent {
             (self.on_cancel)();
         } else {
             self.search_input.handle_input(data);
-            let query = self.search_input.get_value().to_string();
+            let query = self.search_input.get_value().clone();
             self.filter_models(&query);
         }
     }

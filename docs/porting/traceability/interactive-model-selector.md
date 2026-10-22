@@ -29,3 +29,7 @@ Adaptations: `TUI` becomes `ModelSelectorUi::request_render`; the constructor's 
 Discrepancy: `ModelsRefreshResult.errors` is a `BTreeMap`, so the "Could not refresh N model catalogs (...)" provider list is sorted, while the TypeScript `Map` preserves insertion order. The TS refresh test (openai, anthropic order) therefore has no Rust port; the refresh path needs a mockable runtime to test.
 
 Gap: the TS refresh error-list test depends on `vi.spyOn(modelRuntime, "refresh")`; the Rust component takes the concrete `ModelRuntime`, so that test has no equivalent.
+
+## Q18 native UTF-16
+
+Search input/query, refresh/error text and render output retain `JsString`. Runtime errors use their raw `message()` authority, not Display. Native query filtering against approved scalar model metadata. `model_selector::native_search_retains_unmatched_units_without_selecting_a_model` written **unexecuted**, library blocked.

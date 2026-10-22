@@ -251,3 +251,21 @@ async fn up_and_down_wrap_around_the_filtered_list() {
     component.handle_input("\u{1b}[B");
     assert_eq!(component.selected_index(), 0);
 }
+
+#[tokio::test]
+async fn native_search_retains_unmatched_units_without_selecting_a_model() {
+    use pi_js_compat::js_json::JsString;
+    let (mut component, _, _) = selector(
+        runtime().await,
+        None,
+        vec![],
+        Rc::new(|_| panic!("unmatched query must not select")),
+        Rc::new(|| {}),
+    );
+    let raw = JsString::from_utf16(vec![0xd800]);
+    component.handle_input(&raw);
+    assert_eq!(component.get_search_input().get_value(), raw);
+    assert!(JsString::join(component.render(120), "\n").contains("No matching models"));
+    component.handle_input(&"\r".into());
+    component.dispose();
+}
