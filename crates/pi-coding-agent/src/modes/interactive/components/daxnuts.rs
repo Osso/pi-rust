@@ -3,6 +3,7 @@
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use pi_js_compat::{js_format, js_json::JsString};
 use pi_tui::tui::Component;
 use pi_tui::utils::strip_terminal_sequences;
 
@@ -33,21 +34,21 @@ fn parse_image() -> Vec<Vec<[u8; 3]>> {
     pixels
 }
 
-fn rgb(r: u8, g: u8, b: u8, background: bool) -> String {
-    format!("\u{1b}[{};2;{r};{g};{b}m", if background { 48 } else { 38 })
+fn rgb(r: u8, g: u8, b: u8, background: bool) -> JsString {
+    js_format!("\u{1b}[{};2;{};{};{}m", if background { 48 } else { 38 }, r, g, b)
 }
 
-fn build_image() -> Vec<String> {
+fn build_image() -> Vec<JsString> {
     let pixels = parse_image();
     let mut lines = Vec::with_capacity(HEIGHT / 2);
     for row in (0..HEIGHT).step_by(2) {
-        let mut line = String::new();
+        let mut line = JsString::default();
         for x in 0..WIDTH {
             let top = pixels[row][x];
             let bottom = pixels.get(row + 1).map_or(top, |next| next[x]);
             line.push_str(&rgb(bottom[0], bottom[1], bottom[2], false));
             line.push_str(&rgb(top[0], top[1], top[2], true));
-            line.push('\u{2584}');
+            line.push_str("\u{2584}");
         }
         line.push_str("\u{1b}[0m");
         lines.push(line);
@@ -58,9 +59,9 @@ fn build_image() -> Vec<String> {
 /// "POWERED BY DAXNUTS" scanline reveal easter egg.
 pub struct DaxnutsComponent {
     request_render: Rc<dyn Fn()>,
-    image: Vec<String>,
+    image: Vec<JsString>,
     tick: usize,
-    cached_lines: Vec<String>,
+    cached_lines: Vec<JsString>,
     cached_width: Option<usize>,
     cached_tick: Option<usize>,
     next_tick: Option<Instant>,
@@ -121,13 +122,14 @@ impl DaxnutsComponent {
         self.stop_animation();
     }
 
-    fn center(text: &str, width: usize) -> String {
-        let visible = strip_terminal_sequences(text).chars().count();
+    fn center(text: impl Into<JsString>, width: usize) -> JsString {
+        let text = text.into();
+        let visible = strip_terminal_sequences(&text).len();
         let left = width.saturating_sub(visible) / 2;
-        format!("{}{text}", " ".repeat(left))
+        js_format!("{}{}", " ".repeat(left), text)
     }
 
-    fn cached(&self, width: usize) -> Option<Vec<String>> {
+    fn cached(&self, width: usize) -> Option<Vec<JsString>> {
         if self.cached_width == Some(width) && self.cached_tick == Some(self.tick) {
             Some(self.cached_lines.clone())
         } else {
@@ -137,12 +139,12 @@ impl DaxnutsComponent {
 }
 
 impl Component for DaxnutsComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         if let Some(lines) = self.cached(width) {
             return lines;
         }
 
-        let mut lines = vec![String::new()];
+        let mut lines = vec![JsString::default()];
         let revealed_rows = (self.tick as f64 / MAX_TICKS as f64 * (self.image.len() + 3) as f64).floor() as usize;
         let revealed_rows = revealed_rows.min(self.image.len());
 
@@ -152,7 +154,7 @@ impl Component for DaxnutsComponent {
             } else if index == revealed_rows {
                 let scanline = "\u{2593}".repeat(WIDTH);
                 lines.push(Self::center(
-                    &format!("{}{scanline}\u{1b}[0m", rgb(100, 200, 255, false)),
+                    &js_format!("{}{}\u{1b}[0m", rgb(100, 200, 255, false), scanline),
                     width,
                 ));
             } else {
@@ -160,7 +162,7 @@ impl Component for DaxnutsComponent {
             }
         }
 
-        lines.push(String::new());
+        lines.push(JsString::default());
         let text_phase = (self.tick as f64 - MAX_TICKS as f64 * 0.6).max(0.0);
         if text_phase > 0.0 || self.tick >= MAX_TICKS {
             lines.push(Self::center(
@@ -176,12 +178,12 @@ impl Component for DaxnutsComponent {
                 width,
             ));
         } else {
-            lines.push(String::new());
-            lines.push(String::new());
-            lines.push(String::new());
+            lines.push(JsString::default());
+            lines.push(JsString::default());
+            lines.push(JsString::default());
         }
 
-        lines.push(String::new());
+        lines.push(JsString::default());
         if text_phase > 2.0 || self.tick >= MAX_TICKS {
             lines.push(Self::center(
                 &with_theme(|theme| theme.fg(ThemeColor::Dim, "Try OpenCode")),
@@ -192,10 +194,10 @@ impl Component for DaxnutsComponent {
                 width,
             ));
         } else {
-            lines.push(String::new());
-            lines.push(String::new());
+            lines.push(JsString::default());
+            lines.push(JsString::default());
         }
-        lines.push(String::new());
+        lines.push(JsString::default());
 
         self.cached_lines = lines.clone();
         self.cached_width = Some(width);

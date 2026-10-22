@@ -144,3 +144,89 @@ fn permission_selectors_ignore_raw_input_and_keep_scope_selection() {
     );
     assert!(JsString::join(sandbox.render(80), "\n").contains("Inherit global/project"));
 }
+
+#[test]
+fn compaction_expanded_summary_keeps_raw_units() {
+    use pi_coding_agent::{
+        core::messages::{CompactionSummaryMessage, CompactionSummaryRole},
+        modes::interactive::components::compaction_summary_message::CompactionSummaryMessageComponent,
+    };
+    init_theme();
+    let raw = JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]);
+    let mut message = CompactionSummaryMessageComponent::new(
+        CompactionSummaryMessage {
+            role: CompactionSummaryRole::CompactionSummary,
+            summary: raw.clone(),
+            tokens_before: 1234.0,
+            tokens_after: Some(500.0),
+            kept_from_previous_context_tokens: None,
+            compacted_result_tokens: None,
+            duration_ms: Some(1500.0),
+            provider_native: None,
+            timestamp: 0.0,
+        },
+        None,
+    );
+    message.set_expanded(true);
+    assert!(JsString::join(message.render(80), "\n").contains(&raw));
+    message.invalidate();
+    assert!(JsString::join(message.render(80), "\n").contains(&raw));
+    message.set_expanded(false);
+    assert!(!JsString::join(message.render(80), "\n").contains(&raw));
+}
+
+#[test]
+fn animation_leaf_caches_native_render_output() {
+    use pi_coding_agent::modes::interactive::components::{armin::ArminComponent, daxnuts::DaxnutsComponent};
+    init_theme();
+    let mut armin = ArminComponent::new(Rc::new(|| {}));
+    let first = armin.render(80);
+    assert!(JsString::join(first.clone(), "\n").contains("ARMIN SAYS HI"));
+    assert_eq!(armin.render(80), first);
+    armin.invalidate();
+    assert_eq!(armin.render(80), first);
+    armin.dispose();
+    let mut daxnuts = DaxnutsComponent::new(Rc::new(|| {}));
+    let first = daxnuts.render(80);
+    assert_eq!(daxnuts.render(80), first);
+    daxnuts.invalidate();
+    assert_eq!(daxnuts.render(80), first);
+    daxnuts.dispose();
+}
+
+#[test]
+fn assistant_message_keeps_raw_thinking_label_text_and_error() {
+    use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextContent, ThinkingContent};
+    use pi_coding_agent::modes::interactive::components::assistant_message::AssistantMessageComponent;
+    init_theme();
+    let raw = JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]);
+    let mut message = AssistantMessage::empty("faux", "faux", "fixture", 0);
+    message.content = vec![
+        AssistantContent::Thinking(ThinkingContent::new(raw.clone())),
+        AssistantContent::Text(TextContent::new(raw.clone())),
+    ];
+    message.stop_reason = StopReason::Error;
+    message.error_message = Some(JsString::from("failed ") + &raw);
+    let mut view = AssistantMessageComponent::new(Some(message), false, None, None, 1, vec![]);
+    let output = JsString::join(view.render(100), "\n");
+    assert!(output.contains(&raw));
+    assert!(output.contains(JsString::from("Error: failed ") + &raw));
+    view.set_hidden_thinking_label(JsString::from("hidden ") + &raw);
+    view.set_hide_thinking_block(true);
+    view.invalidate();
+    assert!(JsString::join(view.render(100), "\n").contains(JsString::from("hidden ") + &raw));
+}
+
+#[test]
+fn earendil_announcement_renders_and_invalidates_native_lines() {
+    use pi_coding_agent::modes::interactive::{
+        components::earendil_announcement::EarendilAnnouncementComponent, theme::with_theme,
+    };
+    init_theme();
+    let mut panel = EarendilAnnouncementComponent::new(with_theme(|theme| std::sync::Arc::new(theme.clone())));
+    let output = JsString::join(panel.render(100), "\n");
+    assert!(output.contains("pi has joined Earendil"));
+    assert!(output.contains("https://mariozechner.at/posts/2026-04-08-ive-sold-out/"));
+    panel.invalidate();
+    assert_eq!(JsString::join(panel.render(100), "\n"), output);
+}

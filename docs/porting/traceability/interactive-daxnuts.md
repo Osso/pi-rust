@@ -26,3 +26,7 @@ Tests: `interactive_components_c.rs::daxnuts_reveals_image_and_text_over_time`.
 ## Discrepancies
 
 None found.
+
+## Q18 native UTF-16
+
+Animation grids/images and render caches now use native `JsString`. Native composition retains units until terminal output. Cache/invalidation regression in `raw_error_consumer_components::animation_leaf_caches_native_render_output` written **unexecuted**, coding-agent compilation blocked.

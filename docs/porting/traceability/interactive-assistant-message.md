@@ -34,3 +34,7 @@ differential `assistantMessage` cases in `differential_interactive_components.rs
 ## Discrepancies
 
 None found.
+
+## Q18 native UTF-16
+
+Native style callbacks and render output; assistant text/thinking/labels/errors no longer encode before Markdown/Text. Behavioral cases in `raw_error_consumer_components` written **unexecuted** pending coding-agent compilation. Earendil image filesystem load omission follows frozen source lines 14-22; no change to that source behavior.

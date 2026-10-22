@@ -26,3 +26,7 @@ differential `compactionSummary` cases.
 ## Discrepancies
 
 None found.
+
+## Q18 native UTF-16
+
+Native render/style callbacks and summary composition; `raw_error_consumer_components::compaction_expanded_summary_keeps_raw_units` written **unexecuted** pending library compilation. Requires shared core message summary to be native (main owns change). No internal encoding.

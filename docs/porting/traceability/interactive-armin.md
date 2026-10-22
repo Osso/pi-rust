@@ -28,3 +28,7 @@ Tests: `interactive_components_c.rs::armin_animates_and_renders_message`.
   finds a non-space target row; those columns are all background, so `allSettled` stays
   false and the animation never stops. The port preserves this behaviour and the test
   asserts it instead of fixing it.
+
+## Q18 native UTF-16
+
+Animation grids/images and render caches now use native `JsString`. Native composition retains units until terminal output. Cache/invalidation regression in `raw_error_consumer_components::animation_leaf_caches_native_render_output` written **unexecuted**, coding-agent compilation blocked.

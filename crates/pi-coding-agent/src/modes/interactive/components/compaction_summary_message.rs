@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use pi_js_compat::number::to_fixed;
+use pi_js_compat::{js_format, js_json::JsString, number::to_fixed};
 use pi_tui::components::r#box::BoxComponent;
 use pi_tui::components::text::StyleFn;
 use pi_tui::tui::component;
@@ -25,7 +25,7 @@ impl CompactionSummaryMessageComponent {
         let container = BoxComponent::new(
             1,
             1,
-            Some(Rc::new(|text: &str| {
+            Some(Rc::new(|text: &JsString| {
                 with_theme(|theme| theme.bg(ThemeBg::CustomMessageBg, text))
             })),
         );
@@ -53,25 +53,28 @@ impl CompactionSummaryMessageComponent {
 
         let token_summary = format_compaction_token_summary(&self.message);
         let duration_text = self.message.duration_ms.and_then(format_compaction_duration);
-        let duration_suffix = duration_text.map_or_else(String::new, |text| format!(" in {text}"));
-        let remote_result_suffix = self.message.compacted_result_tokens.map_or_else(String::new, |tokens| {
-            format!("; remote result {} tokens", format_token_count(tokens))
-        });
+        let duration_suffix = duration_text.map_or_else(JsString::default, |text| js_format!(" in {}", text));
+        let remote_result_suffix = self
+            .message
+            .compacted_result_tokens
+            .map_or_else(JsString::default, |tokens| {
+                js_format!("; remote result {} tokens", format_token_count(tokens))
+            });
         let label = with_theme(|theme| theme.fg(ThemeColor::CustomMessageLabel, "\u{1b}[1m[compaction]\u{1b}[22m"));
         self.container.add_child(component(Text::new(label, 0, 0)));
         self.container.add_child(component(Spacer::new(1)));
 
         if self.expanded {
-            let header = format!("**{token_summary}{remote_result_suffix}{duration_suffix}**\n\n");
+            let header = js_format!("**{}{}{}**\n\n", token_summary, remote_result_suffix, duration_suffix);
             let color: StyleFn =
-                Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::CustomMessageText, text)));
+                Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::CustomMessageText, text)));
             self.container.add_child(component(Markdown::with_shared_theme(
                 header + &self.message.summary,
                 0,
                 0,
                 self.markdown_theme.clone(),
                 Some(pi_tui::DefaultTextStyle {
-                    color: Some(Box::new(move |text: &str| color(text))),
+                    color: Some(Box::new(move |text: &JsString| color(text))),
                     ..Default::default()
                 }),
                 MarkdownOptions::default(),
@@ -80,7 +83,7 @@ impl CompactionSummaryMessageComponent {
             let text = with_theme(|theme| {
                 theme.fg(
                     ThemeColor::CustomMessageText,
-                    &format!("{token_summary}{remote_result_suffix}{duration_suffix} ("),
+                    &js_format!("{}{}{} (", token_summary, remote_result_suffix, duration_suffix),
                 ) + &theme.fg(ThemeColor::Dim, &key_text("app.tools.expand"))
                     + &theme.fg(ThemeColor::CustomMessageText, " to expand)")
             });
@@ -89,36 +92,44 @@ impl CompactionSummaryMessageComponent {
     }
 }
 
-fn format_compaction_token_summary(message: &CompactionSummaryMessage) -> String {
+fn format_compaction_token_summary(message: &CompactionSummaryMessage) -> JsString {
     let tokens_before = format_token_count(message.tokens_before);
     let Some(tokens_after) = message.tokens_after else {
-        return format!("Compacted from {tokens_before} tokens");
+        return js_format!("Compacted from {} tokens", tokens_before);
     };
     let tokens_after = format_token_count(tokens_after);
     let kept_suffix = message
         .kept_from_previous_context_tokens
-        .map_or_else(String::new, |tokens| {
-            format!("; kept {} tokens", format_token_count(tokens))
+        .map_or_else(JsString::default, |tokens| {
+            js_format!("; kept {} tokens", format_token_count(tokens))
         });
-    format!("Compacted from {tokens_before} to {tokens_after} tokens{kept_suffix}")
+    js_format!(
+        "Compacted from {} to {} tokens{}",
+        tokens_before,
+        tokens_after,
+        kept_suffix
+    )
 }
 
-fn format_token_count(tokens: f64) -> String {
+fn format_token_count(tokens: f64) -> JsString {
     if tokens < 1000.0 {
-        return pi_js_compat::number::js_number_to_string(tokens);
+        return pi_js_compat::number::js_number_to_string(tokens).into();
     }
-    format!("{}k", to_fixed(tokens / 1000.0, 1))
+    js_format!("{}k", to_fixed(tokens / 1000.0, 1))
 }
 
-fn format_compaction_duration(duration_ms: f64) -> Option<String> {
+fn format_compaction_duration(duration_ms: f64) -> Option<JsString> {
     if duration_ms < 1000.0 {
-        return Some(format!("{}ms", pi_js_compat::number::js_number_to_string(duration_ms)));
+        return Some(js_format!(
+            "{}ms",
+            pi_js_compat::number::js_number_to_string(duration_ms)
+        ));
     }
-    Some(format!("{}s", to_fixed(duration_ms / 1000.0, 1)))
+    Some(js_format!("{}s", to_fixed(duration_ms / 1000.0, 1)))
 }
 
 impl Component for CompactionSummaryMessageComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
