@@ -119,13 +119,13 @@ impl SteeringCommandError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CreateFailedMultiAgentChildResult {
     Ok { agent: Box<AgentSnapshot> },
     Err { error: CreateChildError },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CreateMultiAgentChildWithRuntimeOwnershipResult {
     Ok {
         agent: Box<AgentSnapshot>,
@@ -136,13 +136,13 @@ pub enum CreateMultiAgentChildWithRuntimeOwnershipResult {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CreateMultiAgentAttachmentResult {
     Ok { agent: Box<AgentSnapshot> },
     Err { error: CreateAttachmentError },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AcquireAttachedRuntimeOwnershipResult {
     Ok {
         agent: Box<AgentSnapshot>,
@@ -187,7 +187,7 @@ pub enum CommitMultiAgentTerminalMutationResult {
     Err { error: LifecycleCommandError },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CommitMultiAgentDetachMarkResult {
     Ok { agent: Box<AgentSnapshot> },
     Err { error: LifecycleCommandError },
@@ -219,7 +219,7 @@ pub struct AcquireAttachedRuntimeOwnershipInput {
     pub supervisor: SupervisorRuntimeOwnership,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CreateMultiAgentChildWithRuntimeOwnershipInput {
     pub session_path: JsString,
     pub agent_id: JsString,
@@ -229,7 +229,7 @@ pub struct CreateMultiAgentChildWithRuntimeOwnershipInput {
     pub agent: AgentSnapshot,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CreateMultiAgentAttachmentInput {
     pub agent: AgentSnapshot,
     pub agent_id: JsString,
@@ -237,7 +237,7 @@ pub struct CreateMultiAgentAttachmentInput {
     pub session_path: JsString,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CreateFailedMultiAgentChildInput {
     pub agent: AgentSnapshot,
     pub now_iso: String,
@@ -397,7 +397,7 @@ impl RecoverDeadRuntimeError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetachedArtifactAgentRecord {
     pub agent: AgentSnapshot,
