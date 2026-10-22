@@ -26,7 +26,7 @@ Approved by parent against the common pin on 2026-10-21: path/program inputs and
 | Unix connect/listen | Address text remains raw | `sockets_keep_raw_address_in_connect_and_listen_errors` |
 | NUL path validation | Inspect original UTF-16 before any FS call; truncate inspection by units | `nul_validation_inspects_raw_units_before_any_boundary_repair` |
 
-Evidence: direct builtin Node probes covered open/read/write/mkdir/stat/access/readdir in both sync/promises APIs, spawn/spawnSync, and Unix connect/listen. In-crate runner-backed RED `/tmp/pi-rust-repin-lossless-tools/node-origin-red.log` passed the two fs-origin cases and failed spawn/socket/NUL because scalar APIs forced premature encoding. No mock filesystem or probe crate is involved. In-crate GREEN at revision `22c4fc90`: `node-origin-green.log`, 5/5 passed. Existing shared scalar filesystem/inspection regression suite is adapted; execution pending at the caller checkpoint.
+Evidence: direct builtin Node probes covered open/read/write/mkdir/stat/access/readdir in both sync/promises APIs, spawn/spawnSync, and Unix connect/listen. In-crate runner-backed RED `/tmp/pi-rust-repin-lossless-tools/node-origin-red.log` passed the two fs-origin cases and failed spawn/socket/NUL because scalar APIs forced premature encoding. No mock filesystem or probe crate is involved. In-crate GREEN at revision `22c4fc90`: `node-origin-green.log`, 5/5 passed. Existing shared scalar filesystem/inspection regression suite passed 7/7 at `089f9041`, `/tmp/pi-rust-repin-lossless-tools/node-existing-green.log`.
 
 Additional observed origin distinction: rmSync's EISDIR directory validation retains raw path text; its OS-origin EACCES message repairs the path. The two branches remain explicit in `node_rm_error`, not a blanket sanitizer. Console inspection escapes lone units and preserves valid pairs.
 
@@ -73,6 +73,10 @@ is not additional proof of every caller's syscall-selection branch.
 
 E2 proof: `/tmp/pi-rust-runner-guard-fixes/ledger.md`; shared metadata RED and
 edit-diff case-27 RED precede implementation. Sync callers retain their old API.
+
+## Queued source discrepancy
+
+Local read/edit/write/ls Operations still enter Rust filesystem calls without the source's pre-IO `node_path_argument_error` validation. A NUL path can therefore become an OS-style EINVAL or generic IO diagnostic rather than Node's raw-inspected TypeError. This is pre-existing caller drift, not supported parity. Parent requires a separate frozen-behavior RED-first correction after transport identity/probe and cleanup corrections, once the coding library compiles. The shared native validator itself is already covered by the Node API-class differential.
 
 ## Explicit gaps
 
