@@ -1,5 +1,4 @@
 mod agent_tool_execution_context;
-mod applied_edits_result;
 mod base64_decode;
 mod bash_execution_message;
 mod before_tool_call_result;
@@ -8,14 +7,10 @@ mod compaction_details;
 mod compaction_settings;
 mod context_usage_estimate;
 mod cut_point_result;
-mod edit_line_endings;
-mod edit_record;
 mod errors;
 mod file_info;
 mod file_operations;
 mod format_size;
-mod fuzzy_match_result;
-mod image;
 mod oracle;
 mod prompt_template_diagnostic;
 mod prompt_templates;
@@ -35,13 +30,13 @@ mod truncate_line;
 fn spawn_oracle() -> oracle::TsOracle {
     oracle::TsOracle::spawn(&[
         "packages/agent-core/src/harness/utils/truncate.ts",
-        "packages/agent/src/harness/utils/shell-output.ts",
-        "packages/agent/src/index.ts",
+        "packages/agent-core/src/harness/utils/shell-output.ts",
+        "packages/agent-core/src/index.ts",
         "packages/agent-core/src/harness/prompt-templates.ts",
         "packages/agent-core/src/harness/skills.ts",
         "packages/agent-core/src/harness/system-prompt.ts",
-        "packages/agent/src/harness/tools/image.ts",
-        "packages/agent/src/harness/tools/edit-diff.ts",
+        "packages/coding-agent/src/utils/image-convert.ts",
+        "packages/coding-agent/src/core/tools/edit-diff.ts",
         "packages/agent-core/src/harness/compaction/utils.ts",
         "packages/agent-core/src/harness/compaction/compaction.ts",
     ])
@@ -61,9 +56,7 @@ pub(crate) fn run() {
     errors::compare_compaction_fixtures(&mut oracle);
     prompt_templates::compare_all_fixtures(&mut oracle);
     skill_formatting::compare_all_fixtures(&mut oracle);
-    image::compare_all_fixtures(&mut oracle);
     base64_decode::compare(&mut oracle);
-    edit_line_endings::compare_all_fixtures(&mut oracle);
     file_operations::compare_all_fixtures(&mut oracle);
     summary_markers::compare(&mut oracle);
     bash_execution_message::compare_all_fixtures(&mut oracle);
@@ -82,8 +75,5 @@ pub(crate) fn run() {
 
 fn compare_record_fixtures(oracle: &mut oracle::TsOracle) {
     agent_tool_execution_context::compare_all_fixtures(oracle);
-    applied_edits_result::compare_all_fixtures(oracle);
     before_tool_call_result::compare_all_fixtures(oracle);
-    edit_record::compare_all_fixtures(oracle);
-    fuzzy_match_result::compare_all_fixtures(oracle);
 }

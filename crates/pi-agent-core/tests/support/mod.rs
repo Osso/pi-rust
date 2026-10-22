@@ -167,7 +167,6 @@ fn done_reason(stop_reason: StopReason) -> DoneReason {
     match stop_reason {
         StopReason::Length => DoneReason::Length,
         StopReason::ToolUse => DoneReason::ToolUse,
-        StopReason::Deferred => DoneReason::Deferred,
         _ => DoneReason::Stop,
     }
 }

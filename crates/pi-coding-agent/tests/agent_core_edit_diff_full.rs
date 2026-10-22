@@ -1,6 +1,6 @@
 //! Behavioral coverage for the full `edit-diff.ts` port.
 
-use pi_agent_core::harness::tools::edit_diff::{
+use pi_coding_agent::core::tools::edit_primitives::{
     Edit, apply_edits_to_normalized_content, fuzzy_find_text, generate_diff_string, generate_unified_patch,
     normalize_for_fuzzy_match,
 };

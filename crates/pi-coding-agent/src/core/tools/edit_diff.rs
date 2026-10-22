@@ -8,14 +8,14 @@ use super::path_utils::resolve_to_cwd;
 use crate::utils::child_process::node_error_code;
 use crate::utils::paths::PathError;
 
-use pi_agent_core::harness::tools::edit_diff::generate_diff_string as core_generate_diff_string;
-pub use pi_agent_core::harness::tools::edit_diff::{
+use super::edit_primitives::generate_diff_string as core_generate_diff_string;
+pub use super::edit_primitives::{
     AppliedEditsResult, Edit, EditError, FuzzyMatchResult, LineEnding, StripBomResult, TextReplacement,
     apply_replacements, apply_replacements_preserving_unchanged_lines, detect_line_ending, empty_old_text_error,
     fuzzy_find_text, generate_unified_patch, no_change_error, normalize_for_fuzzy_match, normalize_to_lf,
     not_found_error, restore_line_endings, strip_bom,
 };
-pub use pi_agent_core::jsdiff;
+pub use super::jsdiff;
 
 const DEFAULT_DUPLICATE_CONTEXT_MATCHES: usize = 5;
 const DEFAULT_DUPLICATE_CONTEXT_LINES: usize = 2;

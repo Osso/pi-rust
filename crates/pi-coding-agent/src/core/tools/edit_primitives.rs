@@ -1,8 +1,8 @@
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::fmt::{self, Display, Formatter};
 
-use crate::jsdiff::{self, Part};
-use crate::unicode::normalize_nfkc;
+use super::jsdiff::{self, Part};
+use super::unicode::normalize_nfkc;
 
 /// The line-ending style selected by the source helper.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

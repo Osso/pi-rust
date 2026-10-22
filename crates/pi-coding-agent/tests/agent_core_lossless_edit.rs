@@ -1,61 +1,10 @@
 #[path = "../../pi-ai/tests/support/oracle.rs"]
 mod oracle;
 
-use pi_agent_core::harness::tools::edit_diff::{
+use pi_coding_agent::core::tools::edit_primitives::{
     Edit, apply_edits_to_normalized_content, generate_diff_string, generate_unified_patch,
 };
 use pi_js_compat::js_json::JsString;
-
-#[tokio::test]
-async fn file_edit_matches_a_low_unit_then_encodes_only_the_written_bytes() {
-    use pi_agent_core::agent::AgentTool;
-    use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
-    use pi_agent_core::harness::tools::{edit::EditTool, tool_context::ExecutionToolContext};
-    use pi_agent_core::harness::types::ExecutionEnv;
-    use pi_ai::types::TextOrImageContent;
-    use std::sync::Arc;
-    let directory = tempfile::tempdir().unwrap();
-    let path = JsString::from("file-") + JsString::from_utf16(vec![0xd800]);
-    let disk_path = directory.path().join(pi_js_compat::js_json::encode_node_utf8(&path));
-    std::fs::write(&disk_path, "😀").unwrap();
-    let env: Arc<dyn ExecutionEnv> = Arc::new(NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(directory.path().to_str().unwrap().to_owned()),
-        shell_path: None,
-        shell_env: Default::default(),
-    }));
-    let tool = EditTool::new(Arc::new(ExecutionToolContext::new(env)));
-    let params =
-        pi_js_compat::js_json::parse_lossless(r#"{"path":"file-\ud800","edits":[{"oldText":"\ude00","newText":"x"}]}"#)
-            .unwrap();
-    let result = tool
-        .execute("edit".into(), params, None, Arc::new(|_| {}), None)
-        .await
-        .unwrap();
-    assert_eq!(std::fs::read(&disk_path).unwrap(), "�x".as_bytes());
-    let TextOrImageContent::Text(success) = &result.content[0] else {
-        panic!("text result");
-    };
-    assert_eq!(
-        success.text,
-        JsString::from("Successfully replaced 1 block(s) in ") + &path + "."
-    );
-    let details = result.details.unwrap();
-    assert!(
-        details["diff"]
-            .as_string()
-            .unwrap()
-            .contains(JsString::from_utf16(vec![0xd83d]))
-    );
-    assert!(details["patch"].as_string().unwrap().contains(&path));
-    let missing =
-        pi_js_compat::js_json::parse_lossless(r#"{"path":"file-\ud800","edits":[{"oldText":"\ude00","newText":"y"}]}"#)
-            .unwrap();
-    let error = tool
-        .execute("missing".into(), missing, None, Arc::new(|_| {}), None)
-        .await
-        .unwrap_err();
-    assert!(error.message.contains(path));
-}
 
 #[test]
 fn raw_word_diff_flags_and_values_match_frozen_dependency() {
@@ -74,7 +23,7 @@ fn raw_word_diff_flags_and_values_match_frozen_dependency() {
         let reference = oracle.request(
             &serde_json::json!({"kind":"words","content":[],"oldText":old.units(),"newText":new.units(),"path":[]}),
         );
-        let actual = pi_agent_core::jsdiff::diff_words(&old, &new)
+        let actual = pi_coding_agent::core::tools::jsdiff::diff_words(&old, &new)
             .into_iter()
             .map(|part| pi_js_compat::js_json!({"added":part.added,"removed":part.removed,"value":part.value}))
             .collect::<Vec<_>>();

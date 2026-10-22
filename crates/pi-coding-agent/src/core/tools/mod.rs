@@ -9,10 +9,12 @@ pub mod channel_post;
 pub mod code_index;
 pub mod edit;
 pub mod edit_diff;
+pub mod edit_primitives;
 pub mod end_turn;
 pub mod file_mutation_queue;
 pub mod find;
 pub mod grep;
+pub mod jsdiff;
 pub mod list_sessions;
 pub mod ls;
 pub mod node_fs;
@@ -25,6 +27,7 @@ pub mod resume_session;
 pub mod search_current_session_history;
 pub mod tool_definition_wrapper;
 pub mod truncate;
+pub mod unicode;
 pub mod write;
 
 pub use truncate::{

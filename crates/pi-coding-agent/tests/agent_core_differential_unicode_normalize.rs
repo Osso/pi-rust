@@ -4,7 +4,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use serde_json::{Value, json};
 
-use pi_agent_core::unicode::{normalize_nfc, normalize_nfd, normalize_nfkc, normalize_nfkd};
+use pi_coding_agent::core::tools::unicode::{normalize_nfc, normalize_nfd, normalize_nfkc, normalize_nfkd};
 use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
 
 const SOURCE_LOCK: &str = include_str!(concat!(
