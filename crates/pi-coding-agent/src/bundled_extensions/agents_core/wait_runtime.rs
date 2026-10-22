@@ -163,10 +163,8 @@ impl WaitAgentsWakeWatcher {
     }
 
     fn on_notified(&self, wake_up: &Mutex<Option<WaitAgentsWakeUp>>) -> Option<WaitNotificationsWake> {
-        if let Some(terminal_agent) = self.read_tracked_terminal_agent() {
-            return Some(WaitNotificationsWake::Agent {
-                agent: Box::new(terminal_agent),
-            });
+        if let Some(wake) = self.read_tracked_terminal_wake() {
+            return Some(wake);
         }
         if let Some(wake_up) = wake_up.lock().expect("wait wake up").take() {
             if let Some(agent_id) = wake_up.agent_id.as_ref()
@@ -191,18 +189,23 @@ impl WaitAgentsWakeWatcher {
     }
 
     fn settle_for_terminal_agent_or_check_coordination(&self) -> Option<WaitNotificationsWake> {
-        if let Some(terminal_agent) = self.read_tracked_terminal_agent() {
-            return Some(WaitNotificationsWake::Agent {
-                agent: Box::new(terminal_agent),
-            });
+        if let Some(wake) = self.read_tracked_terminal_wake() {
+            return Some(wake);
         }
         self.check_coordination()
     }
 
-    fn read_tracked_terminal_agent(&self) -> Option<AgentSnapshot> {
+    fn read_tracked_terminal_wake(&self) -> Option<WaitNotificationsWake> {
         let agent_ids: Vec<JsString> = self.tracked_agent_ids.iter().cloned().collect();
-        let agents = read_multi_agent_agents(&self.control_db_path, &self.session_path, &agent_ids).ok()?;
-        agents.into_iter().find(|agent| !is_active_lifecycle(agent.lifecycle))
+        match read_multi_agent_agents(&self.control_db_path, &self.session_path, &agent_ids) {
+            Ok(agents) => agents
+                .into_iter()
+                .find(|agent| !is_active_lifecycle(agent.lifecycle))
+                .map(|agent| WaitNotificationsWake::Agent { agent: Box::new(agent) }),
+            Err(error) => Some(WaitNotificationsWake::Error {
+                message: error.message().clone(),
+            }),
+        }
     }
 
     fn reconcile_dead_detached_runtimes(&self) -> Option<WaitNotificationsWake> {
@@ -246,7 +249,6 @@ mod tracked_read_failure_tests {
     use super::*;
     use crate::core::multi_agent_store::MultiAgentStoreOptions;
 
-    // RED-intent only: production .ok()? correction waits for executable in-crate RED.
     #[test]
     fn tracked_agent_read_failure_wakes_with_error_instead_of_disappearing() {
         let directory = tempfile::tempdir().unwrap();
