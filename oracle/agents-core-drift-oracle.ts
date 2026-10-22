@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
@@ -37,6 +40,63 @@ async function main() {
 				} finally {
 					handler.dispose();
 				}
+			} else if (input.kind === "sessionGetter") {
+				const { SessionManager } = await import(
+					new URL("../../../src/core/session-manager.ts", runtimeUrl).href
+				);
+				const { MultiAgentStore } = await import(
+					new URL("../../../src/core/multi-agent-store.ts", runtimeUrl).href
+				);
+				const { readMultiAgentState } = await import(
+					new URL("../../../src/core/session-control-db.ts", runtimeUrl).href
+				);
+				const root = mkdtempSync(join(tmpdir(), "profile-session-getter-"));
+				const manager = SessionManager.create(root, join(root, "sessions"));
+				manager.setMetadataControlDbPath(join(root, "control.sqlite"));
+				const store = new MultiAgentStore();
+				store.setPersistenceSessionManager(manager);
+				let constructed = false;
+				const handler = runtime.createMultiAgentPiRequestHandler({
+					store,
+					createChildSession: async () => {
+						constructed = true;
+						return {
+							prompt: async () => {
+								throw new Error("dispatch must not be reached");
+							},
+						};
+					},
+				});
+				try {
+					await handler(
+						{ method: "agents.spawn", params: { prompt: "inspect fixture" } },
+						{
+							cwd: root,
+							modelRegistry: { getAll: () => [] },
+							get sessionManager() {
+								if (constructed)
+									throw new Error(
+										"session getter failed after child construction",
+									);
+								return manager;
+							},
+						},
+					);
+					throw new Error("expected session getter failure");
+				} catch (error) {
+					if (!(error instanceof Error)) throw error;
+					const state = readMultiAgentState(
+						manager.getMetadataControlDbPath(),
+						manager.getSessionFile(),
+					);
+					process.stdout.write(
+						`${JSON.stringify({ ok: false, name: error.name, message: error.message, constructed, agents: state?.agents.length ?? 0 })}\n`,
+					);
+				} finally {
+					handler.dispose();
+					rmSync(root, { recursive: true, force: true });
+				}
+				continue;
 			} else if (input.kind === "registration") {
 				runtime.registerAgentsCoreTools(
 					{
