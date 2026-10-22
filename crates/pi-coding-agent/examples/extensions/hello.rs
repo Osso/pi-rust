@@ -1,4 +1,5 @@
 //! Opt-in native `hello.ts`: embed this file and register its factory explicitly.
+use pi_js_compat::js_format;
 use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;
@@ -22,10 +23,10 @@ pub fn hello_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         prepare_execution: None,
         execution_mode: None,
         execute: Arc::new(|_id, params, _signal, _on_update, _ctx| Box::pin(async move {
-            let name = params["name"].as_str().ok_or_else(|| HandlerError::new("name must be a string"))?;
+            let name = params["name"].as_string().ok_or_else(|| HandlerError::new("name must be a string"))?;
             Ok(AgentToolResult {
-                content: vec![TextOrImageContent::Text(TextContent::new(format!("Hello, {name}!")))],
-                details: Some(json!({"greeted":name})),
+                content: vec![TextOrImageContent::Text(TextContent::new(js_format!("Hello, {}!", name)))],
+                details: Some(pi_js_compat::js_json!({"greeted":name})),
                 is_error: None,
                 terminate: None,
             })
