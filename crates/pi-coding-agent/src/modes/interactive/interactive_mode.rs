@@ -7064,10 +7064,10 @@ impl InteractiveMode {
 
     fn show_theme_selector(&self) {
         let current = self
-            .settings(|settings| settings.get_theme().map(str::to_owned))
-            .unwrap_or_else(|| "dark".to_owned());
+            .settings(|settings| settings.get_theme().cloned())
+            .unwrap_or_else(|| "dark".into());
         let mode = self.ui_id.get();
-        let on_select: Rc<dyn Fn(String)> = Rc::new(move |name| {
+        let on_select: Rc<dyn Fn(JsString)> = Rc::new(move |name| {
             with_mode(mode, |mode| {
                 mode.set_theme_name(&name);
                 mode.restore_editor();
@@ -7077,7 +7077,7 @@ impl InteractiveMode {
         let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
             with_mode(mode, |mode| mode.restore_editor());
         });
-        let on_preview: Rc<dyn Fn(String)> = Rc::new(|_| {});
+        let on_preview: Rc<dyn Fn(JsString)> = Rc::new(|_| {});
         let selector = crate::modes::interactive::components::theme_selector::ThemeSelectorComponent::new(
             &current, on_select, on_cancel, on_preview,
         );
@@ -7127,8 +7127,8 @@ impl InteractiveMode {
             thinking_level: session.thinking_level(),
             available_thinking_levels: session.get_available_thinking_levels(),
             current_theme: self
-                .settings(|settings| settings.get_theme_setting().map(str::to_owned))
-                .unwrap_or_else(|| "dark".to_owned()),
+                .settings(|settings| settings.get_theme_setting().cloned())
+                .unwrap_or_else(|| "dark".into()),
             terminal_theme: self.theme_controller.borrow().get_terminal_theme(),
             available_themes: match crate::modes::interactive::theme::get_available_themes() {
                 Ok(themes) => themes,
@@ -7251,12 +7251,12 @@ impl InteractiveMode {
                     }
                 }
             ),
-            on_theme_change: callback!(|mode: Rc<InteractiveMode>, theme_setting: &str| {
+            on_theme_change: callback!(|mode: Rc<InteractiveMode>, theme_setting: &JsString| {
                 mode.settings_mut(|settings| settings.set_theme(theme_setting));
                 mode.theme_controller.borrow_mut().apply_from_settings();
             }),
             on_theme_preview: Some(Rc::new({
-                move |theme_name: &str| {
+                move |theme_name: &JsString| {
                     with_mode(mode_id, |mode| {
                         mode.theme_controller.borrow_mut().preview(theme_name);
                     });

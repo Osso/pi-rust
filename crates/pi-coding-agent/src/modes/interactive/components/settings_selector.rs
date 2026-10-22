@@ -6,7 +6,7 @@ use std::rc::Rc;
 use crate::core::settings_manager::ScrollViewScrollbar;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::Transport;
-use pi_js_compat::number::parse_int;
+use pi_js_compat::{js_format, js_json::JsString, number::parse_int};
 use pi_tui::components::settings_list::{SettingItem, SettingsList, SettingsListOptions, SubmenuDone};
 use pi_tui::tui::TuiMode;
 use pi_tui::tui::component;
@@ -49,8 +49,11 @@ fn default_project_trust_label(value: DefaultProjectTrust) -> &'static str {
     }
 }
 
-fn default_project_trust_from_label(label: &str) -> Option<DefaultProjectTrust> {
-    match label {
+fn default_project_trust_from_label(label: &JsString) -> Option<DefaultProjectTrust> {
+    let Ok(label) = label.to_utf8() else {
+        return None;
+    };
+    match label.as_str() {
         "Ask" => Some(DefaultProjectTrust::Ask),
         "Always trust" => Some(DefaultProjectTrust::Always),
         "Never trust" => Some(DefaultProjectTrust::Never),
@@ -58,14 +61,14 @@ fn default_project_trust_from_label(label: &str) -> Option<DefaultProjectTrust> 
     }
 }
 
-fn default_project_trust_labels() -> Vec<String> {
+fn default_project_trust_labels() -> Vec<JsString> {
     [
         DefaultProjectTrust::Ask,
         DefaultProjectTrust::Always,
         DefaultProjectTrust::Never,
     ]
     .into_iter()
-    .map(|value| default_project_trust_label(value).to_string())
+    .map(|value| default_project_trust_label(value).into())
     .collect()
 }
 
@@ -84,8 +87,11 @@ impl SteeringMode {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
-        match value {
+    fn parse(value: &JsString) -> Option<Self> {
+        let Ok(value) = value.to_utf8() else {
+            return None;
+        };
+        match value.as_str() {
             "all" => Some(Self::All),
             "one-at-a-time" => Some(Self::OneAtATime),
             _ => None,
@@ -97,16 +103,16 @@ impl SteeringMode {
 pub type FollowUpMode = SteeringMode;
 
 /// `onThemePreview`.
-pub type ThemePreviewFn = Rc<dyn Fn(&str)>;
+pub type ThemePreviewFn = Rc<dyn Fn(&JsString)>;
 
 /// Submenu selection-change callback.
-pub type SelectionChangeFn = Rc<dyn Fn(&str)>;
+pub type SelectionChangeFn = Rc<dyn Fn(&JsString)>;
 
 /// Theme submenu completion callback (`done(selectedValue?)`).
-pub type ThemeDoneFn = Rc<dyn Fn(Option<&str>)>;
+pub type ThemeDoneFn = Rc<dyn Fn(Option<&JsString>)>;
 
 /// SettingsList change callback.
-pub type SettingsChangeHandler = Rc<dyn Fn(&str, &str)>;
+pub type SettingsChangeHandler = Rc<dyn Fn(&JsString, &JsString)>;
 
 /// Settings shown by the selector.
 pub struct SettingsConfig {
@@ -122,9 +128,9 @@ pub struct SettingsConfig {
     pub http_idle_timeout_ms: u64,
     pub thinking_level: ThinkingLevel,
     pub available_thinking_levels: Vec<ThinkingLevel>,
-    pub current_theme: String,
+    pub current_theme: JsString,
     pub terminal_theme: TerminalTheme,
-    pub available_themes: Vec<String>,
+    pub available_themes: Vec<JsString>,
     pub hide_thinking_block: bool,
     pub mermaid_rendering_mode: MermaidRenderingMode,
     pub show_cache_miss_notices: bool,
@@ -159,7 +165,7 @@ pub struct SettingsCallbacks {
     pub on_transport_change: Rc<dyn Fn(Transport)>,
     pub on_http_idle_timeout_ms_change: Rc<dyn Fn(u64)>,
     pub on_thinking_level_change: Rc<dyn Fn(ThinkingLevel)>,
-    pub on_theme_change: Rc<dyn Fn(&str)>,
+    pub on_theme_change: Rc<dyn Fn(&JsString)>,
     pub on_theme_preview: Option<ThemePreviewFn>,
     pub on_hide_thinking_block_change: Rc<dyn Fn(bool)>,
     pub on_mermaid_rendering_mode_change: Rc<dyn Fn(MermaidRenderingMode)>,
@@ -187,8 +193,8 @@ fn bool_value(value: bool) -> &'static str {
     if value { "true" } else { "false" }
 }
 
-fn bool_values() -> Vec<String> {
-    vec!["true".to_string(), "false".to_string()]
+fn bool_values() -> Vec<JsString> {
+    vec!["true".into(), "false".into()]
 }
 
 fn transport_name(transport: Transport) -> &'static str {
@@ -200,8 +206,11 @@ fn transport_name(transport: Transport) -> &'static str {
     }
 }
 
-fn parse_transport(value: &str) -> Option<Transport> {
-    match value {
+fn parse_transport(value: &JsString) -> Option<Transport> {
+    let Ok(value) = value.to_utf8() else {
+        return None;
+    };
+    match value.as_str() {
         "sse" => Some(Transport::Sse),
         "websocket" => Some(Transport::Websocket),
         "websocket-cached" => Some(Transport::WebsocketCached),
@@ -218,8 +227,11 @@ fn mermaid_name(mode: MermaidRenderingMode) -> &'static str {
     }
 }
 
-fn parse_mermaid(value: &str) -> Option<MermaidRenderingMode> {
-    match value {
+fn parse_mermaid(value: &JsString) -> Option<MermaidRenderingMode> {
+    let Ok(value) = value.to_utf8() else {
+        return None;
+    };
+    match value.as_str() {
         "off" => Some(MermaidRenderingMode::Off),
         "final" => Some(MermaidRenderingMode::Final),
         "streaming" => Some(MermaidRenderingMode::Streaming),
@@ -236,9 +248,12 @@ fn double_escape_name(action: crate::core::settings_manager::DoubleEscapeAction)
     }
 }
 
-fn parse_double_escape(value: &str) -> Option<crate::core::settings_manager::DoubleEscapeAction> {
+fn parse_double_escape(value: &JsString) -> Option<crate::core::settings_manager::DoubleEscapeAction> {
     use crate::core::settings_manager::DoubleEscapeAction;
-    match value {
+    let Ok(value) = value.to_utf8() else {
+        return None;
+    };
+    match value.as_str() {
         "fork" => Some(DoubleEscapeAction::Fork),
         "tree" => Some(DoubleEscapeAction::Tree),
         "none" => Some(DoubleEscapeAction::None),
@@ -256,8 +271,11 @@ fn tree_filter_name(mode: TreeFilterMode) -> &'static str {
     }
 }
 
-fn parse_tree_filter(value: &str) -> Option<TreeFilterMode> {
-    match value {
+fn parse_tree_filter(value: &JsString) -> Option<TreeFilterMode> {
+    let Ok(value) = value.to_utf8() else {
+        return None;
+    };
+    match value.as_str() {
         "default" => Some(TreeFilterMode::Default),
         "no-tools" => Some(TreeFilterMode::NoTools),
         "user-only" => Some(TreeFilterMode::UserOnly),
@@ -274,8 +292,11 @@ pub(crate) fn tui_mode_name(mode: TuiMode) -> &'static str {
     }
 }
 
-fn parse_tui_mode(value: &str) -> Option<TuiMode> {
-    match value {
+fn parse_tui_mode(value: &JsString) -> Option<TuiMode> {
+    let Ok(value) = value.to_utf8() else {
+        return None;
+    };
+    match value.as_str() {
         "regular" => Some(TuiMode::Regular),
         "fullscreen" => Some(TuiMode::Fullscreen),
         _ => None,
@@ -289,8 +310,11 @@ fn fullscreen_exit_name(output: FullscreenExitOutput) -> &'static str {
     }
 }
 
-fn parse_fullscreen_exit(value: &str) -> Option<FullscreenExitOutput> {
-    match value {
+fn parse_fullscreen_exit(value: &JsString) -> Option<FullscreenExitOutput> {
+    let Ok(value) = value.to_utf8() else {
+        return None;
+    };
+    match value.as_str() {
         "transcript" => Some(FullscreenExitOutput::Transcript),
         "resume-hint" => Some(FullscreenExitOutput::ResumeHint),
         _ => None,
@@ -305,8 +329,11 @@ fn scrollbar_name(scrollbar: ScrollViewScrollbar) -> &'static str {
     }
 }
 
-fn parse_scrollbar(value: &str) -> Option<ScrollViewScrollbar> {
-    match value {
+fn parse_scrollbar(value: &JsString) -> Option<ScrollViewScrollbar> {
+    let Ok(value) = value.to_utf8() else {
+        return None;
+    };
+    match value.as_str() {
         "auto" => Some(ScrollViewScrollbar::Auto),
         "always" => Some(ScrollViewScrollbar::Always),
         "hidden" => Some(ScrollViewScrollbar::Hidden),
@@ -314,7 +341,7 @@ fn parse_scrollbar(value: &str) -> Option<ScrollViewScrollbar> {
     }
 }
 
-fn theme_items(available_themes: &[String]) -> Vec<SelectItem> {
+fn theme_items(available_themes: &[JsString]) -> Vec<SelectItem> {
     available_themes
         .iter()
         .map(|name| SelectItem::new(name.clone(), name.clone()))
@@ -323,7 +350,7 @@ fn theme_items(available_themes: &[String]) -> Vec<SelectItem> {
 
 const AUTOMATIC_THEME_VALUE: &str = "/";
 
-fn single_mode_theme_items(available_themes: &[String]) -> Vec<SelectItem> {
+fn single_mode_theme_items(available_themes: &[JsString]) -> Vec<SelectItem> {
     let mut items = vec![
         SelectItem::new(AUTOMATIC_THEME_VALUE, "Automatic")
             .with_description("Use separate themes for light and dark terminal appearance"),
@@ -332,24 +359,26 @@ fn single_mode_theme_items(available_themes: &[String]) -> Vec<SelectItem> {
     items
 }
 
-fn preferred_theme(available_themes: &[String], preferred: Option<&str>, fallback: &str) -> String {
+fn preferred_theme(
+    available_themes: &[JsString],
+    preferred: Option<&JsString>,
+    fallback: impl Into<JsString>,
+) -> JsString {
+    let fallback = fallback.into();
     if let Some(preferred) = preferred
         && available_themes.iter().any(|name| name == preferred)
     {
-        return preferred.to_string();
+        return preferred.into();
     }
-    if available_themes.iter().any(|name| name == fallback) {
-        return fallback.to_string();
+    if available_themes.iter().any(|name| name == &fallback) {
+        return fallback;
     }
-    available_themes
-        .first()
-        .cloned()
-        .unwrap_or_else(|| fallback.to_string())
+    available_themes.first().cloned().unwrap_or(fallback)
 }
 
 fn default_automatic_themes(
-    current_theme_setting: &str,
-    available_themes: &[String],
+    current_theme_setting: &JsString,
+    available_themes: &[JsString],
 ) -> crate::modes::interactive::theme::AutoThemeSetting {
     if let Some(auto_theme) = parse_auto_theme_setting(Some(current_theme_setting)) {
         return auto_theme;
@@ -375,16 +404,18 @@ pub struct SelectSubmenu {
 
 impl SelectSubmenu {
     pub fn new(
-        title: &str,
-        description: &str,
+        title: impl Into<JsString>,
+        description: impl Into<JsString>,
         options: Vec<SelectItem>,
-        current_value: &str,
-        on_select: Rc<dyn Fn(&str)>,
+        current_value: &JsString,
+        on_select: Rc<dyn Fn(&JsString)>,
         on_cancel: Rc<dyn Fn()>,
         on_selection_change: Option<SelectionChangeFn>,
     ) -> Self {
+        let title = title.into();
+        let description = description.into();
         let theme = crate::modes::interactive::theme::current_theme();
-        let current_index = options.iter().position(|item| item.value == current_value);
+        let current_index = options.iter().position(|item| &item.value == current_value);
         let max_visible = options.len().min(10);
         let mut select_list = SelectList::new(
             options,
@@ -419,7 +450,7 @@ impl SelectSubmenu {
 }
 
 impl Component for SelectSubmenu {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = self.title.render(width);
         if let Some(description) = &mut self.description {
             lines.extend(Spacer::new(1).render(width));
@@ -430,7 +461,7 @@ impl Component for SelectSubmenu {
         lines.extend(Spacer::new(1).render(width));
         lines.extend(
             Text::new(
-                (get_settings_list_theme().description)("  Enter to select · Esc to go back"),
+                (get_settings_list_theme().description)(&"  Enter to select · Esc to go back".into()),
                 0,
                 0,
             )
@@ -439,7 +470,7 @@ impl Component for SelectSubmenu {
         lines
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.select_list.handle_input(data);
     }
 }
@@ -453,10 +484,10 @@ impl WarningSettingsSubmenu {
     pub fn new(warnings: &WarningSettings, on_change: Rc<dyn Fn(WarningSettings)>, on_cancel: Rc<dyn Fn()>) -> Self {
         let state = RefCell::new(warnings.clone());
         let items = vec![SettingItem {
-            id: "anthropic-extra-usage".to_string(),
-            label: "Anthropic extra usage".to_string(),
-            description: Some("Warn when Anthropic subscription auth may use paid extra usage".to_string()),
-            current_value: bool_value(state.borrow().anthropic_extra_usage.unwrap_or(true)).to_string(),
+            id: "anthropic-extra-usage".into(),
+            label: "Anthropic extra usage".into(),
+            description: Some("Warn when Anthropic subscription auth may use paid extra usage".into()),
+            current_value: bool_value(state.borrow().anthropic_extra_usage.unwrap_or(true)).into(),
             values: Some(bool_values()),
             submenu: None,
         }];
@@ -464,7 +495,7 @@ impl WarningSettingsSubmenu {
             items,
             items_len(1),
             get_settings_list_theme(),
-            Rc::new(move |id: &str, new_value: &str| {
+            Rc::new(move |id: &JsString, new_value: &JsString| {
                 if id == "anthropic-extra-usage" {
                     let mut state = state.borrow_mut();
                     state.anthropic_extra_usage = Some(new_value == "true");
@@ -483,11 +514,11 @@ fn items_len(len: usize) -> usize {
 }
 
 impl Component for WarningSettingsSubmenu {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.settings_list.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.settings_list.handle_input(data);
     }
 }
@@ -501,10 +532,10 @@ pub struct ThemeSubmenu {
     needs_single_rebuild: Rc<std::cell::Cell<bool>>,
     needs_automatic_rebuild: Rc<std::cell::Cell<bool>>,
     callbacks: Rc<SettingsCallbacks>,
-    available_themes: Vec<String>,
+    available_themes: Vec<JsString>,
     terminal_theme: TerminalTheme,
     on_done: ThemeDoneFn,
-    original_theme_setting: String,
+    original_theme_setting: JsString,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -515,23 +546,23 @@ enum ThemeMode {
 
 struct ThemeState {
     mode: ThemeMode,
-    single_theme: String,
-    light_theme: String,
-    dark_theme: String,
+    single_theme: JsString,
+    light_theme: JsString,
+    dark_theme: JsString,
 }
 
-fn theme_setting(state: &ThemeState) -> String {
+fn theme_setting(state: &ThemeState) -> JsString {
     match state.mode {
         ThemeMode::Automatic => automatic_setting(state),
         ThemeMode::Single => state.single_theme.clone(),
     }
 }
 
-fn automatic_setting(state: &ThemeState) -> String {
-    format!("{}/{}", state.light_theme, state.dark_theme)
+fn automatic_setting(state: &ThemeState) -> JsString {
+    js_format!("{}/{}", state.light_theme, state.dark_theme)
 }
 
-fn active_automatic_theme(state: &ThemeState, terminal_theme: TerminalTheme) -> String {
+fn active_automatic_theme(state: &ThemeState, terminal_theme: TerminalTheme) -> JsString {
     if terminal_theme == TerminalTheme::Light {
         state.light_theme.clone()
     } else {
@@ -541,9 +572,9 @@ fn active_automatic_theme(state: &ThemeState, terminal_theme: TerminalTheme) -> 
 
 impl ThemeSubmenu {
     pub fn new(
-        current_theme_setting: &str,
+        current_theme_setting: &JsString,
         terminal_theme: TerminalTheme,
-        available_themes: Vec<String>,
+        available_themes: Vec<JsString>,
         callbacks: Rc<SettingsCallbacks>,
         on_done: ThemeDoneFn,
     ) -> Self {
@@ -569,7 +600,7 @@ impl ThemeSubmenu {
         let single_theme = preferred_theme(
             &available_themes,
             fixed_theme.or(if auto_theme.is_some() {
-                Some(active_automatic.as_str())
+                Some(&active_automatic)
             } else {
                 None
             }),
@@ -607,7 +638,7 @@ impl ThemeSubmenu {
             available_themes,
             terminal_theme,
             on_done,
-            original_theme_setting: current_theme_setting.to_string(),
+            original_theme_setting: current_theme_setting.into(),
         };
         submenu.rebuild_single_list();
         submenu.rebuild_automatic_list();
@@ -691,16 +722,16 @@ impl ThemeSubmenu {
         let current = state.borrow();
         let items = vec![
             SettingItem {
-                id: "light-theme".to_string(),
-                label: "Light theme".to_string(),
-                description: Some("Theme to use in automatic mode when the terminal is light".to_string()),
+                id: "light-theme".into(),
+                label: "Light theme".into(),
+                description: Some("Theme to use in automatic mode when the terminal is light".into()),
                 current_value: current.light_theme.clone(),
                 values: None,
                 submenu: Some(Rc::new({
                     let state = state.clone();
                     let callbacks = callbacks.clone();
                     let available_themes = available_themes.clone();
-                    move |current_value: &str, done: SubmenuDone| {
+                    move |current_value: &JsString, done: SubmenuDone| {
                         let state = state.clone();
                         let callbacks = callbacks.clone();
                         let preview_callbacks = callbacks.clone();
@@ -714,12 +745,12 @@ impl ThemeSubmenu {
                             "Select the theme to use for light terminal appearance",
                             theme_items(&available_themes),
                             current_value,
-                            Rc::new(move |value: &str| {
-                                select_state.borrow_mut().light_theme = value.to_string();
+                            Rc::new(move |value: &JsString| {
+                                select_state.borrow_mut().light_theme = value.into();
                                 if let Some(preview) = &select_callbacks.on_theme_preview {
                                     preview(&theme_setting(&select_state.borrow()));
                                 }
-                                (select_done)(Some(value.to_string()));
+                                (select_done)(Some(value.into()));
                             }),
                             Rc::new(move || {
                                 if let Some(preview) = &cancel_callbacks.on_theme_preview {
@@ -727,7 +758,7 @@ impl ThemeSubmenu {
                                 }
                                 (done_cancel)(None);
                             }),
-                            Some(Rc::new(move |value: &str| {
+                            Some(Rc::new(move |value: &JsString| {
                                 if let Some(preview) = &preview_callbacks.on_theme_preview {
                                     preview(value);
                                 }
@@ -737,16 +768,16 @@ impl ThemeSubmenu {
                 })),
             },
             SettingItem {
-                id: "dark-theme".to_string(),
-                label: "Dark theme".to_string(),
-                description: Some("Theme to use in automatic mode when the terminal is dark".to_string()),
+                id: "dark-theme".into(),
+                label: "Dark theme".into(),
+                description: Some("Theme to use in automatic mode when the terminal is dark".into()),
                 current_value: current.dark_theme.clone(),
                 values: None,
                 submenu: Some(Rc::new({
                     let state = state.clone();
                     let callbacks = callbacks.clone();
                     let available_themes = available_themes.clone();
-                    move |current_value: &str, done: SubmenuDone| {
+                    move |current_value: &JsString, done: SubmenuDone| {
                         let state = state.clone();
                         let callbacks = callbacks.clone();
                         let preview_callbacks = callbacks.clone();
@@ -760,12 +791,12 @@ impl ThemeSubmenu {
                             "Select the theme to use for dark terminal appearance",
                             theme_items(&available_themes),
                             current_value,
-                            Rc::new(move |value: &str| {
-                                select_state.borrow_mut().dark_theme = value.to_string();
+                            Rc::new(move |value: &JsString| {
+                                select_state.borrow_mut().dark_theme = value.into();
                                 if let Some(preview) = &select_callbacks.on_theme_preview {
                                     preview(&theme_setting(&select_state.borrow()));
                                 }
-                                (select_done)(Some(value.to_string()));
+                                (select_done)(Some(value.into()));
                             }),
                             Rc::new(move || {
                                 if let Some(preview) = &cancel_callbacks.on_theme_preview {
@@ -773,7 +804,7 @@ impl ThemeSubmenu {
                                 }
                                 (done_cancel)(None);
                             }),
-                            Some(Rc::new(move |value: &str| {
+                            Some(Rc::new(move |value: &JsString| {
                                 if let Some(preview) = &preview_callbacks.on_theme_preview {
                                     preview(value);
                                 }
@@ -783,19 +814,19 @@ impl ThemeSubmenu {
                 })),
             },
             SettingItem {
-                id: "apply".to_string(),
-                label: "Apply".to_string(),
-                description: Some("Save and go back".to_string()),
-                current_value: "save and go back".to_string(),
-                values: Some(vec!["save and go back".to_string()]),
+                id: "apply".into(),
+                label: "Apply".into(),
+                description: Some("Save and go back".into()),
+                current_value: "save and go back".into(),
+                values: Some(vec!["save and go back".into()]),
                 submenu: None,
             },
             SettingItem {
-                id: "single-mode".to_string(),
-                label: "Change mode".to_string(),
-                description: Some("Switch to one theme for light and dark".to_string()),
-                current_value: "switch to single theme".to_string(),
-                values: Some(vec!["switch to single theme".to_string()]),
+                id: "single-mode".into(),
+                label: "Change mode".into(),
+                description: Some("Switch to one theme for light and dark".into()),
+                current_value: "switch to single theme".into(),
+                values: Some(vec!["switch to single theme".into()]),
                 submenu: None,
             },
         ];
@@ -809,24 +840,29 @@ impl ThemeSubmenu {
             items,
             10,
             get_settings_list_theme(),
-            Rc::new(move |id: &str, _new_value: &str| match id {
-                "single-mode" => {
-                    let mut state = change_state.borrow_mut();
-                    state.mode = ThemeMode::Single;
-                    state.single_theme = active_automatic_theme(&state, terminal_theme);
-                    let setting = state.single_theme.clone();
-                    drop(state);
-                    screen.set(ThemeMode::Single);
-                    needs_single_rebuild.set(true);
-                    if let Some(preview) = &change_callbacks.on_theme_preview {
-                        preview(&setting);
+            Rc::new(move |id: &JsString, _new_value: &JsString| {
+                let Ok(id) = id.to_utf8() else {
+                    return;
+                };
+                match id.as_str() {
+                    "single-mode" => {
+                        let mut state = change_state.borrow_mut();
+                        state.mode = ThemeMode::Single;
+                        state.single_theme = active_automatic_theme(&state, terminal_theme);
+                        let setting = state.single_theme.clone();
+                        drop(state);
+                        screen.set(ThemeMode::Single);
+                        needs_single_rebuild.set(true);
+                        if let Some(preview) = &change_callbacks.on_theme_preview {
+                            preview(&setting);
+                        }
                     }
+                    "apply" => {
+                        let setting = automatic_setting(&change_state.borrow());
+                        (change_on_done)(Some(&setting));
+                    }
+                    _ => {}
                 }
-                "apply" => {
-                    let setting = automatic_setting(&change_state.borrow());
-                    (change_on_done)(Some(&setting));
-                }
-                _ => {}
             }),
             Rc::new(move || {
                 if let Some(preview) = &cancel_callbacks.on_theme_preview {
@@ -843,7 +879,7 @@ impl ThemeSubmenu {
 }
 
 impl Component for ThemeSubmenu {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         if self.needs_single_rebuild.get() {
             self.rebuild_single_list();
         }
@@ -871,7 +907,7 @@ impl Component for ThemeSubmenu {
                 lines.extend(Spacer::new(1).render(width));
                 lines.extend(
                     Text::new(
-                        (get_settings_list_theme().description)("  Enter to select · Esc to go back"),
+                        (get_settings_list_theme().description)(&"  Enter to select · Esc to go back".into()),
                         0,
                         0,
                     )
@@ -909,7 +945,7 @@ impl Component for ThemeSubmenu {
         }
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         if self.screen.get() != self.state.borrow().mode {
             self.screen.set(self.state.borrow().mode);
         }
@@ -937,10 +973,10 @@ impl SettingsSelectorComponent {
             items.insert(
                 1,
                 SettingItem {
-                    id: "show-images".to_string(),
-                    label: "Show images".to_string(),
-                    description: Some("Render images inline in terminal".to_string()),
-                    current_value: bool_value(config.show_images).to_string(),
+                    id: "show-images".into(),
+                    label: "Show images".into(),
+                    description: Some("Render images inline in terminal".into()),
+                    current_value: bool_value(config.show_images).into(),
                     values: Some(bool_values()),
                     submenu: None,
                 },
@@ -948,11 +984,11 @@ impl SettingsSelectorComponent {
             items.insert(
                 2,
                 SettingItem {
-                    id: "image-width-cells".to_string(),
-                    label: "Image width".to_string(),
-                    description: Some("Preferred inline image width in terminal cells".to_string()),
-                    current_value: config.image_width_cells.to_string(),
-                    values: Some(vec!["60".to_string(), "80".to_string(), "120".to_string()]),
+                    id: "image-width-cells".into(),
+                    label: "Image width".into(),
+                    description: Some("Preferred inline image width in terminal cells".into()),
+                    current_value: js_format!("{}", config.image_width_cells),
+                    values: Some(vec!["60".into(), "80".into(), "120".into()]),
                     submenu: None,
                 },
             );
@@ -962,10 +998,10 @@ impl SettingsSelectorComponent {
         items.insert(
             auto_resize_index,
             SettingItem {
-                id: "auto-resize-images".to_string(),
-                label: "Auto-resize images".to_string(),
-                description: Some("Resize large images to 2000x2000 max for better model compatibility".to_string()),
-                current_value: bool_value(config.auto_resize_images).to_string(),
+                id: "auto-resize-images".into(),
+                label: "Auto-resize images".into(),
+                description: Some("Resize large images to 2000x2000 max for better model compatibility".into()),
+                current_value: bool_value(config.auto_resize_images).into(),
                 values: Some(bool_values()),
                 submenu: None,
             },
@@ -974,10 +1010,10 @@ impl SettingsSelectorComponent {
             &mut items,
             "auto-resize-images",
             SettingItem {
-                id: "block-images".to_string(),
-                label: "Block images".to_string(),
-                description: Some("Prevent images from being sent to LLM providers".to_string()),
-                current_value: bool_value(config.block_images).to_string(),
+                id: "block-images".into(),
+                label: "Block images".into(),
+                description: Some("Prevent images from being sent to LLM providers".into()),
+                current_value: bool_value(config.block_images).into(),
                 values: Some(bool_values()),
                 submenu: None,
             },
@@ -986,10 +1022,10 @@ impl SettingsSelectorComponent {
             &mut items,
             "block-images",
             SettingItem {
-                id: "skill-commands".to_string(),
-                label: "Skill commands".to_string(),
-                description: Some("Register skills as /skill:name commands".to_string()),
-                current_value: bool_value(config.enable_skill_commands).to_string(),
+                id: "skill-commands".into(),
+                label: "Skill commands".into(),
+                description: Some("Register skills as /skill:name commands".into()),
+                current_value: bool_value(config.enable_skill_commands).into(),
                 values: Some(bool_values()),
                 submenu: None,
             },
@@ -998,10 +1034,10 @@ impl SettingsSelectorComponent {
             &mut items,
             "skill-commands",
             SettingItem {
-                id: "show-hardware-cursor".to_string(),
-                label: "Show hardware cursor".to_string(),
-                description: Some("Show the terminal cursor while still positioning it for IME support".to_string()),
-                current_value: bool_value(config.show_hardware_cursor).to_string(),
+                id: "show-hardware-cursor".into(),
+                label: "Show hardware cursor".into(),
+                description: Some("Show the terminal cursor while still positioning it for IME support".into()),
+                current_value: bool_value(config.show_hardware_cursor).into(),
                 values: Some(bool_values()),
                 submenu: None,
             },
@@ -1010,11 +1046,11 @@ impl SettingsSelectorComponent {
             &mut items,
             "show-hardware-cursor",
             SettingItem {
-                id: "editor-padding".to_string(),
-                label: "Editor padding".to_string(),
-                description: Some("Horizontal padding for input editor (0-3)".to_string()),
-                current_value: config.editor_padding_x.to_string(),
-                values: Some(vec!["0".to_string(), "1".to_string(), "2".to_string(), "3".to_string()]),
+                id: "editor-padding".into(),
+                label: "Editor padding".into(),
+                description: Some("Horizontal padding for input editor (0-3)".into()),
+                current_value: js_format!("{}", config.editor_padding_x),
+                values: Some(vec!["0".into(), "1".into(), "2".into(), "3".into()]),
                 submenu: None,
             },
         );
@@ -1022,11 +1058,11 @@ impl SettingsSelectorComponent {
             &mut items,
             "editor-padding",
             SettingItem {
-                id: "output-padding".to_string(),
-                label: "Output padding".to_string(),
-                description: Some("Horizontal padding for user messages, assistant messages, and thinking".to_string()),
-                current_value: config.output_pad.to_string(),
-                values: Some(vec!["0".to_string(), "1".to_string()]),
+                id: "output-padding".into(),
+                label: "Output padding".into(),
+                description: Some("Horizontal padding for user messages, assistant messages, and thinking".into()),
+                current_value: js_format!("{}", config.output_pad),
+                values: Some(vec!["0".into(), "1".into()]),
                 submenu: None,
             },
         );
@@ -1034,17 +1070,17 @@ impl SettingsSelectorComponent {
             &mut items,
             "output-padding",
             SettingItem {
-                id: "autocomplete-max-visible".to_string(),
-                label: "Autocomplete max items".to_string(),
-                description: Some("Max visible items in autocomplete dropdown (3-20)".to_string()),
-                current_value: config.autocomplete_max_visible.to_string(),
+                id: "autocomplete-max-visible".into(),
+                label: "Autocomplete max items".into(),
+                description: Some("Max visible items in autocomplete dropdown (3-20)".into()),
+                current_value: js_format!("{}", config.autocomplete_max_visible),
                 values: Some(vec![
-                    "3".to_string(),
-                    "5".to_string(),
-                    "7".to_string(),
-                    "10".to_string(),
-                    "15".to_string(),
-                    "20".to_string(),
+                    "3".into(),
+                    "5".into(),
+                    "7".into(),
+                    "10".into(),
+                    "15".into(),
+                    "20".into(),
                 ]),
                 submenu: None,
             },
@@ -1053,10 +1089,10 @@ impl SettingsSelectorComponent {
             &mut items,
             "autocomplete-max-visible",
             SettingItem {
-                id: "clear-on-shrink".to_string(),
-                label: "Clear on shrink".to_string(),
-                description: Some("Clear empty rows when content shrinks (may cause flicker)".to_string()),
-                current_value: bool_value(config.clear_on_shrink).to_string(),
+                id: "clear-on-shrink".into(),
+                label: "Clear on shrink".into(),
+                description: Some("Clear empty rows when content shrinks (may cause flicker)".into()),
+                current_value: bool_value(config.clear_on_shrink).into(),
                 values: Some(bool_values()),
                 submenu: None,
             },
@@ -1065,10 +1101,10 @@ impl SettingsSelectorComponent {
             &mut items,
             "clear-on-shrink",
             SettingItem {
-                id: "terminal-progress".to_string(),
-                label: "Terminal progress".to_string(),
-                description: Some("Show OSC 9;4 progress indicators in the terminal tab bar".to_string()),
-                current_value: bool_value(config.show_terminal_progress).to_string(),
+                id: "terminal-progress".into(),
+                label: "Terminal progress".into(),
+                description: Some("Show OSC 9;4 progress indicators in the terminal tab bar".into()),
+                current_value: bool_value(config.show_terminal_progress).into(),
                 values: Some(bool_values()),
                 submenu: None,
             },
@@ -1095,14 +1131,14 @@ impl SettingsSelectorComponent {
 }
 
 impl Component for SettingsSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = dynamic_border().render(width);
         lines.extend(self.settings_list.render(width));
         lines.extend(dynamic_border().render(width));
         lines
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.settings_list.handle_input(data);
     }
 
@@ -1120,7 +1156,7 @@ fn insert_after(items: &mut Vec<SettingItem>, after_id: &str, item: SettingItem)
 fn base_items(
     config: &SettingsConfig,
     callbacks: &Rc<SettingsCallbacks>,
-    follow_up_key: &str,
+    follow_up_key: &JsString,
     current_warnings: Rc<RefCell<WarningSettings>>,
 ) -> Vec<SettingItem> {
     let callbacks_for_warnings = callbacks.clone();
@@ -1132,150 +1168,150 @@ fn base_items(
     let thinking_levels = config.available_thinking_levels.clone();
     vec![
         SettingItem {
-            id: "autocompact".to_string(),
-            label: "Auto-compact".to_string(),
-            description: Some("Automatically compact context when it gets too large".to_string()),
-            current_value: bool_value(config.auto_compact).to_string(),
+            id: "autocompact".into(),
+            label: "Auto-compact".into(),
+            description: Some("Automatically compact context when it gets too large".into()),
+            current_value: bool_value(config.auto_compact).into(),
             values: Some(bool_values()),
             submenu: None,
         },
         SettingItem {
-            id: "steering-mode".to_string(),
-            label: "Steering mode".to_string(),
+            id: "steering-mode".into(),
+            label: "Steering mode".into(),
             description: Some(
                 "Enter while streaming queues steering messages. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once."
-                    .to_string(),
+                    .into(),
             ),
-            current_value: config.steering_mode.as_str().to_string(),
-            values: Some(vec!["one-at-a-time".to_string(), "all".to_string()]),
+            current_value: config.steering_mode.as_str().into(),
+            values: Some(vec!["one-at-a-time".into(), "all".into()]),
             submenu: None,
         },
         SettingItem {
-            id: "follow-up-mode".to_string(),
-            label: "Follow-up mode".to_string(),
-            description: Some(format!(
-                "{follow_up_key} queues follow-up messages until agent stops. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once."
+            id: "follow-up-mode".into(),
+            label: "Follow-up mode".into(),
+            description: Some(js_format!(
+                "{} queues follow-up messages until agent stops. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once.", follow_up_key
             )),
-            current_value: config.follow_up_mode.as_str().to_string(),
-            values: Some(vec!["one-at-a-time".to_string(), "all".to_string()]),
+            current_value: config.follow_up_mode.as_str().into(),
+            values: Some(vec!["one-at-a-time".into(), "all".into()]),
             submenu: None,
         },
         SettingItem {
-            id: "transport".to_string(),
-            label: "Transport".to_string(),
-            description: Some("Preferred transport for providers that support multiple transports".to_string()),
-            current_value: transport_name(config.transport).to_string(),
+            id: "transport".into(),
+            label: "Transport".into(),
+            description: Some("Preferred transport for providers that support multiple transports".into()),
+            current_value: transport_name(config.transport).into(),
             values: Some(vec![
-                "sse".to_string(),
-                "websocket".to_string(),
-                "websocket-cached".to_string(),
-                "auto".to_string(),
+                "sse".into(),
+                "websocket".into(),
+                "websocket-cached".into(),
+                "auto".into(),
             ]),
             submenu: None,
         },
         SettingItem {
-            id: "http-idle-timeout".to_string(),
-            label: "HTTP idle timeout".to_string(),
+            id: "http-idle-timeout".into(),
+            label: "HTTP idle timeout".into(),
             description: Some(
                 "Maximum idle gap while waiting for HTTP headers or body chunks. Disable for local models that pause longer than five minutes."
-                    .to_string(),
+                    .into(),
             ),
-            current_value: format_http_idle_timeout_ms(config.http_idle_timeout_ms),
+            current_value: format_http_idle_timeout_ms(config.http_idle_timeout_ms).into(),
             values: Some(
                 HTTP_IDLE_TIMEOUT_CHOICES
                     .iter()
-                    .map(|(label, _)| (*label).to_string())
+                    .map(|(label, _)| (*label).into())
                     .collect(),
             ),
             submenu: None,
         },
         SettingItem {
-            id: "hide-thinking".to_string(),
-            label: "Hide thinking".to_string(),
-            description: Some("Hide thinking blocks in assistant responses".to_string()),
-            current_value: bool_value(config.hide_thinking_block).to_string(),
+            id: "hide-thinking".into(),
+            label: "Hide thinking".into(),
+            description: Some("Hide thinking blocks in assistant responses".into()),
+            current_value: bool_value(config.hide_thinking_block).into(),
             values: Some(bool_values()),
             submenu: None,
         },
         SettingItem {
-            id: "mermaid-rendering".to_string(),
-            label: "Mermaid diagrams".to_string(),
-            description: Some("Render Mermaid code blocks as Unicode diagrams".to_string()),
-            current_value: mermaid_name(config.mermaid_rendering_mode).to_string(),
-            values: Some(vec!["off".to_string(), "final".to_string(), "streaming".to_string()]),
+            id: "mermaid-rendering".into(),
+            label: "Mermaid diagrams".into(),
+            description: Some("Render Mermaid code blocks as Unicode diagrams".into()),
+            current_value: mermaid_name(config.mermaid_rendering_mode).into(),
+            values: Some(vec!["off".into(), "final".into(), "streaming".into()]),
             submenu: None,
         },
         SettingItem {
-            id: "cache-miss-notices".to_string(),
-            label: "Cache miss notices".to_string(),
-            description: Some("Show transcript notices for significant prompt-cache misses".to_string()),
-            current_value: bool_value(config.show_cache_miss_notices).to_string(),
+            id: "cache-miss-notices".into(),
+            label: "Cache miss notices".into(),
+            description: Some("Show transcript notices for significant prompt-cache misses".into()),
+            current_value: bool_value(config.show_cache_miss_notices).into(),
             values: Some(bool_values()),
             submenu: None,
         },
         SettingItem {
-            id: "collapse-changelog".to_string(),
-            label: "Collapse changelog".to_string(),
-            description: Some("Show condensed changelog after updates".to_string()),
-            current_value: bool_value(config.collapse_changelog).to_string(),
+            id: "collapse-changelog".into(),
+            label: "Collapse changelog".into(),
+            description: Some("Show condensed changelog after updates".into()),
+            current_value: bool_value(config.collapse_changelog).into(),
             values: Some(bool_values()),
             submenu: None,
         },
         SettingItem {
-            id: "quiet-startup".to_string(),
-            label: "Quiet startup".to_string(),
-            description: Some("Disable verbose printing at startup".to_string()),
-            current_value: bool_value(config.quiet_startup).to_string(),
+            id: "quiet-startup".into(),
+            label: "Quiet startup".into(),
+            description: Some("Disable verbose printing at startup".into()),
+            current_value: bool_value(config.quiet_startup).into(),
             values: Some(bool_values()),
             submenu: None,
         },
         SettingItem {
-            id: "install-telemetry".to_string(),
-            label: "Install telemetry".to_string(),
-            description: Some("Send an anonymous version/update ping after changelog-detected updates".to_string()),
-            current_value: bool_value(config.enable_install_telemetry).to_string(),
+            id: "install-telemetry".into(),
+            label: "Install telemetry".into(),
+            description: Some("Send an anonymous version/update ping after changelog-detected updates".into()),
+            current_value: bool_value(config.enable_install_telemetry).into(),
             values: Some(bool_values()),
             submenu: None,
         },
         SettingItem {
-            id: "default-project-trust".to_string(),
-            label: "Default project trust".to_string(),
+            id: "default-project-trust".into(),
+            label: "Default project trust".into(),
             description: Some(
-                "Fallback behavior when no extension or saved trust decision decides project trust".to_string(),
+                "Fallback behavior when no extension or saved trust decision decides project trust".into(),
             ),
-            current_value: default_project_trust_label(config.default_project_trust).to_string(),
+            current_value: default_project_trust_label(config.default_project_trust).into(),
             values: Some(default_project_trust_labels()),
             submenu: None,
         },
         SettingItem {
-            id: "double-escape-action".to_string(),
-            label: "Double-escape action".to_string(),
-            description: Some("Action when pressing Escape twice with empty editor".to_string()),
-            current_value: double_escape_name(config.double_escape_action).to_string(),
-            values: Some(vec!["tree".to_string(), "fork".to_string(), "none".to_string()]),
+            id: "double-escape-action".into(),
+            label: "Double-escape action".into(),
+            description: Some("Action when pressing Escape twice with empty editor".into()),
+            current_value: double_escape_name(config.double_escape_action).into(),
+            values: Some(vec!["tree".into(), "fork".into(), "none".into()]),
             submenu: None,
         },
         SettingItem {
-            id: "tree-filter-mode".to_string(),
-            label: "Tree filter mode".to_string(),
-            description: Some("Default filter when opening /tree".to_string()),
-            current_value: tree_filter_name(config.tree_filter_mode).to_string(),
+            id: "tree-filter-mode".into(),
+            label: "Tree filter mode".into(),
+            description: Some("Default filter when opening /tree".into()),
+            current_value: tree_filter_name(config.tree_filter_mode).into(),
             values: Some(vec![
-                "default".to_string(),
-                "no-tools".to_string(),
-                "user-only".to_string(),
-                "labeled-only".to_string(),
-                "all".to_string(),
+                "default".into(),
+                "no-tools".into(),
+                "user-only".into(),
+                "labeled-only".into(),
+                "all".into(),
             ]),
             submenu: None,
         },
         SettingItem {
-            id: "warnings".to_string(),
-            label: "Warnings".to_string(),
-            description: Some("Enable or disable individual warnings".to_string()),
-            current_value: "configure".to_string(),
+            id: "warnings".into(),
+            label: "Warnings".into(),
+            description: Some("Enable or disable individual warnings".into()),
+            current_value: "configure".into(),
             values: None,
-            submenu: Some(Rc::new(move |_current: &str, done: SubmenuDone| {
+            submenu: Some(Rc::new(move |_current: &JsString, done: SubmenuDone| {
                 let warnings = current_warnings.borrow().clone();
                 let on_change = callbacks_for_warnings.on_warnings_change.clone();
                 component(WarningSettingsSubmenu::new(
@@ -1289,12 +1325,12 @@ fn base_items(
             })),
         },
         SettingItem {
-            id: "thinking".to_string(),
-            label: "Thinking level".to_string(),
-            description: Some("Reasoning depth for thinking-capable models".to_string()),
-            current_value: config.thinking_level.as_str().to_string(),
+            id: "thinking".into(),
+            label: "Thinking level".into(),
+            description: Some("Reasoning depth for thinking-capable models".into()),
+            current_value: config.thinking_level.as_str().into(),
             values: None,
-            submenu: Some(Rc::new(move |current_value: &str, done: SubmenuDone| {
+            submenu: Some(Rc::new(move |current_value: &JsString, done: SubmenuDone| {
                 let options: Vec<SelectItem> = thinking_levels
                     .iter()
                     .map(|level| {
@@ -1309,10 +1345,10 @@ fn base_items(
                     "Select reasoning depth for thinking-capable models",
                     options,
                     current_value,
-                    Rc::new(move |value: &str| {
-                        if let Some(level) = thinking_levels.iter().find(|level| level.as_str() == value) {
+                    Rc::new(move |value: &JsString| {
+                        if let Some(level) = thinking_levels.iter().find(|level| value == level.as_str()) {
                             on_change(*level);
-                            done_for_select(Some(value.to_string()));
+                            done_for_select(Some(value.into()));
                         }
                     }),
                     {
@@ -1324,38 +1360,38 @@ fn base_items(
             })),
         },
         SettingItem {
-            id: "tui-mode".to_string(),
-            label: "TUI mode".to_string(),
-            description: Some("Interface layout; fullscreen mode is experimental".to_string()),
-            current_value: tui_mode_name(config.tui_mode).to_string(),
-            values: Some(vec!["regular".to_string(), "fullscreen".to_string()]),
+            id: "tui-mode".into(),
+            label: "TUI mode".into(),
+            description: Some("Interface layout; fullscreen mode is experimental".into()),
+            current_value: tui_mode_name(config.tui_mode).into(),
+            values: Some(vec!["regular".into(), "fullscreen".into()]),
             submenu: None,
         },
         SettingItem {
-            id: "fullscreen-exit-output".to_string(),
-            label: "Fullscreen exit output".to_string(),
+            id: "fullscreen-exit-output".into(),
+            label: "Fullscreen exit output".into(),
             description: Some(
-                "Print the transcript or only a session resume hint when exiting fullscreen mode".to_string(),
+                "Print the transcript or only a session resume hint when exiting fullscreen mode".into(),
             ),
-            current_value: fullscreen_exit_name(config.fullscreen_exit_output).to_string(),
-            values: Some(vec!["transcript".to_string(), "resume-hint".to_string()]),
+            current_value: fullscreen_exit_name(config.fullscreen_exit_output).into(),
+            values: Some(vec!["transcript".into(), "resume-hint".into()]),
             submenu: None,
         },
         SettingItem {
-            id: "fullscreen-scrollbar".to_string(),
-            label: "Fullscreen scrollbar".to_string(),
-            description: Some("Scrollbar behavior in fullscreen mode; has no effect in regular mode".to_string()),
-            current_value: scrollbar_name(config.fullscreen_scrollbar).to_string(),
-            values: Some(vec!["auto".to_string(), "always".to_string(), "hidden".to_string()]),
+            id: "fullscreen-scrollbar".into(),
+            label: "Fullscreen scrollbar".into(),
+            description: Some("Scrollbar behavior in fullscreen mode; has no effect in regular mode".into()),
+            current_value: scrollbar_name(config.fullscreen_scrollbar).into(),
+            values: Some(vec!["auto".into(), "always".into(), "hidden".into()]),
             submenu: None,
         },
         SettingItem {
-            id: "theme".to_string(),
-            label: "Theme".to_string(),
-            description: Some("Color theme for the interface".to_string()),
+            id: "theme".into(),
+            label: "Theme".into(),
+            description: Some("Color theme for the interface".into()),
             current_value: current_theme.clone(),
             values: None,
-            submenu: Some(Rc::new(move |current_value: &str, done: SubmenuDone| {
+            submenu: Some(Rc::new(move |current_value: &JsString, done: SubmenuDone| {
                 let callbacks = callbacks_for_theme.clone();
                 let on_done = done.clone();
                 let submenu = ThemeSubmenu::new(
@@ -1363,7 +1399,7 @@ fn base_items(
                     terminal_theme,
                     config_available_themes.clone(),
                     callbacks,
-                    Rc::new(move |value: Option<&str>| on_done(value.map(str::to_string))),
+                    Rc::new(move |value: Option<&JsString>| on_done(value.cloned())),
                 );
                 component(submenu)
             })),
@@ -1372,15 +1408,15 @@ fn base_items(
 }
 
 fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandler {
-    Rc::new(move |id: &str, new_value: &str| {
+    Rc::new(move |id: &JsString, new_value: &JsString| {
         let boolean = new_value == "true";
-        match id {
+        let Ok(id) = id.to_utf8() else {
+            return;
+        };
+        match id.as_str() {
             "autocompact" => (callbacks.on_auto_compact_change)(boolean),
             "show-images" => (callbacks.on_show_images_change)(boolean),
-            "image-width-cells" => (callbacks.on_image_width_cells_change)(parse_int(
-                &new_value.encode_utf16().collect::<Vec<_>>(),
-                10,
-            ) as i64),
+            "image-width-cells" => (callbacks.on_image_width_cells_change)(parse_int(new_value.units(), 10) as i64),
             "auto-resize-images" => (callbacks.on_auto_resize_images_change)(boolean),
             "block-images" => (callbacks.on_block_images_change)(boolean),
             "skill-commands" => (callbacks.on_enable_skill_commands_change)(boolean),
@@ -1400,7 +1436,7 @@ fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandl
                 }
             }
             "http-idle-timeout" => {
-                if let Some((_, timeout_ms)) = HTTP_IDLE_TIMEOUT_CHOICES.iter().find(|(label, _)| *label == new_value) {
+                if let Some((_, timeout_ms)) = HTTP_IDLE_TIMEOUT_CHOICES.iter().find(|(label, _)| new_value == *label) {
                     (callbacks.on_http_idle_timeout_ms_change)(*timeout_ms);
                 }
             }
@@ -1430,16 +1466,10 @@ fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandl
                 }
             }
             "show-hardware-cursor" => (callbacks.on_show_hardware_cursor_change)(boolean),
-            "editor-padding" => (callbacks.on_editor_padding_x_change)(parse_int(
-                &new_value.encode_utf16().collect::<Vec<_>>(),
-                10,
-            ) as i64),
+            "editor-padding" => (callbacks.on_editor_padding_x_change)(parse_int(new_value.units(), 10) as i64),
             "output-padding" => (callbacks.on_output_pad_change)(if new_value == "0" { 0 } else { 1 }),
             "autocomplete-max-visible" => {
-                (callbacks.on_autocomplete_max_visible_change)(parse_int(
-                    &new_value.encode_utf16().collect::<Vec<_>>(),
-                    10,
-                ) as i64);
+                (callbacks.on_autocomplete_max_visible_change)(parse_int(new_value.units(), 10) as i64);
             }
             "clear-on-shrink" => (callbacks.on_clear_on_shrink_change)(boolean),
             "terminal-progress" => (callbacks.on_show_terminal_progress_change)(boolean),

@@ -8,10 +8,18 @@ use pi_coding_agent::modes::interactive::components::{
     extension_editor::{ExtensionEditorComponent, ExtensionEditorHost},
     extension_input::{ExtensionInputComponent, ExtensionInputOptions},
     extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions},
+    settings_selector::SelectSubmenu,
 };
 use pi_js_compat::js_json::{JsString, parse_lossless};
 use pi_tui::tui::Component;
 use serde_json::json;
+
+fn initialize_theme() {
+    use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme, set_theme_instance};
+    let colors = ["accent", "text", "muted", "dim", "border"].map(|name| (JsString::from(name), ColorValue::Index(0)));
+    let theme = Theme::new(&colors, &[], ColorMode::Color256, None, None).unwrap();
+    set_theme_instance(std::sync::Arc::new(theme));
+}
 
 struct EditorHost;
 
@@ -42,7 +50,33 @@ impl ExtensionEditorHost for EditorHost {
 }
 
 #[test]
+fn settings_submenu_retains_raw_title_options_and_selection_callback() {
+    initialize_theme();
+    for raw in [
+        JsString::from_utf16(vec![0xd800]),
+        JsString::from_utf16(vec![0xdc00]),
+        JsString::from("😀"),
+    ] {
+        let values = Rc::new(RefCell::new(Vec::new()));
+        let selected = Rc::clone(&values);
+        let mut submenu = SelectSubmenu::new(
+            &raw,
+            &raw,
+            vec![pi_tui::SelectItem::new(&raw, &raw)],
+            &raw,
+            Rc::new(move |value| selected.borrow_mut().push(value.clone())),
+            Rc::new(|| {}),
+            None,
+        );
+        assert!(submenu.render(40).iter().any(|line| line.contains(&raw)));
+        submenu.handle_input(&"\r".into());
+        assert_eq!(*values.borrow(), vec![raw]);
+    }
+}
+
+#[test]
 fn custom_editor_native_history_input_and_shortcuts_match_frozen_source() {
+    initialize_theme();
     let mut oracle = oracle::TsOracle::spawn("raw-coding-tui-oracle.ts", "packages/coding-agent/src");
     for raw in [
         JsString::from_utf16(vec![0xd800]),
@@ -79,6 +113,7 @@ fn custom_editor_native_history_input_and_shortcuts_match_frozen_source() {
 
 #[test]
 fn extension_editor_preserves_raw_prefill_and_submission() {
+    initialize_theme();
     for raw in [
         JsString::from_utf16(vec![0xd800]),
         JsString::from_utf16(vec![0xdc00]),
@@ -104,6 +139,7 @@ fn extension_editor_preserves_raw_prefill_and_submission() {
 
 #[test]
 fn native_extension_dialog_rendering_and_callbacks_match_frozen_source() {
+    initialize_theme();
     let mut oracle = oracle::TsOracle::spawn("raw-coding-tui-oracle.ts", "packages/coding-agent/src");
     for raw in [
         JsString::from_utf16(vec![0xd800]),
@@ -156,6 +192,7 @@ fn native_extension_dialog_rendering_and_callbacks_match_frozen_source() {
 
 #[test]
 fn extension_dialogs_preserve_native_titles_options_and_submitted_values() {
+    initialize_theme();
     for raw in [
         JsString::from_utf16(vec![0xd800]),
         JsString::from_utf16(vec![0xdc00]),
