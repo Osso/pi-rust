@@ -1,13 +1,12 @@
 //! `end_turn` tool (`core/tools/end-turn.ts`).
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::sync::OnceLock;
 
 use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
-use pi_js_compat::string::js_trim;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -28,7 +27,7 @@ pub const PROMPT_GUIDELINES: [&str; 3] = [
 
 #[derive(Debug, Deserialize)]
 struct EndTurnParams {
-    reason: String,
+    reason: JsString,
 }
 
 /// `createEndTurnToolDefinition()`.
@@ -90,12 +89,12 @@ impl AgentHarnessTool<ExtensionContext> for EndTurnTool {
         Box::pin(async move {
             let params: EndTurnParams =
                 pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
-            if js_trim(&params.reason).is_empty() {
+            if params.reason.trim().is_empty() {
                 return Err(ToolError::new("end_turn reason must be a non-empty string"));
             }
             Ok(terminating_text_result(
-                format!("Turn ended: {}", params.reason),
-                json!({ "reason": params.reason }),
+                pi_js_compat::js_format!("Turn ended: {}", params.reason),
+                pi_js_compat::js_json!({ "reason": params.reason }),
             ))
         })
     }
