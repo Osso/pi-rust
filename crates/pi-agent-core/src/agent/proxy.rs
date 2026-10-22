@@ -172,9 +172,9 @@ pub struct ProxyStreamOptions {
     /// Local abort signal for the proxy request.
     pub signal: Option<CancellationToken>,
     /// Auth token for the proxy server.
-    pub auth_token: String,
+    pub auth_token: JsString,
     /// Proxy server URL (for example `https://genai.example.com`).
-    pub proxy_url: String,
+    pub proxy_url: JsString,
     /// HTTP implementation; defaults to the shared reqwest client.
     pub fetch: Option<Arc<dyn Fetch>>,
 }
@@ -256,9 +256,10 @@ async fn proxy_events(
 
     let request = HttpRequest {
         method: "POST".to_owned(),
-        url: format!("{}/api/stream", options.proxy_url),
+        url: pi_ai::request::request_url(&(options.proxy_url.clone() + "/api/stream"))
+            .map_err(|error| error.message)?,
         headers: vec![
-            ("Authorization".to_owned(), format!("Bearer {}", options.auth_token)),
+            ("Authorization".to_owned(), authorization_header(&options.auth_token)?),
             ("Content-Type".to_owned(), "application/json".to_owned()),
         ],
         body: Some(body),
@@ -312,6 +313,18 @@ async fn read_proxy_chunk(
         () = signal.cancelled() => Some(Err(CallbackError::new("Request aborted by user"))),
         chunk = body.next_chunk() => chunk,
     }
+}
+
+fn authorization_header(token: &JsString) -> Result<String, JsString> {
+    let value = pi_ai::request::header_value(&(JsString::from("Bearer ") + token)).map_err(|error| error.message)?;
+    let value = value.trim_matches([' ', '\t', '\r', '\n']);
+    if value.contains(['\0', '\r', '\n']) {
+        return Err(pi_js_compat::js_format!(
+            "Headers.append: \"{}\" is an invalid header value.",
+            value
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 fn proxy_error_message(status: u16, status_text: &str, body: &[u8]) -> JsString {
@@ -673,7 +686,21 @@ fn build_proxy_request_options(options: &SimpleStreamOptions) -> Result<JsValue,
     insert_some(&mut object, "reasoning", options.reasoning)?;
     insert_some(&mut object, "cacheRetention", stream.cache_retention)?;
     insert_some(&mut object, "sessionId", stream.session_id.clone())?;
-    insert_some(&mut object, "headers", stream.request.headers.clone())?;
+    if let Some(headers) = &stream.request.headers {
+        object.insert(
+            "headers".into(),
+            JsValue::Object(
+                headers
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        value
+                            .as_ref()
+                            .map(|value| (key.clone().into(), JsValue::String(value.clone())))
+                    })
+                    .collect(),
+            ),
+        );
+    }
     if let Some(metadata) = &stream.metadata {
         object.insert("metadata".into(), JsValue::Object(metadata.clone()));
     }
