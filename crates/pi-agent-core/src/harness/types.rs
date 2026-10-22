@@ -471,10 +471,8 @@ pub type ShellOutputHandler = dyn Fn(&str) -> Result<(), JsString> + Send + Sync
 pub struct ShellExecOptions {
     /// Working directory for the command; relative paths resolve against [`FileSystem::cwd`].
     pub cwd: Option<JsString>,
-    /// Environment variables that override inherited defaults when `inherit_env` is `true`.
+    /// Environment variables overriding process and configured shell defaults.
     pub env: Option<HashMap<String, String>>,
-    /// Whether to inherit the execution environment's default variables. Defaults to `true`.
-    pub inherit_env: Option<bool>,
     /// Timeout in seconds. No timeout when absent.
     pub timeout: Option<f64>,
     /// Cancellation token used to terminate the command.
@@ -491,7 +489,6 @@ impl std::fmt::Debug for ShellExecOptions {
             .debug_struct("ShellExecOptions")
             .field("cwd", &self.cwd)
             .field("env", &self.env)
-            .field("inherit_env", &self.inherit_env)
             .field("timeout", &self.timeout)
             .field("abort", &self.abort)
             .field("on_stdout", &self.on_stdout.as_ref().map(|_| "<callback>"))
@@ -553,12 +550,6 @@ pub trait FileSystem: Send + Sync {
         &'a self,
         path: &'a JsString,
         content: FileContent<'a>,
-        abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<(), FileError>>;
-    fn rename_file<'a>(
-        &'a self,
-        source_path: &'a JsString,
-        destination_path: &'a JsString,
         abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<(), FileError>>;
     fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, FileError>>;

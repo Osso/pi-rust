@@ -12,47 +12,28 @@ Whole NodeExecutionEnv comparison is still in progress. Old-only renameFile/inhe
 
 Against `4f9e6f8a4` `agent-core/src/harness/env/nodejs.ts:486–504`, `differential_tree_repository` reproduces equal-timestamp JSONL listing order. RED: Rust returned raw directory enumeration order, unlike Node/libuv's native-name sorted `readdir`; `tree-repository-red2.log`. Fix: sort native directory entries before decoding/lstat, not repository metadata after enumeration. GREEN: whole memory/JSONL repository matrix and 23 `harness_env` tests (`tree-repository-green.log`). This is bounded current-pin evidence, not an upgrade of every old row below.
 
-Pinned source: `packages/agent/src/harness/env/nodejs.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+## Common-pin literal environment port (2026-10-22)
 
-Rust: `crates/pi-agent-core/src/harness/env/nodejs.rs` (`NodeExecutionEnv`). Behavioral proof: `crates/pi-agent-core/tests/harness_env.rs` (23 tests). Differential proof: the 7 bash fixtures in `crates/pi-agent-core/tests/differential_harness_tools/` execute through the real TS `NodeExecutionEnv`.
+Frozen `packages/agent-core/src/harness/env/nodejs.ts` at `4f9e6f8a4` is authoritative. Legacy old-pin claims retired.
 
-| TypeScript source | Observable contract | Rust mapping and proof |
+| Frozen lines | Observable contract | Proof/status |
 |---|---|---|
-| `nodejs.ts:26-36` | Timeout validation: finite, positive, ≤ `2147483647/1000` seconds; timeout-coded errors | `resolve_timeout_ms`; `returns_non_zero_exit_codes_and_timeout_errors` |
-| `nodejs.ts:50-71` | `~`, `~/`, `file://`, relative and absolute path resolution with lexical normalization | `expand_path`/`file_url_to_path`/`percent_decode`/`node_normalize`/`resolve_path`; `expands_home_relative_paths_and_file_urls` |
-| `nodejs.ts:73-101` | `FileKind` detection and `FileInfo` from `lstat` without following symlinks | `file_info_from_metadata`; `reports_file_kinds_without_following_symlinks` |
-| `nodejs.ts:103-124` | Node error code → `FileErrorCode` mapping plus `code: description, syscall 'path'` messages | `file_error`/`rename_error`/`error_parts`; exact ENOENT/ENOTDIR message tests |
-| `nodejs.ts:126-128` | Pre-aborted operations return `aborted` with the resolved path | `abort_result`; pre-aborted operation test |
-| `nodejs.ts:130-136` | `pathExists` via `access(F_OK)` | `path_exists` (metadata follows symlinks); used by shell discovery |
-| `nodejs.ts:138-176` | `which bash` discovery with 5s timeout and first-line validation | `find_bash_on_path`/`run_command`; exercised by every bash test |
-| `nodejs.ts:178-232` | Custom shell path, `/bin/bash`, PATH fallback, then `sh -c`; unavailable error message | `get_shell_config`; `returns_shell_unavailable_and_spawn_errors` |
-| `nodejs.ts:234-247` | Environment merge: process env → `shellEnv` → call env; `inheritEnv: false` keeps only call env | `build_env`; shell-environment and replace-not-inherit tests; inherited entries use Node's lossy decoding (invalid values become U+FFFD, invalid keys are dropped) |
-| `nodejs.ts:249-269` | Kill the process group with SIGKILL on timeout/abort/cleanup | `kill_process_tree` (rustix `kill_process_group`), `process_group(0)` spawn; timeout, abort, cleanup tests |
-| `nodejs.ts:271-337` | Settle after exit and stdio end, or 100 ms after exit with no data | `exec_command` exit wait plus fixed 100 ms reader grace before aborting readers; deterministic exec tests and differential bash fixtures |
-| `nodejs.ts:352-356` | Constructor options cwd/shellPath/shellEnv | `NodeExecutionEnvOptions`/`NodeExecutionEnv::new` |
-| `nodejs.ts:358-366` | `absolutePath`/`joinPath` | `absolute_path`/`join_path`; env tests |
-| `nodejs.ts:368-501` | `exec`: pre-abort, timeout, cwd check, spawn, streaming callbacks, callback-error kill, timeout/abort/spawn result mapping, `exitCode ?? 0` | `exec_command`; exec, callback, timeout, abort, spawn-error tests and 10 bash differential fixtures |
-| `nodejs.ts:503-514` | `readTextFile` UTF-8 | `read_text_file`; reads/writes test |
-| `nodejs.ts:516-548` | `readTextLines` with `maxLines` stop and abort checks | `read_text_lines`/`split_lines` (LF, CRLF, CR); limit test |
-| `nodejs.ts:550-562` | `readBinaryFile` | `read_binary_file`; reads/writes test |
-| `nodejs.ts:564-582` | `writeFile` creates parent dirs and rechecks abort | `write_file`/`create_parent_dir`; write test |
-| `nodejs.ts:584-594` | `appendFile` creates parent dirs | `append_file`; append test |
-| `nodejs.ts:596-615` | `renameFile` abort check and source-path error | `rename_file`/`rename_error`; rename tests |
-| `nodejs.ts:617-626` | `fileInfo` | `file_info`; metadata tests |
-| `nodejs.ts:628-655` | `listDir` with per-entry `lstat` | `list_dir`; symlink listing test |
-| `nodejs.ts:657-666` | `canonicalPath` via `realpath` | `canonical_path`; symlink test |
-| `nodejs.ts:668-674` | `exists` is false only for `not_found` | `exists`; missing-path test |
-| `nodejs.ts:676-683` | `createDir` recursive default | `create_dir`; create/remove options test |
-| `nodejs.ts:685-693` | `remove` recursive/force defaults and directory error | `remove_path`; create/remove options test |
-| `nodejs.ts:695-707` | `createTempDir` with prefix | `create_temp_dir`; temp test |
-| `nodejs.ts:709-722` | `createTempFile` under `tmp-` with prefix/suffix | `create_temp_file`; temp test |
-| `nodejs.ts:724-727` | `cleanup` kills active children and never fails | `NodeExecutionEnv::cleanup`/trait cleanup; cleanup tests |
+| 47–49, 257–263 | Absolute paths returned literally; relative paths resolved, no tilde/file URL expansion; join keeps trailing slash | `differential_node_env::node_env_paths_match_frozen_posix_literals`, 12 cases |
+| 223–229, 320–325 | Process → configured → per-call env; no inheritEnv option | `node_env_exec_environment_and_spawn_failures_match_frozen`, native override tests; old-only field deleted from exec and capture |
+| 305–390 | Native spawn failure message, EOF waits for inherited stdio even after shell exit | missing cwd and delayed background-child stdout differentials; RED `node-literal-red2.log`, `node-stdio-red.log` |
+| 567–569 | Cleanup is no-op, including while command executes | `node_env_cleanup_is_noop_and_exec_waits_for_inherited_pipes`; RED killed live child, GREEN retains `readydone` |
+| 472–482, 511–565 | Concrete append/exists/create/remove/temp methods ignore extra interface abort args | `node_concrete_ignores_extra_abort_arguments`; existing native code already ignored them |
+| 405–434 | readTextLines buffered line/abort/numeric domain | proof above, 45 vectors + actual FIFO lifetime cases |
+| 392–567 | File kinds/read/write/list/canonical/errors/temp | retained `harness_env` 18 tests; exhaustive frozen filesystem failure comparison still pending |
+| 34–44, 267–390 | Exec timeout, cancellation, callbacks, environment, shell/spawn | retained native tests; post-exit abort/timeout/late callback closure matrix pending |
 
-## Exclusions and discrepancies
+GREEN `node-literal-green.log`: 4 direct frozen grouped tests + 18 native tests (unused test import subsequently removed). Source coverage row remains partial; shell configuration/failure and complete filesystem branches still require common-pin proof.
 
-- Windows-only branches are excluded: `win32` Git Bash discovery, `where bash.exe`, `taskkill`, `~\\`, and legacy WSL `bash.exe -s` stdin transport. The port targets the Unix runtime.
-- `createTempFile` uses a process-unique hex name instead of `randomUUID`; prefix/suffix and uniqueness contract are preserved.
-- Node's `StringDecoder` is replaced by an incremental UTF-8 decoder; valid input is identical and invalid sequences become U+FFFD.
-- The 100 ms post-exit stdio grace is a fixed wait rather than Node's data-resetting idle timer.
-- `readTextFile` decodes with `String::from_utf8_lossy`, matching `TextDecoder` replacement behavior for invalid bytes.
-- Node's error `path` property is preserved for every mapped error; unknown backend codes map to `unknown` with the source-shaped message prefix.
+### DISCREPANCY / classifications
+
+- Frozen cleanup does nothing; it does not terminate active children. Ported literally, not hardened.
+- Frozen concrete methods without abort parameters ignore extra JS arguments despite the wider interface; retained literally.
+- Background children retaining pipe descriptors delay settlement indefinitely unless they close or an active timeout/abort kills the process group. No grace cutoff is allowed; the finite held-pipe differential exposes delayed output.
+- Old-only renameFile, inheritEnv, path expansion, custom missing-cwd guard and 100ms pipe grace removed, not kept as fallbacks.
+- Windows-only discovery/taskkill/legacy WSL transport: pending user classification. Not ported or claimed.
+- Temp UUID/name shape and full filesystem failure messages remain pending comparison, not approved deviations.

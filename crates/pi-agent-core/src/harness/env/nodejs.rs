@@ -5,7 +5,7 @@
 
 mod read_lines;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -28,7 +28,6 @@ use crate::harness::types::{
 
 const MAX_TIMEOUT_MS: f64 = 2_147_483_647.0;
 const MAX_TIMEOUT_SECONDS: f64 = MAX_TIMEOUT_MS / 1000.0;
-const EXIT_STDIO_GRACE: Duration = Duration::from_millis(100);
 static TEMP_NAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Options accepted by [`NodeExecutionEnv::new`].
@@ -45,7 +44,6 @@ pub struct NodeExecutionEnv {
     cwd: JsString,
     shell_path: Option<String>,
     shell_env: HashMap<String, String>,
-    active_child_pids: Mutex<HashSet<u32>>,
 }
 
 impl NodeExecutionEnv {
@@ -54,24 +52,11 @@ impl NodeExecutionEnv {
             cwd: options.cwd,
             shell_path: options.shell_path,
             shell_env: options.shell_env,
-            active_child_pids: Mutex::new(HashSet::new()),
         }
     }
 
-    /// Terminates every shell process still tracked by this environment.
-    pub async fn cleanup(&self) {
-        self.kill_active_children();
-    }
-
-    fn kill_active_children(&self) {
-        let pids = {
-            let mut active = self.active_child_pids.lock().expect("active child pids lock");
-            active.drain().collect::<Vec<_>>()
-        };
-        for pid in pids {
-            kill_process_tree(pid);
-        }
-    }
+    /// Frozen local environment owns no cleanup resources.
+    pub async fn cleanup(&self) {}
 }
 
 impl FileSystem for NodeExecutionEnv {
@@ -191,24 +176,6 @@ impl FileSystem for NodeExecutionEnv {
         })
     }
 
-    fn rename_file<'a>(
-        &'a self,
-        source_path: &'a JsString,
-        destination_path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<(), FileError>> {
-        Box::pin(async move {
-            let source = resolve_path(&self.cwd, source_path);
-            let destination = resolve_path(&self.cwd, destination_path);
-            if let Some(error) = abort_result(abort, &destination) {
-                return Err(error);
-            }
-            tokio::fs::rename(&encode_node_utf8(&source), &encode_node_utf8(&destination))
-                .await
-                .map_err(|error| rename_error(&error, &source, &destination))
-        })
-    }
-
     fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
@@ -316,7 +283,7 @@ impl FileSystem for NodeExecutionEnv {
     }
 
     fn cleanup(&self) -> BoxFuture<'_, ()> {
-        Box::pin(async move { self.kill_active_children() })
+        Box::pin(async {})
     }
 }
 
@@ -330,7 +297,7 @@ impl Shell for NodeExecutionEnv {
     }
 
     fn cleanup(&self) -> BoxFuture<'_, ()> {
-        Box::pin(async move { self.kill_active_children() })
+        Box::pin(async {})
     }
 }
 
@@ -346,37 +313,16 @@ impl NodeExecutionEnv {
         let timeout_ms = resolve_timeout_ms(options.timeout)?;
         let cwd = resolve_exec_cwd(&self.cwd, options.cwd.as_ref());
         let shell = get_shell_config(self.shell_path.as_deref()).await?;
-        ensure_working_directory(&cwd).await?;
 
         let mut child = self.spawn_shell(&shell, command, &cwd, &options)?;
         let pid = child.id();
-        self.track_child(pid);
 
         let mut tasks = start_stream_tasks(&mut child, options.on_stdout.clone(), options.on_stderr.clone());
         let wait = wait_for_exit(&mut child, pid, timeout_ms, options.abort.clone(), &mut tasks).await;
         abort_stream_task(tasks.stdout_task.take());
         abort_stream_task(tasks.stderr_task.take());
-        self.untrack_child(pid);
 
         exec_outcome_to_result(wait, tasks.stdout, tasks.stderr, &options)
-    }
-
-    fn track_child(&self, pid: Option<u32>) {
-        if let Some(pid) = pid {
-            self.active_child_pids
-                .lock()
-                .expect("active child pids lock")
-                .insert(pid);
-        }
-    }
-
-    fn untrack_child(&self, pid: Option<u32>) {
-        if let Some(pid) = pid {
-            self.active_child_pids
-                .lock()
-                .expect("active child pids lock")
-                .remove(&pid);
-        }
     }
 
     fn spawn_shell(
@@ -390,7 +336,7 @@ impl NodeExecutionEnv {
         process.args(&shell.args).arg(encode_node_utf8(command));
         process.current_dir(encode_node_utf8(cwd));
         process.env_clear();
-        process.envs(build_env(&self.shell_env, options.env.as_ref(), options.inherit_env));
+        process.envs(build_env(&self.shell_env, options.env.as_ref()));
         process.stdin(std::process::Stdio::null());
         process.stdout(std::process::Stdio::piped());
         process.stderr(std::process::Stdio::piped());
@@ -398,30 +344,20 @@ impl NodeExecutionEnv {
         process.process_group(0);
 
         process.spawn().map_err(|error| {
-            ExecutionError::new(ExecutionErrorCode::SpawnError, error.to_string(), Some(Box::new(error)))
+            ExecutionError::new(
+                ExecutionErrorCode::SpawnError,
+                pi_js_compat::node_fs::node_spawn_error_record(&error, &shell.shell.clone().into()).message,
+                Some(Box::new(error)),
+            )
         })
     }
 }
 
 fn resolve_exec_cwd(env_cwd: &JsString, requested_cwd: Option<&JsString>) -> JsString {
     match requested_cwd {
-        Some(path) => resolve_path(env_cwd, path),
-        None => env_cwd.to_owned(),
+        Some(path) if !path.is_empty() => resolve_path(env_cwd, path),
+        _ => env_cwd.to_owned(),
     }
-}
-
-async fn ensure_working_directory(cwd: &JsString) -> Result<(), ExecutionError> {
-    if path_exists(cwd).await {
-        return Ok(());
-    }
-    Err(ExecutionError::new(
-        ExecutionErrorCode::SpawnError,
-        js_format!(
-            "Working directory does not exist: {}\nCannot execute bash commands.",
-            cwd
-        ),
-        None,
-    ))
 }
 
 struct StreamTasks {
@@ -558,11 +494,8 @@ async fn drain_streams(
     done: &mut [bool; 2],
     callback_error: &mut Option<JsString>,
 ) {
-    let grace = tokio::time::sleep(EXIT_STDIO_GRACE);
-    tokio::pin!(grace);
     while !(done[0] && done[1]) {
         tokio::select! {
-            _ = &mut grace => break,
             event = receiver.recv() => {
                 if apply_stream_event(event, done, callback_error) {
                     break;
@@ -762,11 +695,7 @@ fn resolve_timeout_ms(timeout: Option<f64>) -> Result<Option<f64>, ExecutionErro
 fn build_env(
     shell_env: &HashMap<String, String>,
     extra_env: Option<&HashMap<String, String>>,
-    inherit_env: Option<bool>,
 ) -> HashMap<String, String> {
-    if inherit_env == Some(false) {
-        return extra_env.cloned().unwrap_or_default();
-    }
     let mut environment = pi_js_compat::process_env::vars().into_iter().collect::<HashMap<_, _>>();
     environment.extend(shell_env.iter().map(|(key, value)| (key.clone(), value.clone())));
     if let Some(extra_env) = extra_env {
@@ -985,19 +914,6 @@ fn file_error(error: &io::Error, syscall: &str, path: &JsString) -> FileError {
     )
 }
 
-fn rename_error(error: &io::Error, source: &JsString, destination: &JsString) -> FileError {
-    let (code, description, error_code) = match error_parts(error) {
-        Some(parts) => parts,
-        None => return unknown_file_error(error, "rename", source),
-    };
-    FileError::new(
-        error_code,
-        js_format!("{}: {}, rename '{}' -> '{}'", code, description, source, destination),
-        Some(source.to_owned()),
-        Some(Box::new(io::Error::new(error.kind(), error.to_string()))),
-    )
-}
-
 fn error_parts(error: &io::Error) -> Option<(&'static str, &'static str, FileErrorCode)> {
     Some(match error.kind() {
         io::ErrorKind::NotFound => ("ENOENT", "no such file or directory", FileErrorCode::NotFound),
@@ -1038,87 +954,20 @@ async fn read_sorted_directory(path: &JsString) -> Result<Vec<tokio::fs::DirEntr
 }
 
 fn resolve_path(cwd: &JsString, path: &JsString) -> JsString {
-    let normalized = expand_path(path);
-    let absolute = if normalized.starts_with('/') {
+    if path.starts_with('/') {
+        return path.clone();
+    }
+    let base = if cwd.starts_with('/') {
+        cwd.clone()
+    } else {
+        let current = std::env::current_dir().expect("process working directory");
+        JsString::from(current.to_string_lossy().into_owned()) + "/" + cwd
+    };
+    let normalized = node_normalize(&(base + "/" + path));
+    if normalized != "/" {
+        normalized.strip_suffix("/").unwrap_or(normalized)
+    } else {
         normalized
-    } else {
-        let base = if cwd.starts_with('/') {
-            cwd.clone()
-        } else {
-            std::env::current_dir()
-                .map(|current| JsString::from(current.to_string_lossy().into_owned()))
-                .unwrap_or_else(|_| "/".into())
-        };
-        base + "/" + normalized
-    };
-    node_normalize(&absolute)
-}
-
-fn expand_path(path: &JsString) -> JsString {
-    if path == "~" {
-        return home_dir();
-    }
-    if let Some(rest) = path.strip_prefix("~/") {
-        return home_dir() + "/" + rest;
-    }
-    if path.starts_with("file://")
-        && let Some(decoded) = file_url_to_path(path)
-    {
-        return decoded;
-    }
-    path.clone()
-}
-
-fn home_dir() -> JsString {
-    pi_js_compat::process_env::get("HOME")
-        .unwrap_or_else(|| "/".to_owned())
-        .into()
-}
-
-fn file_url_to_path(url: &JsString) -> Option<JsString> {
-    let rest = url.strip_prefix("file://")?;
-    let path = if let Some(path) = rest.strip_prefix("localhost/") {
-        JsString::from("/") + path
-    } else if rest.starts_with('/') {
-        rest
-    } else {
-        return None;
-    };
-    Some(percent_decode(&path))
-}
-
-fn percent_decode(value: &JsString) -> JsString {
-    let units = value.units();
-    let mut output = JsString::default();
-    let mut index = 0;
-    while index < units.len() {
-        let mut bytes = Vec::new();
-        while index + 2 < units.len() && units[index] == 0x25 {
-            let Some(high) = hex_value(units[index + 1]) else {
-                break;
-            };
-            let Some(low) = hex_value(units[index + 2]) else {
-                break;
-            };
-            bytes.push(high << 4 | low);
-            index += 3;
-        }
-        if bytes.is_empty() {
-            output.push_unit(units[index]);
-            index += 1;
-        } else {
-            output.push_str(String::from_utf8_lossy(&bytes).into_owned());
-        }
-    }
-    output
-}
-
-fn hex_value(unit: u16) -> Option<u8> {
-    match unit {
-        0x30..=0x39 => Some((unit - 0x30) as u8),
-        0x61..=0x66 => Some((unit - 0x61 + 10) as u8),
-        0x41..=0x46 => Some((unit - 0x41 + 10) as u8),
-        _ => None,
     }
 }
 
@@ -1133,6 +982,7 @@ fn join_paths(parts: &[JsString]) -> JsString {
 
 fn node_normalize(path: &JsString) -> JsString {
     let absolute = path.starts_with('/');
+    let trailing = path.ends_with('/');
     let mut components: Vec<JsString> = Vec::new();
     for component in path.split('/') {
         if component.is_empty() || component == "." {
@@ -1149,6 +999,11 @@ fn node_normalize(path: &JsString) -> JsString {
         }
     }
     let joined = JsString::join(components, "/");
+    let joined = if trailing && !joined.is_empty() {
+        joined + "/"
+    } else {
+        joined
+    };
     if absolute {
         JsString::from("/") + joined
     } else if joined.is_empty() {
