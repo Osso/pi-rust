@@ -33,7 +33,7 @@ impl TurnState {
         }
     }
 }
-impl AgentHarness {
+impl<M: SessionMetadataValue> AgentHarness<M> {
     async fn create_turn_state(&self) -> Result<TurnState, AgentHarnessError> {
         let context = self.inner.session.build_context().await?;
         let resources = self.get_resources();
@@ -64,7 +64,7 @@ impl AgentHarness {
             messages: context.messages,
             resources,
             stream_options: state.stream_options.clone(),
-            session_id: metadata.id,
+            session_id: metadata.id().clone(),
             system_prompt,
             model: state.model.clone(),
             thinking_level: state.thinking_level,
@@ -234,11 +234,11 @@ impl AgentHarness {
         ];
         for event in events {
             if let Err(failure) = self.handle_agent_event(event, Some(signal.clone())).await {
-                return Err(AgentHarnessError {
-                    code: AgentHarnessErrorCode::Unknown,
-                    message: "Agent run failed and failure reporting failed".into(),
-                    causes: vec![error.message().clone(), failure.message],
-                });
+                return Err(AgentHarnessError::aggregate(
+                    AgentHarnessErrorCode::Unknown,
+                    "Agent run failed and failure reporting failed",
+                    vec![Arc::new(error), Arc::new(failure)],
+                ));
             }
         }
         Ok(vec![message])
@@ -284,7 +284,7 @@ impl AgentHarness {
                 session_id: turn.session_id.clone(),
                 stream_options: options.clone(),
             };
-            if let Some(HarnessHookResult::BeforeProviderRequest(patch)) = hook(event).await.map_err(hook_error)? {
+            if let Some(HarnessHookResult::BeforeProviderRequest(patch)) = hook(event).await? {
                 options = options.patched(Some(&patch));
             }
         }
@@ -374,8 +374,7 @@ impl AgentHarness {
                 model: model.clone(),
                 payload: payload.clone(),
             })
-            .await
-            .map_err(hook_error)?
+            .await?
             {
                 payload = next;
             }
@@ -597,20 +596,23 @@ impl AgentHarness {
         };
         let mut errors = Vec::new();
         if let Err(error) = self.queue_update().await {
-            errors.push(error.message);
+            errors.push(error);
         }
         self.wait_for_idle().await;
         if let Err(error) = self.emit(HarnessEvent::Abort(result.clone()), None).await {
-            errors.push(error.message);
+            errors.push(error);
         }
         match errors.len() {
             0 => Ok(result),
-            1 => Err(AgentHarnessError::new(AgentHarnessErrorCode::Hook, errors.remove(0))),
-            _ => Err(AgentHarnessError {
-                code: AgentHarnessErrorCode::Hook,
-                message: "Abort completed with errors".into(),
-                causes: errors,
-            }),
+            1 => Err(errors.remove(0)),
+            _ => Err(AgentHarnessError::aggregate(
+                AgentHarnessErrorCode::Hook,
+                "Abort completed with errors",
+                errors
+                    .into_iter()
+                    .map(|error| Arc::new(error) as Arc<dyn std::error::Error + Send + Sync>)
+                    .collect(),
+            )),
         }
     }
 }

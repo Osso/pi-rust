@@ -3,7 +3,7 @@ mod navigation;
 mod runtime;
 pub use super::agent_harness_types::*;
 
-use super::session::Session;
+use super::session::{Session, SessionMetadata, SessionMetadataValue};
 use super::{AgentHarnessResources, AgentHarnessStreamOptions, ExecutionEnv, QueueMode, ThinkingLevel};
 use crate::agent::{AgentMessage, AgentTool};
 use indexmap::{IndexMap, IndexSet};
@@ -16,14 +16,14 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
-pub struct AgentHarness {
-    inner: Arc<Inner>,
+pub struct AgentHarness<M: SessionMetadataValue = SessionMetadata> {
+    inner: Arc<Inner<M>>,
 }
-struct Inner {
+struct Inner<M: SessionMetadataValue> {
     env: Arc<dyn ExecutionEnv>,
-    session: Session,
+    session: Session<M>,
     models: Arc<dyn Models>,
-    state: Mutex<State>,
+    state: Mutex<State<M>>,
     handlers: Mutex<Handlers>,
 }
 #[derive(Default)]
@@ -32,14 +32,14 @@ struct Handlers {
     listeners: IndexMap<usize, HarnessListener>,
     hooks: HashMap<HarnessHookKind, IndexMap<usize, HarnessHook>>,
 }
-struct State {
+struct State<M: SessionMetadataValue> {
     phase: AgentHarnessPhase,
     completion: Option<watch::Receiver<bool>>,
     abort: Option<CancellationToken>,
     pending: Vec<PendingWrite>,
     model: Model,
     thinking_level: ThinkingLevel,
-    system_prompt: Option<HarnessSystemPrompt>,
+    system_prompt: Option<HarnessSystemPrompt<M>>,
     stream_options: AgentHarnessStreamOptions,
     resources: AgentHarnessResources,
     tools: IndexMap<String, Arc<dyn AgentTool>>,
@@ -57,8 +57,8 @@ enum PendingWrite {
     Thinking(ThinkingLevel),
     Tools(Vec<String>),
 }
-impl AgentHarness {
-    pub fn new(options: AgentHarnessOptions) -> Result<Self, AgentHarnessError> {
+impl<M: SessionMetadataValue> AgentHarness<M> {
+    pub fn new(options: AgentHarnessOptions<M>) -> Result<Self, AgentHarnessError> {
         validate_unique(
             &options
                 .tools
@@ -104,13 +104,13 @@ impl AgentHarness {
             }),
         })
     }
-    fn state(&self) -> MutexGuard<'_, State> {
+    fn state(&self) -> MutexGuard<'_, State<M>> {
         self.inner.state.lock().expect("harness state")
     }
     pub fn env(&self) -> Arc<dyn ExecutionEnv> {
         self.inner.env.clone()
     }
-    pub fn session(&self) -> Session {
+    pub fn session(&self) -> Session<M> {
         self.inner.session.clone()
     }
     pub fn models(&self) -> Arc<dyn Models> {
@@ -335,7 +335,7 @@ impl AgentHarness {
         let mut cursor = None;
         while let Some((id, listener)) = self.next_listener(cursor) {
             cursor = Some(id);
-            listener(event.clone(), signal.clone()).await.map_err(hook_error)?;
+            listener(event.clone(), signal.clone()).await?;
         }
         Ok(())
     }
@@ -348,7 +348,7 @@ impl AgentHarness {
         let mut cursor = None;
         while let Some((id, hook)) = self.next_hook(kind, cursor) {
             cursor = Some(id);
-            if let Some(result) = hook(event.clone()).await.map_err(hook_error)? {
+            if let Some(result) = hook(event.clone()).await? {
                 last = Some(result);
             }
         }
@@ -400,9 +400,6 @@ enum PromptInvocation {
     Text(JsString),
     Skill(JsString, Option<JsString>),
     Template(JsString, Vec<JsString>),
-}
-fn hook_error(error: crate::agent::AgentError) -> AgentHarnessError {
-    AgentHarnessError::new(AgentHarnessErrorCode::Hook, error.message().clone())
 }
 fn validate_unique(names: &[String], prefix: &str) -> Result<(), AgentHarnessError> {
     let mut seen = IndexSet::new();
