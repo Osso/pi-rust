@@ -90,40 +90,40 @@ fn prompt_template_preserves_optional_description_states() {
     let no_description = PromptTemplate {
         name: JsString::from("minimal"),
         description: None,
-        content: "Use this prompt.".to_owned(),
+        content: "Use this prompt.".into(),
     };
     assert_eq!(no_description.description, None);
 
     let empty_description = PromptTemplate {
         name: JsString::from("empty-description"),
-        description: Some(String::new()),
-        content: "Content".to_owned(),
+        description: Some(JsString::default()),
+        content: "Content".into(),
     };
-    assert_eq!(empty_description.description, Some(String::new()));
+    assert_eq!(empty_description.description, Some(JsString::default()));
 
     let described = PromptTemplate {
         name: JsString::from("described"),
-        description: Some("A prompt template".to_owned()),
-        content: "Content".to_owned(),
+        description: Some("A prompt template".into()),
+        content: "Content".into(),
     };
-    assert_eq!(described.description, Some("A prompt template".to_owned()));
+    assert_eq!(described.description, Some(JsString::from("A prompt template")));
 }
 
 #[test]
 fn prompt_template_preserves_fields_and_public_mutation() {
     let mut template = PromptTemplate {
         name: JsString::from("template"),
-        description: Some("description".to_owned()),
-        content: "content".to_owned(),
+        description: Some("description".into()),
+        content: "content".into(),
     };
 
     assert_eq!(template.name, "template");
-    assert_eq!(template.description.as_deref(), Some("description"));
+    assert_eq!(template.description.as_ref(), Some(&JsString::from("description")));
     assert_eq!(template.content, "content");
 
     template.name = JsString::from("renamed-template");
     template.description = None;
-    template.content = "updated content".to_owned();
+    template.content = "updated content".into();
 
     assert_eq!(template.name, "renamed-template");
     assert_eq!(template.description, None);
@@ -135,12 +135,15 @@ fn prompt_template_preserves_fields_and_public_mutation() {
 fn prompt_template_preserves_unicode_and_embedded_nul_strings() {
     let template = PromptTemplate {
         name: JsString::from("模板🙂e\u{301}\0,!"),
-        description: Some("描述🙂e\u{301}\0, punctuation?".to_owned()),
-        content: "内容🙂e\u{301}\0, punctuation!\n".to_owned(),
+        description: Some("描述🙂e\u{301}\0, punctuation?".into()),
+        content: "内容🙂e\u{301}\0, punctuation!\n".into(),
     };
 
     assert_eq!(template.name, "模板🙂e\u{301}\0,!");
-    assert_eq!(template.description.as_deref(), Some("描述🙂e\u{301}\0, punctuation?"));
+    assert_eq!(
+        template.description.as_ref(),
+        Some(&JsString::from("描述🙂e\u{301}\0, punctuation?"))
+    );
     assert_eq!(template.content, "内容🙂e\u{301}\0, punctuation!\n");
 }
 
@@ -148,12 +151,12 @@ fn prompt_template_preserves_unicode_and_embedded_nul_strings() {
 fn prompt_template_preserves_empty_strings_in_every_string_field() {
     let template = PromptTemplate {
         name: JsString::default(),
-        description: Some(String::new()),
-        content: String::new(),
+        description: Some(JsString::default()),
+        content: JsString::default(),
     };
 
     assert!(template.name.is_empty());
-    assert!(template.description.as_deref().is_some_and(str::is_empty));
+    assert!(template.description.as_ref().is_some_and(JsString::is_empty));
     assert!(template.content.is_empty());
 }
 
@@ -193,12 +196,12 @@ fn resources_preserve_order_duplicates_and_nested_mutation() {
     let first_template = PromptTemplate {
         name: JsString::from("template-a"),
         description: None,
-        content: "a".to_owned(),
+        content: "a".into(),
     };
     let second_template = PromptTemplate {
         name: JsString::from("template-a"),
-        description: Some("duplicate".to_owned()),
-        content: "b".to_owned(),
+        description: Some("duplicate".into()),
+        content: "b".into(),
     };
 
     let mut resources = AgentHarnessResources {
@@ -223,13 +226,16 @@ fn resources_preserve_order_duplicates_and_nested_mutation() {
     assert_eq!(skills[1].disable_model_invocation, Some(true));
 
     let templates = resources.prompt_templates.as_mut().expect("templates present");
-    templates[0].description = Some("added description".to_owned());
+    templates[0].description = Some("added description".into());
     templates[1] = PromptTemplate {
         name: JsString::from("replacement"),
         description: None,
-        content: "replacement content".to_owned(),
+        content: "replacement content".into(),
     };
-    assert_eq!(templates[0].description.as_deref(), Some("added description"));
+    assert_eq!(
+        templates[0].description.as_ref(),
+        Some(&JsString::from("added description"))
+    );
     assert_eq!(templates[1].name, "replacement");
 
     resources.skills = Some(vec![Skill {
