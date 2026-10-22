@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -314,75 +315,159 @@ pub struct SpawnAgent {
     pub worker: Option<AgentWorkerAdapter>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentMailboxMessage {
     /// Canonical DB delivery returns its original payload; store copyMessage drops these fields.
-    #[serde(flatten)]
-    pub extra: Map<String, Value>,
-    pub id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<String>,
-    pub from_agent_id: String,
-    pub to_agent_id: String,
+    pub extra: JsObject,
+    pub id: JsString,
+    pub thread_id: Option<JsString>,
+    pub from_agent_id: JsString,
+    pub to_agent_id: JsString,
     pub kind: MailboxMessageKindValue,
     pub status: MailboxMessageStatusValue,
     pub created_at: String,
     pub updated_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_refs: Option<Vec<AgentFileReference>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<JsString>,
+    pub file_refs: Option<JsValue>,
     pub target_checkpoint: Option<SteeringCheckpoint>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub error: Option<JsString>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl Serialize for AgentMailboxMessage {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut object = self.extra.clone();
+        object.insert(
+            "id".into(),
+            js_json::to_value(&self.id).map_err(serde::ser::Error::custom)?,
+        );
+        if let Some(value) = &self.thread_id {
+            object.insert(
+                "threadId".into(),
+                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
+            );
+        }
+        object.insert(
+            "fromAgentId".into(),
+            js_json::to_value(&self.from_agent_id).map_err(serde::ser::Error::custom)?,
+        );
+        object.insert(
+            "toAgentId".into(),
+            js_json::to_value(&self.to_agent_id).map_err(serde::ser::Error::custom)?,
+        );
+        object.insert(
+            "kind".into(),
+            js_json::to_value(&self.kind).map_err(serde::ser::Error::custom)?,
+        );
+        object.insert(
+            "status".into(),
+            js_json::to_value(&self.status).map_err(serde::ser::Error::custom)?,
+        );
+        object.insert(
+            "createdAt".into(),
+            js_json::to_value(&self.created_at).map_err(serde::ser::Error::custom)?,
+        );
+        object.insert(
+            "updatedAt".into(),
+            js_json::to_value(&self.updated_at).map_err(serde::ser::Error::custom)?,
+        );
+        if let Some(value) = &self.body {
+            object.insert(
+                "body".into(),
+                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
+            );
+        }
+        if let Some(value) = &self.file_refs {
+            object.insert(
+                "fileRefs".into(),
+                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
+            );
+        }
+        if let Some(value) = &self.target_checkpoint {
+            object.insert(
+                "targetCheckpoint".into(),
+                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
+            );
+        }
+        if let Some(value) = &self.error {
+            object.insert(
+                "error".into(),
+                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
+            );
+        }
+        JsValue::Object(object).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentMailboxMessage {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let JsValue::Object(mut object) = JsValue::deserialize(deserializer)? else {
+            return Err(serde::de::Error::custom("expected mailbox object"));
+        };
+        fn take<T: serde::de::DeserializeOwned, E: serde::de::Error>(object: &mut JsObject, key: &str) -> Result<T, E> {
+            js_json::from_value(&object.shift_remove(key).unwrap_or(JsValue::Null)).map_err(E::custom)
+        }
+        Ok(Self {
+            id: take(&mut object, "id")?,
+            thread_id: take(&mut object, "threadId")?,
+            from_agent_id: take(&mut object, "fromAgentId")?,
+            to_agent_id: take(&mut object, "toAgentId")?,
+            kind: take(&mut object, "kind")?,
+            status: take(&mut object, "status")?,
+            created_at: take(&mut object, "createdAt")?,
+            updated_at: take(&mut object, "updatedAt")?,
+            body: take(&mut object, "body")?,
+            file_refs: take(&mut object, "fileRefs")?,
+            target_checkpoint: take(&mut object, "targetCheckpoint")?,
+            error: take(&mut object, "error")?,
+            extra: object,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendSteeringInput {
     pub from_agent_id: String,
-    pub body: String,
+    pub body: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_checkpoint: Option<SteeringCheckpoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<String>,
+    pub thread_id: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_refs: Option<Vec<AgentFileReference>>,
+    pub file_refs: Option<JsValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContactParentInput {
-    pub body: String,
+    pub body: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<String>,
+    pub thread_id: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_refs: Option<Vec<AgentFileReference>>,
+    pub file_refs: Option<JsValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendMailboxMessageInput {
-    pub body: String,
+    pub body: JsString,
     pub to_agent_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<String>,
+    pub thread_id: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_refs: Option<Vec<AgentFileReference>>,
+    pub file_refs: Option<JsValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordOutboundSessionMessageInput {
     pub from_agent_id: String,
     pub to_agent_id: String,
-    pub body: String,
+    pub body: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<String>,
+    pub thread_id: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_refs: Option<Vec<AgentFileReference>>,
+    pub file_refs: Option<JsValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -410,7 +495,7 @@ pub struct AgentRowProjection {
     pub worker_adapter: Option<AgentWorkerAdapterKind>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MultiAgentProjectionSnapshot {
     pub active_count: usize,
@@ -458,7 +543,7 @@ pub enum AgentTranscriptCommandResult {
     NotFound { agent_id: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ParentContactResult {
     Ok {
         agent: Box<AgentSnapshot>,
@@ -475,7 +560,7 @@ pub enum ParentContactResult {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MailboxMessageCommandResult {
     Ok {
         agent: Box<AgentSnapshot>,
@@ -826,8 +911,8 @@ pub enum LifecycleNotificationLifecycle {
 struct StoreState {
     agents: HashMap<String, AgentNode>,
     agent_order: Vec<String>,
-    mailbox_messages: HashMap<String, AgentMailboxMessage>,
-    mailbox_order: Vec<String>,
+    mailbox_messages: HashMap<JsString, AgentMailboxMessage>,
+    mailbox_order: Vec<JsString>,
     abort_handlers: HashMap<String, AbortHandler>,
     selected_agent_id: Option<String>,
     next_agent_number: i64,
@@ -938,17 +1023,17 @@ impl MultiAgentStore {
     ) -> Result<AgentMailboxMessage, MultiAgentStoreError> {
         let timestamp = self.now();
         Ok(AgentMailboxMessage {
-            extra: serde_json::Map::new(),
+            extra: JsObject::new(),
             body: Some(input.body.clone()),
             created_at: timestamp.clone(),
-            file_refs: validate_file_refs(input.file_refs.as_deref(), "steer_agent")?,
-            from_agent_id: input.from_agent_id.clone(),
-            id: self.create_message_id()?,
+            file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "steer_agent")?,
+            from_agent_id: input.from_agent_id.clone().into(),
+            id: self.create_message_id()?.into(),
             kind: MailboxMessageKindValue::Steer,
             status: MailboxMessageStatusValue::Pending,
             target_checkpoint: input.target_checkpoint,
             thread_id: input.thread_id.clone(),
-            to_agent_id: agent_id.to_owned(),
+            to_agent_id: agent_id.to_owned().into(),
             updated_at: timestamp,
             error: None,
         })
@@ -1191,7 +1276,7 @@ impl MultiAgentStore {
                 crate::core::session_control_db::get_multi_agent_mailbox_message_status(
                     &target.control_db_path,
                     &target.session_path,
-                    &message.id,
+                    &message.id.to_utf8_lossy(),
                 )?
                 .is_none()
             } else {
@@ -1203,7 +1288,7 @@ impl MultiAgentStore {
         }
         Ok(())
     }
-    fn remove_mailbox_message(&self, id: &str) {
+    fn remove_mailbox_message(&self, id: &JsString) {
         let mut state = self.lock();
         state.mailbox_messages.remove(id);
         state.mailbox_order.retain(|existing| existing != id);
@@ -1236,9 +1321,10 @@ impl MultiAgentStore {
     }
     pub fn mark_mailbox_message_delivered(
         &self,
-        message_id: &str,
+        message_id: impl Into<JsString>,
     ) -> Result<Option<AgentMailboxMessage>, MultiAgentStoreError> {
-        let Some(message) = self.lock().mailbox_messages.get(message_id).cloned() else {
+        let message_id = message_id.into();
+        let Some(message) = self.lock().mailbox_messages.get(&message_id).cloned() else {
             return Ok(None);
         };
         if self.mailbox_message_is_expired(&message) {
@@ -1248,20 +1334,22 @@ impl MultiAgentStore {
             crate::core::session_control_db::consume_runtime_mailbox_message_by_store_ref(
                 &target.control_db_path,
                 &crate::core::session_control_db::RuntimeMailboxStoreRef {
-                    session_path: target.session_path,
-                    message_id: message_id.to_owned(),
+                    session_path: target.session_path.into(),
+                    message_id: message_id.to_owned().into(),
                 },
             )?;
         }
-        self.remove_mailbox_message(message_id);
+        self.remove_mailbox_message(&message_id);
         Ok(Some(copy_message(&message)))
     }
     pub fn mark_mailbox_message_failed(
         &self,
-        message_id: &str,
-        error: &str,
+        message_id: impl Into<JsString>,
+        error: impl Into<JsString>,
     ) -> Result<Option<AgentMailboxMessage>, MultiAgentStoreError> {
-        let Some(message) = self.lock().mailbox_messages.get(message_id).cloned() else {
+        let message_id = message_id.into();
+        let error = error.into();
+        let Some(message) = self.lock().mailbox_messages.get(&message_id).cloned() else {
             return Ok(None);
         };
         if message.status != MailboxMessageStatusValue::Pending || self.mailbox_message_is_expired(&message) {
@@ -1271,22 +1359,22 @@ impl MultiAgentStore {
             && !crate::core::session_control_db::mark_multi_agent_mailbox_message_failed(
                 &target.control_db_path,
                 &target.session_path,
-                message_id,
-                error,
+                &message_id.to_utf8_lossy(),
+                &error,
             )?
         {
-            self.remove_mailbox_message(message_id);
+            self.remove_mailbox_message(&message_id);
             return Ok(None);
         }
         let updated = AgentMailboxMessage {
-            error: Some(error.to_owned()),
+            error: Some(error.clone()),
             status: MailboxMessageStatusValue::Failed,
             updated_at: self.now(),
             ..message
         };
         self.lock()
             .mailbox_messages
-            .insert(message_id.to_owned(), updated.clone());
+            .insert(message_id.to_owned().into(), updated.clone());
         Ok(Some(copy_message(&updated)))
     }
     pub fn consume_completion_notifications_for_agent(
@@ -1506,10 +1594,10 @@ impl MultiAgentStore {
         let current = self.lock().agents.get(agent_id).cloned();
         let Some(current) = current else {
             return Ok(ParentContactResult::NotFound {
-                agent_id: agent_id.to_owned(),
+                agent_id: agent_id.to_owned().into(),
             });
         };
-        let file_refs = validate_file_refs(input.file_refs.as_deref(), "contact_parent")?;
+        let file_refs = validate_mailbox_file_refs(input.file_refs.as_ref(), "contact_parent")?;
         let Some(parent_id) = current.parent_id.clone() else {
             return Ok(ParentContactResult::ParentNotFound {
                 current: Box::new(copy_agent(&current)),
@@ -1517,17 +1605,21 @@ impl MultiAgentStore {
         };
         let timestamp = self.now();
         let message = AgentMailboxMessage {
-            extra: serde_json::Map::new(),
-            id: self.create_message_id()?,
+            extra: JsObject::new(),
+            id: self.create_message_id()?.into(),
             thread_id: input.thread_id.clone(),
-            from_agent_id: current.id.clone(),
-            to_agent_id: parent_id,
+            from_agent_id: current.id.clone().into(),
+            to_agent_id: parent_id.into(),
             kind: MailboxMessageKindValue::ParentRequest,
             status: MailboxMessageStatusValue::Pending,
             created_at: timestamp.clone(),
             updated_at: timestamp,
             body: Some(input.body.clone()),
-            file_refs,
+            file_refs: file_refs
+                .as_ref()
+                .map(js_json::to_value)
+                .transpose()
+                .map_err(|error| MultiAgentStoreError::new(error.to_string()))?,
             target_checkpoint: None,
             error: None,
         };
@@ -1558,7 +1650,7 @@ impl MultiAgentStore {
         let Some(target) = target else {
             return Ok(MailboxMessageCommandResult::TargetNotFound {
                 current: Box::new(main_thread),
-                target_id: input.to_agent_id.clone(),
+                target_id: input.to_agent_id.clone().into(),
             });
         };
         if !is_main_thread_child(&target) {
@@ -1569,17 +1661,17 @@ impl MultiAgentStore {
         }
         let timestamp = self.now();
         let message = AgentMailboxMessage {
-            extra: serde_json::Map::new(),
-            id: self.create_message_id()?,
+            extra: JsObject::new(),
+            id: self.create_message_id()?.into(),
             thread_id: input.thread_id.clone(),
-            from_agent_id: MAIN_THREAD_AGENT_ID.to_owned(),
-            to_agent_id: target.id.clone(),
+            from_agent_id: MAIN_THREAD_AGENT_ID.to_owned().into(),
+            to_agent_id: target.id.clone().into(),
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             created_at: timestamp.clone(),
             updated_at: timestamp,
             body: Some(input.body.clone()),
-            file_refs: validate_file_refs(input.file_refs.as_deref(), "send_agent_message")?,
+            file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "send_agent_message")?,
             target_checkpoint: None,
             error: None,
         };
@@ -1610,7 +1702,7 @@ impl MultiAgentStore {
         let current = self.lock().agents.get(agent_id).cloned();
         let Some(current) = current else {
             return Ok(MailboxMessageCommandResult::NotFound {
-                agent_id: agent_id.to_owned(),
+                agent_id: agent_id.to_owned().into(),
             });
         };
         if let Some(result) = check_revision(&current, expected_revision) {
@@ -1620,7 +1712,7 @@ impl MultiAgentStore {
         let Some(target) = target else {
             return Ok(MailboxMessageCommandResult::TargetNotFound {
                 current: Box::new(copy_agent(&current)),
-                target_id: input.to_agent_id.clone(),
+                target_id: input.to_agent_id.clone().into(),
             });
         };
         if !self.can_send_direct_message(&current.id, &target.id) {
@@ -1631,17 +1723,17 @@ impl MultiAgentStore {
         }
         let timestamp = self.now();
         let message = AgentMailboxMessage {
-            extra: serde_json::Map::new(),
-            id: self.create_message_id()?,
+            extra: JsObject::new(),
+            id: self.create_message_id()?.into(),
             thread_id: input.thread_id.clone(),
-            from_agent_id: current.id.clone(),
-            to_agent_id: target.id.clone(),
+            from_agent_id: current.id.clone().into(),
+            to_agent_id: target.id.clone().into(),
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             created_at: timestamp.clone(),
             updated_at: timestamp,
             body: Some(input.body.clone()),
-            file_refs: validate_file_refs(input.file_refs.as_deref(), "send_agent_message")?,
+            file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "send_agent_message")?,
             target_checkpoint: None,
             error: None,
         };
@@ -1670,16 +1762,16 @@ impl MultiAgentStore {
     ) -> Result<AgentMailboxMessage, MultiAgentStoreError> {
         let timestamp = self.now();
         let message = AgentMailboxMessage {
-            extra: serde_json::Map::new(),
-            file_refs: validate_file_refs(input.file_refs.as_deref(), "record_outbound_session_message")?,
+            extra: JsObject::new(),
+            file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "record_outbound_session_message")?,
             body: Some(input.body.clone()),
             created_at: timestamp.clone(),
-            from_agent_id: input.from_agent_id.clone(),
-            id: self.create_message_id()?,
+            from_agent_id: input.from_agent_id.clone().into(),
+            id: self.create_message_id()?.into(),
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             thread_id: input.thread_id.clone(),
-            to_agent_id: input.to_agent_id.clone(),
+            to_agent_id: input.to_agent_id.clone().into(),
             updated_at: timestamp,
             target_checkpoint: None,
             error: None,
@@ -1747,14 +1839,14 @@ impl MultiAgentStore {
             return Ok(());
         };
         for agent in state.agents {
-            if let Ok(agent) = serde_json::from_value::<AgentSnapshot>(agent) {
+            if let Ok(agent) = js_json::from_value::<AgentSnapshot>(&agent) {
                 let restored = restore_agent_snapshot(agent);
                 current.agent_order.push(restored.id.clone());
                 current.agents.insert(restored.id.clone(), restored);
             }
         }
         for message in state.mailbox_messages {
-            if let Ok(message) = serde_json::from_value::<AgentMailboxMessage>(message) {
+            if let Ok(message) = js_json::from_value::<AgentMailboxMessage>(&message) {
                 if self.mailbox_message_is_expired(&message) {
                     continue;
                 }
@@ -1780,7 +1872,7 @@ impl MultiAgentStore {
             state.persistence.clone()
         };
         if let Some(target) = persistence {
-            let value = serde_json::to_value(&message).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
+            let value = js_json::to_value(&message).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
             upsert_multi_agent_mailbox_message(&target.control_db_path, &target.session_path, &message.id, &value)?;
         }
         Ok(())
@@ -2049,7 +2141,7 @@ impl MultiAgentStore {
     fn record_lifecycle_notification(
         &self,
         agent: &AgentNode,
-        body: String,
+        body: JsString,
         file_refs: Option<Vec<AgentFileReference>>,
         thread_id: String,
     ) -> Result<(), MultiAgentStoreError> {
@@ -2061,20 +2153,25 @@ impl MultiAgentStore {
             return Ok(());
         }
         let message = AgentMailboxMessage {
-            extra: serde_json::Map::new(),
-            body: Some(body),
+            extra: JsObject::new(),
+            body: Some(body.into()),
             created_at: timestamp.clone(),
-            from_agent_id: agent.id.clone(),
-            id: self.create_message_id()?,
+            from_agent_id: agent.id.clone().into(),
+            id: self.create_message_id()?.into(),
             kind: MailboxMessageKindValue::System,
             status: MailboxMessageStatusValue::Pending,
-            thread_id: Some(thread_id),
+            thread_id: Some(thread_id.into()),
             to_agent_id: agent
                 .parent_id
                 .clone()
-                .unwrap_or_else(|| MAIN_THREAD_AGENT_ID.to_owned()),
+                .unwrap_or_else(|| MAIN_THREAD_AGENT_ID.to_owned())
+                .into(),
             updated_at: timestamp,
-            file_refs,
+            file_refs: file_refs
+                .as_ref()
+                .map(js_json::to_value)
+                .transpose()
+                .map_err(|error| MultiAgentStoreError::new(error.to_string()))?,
             target_checkpoint: None,
             error: None,
         };
@@ -2357,7 +2454,7 @@ fn is_pending_lifecycle_notification(
     let is_from_agent = message.from_agent_id == agent_id;
     let expected_thread_id = lifecycle_notification_thread_id(agent_id, lifecycle);
     let is_lifecycle_notice = message.kind == MailboxMessageKindValue::System
-        && message.thread_id.as_deref() == Some(expected_thread_id.as_str());
+        && message.thread_id.as_ref() == Some(&JsString::from(expected_thread_id));
     is_from_agent && is_lifecycle_notice && message.status == MailboxMessageStatusValue::Pending
 }
 
@@ -2369,21 +2466,21 @@ fn lifecycle_notification_thread_id(agent_id: &str, lifecycle: LifecycleNotifica
     }
 }
 
-fn format_completion_notification_body(agent: &AgentNode) -> String {
+fn format_completion_notification_body(agent: &AgentNode) -> JsString {
     let summary = agent
         .result
         .as_ref()
-        .and_then(|result| result.summary.as_deref())
-        .map(pi_js_compat::string::js_trim)
+        .and_then(|result| result.summary.as_ref())
+        .map(JsString::trim)
         .filter(|summary| !summary.is_empty());
     let body = match summary {
-        Some(summary) => format!("{} completed: {summary}", agent.display_name),
-        None => format!("{} completed.", agent.display_name),
+        Some(summary) => JsString::from(format!("{} completed: ", agent.display_name)) + summary,
+        None => JsString::from(format!("{} completed.", agent.display_name)),
     };
     append_agent_duration(body, agent.result.as_ref().and_then(|result| result.duration_ms))
 }
 
-fn format_failure_notification_body(agent: &AgentNode) -> String {
+fn format_failure_notification_body(agent: &AgentNode) -> JsString {
     let error_message = agent
         .error
         .as_ref()
@@ -2393,19 +2490,23 @@ fn format_failure_notification_body(agent: &AgentNode) -> String {
         Some(message) => format!("{} failed: {message}", agent.display_name),
         None => format!("{} failed.", agent.display_name),
     };
-    append_agent_duration(body, agent.result.as_ref().and_then(|result| result.duration_ms))
+    append_agent_duration(body.into(), agent.result.as_ref().and_then(|result| result.duration_ms))
 }
 
-fn append_agent_duration(body: String, duration_ms: Option<i64>) -> String {
+fn append_agent_duration(body: JsString, duration_ms: Option<i64>) -> JsString {
     let Some(duration_ms) = duration_ms else {
         return body;
     };
-    let separator = if body.ends_with(['.', '!', '?']) { " " } else { ". " };
-    format!("{body}{separator}Duration: {duration_ms}ms")
+    let separator = if [".", "!", "?"].iter().any(|suffix| body.ends_with(*suffix)) {
+        " "
+    } else {
+        ". "
+    };
+    body + format!("{separator}Duration: {duration_ms}ms")
 }
 
-fn format_waiting_for_input_notification_body(agent: &AgentNode) -> String {
-    format!("{} is waiting for input.", agent.display_name)
+fn format_waiting_for_input_notification_body(agent: &AgentNode) -> JsString {
+    format!("{} is waiting for input.", agent.display_name).into()
 }
 
 fn restore_agent_snapshot(agent: AgentNode) -> AgentNode {
@@ -2459,6 +2560,24 @@ fn validate_optional_path(path: Option<&str>, context: &str) -> Result<(), Multi
     }
 }
 
+fn validate_mailbox_file_refs(refs: Option<&JsValue>, context: &str) -> Result<Option<JsValue>, MultiAgentStoreError> {
+    let Some(refs) = refs else {
+        return Ok(None);
+    };
+    let entries = refs
+        .as_array()
+        .ok_or_else(|| MultiAgentStoreError::new(format!("Invalid file references at {context}")))?;
+    for (index, reference) in entries.iter().enumerate() {
+        let path = reference.get("path").and_then(JsValue::as_string);
+        if !path.is_some_and(|path| path.starts_with("/")) {
+            return Err(MultiAgentStoreError::new(format!(
+                "Invalid file reference at {context}[{index}]: path must be absolute"
+            )));
+        }
+    }
+    Ok(Some(refs.clone()))
+}
+
 pub fn validate_file_refs(
     refs: Option<&[AgentFileReference]>,
     context: &str,
@@ -2497,9 +2616,9 @@ pub fn validate_agent_paths(agent: &AgentNode) -> Result<(), MultiAgentStoreErro
 }
 
 /// Builds a JSON object for an agent using the store's canonical copy shape.
-pub fn agent_to_value(agent: &AgentNode) -> Result<Value, MultiAgentStoreError> {
+pub fn agent_to_value(agent: &AgentNode) -> Result<JsValue, MultiAgentStoreError> {
     validate_agent_paths(agent)?;
-    serde_json::to_value(agent).map_err(|error| MultiAgentStoreError::new(error.to_string()))
+    js_json::to_value(agent).map_err(|error| MultiAgentStoreError::new(error.to_string()))
 }
 
 /// Set of agent ids reachable from `parent_id`, in insertion order.

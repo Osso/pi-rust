@@ -351,7 +351,7 @@ fn canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim(
     assert_eq!(peer["output"][0]["ok"], true, "{peer}");
     let expected = js_json::parse_lossless(peer["output"][0]["value"].as_str().unwrap()).unwrap();
     let native = read_runtime_mailbox_message(&db, id).unwrap().unwrap();
-    let native = JsValue::from(&serde_json::to_value(&native).unwrap());
+    let native = js_json::to_value(&native).unwrap();
     register_runtime_mailbox_listener(
         &db,
         &RuntimeMailboxAddress {

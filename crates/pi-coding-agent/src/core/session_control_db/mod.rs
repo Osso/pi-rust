@@ -33,7 +33,7 @@ use crate::core::session_health::SessionHealthRecord;
 use crate::core::sqlite::{
     DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS, configure_shared_sqlite_database, create_sqlite_database,
 };
-use pi_js_compat::js_json;
+use pi_js_compat::js_json::{self, JsString, JsValue};
 
 pub use agents::{
     AcquireAttachedError, AcquireAttachedRuntimeOwnershipInput, AcquireAttachedRuntimeOwnershipResult,
@@ -146,22 +146,22 @@ pub enum RuntimeMailboxMessageStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeMailboxAddress {
-    pub agent_id: Option<String>,
-    pub session_id: String,
+    pub agent_id: Option<JsString>,
+    pub session_id: JsString,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeMailboxMessage {
     pub id: i64,
     pub recipient: RuntimeMailboxAddress,
     pub sender: RuntimeMailboxAddress,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sender_host: Option<String>,
+    pub sender_host: Option<JsString>,
     pub kind: RuntimeMailboxMessageKind,
-    pub body: String,
+    pub body: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_refs: Option<Vec<AgentFileReference>>,
+    pub file_refs: Option<JsValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_checkpoint: Option<SteeringCheckpoint>,
     pub store_ref: RuntimeMailboxStoreRef,
@@ -171,14 +171,14 @@ pub struct RuntimeMailboxMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub error: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeMailboxStoreRef {
-    pub message_id: String,
-    pub session_path: String,
+    pub message_id: JsString,
+    pub session_path: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,7 +213,7 @@ pub struct EnqueueRuntimeMailboxMessageInput {
     pub store_ref: RuntimeMailboxStoreRef,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnqueueStoredRuntimeMailboxMessageInput {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -222,7 +222,7 @@ pub struct EnqueueStoredRuntimeMailboxMessageInput {
     pub sender: RuntimeMailboxAddress,
     pub kind: RuntimeMailboxMessageKind,
     pub store_ref: RuntimeMailboxStoreRef,
-    pub message: Value,
+    pub message: JsValue,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
 }
@@ -308,8 +308,8 @@ pub fn get_control_db_path(directory: &Path) -> String {
     directory.join("control.sqlite").display().to_string()
 }
 
-pub(crate) fn runtime_mailbox_agent_id_key(agent_id: Option<&str>) -> &str {
-    agent_id.unwrap_or("")
+pub(crate) fn runtime_mailbox_agent_id_key<T: Into<JsString>>(agent_id: Option<T>) -> String {
+    agent_id.map(|value| value.into().to_utf8_lossy()).unwrap_or_default()
 }
 
 pub(crate) fn optional_row<T>(result: rusqlite::Result<T>) -> Result<Option<T>, ControlDbError> {
@@ -924,8 +924,8 @@ pub(crate) fn read_runtime_mailbox_listener_row(
 			WHERE recipient_session_id = ? AND recipient_agent_id_key = ?
 			",
         params![
-            &recipient.session_id,
-            runtime_mailbox_agent_id_key(recipient.agent_id.as_deref())
+            &recipient.session_id.to_utf8_lossy(),
+            runtime_mailbox_agent_id_key(recipient.agent_id.as_ref())
         ],
         |row| {
             Ok(RuntimeMailboxListenerRow {
@@ -986,7 +986,11 @@ pub(crate) fn read_canonical_mailbox_row_by_store_ref(
             "SELECT rowid AS id, session_path, message_id, data, updated_at
 			 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND {MAILBOX_CREATED_AT_MS_SQL} > ?"
         ),
-        params![&store_ref.session_path, &store_ref.message_id, mailbox_cutoff_ms()],
+        params![
+            &store_ref.session_path.to_utf8_lossy(),
+            &store_ref.message_id.to_utf8_lossy(),
+            mailbox_cutoff_ms()
+        ],
         mailbox_row_from_row,
     ))
 }
@@ -1107,24 +1111,35 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
     message: &Map<String, Value>,
 ) -> Result<RuntimeMailboxMessage, ControlDbError> {
     let context = format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
+    let raw = parse_canonical_mailbox_payload_lossless(row)?;
+    let text = |key: &str| -> Result<JsString, ControlDbError> {
+        raw.get(&JsString::from(key))
+            .and_then(JsValue::as_string)
+            .cloned()
+            .ok_or_else(|| ControlDbError::new(format!("Invalid persisted string {key} at {context}")))
+    };
+    let optional_text = |key: &str| raw.get(&JsString::from(key)).and_then(JsValue::as_string).cloned();
     Ok(RuntimeMailboxMessage {
         id: row.id,
         recipient: RuntimeMailboxAddress {
-            agent_id: nullable_string_field(message, "recipientAgentId", &context)?,
-            session_id: require_string_field(message, "recipientSessionId", &context)?,
+            agent_id: optional_text("recipientAgentId"),
+            session_id: text("recipientSessionId")?,
         },
         sender: RuntimeMailboxAddress {
-            agent_id: nullable_string_field(message, "senderAgentId", &context)?,
-            session_id: require_string_field(message, "senderSessionId", &context)?,
+            agent_id: optional_text("senderAgentId"),
+            session_id: text("senderSessionId")?,
         },
-        sender_host: optional_string_field(message, "senderHost", &context)?,
+        sender_host: optional_text("senderHost"),
         kind: to_runtime_mailbox_message_kind(&require_string_field(message, "kind", &context)?),
-        body: require_string_field(message, "body", &context)?,
-        file_refs: parse_file_refs(message.get("fileRefs"), &context)?,
+        body: text("body")?,
+        file_refs: raw
+            .get(&JsString::from("fileRefs"))
+            .filter(|value| !value.is_null())
+            .cloned(),
         target_checkpoint: parse_steering_checkpoint(message.get("targetCheckpoint"), &context)?,
         store_ref: RuntimeMailboxStoreRef {
-            message_id: row.message_id.clone(),
-            session_path: row.session_path.clone(),
+            message_id: row.message_id.clone().into(),
+            session_path: row.session_path.clone().into(),
         },
         status: to_runtime_mailbox_message_status(&require_string_field(message, "status", &context)?),
         created_at: require_string_field(message, "createdAt", &context)?,
@@ -1133,7 +1148,10 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
             _ => row.updated_at.clone(),
         },
         claimed_at: optional_string_field(message, "claimedAt", &context)?,
-        error: optional_string_field(message, "error", &context)?,
+        error: message
+            .get("error")
+            .and_then(Value::as_str)
+            .and_then(|_| optional_text("error")),
     })
 }
 
@@ -1144,13 +1162,11 @@ pub(crate) fn parse_agent_snapshot(data: &Map<String, Value>, context: &str) -> 
 }
 
 pub(crate) fn serialize_agent(agent: &AgentSnapshot) -> Result<String, ControlDbError> {
-    serde_json::to_value(agent)
-        .map(|value| js_json::stringify(&value))
-        .map_err(|error| ControlDbError::new(error.to_string()))
+    agent_value(agent).map(|value| js_json::stringify_lossless(&value))
 }
 
-pub(crate) fn agent_value(agent: &AgentSnapshot) -> Result<Value, ControlDbError> {
-    serde_json::to_value(agent).map_err(|error| ControlDbError::new(error.to_string()))
+pub(crate) fn agent_value(agent: &AgentSnapshot) -> Result<JsValue, ControlDbError> {
+    js_json::to_value(agent).map_err(|error| ControlDbError::new(error.to_string()))
 }
 
 #[cfg(test)]

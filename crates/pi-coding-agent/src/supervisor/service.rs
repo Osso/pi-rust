@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pi_ai::request::BoxFuture;
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::session_control_db::{
@@ -17,7 +17,7 @@ const DEFAULT_POLL_INTERVAL_MS: u64 = 50;
 
 /// Evaluates one Supervisor prompt and returns the raw model response.
 pub type SupervisorEvaluator =
-    Arc<dyn Fn(String, CancellationToken) -> BoxFuture<'static, Result<Value, String>> + Send + Sync>;
+    Arc<dyn Fn(String, CancellationToken) -> BoxFuture<'static, Result<JsValue, JsString>> + Send + Sync>;
 
 /// Inputs for one Supervisor request evaluation.
 #[derive(Clone)]
@@ -63,7 +63,7 @@ fn response_contract_for_request(kind: SupervisorRequestKind) -> String {
 /// `buildSupervisorPrompt`.
 pub fn build_supervisor_prompt(request: &SupervisorRequest) -> String {
     let response_contract = response_contract_for_request(request.kind);
-    let payload = json!({
+    let payload = pi_js_compat::js_json!({
         "deadlineAt": request.deadline_at.clone(),
         "kind": request.kind,
         "payload": request.payload.clone(),
@@ -80,42 +80,34 @@ pub fn build_supervisor_prompt(request: &SupervisorRequest) -> String {
         response_contract,
         "Call supervisor_response exactly once as the final action. Do not emit assistant text, JSON, markdown, or call end_turn before or after it.".to_owned(),
         "Request:".to_owned(),
-        js_json::stringify_pretty(&payload),
+        js_json::stringify_lossless_pretty(&payload),
     ]
     .join("\n")
 }
 
-fn parse_goal_set_response(response: &Map<String, Value>) -> Option<SupervisorResponse> {
-    if response.get("kind").and_then(Value::as_str) != Some("set") {
-        return None;
-    }
-    let objective = response.get("objective")?.as_str()?.trim().to_owned();
-    let reason = response.get("reason")?.as_str()?.to_owned();
-    (!objective.is_empty()).then_some(SupervisorResponse::Set { objective, reason })
+fn response_text(response: &JsObject, key: &str) -> Option<JsString> {
+    response.get(key)?.as_string().cloned()
 }
 
-fn parse_advisory_response(response: &Map<String, Value>) -> Option<SupervisorResponse> {
-    if response.get("kind").and_then(Value::as_str) != Some("advisory") {
-        return None;
-    }
-    let answer = response.get("answer")?.as_str()?.to_owned();
-    (!answer.trim().is_empty()).then_some(SupervisorResponse::Advisory { answer })
-}
-
-/// `parseSupervisorResponse`.
-pub fn parse_supervisor_response(kind: SupervisorRequestKind, raw_response: &Value) -> Option<SupervisorResponse> {
+/// `parseSupervisorResponse`. Content and arbitrary object keys stay UTF-16.
+pub fn parse_supervisor_response(kind: SupervisorRequestKind, raw_response: &JsValue) -> Option<SupervisorResponse> {
     let response = parse_response_object(raw_response)?;
-    response.get("kind")?.as_str()?;
+    let response_kind = response_text(&response, "kind")?.to_utf8().ok()?;
     if kind == SupervisorRequestKind::SupervisorAdvisory {
-        return parse_advisory_response(&response);
+        let answer = response_text(&response, "answer")?;
+        return (response_kind == "advisory" && !answer.trim().is_empty())
+            .then_some(SupervisorResponse::Advisory { answer });
     }
     if kind == SupervisorRequestKind::GoalSetReview {
-        return parse_goal_set_response(&response);
+        let objective = response_text(&response, "objective")?.trim();
+        let reason = response_text(&response, "reason")?;
+        return (response_kind == "set" && !objective.is_empty())
+            .then_some(SupervisorResponse::Set { objective, reason });
     }
-    let reason = response.get("reason")?.as_str()?.to_owned();
-    match response.get("kind").and_then(Value::as_str)? {
+    let reason = response_text(&response, "reason")?;
+    match response_kind.as_str() {
         "error" => Some(SupervisorResponse::Error { reason }),
-        kind_name if kind == SupervisorRequestKind::ApprovalReview => match kind_name {
+        name if kind == SupervisorRequestKind::ApprovalReview => match name {
             "approve" => Some(SupervisorResponse::Approve { reason }),
             "reject" => Some(SupervisorResponse::Reject { reason }),
             _ => None,
@@ -124,38 +116,38 @@ pub fn parse_supervisor_response(kind: SupervisorRequestKind, raw_response: &Val
         "pause" => Some(SupervisorResponse::Pause { reason }),
         "wait" => Some(SupervisorResponse::Wait { reason }),
         "continue" => {
-            let instructions = response.get("instructions")?.as_str()?.to_owned();
+            let instructions = response_text(&response, "instructions")?;
             (!instructions.trim().is_empty()).then_some(SupervisorResponse::Continue { instructions, reason })
         }
         _ => None,
     }
 }
 
-fn parse_response_object(raw_response: &Value) -> Option<Map<String, Value>> {
+fn parse_response_object(raw_response: &JsValue) -> Option<JsObject> {
     match raw_response {
-        Value::String(text) => parse_json_object(text),
-        Value::Object(response) => {
-            let text = extract_text_content(response);
-            match text {
-                Some(text) => parse_json_object(&text),
-                None => Some(response.clone()),
-            }
-        }
+        JsValue::String(text) => parse_json_object(text),
+        JsValue::Object(response) => match extract_text_content(response) {
+            Some(text) => parse_json_object(&text),
+            None => Some(response.clone()),
+        },
         _ => None,
     }
 }
 
-fn extract_text_content(response: &Map<String, Value>) -> Option<String> {
+fn extract_text_content(response: &JsObject) -> Option<JsString> {
     let content = response.get("content")?.as_array()?;
     let text_part = content.iter().find(|item| {
-        item.get("type").and_then(Value::as_str) == Some("text") && item.get("text").and_then(Value::as_str).is_some()
+        item.get("type")
+            .and_then(JsValue::as_string)
+            .is_some_and(|kind| kind == "text")
+            && item.get("text").and_then(JsValue::as_string).is_some()
     })?;
-    Some(text_part.get("text")?.as_str()?.to_owned())
+    text_part.get("text")?.as_string().cloned()
 }
 
-fn parse_json_object(json_text: &str) -> Option<Map<String, Value>> {
-    match js_json::parse(json_text.trim()) {
-        Ok(Value::Object(object)) => Some(object),
+fn parse_json_object(json_text: &JsString) -> Option<JsObject> {
+    match js_json::parse_lossless(json_text.trim()) {
+        Ok(JsValue::Object(object)) => Some(object),
         _ => None,
     }
 }
@@ -192,7 +184,7 @@ pub async fn run_supervisor_request(
         EvaluationWait::Completed(Ok(value)) => value,
     };
     let response = parse_supervisor_response(input.request.kind, &raw_response).unwrap_or(SupervisorResponse::Error {
-        reason: "Supervisor returned an invalid response".to_owned(),
+        reason: "Supervisor returned an invalid response".into(),
     });
     complete_supervisor_request(
         &input.control_db_path,
@@ -204,14 +196,14 @@ pub async fn run_supervisor_request(
 }
 
 enum EvaluationWait {
-    Completed(Result<Value, String>),
+    Completed(Result<JsValue, JsString>),
     Expired,
     Preempted,
 }
 
 async fn wait_for_evaluation(
     input: &RunSupervisorRequestInput,
-    mut evaluation: tokio::task::JoinHandle<Result<Value, String>>,
+    mut evaluation: tokio::task::JoinHandle<Result<JsValue, JsString>>,
     cancel: &CancellationToken,
     poll_interval_ms: u64,
     deadline_ms: Option<i64>,
@@ -222,7 +214,7 @@ async fn wait_for_evaluation(
         tokio::select! {
             result = &mut evaluation => {
                 return Ok(EvaluationWait::Completed(
-                    result.unwrap_or_else(|error| Err(error.to_string())),
+                    result.unwrap_or_else(|error| Err(error.to_string().into())),
                 ));
             }
             () = tokio::time::sleep(delay) => {}
@@ -236,7 +228,7 @@ async fn wait_for_evaluation(
                 input.request.id,
                 &required_claim_token(&input.request)?,
                 &SupervisorResponse::Error {
-                    reason: "Supervisor request deadline expired".to_owned(),
+                    reason: "Supervisor request deadline expired".to_owned().into(),
                 },
             )?;
             return Ok(EvaluationWait::Expired);

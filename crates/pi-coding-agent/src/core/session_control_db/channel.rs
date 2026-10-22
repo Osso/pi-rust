@@ -24,7 +24,12 @@ pub fn post_shared_channel_message(
 				INSERT INTO shared_channel_messages (sender_session_id, sender_agent_id, body, created_at)
 				VALUES (?, ?, ?, ?)
 				",
-            params![input.sender.session_id, input.sender.agent_id, body, now],
+            params![
+                input.sender.session_id.to_utf8_lossy(),
+                input.sender.agent_id,
+                body,
+                now
+            ],
         )?;
         Ok(db.last_insert_rowid())
     })
@@ -67,7 +72,10 @@ pub fn list_shared_channel_messages_after(
                     origin_host,
                     origin_id,
                     id,
-                    sender: RuntimeMailboxAddress { agent_id, session_id },
+                    sender: RuntimeMailboxAddress {
+                        agent_id: agent_id.map(Into::into),
+                        session_id: session_id.into(),
+                    },
                     body,
                     created_at,
                 },
@@ -109,7 +117,7 @@ pub fn has_pending_runtime_coordination_message(
 					AND (origin_host IS NOT NULL OR sender_session_id <> ?)
 				LIMIT 1
 				",
-                params![cursor, recipient.session_id],
+                params![cursor, recipient.session_id.to_utf8_lossy()],
                 |_| Ok(()),
             )
             .optional()?
@@ -164,8 +172,8 @@ fn read_shared_channel_cursor_row(
 			WHERE session_id = ? AND agent_id_key = ?
 			",
             params![
-                recipient.session_id,
-                runtime_mailbox_agent_id_key(recipient.agent_id.as_deref())
+                recipient.session_id.to_utf8_lossy(),
+                runtime_mailbox_agent_id_key(recipient.agent_id.as_ref())
             ],
             |row| row.get(0),
         )
@@ -200,8 +208,8 @@ fn write_shared_channel_cursor_row(
 			updated_at = excluded.updated_at
 		",
         params![
-            recipient.session_id,
-            runtime_mailbox_agent_id_key(recipient.agent_id.as_deref()),
+            recipient.session_id.to_utf8_lossy(),
+            runtime_mailbox_agent_id_key(recipient.agent_id.as_ref()),
             last_seen_id,
             now
         ],
