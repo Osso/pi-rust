@@ -173,7 +173,7 @@ pub async fn review_tool_with_claude_bash_hook(
         "approval_policy": "on-request",
         "cwd": cwd,
         "supports_updated_input": true,
-        "tool_input": tool_input,
+        "tool_input": Value::Object(tool_input),
         "tool_name": hook_tool_name,
     });
 
