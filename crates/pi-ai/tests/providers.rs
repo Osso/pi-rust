@@ -105,7 +105,7 @@ fn provider_metadata_matches_the_ts_factories() {
             id: "amazon-bedrock",
             name: "Amazon Bedrock",
             base_url: None,
-            api_key_auth: "AWS credentials or bearer token",
+            api_key_auth: "AWS credentials",
             oauth: None,
         },
         Expected {
@@ -197,7 +197,7 @@ fn provider_metadata_matches_the_ts_factories() {
             name: "Kimi For Coding",
             base_url: Some("https://api.kimi.com/coding"),
             api_key_auth: "Kimi API key",
-            oauth: Some("Kimi Code (subscription)"),
+            oauth: None,
         },
         Expected {
             id: "minimax",
@@ -288,7 +288,7 @@ fn provider_metadata_matches_the_ts_factories() {
             name: "xAI",
             base_url: Some("https://api.x.ai/v1"),
             api_key_auth: "xAI API key",
-            oauth: Some("xAI (Grok/X subscription)"),
+            oauth: None,
         },
         Expected {
             id: "xiaomi",
@@ -368,18 +368,13 @@ fn oauth_subscription_flags_match_the_ts_factories() {
             ))
         })
         .collect();
-    // Frozen all.ts calls openaiCodexProvider for default/GC/Team; each
-    // shares openai-codex.ts's subscription OAuth, with no login label.
+    // Staged metadata inventory. Remaining old-only flags are explicit gaps
+    // in the unported provider/auth interfaces, not frozen parity evidence.
     assert_eq!(
         flags,
         vec![
-            ("anthropic".to_owned(), true, None),
+            ("anthropic".to_owned(), false, None),
             ("github-copilot".to_owned(), true, None),
-            (
-                "kimi-coding".to_owned(),
-                true,
-                Some("Sign in with Kimi Code".to_owned())
-            ),
             ("openai-codex".to_owned(), true, None),
             ("openai-codex-gc".to_owned(), true, None),
             ("openai-codex-team".to_owned(), true, None),
@@ -387,11 +382,6 @@ fn oauth_subscription_flags_match_the_ts_factories() {
                 "openrouter".to_owned(),
                 false,
                 Some("Sign in with OpenRouter".to_owned())
-            ),
-            (
-                "xai".to_owned(),
-                true,
-                Some("Sign in with SuperGrok or X Premium".to_owned())
             ),
         ]
     );

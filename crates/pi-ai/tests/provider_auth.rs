@@ -64,6 +64,18 @@ fn kimi_provider_matches_frozen_without_subscription_oauth() {
     );
 }
 
+#[test]
+fn xai_provider_matches_frozen_without_subscription_oauth() {
+    let provider = pi_ai::providers::xai::xai_provider();
+    let mut oracle = oracle::TsOracle::spawn("provider-module-oracle.ts", "packages/ai/src/providers/xai.ts");
+    assert_eq!(
+        provider_descriptor(provider.as_ref()),
+        oracle.request(&json!({
+            "factory": "xaiProvider", "operation": "describe"
+        }))
+    );
+}
+
 fn provider_descriptor(provider: &dyn Provider) -> Value {
     let auth = provider.auth();
     let api_key = auth.api_key.as_ref().unwrap();
