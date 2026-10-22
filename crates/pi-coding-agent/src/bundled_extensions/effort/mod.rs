@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::harness::ThinkingLevel;
-use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use pi_js_compat::js_json::{JsString, JsValue};
 
 use crate::core::agent_session::thinking_level_from_model;
 use crate::core::extensions::types::{

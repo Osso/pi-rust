@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::AgentToolResult;
-use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value};
 use pi_js_compat::number::js_number_to_string;
 use pi_js_compat::string::js_trim;
 use regex::Regex;
@@ -434,7 +434,7 @@ async fn handle_loop_command(
 ) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
     match parse_loop_command(args) {
-        ParsedLoopCommand::Error(error) => ui.notify(&error, Some(NotifyType::Error)),
+        ParsedLoopCommand::Error(error) => ui.notify(&error.into(), Some(NotifyType::Error)),
         ParsedLoopCommand::Status => {
             ui.notify(&describe_loop(controller.status().as_ref()), Some(NotifyType::Info));
         }

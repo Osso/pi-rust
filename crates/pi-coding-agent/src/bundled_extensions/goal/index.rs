@@ -1245,7 +1245,7 @@ fn handle_goal_command(
     let parsed_args = parse_goal_args(args);
     let action = match parsed_args {
         ParseGoalArgsResult::Error(error) => {
-            let _ = ctx.ui().map(|ui| ui.notify(&error, Some(NotifyType::Error)));
+            let _ = ctx.ui().map(|ui| ui.notify(&error.into(), Some(NotifyType::Error)));
             return;
         }
         ParseGoalArgsResult::Parsed(action) => action,
