@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use pi_agent_core::agent::types::{AgentToolResult, AgentToolUpdateCallback};
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -33,7 +34,7 @@ pub struct BrowserCliCommandResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserCliCommandExecution {
-    pub args: Vec<String>,
+    pub args: Vec<JsString>,
     pub stdout: String,
     pub stderr: String,
     pub exit_code: Option<i32>,
@@ -48,7 +49,7 @@ pub struct BrowserCliBatchResult {
 pub type BrowserCliCommandRunner = Arc<
     dyn Fn(
             String,
-            Vec<String>,
+            Vec<JsString>,
             Option<CancellationToken>,
         ) -> BoxFuture<'static, Result<BrowserCliCommandResult, HandlerError>>
         + Send
@@ -91,7 +92,7 @@ pub fn create_browser_cli_tool_definition(options: BrowserCliExtensionOptions) -
         execution_mode: Some(pi_agent_core::harness::types::ToolExecutionMode::Sequential),
         execute: Arc::new(
             move |_tool_call_id: String,
-                  params: serde_json::Value,
+                  params: JsValue,
                   signal: Option<CancellationToken>,
                   _on_update: Option<AgentToolUpdateCallback>,
                   _ctx: ExtensionContext| {
@@ -125,7 +126,7 @@ fn browser_cli_schema() -> serde_json::Value {
 
 async fn execute_browser_cli(
     run_command: BrowserCliCommandRunner,
-    params: serde_json::Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, HandlerError> {
     let commands = parse_commands(&params)?;
@@ -133,16 +134,27 @@ async fn execute_browser_cli(
     let text = format_browser_cli_batch_output(&executions);
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(json!({"commands": executions})),
+        details: Some(pi_js_compat::js_json!({"commands": executions})),
         is_error: None,
         terminate: None,
     })
 }
 
-fn parse_commands(params: &serde_json::Value) -> Result<Vec<Vec<String>>, HandlerError> {
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn command_arguments_remain_raw_before_process_boundary() {
+        let params = pi_js_compat::js_json::parse_lossless(r#"{"commands":[["fill","\ud800"]]}"#).unwrap();
+        let commands = parse_commands(&params).unwrap();
+        assert_eq!(commands[0][1].units(), &[0xd800]);
+    }
+}
+
+fn parse_commands(params: &JsValue) -> Result<Vec<Vec<JsString>>, HandlerError> {
     let commands = params
         .get("commands")
-        .and_then(serde_json::Value::as_array)
+        .and_then(JsValue::as_array)
         .ok_or_else(|| HandlerError::new("commands must be an array"))?;
     commands
         .iter()
@@ -153,8 +165,8 @@ fn parse_commands(params: &serde_json::Value) -> Result<Vec<Vec<String>>, Handle
                 .iter()
                 .map(|argument| {
                     argument
-                        .as_str()
-                        .map(str::to_owned)
+                        .as_string()
+                        .cloned()
                         .ok_or_else(|| HandlerError::new("browser-cli arguments must be strings"))
                 })
                 .collect()
@@ -164,7 +176,7 @@ fn parse_commands(params: &serde_json::Value) -> Result<Vec<Vec<String>>, Handle
 
 async fn run_browser_cli_batch(
     run_command: BrowserCliCommandRunner,
-    commands: Vec<Vec<String>>,
+    commands: Vec<Vec<JsString>>,
     signal: Option<CancellationToken>,
 ) -> Result<Vec<BrowserCliCommandExecution>, HandlerError> {
     let mut results = Vec::new();
@@ -206,14 +218,14 @@ async fn wait_for_abort<T>(
 
 async fn run_browser_cli_command(
     executable: String,
-    args: Vec<String>,
+    args: Vec<JsString>,
     signal: Option<CancellationToken>,
 ) -> Result<BrowserCliCommandResult, HandlerError> {
     if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
         return Err(create_abort_error());
     }
     let mut child = tokio::process::Command::new(&executable)
-        .args(&args)
+        .args(args.iter().map(encode_node_utf8))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

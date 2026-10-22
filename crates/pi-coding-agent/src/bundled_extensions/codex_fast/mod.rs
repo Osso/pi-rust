@@ -183,7 +183,7 @@ fn persist_fast_mode(pi: &ExtensionApi, authority: &FastModeAuthority) -> Result
     data.insert(
         "serviceTier".into(),
         match authority.service_tier() {
-            Some(tier) => JsValue::from(tier.as_str()),
+            Some(tier) => JsValue::String(tier.as_str().into()),
             None => JsValue::Null,
         },
     );
