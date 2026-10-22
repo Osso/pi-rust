@@ -186,6 +186,17 @@ async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
         .lines()
         .map(|s| serde_json::from_str::<Value>(s).unwrap())
         .collect::<Vec<_>>();
+    let hello_invocations: Vec<_> = records.iter().filter(|r| r["task"] == "Task: hello").collect();
+    assert_eq!(
+        hello_invocations.len(),
+        2,
+        "native and frozen child invocations must both be recorded"
+    );
+    assert_eq!(
+        json!({"model":hello_invocations[0]["model"],"thinking":hello_invocations[0]["thinking"]}),
+        json!({"model":hello_invocations[1]["model"],"thinking":hello_invocations[1]["thinking"]}),
+        "DRIFT: native inherited invocation flags differ from the frozen child invocation"
+    );
     let inherited = records.iter().find(|r| r["task"] == "Task: hello").unwrap();
     assert_eq!(inherited["model"], "fixture/inherited");
     assert_eq!(inherited["thinking"], "high");
