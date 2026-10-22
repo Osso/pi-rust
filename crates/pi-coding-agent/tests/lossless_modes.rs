@@ -57,11 +57,16 @@ fn render_with_frozen_typescript(cases: &[JsString]) -> Vec<JsString> {
         "cases": cases,
     });
     let mut stdin = child.stdin.take().unwrap();
-    writeln!(stdin, "{}", stringify_lossless(&request)).unwrap();
+    // Node readline splits on U+2028/U+2029; escape them so one request stays one line.
+    let wire = stringify_lossless(&request)
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029");
+    writeln!(stdin, "{wire}").unwrap();
     drop(stdin);
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success());
-    let response = parse_lossless(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    let text = String::from_utf8(output.stdout).unwrap();
+    let response = parse_lossless(text.trim()).unwrap_or_else(|error| panic!("oracle output {text:?}: {error:?}"));
     assert_eq!(response["ok"], JsValue::Bool(true), "{response:?}");
     response["output"]
         .as_array()
@@ -109,8 +114,10 @@ fn raw_diff_styling_matches_frozen_utf16_then_node_terminal_encoding() {
     .collect::<Vec<_>>();
     let expected = render_with_frozen_typescript(&cases);
     for (input, expected) in cases.iter().zip(expected) {
+        let rendered = render_diff(input);
+        assert_eq!(rendered, expected, "raw input: {:?}", input.units());
         assert_eq!(
-            render_diff(input),
+            encode_node_utf8(&rendered),
             encode_node_utf8(&expected),
             "raw input: {:?}",
             input.units()
