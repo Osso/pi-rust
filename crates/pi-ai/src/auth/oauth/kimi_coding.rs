@@ -86,7 +86,7 @@ impl OAuthAuth for KimiCodingOAuth {
         Box::pin(async move {
             refresh_token(&runtime, &oauth_host, &credential.refresh, signal)
                 .await
-                .map_err(|error| AuthError::failed(error.message))
+                .map_err(AuthError::from)
         })
     }
 
@@ -327,7 +327,7 @@ async fn login_kimi_coding(
 ) -> Result<OAuthCredential, AuthError> {
     let device = start_device_authorization(runtime, oauth_host, interaction.signal())
         .await
-        .map_err(|error| AuthError::failed(error.message))?;
+        .map_err(AuthError::from)?;
     interaction.notify(AuthEvent::DeviceCode {
         user_code: (device.user_code.clone()).into(),
         verification_uri: (device.verification_uri_complete.clone()).into(),
@@ -336,7 +336,7 @@ async fn login_kimi_coding(
     });
     let token = poll_for_token(runtime, oauth_host, &device, interaction.signal())
         .await
-        .map_err(|error| AuthError::failed(error.message))?;
+        .map_err(AuthError::from)?;
     Ok(OAuthCredential::new(token.refresh, token.access, token.expires))
 }
 

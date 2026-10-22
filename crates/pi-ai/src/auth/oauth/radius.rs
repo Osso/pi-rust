@@ -431,7 +431,7 @@ async fn login_with_device_code(
 ) -> Result<OAuthCredential, AuthError> {
     let device = request_device_authorization(runtime, gateway, interaction.signal())
         .await
-        .map_err(|error| AuthError::failed(error.message))?;
+        .map_err(AuthError::from)?;
     interaction.notify(AuthEvent::DeviceCode {
         user_code: (device.user_code.clone()).into(),
         verification_uri: (device.verification_uri.clone()).into(),
@@ -516,14 +516,14 @@ async fn login_radius(
             },
         })
         .await
-        .map_err(|error| AuthError::failed(error.message))?;
+        .map_err(AuthError::from)?;
 
     if method == LOGIN_METHOD_DEVICE_CODE {
         login_with_device_code(runtime, gateway, interaction).await
     } else if method == LOGIN_METHOD_BROWSER {
         let authorization_endpoint = load_discovery(runtime, gateway, interaction.signal())
             .await
-            .map_err(|error| AuthError::failed(error.message))?;
+            .map_err(AuthError::from)?;
         login_with_browser(runtime, gateway, &authorization_endpoint, interaction).await
     } else {
         Err(AuthError::failed(pi_js_compat::js_format!(

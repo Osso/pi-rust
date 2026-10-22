@@ -22,3 +22,5 @@ The external probe covers five builtin IDs/names/callback flags × four syntheti
 The old Copilot native-flow bridge permits policy-enabled models when no picker ID survives; frozen selection requires `model_picker_enabled === true`. This is a source-inspection discrepancy, not an executed refresh proof or approved deviation. Callback translation through old `AuthPrompt` likewise leaves lifecycle/cancellation/protocol parity pending; see [verification discrepancies](/tmp/pi-rust-repin-auth/VERIFY-PARTIAL.md).
 
 No real providers, credentials, login, or network used. Builtin flow bridge is compilation/integration scaffolding only, not current-pin provider-flow parity proof.
+
+Q18 native auth integration and bounded proof status: [lossless auth](lossless-auth.md).

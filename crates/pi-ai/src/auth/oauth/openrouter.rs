@@ -333,7 +333,7 @@ async fn login_openrouter(
         interaction.signal(),
     )
     .await
-    .map_err(|error| AuthError::failed(error.message))?;
+    .map_err(AuthError::from)?;
     let manual_abort = CancellationToken::new();
     let authorize_url = crate::auth::oauth::support::url_with_query(
         AUTHORIZE_URL,
@@ -428,5 +428,5 @@ async fn login_openrouter(
     let credential = exchange_authorization_code(runtime, &code, &pkce.verifier, interaction.signal()).await;
     server.close();
     manual_abort.cancel();
-    credential.map_err(|error| AuthError::failed(error.message))
+    credential.map_err(AuthError::from)
 }

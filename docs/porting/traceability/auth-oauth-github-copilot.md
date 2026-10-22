@@ -50,3 +50,5 @@ Tests: `crates/pi-ai/tests/github_copilot_oauth.rs`,
 ## Discrepancies
 
 - None.
+
+Q18 native auth integration and bounded proof status: [lossless auth](lossless-auth.md).
