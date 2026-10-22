@@ -134,8 +134,8 @@ fn anthropic_prefers_oauth_token_over_api_key() {
         ),
         None,
     );
-    assert_eq!(result.auth.api_key.as_deref(), Some("oauth-token"));
-    assert_eq!(result.source.as_deref(), Some("ANTHROPIC_OAUTH_TOKEN"));
+    assert_eq!(result.auth.api_key.as_ref(), Some(&JsString::from("oauth-token")));
+    assert_eq!(result.source.as_ref(), Some(&JsString::from("ANTHROPIC_OAUTH_TOKEN")));
 }
 
 #[test]
@@ -146,8 +146,8 @@ fn anthropic_api_key_is_last_and_stored_credential_wins() {
         auth_context(&[("ANTHROPIC_API_KEY", "api-key")], &[]),
         None,
     );
-    assert_eq!(keyed.auth.api_key.as_deref(), Some("api-key"));
-    assert_eq!(keyed.source.as_deref(), Some("ANTHROPIC_API_KEY"));
+    assert_eq!(keyed.auth.api_key.as_ref(), Some(&JsString::from("api-key")));
+    assert_eq!(keyed.source.as_ref(), Some(&JsString::from("ANTHROPIC_API_KEY")));
 
     let stored = resolve(
         provider.as_ref(),
@@ -157,8 +157,8 @@ fn anthropic_api_key_is_last_and_stored_credential_wins() {
             env: Some(ProviderEnv::from([("SCOPED".to_owned(), "value".to_owned())])),
         }),
     );
-    assert_eq!(stored.auth.api_key.as_deref(), Some("stored"));
-    assert_eq!(stored.source.as_deref(), Some("stored credential"));
+    assert_eq!(stored.auth.api_key.as_ref(), Some(&JsString::from("stored")));
+    assert_eq!(stored.source.as_ref(), Some(&JsString::from("stored credential")));
     assert_eq!(
         stored.env,
         Some(ProviderEnv::from([("SCOPED".to_owned(), "value".to_owned())]))
@@ -263,7 +263,10 @@ fn bedrock_login_covers_bearer_profile_and_chain_flows() {
         .expect("runtime")
         .block_on(auth.login(interaction).expect("login"))
         .expect_err("unknown method");
-    assert_eq!(error.detail(), Some("Unknown Amazon Bedrock auth method: unknown"));
+    assert_eq!(
+        error.detail(),
+        Some(&JsString::from("Unknown Amazon Bedrock auth method: unknown"))
+    );
 }
 
 #[test]
@@ -276,18 +279,21 @@ fn bedrock_resolve_detects_stored_and_ambient_credentials() {
         Some(api_key_credential("token")),
     );
     assert_eq!(stored.auth, pi_ai::auth::ModelAuth::default());
-    assert_eq!(stored.source.as_deref(), Some("stored credential"));
+    assert_eq!(stored.source.as_ref(), Some(&JsString::from("stored credential")));
 
     let bearer = resolve(
         provider.as_ref(),
         auth_context(&[("AWS_BEARER_TOKEN_BEDROCK", "token")], &[]),
         None,
     );
-    assert_eq!(bearer.source.as_deref(), Some("AWS_BEARER_TOKEN_BEDROCK"));
+    assert_eq!(
+        bearer.source.as_ref(),
+        Some(&JsString::from("AWS_BEARER_TOKEN_BEDROCK"))
+    );
 
     let profile = resolve(provider.as_ref(), auth_context(&[("AWS_PROFILE", "dev")], &[]), None);
     assert_eq!(profile.auth, pi_ai::auth::ModelAuth::default());
-    assert_eq!(profile.source.as_deref(), Some("AWS_PROFILE"));
+    assert_eq!(profile.source.as_ref(), Some(&JsString::from("AWS_PROFILE")));
 
     let stored_profile = resolve(
         provider.as_ref(),
@@ -297,7 +303,10 @@ fn bedrock_resolve_detects_stored_and_ambient_credentials() {
             env: Some(ProviderEnv::from([("AWS_PROFILE".to_owned(), "work".to_owned())])),
         }),
     );
-    assert_eq!(stored_profile.source.as_deref(), Some("stored credential"));
+    assert_eq!(
+        stored_profile.source.as_ref(),
+        Some(&JsString::from("stored credential"))
+    );
     assert_eq!(
         stored_profile.env,
         Some(ProviderEnv::from([("AWS_PROFILE".to_owned(), "work".to_owned())]))
@@ -308,21 +317,24 @@ fn bedrock_resolve_detects_stored_and_ambient_credentials() {
         auth_context(&[("AWS_ACCESS_KEY_ID", "id"), ("AWS_SECRET_ACCESS_KEY", "secret")], &[]),
         None,
     );
-    assert_eq!(keys.source.as_deref(), Some("AWS access keys"));
+    assert_eq!(keys.source.as_ref(), Some(&JsString::from("AWS access keys")));
 
     let ecs = resolve(
         provider.as_ref(),
         auth_context(&[("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "/v2/creds")], &[]),
         None,
     );
-    assert_eq!(ecs.source.as_deref(), Some("ECS task role"));
+    assert_eq!(ecs.source.as_ref(), Some(&JsString::from("ECS task role")));
 
     let web_identity = resolve(
         provider.as_ref(),
         auth_context(&[("AWS_WEB_IDENTITY_TOKEN_FILE", "/tmp/token")], &[]),
         None,
     );
-    assert_eq!(web_identity.source.as_deref(), Some("web identity token"));
+    assert_eq!(
+        web_identity.source.as_ref(),
+        Some(&JsString::from("web identity token"))
+    );
 
     assert!(resolve_optional(provider.as_ref(), auth_context(&[], &[]), None).is_none());
 }
@@ -350,7 +362,7 @@ fn cloudflare_workers_ai_requires_account_and_returns_scoped_env() {
         ),
         None,
     );
-    assert_eq!(result.auth.api_key.as_deref(), Some("cf-key"));
+    assert_eq!(result.auth.api_key.as_ref(), Some(&JsString::from("cf-key")));
     assert_eq!(
         result.env,
         Some(ProviderEnv::from([(
@@ -358,7 +370,7 @@ fn cloudflare_workers_ai_requires_account_and_returns_scoped_env() {
             "account-id".to_owned()
         )]))
     );
-    assert_eq!(result.source.as_deref(), Some("CLOUDFLARE_API_KEY"));
+    assert_eq!(result.source.as_ref(), Some(&JsString::from("CLOUDFLARE_API_KEY")));
 }
 
 #[test]
@@ -372,7 +384,7 @@ fn cloudflare_workers_ai_merges_partial_stored_credential_with_env() {
             env: None,
         }),
     );
-    assert_eq!(result.auth.api_key.as_deref(), Some("stored-key"));
+    assert_eq!(result.auth.api_key.as_ref(), Some(&JsString::from("stored-key")));
     assert_eq!(
         result.env,
         Some(ProviderEnv::from([(
@@ -380,7 +392,7 @@ fn cloudflare_workers_ai_merges_partial_stored_credential_with_env() {
             "env-account".to_owned()
         )]))
     );
-    assert_eq!(result.source.as_deref(), Some("stored credential"));
+    assert_eq!(result.source.as_ref(), Some(&JsString::from("stored credential")));
 }
 
 #[test]
@@ -414,10 +426,7 @@ fn cloudflare_ai_gateway_requires_gateway_and_suppresses_default_auth_headers() 
         None,
     );
     let headers = result.auth.headers.expect("headers");
-    assert_eq!(
-        headers.get("cf-aig-authorization"),
-        Some(&Some("Bearer cf-key".to_owned()))
-    );
+    assert_eq!(headers.get("cf-aig-authorization"), Some(&Some("Bearer cf-key".into())));
     assert_eq!(headers.get("Authorization"), Some(&None));
     assert_eq!(headers.get("x-api-key"), Some(&None));
     assert_eq!(result.auth.api_key, None);
@@ -453,7 +462,7 @@ fn cloudflare_login_prompts_for_key_account_and_gateway() {
             ])),
         }
     );
-    let prompts: Vec<String> = interaction
+    let prompts: Vec<JsString> = interaction
         .prompts()
         .into_iter()
         .map(|prompt| match prompt.kind {
@@ -524,7 +533,7 @@ fn vertex_login_covers_key_adc_and_service_account_flows() {
             .env
             .as_ref()
             .and_then(|env| env.get("GOOGLE_APPLICATION_CREDENTIALS")),
-        Some(&"/tmp/sa.json".to_owned())
+        Some(&"/tmp/sa.json".into())
     );
 
     let unknown = TestInteraction::new(vec![PromptAnswer::Text("unknown".to_owned())]);
@@ -532,7 +541,10 @@ fn vertex_login_covers_key_adc_and_service_account_flows() {
         .expect("runtime")
         .block_on(auth.login(unknown).expect("login"))
         .expect_err("unknown method");
-    assert_eq!(error.detail(), Some("Unknown Google Vertex AI auth method: unknown"));
+    assert_eq!(
+        error.detail(),
+        Some(&JsString::from("Unknown Google Vertex AI auth method: unknown"))
+    );
 }
 
 #[test]
@@ -544,8 +556,8 @@ fn vertex_resolve_prefers_api_key_then_adc_with_project_and_location() {
         auth_context(&[("GOOGLE_CLOUD_API_KEY", "vertex-key")], &[]),
         None,
     );
-    assert_eq!(keyed.auth.api_key.as_deref(), Some("vertex-key"));
-    assert_eq!(keyed.source.as_deref(), Some("GOOGLE_CLOUD_API_KEY"));
+    assert_eq!(keyed.auth.api_key.as_ref(), Some(&JsString::from("vertex-key")));
+    assert_eq!(keyed.source.as_ref(), Some(&JsString::from("GOOGLE_CLOUD_API_KEY")));
 
     let adc = resolve(
         provider.as_ref(),
@@ -559,7 +571,10 @@ fn vertex_resolve_prefers_api_key_then_adc_with_project_and_location() {
         None,
     );
     assert_eq!(adc.auth, pi_ai::auth::ModelAuth::default());
-    assert_eq!(adc.source.as_deref(), Some("gcloud application default credentials"));
+    assert_eq!(
+        adc.source.as_ref(),
+        Some(&JsString::from("gcloud application default credentials"))
+    );
 
     assert!(
         resolve_optional(
@@ -583,7 +598,10 @@ fn vertex_resolve_prefers_api_key_then_adc_with_project_and_location() {
         ),
         None,
     );
-    assert_eq!(keyed_over_adc.auth.api_key.as_deref(), Some("vertex-key"));
+    assert_eq!(
+        keyed_over_adc.auth.api_key.as_ref(),
+        Some(&JsString::from("vertex-key"))
+    );
 
     // GCLOUD_PROJECT is the second project fallback.
     let gcloud_project = resolve(
@@ -595,8 +613,8 @@ fn vertex_resolve_prefers_api_key_then_adc_with_project_and_location() {
         None,
     );
     assert_eq!(
-        gcloud_project.source.as_deref(),
-        Some("gcloud application default credentials")
+        gcloud_project.source.as_ref(),
+        Some(&JsString::from("gcloud application default credentials"))
     );
 }
 
@@ -617,7 +635,7 @@ fn vertex_stored_credential_env_drives_adc_resolution() {
         Some(credential.clone()),
     );
     assert_eq!(result.auth, pi_ai::auth::ModelAuth::default());
-    assert_eq!(result.source.as_deref(), Some("stored credential"));
+    assert_eq!(result.source.as_ref(), Some(&JsString::from("stored credential")));
     assert_eq!(result.env, credential.env);
 }
 
@@ -715,9 +733,6 @@ fn builtin_models_exposes_provider_owned_auth() {
         .expect("auth")
         .expect("resolved");
     let headers = auth.auth.headers.expect("headers");
-    assert_eq!(
-        headers.get("Authorization"),
-        Some(&Some("Bearer auth-token".to_owned()))
-    );
-    assert_eq!(auth.source.as_deref(), Some("ANTHROPIC_AUTH_TOKEN"));
+    assert_eq!(headers.get("Authorization"), Some(&Some("Bearer auth-token".into())));
+    assert_eq!(auth.source.as_ref(), Some(&JsString::from("ANTHROPIC_AUTH_TOKEN")));
 }
