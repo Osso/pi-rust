@@ -43,3 +43,7 @@ files and the three error prefixes.
 ## JS-value boundary regression (2026-10-20)
 
 Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).
+
+## Q18 native auth configuration
+
+Stored apiKey/baseUrl/header values and composed auth environment use `JsString`. `models.json` parsing stores one `JsObject`; provider IDs reject unmatched units explicitly under the scalar opaque-provider approval. Typed auth config decodes directly from that authority. `raw_error_consumer_components::model_config_keeps_raw_provider_credentials_and_url` written **unexecuted**; coding-agent compilation blocked. No request-boundary conversion occurs in composition.

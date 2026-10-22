@@ -440,3 +440,21 @@ async fn auth_storage_reads_and_writes_raw_credentials_without_scalar_projection
         Some(raw)
     );
 }
+
+#[test]
+fn model_config_keeps_raw_provider_credentials_and_url() {
+    use pi_coding_agent::core::{model_config::ModelConfig, provider_composer::ModelsJsonProvider};
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("models.json");
+    std::fs::write(&path, r#"{"providers":{"fixture":{"apiKey":"secret\ud800","baseUrl":"https://example.test/\udc00","headers":{"X-Key":"\ud800"}}}}"#).unwrap();
+    let config = ModelConfig::load(Some(&path.to_str().unwrap().into()));
+    assert!(config.get_error().is_none());
+    let provider: ModelsJsonProvider =
+        pi_js_compat::js_json::from_value(config.get_provider("fixture").unwrap()).unwrap();
+    assert_eq!(
+        provider.api_key.unwrap(),
+        JsString::from("secret") + JsString::from_utf16(vec![0xd800])
+    );
+    assert!(provider.base_url.unwrap().contains(JsString::from_utf16(vec![0xdc00])));
+    assert_eq!(provider.headers.unwrap()["X-Key"], JsString::from_utf16(vec![0xd800]));
+}

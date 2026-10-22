@@ -173,6 +173,12 @@ pub struct ConfigValueError {
     message: JsString,
 }
 
+impl ConfigValueError {
+    pub fn message(&self) -> &JsString {
+        &self.message
+    }
+}
+
 impl std::fmt::Display for ConfigValueError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&encode_node_utf8(&self.message))
