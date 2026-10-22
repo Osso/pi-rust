@@ -55,7 +55,7 @@ async fn provider_module_and_lazy_override_match_the_typescript_exports() {
     let body = [message_start(), text_delta(0, "Hello"), message_stop("end_turn")].concat();
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
     let mut stream = bedrock_provider_module().stream(model(), context(), options(fetch));
-    let mut text = String::new();
+    let mut text = pi_js_compat::js_json::JsString::default();
     while let Some(event) = stream.next().await {
         if let pi_ai::types::AssistantMessageEvent::TextDelta { delta, .. } = event.expect("event") {
             text.push_str(&delta);

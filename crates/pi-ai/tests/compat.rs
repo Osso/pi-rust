@@ -86,7 +86,7 @@ fn fake_stream(model: &Model) -> AssistantMessageEventStream {
     stream
 }
 
-fn fake_provider(api: &str, captured: Arc<Mutex<Vec<Option<String>>>>) -> ApiProvider {
+fn fake_provider(api: &str, captured: Arc<Mutex<Vec<Option<pi_js_compat::js_json::JsString>>>>) -> ApiProvider {
     let stream_captured = Arc::clone(&captured);
     let simple_captured = Arc::clone(&captured);
     ApiProvider::new(
@@ -110,7 +110,7 @@ fn stream_options() -> StreamOptions {
 }
 
 fn scoped_env(name: &str, value: &str) -> Option<ProviderEnv> {
-    Some(indexmap::IndexMap::from([(name.to_owned(), value.to_owned())]))
+    Some(indexmap::IndexMap::from([(name.into(), value.into())]))
 }
 
 #[test]

@@ -136,7 +136,7 @@ fn empty_tools_are_sent_when_the_transcript_has_tool_history() {
         CacheRetention::Short,
         &IndexMap::new(),
     );
-    assert_eq!(params["tools"], json!([]));
+    assert_eq!(params["tools"], pi_js_compat::js_json::JsValue::from(json!([])));
 }
 
 #[test]

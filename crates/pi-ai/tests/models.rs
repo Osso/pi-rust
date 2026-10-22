@@ -278,7 +278,7 @@ impl OAuthAuth for TestOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access_utf8()?),
+                api_key: Some(credential.access),
                 headers: None,
                 base_url: None,
             })
@@ -1117,8 +1117,8 @@ impl AuthInteraction for TestInteraction {
     fn signal(&self) -> CancellationToken {
         self.signal.clone()
     }
-    fn prompt(&self, _prompt: AuthPrompt) -> BoxFuture<'_, Result<String, CallbackError>> {
-        let answer = self.answer.clone();
+    fn prompt(&self, _prompt: AuthPrompt) -> BoxFuture<'_, Result<pi_js_compat::js_json::JsString, CallbackError>> {
+        let answer = pi_js_compat::js_json::JsString::from(&self.answer);
         Box::pin(async move { Ok(answer) })
     }
     fn notify(&self, _event: AuthEvent) {}
@@ -1569,7 +1569,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
                     auth: ModelAuth {
                         api_key: Some(key),
                         headers: None,
-                        base_url: Some(format!("https://example.test/{account}")),
+                        base_url: Some((format!("https://example.test/{account}")).into()),
                     },
                     env: Some(IndexMap::from([("ACCOUNT_ID".to_owned(), account)])),
                     source: None,
@@ -1592,7 +1592,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
                 stream: StreamOptions {
                     request: ProviderRequestOptions {
                         api_key: Some(("explicit-key".to_owned()).into()),
-                        env: Some(IndexMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())])),
+                        env: Some(IndexMap::from([("ACCOUNT_ID".into(), "acct".into())])),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -1610,7 +1610,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
     );
     assert_eq!(
         calls[0].options.request.env,
-        Some(IndexMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())]))
+        Some(IndexMap::from([("ACCOUNT_ID".into(), "acct".into())]))
     );
 }
 
@@ -1628,9 +1628,9 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
                     auth: ModelAuth {
                         api_key: Some(("resolved-key".to_owned()).into()),
                         headers: Some(IndexMap::from([
-                            ("Authorization".to_owned(), Some("Bearer resolved-key".to_owned())),
-                            ("x-a".to_owned(), Some("auth".to_owned())),
-                            ("x-b".to_owned(), Some("auth".to_owned())),
+                            ("Authorization".into(), Some("Bearer resolved-key".into())),
+                            ("x-a".into(), Some("auth".into())),
+                            ("x-b".into(), Some("auth".into())),
                         ])),
                         base_url: Some(("https://auth.test/v1".to_owned()).into()),
                     },
@@ -1648,8 +1648,8 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
     ));
     let mut model = test_model("p1", "model-a");
     model.headers = Some(IndexMap::from([
-        ("x-model".to_owned(), "model".to_owned()),
-        ("x-shared".to_owned(), "model".to_owned()),
+        ("x-model".into(), "model".into()),
+        ("x-shared".into(), "model".into()),
     ]));
 
     let result = models
@@ -1661,8 +1661,8 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
                     request: ProviderRequestOptions {
                         api_key: Some(("explicit-key".to_owned()).into()),
                         headers: Some(IndexMap::from([
-                            ("authorization".to_owned(), Some("Explicit token".to_owned())),
-                            ("x-b".to_owned(), Some("explicit".to_owned())),
+                            ("authorization".into(), Some("Explicit token".into())),
+                            ("x-b".into(), Some("explicit".into())),
                         ])),
                         ..Default::default()
                     },
@@ -1705,8 +1705,8 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
                 stream: StreamOptions {
                     request: ProviderRequestOptions {
                         headers: Some(IndexMap::from([
-                            ("x-explicit".to_owned(), Some("explicit".to_owned())),
-                            ("X-Shared".to_owned(), Some("explicit".to_owned())),
+                            ("x-explicit".into(), Some("explicit".into())),
+                            ("X-Shared".into(), Some("explicit".into())),
                         ])),
                         transform_headers: Some({
                             let transforms = Arc::clone(&transforms);
@@ -1917,8 +1917,8 @@ async fn applies_resolved_env_to_stream_options() {
                         base_url: None,
                     },
                     env: Some(IndexMap::from([
-                        ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
-                        ("SHARED".to_owned(), "provider".to_owned()),
+                        ("PROVIDER_ONLY".into(), "provider".into()),
+                        ("SHARED".into(), "provider".into()),
                     ])),
                     source: None,
                 }))
@@ -1970,9 +1970,9 @@ async fn applies_resolved_env_to_stream_options() {
     assert_eq!(
         options.request.env,
         Some(IndexMap::from([
-            ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
-            ("REQUEST_ONLY".to_owned(), "request".to_owned()),
-            ("SHARED".to_owned(), "request".to_owned()),
+            ("PROVIDER_ONLY".into(), "provider".into()),
+            ("REQUEST_ONLY".into(), "request".into()),
+            ("SHARED".into(), "request".into()),
         ]))
     );
 }
@@ -2044,14 +2044,14 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
                     auth: ModelAuth {
                         api_key: Some(("provider-key".to_owned()).into()),
                         headers: Some(IndexMap::from([
-                            ("Authorization".to_owned(), Some("Bearer provider".to_owned())),
-                            ("X-Shared".to_owned(), Some("provider".to_owned())),
+                            ("Authorization".into(), Some("Bearer provider".into())),
+                            ("X-Shared".into(), Some("provider".into())),
                         ])),
                         base_url: Some(("https://resolved.test/v1".to_owned()).into()),
                     },
                     env: Some(IndexMap::from([
-                        ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
-                        ("SHARED".to_owned(), "provider".to_owned()),
+                        ("PROVIDER_ONLY".into(), "provider".into()),
+                        ("SHARED".into(), "provider".into()),
                     ])),
                     source: None,
                 }))
@@ -2092,12 +2092,12 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
                 request: ProviderRequestOptions {
                     api_key: Some(("request-key".to_owned()).into()),
                     headers: Some(IndexMap::from([
-                        ("X-Request".to_owned(), Some("request".to_owned())),
-                        ("x-shared".to_owned(), Some("request".to_owned())),
+                        ("X-Request".into(), Some("request".into())),
+                        ("x-shared".into(), Some("request".into())),
                     ])),
                     env: Some(IndexMap::from([
-                        ("REQUEST_ONLY".to_owned(), "request".to_owned()),
-                        ("SHARED".to_owned(), "request".to_owned()),
+                        ("REQUEST_ONLY".into(), "request".into()),
+                        ("SHARED".into(), "request".into()),
                     ])),
                     transform_headers: Some(Arc::new(|mut headers| {
                         headers.insert("X-Transformed".to_owned(), Some(("yes".to_owned()).into()));
@@ -2139,9 +2139,9 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
         assert_eq!(
             options.request.env,
             Some(IndexMap::from([
-                ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
-                ("REQUEST_ONLY".to_owned(), "request".to_owned()),
-                ("SHARED".to_owned(), "request".to_owned()),
+                ("PROVIDER_ONLY".into(), "provider".into()),
+                ("REQUEST_ONLY".into(), "request".into()),
+                ("SHARED".into(), "request".into()),
             ]))
         );
     }
@@ -2364,12 +2364,12 @@ fn thinking_levels_clamp_to_supported_levels() {
 fn merges_headers_case_insensitively_and_compares_models() {
     let merged = merge_headers(
         Some(IndexMap::from([
-            ("Authorization".to_owned(), Some("Bearer".to_owned())),
-            ("x-a".to_owned(), Some("a".to_owned())),
+            ("Authorization".into(), Some("Bearer".into())),
+            ("x-a".into(), Some("a".into())),
         ])),
         Some(IndexMap::from([
-            ("authorization".to_owned(), Some("Explicit".to_owned())),
-            ("x-b".to_owned(), None),
+            ("authorization".into(), Some("Explicit".into())),
+            ("x-b".into(), None),
         ])),
     )
     .unwrap();

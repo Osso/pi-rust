@@ -2,7 +2,10 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::session_resources::{SessionResourceCleanup, cleanup_session_resources, register_session_resource_cleanup};
 
-fn recorder(marker: &'static str, calls: Arc<Mutex<Vec<Option<String>>>>) -> SessionResourceCleanup {
+fn recorder(
+    marker: &'static str,
+    calls: Arc<Mutex<Vec<Option<pi_js_compat::js_json::JsString>>>>,
+) -> SessionResourceCleanup {
     Box::new(move |session_id| {
         if session_id == Some(&pi_js_compat::js_json::JsString::from(marker)) {
             calls.lock().unwrap().push(session_id.map(str::to_owned));
@@ -40,7 +43,7 @@ fn unregister_stops_invocations() {
 
 #[test]
 fn passes_a_missing_session_id_as_none() {
-    let observed: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let observed: Arc<Mutex<Vec<Option<pi_js_compat::js_json::JsString>>>> = Arc::new(Mutex::new(Vec::new()));
     let calls = Arc::clone(&observed);
     // The registry is process-global; parallel tests call it with their own markers.
     let _registration = register_session_resource_cleanup(Box::new(move |session_id| {

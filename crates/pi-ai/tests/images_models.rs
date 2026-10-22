@@ -58,7 +58,7 @@ struct FakeAuthContext {
 impl AuthContext for FakeAuthContext {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
         let value = self.env.get(name).cloned();
-        (Box::pin(async move { value })).map(pi_js_compat::js_json::JsString::from)
+        Box::pin(async move { value.map(pi_js_compat::js_json::JsString::from) })
     }
 
     fn file_exists(&self, _path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
@@ -257,8 +257,8 @@ async fn merges_provider_resolved_env_into_image_options() {
             base_url: None,
         },
         env: Some(IndexMap::from([
-            ("zeta".to_owned(), "provider".to_owned()),
-            ("SHARED".to_owned(), "provider".to_owned()),
+            ("zeta".into(), "provider".into()),
+            ("SHARED".into(), "provider".into()),
         ])),
         source: None,
     }));
@@ -278,8 +278,8 @@ async fn merges_provider_resolved_env_into_image_options() {
         request: ImagesRequestOptions {
             api_key: Some(("request-key".to_owned()).into()),
             env: Some(IndexMap::from([
-                ("alpha".to_owned(), "request".to_owned()),
-                ("SHARED".to_owned(), "request".to_owned()),
+                ("alpha".into(), "request".into()),
+                ("SHARED".into(), "request".into()),
             ])),
             ..Default::default()
         },
@@ -305,7 +305,7 @@ async fn applies_auth_base_url_and_headers_to_the_request_model() {
     let auth = static_auth(Some(AuthResult {
         auth: ModelAuth {
             api_key: Some(("key".to_owned()).into()),
-            headers: Some(IndexMap::from([("x-auth".to_owned(), Some("auth".to_owned()))])),
+            headers: Some(IndexMap::from([("x-auth".into(), Some("auth".into()))])),
             base_url: Some(("https://auth.example/v1".to_owned()).into()),
         },
         env: None,
@@ -325,8 +325,8 @@ async fn applies_auth_base_url_and_headers_to_the_request_model() {
     let options = ImagesOptions {
         request: ImagesRequestOptions {
             headers: Some(IndexMap::from([
-                ("x-request".to_owned(), Some("request".to_owned())),
-                ("x-auth".to_owned(), Some("request".to_owned())),
+                ("x-request".into(), Some("request".into())),
+                ("x-auth".into(), Some("request".into())),
             ])),
             ..Default::default()
         },

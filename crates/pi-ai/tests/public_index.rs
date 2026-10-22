@@ -68,11 +68,11 @@ fn crate_root_reexports_are_usable() {
     assert_eq!(pi_ai::repair_json("{\"a\":\"x\\q\"}"), "{\"a\":\"x\\\\q\"}");
     assert_eq!(
         pi_ai::parse_json_with_repair("{\"a\":1}").expect("json"),
-        json!({"a": 1})
+        pi_js_compat::js_json::JsValue::from(json!({"a": 1}))
     );
     assert_eq!(
         pi_ai::parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{\"a\":"))),
-        json!({})
+        pi_js_compat::js_json::JsValue::from(json!({}))
     );
     assert!(pi_ai::get_overflow_patterns().len() > 1);
     assert!(!pi_ai::is_context_overflow(

@@ -88,7 +88,7 @@ fn fake_stream(model: &Model) -> AssistantMessageEventStream {
     stream
 }
 
-type Seen = Arc<Mutex<Vec<(Option<String>, Option<ThinkingLevel>)>>>;
+type Seen = Arc<Mutex<Vec<(Option<pi_js_compat::js_json::JsString>, Option<ThinkingLevel>)>>>;
 
 fn fake_provider(api: &str, seen: Seen) -> ApiProvider {
     let stream_seen = Arc::clone(&seen);

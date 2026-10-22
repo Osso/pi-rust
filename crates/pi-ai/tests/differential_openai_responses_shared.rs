@@ -144,7 +144,7 @@ fn compare_tools(oracle: &mut TsOracle, id: i64, tools: &Value, options: &Value)
     let parsed_tools: Vec<Tool> = serde_json::from_value(tools.clone()).expect("tools");
     let parsed_options = convert_tools_options(options);
     let actual = convert_responses_tools(&parsed_tools, Some(&parsed_options))
-        .unwrap_or_else(|error| json!({"error": error.message}));
+        .unwrap_or_else(|error| pi_js_compat::js_json::JsValue::from(json!({"error": error.message})));
     assert_eq!(
         actual,
         pi_js_compat::js_json::JsValue::from(expected),

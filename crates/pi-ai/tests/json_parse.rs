@@ -30,12 +30,18 @@ fn preserves_valid_escapes_and_structure_outside_strings() {
 
 #[test]
 fn parses_valid_json_and_repairs_malformed_strings() {
-    assert_eq!(parse_json_with_repair("{\"a\":1}").unwrap(), json!({"a": 1}));
+    assert_eq!(
+        parse_json_with_repair("{\"a\":1}").unwrap(),
+        pi_js_compat::js_json::JsValue::from(json!({"a": 1}))
+    );
     assert_eq!(
         parse_json_with_repair("{\"text\":\"line\nraw\"}").unwrap(),
-        json!({"text": "line\nraw"})
+        pi_js_compat::js_json::JsValue::from(json!({"text": "line\nraw"}))
     );
-    assert_eq!(parse_json_with_repair("{\"a\":\"\\q\"}").unwrap(), json!({"a": "\\q"}));
+    assert_eq!(
+        parse_json_with_repair("{\"a\":\"\\q\"}").unwrap(),
+        pi_js_compat::js_json::JsValue::from(json!({"a": "\\q"}))
+    );
     assert!(parse_json_with_repair("{\"a\":").is_err());
     assert!(parse_json_with_repair("not json").is_err());
 }
@@ -44,11 +50,11 @@ fn parses_valid_json_and_repairs_malformed_strings() {
 fn parses_complete_streamed_json() {
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{}"))),
-        json!({})
+        pi_js_compat::js_json::JsValue::from(json!({}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("[]"))),
-        json!([])
+        pi_js_compat::js_json::JsValue::from(json!([]))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("null"))),
@@ -56,15 +62,15 @@ fn parses_complete_streamed_json() {
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("true"))),
-        json!(true)
+        pi_js_compat::js_json::JsValue::from(json!(true))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("1"))),
-        json!(1)
+        pi_js_compat::js_json::JsValue::from(json!(1))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{\"a\":\"\\u1234\"}"))),
-        json!({"a": "ሴ"})
+        pi_js_compat::js_json::JsValue::from(json!({"a": "ሴ"}))
     );
 }
 
@@ -72,39 +78,39 @@ fn parses_complete_streamed_json() {
 fn parses_incomplete_objects_arrays_strings_and_numbers() {
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{\"a\":1"))),
-        json!({"a": 1})
+        pi_js_compat::js_json::JsValue::from(json!({"a": 1}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{\"a\":"))),
-        json!({})
+        pi_js_compat::js_json::JsValue::from(json!({}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{\"a\":\"hel"))),
-        json!({"a": "hel"})
+        pi_js_compat::js_json::JsValue::from(json!({"a": "hel"}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{\"a\":1,"))),
-        json!({"a": 1})
+        pi_js_compat::js_json::JsValue::from(json!({"a": 1}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("[1,2"))),
-        json!([1, 2])
+        pi_js_compat::js_json::JsValue::from(json!([1, 2]))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("[1,2,"))),
-        json!([1, 2])
+        pi_js_compat::js_json::JsValue::from(json!([1, 2]))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("\"abc"))),
-        json!("abc")
+        pi_js_compat::js_json::JsValue::from(json!("abc"))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("1e"))),
-        json!(1)
+        pi_js_compat::js_json::JsValue::from(json!(1))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{\"a\":1}junk"))),
-        json!({"a": 1})
+        pi_js_compat::js_json::JsValue::from(json!({"a": 1}))
     );
 }
 
@@ -112,15 +118,15 @@ fn parses_incomplete_objects_arrays_strings_and_numbers() {
 fn accepts_partial_literals_and_maps_nullish_results_to_an_object() {
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("tru"))),
-        json!(true)
+        pi_js_compat::js_json::JsValue::from(json!(true))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("fals"))),
-        json!(false)
+        pi_js_compat::js_json::JsValue::from(json!(false))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("nul"))),
-        json!({})
+        pi_js_compat::js_json::JsValue::from(json!({}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("Inf"))),
@@ -138,30 +144,33 @@ fn accepts_partial_literals_and_maps_nullish_results_to_an_object() {
 
 #[test]
 fn returns_an_empty_object_for_missing_blank_or_unparseable_input() {
-    assert_eq!(parse_streaming_json(None), json!({}));
+    assert_eq!(
+        parse_streaming_json(None),
+        pi_js_compat::js_json::JsValue::from(json!({}))
+    );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from(""))),
-        json!({})
+        pi_js_compat::js_json::JsValue::from(json!({}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("   \n\t"))),
-        json!({})
+        pi_js_compat::js_json::JsValue::from(json!({}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("-"))),
-        json!({})
+        pi_js_compat::js_json::JsValue::from(json!({}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("1."))),
-        json!({})
+        pi_js_compat::js_json::JsValue::from(json!({}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("01"))),
-        json!({})
+        pi_js_compat::js_json::JsValue::from(json!({}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{\"a\":\"\\u12\"}"))),
-        json!({})
+        pi_js_compat::js_json::JsValue::from(json!({}))
     );
 }
 
@@ -169,10 +178,10 @@ fn returns_an_empty_object_for_missing_blank_or_unparseable_input() {
 fn repairs_before_partial_parsing() {
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{\"a\":\"\\q\","))),
-        json!({})
+        pi_js_compat::js_json::JsValue::from(json!({}))
     );
     assert_eq!(
         parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{\"text\":\"line\n"))),
-        json!({"text": "line"})
+        pi_js_compat::js_json::JsValue::from(json!({"text": "line"}))
     );
 }

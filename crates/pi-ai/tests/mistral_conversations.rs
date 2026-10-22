@@ -575,7 +575,7 @@ async fn applies_the_request_timeout_while_waiting_for_an_sse_chunk() {
     assert!(
         message
             .error_message
-            .as_ref()
+            .clone()
             .unwrap_or_default()
             .to_lowercase()
             .contains("timeout")
@@ -806,7 +806,7 @@ async fn errors_when_no_api_key_is_provided() {
     assert!(
         message
             .error_message
-            .as_ref()
+            .clone()
             .unwrap_or_default()
             .contains("No API key for provider: mistral")
     );

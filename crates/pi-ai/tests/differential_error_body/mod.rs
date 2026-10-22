@@ -319,7 +319,7 @@ pub(crate) fn run_trim() {
             .map(|space| {
                 case(
                     ProviderError {
-                        body: Some(ErrorBody::Text(format!("{space}body{space}"))),
+                        body: Some(ErrorBody::Text((format!("{space}body{space}")).into())),
                         ..base("failed")
                     },
                     None,

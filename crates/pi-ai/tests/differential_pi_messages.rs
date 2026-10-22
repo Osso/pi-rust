@@ -69,7 +69,7 @@ fn response_chunks(scenario: &Value) -> Vec<Vec<u8>> {
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|chunk| chunk.as_str().map(str::to_owned))
+        .filter_map(|chunk| chunk.as_str().map(pi_js_compat::js_json::JsString::from))
         .collect::<Vec<_>>();
     if scenario["response"]["chunking"].as_str() == Some("bytes") {
         chunks
@@ -84,9 +84,9 @@ fn response_chunks(scenario: &Value) -> Vec<Vec<u8>> {
 
 fn parse_headers(value: &Value) -> Option<ProviderHeaders> {
     let object = value.as_object()?;
-    let headers: indexmap::IndexMap<String, Option<String>> = object
+    let headers: indexmap::IndexMap<String, Option<pi_js_compat::js_json::JsString>> = object
         .iter()
-        .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
+        .map(|(name, value)| (name.clone(), value.as_str().map(pi_js_compat::js_json::JsString::from)))
         .collect();
     Some(headers)
 }
@@ -103,15 +103,15 @@ fn parse_env(value: &Value) -> Option<ProviderEnv> {
 fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions {
     let options = &scenario["options"];
     let mut stream_options = StreamOptions::default();
-    stream_options.request.api_key =
-        (options["apiKey"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from);
+    stream_options.request.api_key = (options["apiKey"].as_str().map(pi_js_compat::js_json::JsString::from))
+        .map(pi_js_compat::js_json::JsString::from);
     stream_options.request.fetch = Some(fetch);
     stream_options.request.headers = parse_headers(&options["headers"]);
     stream_options.request.env = parse_env(&options["env"]);
     stream_options.temperature = options["temperature"].as_f64();
     stream_options.max_tokens = options["maxTokens"].as_f64();
-    stream_options.session_id =
-        (options["sessionId"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from);
+    stream_options.session_id = (options["sessionId"].as_str().map(pi_js_compat::js_json::JsString::from))
+        .map(pi_js_compat::js_json::JsString::from);
     stream_options.cache_retention = match options["cacheRetention"].as_str() {
         Some("none") => Some(pi_ai::types::CacheRetention::None),
         Some("short") => Some(pi_ai::types::CacheRetention::Short),

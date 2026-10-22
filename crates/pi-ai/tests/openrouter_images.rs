@@ -37,8 +37,8 @@ fn model() -> ImagesModel {
         auto_compaction_threshold: None,
         sampling_params: None,
         headers: Some(indexmap::IndexMap::from([(
-            "HTTP-Referer".to_owned(),
-            "https://example.com".to_owned(),
+            "HTTP-Referer".into(),
+            "https://example.com".into(),
         )])),
     }
 }
@@ -109,7 +109,7 @@ async fn returns_text_and_images_and_builds_the_sdk_request() {
     let fetch = RecordingFetch::new(vec![ScriptedResponse::json(200, &success_body())]);
     let mut request_options = options("test").request;
     request_options.fetch = Some(fetch.clone());
-    request_options.headers = Some(indexmap::IndexMap::from([("X-Extra".to_owned(), Some("1".to_owned()))]));
+    request_options.headers = Some(indexmap::IndexMap::from([("X-Extra".into(), Some("1".into()))]));
     let options = ImagesOptions {
         request: request_options,
         ..Default::default()
@@ -314,7 +314,7 @@ async fn aborted_signal_returns_aborted_without_a_request() {
     assert!(fetch.requests().is_empty());
 }
 
-async fn error_message_for(status: u16, headers: Vec<(String, String)>, body: &str) -> String {
+async fn error_message_for(status: u16, headers: Vec<(String, String)>, body: &str) -> pi_js_compat::js_json::JsString {
     let fetch = RecordingFetch::new(vec![ScriptedResponse {
         status,
         headers,
