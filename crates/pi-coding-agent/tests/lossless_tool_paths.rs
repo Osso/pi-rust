@@ -12,6 +12,25 @@ use pi_coding_agent::core::tools::write::{WriteOperations, WriteTool, WriteToolO
 use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
 
 #[test]
+fn ansi_and_binary_cleanup_keep_units_outside_removed_ranges() {
+    use pi_coding_agent::utils::{ansi::strip_ansi, shell::sanitize_binary_output};
+    let raw = JsString::from_utf16(vec![0xd800, 0xdfff, 0xd801, 0xfffd]);
+    let decorated = JsString::from("\x1b]0;")
+        + JsString::from_utf16(vec![0xd802])
+        + "\x07\x1b[31m"
+        + &raw
+        + "\x1b[0m\0\t\n\r\u{fff9}";
+    let actual = sanitize_binary_output(&strip_ansi(&decorated));
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-tool-paths-oracle.ts",
+        "packages/coding-agent/src/utils/ansi.ts",
+    );
+    let expected = source.request(&serde_json::json!({"kind":"cleanup","units":decorated.units()}));
+    assert_eq!(serde_json::json!(actual.units()), expected["units"]);
+    assert_eq!(actual, raw + "\t\n\r");
+}
+
+#[test]
 fn display_helpers_keep_distinct_surrogates() {
     let raw = JsString::from_utf16(vec![0xd800, 9, 0xdfff, 13, 0xd83d, 0xde00]);
     let value = JsValue::String(raw.clone());
