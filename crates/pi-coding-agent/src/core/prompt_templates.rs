@@ -187,7 +187,7 @@ fn template_source_info(path: &JsString, global: &JsString, project: &JsString) 
     Ok(create_synthetic_source_info(
         path,
         &SyntheticSourceInfoOptions {
-            source: "local".to_owned(),
+            source: "local".into(),
             scope,
             origin: None,
             base_dir: Some(base_dir),

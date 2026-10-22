@@ -32,7 +32,7 @@ fn frontmatter_body_keeps_raw_units_after_native_extraction() {
 fn substitutions_keep_raw_template_defaults_and_arguments() {
     let high = JsString::from_utf16(vec![0xd800]);
     let low = JsString::from_utf16(vec![0xdc00]);
-    let content = &high + " ${2:-" + &low + "} $1 $@ ${@:2}";
+    let content = high.clone() + " ${2:-" + &low + "} $1 $@ ${@:2}";
     let args = vec![high, "".into(), low];
     let mut oracle = oracle::TsOracle::spawn(
         "lossless-resources-oracle.ts",
@@ -60,4 +60,27 @@ fn source_metadata_retains_native_path_identity() {
     );
     assert_eq!(source.path, path);
     assert_eq!(source.base_dir, Some(base));
+}
+
+#[test]
+fn ts_created_raw_skill_directory_retains_native_load_and_prompt_paths() {
+    use pi_coding_agent::core::skills::{LoadSkillsFromDirOptions, format_skills_for_prompt, load_skills_from_dir};
+    let root = tempfile::tempdir().unwrap();
+    let dir = JsString::from(root.path().to_str().unwrap()) + "/skill-" + JsString::from_utf16(vec![0xd800]);
+    let mut oracle = oracle::TsOracle::spawn(
+        "lossless-resources-oracle.ts",
+        "packages/coding-agent/src/core/skills.ts",
+    );
+    let source =
+        oracle.request_lossless(&pi_js_compat::js_json!({"id":"raw-skill-dir", "operation":"prepareSkill", "dir":dir}));
+    assert_eq!(source["ok"].as_bool(), Some(true));
+    let loaded = load_skills_from_dir(&LoadSkillsFromDirOptions {
+        dir: dir.clone(),
+        source: "path".into(),
+    })
+    .unwrap();
+    assert_eq!(loaded.skills.len(), 1);
+    assert_eq!(loaded.skills[0].file_path, dir + "/SKILL.md");
+    assert_eq!(pi_js_compat::js_json::to_value(&loaded).unwrap(), source["output"]);
+    assert!(format_skills_for_prompt(&loaded.skills).contains(&loaded.skills[0].file_path));
 }

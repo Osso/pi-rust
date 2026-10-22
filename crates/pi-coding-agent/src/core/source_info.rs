@@ -47,7 +47,7 @@ impl SourceOrigin {
 #[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
     pub path: JsString,
-    pub source: String,
+    pub source: JsString,
     pub scope: SourceScope,
     pub origin: SourceOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -87,7 +87,7 @@ pub fn create_source_info(path: &JsString, metadata: &PathMetadata) -> SourceInf
 /// Approved Rust carrier for the anonymous TypeScript synthetic-source options shape.
 #[derive(Debug)]
 pub struct SyntheticSourceInfoOptions {
-    pub source: String,
+    pub source: JsString,
     pub scope: Option<SourceScope>,
     pub origin: Option<SourceOrigin>,
     pub base_dir: Option<JsString>,

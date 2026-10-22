@@ -1,34 +1,33 @@
-//! Coding-agent skill loading (`core/skills.ts`).
-
+//! Coding-agent skill discovery (`core/skills.ts`), retaining native path and text units.
 use std::collections::HashSet;
 use std::fs;
-use std::path::{MAIN_SEPARATOR, Path};
 
+use indexmap::IndexMap;
 use pi_agent_core::harness::skills::IgnoreMatcher;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::config::package_config;
 use crate::core::diagnostics::{ResourceCollision, ResourceDiagnostic, ResourceDiagnosticType, ResourceType};
 use crate::core::source_info::{SourceInfo, SourceScope, SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::utils::frontmatter::parse_frontmatter;
-use crate::utils::paths::{PathInputOptions, canonicalize_path, resolve_path};
-use pi_js_compat::locale_compare;
+use crate::utils::paths::{
+    PathInputOptions, canonicalize_path, node_basename, node_dirname, node_join, process_cwd, relative_path,
+    resolve_path,
+};
 
 const MAX_NAME_LENGTH: usize = 64;
 const MAX_DESCRIPTION_LENGTH: usize = 1024;
 const IGNORE_FILE_NAMES: [&str; 3] = [".gitignore", ".ignore", ".fdignore"];
-
-/// `SkillFrontmatter`: parsed YAML frontmatter with free-form extra keys.
-pub type SkillFrontmatter = serde_json::Map<String, Value>;
+pub type SkillFrontmatter = JsObject;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Skill {
-    pub name: String,
-    pub description: String,
-    pub file_path: String,
-    pub base_dir: String,
+    pub name: JsString,
+    pub description: JsString,
+    pub file_path: JsString,
+    pub base_dir: JsString,
     pub source_info: SourceInfo,
     pub disable_model_invocation: bool,
 }
@@ -41,524 +40,400 @@ pub struct LoadSkillsResult {
 
 #[derive(Debug, Clone)]
 pub struct LoadSkillsFromDirOptions {
-    pub dir: String,
-    pub source: String,
+    pub dir: JsString,
+    pub source: JsString,
 }
 
-/// Loads skills from one directory tree.
-pub fn load_skills_from_dir(options: &LoadSkillsFromDirOptions) -> LoadSkillsResult {
+pub fn load_skills_from_dir(options: &LoadSkillsFromDirOptions) -> Result<LoadSkillsResult, JsString> {
     load_skills_from_dir_internal(&options.dir, &options.source, true, None, None)
 }
 
 #[derive(Debug, Clone)]
 pub struct LoadSkillsOptions {
-    /// Working directory for project-local skills.
-    pub cwd: String,
-    /// Agent config directory for global skills.
-    pub agent_dir: String,
-    /// Explicit skill paths (files or directories).
-    pub skill_paths: Vec<String>,
-    /// Include default skills directories.
+    pub cwd: JsString,
+    pub agent_dir: JsString,
+    pub skill_paths: Vec<JsString>,
     pub include_defaults: bool,
 }
 
-/// Loads skills from default locations and explicit paths, keeping the first name winner.
-pub fn load_skills(options: &LoadSkillsOptions) -> Result<LoadSkillsResult, crate::utils::paths::PathError> {
-    let process_cwd =
-        std::env::current_dir().map_or_else(|_| "/".to_owned(), |path| path.to_string_lossy().into_owned());
-    let resolved_cwd = resolve_path(&options.cwd, &process_cwd, &PathInputOptions::default())?;
-    let resolved_agent_dir = resolve_path(&options.agent_dir, &process_cwd, &PathInputOptions::default())?;
-
-    let mut skill_map: Vec<(String, Skill)> = Vec::new();
-    let mut real_path_set: HashSet<String> = HashSet::new();
-    let mut all_diagnostics = Vec::new();
-    let mut collision_diagnostics = Vec::new();
-
+pub fn load_skills(options: &LoadSkillsOptions) -> Result<LoadSkillsResult, JsString> {
+    let process_cwd = process_cwd().map_err(|error| error.message().clone())?;
+    let cwd = resolve_path(&options.cwd, &process_cwd, &Default::default()).map_err(|error| error.message().clone())?;
+    let agent_dir =
+        resolve_path(&options.agent_dir, &process_cwd, &Default::default()).map_err(|error| error.message().clone())?;
+    let user = node_join(&agent_dir, "skills");
+    let project = node_join(node_join(&cwd, &package_config().config_dir_name), "skills");
+    let mut loaded = SkillAccumulator::default();
     if options.include_defaults {
-        let user = load_skills_from_dir_internal(
-            &Path::new(&resolved_agent_dir).join("skills").to_string_lossy(),
-            "user",
+        loaded.add(load_skills_from_dir_internal(&user, &"user".into(), true, None, None)?);
+        loaded.add(load_skills_from_dir_internal(
+            &project,
+            &"project".into(),
             true,
             None,
             None,
-        );
-        add_loaded_skills(
-            user,
-            &mut skill_map,
-            &mut real_path_set,
-            &mut all_diagnostics,
-            &mut collision_diagnostics,
-        );
-        let project = load_skills_from_dir_internal(
-            &Path::new(&resolved_cwd)
-                .join(&package_config().config_dir_name)
-                .join("skills")
-                .to_string_lossy(),
-            "project",
-            true,
-            None,
-            None,
-        );
-        add_loaded_skills(
-            project,
-            &mut skill_map,
-            &mut real_path_set,
-            &mut all_diagnostics,
-            &mut collision_diagnostics,
-        );
+        )?);
     }
-
-    let user_skills_dir = Path::new(&resolved_agent_dir).join("skills");
-    let project_skills_dir = Path::new(&resolved_cwd)
-        .join(&package_config().config_dir_name)
-        .join("skills");
-
-    for raw_path in &options.skill_paths {
-        let resolved_path = resolve_path(
-            raw_path,
-            &resolved_cwd,
+    for raw in &options.skill_paths {
+        let path = resolve_path(
+            raw,
+            &cwd,
             &PathInputOptions {
                 trim: true,
-                ..PathInputOptions::default()
+                ..Default::default()
             },
-        )?;
-        let path = Path::new(&resolved_path);
-        if !path.exists() {
-            all_diagnostics.push(warning("skill path does not exist", &resolved_path));
+        )
+        .map_err(|error| error.message().clone())?;
+        if !std::path::Path::new(&encode_node_utf8(&path)).exists() {
+            loaded.diagnostics.push(warning("skill path does not exist", &path));
             continue;
         }
-
-        let source = if !options.include_defaults {
-            if is_under_path(path, &user_skills_dir) {
-                "user"
-            } else if is_under_path(path, &project_skills_dir) {
-                "project"
-            } else {
-                "path"
-            }
+        let source = if !options.include_defaults && is_under_path(&path, &user) {
+            "user"
+        } else if !options.include_defaults && is_under_path(&path, &project) {
+            "project"
         } else {
             "path"
         };
-
-        let metadata = match fs::metadata(path) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                all_diagnostics.push(warning(&error.to_string(), &resolved_path));
-                continue;
+        match fs::metadata(encode_node_utf8(&path)) {
+            Ok(metadata) if metadata.is_dir() => {
+                loaded.add(load_skills_from_dir_internal(&path, &source.into(), true, None, None)?)
             }
-        };
-        if metadata.is_dir() {
-            let result = load_skills_from_dir_internal(&resolved_path, source, true, None, None);
-            add_loaded_skills(
-                result,
-                &mut skill_map,
-                &mut real_path_set,
-                &mut all_diagnostics,
-                &mut collision_diagnostics,
-            );
-        } else if metadata.is_file() && resolved_path.ends_with(".md") {
-            let result = load_skill_from_file(&resolved_path, source);
-            if result.skill.is_some() {
-                add_loaded_skills(
-                    LoadSkillsResult {
-                        skills: result.skill.into_iter().collect(),
-                        diagnostics: result.diagnostics,
-                    },
-                    &mut skill_map,
-                    &mut real_path_set,
-                    &mut all_diagnostics,
-                    &mut collision_diagnostics,
-                );
-            } else {
-                all_diagnostics.extend(result.diagnostics);
+            Ok(metadata) if metadata.is_file() && path.ends_with(".md") => {
+                loaded.add(load_skill_from_file(&path, &source.into()))
             }
-        } else {
-            all_diagnostics.push(warning("skill path is not a markdown file", &resolved_path));
+            Ok(_) => loaded
+                .diagnostics
+                .push(warning("skill path is not a markdown file", &path)),
+            Err(error) => loaded.diagnostics.push(warning(error.to_string(), &path)),
         }
     }
-
-    let mut diagnostics = all_diagnostics;
-    diagnostics.extend(collision_diagnostics);
+    loaded.diagnostics.extend(loaded.collisions);
     Ok(LoadSkillsResult {
-        skills: skill_map.into_iter().map(|(_, skill)| skill).collect(),
-        diagnostics,
+        skills: loaded.skills.into_values().collect(),
+        diagnostics: loaded.diagnostics,
     })
 }
 
-fn add_loaded_skills(
-    result: LoadSkillsResult,
-    skill_map: &mut Vec<(String, Skill)>,
-    real_path_set: &mut HashSet<String>,
-    all_diagnostics: &mut Vec<ResourceDiagnostic>,
-    collision_diagnostics: &mut Vec<ResourceDiagnostic>,
-) {
-    all_diagnostics.extend(result.diagnostics);
-    for skill in result.skills {
-        let real_path = canonicalize_path(&skill.file_path);
-        if real_path_set.contains(&real_path) {
-            continue;
-        }
+#[derive(Default)]
+struct SkillAccumulator {
+    skills: IndexMap<JsString, Skill>,
+    real_paths: HashSet<JsString>,
+    diagnostics: Vec<ResourceDiagnostic>,
+    collisions: Vec<ResourceDiagnostic>,
+}
 
-        if let Some((_, existing)) = skill_map.iter().find(|(name, _)| *name == skill.name) {
-            collision_diagnostics.push(ResourceDiagnostic {
-                diagnostic_type: ResourceDiagnosticType::Collision,
-                message: format!("name \"{}\" collision", skill.name),
-                path: Some(skill.file_path.clone()),
-                collision: Some(ResourceCollision {
-                    resource_type: ResourceType::Skill,
-                    name: skill.name.clone(),
-                    winner_path: existing.file_path.clone(),
-                    loser_path: skill.file_path.clone(),
-                    winner_source: None,
-                    loser_source: None,
-                }),
-            });
-        } else {
-            real_path_set.insert(real_path);
-            skill_map.push((skill.name.clone(), skill));
+impl SkillAccumulator {
+    fn add(&mut self, result: LoadSkillsResult) {
+        self.diagnostics.extend(result.diagnostics);
+        for skill in result.skills {
+            let real_path = canonicalize_path(&skill.file_path);
+            if self.real_paths.contains(&real_path) {
+                continue;
+            }
+            if let Some(existing) = self.skills.get(&skill.name) {
+                self.collisions.push(ResourceDiagnostic {
+                    diagnostic_type: ResourceDiagnosticType::Collision,
+                    message: JsString::from("name \"") + &skill.name + "\" collision",
+                    path: Some(skill.file_path.clone()),
+                    collision: Some(ResourceCollision {
+                        resource_type: ResourceType::Skill,
+                        name: skill.name.clone(),
+                        winner_path: existing.file_path.clone(),
+                        loser_path: skill.file_path.clone(),
+                    }),
+                });
+            } else {
+                self.real_paths.insert(real_path);
+                self.skills.insert(skill.name.clone(), skill);
+            }
         }
     }
 }
 
-fn warning(message: &str, path: &str) -> ResourceDiagnostic {
-    ResourceDiagnostic {
-        diagnostic_type: ResourceDiagnosticType::Warning,
-        message: message.to_owned(),
-        path: Some(path.to_owned()),
-        collision: None,
-    }
+fn is_under_path(target: &JsString, root: &JsString) -> bool {
+    target == root || target.starts_with(root.clone() + "/")
 }
 
-fn is_under_path(target: &Path, root: &Path) -> bool {
-    target == root || target.starts_with(root)
-}
-
-fn to_posix_path(path: &Path) -> String {
-    path.to_string_lossy().replace(MAIN_SEPARATOR, "/")
-}
-
-fn prefix_ignore_pattern(line: &str, prefix: &str) -> Option<String> {
+fn prefix_ignore_pattern(line: JsString, prefix: &JsString) -> Option<JsString> {
     let trimmed = line.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty() || (trimmed.starts_with('#') && !trimmed.starts_with("\\#")) {
         return None;
     }
-    if trimmed.starts_with('#') && !trimmed.starts_with("\\#") {
-        return None;
-    }
-
-    let mut pattern = line;
-    let mut negated = false;
-    if let Some(stripped) = pattern.strip_prefix('!') {
-        negated = true;
-        pattern = stripped;
-    } else if let Some(stripped) = pattern.strip_prefix("\\!") {
-        pattern = stripped;
-    }
-    if let Some(stripped) = pattern.strip_prefix('/') {
-        pattern = stripped;
-    }
-
-    let prefixed = format!("{prefix}{pattern}");
-    Some(if negated { format!("!{prefixed}") } else { prefixed })
+    let negated = line.starts_with('!');
+    let pattern = if negated || line.starts_with("\\!") {
+        line.slice(1, line.len())
+    } else {
+        line
+    };
+    let pattern = pattern.strip_prefix('/').unwrap_or(pattern);
+    let prefixed = prefix.clone() + pattern;
+    Some(if negated {
+        JsString::from("!") + prefixed
+    } else {
+        prefixed
+    })
 }
 
-fn add_ignore_rules(matcher: &IgnoreMatcher, dir: &Path, root: &Path) {
-    let relative_dir = dir.strip_prefix(root).unwrap_or(Path::new(""));
-    let prefix = if relative_dir.as_os_str().is_empty() {
-        String::new()
-    } else {
-        format!("{}/", to_posix_path(relative_dir))
-    };
-
+fn add_ignore_rules(matcher: &IgnoreMatcher, dir: &JsString, root: &JsString) -> Result<(), JsString> {
+    let relative = relative_path(root, dir).map_err(|error| error.message().clone())?;
+    let prefix = if relative.is_empty() { relative } else { relative + "/" };
     for filename in IGNORE_FILE_NAMES {
-        let ignore_path = dir.join(filename);
-        if !ignore_path.exists() {
-            continue;
-        }
-        let Ok(content) = fs::read_to_string(&ignore_path) else {
-            continue;
+        // Frozen catches each ignore-file read and ignores the unavailable file.
+        let bytes = match fs::read(encode_node_utf8(&node_join(dir, filename))) {
+            Ok(bytes) => bytes,
+            Err(_) => continue,
         };
-        let patterns: Vec<String> = content
+        let content = JsString::from(String::from_utf8_lossy(&bytes).as_ref());
+        let patterns: Vec<_> = content
             .split('\n')
             .map(|line| line.strip_suffix('\r').unwrap_or(line))
             .filter_map(|line| prefix_ignore_pattern(line, &prefix))
             .collect();
-        if !patterns.is_empty() {
-            matcher.add(&patterns);
-        }
+        matcher.add(&patterns);
     }
+    Ok(())
 }
 
 fn load_skills_from_dir_internal(
-    dir: &str,
-    source: &str,
-    include_root_files: bool,
-    ignore_matcher: Option<&IgnoreMatcher>,
-    root_dir: Option<&Path>,
-) -> LoadSkillsResult {
-    let mut skills = Vec::new();
-    let mut diagnostics = Vec::new();
-    let path = Path::new(dir);
-    if !path.exists() {
-        return LoadSkillsResult { skills, diagnostics };
+    dir: &JsString,
+    source: &JsString,
+    include_root: bool,
+    matcher: Option<&IgnoreMatcher>,
+    root: Option<&JsString>,
+) -> Result<LoadSkillsResult, JsString> {
+    let mut result = LoadSkillsResult::default();
+    if !std::path::Path::new(&encode_node_utf8(dir)).exists() {
+        return Ok(result);
     }
-
-    let root = root_dir.map_or_else(|| path.to_path_buf(), Path::to_path_buf);
+    let root = root.unwrap_or(dir);
     let owned_matcher;
-    let matcher = match ignore_matcher {
+    let matcher = match matcher {
         Some(matcher) => matcher,
         None => {
-            owned_matcher = IgnoreMatcher::new(&root.to_string_lossy());
+            owned_matcher = IgnoreMatcher::new(root);
             &owned_matcher
         }
     };
-    add_ignore_rules(matcher, path, &root);
+    add_ignore_rules(matcher, dir, root)?;
+    // Frozen catches the whole directory traversal, preserving results already accumulated.
+    match scan_skill_directory(dir, source, include_root, matcher, root, &mut result) {
+        Ok(()) | Err(_) => Ok(result),
+    }
+}
 
-    let Ok(entries) = fs::read_dir(path) else {
-        return LoadSkillsResult { skills, diagnostics };
-    };
-    let mut entries: Vec<fs::DirEntry> = entries.filter_map(Result::ok).collect();
-    // Node's `readdirSync` returns libuv's `scandir` order (locale-collated names).
+fn scan_skill_directory(
+    dir: &JsString,
+    source: &JsString,
+    include_root: bool,
+    matcher: &IgnoreMatcher,
+    root: &JsString,
+    result: &mut LoadSkillsResult,
+) -> Result<(), JsString> {
+    let mut entries = fs::read_dir(encode_node_utf8(dir))
+        .map_err(|error| JsString::from(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| JsString::from(error.to_string()))?;
     entries.sort_by(|left, right| {
-        locale_compare(
-            &left.file_name().to_string_lossy(),
-            &right.file_name().to_string_lossy(),
-        )
+        left.file_name()
+            .as_encoded_bytes()
+            .cmp(right.file_name().as_encoded_bytes())
     });
-
     for entry in &entries {
         if entry.file_name() != "SKILL.md" {
             continue;
         }
-        let full_path = path.join(entry.file_name());
-        let is_file = match resolved_kind(&entry.path()) {
-            Some((is_directory, is_file)) => {
-                if is_directory {
-                    false
-                } else {
-                    is_file
-                }
-            }
-            None => continue,
+        let path = node_join(dir, "SKILL.md");
+        let metadata = match fs::metadata(encode_node_utf8(&path)) {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
         };
-        let relative_path = to_posix_path(full_path.strip_prefix(&root).unwrap_or(&full_path));
-        if !is_file || matcher.ignores(&relative_path, false) {
+        if !metadata.is_file() || is_ignored(matcher, &path, false)? {
             continue;
         }
-        let result = load_skill_from_file(&full_path.to_string_lossy(), source);
-        if let Some(skill) = result.skill {
-            skills.push(skill);
-        }
-        diagnostics.extend(result.diagnostics);
-        return LoadSkillsResult { skills, diagnostics };
+        merge_skill_result(result, load_skill_from_file(&path, source));
+        return Ok(());
     }
-
-    for entry in &entries {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
+    for entry in entries {
+        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
         if name.starts_with('.') || name == "node_modules" {
             continue;
         }
-
-        let full_path = path.join(entry.file_name());
-        let Some((is_directory, is_file)) = resolved_kind(&full_path) else {
-            continue;
+        let path = node_join(dir, &name);
+        let metadata = match fs::metadata(encode_node_utf8(&path)) {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
         };
-        let relative_path = to_posix_path(full_path.strip_prefix(&root).unwrap_or(&full_path));
-        if matcher.ignores(&relative_path, is_directory) {
+        if is_ignored(matcher, &path, metadata.is_dir())? {
             continue;
         }
-
-        if is_directory {
-            let sub_result =
-                load_skills_from_dir_internal(&full_path.to_string_lossy(), source, false, Some(matcher), Some(&root));
-            skills.extend(sub_result.skills);
-            diagnostics.extend(sub_result.diagnostics);
-            continue;
+        if metadata.is_dir() {
+            merge_skill_result(
+                result,
+                load_skills_from_dir_internal(&path, source, false, Some(matcher), Some(root))?,
+            );
+        } else if metadata.is_file() && include_root && name.ends_with(".md") {
+            merge_skill_result(result, load_skill_from_file(&path, source));
         }
-
-        if !is_file || !include_root_files || !name.ends_with(".md") {
-            continue;
-        }
-
-        let result = load_skill_from_file(&full_path.to_string_lossy(), source);
-        if let Some(skill) = result.skill {
-            skills.push(skill);
-        }
-        diagnostics.extend(result.diagnostics);
     }
-
-    LoadSkillsResult { skills, diagnostics }
+    Ok(())
 }
 
-/// Returns `(is_directory, is_file)` following symlinks; `None` for a broken link.
-fn resolved_kind(path: &Path) -> Option<(bool, bool)> {
-    let metadata = fs::metadata(path).ok()?;
-    Some((metadata.is_dir(), metadata.is_file()))
+fn is_ignored(matcher: &IgnoreMatcher, path: &JsString, directory: bool) -> Result<bool, JsString> {
+    // IgnoreMatcher computes the relative path from its native root itself.
+    matcher.ignores(path, directory).map_err(|error| error.message)
 }
 
-struct SkillFileResult {
-    skill: Option<Skill>,
-    diagnostics: Vec<ResourceDiagnostic>,
+fn merge_skill_result(result: &mut LoadSkillsResult, next: LoadSkillsResult) {
+    result.skills.extend(next.skills);
+    result.diagnostics.extend(next.diagnostics);
 }
 
-fn load_skill_from_file(file_path: &str, source: &str) -> SkillFileResult {
-    let mut diagnostics = Vec::new();
-
-    let content = match fs::read_to_string(file_path) {
-        Ok(content) => content,
+fn load_skill_from_file(path: &JsString, source: &JsString) -> LoadSkillsResult {
+    let parsed = fs::read(encode_node_utf8(path))
+        .map_err(|error| JsString::from(error.to_string()))
+        .and_then(|bytes| {
+            parse_frontmatter(JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
+                .map_err(|error| error.message().clone())
+        });
+    let parsed = match parsed {
+        Ok(parsed) => parsed,
         Err(error) => {
-            diagnostics.push(warning(&error.to_string(), file_path));
-            return SkillFileResult {
-                skill: None,
-                diagnostics,
+            return LoadSkillsResult {
+                skills: vec![],
+                diagnostics: vec![warning(error, path)],
             };
         }
     };
-    let frontmatter = match parse_frontmatter(&content) {
-        Ok(parsed) => parsed.frontmatter,
-        Err(error) => {
-            diagnostics.push(warning(&error.to_string(), file_path));
-            return SkillFileResult {
-                skill: None,
-                diagnostics,
-            };
-        }
-    };
-
-    let path = Path::new(file_path);
-    let skill_dir = path
-        .parent()
-        .map_or_else(String::new, |parent| parent.to_string_lossy().into_owned());
-    let parent_dir_name = path
-        .parent()
-        .and_then(Path::file_name)
-        .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-
-    let description = frontmatter.get("description").and_then(Value::as_str);
-    for error in validate_description(description) {
-        diagnostics.push(warning(&error, file_path));
-    }
-
-    let name = frontmatter
+    let directory = node_dirname(path);
+    let description = parsed.frontmatter.get("description").and_then(JsValue::as_string);
+    let mut diagnostics: Vec<_> = validate_description(description)
+        .into_iter()
+        .map(|message| warning(message, path))
+        .collect();
+    let name = parsed
+        .frontmatter
         .get("name")
-        .and_then(Value::as_str)
+        .and_then(JsValue::as_string)
         .filter(|name| !name.is_empty())
-        .map_or_else(|| parent_dir_name.clone(), str::to_owned);
-    for error in validate_name(&name) {
-        diagnostics.push(warning(&error, file_path));
-    }
-
+        .cloned()
+        .unwrap_or_else(|| node_basename(&directory));
+    diagnostics.extend(validate_name(&name).into_iter().map(|message| warning(message, path)));
     let Some(description) = description.filter(|description| !description.trim().is_empty()) else {
-        return SkillFileResult {
-            skill: None,
+        return LoadSkillsResult {
+            skills: vec![],
             diagnostics,
         };
     };
-
-    SkillFileResult {
-        skill: Some(Skill {
-            name,
-            description: description.to_owned(),
-            file_path: file_path.to_owned(),
-            base_dir: skill_dir.clone(),
-            source_info: create_skill_source_info(file_path, &skill_dir, source),
-            disable_model_invocation: frontmatter.get("disable-model-invocation") == Some(&Value::Bool(true)),
-        }),
+    let skill = Skill {
+        name,
+        description: description.clone(),
+        file_path: path.clone(),
+        base_dir: directory.clone(),
+        source_info: create_skill_source_info(path, &directory, source),
+        disable_model_invocation: parsed.frontmatter.get("disable-model-invocation") == Some(&JsValue::Bool(true)),
+    };
+    LoadSkillsResult {
+        skills: vec![skill],
         diagnostics,
     }
 }
 
-fn create_skill_source_info(file_path: &str, base_dir: &str, source: &str) -> SourceInfo {
-    let (source_name, scope) = match source {
-        "user" => ("local", Some(SourceScope::User)),
-        "project" => ("local", Some(SourceScope::Project)),
-        "path" => ("local", None),
-        other => (other, None),
+fn create_skill_source_info(path: &JsString, base: &JsString, source: &JsString) -> SourceInfo {
+    let (source, scope) = if source == "user" {
+        (JsString::from("local"), Some(SourceScope::User))
+    } else if source == "project" {
+        (JsString::from("local"), Some(SourceScope::Project))
+    } else if source == "path" {
+        (JsString::from("local"), None)
+    } else {
+        (source.clone(), None)
     };
     create_synthetic_source_info(
-        file_path,
+        path,
         &SyntheticSourceInfoOptions {
-            source: source_name.to_owned(),
+            source,
             scope,
             origin: None,
-            base_dir: Some(base_dir.to_owned()),
+            base_dir: Some(base.clone()),
         },
     )
 }
 
-fn validate_name(name: &str) -> Vec<String> {
+fn validate_name(name: &JsString) -> Vec<JsString> {
     let mut errors = Vec::new();
-    if name.encode_utf16().count() > MAX_NAME_LENGTH {
-        errors.push(format!(
-            "name exceeds {MAX_NAME_LENGTH} characters ({})",
-            name.encode_utf16().count()
-        ));
+    if name.len() > MAX_NAME_LENGTH {
+        errors.push(format!("name exceeds {MAX_NAME_LENGTH} characters ({})", name.len()).into());
     }
-    if !is_valid_name(name) {
-        errors.push("name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)".to_owned());
+    if name.is_empty()
+        || !name
+            .units()
+            .iter()
+            .all(|unit| matches!(unit, 0x61..=0x7a | 0x30..=0x39 | 0x2d))
+    {
+        errors.push("name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)".into());
     }
     if name.starts_with('-') || name.ends_with('-') {
-        errors.push("name must not start or end with a hyphen".to_owned());
+        errors.push("name must not start or end with a hyphen".into());
     }
     if name.contains("--") {
-        errors.push("name must not contain consecutive hyphens".to_owned());
+        errors.push("name must not contain consecutive hyphens".into());
     }
     errors
 }
 
-fn is_valid_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-')
-}
-
-fn validate_description(description: Option<&str>) -> Vec<String> {
+fn validate_description(description: Option<&JsString>) -> Vec<JsString> {
     match description {
-        None => vec!["description is required".to_owned()],
-        Some(description) if description.trim().is_empty() => vec!["description is required".to_owned()],
-        Some(description) if description.encode_utf16().count() > MAX_DESCRIPTION_LENGTH => vec![format!(
-            "description exceeds {MAX_DESCRIPTION_LENGTH} characters ({})",
-            description.encode_utf16().count()
-        )],
-        Some(_) => Vec::new(),
+        None => vec!["description is required".into()],
+        Some(description) if description.trim().is_empty() => vec!["description is required".into()],
+        Some(description) if description.len() > MAX_DESCRIPTION_LENGTH => vec![
+            format!(
+                "description exceeds {MAX_DESCRIPTION_LENGTH} characters ({})",
+                description.len()
+            )
+            .into(),
+        ],
+        Some(_) => vec![],
     }
 }
 
-/// Formats the visible skills for a system prompt.
-pub fn format_skills_for_prompt(skills: &[Skill]) -> String {
-    let visible: Vec<&Skill> = skills.iter().filter(|skill| !skill.disable_model_invocation).collect();
+pub fn format_skills_for_prompt(skills: &[Skill]) -> JsString {
+    let visible: Vec<_> = skills.iter().filter(|skill| !skill.disable_model_invocation).collect();
     if visible.is_empty() {
-        return String::new();
+        return JsString::default();
     }
-
-    let mut lines = vec![
-        "\n\nThe following skills provide specialized instructions for specific tasks.".to_owned(),
-        "Use the read tool to load a skill's file when the task matches its description.".to_owned(),
-        "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.".to_owned(),
-        String::new(),
-        "<available_skills>".to_owned(),
+    let mut lines: Vec<JsString> = vec![
+        "\n\nThe following skills provide specialized instructions for specific tasks.".into(),
+        "Use the read tool to load a skill's file when the task matches its description.".into(),
+        "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.".into(),
+        "".into(), "<available_skills>".into(),
     ];
     for skill in visible {
-        lines.push("  <skill>".to_owned());
-        lines.push(format!("    <name>{}</name>", escape_xml(&skill.name)));
-        lines.push(format!(
-            "    <description>{}</description>",
-            escape_xml(&skill.description)
-        ));
-        lines.push(format!("    <location>{}</location>", escape_xml(&skill.file_path)));
-        lines.push("  </skill>".to_owned());
+        lines.extend([
+            "  <skill>".into(),
+            JsString::from("    <name>") + escape_xml(&skill.name) + "</name>",
+            JsString::from("    <description>") + escape_xml(&skill.description) + "</description>",
+            JsString::from("    <location>") + escape_xml(&skill.file_path) + "</location>",
+            "  </skill>".into(),
+        ]);
     }
-    lines.push("</available_skills>".to_owned());
-    lines.join("\n")
+    lines.push("</available_skills>".into());
+    JsString::join(lines, "\n")
 }
 
-fn escape_xml(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
+fn escape_xml(text: &JsString) -> JsString {
+    text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+fn warning(message: impl Into<JsString>, path: &JsString) -> ResourceDiagnostic {
+    ResourceDiagnostic {
+        diagnostic_type: ResourceDiagnosticType::Warning,
+        message: message.into(),
+        path: Some(path.clone()),
+        collision: None,
+    }
 }
