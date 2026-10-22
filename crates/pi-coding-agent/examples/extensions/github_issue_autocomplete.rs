@@ -2,7 +2,7 @@
 use futures_util::{FutureExt, future::Shared};
 use pi_coding_agent::core::extensions::*;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::string::{is_js_whitespace_char, js_trim};
+use pi_js_compat::string::js_trim;
 use pi_tui::autocomplete::*;
 use serde::Deserialize;
 use std::{rc::Rc, sync::Arc};
@@ -159,13 +159,17 @@ fn format_item(issue: &Issue) -> AutocompleteItem {
     }
 }
 fn filter(issues: &[Issue], query: &JsString) -> Vec<AutocompleteItem> {
-    if js_trim(query).is_empty() {
+    if query.trim().is_empty() {
         return issues.iter().take(20).map(format_item).collect();
     }
-    if query.bytes().all(|byte| byte.is_ascii_digit()) {
+    if query
+        .units()
+        .iter()
+        .all(|unit| (b'0' as u16..=b'9' as u16).contains(unit))
+    {
         let matches: Vec<_> = issues
             .iter()
-            .filter(|issue| issue_number(issue).starts_with(query))
+            .filter(|issue| JsString::from(issue_number(issue)).starts_with(query))
             .take(20)
             .map(format_item)
             .collect();
@@ -260,7 +264,7 @@ mod tests {
         assert_eq!(issues[0].title, "Lone � and �");
 
         // compatibility.md:177 excludes lone-surrogate fidelity in String core APIs.
-        let matches = filter(&issues, "�");
+        let matches = filter(&issues, &JsString::from("�"));
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].value, "#77");
         assert_eq!(matches[0].label, "#77");

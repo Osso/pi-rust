@@ -8,13 +8,10 @@ use pi_coding_agent::{
     modes::interactive::theme::{Theme, ThemeColor},
 };
 use pi_js_compat::js_format;
+use pi_js_compat::js_json;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::encode_node_utf8;
-use pi_js_compat::{
-    js_json,
-    string::{js_trim, utf16_len, utf16_slice_to_utf8},
-};
 use pi_tui::{
     Component, Text,
     components::{
@@ -421,16 +418,16 @@ async fn cycle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Re
     }
     Ok(())
 }
-fn description(preset: &Preset) -> String {
+fn description(preset: &Preset) -> JsString {
     let mut parts = Vec::new();
     if let (Some(provider), Some(model)) = (&preset.provider, &preset.model)
         && !provider.is_empty()
         && !model.is_empty()
     {
-        parts.push(format!("{provider}/{model}"));
+        parts.push(js_format!("{}/{}", provider, model));
     }
     if let Some(thinking) = preset.thinking_level {
-        parts.push(format!(
+        parts.push(js_format!(
             "thinking:{}",
             serde_json::to_value(thinking)
                 .expect("thinking level")
@@ -439,7 +436,7 @@ fn description(preset: &Preset) -> String {
         ));
     }
     if let Some(tools) = &preset.tools {
-        parts.push(format!("tools:{}", tools.join(",")));
+        parts.push(js_format!("tools:{}", tools.join(",")));
     }
     if let Some(instructions) = &preset.instructions
         && !instructions.is_empty()
@@ -451,7 +448,7 @@ fn description(preset: &Preset) -> String {
         };
         parts.push(js_format!("\"{}\"", text));
     }
-    parts.join(" | ")
+    JsString::join(parts, " | ")
 }
 async fn select(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     let items = {

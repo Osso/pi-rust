@@ -3,7 +3,6 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::extensions::*;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::string::js_trim;
 use std::sync::Arc;
 
 pub fn send_user_message_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {

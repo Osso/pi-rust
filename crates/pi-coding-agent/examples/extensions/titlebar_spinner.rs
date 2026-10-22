@@ -11,12 +11,12 @@ use tokio::task::JoinHandle;
 const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 type Timer = Arc<Mutex<Option<JoinHandle<()>>>>;
 
-fn read_base_title(pi: &ExtensionApi) -> Result<String, HandlerError> {
+fn read_base_title(pi: &ExtensionApi) -> Result<JsString, HandlerError> {
     let cwd = std::env::current_dir().map_err(|error| HandlerError::new(error.to_string()))?;
     let basename = cwd.file_name().unwrap_or_default().to_string_lossy();
     Ok(match pi.get_session_name()?.filter(|name| !name.is_empty()) {
-        Some(session) => js_format!("π - {} - {}", session, basename),
-        None => format!("π - {basename}"),
+        Some(session) => js_format!("π - {} - {}", session, basename.as_ref()),
+        None => JsString::from(format!("π - {basename}")),
     })
 }
 fn stop_animation(timer: &Timer, pi: &ExtensionApi, ctx: &ExtensionContext) -> Result<(), HandlerError> {
@@ -38,7 +38,7 @@ fn start_animation(timer: &Timer, pi: &ExtensionApi, ctx: &ExtensionContext) -> 
         loop {
             ticks.tick().await;
             match read_base_title(&api) {
-                Ok(base) => ui.set_title(&JsString::from(format!("{} {base}", FRAMES[frame % FRAMES.len()]))),
+                Ok(base) => ui.set_title(&js_format!("{} {}", FRAMES[frame % FRAMES.len()], base)),
                 Err(error) => {
                     eprintln!("titlebar-spinner: {error}");
                     return;

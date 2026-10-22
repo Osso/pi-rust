@@ -20,7 +20,7 @@ use std::sync::Arc;
 pub fn truncated_tool_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_tool(ToolDefinition {
         name:"rg".into(),label:"ripgrep".into(),
-        description:js_format!("Search file contents using ripgrep. Output is truncated to {} lines or {} (whichever is hit first). If truncated, full output is saved to a temp file.", DEFAULT_MAX_LINES, format_size(DEFAULT_MAX_BYTES)),
+        description:js_format!("Search file contents using ripgrep. Output is truncated to {} lines or {} (whichever is hit first). If truncated, full output is saved to a temp file.", DEFAULT_MAX_LINES, format_size(DEFAULT_MAX_BYTES)).to_utf8().expect("fixed ASCII ripgrep description"),
         parameters:serde_json::json!({"type":"object","properties":{"pattern":{"type":"string","description":"Search pattern (regex)"},"path":{"type":"string","description":"Directory to search (default: current directory)"},"glob":{"type":"string","description":"File glob pattern, e.g. '*.ts'"}},"required":["pattern"]}),
         prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,constrained_sampling:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,
         execute:Arc::new(|_,params,_,_,ctx|Box::pin(async move {execute(&params,&ctx.cwd()?).await})),

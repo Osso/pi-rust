@@ -55,7 +55,13 @@ pub fn inline_bash_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         }
                         Err(error) => {
                             result = replace(&result, &full, &format!("[error: {error}]"));
-                            summaries.push(pi_js_compat::js_format!("!{{{}}} ({}) -> \"\"", command, error));
+                            summaries.push(pi_js_compat::js_format!(
+                                "{}{}{} ({}) -> \"\"",
+                                "!{",
+                                command,
+                                "}",
+                                error
+                            ));
                             continue;
                         }
                     };
@@ -67,19 +73,21 @@ pub fn inline_bash_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     };
                     let status = error.map(|error| format!(" ({error})")).unwrap_or_default();
                     summaries.push(pi_js_compat::js_format!(
-                        "!{{{}}}{} -> \"{}\"",
+                        "{}{}{}{} -> \"{}\"",
+                        "!{",
                         command,
+                        "}",
                         status,
                         preview
                     ));
                 }
                 if ctx.has_ui()? {
                     ctx.ui()?.notify(
-                        &JsString::from(format!(
+                        &pi_js_compat::js_format!(
                             "Expanded {} inline command(s):\n{}",
                             summaries.len(),
                             JsString::join(summaries, "\n")
-                        )),
+                        ),
                         Some(NotifyType::Info),
                     );
                 }
