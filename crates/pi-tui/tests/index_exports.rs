@@ -77,7 +77,7 @@ fn constants() -> Vec<(&'static str, &'static str, &'static str)> {
     ]
 }
 
-type ModifierCall = (&'static str, fn(&str) -> String, &'static str);
+type ModifierCall = (&'static str, fn(&str) -> pi_js_compat::js_json::JsString, &'static str);
 
 fn modifier_calls() -> Vec<ModifierCall> {
     vec![

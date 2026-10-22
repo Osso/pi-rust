@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::sync::Mutex;
 
 use pi_tui::keys::{
@@ -44,10 +45,10 @@ fn matches_super_modifiers_including_combined_modifiers() {
         assert!(matches_key("\x1b[107;13u", "ctrl+super+k"));
         assert!(matches_key("\x1b[107;14u", "ctrl+shift+super+k"));
         assert!(!matches_key("\x1b[107;13u", "super+k"));
-        assert_eq!(parse_key("\x1b[107;9u").as_deref(), Some("super+k"));
-        assert_eq!(parse_key("\x1b[13;9u").as_deref(), Some("super+enter"));
-        assert_eq!(parse_key("\x1b[107;13u").as_deref(), Some("ctrl+super+k"));
-        assert_eq!(parse_key("\x1b[107;14u").as_deref(), Some("shift+ctrl+super+k"));
+        assert_eq!(parse_key("\x1b[107;9u"), Some(JsString::from("super+k")));
+        assert_eq!(parse_key("\x1b[13;9u"), Some(JsString::from("super+enter")));
+        assert_eq!(parse_key("\x1b[107;13u"), Some(JsString::from("ctrl+super+k")));
+        assert_eq!(parse_key("\x1b[107;14u"), Some(JsString::from("shift+ctrl+super+k")));
     });
 }
 
@@ -57,8 +58,8 @@ fn matches_digit_bindings_through_kitty_csi_u() {
         assert!(matches_key("\x1b[49u", "1"));
         assert!(matches_key("\x1b[49;5u", "ctrl+1"));
         assert!(!matches_key("\x1b[49;5u", "ctrl+2"));
-        assert_eq!(parse_key("\x1b[49u").as_deref(), Some("1"));
-        assert_eq!(parse_key("\x1b[49;5u").as_deref(), Some("ctrl+1"));
+        assert_eq!(parse_key("\x1b[49u"), Some(JsString::from("1")));
+        assert_eq!(parse_key("\x1b[49;5u"), Some(JsString::from("ctrl+1")));
     });
 }
 
@@ -69,20 +70,20 @@ fn normalizes_kitty_keypad_functional_keys() {
         assert!(matches_key("\x1b[57410u", "/"));
         assert!(matches_key("\x1b[57417u", "left"));
         assert!(matches_key("\x1b[57426u", "delete"));
-        assert_eq!(parse_key("\x1b[57399u").as_deref(), Some("0"));
-        assert_eq!(parse_key("\x1b[57409u").as_deref(), Some("."));
-        assert_eq!(parse_key("\x1b[57413u").as_deref(), Some("+"));
-        assert_eq!(parse_key("\x1b[57416u").as_deref(), Some(","));
-        assert_eq!(parse_key("\x1b[57417u").as_deref(), Some("left"));
-        assert_eq!(parse_key("\x1b[57418u").as_deref(), Some("right"));
-        assert_eq!(parse_key("\x1b[57419u").as_deref(), Some("up"));
-        assert_eq!(parse_key("\x1b[57420u").as_deref(), Some("down"));
-        assert_eq!(parse_key("\x1b[57421u").as_deref(), Some("pageUp"));
-        assert_eq!(parse_key("\x1b[57422u").as_deref(), Some("pageDown"));
-        assert_eq!(parse_key("\x1b[57423u").as_deref(), Some("home"));
-        assert_eq!(parse_key("\x1b[57424u").as_deref(), Some("end"));
-        assert_eq!(parse_key("\x1b[57425u").as_deref(), Some("insert"));
-        assert_eq!(parse_key("\x1b[57426u").as_deref(), Some("delete"));
+        assert_eq!(parse_key("\x1b[57399u"), Some(JsString::from("0")));
+        assert_eq!(parse_key("\x1b[57409u"), Some(JsString::from(".")));
+        assert_eq!(parse_key("\x1b[57413u"), Some(JsString::from("+")));
+        assert_eq!(parse_key("\x1b[57416u"), Some(JsString::from(",")));
+        assert_eq!(parse_key("\x1b[57417u"), Some(JsString::from("left")));
+        assert_eq!(parse_key("\x1b[57418u"), Some(JsString::from("right")));
+        assert_eq!(parse_key("\x1b[57419u"), Some(JsString::from("up")));
+        assert_eq!(parse_key("\x1b[57420u"), Some(JsString::from("down")));
+        assert_eq!(parse_key("\x1b[57421u"), Some(JsString::from("pageUp")));
+        assert_eq!(parse_key("\x1b[57422u"), Some(JsString::from("pageDown")));
+        assert_eq!(parse_key("\x1b[57423u"), Some(JsString::from("home")));
+        assert_eq!(parse_key("\x1b[57424u"), Some(JsString::from("end")));
+        assert_eq!(parse_key("\x1b[57425u"), Some(JsString::from("insert")));
+        assert_eq!(parse_key("\x1b[57426u"), Some(JsString::from("delete")));
     });
 }
 
@@ -102,8 +103,8 @@ fn prefers_codepoint_over_base_layout_for_latin_and_symbols() {
         assert!(!matches_key("\x1b[107::118;5u", "ctrl+v"));
         assert!(matches_key("\x1b[47::91;5u", "ctrl+/"));
         assert!(!matches_key("\x1b[47::91;5u", "ctrl+["));
-        assert_eq!(parse_key("\x1b[107::118;5u").as_deref(), Some("ctrl+k"));
-        assert_eq!(parse_key("\x1b[47::91;5u").as_deref(), Some("ctrl+/"));
+        assert_eq!(parse_key("\x1b[107::118;5u"), Some(JsString::from("ctrl+k")));
+        assert_eq!(parse_key("\x1b[47::91;5u"), Some(JsString::from("ctrl+/")));
     });
 }
 
@@ -111,45 +112,45 @@ fn prefers_codepoint_over_base_layout_for_latin_and_symbols() {
 fn matches_xterm_modify_other_keys() {
     with_kitty(false, || {
         assert!(matches_key("\x1b[27;5;99~", "ctrl+c"));
-        assert_eq!(parse_key("\x1b[27;5;99~").as_deref(), Some("ctrl+c"));
+        assert_eq!(parse_key("\x1b[27;5;99~"), Some(JsString::from("ctrl+c")));
         assert!(matches_key("\x1b[27;5;100~", "ctrl+d"));
-        assert_eq!(parse_key("\x1b[27;5;100~").as_deref(), Some("ctrl+d"));
+        assert_eq!(parse_key("\x1b[27;5;100~"), Some(JsString::from("ctrl+d")));
         assert!(matches_key("\x1b[27;5;122~", "ctrl+z"));
-        assert_eq!(parse_key("\x1b[27;5;122~").as_deref(), Some("ctrl+z"));
+        assert_eq!(parse_key("\x1b[27;5;122~"), Some(JsString::from("ctrl+z")));
         assert!(matches_key("\x1b[27;5;13~", "ctrl+enter"));
         assert!(matches_key("\x1b[27;2;13~", "shift+enter"));
         assert!(matches_key("\x1b[27;3;13~", "alt+enter"));
-        assert_eq!(parse_key("\x1b[27;5;13~").as_deref(), Some("ctrl+enter"));
-        assert_eq!(parse_key("\x1b[27;2;13~").as_deref(), Some("shift+enter"));
-        assert_eq!(parse_key("\x1b[27;3;13~").as_deref(), Some("alt+enter"));
+        assert_eq!(parse_key("\x1b[27;5;13~"), Some(JsString::from("ctrl+enter")));
+        assert_eq!(parse_key("\x1b[27;2;13~"), Some(JsString::from("shift+enter")));
+        assert_eq!(parse_key("\x1b[27;3;13~"), Some(JsString::from("alt+enter")));
         assert!(matches_key("\x1b[27;2;9~", "shift+tab"));
         assert!(matches_key("\x1b[27;5;9~", "ctrl+tab"));
         assert!(matches_key("\x1b[27;3;9~", "alt+tab"));
-        assert_eq!(parse_key("\x1b[27;2;9~").as_deref(), Some("shift+tab"));
-        assert_eq!(parse_key("\x1b[27;5;9~").as_deref(), Some("ctrl+tab"));
-        assert_eq!(parse_key("\x1b[27;3;9~").as_deref(), Some("alt+tab"));
+        assert_eq!(parse_key("\x1b[27;2;9~"), Some(JsString::from("shift+tab")));
+        assert_eq!(parse_key("\x1b[27;5;9~"), Some(JsString::from("ctrl+tab")));
+        assert_eq!(parse_key("\x1b[27;3;9~"), Some(JsString::from("alt+tab")));
         assert!(matches_key("\x1b[27;1;127~", "backspace"));
         assert!(matches_key("\x1b[27;5;127~", "ctrl+backspace"));
         assert!(matches_key("\x1b[27;3;127~", "alt+backspace"));
-        assert_eq!(parse_key("\x1b[27;1;127~").as_deref(), Some("backspace"));
-        assert_eq!(parse_key("\x1b[27;5;127~").as_deref(), Some("ctrl+backspace"));
-        assert_eq!(parse_key("\x1b[27;3;127~").as_deref(), Some("alt+backspace"));
+        assert_eq!(parse_key("\x1b[27;1;127~"), Some(JsString::from("backspace")));
+        assert_eq!(parse_key("\x1b[27;5;127~"), Some(JsString::from("ctrl+backspace")));
+        assert_eq!(parse_key("\x1b[27;3;127~"), Some(JsString::from("alt+backspace")));
         assert!(matches_key("\x1b[27;1;27~", "escape"));
-        assert_eq!(parse_key("\x1b[27;1;27~").as_deref(), Some("escape"));
+        assert_eq!(parse_key("\x1b[27;1;27~"), Some(JsString::from("escape")));
         assert!(matches_key("\x1b[27;1;32~", "space"));
         assert!(matches_key("\x1b[27;5;32~", "ctrl+space"));
-        assert_eq!(parse_key("\x1b[27;1;32~").as_deref(), Some("space"));
-        assert_eq!(parse_key("\x1b[27;5;32~").as_deref(), Some("ctrl+space"));
+        assert_eq!(parse_key("\x1b[27;1;32~"), Some(JsString::from("space")));
+        assert_eq!(parse_key("\x1b[27;5;32~"), Some(JsString::from("ctrl+space")));
         assert!(matches_key("\x1b[27;5;47~", "ctrl+/"));
-        assert_eq!(parse_key("\x1b[27;5;47~").as_deref(), Some("ctrl+/"));
+        assert_eq!(parse_key("\x1b[27;5;47~"), Some(JsString::from("ctrl+/")));
         assert!(matches_key("\x1b[27;5;49~", "ctrl+1"));
         assert!(matches_key("\x1b[27;2;49~", "shift+1"));
-        assert_eq!(parse_key("\x1b[27;5;49~").as_deref(), Some("ctrl+1"));
-        assert_eq!(parse_key("\x1b[27;2;49~").as_deref(), Some("shift+1"));
+        assert_eq!(parse_key("\x1b[27;5;49~"), Some(JsString::from("ctrl+1")));
+        assert_eq!(parse_key("\x1b[27;2;49~"), Some(JsString::from("shift+1")));
         assert!(matches_key("\x1b[27;2;69~", "shift+e"));
         assert!(matches_key("\x1b[27;6;69~", "ctrl+shift+e"));
-        assert_eq!(parse_key("\x1b[27;2;69~").as_deref(), Some("shift+e"));
-        assert_eq!(parse_key("\x1b[27;6;69~").as_deref(), Some("shift+ctrl+e"));
+        assert_eq!(parse_key("\x1b[27;2;69~"), Some(JsString::from("shift+e")));
+        assert_eq!(parse_key("\x1b[27;6;69~"), Some(JsString::from("shift+ctrl+e")));
     });
 }
 
@@ -157,9 +158,9 @@ fn matches_xterm_modify_other_keys() {
 fn matches_ctrl_alt_letter_through_csi_u_and_modify_other_keys() {
     with_kitty(false, || {
         assert!(matches_key("\x1b[104;7u", "ctrl+alt+h"));
-        assert_eq!(parse_key("\x1b[104;7u").as_deref(), Some("ctrl+alt+h"));
+        assert_eq!(parse_key("\x1b[104;7u"), Some(JsString::from("ctrl+alt+h")));
         assert!(matches_key("\x1b[27;7;104~", "ctrl+alt+h"));
-        assert_eq!(parse_key("\x1b[27;7;104~").as_deref(), Some("ctrl+alt+h"));
+        assert_eq!(parse_key("\x1b[27;7;104~"), Some(JsString::from("ctrl+alt+h")));
     });
 }
 
@@ -170,25 +171,25 @@ fn matches_legacy_control_characters() {
         assert!(matches_key("\x04", "ctrl+d"));
         assert!(matches_key("\x1b", "escape"));
         assert!(matches_key("\n", "enter"));
-        assert_eq!(parse_key("\n").as_deref(), Some("enter"));
+        assert_eq!(parse_key("\n"), Some(JsString::from("enter")));
         assert!(matches_key("\x00", "ctrl+space"));
-        assert_eq!(parse_key("\x00").as_deref(), Some("ctrl+space"));
+        assert_eq!(parse_key("\x00"), Some(JsString::from("ctrl+space")));
         assert!(matches_key("\x1c", "ctrl+\\"));
-        assert_eq!(parse_key("\x1c").as_deref(), Some("ctrl+\\"));
+        assert_eq!(parse_key("\x1c"), Some(JsString::from("ctrl+\\")));
         assert!(matches_key("\x1d", "ctrl+]"));
-        assert_eq!(parse_key("\x1d").as_deref(), Some("ctrl+]"));
+        assert_eq!(parse_key("\x1d"), Some(JsString::from("ctrl+]")));
         assert!(matches_key("\x1f", "ctrl+_"));
         assert!(matches_key("\x1f", "ctrl+-"));
-        assert_eq!(parse_key("\x1f").as_deref(), Some("ctrl+-"));
+        assert_eq!(parse_key("\x1f"), Some(JsString::from("ctrl+-")));
         assert!(matches_key("\x1b\x1b", "ctrl+alt+["));
-        assert_eq!(parse_key("\x1b\x1b").as_deref(), Some("ctrl+alt+["));
+        assert_eq!(parse_key("\x1b\x1b"), Some(JsString::from("ctrl+alt+[")));
         assert!(matches_key("\x1b\x1c", "ctrl+alt+\\"));
-        assert_eq!(parse_key("\x1b\x1c").as_deref(), Some("ctrl+alt+\\"));
+        assert_eq!(parse_key("\x1b\x1c"), Some(JsString::from("ctrl+alt+\\")));
         assert!(matches_key("\x1b\x1d", "ctrl+alt+]"));
-        assert_eq!(parse_key("\x1b\x1d").as_deref(), Some("ctrl+alt+]"));
+        assert_eq!(parse_key("\x1b\x1d"), Some(JsString::from("ctrl+alt+]")));
         assert!(matches_key("\x1b\x1f", "ctrl+alt+_"));
         assert!(matches_key("\x1b\x1f", "ctrl+alt+-"));
-        assert_eq!(parse_key("\x1b\x1f").as_deref(), Some("ctrl+alt+-"));
+        assert_eq!(parse_key("\x1b\x1f"), Some(JsString::from("ctrl+alt+-")));
     });
 }
 
@@ -197,7 +198,7 @@ fn treats_linefeed_as_shift_enter_when_kitty_is_active() {
     with_kitty(true, || {
         assert!(matches_key("\n", "shift+enter"));
         assert!(!matches_key("\n", "enter"));
-        assert_eq!(parse_key("\n").as_deref(), Some("shift+enter"));
+        assert_eq!(parse_key("\n"), Some(JsString::from("shift+enter")));
     });
 }
 
@@ -206,10 +207,10 @@ fn raw_backspace_defaults_to_plain_backspace() {
     with_kitty(false, || {
         assert!(matches_key("\x7f", "backspace"));
         assert!(!matches_key("\x7f", "ctrl+backspace"));
-        assert_eq!(parse_key("\x7f").as_deref(), Some("backspace"));
+        assert_eq!(parse_key("\x7f"), Some(JsString::from("backspace")));
         assert!(matches_key("\x08", "backspace"));
         assert!(!matches_key("\x08", "ctrl+backspace"));
-        assert_eq!(parse_key("\x08").as_deref(), Some("backspace"));
+        assert_eq!(parse_key("\x08"), Some(JsString::from("backspace")));
         assert!(matches_key("\x08", "ctrl+h"));
     });
 }
@@ -218,23 +219,23 @@ fn raw_backspace_defaults_to_plain_backspace() {
 fn parses_legacy_alt_prefixed_sequences_when_kitty_is_inactive() {
     with_kitty(false, || {
         assert!(matches_key("\x1b ", "alt+space"));
-        assert_eq!(parse_key("\x1b ").as_deref(), Some("alt+space"));
+        assert_eq!(parse_key("\x1b "), Some(JsString::from("alt+space")));
         assert!(matches_key("\x1b\x08", "alt+backspace"));
-        assert_eq!(parse_key("\x1b\x08").as_deref(), Some("alt+backspace"));
+        assert_eq!(parse_key("\x1b\x08"), Some(JsString::from("alt+backspace")));
         assert!(matches_key("\x1b\x03", "ctrl+alt+c"));
-        assert_eq!(parse_key("\x1b\x03").as_deref(), Some("ctrl+alt+c"));
+        assert_eq!(parse_key("\x1b\x03"), Some(JsString::from("ctrl+alt+c")));
         assert!(matches_key("\x1bB", "alt+left"));
-        assert_eq!(parse_key("\x1bB").as_deref(), Some("alt+left"));
+        assert_eq!(parse_key("\x1bB"), Some(JsString::from("alt+left")));
         assert!(matches_key("\x1bF", "alt+right"));
-        assert_eq!(parse_key("\x1bF").as_deref(), Some("alt+right"));
+        assert_eq!(parse_key("\x1bF"), Some(JsString::from("alt+right")));
         assert!(matches_key("\x1ba", "alt+a"));
-        assert_eq!(parse_key("\x1ba").as_deref(), Some("alt+a"));
+        assert_eq!(parse_key("\x1ba"), Some(JsString::from("alt+a")));
         assert!(matches_key("\x1b1", "alt+1"));
-        assert_eq!(parse_key("\x1b1").as_deref(), Some("alt+1"));
+        assert_eq!(parse_key("\x1b1"), Some(JsString::from("alt+1")));
         assert!(matches_key("\x1by", "alt+y"));
-        assert_eq!(parse_key("\x1by").as_deref(), Some("alt+y"));
+        assert_eq!(parse_key("\x1by"), Some(JsString::from("alt+y")));
         assert!(matches_key("\x1bz", "alt+z"));
-        assert_eq!(parse_key("\x1bz").as_deref(), Some("alt+z"));
+        assert_eq!(parse_key("\x1bz"), Some(JsString::from("alt+z")));
     });
 }
 
@@ -244,7 +245,7 @@ fn drops_ambiguous_legacy_sequences_when_kitty_is_active() {
         assert!(!matches_key("\x1b ", "alt+space"));
         assert_eq!(parse_key("\x1b "), None);
         assert!(matches_key("\x1b\x08", "alt+backspace"));
-        assert_eq!(parse_key("\x1b\x08").as_deref(), Some("alt+backspace"));
+        assert_eq!(parse_key("\x1b\x08"), Some(JsString::from("alt+backspace")));
         assert!(!matches_key("\x1b\x03", "ctrl+alt+c"));
         assert_eq!(parse_key("\x1b\x03"), None);
         assert!(!matches_key("\x1bB", "alt+left"));
@@ -254,9 +255,9 @@ fn drops_ambiguous_legacy_sequences_when_kitty_is_active() {
         assert!(!matches_key("\x1ba", "alt+a"));
         assert_eq!(parse_key("\x1ba"), None);
         assert!(matches_key("\x1b1", "alt+1"));
-        assert_eq!(parse_key("\x1b1").as_deref(), Some("alt+1"));
+        assert_eq!(parse_key("\x1b1"), Some(JsString::from("alt+1")));
         assert!(matches_key("\x1b2", "alt+2"));
-        assert_eq!(parse_key("\x1b2").as_deref(), Some("alt+2"));
+        assert_eq!(parse_key("\x1b2"), Some(JsString::from("alt+2")));
         assert!(!matches_key("\x1by", "alt+y"));
         assert_eq!(parse_key("\x1by"), None);
     });
@@ -285,10 +286,10 @@ fn matches_xterm_ctrl_modified_viewport_navigation() {
         assert!(matches_key("\x1b[1;5F", "ctrl+end"));
         assert!(matches_key("\x1b[5;5~", "ctrl+pageUp"));
         assert!(matches_key("\x1b[6;5~", "ctrl+pageDown"));
-        assert_eq!(parse_key("\x1b[1;5H").as_deref(), Some("ctrl+home"));
-        assert_eq!(parse_key("\x1b[1;5F").as_deref(), Some("ctrl+end"));
-        assert_eq!(parse_key("\x1b[5;5~").as_deref(), Some("ctrl+pageUp"));
-        assert_eq!(parse_key("\x1b[6;5~").as_deref(), Some("ctrl+pageDown"));
+        assert_eq!(parse_key("\x1b[1;5H"), Some(JsString::from("ctrl+home")));
+        assert_eq!(parse_key("\x1b[1;5F"), Some(JsString::from("ctrl+end")));
+        assert_eq!(parse_key("\x1b[5;5~"), Some(JsString::from("ctrl+pageUp")));
+        assert_eq!(parse_key("\x1b[6;5~"), Some(JsString::from("ctrl+pageDown")));
     });
 }
 
@@ -311,54 +312,54 @@ fn matches_legacy_function_keys_clear_and_alt_arrows() {
 #[test]
 fn parses_legacy_sequences() {
     with_kitty(false, || {
-        assert_eq!(parse_key("\x03").as_deref(), Some("ctrl+c"));
-        assert_eq!(parse_key("\x04").as_deref(), Some("ctrl+d"));
-        assert_eq!(parse_key("\x1b").as_deref(), Some("escape"));
-        assert_eq!(parse_key("\t").as_deref(), Some("tab"));
-        assert_eq!(parse_key("\r").as_deref(), Some("enter"));
-        assert_eq!(parse_key("\n").as_deref(), Some("enter"));
-        assert_eq!(parse_key("\x00").as_deref(), Some("ctrl+space"));
-        assert_eq!(parse_key(" ").as_deref(), Some("space"));
-        assert_eq!(parse_key("1").as_deref(), Some("1"));
+        assert_eq!(parse_key("\x03"), Some(JsString::from("ctrl+c")));
+        assert_eq!(parse_key("\x04"), Some(JsString::from("ctrl+d")));
+        assert_eq!(parse_key("\x1b"), Some(JsString::from("escape")));
+        assert_eq!(parse_key("\t"), Some(JsString::from("tab")));
+        assert_eq!(parse_key("\r"), Some(JsString::from("enter")));
+        assert_eq!(parse_key("\n"), Some(JsString::from("enter")));
+        assert_eq!(parse_key("\x00"), Some(JsString::from("ctrl+space")));
+        assert_eq!(parse_key(" "), Some(JsString::from("space")));
+        assert_eq!(parse_key("1"), Some(JsString::from("1")));
         assert!(matches_key("1", "1"));
-        assert_eq!(parse_key("\x1b[A").as_deref(), Some("up"));
-        assert_eq!(parse_key("\x1b[B").as_deref(), Some("down"));
-        assert_eq!(parse_key("\x1b[C").as_deref(), Some("right"));
-        assert_eq!(parse_key("\x1b[D").as_deref(), Some("left"));
-        assert_eq!(parse_key("\x1bOA").as_deref(), Some("up"));
-        assert_eq!(parse_key("\x1bOB").as_deref(), Some("down"));
-        assert_eq!(parse_key("\x1bOC").as_deref(), Some("right"));
-        assert_eq!(parse_key("\x1bOD").as_deref(), Some("left"));
-        assert_eq!(parse_key("\x1bOH").as_deref(), Some("home"));
-        assert_eq!(parse_key("\x1bOF").as_deref(), Some("end"));
-        assert_eq!(parse_key("\x1bOP").as_deref(), Some("f1"));
-        assert_eq!(parse_key("\x1b[24~").as_deref(), Some("f12"));
-        assert_eq!(parse_key("\x1b[E").as_deref(), Some("clear"));
-        assert_eq!(parse_key("\x1b[2^").as_deref(), Some("ctrl+insert"));
-        assert_eq!(parse_key("\x1bp").as_deref(), Some("alt+up"));
-        assert_eq!(parse_key("\x1b[[5~").as_deref(), Some("pageUp"));
+        assert_eq!(parse_key("\x1b[A"), Some(JsString::from("up")));
+        assert_eq!(parse_key("\x1b[B"), Some(JsString::from("down")));
+        assert_eq!(parse_key("\x1b[C"), Some(JsString::from("right")));
+        assert_eq!(parse_key("\x1b[D"), Some(JsString::from("left")));
+        assert_eq!(parse_key("\x1bOA"), Some(JsString::from("up")));
+        assert_eq!(parse_key("\x1bOB"), Some(JsString::from("down")));
+        assert_eq!(parse_key("\x1bOC"), Some(JsString::from("right")));
+        assert_eq!(parse_key("\x1bOD"), Some(JsString::from("left")));
+        assert_eq!(parse_key("\x1bOH"), Some(JsString::from("home")));
+        assert_eq!(parse_key("\x1bOF"), Some(JsString::from("end")));
+        assert_eq!(parse_key("\x1bOP"), Some(JsString::from("f1")));
+        assert_eq!(parse_key("\x1b[24~"), Some(JsString::from("f12")));
+        assert_eq!(parse_key("\x1b[E"), Some(JsString::from("clear")));
+        assert_eq!(parse_key("\x1b[2^"), Some(JsString::from("ctrl+insert")));
+        assert_eq!(parse_key("\x1bp"), Some(JsString::from("alt+up")));
+        assert_eq!(parse_key("\x1b[[5~"), Some(JsString::from("pageUp")));
     });
 }
 
 #[test]
 fn decodes_kitty_printable_keypad_keys() {
-    assert_eq!(decode_kitty_printable("\x1b[57399u").as_deref(), Some("0"));
-    assert_eq!(decode_kitty_printable("\x1b[57400u").as_deref(), Some("1"));
-    assert_eq!(decode_kitty_printable("\x1b[57409u").as_deref(), Some("."));
-    assert_eq!(decode_kitty_printable("\x1b[57410u").as_deref(), Some("/"));
-    assert_eq!(decode_kitty_printable("\x1b[57411u").as_deref(), Some("*"));
-    assert_eq!(decode_kitty_printable("\x1b[57412u").as_deref(), Some("-"));
-    assert_eq!(decode_kitty_printable("\x1b[57413u").as_deref(), Some("+"));
-    assert_eq!(decode_kitty_printable("\x1b[57415u").as_deref(), Some("="));
-    assert_eq!(decode_kitty_printable("\x1b[57416u").as_deref(), Some(","));
+    assert_eq!(decode_kitty_printable("\x1b[57399u"), Some(JsString::from("0")));
+    assert_eq!(decode_kitty_printable("\x1b[57400u"), Some(JsString::from("1")));
+    assert_eq!(decode_kitty_printable("\x1b[57409u"), Some(JsString::from(".")));
+    assert_eq!(decode_kitty_printable("\x1b[57410u"), Some(JsString::from("/")));
+    assert_eq!(decode_kitty_printable("\x1b[57411u"), Some(JsString::from("*")));
+    assert_eq!(decode_kitty_printable("\x1b[57412u"), Some(JsString::from("-")));
+    assert_eq!(decode_kitty_printable("\x1b[57413u"), Some(JsString::from("+")));
+    assert_eq!(decode_kitty_printable("\x1b[57415u"), Some(JsString::from("=")));
+    assert_eq!(decode_kitty_printable("\x1b[57416u"), Some(JsString::from(",")));
     assert_eq!(decode_kitty_printable("\x1b[57417u"), None);
 }
 
 #[test]
 fn decodes_printable_modify_other_keys() {
-    assert_eq!(decode_printable_key("\x1b[27;2;69~").as_deref(), Some("E"));
-    assert_eq!(decode_printable_key("\x1b[27;2;196~").as_deref(), Some("Ä"));
-    assert_eq!(decode_printable_key("\x1b[27;2;32~").as_deref(), Some(" "));
+    assert_eq!(decode_printable_key("\x1b[27;2;69~"), Some(JsString::from("E")));
+    assert_eq!(decode_printable_key("\x1b[27;2;196~"), Some(JsString::from("Ä")));
+    assert_eq!(decode_printable_key("\x1b[27;2;32~"), Some(JsString::from(" ")));
     assert_eq!(decode_printable_key("\x1b[27;2;13~"), None);
     assert_eq!(decode_printable_key("\x1b[27;6;69~"), None);
 }
@@ -367,7 +368,7 @@ fn decodes_printable_modify_other_keys() {
 fn parses_shifted_uppercase_csi_u_letters() {
     with_kitty(true, || {
         assert!(matches_key("\x1b[69;2u", "shift+e"));
-        assert_eq!(parse_key("\x1b[69;2u").as_deref(), Some("shift+e"));
+        assert_eq!(parse_key("\x1b[69;2u"), Some(JsString::from("shift+e")));
         assert_eq!(parse_key("\x1b[99;17u"), None);
     });
 }
