@@ -811,12 +811,12 @@ pub fn create_read_tool_definition(
 ) -> crate::core::extensions::types::ToolDefinition {
     let tool: std::sync::Arc<dyn AgentTool> = std::sync::Arc::new(ReadTool::with_options(cwd, options));
     let mut definition = super::tool_definition_wrapper::create_tool_definition_from_agent_tool(tool);
-    definition.prompt_snippet = Some(READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.prompt_snippet = Some(READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
     definition.prompt_guidelines = Some(
         READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION
             .guidelines
             .iter()
-            .map(|line| (*line).to_owned())
+            .map(|line| (*line).into())
             .collect(),
     );
     definition.approval_required = Some(false);

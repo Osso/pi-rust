@@ -1,6 +1,7 @@
 //! `list_sessions` tool (`core/tools/list-sessions.ts`).
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsString, JsValue};
 use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
@@ -9,7 +10,7 @@ use pi_agent_core::{
 use pi_ai::request::BoxFuture;
 use pi_tui::tui::ComponentRef;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::result::text_result;
@@ -50,7 +51,7 @@ impl ListSessionsTool {
 pub fn parameters() -> &'static Value {
     static PARAMETERS: OnceLock<Value> = OnceLock::new();
     PARAMETERS.get_or_init(|| {
-        json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "include_ended": {
@@ -62,36 +63,53 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-fn format_session_line(session: &SessionDirectoryEntry) -> String {
+fn format_session_line(session: &SessionDirectoryEntry) -> JsString {
     let name = session
         .name
         .as_ref()
-        .map(|name| format!(" name={name}"))
+        .map(|name| js_format!(" name={}", name))
         .unwrap_or_default();
     let goal = session
         .goal
         .as_ref()
         .map(|goal| {
-            let encoded = serde_json::to_string(goal).expect("goal string must serialize");
-            format!(" goal={encoded}")
+            let encoded = js_json::stringify_lossless(&JsValue::String(goal.clone()));
+            js_format!(" goal={}", encoded)
         })
         .unwrap_or_default();
     let cwd = session
         .cwd
         .as_ref()
-        .map(|cwd| format!(" cwd={cwd}"))
+        .map(|cwd| js_format!(" cwd={}", cwd))
         .unwrap_or_default();
     let pid = match session.pid {
         Some(pid) => format!("pid={pid}"),
         None => "pid=null".to_owned(),
     };
-    format!(
-        "{} status={} check={} eligible={} {pid}{name}{goal}{cwd}",
+    js_format!(
+        "{} status={} check={} eligible={} {}{}{}{}",
         session.session_id,
         session.status.as_str(),
         session.check_status.as_str(),
-        session.eligible_to_receive
+        session.eligible_to_receive,
+        pid,
+        name,
+        goal,
+        cwd
     )
+}
+
+#[cfg(test)]
+mod native_output_tests {
+    use super::*;
+
+    #[test]
+    fn session_line_keeps_raw_identity_name_and_cwd_and_quotes_goal() {
+        let wire = js_json::parse_lossless(r#"{"sessionId":"id-\ud800","sessionPath":"/session","pid":null,"status":"idle","startedAt":"now","name":"name-\ud801","goal":"goal-\ud802","cwd":"cwd-\ud803","checkStatus":"never","agentGeneration":0,"eligibleToReceive":false}"#).unwrap();
+        let session: SessionDirectoryEntry = js_json::from_value(&wire).unwrap();
+        let expected = js_json::parse_lossless(r#""id-\ud800 status=idle check=never eligible=false pid=null name=name-\ud801 goal=\"goal-\\ud802\" cwd=cwd-\ud803""#).unwrap();
+        assert_eq!(format_session_line(&session), expected.as_string().unwrap().clone());
+    }
 }
 
 impl AgentHarnessTool<ExtensionContext> for ListSessionsTool {
@@ -139,22 +157,22 @@ impl AgentHarnessTool<ExtensionContext> for ListSessionsTool {
                 },
             )
             .map_err(|error| ToolError::new(error.to_string()))?;
-            let lines: Vec<String> = if sessions.is_empty() {
-                vec!["No sessions found.".to_owned()]
+            let lines: Vec<JsString> = if sessions.is_empty() {
+                vec!["No sessions found.".into()]
             } else {
                 sessions
                     .iter()
                     .enumerate()
-                    .map(|(index, session)| format!("{}. {}", index + 1, format_session_line(session)))
+                    .map(|(index, session)| js_format!("{}. {}", index + 1, format_session_line(session)))
                     .collect()
             };
-            let details = json!({ "sessions": sessions });
-            Ok(text_result(lines.join("\n"), details))
+            let details = js_json::json!({ "sessions": sessions });
+            Ok(text_result(JsString::join(lines, "\n"), details))
         })
     }
 }
 
-fn format_call(theme: &Theme) -> String {
+fn format_call(theme: &Theme) -> JsString {
     theme.fg(ThemeColor::ToolTitle, &theme.bold("list_sessions"))
 }
 
@@ -176,8 +194,8 @@ pub fn render_result(
 /// `create_list_sessions_tool_definition()`.
 pub fn create_list_sessions_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ListSessionsTool::new()));
-    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
-    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition

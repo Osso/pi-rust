@@ -177,7 +177,7 @@ fn load_target_cwd(
                 ));
             }
             let cwd = read_session_header(&session_path)
-                .and_then(|header| header.cwd)
+                .and_then(|header| header.cwd().cloned())
                 .filter(|cwd| !cwd.is_empty())
                 .ok_or_else(|| {
                     ToolError::new(js_format!(
@@ -293,8 +293,8 @@ pub fn render_result(
 pub fn create_change_working_directory_tool_definition() -> ToolDefinition {
     let mut definition =
         crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ChangeWorkingDirectoryTool::new()));
-    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
-    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition

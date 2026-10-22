@@ -15,9 +15,9 @@ Rust: `crates/pi-coding-agent/src/core/tools/broadcast.rs` (`BroadcastTool`).
 Differential: `tests/differential_session_tools.rs::broadcast_tool_differential`
 (skipped-dead, filtered) plus the directory-level broadcast differential.
 
-## Gaps
+## Q18 native checkpoint
 
-- None.
+Against common pin `4f9e6f8a4`, message/filter IDs, cwd/name/status inputs and numbered result/filter rendering retain UTF-16 units. Error JSON quoting uses the lossless serializer; directory-level human error storage remains the session-health owner's pending migration. `native_filter_tests::broadcast_filters_accept_raw_units_without_repair` records raw DTO and status behavior, unexecuted until coding-library compilation. Legacy differential/render proofs above must be rerun in-crate; no Q18 acceptance claim.
 
 ## Renderers
 

@@ -635,7 +635,7 @@ pub fn render_result(
 pub fn create_grep_tool_definition(cwd: impl Into<JsString>, options: GrepToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(GrepTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
-    definition.prompt_snippet = Some(GREP_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.prompt_snippet = Some(GREP_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.approval_required = Some(false);
     definition.render_call = Some(infallible_render_call(render_call));
