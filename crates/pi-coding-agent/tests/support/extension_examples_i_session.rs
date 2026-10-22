@@ -212,9 +212,9 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let error = request["error"].as_str().map(str::to_owned);
     let aborted = request["aborted"] == true;
     faux.set_responses(vec![FauxResponseStep::Factory(Arc::new(move|context,options,_,model|{
-  let options=options.unwrap_or_default();let id=options.stream.session_id.as_ref().unwrap();assert_eq!(id.len(),36);assert_eq!(id.slice(14, 15),"7");
+  let options=options.unwrap_or_default();let session_id=options.stream.session_id.as_ref().map(|id| {assert_eq!(id.len(),36);assert_eq!(id.slice(14, 15),"7");"<uuidv7>"});
   let mut context=serde_json::to_value(context).unwrap();context["messages"][0]["timestamp"]=json!("<clock>");
-  log.lock().unwrap().push(json!({"model":[model.provider,model.id],"context":context,"options":{"cacheRetention":options.stream.cache_retention,"sessionId":"<uuidv7>","reasoningEffort":options.stream.extra.get("reasoningEffort")}}));
+  log.lock().unwrap().push(json!({"model":[model.provider,model.id],"context":context,"options":{"cacheRetention":options.stream.cache_retention,"sessionId":session_id,"reasoningEffort":options.stream.extra.get("reasoningEffort")}}));
   let response=response.clone();let error=error.clone();Box::pin(async move{if let Some(error)=error{return Err(pi_ai::request::CallbackError::new(error));}let mut message=faux_assistant_message("",FauxAssistantMessageOptions{timestamp:Some(0),..Default::default()});message.content=serde_json::from_value(response).unwrap();if aborted {message.stop_reason=pi_ai::types::StopReason::Aborted;}Ok(message)})
  }))]);
     let manager = Arc::new(Mutex::new(

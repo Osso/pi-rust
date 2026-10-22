@@ -1,8 +1,7 @@
 //! Opt-in native summary command; model completion uses the host registry.
 use pi_ai::{
     request::{StreamOptions, now_millis},
-    types::{AssistantContent, CacheRetention, Context},
-    utils::uuid::uuidv7,
+    types::{AssistantContent, Context},
 };
 use pi_coding_agent::{
     core::extensions::*,
@@ -128,7 +127,7 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
         ui.notify(&JsString::from("Preparing summary..."), Some(NotifyType::Info));
     }
     let registry = ctx.model_registry()?;
-    let Some(model) = registry.find("openai", "gpt-5.2") else {
+    let Some(model) = pi_ai::compat::get_model("openai", "gpt-5.2") else {
         if has_ui {
             ui.notify(
                 &JsString::from("Model openai/gpt-5.2 not found"),
@@ -183,8 +182,6 @@ async fn complete_summary(
         tools: None,
     };
     let options = StreamOptions {
-        cache_retention: Some(CacheRetention::None),
-        session_id: Some(JsString::from(uuidv7())),
         extra: serde_json::from_value(json!({"reasoningEffort":"high"})).expect("JSON object"),
         ..Default::default()
     };

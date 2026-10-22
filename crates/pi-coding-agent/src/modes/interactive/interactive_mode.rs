@@ -12888,7 +12888,7 @@ mod ui_tests {
                 terminal.borrow_mut().send_input("\r");
                 mode.ui.process_events();
                 let output = pump(&mode, &mut events, &terminal, |output| {
-                    output.contains("Refreshing model catalogs")
+                    output.contains("Model Configuration")
                 })
                 .await;
                 assert!(output.contains("Model Configuration"));

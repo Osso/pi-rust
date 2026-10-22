@@ -1,4 +1,10 @@
 # Extension examples I: session/process
+## Common-pin request/model reconciliation (2026-10-22)
+
+Frozen handoff.ts:136–139 passes only resolved auth and loader signal, no cache-retention override or generated session ID. Removed the native extras; fixture captures actual optional values rather than demanding a UUID absent from source. RED `test-handoff-native-options.log` retained.
+
+Frozen summarize.ts:163 selects the static catalog openai/gpt-5.2; native now uses compat.get_model, not registry.find. `missingModel` removes the custom runtime catalog model only; the frozen built-in still exists, so that fixture must exercise static-catalog behavior rather than retain the obsolete no-model expectation. Source :181–189 also omits generated session ID and cache retention; native extras removed. Assertions remain full-result comparisons.
+
 
 Pinned source: `532f7d12`, `packages/coding-agent/examples/extensions/`.
 Native sources are embeddable `#[path]` modules, explicitly factory-registered;

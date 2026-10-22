@@ -1,4 +1,8 @@
 # Extension examples Q — Doom overlay
+## Common-pin WAD download (2026-10-22)
+
+Frozen wad-finder.ts:8 downloads the ibiblio raw `.wad`; :42–48 writes response bytes unchanged. Removed old gamers gzip URL, decompression and IWAD validation. Existing controlled-fetch tests reproduced both URL and saved-byte mismatches, including concatenated gzip treated as opaque bytes (`test-example_doom_overlay_helpers-392a8a65.log`). No network used.
+
 
 Pinned source: `532f7d12`, `packages/coding-agent/examples/extensions/doom-overlay/`.
 Native directory: `crates/pi-coding-agent/examples/extensions/doom_overlay/`.

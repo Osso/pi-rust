@@ -1,4 +1,8 @@
 # Extension examples L
+## Common-pin plan prompt (2026-10-22)
+
+Native PLAN_CONTEXT now uses frozen plan-mode/index.ts ask_questions blocking/inbox instructions verbatim. Existing planning differential RED at trace10 showed the former single clarifying-questions sentence against the frozen complete instructions (`test-example_plan_mode-registry-final.log`). No expectations changed.
+
 
 ## Approved post-pin delta
 
