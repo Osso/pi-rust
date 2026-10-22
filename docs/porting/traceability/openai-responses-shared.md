@@ -6,6 +6,8 @@ Recorded Responses/Azure oracles now reach actual frozen SDK streams. Removed so
 
 DISCREPANCY preserved: frozen empty tool results without images still emit `(see attached image)` (`openai-responses-shared.ts:407`). Native's `(no tool output)` was an unapproved source correction; exact conversion scenario3 RED restored the literal frozen placeholder. Stream fixtures now initialize stop, not old pending.
 
+Removed old-only custom-tool/namespace replay and streaming slots, custom-input deltas/done events, and deferred additional_tools/tool_search emissions after exact conversion9/10 and stream2/3 REDs (`responses-shared-{placeholder,replay}-green.log`, diagnostic names retain earlier RED outputs). Public obsolete option fields and producer-side validation remain pending wider type cleanup.
+
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 
 Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.

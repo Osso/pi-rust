@@ -13,7 +13,6 @@ use pi_js_compat::js_json::{JsObject, JsValue};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::api::constrained_sampling::{GrammarToolInputJsonBuffer, append_grammar_tool_input_json_delta};
 use crate::api::transform_messages::transform_messages_with;
 use crate::models::calculate_cost;
 use crate::request::BoxFuture;
@@ -481,7 +480,6 @@ pub fn convert_responses_messages(
     let empty_options = ConvertResponsesMessagesOptions::default();
     let options = options.unwrap_or(&empty_options);
     let mut messages = Vec::new();
-    let mut loaded_tool_names = BTreeSet::new();
 
     let normalize_tool_call_id = |id: &str, _target: &Model, source: &AssistantMessage| -> String {
         if !allowed_tool_call_providers.contains(&model.provider) {
@@ -687,64 +685,6 @@ pub fn convert_responses_messages(
                     ("call_id", JsValue::String(call_id.into())),
                     ("output", output),
                 ]));
-
-                let mut deferred_tools = Vec::new();
-                for name in result.added_tool_names.iter().flatten() {
-                    let Some(tool) = options.deferred_tools.as_ref().and_then(|tools| tools.get(name)) else {
-                        continue;
-                    };
-                    if !loaded_tool_names.insert(name.clone()) {
-                        continue;
-                    }
-                    deferred_tools.push(tool.clone());
-                }
-                match options.deferred_tools_mode {
-                    Some(ResponsesDeferredToolsMode::AdditionalTools) if !deferred_tools.is_empty() => {
-                        messages.push(object(vec![
-                            ("type", JsValue::String("additional_tools".into())),
-                            ("role", JsValue::String("developer".into())),
-                            (
-                                "tools",
-                                convert_responses_tools(&deferred_tools, options.tool_options.as_ref())
-                                    .map_err(|error| error.message)?,
-                            ),
-                        ]));
-                    }
-                    Some(ResponsesDeferredToolsMode::ToolSearch) if !deferred_tools.is_empty() => {
-                        let names = deferred_tools.iter().map(|tool| tool.name.clone()).collect::<Vec<_>>();
-                        let search_call_id = format!(
-                            "pi_tool_load_{}",
-                            short_hash(&format!("{}:{}", result.tool_call_id, names.join(",")))
-                        );
-                        messages.push(object(vec![
-                            ("type", JsValue::String("tool_search_call".into())),
-                            ("call_id", JsValue::String(search_call_id.clone().into())),
-                            ("execution", JsValue::String("client".into())),
-                            ("status", JsValue::String("completed".into())),
-                            (
-                                "arguments",
-                                object(vec![
-                                    ("query", JsValue::String(names.join(" ").into())),
-                                    ("limit", JsValue::Number(names.len() as f64)),
-                                ]),
-                            ),
-                        ]));
-                        let mut tool_options = options.tool_options.clone().unwrap_or_default();
-                        tool_options.defer_loading = Some(true);
-                        messages.push(object(vec![
-                            ("type", JsValue::String("tool_search_output".into())),
-                            ("call_id", JsValue::String(search_call_id.into())),
-                            ("execution", JsValue::String("client".into())),
-                            ("status", JsValue::String("completed".into())),
-                            (
-                                "tools",
-                                convert_responses_tools(&deferred_tools, Some(&tool_options))
-                                    .map_err(|error| error.message)?,
-                            ),
-                        ]));
-                    }
-                    _ => {}
-                }
             }
         }
         msg_index += 1;
@@ -786,12 +726,6 @@ pub fn convert_responses_tools(
 // Stream processing
 // =============================================================================
 
-#[derive(Default, Clone)]
-struct CustomInput {
-    property: String,
-    json_buffer: GrammarToolInputJsonBuffer,
-}
-
 enum Slot {
     Thinking {
         content_index: usize,
@@ -803,7 +737,6 @@ enum Slot {
     ToolCall {
         content_index: usize,
         partial_json: Option<pi_js_compat::js_json::JsString>,
-        custom_input: Option<CustomInput>,
     },
 }
 
@@ -818,42 +751,6 @@ fn get_slot(slots: &BTreeMap<Option<u64>, Slot>, output_index: Option<u64>, kind
             *content_index
         }
     })
-}
-
-fn custom_tool_call_input(block: &ToolCall, custom_input: &Option<CustomInput>) -> pi_js_compat::js_json::JsString {
-    let Some(custom_input) = custom_input else {
-        return Default::default();
-    };
-    block
-        .arguments
-        .get(&custom_input.property)
-        .and_then(pi_js_compat::js_json::JsValue::as_string)
-        .cloned()
-        .unwrap_or_default()
-}
-
-fn append_custom_tool_call_input(
-    block: &mut ToolCall,
-    custom_input: &mut Option<CustomInput>,
-    next_input: impl Into<pi_js_compat::js_json::JsString>,
-    close: bool,
-) -> Result<Option<String>, String> {
-    let next_input = next_input.into();
-    let Some(custom_input) = custom_input.as_mut() else {
-        return Ok(None);
-    };
-    let delta = append_grammar_tool_input_json_delta(
-        &mut custom_input.json_buffer,
-        &custom_input.property,
-        &next_input,
-        close,
-    )
-    .map_err(|error| error.message)?;
-    block.arguments.insert(
-        custom_input.property.clone().into(),
-        pi_js_compat::js_json::JsValue::String(next_input),
-    );
-    Ok(delta)
 }
 
 fn push_tool_call_delta(
@@ -893,7 +790,6 @@ fn create_slot(
     item: &JsValue,
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
-    options: Option<&OpenAIResponsesStreamOptions>,
 ) -> Option<()> {
     match item.get("type").and_then(ingress_metadata_text).as_deref() {
         Some("reasoning") => {
@@ -949,49 +845,6 @@ fn create_slot(
                 Slot::ToolCall {
                     content_index,
                     partial_json: Some(partial_json.into()),
-                    custom_input: None,
-                },
-            );
-            sender.push(AssistantMessageEvent::ToolCallStart {
-                content_index,
-                partial: output.clone(),
-            });
-            Some(())
-        }
-        Some("custom_tool_call") => {
-            let call_id = js_string(item.get("call_id"));
-            let item_id = js_string(item.get("id"));
-            let name = item.get("name").and_then(ingress_metadata_text).unwrap_or_default();
-            let input_property = options
-                .and_then(|options| options.grammar_tool_input_properties.as_ref())
-                .and_then(|properties| properties.get(&name))
-                .cloned()
-                .unwrap_or_else(|| "input".to_owned());
-            let input = item
-                .get("input")
-                .and_then(JsValue::as_string)
-                .filter(|input| !input.is_empty())
-                .cloned()
-                .unwrap_or_default();
-            let mut block = ToolCall::new(format!("{call_id}|{item_id}"), &name, {
-                let mut arguments = JsObject::new();
-                arguments.insert(input_property.clone().into(), JsValue::String(input.into()));
-                arguments
-            });
-            if let Some(namespace) = item.get("namespace").and_then(ingress_metadata_text).as_deref() {
-                block.namespace = Some(namespace.to_owned());
-            }
-            output.content.push(AssistantContent::ToolCall(block));
-            let content_index = output.content.len() - 1;
-            slots.insert(
-                output_index,
-                Slot::ToolCall {
-                    content_index,
-                    partial_json: None,
-                    custom_input: Some(CustomInput {
-                        property: input_property,
-                        json_buffer: GrammarToolInputJsonBuffer::default(),
-                    }),
                 },
             );
             sender.push(AssistantMessageEvent::ToolCallStart {
@@ -1010,12 +863,11 @@ fn get_or_create_slot(
     item: &JsValue,
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
-    options: Option<&OpenAIResponsesStreamOptions>,
 ) -> Option<()> {
     if slots.contains_key(&output_index) {
         return Some(());
     }
-    create_slot(slots, output_index, item, output, sender, options)
+    create_slot(slots, output_index, item, output, sender)
 }
 
 fn backfill_reasoning_signatures(
@@ -1324,7 +1176,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 if item.get("type").and_then(ingress_metadata_text).as_deref() == Some("web_search_call") {
                     saw_hosted_web_search_call = true;
                 }
-                create_slot(&mut output_slots, output_index, &item, output, sender, options);
+                create_slot(&mut output_slots, output_index, &item, output, sender);
             }
             "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
                 let Some(content_index) = get_slot(&output_slots, output_index, "thinking") else {
@@ -1433,55 +1285,6 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 }
                 push_tool_call_delta(sender, content_index, delta, output);
             }
-            "response.custom_tool_call_input.delta" => {
-                let Some(content_index) = get_slot(&output_slots, output_index, "toolCall") else {
-                    continue;
-                };
-                let delta = event
-                    .get("delta")
-                    .and_then(JsValue::as_string)
-                    .cloned()
-                    .unwrap_or_default();
-                let Some(Slot::ToolCall { custom_input, .. }) = output_slots.get_mut(&output_index) else {
-                    continue;
-                };
-                if custom_input.is_none() {
-                    continue;
-                }
-                let AssistantContent::ToolCall(block) = &mut output.content[content_index] else {
-                    continue;
-                };
-                let current = custom_tool_call_input(block, custom_input);
-                let next_input = current + delta;
-                let appended = append_custom_tool_call_input(block, custom_input, &next_input, false);
-                match appended {
-                    Ok(delta) => push_tool_call_delta(sender, content_index, delta, output),
-                    Err(error) => return Err(ResponsesStreamFailure::Message(error.into())),
-                }
-            }
-            "response.custom_tool_call_input.done" => {
-                let Some(content_index) = get_slot(&output_slots, output_index, "toolCall") else {
-                    continue;
-                };
-                let input = event.get("input").and_then(JsValue::as_string);
-                let Some(Slot::ToolCall { custom_input, .. }) = output_slots.get_mut(&output_index) else {
-                    continue;
-                };
-                if custom_input.is_none() {
-                    continue;
-                }
-                let AssistantContent::ToolCall(block) = &mut output.content[content_index] else {
-                    continue;
-                };
-                let next_input = input
-                    .map(pi_js_compat::js_json::JsString::from)
-                    .unwrap_or_else(|| custom_tool_call_input(block, custom_input));
-                let appended = append_custom_tool_call_input(block, custom_input, &next_input, true);
-                match appended {
-                    Ok(delta) => push_tool_call_delta(sender, content_index, delta, output),
-                    Err(error) => return Err(ResponsesStreamFailure::Message(error.into())),
-                }
-            }
             "response.image_generation_call.partial_image" => {
                 output.image_generation_result = Some(ImageContent::new(
                     event
@@ -1498,7 +1301,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 if item.get("type").and_then(ingress_metadata_text).as_deref() == Some("web_search_call") {
                     saw_hosted_web_search_call = true;
                 }
-                get_or_create_slot(&mut output_slots, output_index, &item, output, sender, options);
+                get_or_create_slot(&mut output_slots, output_index, &item, output, sender);
                 let slot_kind = match output_slots.get(&output_index) {
                     Some(Slot::Thinking { .. }) => "thinking",
                     Some(Slot::Text { .. }) => "text",
@@ -1606,50 +1409,6 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         };
                         if let Some(Slot::ToolCall { partial_json, .. }) = output_slots.get_mut(&output_index) {
                             *partial_json = None;
-                        }
-                        sender.push(AssistantMessageEvent::ToolCallEnd {
-                            content_index,
-                            tool_call: Box::new(tool_call),
-                            partial: output.clone(),
-                        });
-                        output_slots.remove(&output_index);
-                    }
-                    Some("custom_tool_call") if slot_kind == "toolCall" => {
-                        let content_index = content_index.expect("tool slot has an index");
-                        let Some(Slot::ToolCall { custom_input, .. }) = output_slots.get(&output_index) else {
-                            continue;
-                        };
-                        if custom_input.is_none() {
-                            continue;
-                        }
-                        let input = item.get("input").and_then(JsValue::as_string);
-                        let namespace = item
-                            .get("namespace")
-                            .and_then(ingress_metadata_text)
-                            .as_deref()
-                            .map(str::to_owned);
-                        let mut next_custom_input = output_slots.get(&output_index).and_then(|slot| match slot {
-                            Slot::ToolCall { custom_input, .. } => custom_input.clone(),
-                            _ => None,
-                        });
-                        let AssistantContent::ToolCall(block) = &mut output.content[content_index] else {
-                            continue;
-                        };
-                        let next_input = input
-                            .map(pi_js_compat::js_json::JsString::from)
-                            .unwrap_or_else(|| custom_tool_call_input(block, &next_custom_input));
-                        let appended = append_custom_tool_call_input(block, &mut next_custom_input, &next_input, true);
-                        let delta = match appended {
-                            Ok(delta) => delta,
-                            Err(error) => return Err(ResponsesStreamFailure::Message(error.into())),
-                        };
-                        if let Some(namespace) = namespace {
-                            block.namespace = Some(namespace);
-                        }
-                        let tool_call = block.clone();
-                        push_tool_call_delta(sender, content_index, delta, output);
-                        if let Some(Slot::ToolCall { custom_input, .. }) = output_slots.get_mut(&output_index) {
-                            *custom_input = None;
                         }
                         sender.push(AssistantMessageEvent::ToolCallEnd {
                             content_index,
