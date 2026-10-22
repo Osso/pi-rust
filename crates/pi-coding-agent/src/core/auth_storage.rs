@@ -27,7 +27,7 @@ const AUTH_LOCK_STALE_MS: u64 = 30_000;
 /// Failure of a storage backend or of parsing `auth.json`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageError {
-    message: JsString,
+    error: pi_ai::request::CallbackError,
     aborted: bool,
     cause: Option<Arc<StorageError>>,
 }
@@ -36,9 +36,24 @@ impl StorageError {
     /// Creates a non-abort failure with the given message.
     pub fn new(message: impl Into<JsString>) -> Self {
         Self {
-            message: message.into(),
+            error: pi_ai::request::CallbackError::new(message),
             aborted: false,
             cause: None,
+        }
+    }
+
+    pub fn message(&self) -> &JsString {
+        &self.error.message
+    }
+
+    fn from_auth(error: AuthError) -> Self {
+        match error {
+            AuthError::Aborted => Self::aborted(),
+            AuthError::Failed(error) => Self {
+                error,
+                aborted: false,
+                cause: None,
+            },
         }
     }
 
@@ -50,7 +65,7 @@ impl StorageError {
 
     fn aborted() -> Self {
         Self {
-            message: "The operation was aborted".into(),
+            error: pi_ai::request::CallbackError::new("The operation was aborted"),
             aborted: true,
             cause: None,
         }
@@ -64,14 +79,14 @@ impl StorageError {
         if self.aborted {
             AuthError::Aborted
         } else {
-            AuthError::failed(self.message)
+            AuthError::Failed(self.error)
         }
     }
 }
 
 impl std::fmt::Display for StorageError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&js_json::encode_node_utf8(&self.message))
+        formatter.write_str(&js_json::encode_node_utf8(&self.error.message))
     }
 }
 
@@ -618,10 +633,7 @@ impl AuthStorage {
     ) -> Result<(), StorageError> {
         let provider = pi_ai::oauth::get_oauth_provider(id)
             .ok_or_else(|| StorageError::new(format!("Unknown OAuth provider: {id}")))?;
-        let value = provider
-            .login(callbacks)
-            .await
-            .map_err(|e| StorageError::new(e.to_string()))?;
+        let value = provider.login(callbacks).await.map_err(StorageError::from_auth)?;
         self.set(id, value.to_js_value())
     }
     pub fn get_oauth_providers(&self) -> Vec<Arc<dyn pi_ai::oauth::OAuthProviderInterface>> {
@@ -669,7 +681,7 @@ impl AuthStorage {
                         let credentials = std::collections::HashMap::from([(id.clone(), credential)]);
                         let Some(refreshed) = pi_ai::oauth::get_oauth_api_key(&id, &credentials)
                             .await
-                            .map_err(|e| StorageError::new(e.to_string()))?
+                            .map_err(StorageError::from_auth)?
                         else {
                             return Ok(None);
                         };
@@ -747,8 +759,11 @@ impl AuthStorage {
                                 }
                             }
                             if options.throw_on_refresh_failure {
-                                let mut wrapped = StorageError::new(format!(
-                                    "Authentication failed for \"{provider_id}\": {error}. Run '/login {provider_id}' to re-authenticate."
+                                let mut wrapped = StorageError::new(js_format!(
+                                    "Authentication failed for \"{}\": {}. Run '/login {}' to re-authenticate.",
+                                    provider_id,
+                                    error.message(),
+                                    provider_id
                                 ));
                                 wrapped.cause = Some(Arc::new(error));
                                 return Err(wrapped);
