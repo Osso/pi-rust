@@ -1,5 +1,10 @@
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+	clearFetchScript,
+	installScriptedFetch,
+	setFetchScript,
+} from "./scripted-fetch.ts";
 
 type ScenarioOptions = {
 	apiKey?: string;
@@ -86,7 +91,12 @@ type EventStreamClass = {
 };
 
 async function patchEventStream(modulePath: string): Promise<void> {
-	const eventStreamPath = join(dirname(modulePath), "..", "utils", "event-stream.ts");
+	const eventStreamPath = join(
+		dirname(modulePath),
+		"..",
+		"utils",
+		"event-stream.ts",
+	);
 	const module = (await import(pathToFileURL(eventStreamPath).href)) as {
 		AssistantMessageEventStream: EventStreamClass;
 	};
@@ -100,7 +110,9 @@ async function patchEventStream(modulePath: string): Promise<void> {
 	};
 }
 
-function augmentPayload(payload: Record<string, unknown>): Record<string, unknown> {
+function augmentPayload(
+	payload: Record<string, unknown>,
+): Record<string, unknown> {
 	return {
 		...payload,
 		topP: 0.9,
@@ -122,7 +134,10 @@ function augmentPayload(payload: Record<string, unknown>): Record<string, unknow
 	};
 }
 
-function createResponse(scenario: Scenario, captured: { abort?: () => void }): Response {
+function createResponse(
+	scenario: Scenario,
+	captured: { abort?: () => void },
+): Response {
 	const response = scenario.response;
 	const chunks = response.chunks ?? [];
 	const body = new ReadableStream<Uint8Array>({
@@ -130,7 +145,8 @@ function createResponse(scenario: Scenario, captured: { abort?: () => void }): R
 			const encoder = new TextEncoder();
 			if (response.chunking === "bytes") {
 				for (const chunk of chunks) {
-					for (const byte of encoder.encode(chunk)) controller.enqueue(Uint8Array.of(byte));
+					for (const byte of encoder.encode(chunk))
+						controller.enqueue(Uint8Array.of(byte));
 				}
 			} else {
 				for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
@@ -145,7 +161,10 @@ function createResponse(scenario: Scenario, captured: { abort?: () => void }): R
 	return new Response(body, {
 		status: response.status ?? 200,
 		statusText: response.statusText ?? "",
-		headers: { "content-type": "text/event-stream", ...(response.headers ?? {}) },
+		headers: {
+			"content-type": "text/event-stream",
+			...(response.headers ?? {}),
+		},
 	});
 }
 
@@ -156,21 +175,30 @@ async function execute(scenario: Scenario, api: StreamApi): Promise<unknown> {
 	const controller = new AbortController();
 	abort.abort = () => controller.abort();
 
-	const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+	const fetch = async (
+		input: string | URL | Request,
+		init?: RequestInit,
+	): Promise<Response> => {
+		const request = new Request(input, init);
 		captured.push({
-			url: String(input),
-			method: init?.method ?? "GET",
-			headers: Object.fromEntries(new Headers(init?.headers)),
-			body: init?.body === undefined ? undefined : String(init.body),
+			url: request.url,
+			method: request.method,
+			headers: Object.fromEntries(request.headers),
+			body: request.body === null ? undefined : await request.clone().text(),
 		});
 		return createResponse(scenario, abort);
 	};
 
-	const options: Record<string, unknown> = { ...scenario.options, fetch };
+	setFetchScript(fetch);
+	const options: Record<string, unknown> = { ...scenario.options };
 	if (scenario.options.onPayload === "augment") {
-		options.onPayload = (payload: Record<string, unknown>) => augmentPayload(payload);
+		options.onPayload = (payload: Record<string, unknown>) =>
+			augmentPayload(payload);
 	}
-	options.onResponse = (response: { status: number; headers: Record<string, string> }) => {
+	options.onResponse = (response: {
+		status: number;
+		headers: Record<string, string>;
+	}) => {
 		onResponse = { status: response.status, headers: response.headers };
 	};
 	if (scenario.abort) options.signal = controller.signal;
@@ -201,8 +229,13 @@ async function execute(scenario: Scenario, api: StreamApi): Promise<unknown> {
 			request: captured[0] ?? null,
 			onResponse: onResponse ?? null,
 			events,
-			error: error instanceof Error ? { name: error.name, message: error.message } : { message: String(error) },
+			error:
+				error instanceof Error
+					? { name: error.name, message: error.message }
+					: { message: String(error) },
 		};
+	} finally {
+		clearFetchScript();
 	}
 }
 
@@ -225,7 +258,9 @@ function serve(api: StreamApi): void {
 
 async function main(): Promise<void> {
 	const modulePath = process.argv[2];
-	if (modulePath === undefined) throw new Error("mistral oracle requires a source module path");
+	if (modulePath === undefined)
+		throw new Error("mistral oracle requires a source module path");
+	installScriptedFetch();
 	const api = (await import(pathToFileURL(modulePath).href)) as StreamApi;
 	await patchEventStream(modulePath);
 	serve(api);

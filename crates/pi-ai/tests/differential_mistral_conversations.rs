@@ -605,6 +605,10 @@ fn mistral_stream_matches_the_pinned_typescript_module() {
             .build()
             .expect("runtime")
             .block_on(observe(&scenario));
-        assert_eq!(observed, expected, "scenario {}", scenario["id"]);
+        assert_eq!(
+            observed, expected,
+            "scenario {}; observed={observed}; expected={expected}",
+            scenario["id"]
+        );
     }
 }

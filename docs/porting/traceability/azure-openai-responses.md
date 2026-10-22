@@ -1,5 +1,9 @@
 # azure-openai-responses traceability
 
+## Q4 common-pin status
+
+Partial. Corrected global-fetch oracle now drives frozen SDK requests. First RED: native SDK version header 6.40.0 versus frozen 6.26.0; later branches remain unported. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; native request.fetch is a pending interface delta.
+
 Source: `packages/ai/src/api/azure-openai-responses.ts` and `azure-openai-responses.lazy.ts`.
 Rust: `crates/pi-ai/src/api/azure_openai_responses.rs`.
 Tests: module unit tests, `crates/pi-ai/tests/differential_azure_openai_responses.rs` (9 recorded-fetch scenarios).

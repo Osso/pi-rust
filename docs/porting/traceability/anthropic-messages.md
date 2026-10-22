@@ -1,5 +1,9 @@
 # anthropic-messages traceability
 
+## Q4 common-pin status
+
+Partial. Corrected global-fetch oracle now drives frozen SDK/SSE, rather than passing unsupported options.fetch. Scenario 0 differs only by native extra terminal `rawStopReason`; remaining scenarios still need re-port. Current exact RED and source-fetch proof: [oracle audit](../ai-scripted-provider-oracles.md). Historical differential claims below are superseded for this boundary. Native request.fetch remains a pending interface decision; no assertion was narrowed.
+
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 
 Source: `packages/ai/src/api/anthropic-messages.ts` (1366 lines) and

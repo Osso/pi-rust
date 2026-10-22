@@ -1,5 +1,10 @@
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
+import {
+	clearFetchScript,
+	installScriptedFetch,
+	setFetchScript,
+} from "./scripted-fetch.ts";
 
 interface ScriptedResponse {
 	status: number;
@@ -50,7 +55,13 @@ function stripStreamingScratch(value: unknown): unknown {
 	if (!value || typeof value !== "object") return value;
 	const result: Record<string, unknown> = {};
 	for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-		if (key === "partialJson" || key === "customInput" || key === "streamIndex" || key === "partialArgs") continue;
+		if (
+			key === "partialJson" ||
+			key === "customInput" ||
+			key === "streamIndex" ||
+			key === "partialArgs"
+		)
+			continue;
 		if (key === "timestamp") {
 			result[key] = 0;
 			continue;
@@ -68,7 +79,9 @@ const ENV_HEADERS = new Set([
 	"x-stainless-runtime-version",
 ]);
 
-function normalizeHeaders(headers: Record<string, string>): Record<string, string> {
+function normalizeHeaders(
+	headers: Record<string, string>,
+): Record<string, string> {
 	const normalized: Record<string, string> = {};
 	for (const [name, value] of Object.entries(headers)) {
 		normalized[name] = ENV_HEADERS.has(name) ? "<env>" : value;
@@ -84,8 +97,13 @@ function createFetch(
 	let responseIndex = 0;
 	return (async (input: string | URL | Request, init?: RequestInit) => {
 		const request = init ?? {};
-		const body = typeof request.body === "string" ? JSON.parse(request.body) : request.body;
-		const headerEntries = Object.fromEntries(new Headers(request.headers).entries());
+		const body =
+			typeof request.body === "string"
+				? JSON.parse(request.body)
+				: request.body;
+		const headerEntries = Object.fromEntries(
+			new Headers(request.headers).entries(),
+		);
 		requests.push({
 			url: String(input),
 			method: request.method ?? "GET",
@@ -93,7 +111,10 @@ function createFetch(
 			body,
 		});
 
-		const scripted = scenario.responses[Math.min(responseIndex, scenario.responses.length - 1)]!;
+		const scripted =
+			scenario.responses[
+				Math.min(responseIndex, scenario.responses.length - 1)
+			]!;
 		responseIndex++;
 
 		let chunkIndex = 0;
@@ -105,16 +126,24 @@ function createFetch(
 				}
 				const chunk = scripted.chunks[chunkIndex++]!;
 				streamController.enqueue(new TextEncoder().encode(chunk));
-				if (scenario.abortAfterChunks !== undefined && chunkIndex === scenario.abortAfterChunks) {
+				if (
+					scenario.abortAfterChunks !== undefined &&
+					chunkIndex === scenario.abortAfterChunks
+				) {
 					controller.abort();
-					streamController.error(new DOMException("This operation was aborted", "AbortError"));
+					streamController.error(
+						new DOMException("This operation was aborted", "AbortError"),
+					);
 				}
 			},
 		});
 
 		return new Response(stream, {
 			status: scripted.status,
-			headers: { "content-type": "text/event-stream", ...(scripted.headers ?? {}) },
+			headers: {
+				"content-type": "text/event-stream",
+				...(scripted.headers ?? {}),
+			},
 		});
 	}) as typeof fetch;
 }
@@ -122,44 +151,57 @@ function createFetch(
 async function execute(request: Request, module: Module): Promise<unknown> {
 	const controller = new AbortController();
 	const requests: Array<Record<string, unknown>> = [];
-	const fetchImpl = createFetch(request, requests, controller);
-	const baseOptions: Record<string, unknown> = {
-		...(request.stream ?? {}),
-		...(request.extra ?? {}),
-		apiKey: (request.stream?.apiKey as string | undefined) ?? "test-key",
-		fetch: fetchImpl,
-		...(request.abortAfterChunks !== undefined ? { signal: controller.signal } : {}),
-	};
-	const options: Record<string, unknown> =
-		request.operation === "streamSimple"
-			? {
-					...baseOptions,
-					...(request.reasoning !== undefined ? { reasoning: request.reasoning } : {}),
-					...(request.thinkingBudgets !== undefined ? { thinkingBudgets: request.thinkingBudgets } : {}),
-				}
-			: baseOptions;
-	const events: Array<unknown> = [];
-	const stream = module[request.operation](request.model, request.context, options) as unknown as {
-		push: (event: unknown) => void;
-		[Symbol.asyncIterator](): AsyncIterator<Record<string, unknown>>;
-		result(): Promise<unknown>;
-	};
-	const originalPush = stream.push.bind(stream);
-	stream.push = (event: unknown) => {
-		events.push(stripStreamingScratch(JSON.parse(JSON.stringify(event))));
-		originalPush(event);
-	};
-	for await (const _event of stream) {
-		// Events are snapshotted at push time above.
-	}
-	let result: unknown;
+	setFetchScript(createFetch(request, requests, controller));
 	try {
-		result = stripStreamingScratch(await stream.result());
-	} catch (error) {
-		result = { error: normalizeError(error) };
+		const baseOptions: Record<string, unknown> = {
+			...(request.stream ?? {}),
+			...(request.extra ?? {}),
+			apiKey: (request.stream?.apiKey as string | undefined) ?? "test-key",
+			...(request.abortAfterChunks !== undefined
+				? { signal: controller.signal }
+				: {}),
+		};
+		const options: Record<string, unknown> =
+			request.operation === "streamSimple"
+				? {
+						...baseOptions,
+						...(request.reasoning !== undefined
+							? { reasoning: request.reasoning }
+							: {}),
+						...(request.thinkingBudgets !== undefined
+							? { thinkingBudgets: request.thinkingBudgets }
+							: {}),
+					}
+				: baseOptions;
+		const events: Array<unknown> = [];
+		const stream = module[request.operation](
+			request.model,
+			request.context,
+			options,
+		) as unknown as {
+			push: (event: unknown) => void;
+			[Symbol.asyncIterator](): AsyncIterator<Record<string, unknown>>;
+			result(): Promise<unknown>;
+		};
+		const originalPush = stream.push.bind(stream);
+		stream.push = (event: unknown) => {
+			events.push(stripStreamingScratch(JSON.parse(JSON.stringify(event))));
+			originalPush(event);
+		};
+		for await (const _event of stream) {
+			// Events are snapshotted at push time above.
+		}
+		let result: unknown;
+		try {
+			result = stripStreamingScratch(await stream.result());
+		} catch (error) {
+			result = { error: normalizeError(error) };
+		}
+		const output = { requests, events, result };
+		return output;
+	} finally {
+		clearFetchScript();
 	}
-	const output = { requests, events, result };
-	return output;
 }
 
 function executeRequestLine(line: string, module: Module): Promise<void> {
@@ -169,7 +211,9 @@ function executeRequestLine(line: string, module: Module): Promise<void> {
 		request = JSON.parse(line) as Request;
 		id = request.id;
 	} catch (error) {
-		process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`);
+		process.stdout.write(
+			`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`,
+		);
 		return Promise.resolve();
 	}
 	return execute(request, module)
@@ -177,7 +221,9 @@ function executeRequestLine(line: string, module: Module): Promise<void> {
 			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
 		})
 		.catch((error: unknown) => {
-			process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`);
+			process.stdout.write(
+				`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`,
+			);
 		});
 }
 
@@ -199,12 +245,16 @@ function serveRequests(module: Module): void {
 
 async function main(): Promise<void> {
 	const modulePath = process.argv[2];
-	if (modulePath === undefined) throw new Error("openai responses oracle requires a source module path");
+	if (modulePath === undefined)
+		throw new Error("openai responses oracle requires a source module path");
+	installScriptedFetch();
 	const module = (await import(pathToFileURL(modulePath).href)) as Module;
 	serveRequests(module);
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`openai responses oracle startup failed: ${normalizeError(error)}\n`);
+	process.stderr.write(
+		`openai responses oracle startup failed: ${normalizeError(error)}\n`,
+	);
 	process.exitCode = 1;
 });

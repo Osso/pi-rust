@@ -1,5 +1,9 @@
 # mistral-conversations.ts
 
+## Q4 common-pin status
+
+Partial. Global-fetch correction now drives the frozen Mistral SDK, including Request URL/method/body capture. Scenario 0's model-less SSE is rejected by frozen SDK `data.model` validation but accepted by native code; SDK request headers and unused onResponse also differ. Full assertions retained. [Current audit/proof](../ai-scripted-provider-oracles.md); historical differential claims below are superseded. Native request.fetch remains pending interface approval.
+
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 
 Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.
