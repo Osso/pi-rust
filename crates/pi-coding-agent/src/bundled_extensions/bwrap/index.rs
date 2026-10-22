@@ -558,7 +558,7 @@ fn register_bwrap_session_start(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
                     ),
                     Err(message) => {
                         ui.set_status("bwrap", Some(&theme.fg(ThemeColor::Error, "bwrap unavailable")));
-                        ui.notify(&message, Some(NotifyType::Error));
+                        ui.notify(&message.into(), Some(NotifyType::Error));
                     }
                 }
             }
@@ -812,7 +812,8 @@ fn register_bwrap_status_command(pi: &ExtensionApi, runtime: &BwrapRuntime) -> R
                             format!("cwd: {}", ctx.cwd().unwrap_or_default()),
                             format!("bwrap: {bwrap_command}"),
                         ]
-                        .join("\n"),
+                        .join("\n")
+                        .into(),
                         Some(NotifyType::Info),
                     );
                 }

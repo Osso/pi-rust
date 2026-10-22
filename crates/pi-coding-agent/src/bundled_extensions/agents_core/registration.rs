@@ -765,7 +765,7 @@ fn notify_background_dispatch(
             ownerships.lock().expect("ownerships").remove(&agent.id);
             if let Some(ui) = ui {
                 ui.notify(
-                    &pi_js_compat::js_json::encode_node_utf8(&format_agent_status(&agent)),
+                    &format_agent_status(&agent),
                     Some(background_notification_level(&agent)),
                 );
             }
@@ -810,8 +810,12 @@ fn track_background_agent_dispatch(
     })
 }
 
-fn notify(ctx: &ExtensionCommandContext, message: &str, kind: NotifyType) -> Result<(), HandlerError> {
-    ctx.ui()?.notify(message, Some(kind));
+fn notify(
+    ctx: &ExtensionCommandContext,
+    message: impl Into<pi_js_compat::js_json::JsString>,
+    kind: NotifyType,
+) -> Result<(), HandlerError> {
+    ctx.ui()?.notify(&message.into(), Some(kind));
     Ok(())
 }
 

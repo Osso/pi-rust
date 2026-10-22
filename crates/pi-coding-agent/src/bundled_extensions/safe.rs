@@ -59,13 +59,16 @@ pub fn safe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 Box::pin(async move {
                     let action = parse_safe_command(if args.is_empty() { "status".into() } else { args });
                     let Some(action) = action else {
-                        ctx.ui()?.notify("Usage: /safe on|off|status", Some(NotifyType::Error));
+                        ctx.ui()?
+                            .notify(&"Usage: /safe on|off|status".into(), Some(NotifyType::Error));
                         return Ok(());
                     };
 
                     if action == "status" {
-                        ctx.ui()?
-                            .notify(safe_mode_status(enabled.load(Ordering::SeqCst)), Some(NotifyType::Info));
+                        ctx.ui()?.notify(
+                            &safe_mode_status(enabled.load(Ordering::SeqCst)).into(),
+                            Some(NotifyType::Info),
+                        );
                         return Ok(());
                     }
 
@@ -73,10 +76,10 @@ pub fn safe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     enabled.store(next, Ordering::SeqCst);
                     update_safe_status(&ctx, next)?;
                     ctx.ui()?.notify(
-                        if next {
-                            "Safe mode enabled"
+                        &if next {
+                            "Safe mode enabled".into()
                         } else {
-                            "Safe mode disabled"
+                            "Safe mode disabled".into()
                         },
                         Some(NotifyType::Info),
                     );

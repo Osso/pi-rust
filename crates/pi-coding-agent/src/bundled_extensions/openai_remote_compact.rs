@@ -107,7 +107,7 @@ pub async fn handle_compaction(
         crate::core::model_registry::ResolvedRequestAuth::Ok { api_key, headers, .. } => (api_key, headers),
         crate::core::model_registry::ResolvedRequestAuth::Err { error } => {
             ctx.ui()?.notify(
-                &format!("OpenAI remote compaction auth failed: {error}"),
+                &format!("OpenAI remote compaction auth failed: {error}").into(),
                 Some(NotifyType::Warning),
             );
             return Ok(None);

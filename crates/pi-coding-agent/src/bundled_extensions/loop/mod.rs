@@ -436,10 +436,7 @@ async fn handle_loop_command(
     match parse_loop_command(args) {
         ParsedLoopCommand::Error(error) => ui.notify(&error, Some(NotifyType::Error)),
         ParsedLoopCommand::Status => {
-            ui.notify(
-                &encode_node_utf8(&describe_loop(controller.status().as_ref())),
-                Some(NotifyType::Info),
-            );
+            ui.notify(&describe_loop(controller.status().as_ref()), Some(NotifyType::Info));
         }
         ParsedLoopCommand::Stop => {
             let message = if controller.stop() {
@@ -447,12 +444,12 @@ async fn handle_loop_command(
             } else {
                 "No active loop"
             };
-            ui.notify(message, Some(NotifyType::Info));
+            ui.notify(&message.into(), Some(NotifyType::Info));
         }
         ParsedLoopCommand::Start { interval_ms, prompt } => {
             let active = controller.start(interval_ms, prompt);
             ui.notify(
-                &format!("Loop started every {}", format_interval(active.interval_ms)),
+                &format!("Loop started every {}", format_interval(active.interval_ms)).into(),
                 Some(NotifyType::Info),
             );
             ui.set_editor_text("");

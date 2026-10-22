@@ -395,7 +395,8 @@ fn resolve_inherited_leaf_selection(
     if context == super::shared::SpawnContext::Inherit {
         return Err(format!(
             "Cannot inherit context: active tool call {active_tool_call_id} is not in the parent branch"
-        ));
+        )
+        .into());
     }
     Ok(leaf_id.map_or(ForkEntrySelection::All, |id| ForkEntrySelection::From(id.to_owned())))
 }
@@ -684,7 +685,8 @@ fn validate_attached_session_identity(
     if actual_session_id != expected_session_id {
         return Err(format!(
             "Child agent transcript session mismatch: expected {expected_session_id}, found {actual_session_id}"
-        ));
+        )
+        .into());
     }
     Ok(())
 }
@@ -699,14 +701,15 @@ fn open_attached_session_manager(
             .into());
     }
     if !Path::new(&input.session_path).exists() {
-        return Err(format!("Child agent transcript does not exist: {}", input.session_path));
+        return Err(format!("Child agent transcript does not exist: {}", input.session_path).into());
     }
     let ctx_cwd = input.ctx.cwd().map_err(|error| error.message)?;
     if input.agent.cwd != ctx_cwd && !Path::new(&input.agent.cwd).exists() {
         return Err(format!(
             "Agent {} working directory does not exist: {}",
             input.agent.id, input.agent.cwd
-        ));
+        )
+        .into());
     }
     let session_manager = input.ctx.session_manager().map_err(|error| error.message)?;
     let parent_session_dir = lock_session_manager(&session_manager).get_session_dir().to_owned();

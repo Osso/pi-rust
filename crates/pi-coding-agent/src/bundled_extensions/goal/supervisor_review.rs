@@ -89,7 +89,7 @@ pub fn review_goal_with_resident_supervisor(
             | SupervisorResponseKind::Set { .. }
             | SupervisorResponseKind::Error { .. } => Ok(response),
             _ => Ok(GoalSupervisorResponse::Error {
-                reason: format!("Invalid goal review response: {}", response.kind_name()),
+                reason: format!("Invalid goal review response: {}", response.kind_name()).into(),
             }),
         }
     })

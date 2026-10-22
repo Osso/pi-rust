@@ -220,15 +220,16 @@ fn set_delegation_mode(
         ctx.set_thinking_level(ThinkingLevel::Max)?;
     }
     apply_delegation_mode(pi, ctx, state, mode)?;
-    ctx.ui()?
-        .notify(&format!("Multi-agent mode: {}", mode.as_str()), Some(NotifyType::Info));
+    ctx.ui()?.notify(
+        &format!("Multi-agent mode: {}", mode.as_str()).into(),
+        Some(NotifyType::Info),
+    );
     clear_editor(ctx)
 }
 
 fn show_invalid_mode(ctx: &ExtensionCommandContext, requested_mode: &JsString) -> Result<(), HandlerError> {
-    let requested_mode = encode_node_utf8(requested_mode);
     ctx.ui()?.notify(
-        &format!("Invalid multi-agent mode \"{requested_mode}\". Available: proactive, explicit"),
+        &(JsString::from("Invalid multi-agent mode \"") + requested_mode + "\". Available: proactive, explicit"),
         Some(NotifyType::Warning),
     );
     clear_editor(ctx)
@@ -255,7 +256,7 @@ pub async fn handle_delegation_command(
 ) -> Result<(), HandlerError> {
     if is_child_runtime(ctx)? {
         ctx.ui()?.notify(
-            "Multi-agent mode is controlled by the main thread",
+            &"Multi-agent mode is controlled by the main thread".into(),
             Some(NotifyType::Warning),
         );
         clear_editor(ctx)?;
@@ -303,7 +304,8 @@ fn set_effort(
     } else {
         ctx.get_thinking_level()?.as_str().to_owned()
     };
-    ctx.ui()?.notify(&format!("Effort: {label}"), Some(NotifyType::Info));
+    ctx.ui()?
+        .notify(&format!("Effort: {label}").into(), Some(NotifyType::Info));
     clear_editor(ctx)
 }
 
@@ -312,12 +314,8 @@ fn show_invalid_effort(
     requested_effort: &JsString,
     levels: &[ThinkingLevel],
 ) -> Result<(), HandlerError> {
-    let requested_effort = encode_node_utf8(requested_effort);
     ctx.ui()?.notify(
-        &format!(
-            "Invalid effort \"{requested_effort}\". Available: {}",
-            format_effort_levels(levels)
-        ),
+        &(JsString::from("Invalid effort \"") + requested_effort + "\". Available: " + format_effort_levels(levels)),
         Some(NotifyType::Warning),
     );
     Ok(())
@@ -345,7 +343,7 @@ pub async fn handle_effort_command(
     state: &DelegationState,
 ) -> Result<(), HandlerError> {
     let Some(levels) = get_effort_levels(ctx)? else {
-        ctx.ui()?.notify("No model selected", Some(NotifyType::Warning));
+        ctx.ui()?.notify(&"No model selected".into(), Some(NotifyType::Warning));
         clear_editor(ctx)?;
         return Ok(());
     };

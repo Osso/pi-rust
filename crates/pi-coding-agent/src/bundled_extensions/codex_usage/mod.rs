@@ -574,7 +574,8 @@ async fn handle_usage_command(
         return reset_codex_usage_and_send_result(ctx, pi, fetch).await;
     }
     if !command_args.is_empty() {
-        ctx.ui()?.notify("Usage: /usage [reset]", Some(NotifyType::Warning));
+        ctx.ui()?
+            .notify(&"Usage: /usage [reset]".into(), Some(NotifyType::Warning));
         return Ok(());
     }
     read_and_send_codex_usage(ctx, pi, fetch).await
