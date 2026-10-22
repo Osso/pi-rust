@@ -775,7 +775,7 @@ async fn websocket_cached_continuation_sends_only_input_deltas() {
         if connection == 0 && frame == 0 {
             completed_event("resp_1", None, None)
         } else {
-            completed_event("resp_2", Some("Done"), None)
+            completed_event("resp_2", Some(&pi_js_compat::js_json::JsString::from("Done")), None)
         }
     }))
     .await;
@@ -808,7 +808,7 @@ async fn websocket_cached_continuation_sends_only_input_deltas() {
     .await
     .1;
 
-    assert_eq!(text_of(&second), Some("Done"));
+    assert_eq!(text_of(&second), Some(&pi_js_compat::js_json::JsString::from("Done")));
     let connections = server.records.connections.lock().unwrap();
     assert_eq!(connections.len(), 1);
     let frames = &connections[0].frames;
@@ -836,7 +836,10 @@ async fn websocket_cached_continuation_sends_only_input_deltas() {
 #[tokio::test]
 async fn websocket_cache_is_scoped_to_the_authenticated_account() {
     let fetch = RecordingFetch::new(Vec::new());
-    let server = start_ws_server(Arc::new(|_, _| completed_event("resp", Some("ok"), None))).await;
+    let server = start_ws_server(Arc::new(|_, _| {
+        completed_event("resp", Some(&pi_js_compat::js_json::JsString::from("ok")), None)
+    }))
+    .await;
     let model = ws_model(&server.url);
     let context = Context {
         system_prompt: Some(Default::default()),
@@ -877,7 +880,10 @@ async fn websocket_cache_is_scoped_to_the_authenticated_account() {
 #[tokio::test]
 async fn closing_sessions_sends_debug_close_frame_to_cached_sockets() {
     let fetch = RecordingFetch::new(Vec::new());
-    let server = start_ws_server(Arc::new(|_, _| completed_event("resp", Some("ok"), None))).await;
+    let server = start_ws_server(Arc::new(|_, _| {
+        completed_event("resp", Some(&pi_js_compat::js_json::JsString::from("ok")), None)
+    }))
+    .await;
     let context = Context {
         system_prompt: Some(Default::default()),
         messages: Vec::new(),
@@ -996,7 +1002,7 @@ async fn websocket_reconnects_once_when_connection_limit_is_reached() {
         if connection == 0 {
             vec![json!({"type": "error", "error": {"code": "websocket_connection_limit_reached"}})]
         } else {
-            completed_event("resp_1", Some("ok"), None)
+            completed_event("resp_1", Some(&pi_js_compat::js_json::JsString::from("ok")), None)
         }
     }))
     .await;
@@ -1015,7 +1021,7 @@ async fn websocket_reconnects_once_when_connection_limit_is_reached() {
     let (events, result) = collect(stream(ws_model(&server.url), context(), opts)).await;
 
     assert_eq!(result.stop_reason, StopReason::Stop);
-    assert_eq!(text_of(&result), Some("ok"));
+    assert_eq!(text_of(&result), Some(&pi_js_compat::js_json::JsString::from("ok")));
     assert_eq!(
         events
             .iter()
@@ -1044,7 +1050,11 @@ async fn websocket_recovers_missing_cached_continuation() {
                 "message": "Previous response with id 'resp_1' not found."
             }})]
         } else {
-            completed_event("resp_2", Some("Recovered"), None)
+            completed_event(
+                "resp_2",
+                Some(&pi_js_compat::js_json::JsString::from("Recovered")),
+                None,
+            )
         }
     }))
     .await;
@@ -1073,7 +1083,10 @@ async fn websocket_recovers_missing_cached_continuation() {
     .await;
 
     assert_eq!(second.stop_reason, StopReason::Stop);
-    assert_eq!(text_of(&second), Some("Recovered"));
+    assert_eq!(
+        text_of(&second),
+        Some(&pi_js_compat::js_json::JsString::from("Recovered"))
+    );
     assert_eq!(
         events
             .iter()
@@ -1108,7 +1121,10 @@ async fn websocket_recovers_missing_cached_continuation() {
 #[tokio::test]
 async fn websocket_one_shot_when_cache_retention_is_none() {
     let fetch = RecordingFetch::new(Vec::new());
-    let server = start_ws_server(Arc::new(|_, _| completed_event("resp", Some("ok"), None))).await;
+    let server = start_ws_server(Arc::new(|_, _| {
+        completed_event("resp", Some(&pi_js_compat::js_json::JsString::from("ok")), None)
+    }))
+    .await;
     let mut opts = ws_options(
         fetch.clone(),
         Transport::Auto,

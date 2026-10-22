@@ -419,7 +419,12 @@ fn cloudflare_model_resolution_matches_ts() {
         let env: Option<indexmap::IndexMap<String, pi_js_compat::js_json::JsString>> = case
             .get("env")
             .filter(|value| value.as_object().is_some_and(|object| !object.is_empty()))
-            .map(|value| string_map(value).into_iter().collect());
+            .map(|value| {
+                string_map(value)
+                    .into_iter()
+                    .map(|(key, value)| (key, pi_js_compat::js_json::JsString::from(value)))
+                    .collect()
+            });
         let resolved = resolve_cloudflare_model(&model, env.as_ref());
         assert_eq!(
             json!(resolved.base_url),
