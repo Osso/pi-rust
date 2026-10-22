@@ -5492,7 +5492,7 @@ fn quota_exhaustion(message: &JsString) -> bool {
         "out of budget",
         "quota exceeded",
     ];
-    if NEEDLES.iter().any(|needle| lowercase.contains(needle)) {
+    if NEEDLES.iter().any(|needle| lowercase.contains(*needle)) {
         return true;
     }
     lowercase.contains("billing limit")

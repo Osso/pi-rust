@@ -628,7 +628,7 @@ impl ModelRuntime {
                     if error_seq == self.inner.availability_error_seq.load(Ordering::SeqCst)
                         && !options.signal.as_ref().is_some_and(CancellationToken::is_cancelled)
                     {
-                        *lock(&self.inner.availability_error) = Some(resolve_error_message(error));
+                        *lock(&self.inner.availability_error) = Some(resolve_error_message(&error));
                     }
                     Err(error)
                 }
