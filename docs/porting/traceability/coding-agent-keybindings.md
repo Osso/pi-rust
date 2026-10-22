@@ -43,3 +43,9 @@ The TUI registry itself is `packages/tui/src/keybindings.ts` → `crates/pi-tui/
   `oracle/coding-agent-keybindings-oracle.ts`, comparing migrated config entries, the ordered resolved
   binding ids, and each id's resolved keys in source order. `getUserBindings` keeps the Rust `Vec<(id, Vec<KeyId>)>` shape and is
   covered by the focused tests instead of a shape-normalizing oracle comparison.
+
+## Native app registry and keybinding-file JSON
+
+`app_keybindings`, combined definitions, migration/config ordering, registry IDs/keys/descriptions, stored file path and match/get lookups retain `JsString`; file JSON uses `JsObject`/`JsValue` and `parse_lossless`. Raw user key overrides are not discarded by serde scalar-string parsing. Source object ordering still uses JS array-index ordering and native UTF16 comparison for extra keys. Path encoding occurs only in `reload` immediately at the real filesystem call.
+
+`raw_app_keybindings` loads actual JSON files with high/low/pair overrides and compares frozen `KeybindingsManager.create` getKeys/getUserBindings. The proof-only standalone harness imports the actual production module; its ambient `get_agent_dir` dependency deliberately panics (tests provide explicit directories). Whole coding-agent library remains blocked by independently owned consumers; native module compilation RED is recorded separately from behavioral acceptance.

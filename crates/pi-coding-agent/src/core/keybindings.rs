@@ -2,16 +2,16 @@
 
 use std::path::Path;
 
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_tui::keybindings::{
     KeyId, KeybindingDefinition, KeybindingsConfig, KeybindingsManager as TuiKeybindingsManager, tui_keybindings,
 };
-use serde_json::{Map, Value};
 
 use crate::config::get_agent_dir;
 use pi_js_compat::js_json;
 
 /// Coding-agent bindings merged after [`tui_keybindings`].
-pub fn app_keybindings() -> Vec<(String, KeybindingDefinition)> {
+pub fn app_keybindings() -> Vec<(JsString, KeybindingDefinition)> {
     let entries: Vec<(&str, KeybindingDefinition)> = vec![
         ("app.interrupt", definition(&["escape"], "Cancel or abort")),
         ("app.clear", definition(&["ctrl+c"], "Clear editor")),
@@ -188,7 +188,7 @@ pub fn app_keybindings() -> Vec<(String, KeybindingDefinition)> {
     ];
     entries
         .into_iter()
-        .map(|(name, definition)| (name.to_owned(), definition))
+        .map(|(name, definition)| (JsString::from(name), definition))
         .collect()
 }
 
@@ -210,13 +210,13 @@ fn tree_unfold_keys() -> &'static [&'static str] {
 
 fn definition(default_keys: &[&str], description: &str) -> KeybindingDefinition {
     KeybindingDefinition {
-        default_keys: default_keys.iter().map(|key| (*key).to_string()).collect(),
-        description: Some(description.to_owned()),
+        default_keys: default_keys.iter().map(|key| JsString::from(*key)).collect(),
+        description: Some(description.into()),
     }
 }
 
 /// `KEYBINDINGS`: TUI definitions followed by coding-agent definitions.
-pub fn keybindings() -> Vec<(String, KeybindingDefinition)> {
+pub fn keybindings() -> Vec<(JsString, KeybindingDefinition)> {
     let mut definitions = tui_keybindings();
     definitions.extend(app_keybindings());
     definitions
@@ -289,35 +289,37 @@ pub fn keybinding_name_migrations() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
-fn legacy_keybinding_name(key: &str) -> Option<&'static str> {
+fn legacy_keybinding_name(key: &JsString) -> Option<&'static str> {
     keybinding_name_migrations()
         .into_iter()
-        .find(|(legacy, _)| *legacy == key)
+        .find(|(legacy, _)| key == *legacy)
         .map(|(_, current)| current)
 }
 
 /// Result of migrating a raw keybindings file object.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeybindingsMigration {
-    pub config: Map<String, Value>,
+    pub config: JsObject,
     pub migrated: bool,
 }
 
 /// Renames legacy ids and orders the object like the TypeScript loader.
-pub fn migrate_keybindings_config(raw_config: &Map<String, Value>) -> KeybindingsMigration {
-    let mut config = Map::new();
+pub fn migrate_keybindings_config(raw_config: &JsObject) -> KeybindingsMigration {
+    let mut config = JsObject::new();
     let mut migrated = false;
 
-    for (key, value) in js_json::object_entries(raw_config) {
-        let next_key = legacy_keybinding_name(key).unwrap_or(key);
-        if next_key != key {
+    for (key, value) in js_json::object_entries_lossless(raw_config) {
+        let next_key = legacy_keybinding_name(key)
+            .map(JsString::from)
+            .unwrap_or_else(|| key.clone());
+        if &next_key != key {
             migrated = true;
         }
-        if key != next_key && raw_config.contains_key(next_key) {
+        if key != &next_key && raw_config.contains_key(&next_key) {
             migrated = true;
             continue;
         }
-        config.insert(next_key.to_owned(), value.clone());
+        config.insert(next_key, value.clone());
     }
 
     KeybindingsMigration {
@@ -326,15 +328,15 @@ pub fn migrate_keybindings_config(raw_config: &Map<String, Value>) -> Keybinding
     }
 }
 
-fn order_keybindings_config(config: Map<String, Value>) -> Map<String, Value> {
-    let mut ordered = Map::new();
+fn order_keybindings_config(config: JsObject) -> JsObject {
+    let mut ordered = JsObject::new();
     for (keybinding, _) in keybindings() {
         if let Some(value) = config.get(&keybinding) {
             ordered.insert(keybinding, value.clone());
         }
     }
 
-    let mut extras: Vec<&String> = config.keys().filter(|key| !ordered.contains_key(*key)).collect();
+    let mut extras: Vec<&JsString> = config.keys().filter(|key| !ordered.contains_key(*key)).collect();
     extras.sort_by(|left, right| compare_utf16(left, right));
     for key in extras {
         ordered.insert(key.clone(), config[key].clone());
@@ -343,37 +345,37 @@ fn order_keybindings_config(config: Map<String, Value>) -> Map<String, Value> {
 }
 
 /// JavaScript objects enumerate array-index keys first, in ascending numeric order.
-fn with_javascript_key_order(config: Map<String, Value>) -> Map<String, Value> {
-    let mut ordered = Map::new();
-    for (key, value) in js_json::object_entries(&config) {
+fn with_javascript_key_order(config: JsObject) -> JsObject {
+    let mut ordered = JsObject::new();
+    for (key, value) in js_json::object_entries_lossless(&config) {
         ordered.insert(key.clone(), value.clone());
     }
     ordered
 }
 
 /// JavaScript's default `Array.prototype.sort` compares UTF-16 code units.
-fn compare_utf16(left: &str, right: &str) -> std::cmp::Ordering {
-    left.encode_utf16().cmp(right.encode_utf16())
+fn compare_utf16(left: &JsString, right: &JsString) -> std::cmp::Ordering {
+    left.units().cmp(right.units())
 }
 
-fn load_raw_config(path: &Path) -> Option<Map<String, Value>> {
+fn load_raw_config(path: &Path) -> Option<JsObject> {
     if !path.exists() {
         return None;
     }
     let content = std::fs::read_to_string(path).ok()?;
-    match js_json::parse(&content).ok()? {
-        Value::Object(object) => Some(object),
+    match js_json::parse_lossless(content).ok()? {
+        JsValue::Object(object) => Some(object),
         _ => None,
     }
 }
 
-fn to_keybindings_config(value: &Map<String, Value>) -> KeybindingsConfig {
+fn to_keybindings_config(value: &JsObject) -> KeybindingsConfig {
     let mut config = KeybindingsConfig::new();
     for (key, binding) in value {
         match binding {
-            Value::String(text) => config.push((key.clone(), vec![text.clone()])),
-            Value::Array(entries) => {
-                let keys: Option<Vec<KeyId>> = entries.iter().map(|entry| entry.as_str().map(str::to_owned)).collect();
+            JsValue::String(text) => config.push((key.clone(), vec![text.clone()])),
+            JsValue::Array(entries) => {
+                let keys: Option<Vec<KeyId>> = entries.iter().map(|entry| entry.as_string().cloned()).collect();
                 if let Some(keys) = keys {
                     config.push((key.clone(), keys));
                 }
@@ -387,12 +389,12 @@ fn to_keybindings_config(value: &Map<String, Value>) -> KeybindingsConfig {
 /// Coding-agent keybindings loaded from `<agentDir>/keybindings.json`.
 #[derive(Debug, Clone)]
 pub struct KeybindingsManager {
-    config_path: Option<String>,
+    config_path: Option<JsString>,
     inner: TuiKeybindingsManager,
 }
 
 impl KeybindingsManager {
-    pub fn new(user_bindings: KeybindingsConfig, config_path: Option<String>) -> Self {
+    pub fn new(user_bindings: KeybindingsConfig, config_path: Option<JsString>) -> Self {
         Self {
             config_path,
             inner: TuiKeybindingsManager::new(keybindings(), user_bindings),
@@ -404,7 +406,7 @@ impl KeybindingsManager {
         let agent_dir = agent_dir.map_or_else(get_agent_dir, Path::to_path_buf);
         let config_path = agent_dir.join("keybindings.json");
         let user_bindings = Self::load_from_file(&config_path);
-        Self::new(user_bindings, Some(config_path.to_string_lossy().into_owned()))
+        Self::new(user_bindings, Some(config_path.to_string_lossy().as_ref().into()))
     }
 
     /// Install this manager as the process-wide TUI keybinding registry
@@ -417,7 +419,7 @@ impl KeybindingsManager {
         let Some(config_path) = &self.config_path else {
             return;
         };
-        let user_bindings = Self::load_from_file(Path::new(config_path));
+        let user_bindings = Self::load_from_file(Path::new(&js_json::encode_node_utf8(config_path)));
         self.inner.set_user_bindings(user_bindings);
     }
 
@@ -429,12 +431,12 @@ impl KeybindingsManager {
         self.inner.get_user_bindings()
     }
 
-    pub fn get_keys(&self, keybinding: &str) -> Vec<KeyId> {
+    pub fn get_keys(&self, keybinding: impl Into<JsString>) -> Vec<KeyId> {
         self.inner.get_keys(keybinding)
     }
 
     /// Whether `data` matches the keys bound to `keybinding`.
-    pub fn matches(&self, data: &str, keybinding: &str) -> bool {
+    pub fn matches(&self, data: impl Into<JsString>, keybinding: impl Into<JsString>) -> bool {
         self.inner.matches(data, keybinding)
     }
 
