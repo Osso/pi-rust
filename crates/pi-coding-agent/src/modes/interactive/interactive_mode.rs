@@ -7280,7 +7280,7 @@ impl InteractiveMode {
                 }
             }
             "compact" => {
-                let instructions = (!args.is_empty()).then(|| args.to_owned());
+                let instructions = (!args.is_empty()).then(|| JsString::from(args));
                 self.handle_compact_command(instructions).await;
             }
             "reload" => self.handle_reload_command().await,
@@ -8317,9 +8317,9 @@ impl InteractiveMode {
         self.ui.request_render();
     }
 
-    async fn handle_compact_command(&self, custom_instructions: Option<String>) {
+    async fn handle_compact_command(&self, custom_instructions: Option<JsString>) {
         let session = self.session();
-        let result = session.compact(custom_instructions.as_deref()).await;
+        let result = session.compact(custom_instructions.as_ref()).await;
         match result {
             Ok(result) => {
                 self.rebuild_chat_after_compaction(&result);
@@ -8988,7 +8988,7 @@ impl InteractiveMode {
 
         self.restore_editor();
         let mut wants_summary = false;
-        let mut custom_instructions: Option<String> = None;
+        let mut custom_instructions: Option<JsString> = None;
         if !self.settings(|settings| settings.get_branch_summary_skip_prompt()) {
             loop {
                 let choice = self
@@ -9011,7 +9011,7 @@ impl InteractiveMode {
                         .show_extension_editor("Custom summarization instructions", None)
                         .await
                     {
-                        Some(text) => custom_instructions = Some(text),
+                        Some(text) => custom_instructions = Some(text.into()),
                         None => continue,
                     }
                 }
@@ -9332,12 +9332,13 @@ impl InteractiveMode {
         let rename_session: RenameSessionFn = {
             let control_db_path = control_db_path.clone();
             Rc::new(move |path: String, next_name: Option<String>| {
+                let next_name = next_name.map(JsString::from);
                 let control_db_path = control_db_path.clone();
                 Box::pin(async move {
                     let Some(control_db_path) = control_db_path else {
                         return Ok(());
                     };
-                    crate::core::session_control_db::write_session_name(&control_db_path, &path, next_name.as_deref())
+                    crate::core::session_control_db::write_session_name(&control_db_path, &path, next_name.as_ref())
                         .map_err(|error| error.to_string())?;
                     Ok(())
                 })
