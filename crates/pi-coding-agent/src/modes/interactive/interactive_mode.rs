@@ -2495,6 +2495,10 @@ impl Component for ExtensionComponentAdapter {
         self.inner.invalidate();
     }
 
+    fn dispose(&mut self) {
+        self.inner.dispose();
+    }
+
     fn wants_input(&self) -> bool {
         self.inner.wants_input()
     }
@@ -2624,7 +2628,7 @@ pub struct InteractiveMode {
     ui: Rc<InteractiveTuiHandle>,
     header_container: Rc<RefCell<Container>>,
     loaded_resources_container: Rc<RefCell<Container>>,
-    chat_container: Rc<RefCell<Container>>,
+    chat_container: Rc<RefCell<crate::modes::interactive::components::render_region_container::RenderRegionContainer>>,
     transcript_tail_container: Rc<RefCell<Container>>,
     pending_messages_container: Rc<RefCell<Container>>,
     status_container: Rc<RefCell<Container>>,
@@ -2900,7 +2904,16 @@ impl InteractiveMode {
 
         let (header_container, header_ref) = SharedContainer::create();
         let (loaded_resources_container, loaded_ref) = SharedContainer::create();
-        let (chat_container, chat_ref) = SharedContainer::create();
+        use crate::modes::interactive::components::render_region_container::{
+            RenderRegionContainer, SharedRenderRegionContainer,
+        };
+        let chat_ui = Rc::clone(&ui);
+        let chat_container = Rc::new(RefCell::new(RenderRegionContainer::new(Rc::new(move |child| {
+            chat_ui
+                .create_render_region(child)
+                .expect("interactive renderer supports chat regions")
+        }))));
+        let chat_ref = component(SharedRenderRegionContainer(Rc::clone(&chat_container)));
         let (transcript_tail_container, transcript_tail_ref) = SharedContainer::create();
         let (pending_messages_container, pending_ref) = SharedContainer::create();
         let (status_container, status_ref) = SharedContainer::create();
@@ -4323,7 +4336,11 @@ impl InteractiveMode {
             get_height: Rc::new(move || height_ui.terminal().borrow().rows()),
             header: component(SharedContainer(Rc::clone(&self.header_container))),
             loaded_resources: component(SharedContainer(Rc::clone(&self.loaded_resources_container))),
-            chat: component(SharedContainer(Rc::clone(&self.chat_container))),
+            chat: component(
+                crate::modes::interactive::components::render_region_container::SharedRenderRegionContainer(Rc::clone(
+                    &self.chat_container,
+                )),
+            ),
             transcript_tail: transcript_tail_ref,
             pending_messages: component(SharedContainer(Rc::clone(&self.pending_messages_container))),
             on_transcript_tail_layout,
@@ -4333,6 +4350,11 @@ impl InteractiveMode {
             widget_below: component(SharedContainer(Rc::clone(&self.widget_container_below))),
             footer: component(SharedContainer(Rc::clone(&self.footer_container))),
             on_status_layout,
+            on_chat_layout: {
+                let chat = Rc::clone(&self.chat_container);
+                Rc::new(move |rect| chat.borrow_mut().place(rect))
+            },
+            on_widget_above_layout: None,
             on_editor_layout: Rc::new(move |rect| {
                 let mounted = editor_container
                     .borrow()
@@ -4539,7 +4561,7 @@ impl InteractiveMode {
             let components = retained.split_off(previous_child_count);
             let session = self.session();
             let hidden = Rc::new(move || session.settings_manager().get_hide_coordination_messages());
-            *chat = Container::with_children(retained);
+            chat.set_children(retained);
             chat.add_child(component(CoordinationMessageComponent::new(components, hidden)));
         }
     }
@@ -4935,12 +4957,35 @@ impl InteractiveMode {
         let Some(renderer) = self.session().extension_runner().get_entry_renderer(&entry.custom_type) else {
             return false;
         };
-        let mut component_value = CustomEntryComponent::new(entry.clone(), renderer);
+        let component_slot = Rc::new(RefCell::new(None::<std::rc::Weak<RefCell<dyn Component>>>));
+        let request_slot = Rc::clone(&component_slot);
+        let chat = Rc::downgrade(&self.chat_container);
+        let mut component_value = CustomEntryComponent::new(
+            entry.clone(),
+            renderer,
+            crate::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
+                session_id: self.session.borrow().session_manager().get_session_id().to_owned(),
+                request_render: Rc::new(move || {
+                    let Some(child) = request_slot.borrow().as_ref().and_then(std::rc::Weak::upgrade) else {
+                        return false;
+                    };
+                    let Some(chat) = chat.upgrade() else {
+                        return false;
+                    };
+                    chat.borrow_mut().request_child_render(&child)
+                }),
+            },
+        );
         component_value.set_expanded(self.tool_output_expanded.get());
         if !component_value.has_content() {
+            component_value.dispose();
             return false;
         }
         let component_ref = component(component_value);
+        *component_slot.borrow_mut() = Some(Rc::downgrade(&component_ref));
+        self.chat_container
+            .borrow_mut()
+            .track_scoped_child(Rc::clone(&component_ref));
         if let Some(streaming) = self.streaming_component.borrow().as_ref() {
             let mut chat = self.chat_container.borrow_mut();
             if let Some(index) = chat.children().iter().position(|child| Rc::ptr_eq(child, streaming)) {

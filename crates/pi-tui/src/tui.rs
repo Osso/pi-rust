@@ -65,6 +65,9 @@ pub trait Component {
 
     fn invalidate(&mut self) {}
 
+    /// Optional frozen component lifecycle hook.
+    fn dispose(&mut self) {}
+
     fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
         None
     }
