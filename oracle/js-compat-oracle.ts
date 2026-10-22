@@ -13,6 +13,8 @@ type LocaleCompareRequest = {
 type MinimatchCase = {
 	path: string;
 	pattern: string;
+	pathUnits?: number[];
+	patternUnits?: number[];
 	options: Record<string, unknown>;
 };
 
@@ -212,7 +214,11 @@ async function execute(request: Request): Promise<Response> {
 	const minimatchModule = await loadMinimatch();
 	if (request.operation === "minimatch") {
 		const results = request.cases.map((testCase) =>
-			minimatchModule.minimatch(testCase.path, testCase.pattern, testCase.options),
+			minimatchModule.minimatch(
+				testCase.pathUnits === undefined ? testCase.path : String.fromCharCode(...testCase.pathUnits),
+				testCase.patternUnits === undefined ? testCase.pattern : String.fromCharCode(...testCase.patternUnits),
+				testCase.options,
+			),
 		);
 		return { id: request.id, ok: true, output: { results } };
 	}

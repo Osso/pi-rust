@@ -1,11 +1,13 @@
 //! `minimatch` 10.2.5 (posix platform) as used by the coding-agent packages.
+use crate::js_json::JsString;
+use units::*;
 
 mod ast;
 mod brace;
 mod class;
 mod escape;
 
-use fancy_regex::Regex;
+use crate::js_regex::JsRegex as Regex;
 
 use ast::{Ast, MmPattern};
 use escape::is_valid_pattern;
@@ -55,27 +57,30 @@ impl Default for MinimatchOptions {
 }
 
 /// `minimatch(path, pattern, options)`.
-pub fn minimatch(path: &str, pattern: &str, options: &MinimatchOptions) -> bool {
-    if !is_valid_pattern(pattern) {
+pub fn minimatch(path: impl Into<JsString>, pattern: impl Into<JsString>, options: &MinimatchOptions) -> bool {
+    let path = path.into();
+    let pattern = pattern.into();
+    if !is_valid_pattern(&pattern) {
         return false;
     }
-    if !options.nocomment && pattern.starts_with('#') {
+    if !options.nocomment && pattern.starts_with(HASH) {
         return false;
     }
-    Minimatch::new(pattern, options.clone()).matches(path, options.partial)
+    Minimatch::new(&pattern, options.clone()).matches(&path, options.partial)
 }
 
 /// `minimatch.braceExpand(pattern, options)`.
-pub fn brace_expand(pattern: &str, options: &MinimatchOptions) -> Vec<String> {
+pub fn brace_expand(pattern: impl Into<JsString>, options: &MinimatchOptions) -> Vec<JsString> {
+    let pattern = pattern.into();
     if options.nobrace {
         return vec![pattern.to_owned()];
     }
-    brace::brace_expand(pattern, options.brace_expand_max)
+    brace::brace_expand(&pattern, options.brace_expand_max)
 }
 
 #[derive(Clone, Debug)]
 enum Part {
-    Literal(String),
+    Literal(JsString),
     Regex(Regex, Option<FastTest>),
     GlobStar,
     Invalid,
@@ -87,13 +92,13 @@ enum FastTest {
         dot: bool,
     },
     StarDotExt {
-        ext: String,
+        ext: JsString,
         dot: bool,
         nocase: bool,
     },
     Qmarks {
         length: usize,
-        ext: String,
+        ext: JsString,
         dot: bool,
         nocase: bool,
     },
@@ -104,7 +109,7 @@ enum FastTest {
 }
 
 impl FastTest {
-    fn matches(&self, value: &str) -> bool {
+    fn matches(&self, value: &JsString) -> bool {
         match self {
             Self::Star { dot } => star_matches(value, *dot),
             Self::StarDotExt { ext, dot, nocase } => star_dot_ext_matches(value, ext, *dot, *nocase),
@@ -120,31 +125,31 @@ impl FastTest {
     }
 }
 
-fn star_matches(value: &str, dot: bool) -> bool {
+fn star_matches(value: &JsString, dot: bool) -> bool {
     if dot {
         return !value.is_empty() && value != "." && value != "..";
     }
-    !value.is_empty() && !value.starts_with('.')
+    !value.is_empty() && !value.starts_with(DOT)
 }
 
-fn star_dot_ext_matches(value: &str, ext: &str, dot: bool, nocase: bool) -> bool {
+fn star_dot_ext_matches(value: &JsString, ext: &JsString, dot: bool, nocase: bool) -> bool {
     let (value, ext) = if nocase {
         (value.to_lowercase(), ext.to_lowercase())
     } else {
         (value.to_owned(), ext.to_owned())
     };
-    (dot || !value.starts_with('.')) && value.ends_with(&ext)
+    (dot || !value.starts_with(DOT)) && value.ends_with(&ext)
 }
 
-fn qmarks_match(value: &str, length: usize, ext: &str, dot: bool, nocase: bool) -> bool {
-    if value.encode_utf16().count() != length {
+fn qmarks_match(value: &JsString, length: usize, ext: &JsString, dot: bool, nocase: bool) -> bool {
+    if value.len() != length {
         return false;
     }
     if dot {
         if value == "." || value == ".." {
             return false;
         }
-    } else if value.starts_with('.') {
+    } else if value.starts_with(DOT) {
         return false;
     }
     if ext.is_empty() {
@@ -156,28 +161,30 @@ fn qmarks_match(value: &str, length: usize, ext: &str, dot: bool, nocase: bool) 
     value.ends_with(ext)
 }
 
-fn star_dot_star_matches(value: &str, dot: bool) -> bool {
+fn star_dot_star_matches(value: &JsString, dot: bool) -> bool {
     if dot {
-        return value != "." && value != ".." && value.contains('.');
+        return value != "." && value != ".." && value.contains(DOT);
     }
-    !value.starts_with('.') && value.contains('.')
+    !value.starts_with(DOT) && value.contains(DOT)
 }
 
-fn dot_star_matches(value: &str) -> bool {
-    value != "." && value != ".." && value.starts_with('.')
+fn dot_star_matches(value: &JsString) -> bool {
+    value != "." && value != ".." && value.starts_with(DOT)
 }
 
-fn fast_test(pattern: &str, options: &MinimatchOptions) -> Option<FastTest> {
-    let stars = pattern.bytes().take_while(|byte| *byte == b'*').count();
+fn fast_test(pattern: &JsString, options: &MinimatchOptions) -> Option<FastTest> {
+    let stars = pattern.units().iter().copied().take_while(|byte| *byte == STAR).count();
     if stars > 0 && stars == pattern.len() {
         return Some(FastTest::Star { dot: options.dot });
     }
     if stars > 0 {
-        let suffix = &pattern[stars..];
-        if !suffix
-            .chars()
-            .any(|character| matches!(character, '+' | '@' | '!' | '?' | '*' | '[' | '('))
-        {
+        let suffix = pattern.slice(stars, pattern.len());
+        if !suffix.units().iter().copied().any(|character| {
+            matches!(
+                character,
+                PLUS | AT | BANG | QUESTION | STAR | OPEN_BRACKET | OPEN_PAREN
+            )
+        }) {
             return Some(FastTest::StarDotExt {
                 ext: suffix.to_owned(),
                 dot: options.dot,
@@ -185,30 +192,37 @@ fn fast_test(pattern: &str, options: &MinimatchOptions) -> Option<FastTest> {
             });
         }
     }
-    let questions = pattern.bytes().take_while(|byte| *byte == b'?').count();
+    let questions = pattern
+        .units()
+        .iter()
+        .copied()
+        .take_while(|byte| *byte == QUESTION)
+        .count();
     if questions > 0 {
-        let suffix = &pattern[questions..];
-        if !suffix
-            .chars()
-            .any(|character| matches!(character, '+' | '@' | '!' | '?' | '*' | '[' | '('))
-        {
+        let suffix = pattern.slice(questions, pattern.len());
+        if !suffix.units().iter().copied().any(|character| {
+            matches!(
+                character,
+                PLUS | AT | BANG | QUESTION | STAR | OPEN_BRACKET | OPEN_PAREN
+            )
+        }) {
             return Some(FastTest::Qmarks {
-                length: pattern.encode_utf16().count(),
+                length: pattern.len(),
                 ext: suffix.to_owned(),
                 dot: options.dot,
                 nocase: options.nocase,
             });
         }
     }
-    if let Some(rest) = pattern.strip_prefix('*')
+    if let Some(rest) = pattern.strip_prefix(STAR)
         && let Some(rest) = rest.strip_prefix(".*")
-        && rest.bytes().all(|byte| byte == b'*')
+        && rest.units().iter().copied().all(|byte| byte == STAR)
         && !rest.is_empty()
     {
         return Some(FastTest::StarDotStar { dot: options.dot });
     }
     if let Some(rest) = pattern.strip_prefix(".*")
-        && rest.bytes().all(|byte| byte == b'*')
+        && rest.units().iter().copied().all(|byte| byte == STAR)
         && !rest.is_empty()
     {
         return Some(FastTest::DotStar);
@@ -218,7 +232,7 @@ fn fast_test(pattern: &str, options: &MinimatchOptions) -> Option<FastTest> {
 
 pub struct Minimatch {
     options: MinimatchOptions,
-    pattern: String,
+    pattern: JsString,
     negate: bool,
     comment: bool,
     empty: bool,
@@ -226,7 +240,8 @@ pub struct Minimatch {
 }
 
 impl Minimatch {
-    pub fn new(pattern: &str, options: MinimatchOptions) -> Self {
+    pub fn new(pattern: impl Into<JsString>, options: MinimatchOptions) -> Self {
+        let pattern = pattern.into();
         let mut minimatch = Self {
             options,
             pattern: pattern.to_owned(),
@@ -240,7 +255,7 @@ impl Minimatch {
     }
 
     fn make(&mut self) {
-        if !self.options.nocomment && self.pattern.starts_with('#') {
+        if !self.options.nocomment && self.pattern.starts_with(HASH) {
             self.comment = true;
             return;
         }
@@ -254,13 +269,13 @@ impl Minimatch {
         } else {
             brace::brace_expand(&self.pattern, self.options.brace_expand_max)
         };
-        let mut glob_set: Vec<String> = Vec::new();
+        let mut glob_set: Vec<JsString> = Vec::new();
         for expanded in expanded {
             if !glob_set.contains(&expanded) {
                 glob_set.push(expanded);
             }
         }
-        let glob_parts: Vec<Vec<String>> = glob_set
+        let glob_parts: Vec<Vec<JsString>> = glob_set
             .iter()
             .map(|pattern| slash_split(pattern, self.options.preserve_multiple_slashes))
             .collect();
@@ -281,25 +296,25 @@ impl Minimatch {
         }
         let mut negate = false;
         let mut offset = 0;
-        for character in self.pattern.chars() {
-            if character != '!' {
+        for character in self.pattern.units().iter().copied() {
+            if character != BANG {
                 break;
             }
             negate = !negate;
             offset += 1;
         }
         if offset > 0 {
-            self.pattern = self.pattern.chars().skip(offset).collect();
+            self.pattern = self.pattern.units().iter().copied().skip(offset).collect();
         }
         self.negate = negate;
     }
 
-    fn preprocess(&self, mut glob_parts: Vec<Vec<String>>) -> Vec<Vec<String>> {
+    fn preprocess(&self, mut glob_parts: Vec<Vec<JsString>>) -> Vec<Vec<JsString>> {
         if self.options.noglobstar {
             for parts in &mut glob_parts {
                 for part in parts {
                     if part == "**" {
-                        *part = "*".to_owned();
+                        *part = JsString::from("*");
                     }
                 }
             }
@@ -311,12 +326,12 @@ impl Minimatch {
         }
     }
 
-    fn parse(&self, pattern: &str) -> Part {
+    fn parse(&self, pattern: &JsString) -> Part {
         if pattern == "**" {
             return Part::GlobStar;
         }
         if pattern.is_empty() {
-            return Part::Literal(String::new());
+            return Part::Literal(JsString::default());
         }
         let mut ast = Ast::from_glob(pattern, &self.options);
         match ast.mm_pattern() {
@@ -326,7 +341,8 @@ impl Minimatch {
         }
     }
 
-    pub fn matches(&self, path: &str, partial: bool) -> bool {
+    pub fn matches(&self, path: impl Into<JsString>, partial: bool) -> bool {
+        let path = path.into();
         if self.comment {
             return false;
         }
@@ -336,7 +352,7 @@ impl Minimatch {
         if path == "/" && partial {
             return true;
         }
-        let file = slash_split(path, self.options.preserve_multiple_slashes);
+        let file = slash_split(&path, self.options.preserve_multiple_slashes);
         let filename = file
             .iter()
             .rev()
@@ -349,7 +365,7 @@ impl Minimatch {
         }
     }
 
-    fn match_pattern_set(&self, file: &[String], filename: &str, partial: bool) -> Option<bool> {
+    fn match_pattern_set(&self, file: &[JsString], filename: &JsString, partial: bool) -> Option<bool> {
         for pattern in &self.set {
             let file = if self.options.match_base && pattern.len() == 1 {
                 vec![filename.to_owned()]
@@ -363,7 +379,7 @@ impl Minimatch {
         None
     }
 
-    fn match_one(&self, file: &[String], pattern: &[Part], partial: bool) -> bool {
+    fn match_one(&self, file: &[JsString], pattern: &[Part], partial: bool) -> bool {
         if pattern.iter().any(|part| matches!(part, Part::GlobStar)) {
             self.match_globstar(file, pattern, partial, 0)
         } else {
@@ -371,7 +387,7 @@ impl Minimatch {
         }
     }
 
-    fn match_globstar(&self, file: &[String], pattern: &[Part], partial: bool, pattern_index: usize) -> bool {
+    fn match_globstar(&self, file: &[JsString], pattern: &[Part], partial: bool, pattern_index: usize) -> bool {
         let first_globstar = pattern[pattern_index..]
             .iter()
             .position(|part| matches!(part, Part::GlobStar))
@@ -464,7 +480,7 @@ impl Minimatch {
 }
 
 struct GlobstarContext<'a> {
-    file: &'a [String],
+    file: &'a [JsString],
     body_segments: &'a [(Vec<Part>, isize)],
     partial: bool,
     max_depth: usize,
@@ -515,11 +531,17 @@ fn match_globstar_body_sections(
     if partial { Some(true) } else { None }
 }
 
-fn is_bad_dot(segment: &str, dot: bool) -> bool {
-    segment == "." || segment == ".." || (!dot && segment.starts_with('.'))
+fn is_bad_dot(segment: &JsString, dot: bool) -> bool {
+    segment == "." || segment == ".." || (!dot && segment.starts_with(DOT))
 }
 
-fn match_one_inner(file: &[String], pattern: &[Part], partial: bool, file_index: usize, pattern_index: usize) -> bool {
+fn match_one_inner(
+    file: &[JsString],
+    pattern: &[Part],
+    partial: bool,
+    file_index: usize,
+    pattern_index: usize,
+) -> bool {
     let mut file_index = file_index;
     let mut pattern_index = pattern_index;
     while file_index < file.len() && pattern_index < pattern.len() {
@@ -529,7 +551,7 @@ fn match_one_inner(file: &[String], pattern: &[Part], partial: bool, file_index:
             Part::Literal(value) => segment == value,
             Part::Regex(regex, fast) => match fast {
                 Some(fast) => fast.matches(segment),
-                None => regex.is_match(segment).unwrap_or(false),
+                None => regex.is_match(segment),
             },
             Part::GlobStar | Part::Invalid => return false,
         };
@@ -548,11 +570,11 @@ fn match_one_inner(file: &[String], pattern: &[Part], partial: bool, file_index:
     }
 }
 
-fn adjacent_globstar_optimize(glob_parts: Vec<Vec<String>>) -> Vec<Vec<String>> {
+fn adjacent_globstar_optimize(glob_parts: Vec<Vec<JsString>>) -> Vec<Vec<JsString>> {
     glob_parts
         .into_iter()
         .map(|parts| {
-            let mut output: Vec<String> = Vec::new();
+            let mut output: Vec<JsString> = Vec::new();
             for part in parts {
                 if part == "**" && output.last().is_some_and(|last| last == "**") {
                     continue;
@@ -564,11 +586,11 @@ fn adjacent_globstar_optimize(glob_parts: Vec<Vec<String>>) -> Vec<Vec<String>> 
         .collect()
 }
 
-fn level_one_optimize(glob_parts: Vec<Vec<String>>) -> Vec<Vec<String>> {
+fn level_one_optimize(glob_parts: Vec<Vec<JsString>>) -> Vec<Vec<JsString>> {
     glob_parts
         .into_iter()
         .map(|parts| {
-            let mut output: Vec<String> = Vec::new();
+            let mut output: Vec<JsString> = Vec::new();
             for part in parts {
                 if part == "**" && output.last().is_some_and(|last| last == "**") {
                     continue;
@@ -584,26 +606,30 @@ fn level_one_optimize(glob_parts: Vec<Vec<String>>) -> Vec<Vec<String>> {
                 }
                 output.push(part);
             }
-            if output.is_empty() { vec![String::new()] } else { output }
+            if output.is_empty() {
+                vec![JsString::default()]
+            } else {
+                output
+            }
         })
         .collect()
 }
 
-fn slash_split(path: &str, preserve_multiple_slashes: bool) -> Vec<String> {
+fn slash_split(path: &JsString, preserve_multiple_slashes: bool) -> Vec<JsString> {
     if preserve_multiple_slashes {
-        return path.split('/').map(str::to_owned).collect();
+        return path.split('/').collect();
     }
     let mut parts = Vec::new();
-    let mut current = String::new();
+    let mut current = JsString::default();
     let mut previous_was_slash = false;
-    for character in path.chars() {
-        if character == '/' {
+    for character in path.units().iter().copied() {
+        if character == SLASH {
             if !previous_was_slash {
                 parts.push(std::mem::take(&mut current));
                 previous_was_slash = true;
             }
         } else {
-            current.push(character);
+            current.push_unit(character);
             previous_was_slash = false;
         }
     }
@@ -637,4 +663,55 @@ mod tests {
         assert_eq!(brace_expand("a{b,c}d", &options), vec!["abd", "acd"]);
         assert_eq!(brace_expand("a{1..3}b", &options), vec!["a1b", "a2b", "a3b"]);
     }
+}
+
+impl From<u16> for JsString {
+    fn from(unit: u16) -> Self {
+        Self::from_utf16(vec![unit])
+    }
+}
+impl FromIterator<u16> for JsString {
+    fn from_iter<T: IntoIterator<Item = u16>>(units: T) -> Self {
+        Self::from_utf16(units.into_iter().collect())
+    }
+}
+impl<'a> FromIterator<&'a u16> for JsString {
+    fn from_iter<T: IntoIterator<Item = &'a u16>>(units: T) -> Self {
+        units.into_iter().copied().collect()
+    }
+}
+impl FromIterator<JsString> for JsString {
+    fn from_iter<T: IntoIterator<Item = JsString>>(parts: T) -> Self {
+        Self::join(parts, "")
+    }
+}
+
+mod units {
+    pub(super) const NUL: u16 = 0;
+    pub(super) const BANG: u16 = b'!' as u16;
+    pub(super) const HASH: u16 = b'#' as u16;
+    pub(super) const DOLLAR: u16 = b'$' as u16;
+    pub(super) const OPEN_PAREN: u16 = b'(' as u16;
+    pub(super) const CLOSE_PAREN: u16 = b')' as u16;
+    pub(super) const STAR: u16 = b'*' as u16;
+    pub(super) const PLUS: u16 = b'+' as u16;
+    pub(super) const COMMA: u16 = b',' as u16;
+    pub(super) const DASH: u16 = b'-' as u16;
+    pub(super) const DOT: u16 = b'.' as u16;
+    pub(super) const SLASH: u16 = b'/' as u16;
+    pub(super) const ZERO: u16 = b'0' as u16;
+    pub(super) const NINE: u16 = b'9' as u16;
+    pub(super) const QUESTION: u16 = b'?' as u16;
+    pub(super) const AT: u16 = b'@' as u16;
+    pub(super) const UPPER_A: u16 = b'A' as u16;
+    pub(super) const UPPER_Z: u16 = b'Z' as u16;
+    pub(super) const OPEN_BRACKET: u16 = b'[' as u16;
+    pub(super) const BACKSLASH: u16 = b'\\' as u16;
+    pub(super) const CLOSE_BRACKET: u16 = b']' as u16;
+    pub(super) const CARET: u16 = b'^' as u16;
+    pub(super) const LOWER_A: u16 = b'a' as u16;
+    pub(super) const LOWER_Z: u16 = b'z' as u16;
+    pub(super) const OPEN_BRACE: u16 = b'{' as u16;
+    pub(super) const PIPE: u16 = b'|' as u16;
+    pub(super) const CLOSE_BRACE: u16 = b'}' as u16;
 }

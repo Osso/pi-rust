@@ -26,8 +26,8 @@ icu_locale_core = "=2.3.0"
 # ICU4C preserves lone UTF-16 surrogates that ICU4X compare_utf16 replaces.
 rust_icu_ucol = "=5.8.0"
 rust_icu_ustring = "=5.8.0"
-# Executes minimatch's lookaround regular expressions.
-fancy-regex = "=0.16.2"
+# ECMAScript regex syntax and native UTF-16/UCS-2 matching for validation and globs.
+regress = { version = "=0.12.0", features = ["utf16"] }
 
 [dev-dependencies]
 # Exercises numeric field serialize_with attributes without changing runtime features.

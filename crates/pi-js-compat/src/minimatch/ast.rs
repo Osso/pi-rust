@@ -1,6 +1,8 @@
 //! Glob AST parsing and regular-expression generation (`ast.ts`).
+use super::units::*;
+use crate::js_json::JsString;
 
-use fancy_regex::Regex;
+use crate::js_regex::JsRegex as Regex;
 
 use super::MinimatchOptions;
 use super::class::parse_class;
@@ -18,31 +20,31 @@ pub(crate) enum ExtKind {
 }
 
 impl ExtKind {
-    fn from_char(character: char) -> Option<Self> {
+    fn from_char(character: u16) -> Option<Self> {
         match character {
-            '!' => Some(Self::Bang),
-            '?' => Some(Self::Question),
-            '@' => Some(Self::At),
-            '*' => Some(Self::Star),
-            '+' => Some(Self::Plus),
+            BANG => Some(Self::Bang),
+            QUESTION => Some(Self::Question),
+            AT => Some(Self::At),
+            STAR => Some(Self::Star),
+            PLUS => Some(Self::Plus),
             _ => None,
         }
     }
 
-    fn as_char(self) -> char {
+    fn as_char(self) -> u16 {
         match self {
-            Self::Bang => '!',
-            Self::Question => '?',
-            Self::At => '@',
-            Self::Star => '*',
-            Self::Plus => '+',
+            Self::Bang => BANG,
+            Self::Question => QUESTION,
+            Self::At => AT,
+            Self::Star => STAR,
+            Self::Plus => PLUS,
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) enum AstPart {
-    Str(String),
+    Str(JsString),
     Node(NodeId),
 }
 
@@ -68,12 +70,12 @@ pub(crate) struct Ast {
 const START_NO_TRAVERSAL: &str = "(?!(?:^|/)\\.\\.?(?:$|/))";
 const START_NO_DOT: &str = "(?!\\.)";
 const QMARK: &str = "[^/]";
-const STAR: &str = "[^/]*?";
+const STAR_SOURCE: &str = "[^/]*?";
 const STAR_NO_EMPTY: &str = "[^/]+?";
 
 const RE_SPECIALS: &str = "().*{}+?[]^$\\!";
 const JUST_DOTS: &[&str] = &["..", "."];
-const ADD_PATTERN_START: &[char] = &['[', '.'];
+const ADD_PATTERN_START: &[u16] = &[OPEN_BRACKET, DOT];
 
 fn adoption_map(kind: ExtKind) -> &'static [ExtKind] {
     match kind {
@@ -116,7 +118,7 @@ fn usurp_map(kind: ExtKind, child: ExtKind) -> Option<ExtKind> {
 }
 
 pub(crate) enum MmPattern {
-    Literal(String),
+    Literal(JsString),
     Regex(Regex),
     Invalid,
 }
@@ -132,22 +134,22 @@ struct ScanState {
 impl ScanState {
     /// Consumes escape and character-class bookkeeping characters. Returns
     /// `true` when the character belongs to the literal accumulator.
-    fn consume(&mut self, character: char, index: usize) -> bool {
-        if self.escaping || character == '\\' {
+    fn consume(&mut self, character: u16, index: usize) -> bool {
+        if self.escaping || character == BACKSLASH {
             self.escaping = !self.escaping;
             return true;
         }
         if self.in_brace {
             if index == self.brace_start + 1 {
-                if character == '^' || character == '!' {
+                if character == CARET || character == BANG {
                     self.brace_negated = true;
                 }
-            } else if character == ']' && !(index == self.brace_start + 2 && self.brace_negated) {
+            } else if character == CLOSE_BRACKET && !(index == self.brace_start + 2 && self.brace_negated) {
                 self.in_brace = false;
             }
             return true;
         }
-        if character == '[' {
+        if character == OPEN_BRACKET {
             self.in_brace = true;
             self.brace_start = index;
             self.brace_negated = false;
@@ -158,8 +160,8 @@ impl ScanState {
 }
 
 impl Ast {
-    pub(crate) fn from_glob(pattern: &str, options: &MinimatchOptions) -> Self {
-        let characters: Vec<char> = pattern.chars().collect();
+    pub(crate) fn from_glob(pattern: &JsString, options: &MinimatchOptions) -> Self {
+        let characters: Vec<u16> = pattern.units().iter().copied().collect();
         let mut ast = Self {
             nodes: Vec::new(),
             root: 0,
@@ -191,7 +193,7 @@ impl Ast {
         id
     }
 
-    fn push_str(&mut self, node: NodeId, value: &str) {
+    fn push_str(&mut self, node: NodeId, value: &JsString) {
         if !value.is_empty() {
             self.nodes[node].parts.push(AstPart::Str(value.to_owned()));
         }
@@ -201,93 +203,92 @@ impl Ast {
         self.nodes[node].parts.push(AstPart::Node(child));
     }
 
-    fn parse_ast(&mut self, characters: &[char], position: usize, node: NodeId, ext_depth: usize) -> usize {
+    fn parse_ast(&mut self, characters: &[u16], position: usize, node: NodeId, ext_depth: usize) -> usize {
         if self.nodes[node].kind.is_none() {
             return self.parse_plain(characters, position, node, ext_depth);
         }
         self.parse_extglob(characters, position, node, ext_depth)
     }
 
-    fn parse_plain(&mut self, characters: &[char], position: usize, node: NodeId, ext_depth: usize) -> usize {
+    fn parse_plain(&mut self, characters: &[u16], position: usize, node: NodeId, ext_depth: usize) -> usize {
         let mut index = position;
-        let mut accumulated = String::new();
+        let mut accumulated = JsString::default();
         let mut scan = ScanState::default();
         while index < characters.len() {
             let character = characters[index];
             index += 1;
             if scan.consume(character, index) {
-                accumulated.push(character);
+                accumulated.push_unit(character);
                 continue;
             }
             let recurse = !self.options.noext
                 && ExtKind::from_char(character).is_some()
-                && characters.get(index) == Some(&'(')
+                && characters.get(index) == Some(&OPEN_PAREN)
                 && ext_depth <= self.options.max_extglob_recursion;
             if recurse {
                 self.push_str(node, &accumulated);
-                accumulated.clear();
+                accumulated = JsString::default();
                 let ext = self.new_node(ExtKind::from_char(character), Some(node));
                 index = self.parse_ast(characters, index, ext, ext_depth + 1);
                 self.push_node(node, ext);
                 continue;
             }
-            accumulated.push(character);
+            accumulated.push_unit(character);
         }
         self.push_str(node, &accumulated);
         index
     }
 
-    fn parse_extglob(&mut self, characters: &[char], position: usize, node: NodeId, ext_depth: usize) -> usize {
+    fn parse_extglob(&mut self, characters: &[u16], position: usize, node: NodeId, ext_depth: usize) -> usize {
         let mut index = position + 1;
         let mut part = self.new_node(None, Some(node));
         let mut parts = Vec::new();
-        let mut accumulated = String::new();
+        let mut accumulated = JsString::default();
         let mut scan = ScanState::default();
         while index < characters.len() {
             let character = characters[index];
             index += 1;
             if scan.consume(character, index) {
-                accumulated.push(character);
+                accumulated.push_unit(character);
                 continue;
             }
             let child_kind = ExtKind::from_char(character);
             let recurse = !self.options.noext
                 && child_kind.is_some()
-                && characters.get(index) == Some(&'(')
+                && characters.get(index) == Some(&OPEN_PAREN)
                 && (ext_depth <= self.options.max_extglob_recursion || self.can_adopt_type(node, child_kind.unwrap()));
             if recurse {
                 let depth_add = usize::from(!self.can_adopt_type(node, child_kind.unwrap()));
                 self.push_str(part, &accumulated);
-                accumulated.clear();
+                accumulated = JsString::default();
                 let ext = self.new_node(child_kind, Some(part));
                 self.push_node(part, ext);
                 index = self.parse_ast(characters, index, ext, ext_depth + depth_add);
                 continue;
             }
-            if character == '|' {
+            if character == PIPE {
                 self.push_str(part, &accumulated);
-                accumulated.clear();
+                accumulated = JsString::default();
                 parts.push(part);
                 part = self.new_node(None, Some(node));
                 continue;
             }
-            if character == ')' {
+            if character == CLOSE_PAREN {
                 if accumulated.is_empty() && self.nodes[node].parts.is_empty() {
                     self.nodes[node].empty_ext = true;
                 }
                 self.push_str(part, &accumulated);
-                accumulated.clear();
                 for alternative in parts {
                     self.push_node(node, alternative);
                 }
                 self.push_node(node, part);
                 return index;
             }
-            accumulated.push(character);
+            accumulated.push_unit(character);
         }
         self.nodes[node].kind = None;
         self.nodes[node].has_magic = None;
-        let literal: String = characters[position - 1..].iter().collect();
+        let literal: JsString = characters[position - 1..].iter().collect();
         self.nodes[node].parts = vec![AstPart::Str(literal)];
         index
     }
@@ -368,7 +369,7 @@ impl Ast {
             return;
         };
         let blank = self.new_node(None, Some(grandchild));
-        self.nodes[blank].parts.push(AstPart::Str(String::new()));
+        self.nodes[blank].parts.push(AstPart::Str(JsString::default()));
         self.push_node(grandchild, blank);
         self.adopt(node, child, index);
     }
@@ -553,19 +554,27 @@ impl Ast {
         None
     }
 
-    fn to_string(&self, node: NodeId) -> String {
+    fn to_string(&self, node: NodeId) -> JsString {
         match self.nodes[node].kind {
             Some(kind) => {
-                let body = self.nodes[node]
+                let body_parts = self.nodes[node]
                     .parts
                     .iter()
                     .map(|part| match part {
                         AstPart::Str(value) => value.clone(),
                         AstPart::Node(child) => self.to_string(*child),
                     })
-                    .collect::<Vec<_>>()
-                    .join("|");
-                format!("{}({body})", kind.as_char())
+                    .collect::<Vec<_>>();
+                let body = JsString::join(body_parts, "|");
+                JsString::join(
+                    [
+                        JsString::from(kind.as_char()),
+                        JsString::from("("),
+                        JsString::from(&body),
+                        JsString::from(")"),
+                    ],
+                    "",
+                )
             }
             None => self.nodes[node]
                 .parts
@@ -583,22 +592,24 @@ impl Ast {
         let (source, body, has_magic, _uflag) = self.regexp_source(self.root, None);
         let any_magic = has_magic
             || self.nodes[self.root].has_magic.unwrap_or(false)
-            || (self.options.nocase && !self.options.nocase_magic_only && glob.to_uppercase() != glob.to_lowercase());
+            || (self.options.nocase && !self.options.nocase_magic_only && has_case_variants(&glob));
         if !any_magic {
             return MmPattern::Literal(body);
         }
-        let pattern = if self.options.nocase {
-            format!("(?i)^{source}$")
-        } else {
-            format!("^{source}$")
+        let pattern = JsString::from("^") + &source + "$";
+        let flags = match (self.options.nocase, _uflag) {
+            (true, true) => "iu",
+            (true, false) => "i",
+            (false, true) => "u",
+            (false, false) => "",
         };
-        match Regex::new(&pattern) {
+        match Regex::with_flags(&pattern, flags) {
             Ok(regex) => MmPattern::Regex(regex),
             Err(_) => MmPattern::Invalid,
         }
     }
 
-    fn regexp_source(&mut self, node: NodeId, allow_dot: Option<bool>) -> (String, String, bool, bool) {
+    fn regexp_source(&mut self, node: NodeId, allow_dot: Option<bool>) -> (JsString, JsString, bool, bool) {
         let dot = allow_dot.unwrap_or(self.options.dot);
         if node == self.root {
             self.flatten(node);
@@ -615,7 +626,7 @@ impl Ast {
         node: NodeId,
         allow_dot: Option<bool>,
         dot: bool,
-    ) -> (String, String, bool, bool) {
+    ) -> (JsString, JsString, bool, bool) {
         let is_start = self.is_start(node);
         let is_end = self.is_end(node);
         let no_empty = is_start
@@ -626,7 +637,7 @@ impl Ast {
                 .any(|part| !matches!(part, AstPart::Str(_)));
         let mut has_magic = self.has_magic(node).unwrap_or(false);
         let mut uflag = false;
-        let mut source = String::new();
+        let mut source = JsString::default();
         for part in self.nodes[node].parts.clone() {
             match part {
                 AstPart::Str(value) => {
@@ -655,22 +666,37 @@ impl Ast {
         } else {
             ""
         };
-        let final_source = format!("{start}{source}{end}");
+        let final_source = JsString::join(
+            [JsString::from(start), JsString::from(&source), JsString::from(end)],
+            "",
+        );
         (final_source, unescape(&source), has_magic, self.nodes[node].uflag)
     }
 
-    fn start_anchor(&self, node: NodeId, source: &str, dot: bool, allow_dot: Option<bool>) -> &'static str {
+    fn start_anchor(&self, node: NodeId, source: &JsString, dot: bool, allow_dot: Option<bool>) -> &'static str {
         let Some(AstPart::Str(first)) = self.nodes[node].parts.first() else {
             return "";
         };
-        let dot_traversal_allowed = self.nodes[node].parts.len() == 1 && JUST_DOTS.contains(&first.as_str());
+        let dot_traversal_allowed = self.nodes[node].parts.len() == 1 && JUST_DOTS.iter().any(|dots| first == dots);
         if dot_traversal_allowed {
             return "";
         }
-        let first_source = source.chars().next();
+        let first_source = source.units().iter().copied().next();
         let need_no_traversal = (dot && first_source.is_some_and(|c| ADD_PATTERN_START.contains(&c)))
-            || (source.starts_with("\\.") && source.chars().nth(2).is_some_and(|c| ADD_PATTERN_START.contains(&c)))
-            || (source.starts_with("\\..\\") && source.chars().nth(4).is_some_and(|c| ADD_PATTERN_START.contains(&c)));
+            || (source.starts_with("\\.")
+                && source
+                    .units()
+                    .iter()
+                    .copied()
+                    .nth(2)
+                    .is_some_and(|c| ADD_PATTERN_START.contains(&c)))
+            || (source.starts_with("\\..\\")
+                && source
+                    .units()
+                    .iter()
+                    .copied()
+                    .nth(4)
+                    .is_some_and(|c| ADD_PATTERN_START.contains(&c)));
         let need_no_dot =
             !dot && allow_dot != Some(true) && first_source.is_some_and(|c| ADD_PATTERN_START.contains(&c));
         if need_no_traversal {
@@ -694,10 +720,10 @@ impl Ast {
         &self,
         node: NodeId,
         kind: ExtKind,
-        body_dot_allowed: &str,
+        body_dot_allowed: &JsString,
         dot: bool,
         allow_dot: Option<bool>,
-    ) -> String {
+    ) -> JsString {
         match kind {
             ExtKind::Bang => {
                 let prefix = if self.is_start(node) && !dot && allow_dot != Some(true) {
@@ -705,14 +731,22 @@ impl Ast {
                 } else {
                     ""
                 };
-                format!(")){prefix}{STAR})")
+                JsString::join(
+                    [
+                        JsString::from("))"),
+                        JsString::from(prefix),
+                        JsString::from(STAR_SOURCE),
+                        JsString::from(")"),
+                    ],
+                    "",
+                )
             }
-            ExtKind::At => ")".to_owned(),
-            ExtKind::Question => ")?".to_owned(),
-            ExtKind::Plus if !body_dot_allowed.is_empty() => ")".to_owned(),
-            ExtKind::Star if !body_dot_allowed.is_empty() => ")?".to_owned(),
-            ExtKind::Plus => ")+".to_owned(),
-            ExtKind::Star => ")*".to_owned(),
+            ExtKind::At => JsString::from(")"),
+            ExtKind::Question => JsString::from(")?"),
+            ExtKind::Plus if !body_dot_allowed.is_empty() => JsString::from(")"),
+            ExtKind::Star if !body_dot_allowed.is_empty() => JsString::from(")?"),
+            ExtKind::Plus => JsString::from(")+"),
+            ExtKind::Star => JsString::from(")*"),
         }
     }
 
@@ -721,7 +755,7 @@ impl Ast {
         node: NodeId,
         allow_dot: Option<bool>,
         dot: bool,
-    ) -> (String, String, bool, bool) {
+    ) -> (JsString, JsString, bool, bool) {
         let kind = self.nodes[node].kind.unwrap();
         let repeated = matches!(kind, ExtKind::Star | ExtKind::Plus);
         let start = if kind == ExtKind::Bang { "(?:(?!(?:" } else { "(?:" };
@@ -734,27 +768,39 @@ impl Ast {
             return (literal.clone(), unescape(&literal), false, false);
         }
         let mut body_dot_allowed = if !repeated || allow_dot == Some(true) || dot {
-            String::new()
+            JsString::default()
         } else {
             self.parts_to_regexp(node, true)
         };
         if body_dot_allowed == body {
-            body_dot_allowed.clear();
+            body_dot_allowed = JsString::default();
         }
         if !body_dot_allowed.is_empty() {
-            body = format!("(?:{body})(?:{body_dot_allowed})*?");
+            body = JsString::join(
+                [
+                    JsString::from("(?:"),
+                    JsString::from(&body),
+                    JsString::from(")(?:"),
+                    JsString::from(&body_dot_allowed),
+                    JsString::from(")*?"),
+                ],
+                "",
+            );
         }
         let final_source = if kind == ExtKind::Bang && self.nodes[node].empty_ext {
             let prefix = if self.is_start(node) && !dot { START_NO_DOT } else { "" };
-            format!("{prefix}{STAR_NO_EMPTY}")
+            JsString::join([JsString::from(prefix), JsString::from(STAR_NO_EMPTY)], "")
         } else {
             let close = self.extglob_close(node, kind, &body_dot_allowed, dot, allow_dot);
-            format!("{start}{body}{close}")
+            JsString::join(
+                [JsString::from(start), JsString::from(&body), JsString::from(close)],
+                "",
+            )
         };
         (final_source, unescape(&body), true, self.nodes[node].uflag)
     }
 
-    fn parts_to_regexp(&mut self, node: NodeId, dot: bool) -> String {
+    fn parts_to_regexp(&mut self, node: NodeId, dot: bool) -> JsString {
         let is_start = self.is_start(node);
         let is_end = self.is_end(node);
         let mut parts = Vec::new();
@@ -768,46 +814,62 @@ impl Ast {
                 parts.push(regex);
             }
         }
-        parts.join("|")
+        JsString::join(parts, "|")
     }
 }
 
-fn parse_glob(glob: &str, has_magic: bool, no_empty: bool) -> (String, String, bool, bool) {
-    let characters: Vec<char> = glob.chars().collect();
+fn parse_glob(glob: &JsString, has_magic: bool, no_empty: bool) -> (JsString, JsString, bool, bool) {
+    let characters: Vec<u16> = glob.units().iter().copied().collect();
     let mut escaping = false;
-    let mut regex = String::new();
+    let mut regex = JsString::default();
     let mut uflag = false;
     let mut has_magic = has_magic;
     let mut in_star = false;
-    let all_stars = !characters.is_empty() && characters.iter().all(|character| *character == '*');
+    let all_stars = !characters.is_empty() && characters.iter().all(|character| *character == STAR);
     let mut index = 0;
     while index < characters.len() {
         let character = characters[index];
         if escaping {
             escaping = false;
-            if RE_SPECIALS.contains(character)
+            if RE_SPECIALS.encode_utf16().any(|unit| unit == character)
                 && matches!(
                     character,
-                    '\\' | '.' | '+' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$'
+                    BACKSLASH
+                        | DOT
+                        | PLUS
+                        | STAR
+                        | QUESTION
+                        | OPEN_PAREN
+                        | CLOSE_PAREN
+                        | OPEN_BRACKET
+                        | CLOSE_BRACKET
+                        | OPEN_BRACE
+                        | CLOSE_BRACE
+                        | CARET
+                        | DOLLAR
                 )
             {
-                regex.push('\\');
+                regex.push_unit(BACKSLASH);
             }
-            regex.push(character);
+            regex.push_unit(character);
             index += 1;
             continue;
         }
-        if character == '*' {
+        if character == STAR {
             if !in_star {
                 in_star = true;
-                regex.push_str(if no_empty && all_stars { STAR_NO_EMPTY } else { STAR });
+                regex.push_str(if no_empty && all_stars {
+                    STAR_NO_EMPTY
+                } else {
+                    STAR_SOURCE
+                });
                 has_magic = true;
             }
             index += 1;
             continue;
         }
         in_star = false;
-        if character == '\\' {
+        if character == BACKSLASH {
             if index == characters.len() - 1 {
                 regex.push_str("\\\\");
             } else {
@@ -816,7 +878,7 @@ fn parse_glob(glob: &str, has_magic: bool, no_empty: bool) -> (String, String, b
             index += 1;
             continue;
         }
-        if character == '[' {
+        if character == OPEN_BRACKET {
             let parsed = parse_class(&characters, index);
             if parsed.consumed > 0 {
                 regex.push_str(&parsed.source);
@@ -826,14 +888,20 @@ fn parse_glob(glob: &str, has_magic: bool, no_empty: bool) -> (String, String, b
                 continue;
             }
         }
-        if character == '?' {
+        if character == QUESTION {
             regex.push_str(QMARK);
             has_magic = true;
             index += 1;
             continue;
         }
-        regex.push_str(&regexp_escape(&character.to_string()));
+        regex.push_str(&regexp_escape(&JsString::from(character)));
         index += 1;
     }
     (regex, unescape(glob), has_magic, uflag)
+}
+
+fn has_case_variants(text: &JsString) -> bool {
+    char::decode_utf16(text.units().iter().copied())
+        .filter_map(Result::ok)
+        .any(|point| point.to_uppercase().to_string() != point.to_lowercase().to_string())
 }

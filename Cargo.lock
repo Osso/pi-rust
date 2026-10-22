@@ -2195,11 +2195,11 @@ dependencies = [
 name = "pi-js-compat"
 version = "0.0.0"
 dependencies = [
- "fancy-regex",
  "icu_collator",
  "icu_locale_core",
  "indexmap",
  "jiff",
+ "regress",
  "rust_icu_ucol",
  "rust_icu_ustring",
  "rustix 1.1.5",
