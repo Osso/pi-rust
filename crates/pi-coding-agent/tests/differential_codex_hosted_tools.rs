@@ -23,18 +23,24 @@ use pi_coding_agent::bundled_extensions::codex_web_search::{
 };
 use pi_coding_agent::core::extensions::types::ToolDefinition;
 use pi_coding_agent::core::extensions::{ExtensionRuntime, create_extension_runtime};
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
+use pi_js_compat::js_json::{JsObject as Map, JsString};
 
 const SOURCE: &str = "packages/coding-agent/extensions/codex-web-search/src/index.ts";
 
 fn model(case: &Value) -> pi_ai::types::Model {
     let mut model = test_model(false);
-    model.api = case.get("api").and_then(Value::as_str).unwrap_or_default().to_owned();
+    model.api = case
+        .get("api")
+        .and_then(Value::as_string)
+        .map(|tag| tag.to_utf8().expect("scalar model tag"))
+        .unwrap_or_default();
     model.provider = case
         .get("provider")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
+        .and_then(Value::as_string)
+        .map(|tag| tag.to_utf8().expect("scalar model tag"))
+        .unwrap_or_default();
     model
 }
 
@@ -50,7 +56,7 @@ fn metadata(tool: &ToolDefinition) -> Value {
     })
 }
 
-fn oauth_auth(provider: &str) -> Option<Map<String, Value>> {
+fn oauth_auth(provider: &str) -> Option<Map> {
     json!({(provider): {
         "type": "oauth",
         "refresh": "refresh-token",
@@ -61,9 +67,9 @@ fn oauth_auth(provider: &str) -> Option<Map<String, Value>> {
     .cloned()
 }
 
-fn normalize_path(text: &str) -> String {
-    let pattern = regex::Regex::new(r"image-gen-[a-f0-9]{16}\.png").expect("image name pattern");
-    pattern.replace_all(text, "image-gen-<hex>.png").into_owned()
+fn normalize_path(text: &JsString) -> JsString {
+    let pattern = pi_js_compat::js_regex::JsRegex::new(r"image-gen-[a-f0-9]{16}\.png").expect("image name pattern");
+    pattern.replace_all(text, "image-gen-<hex>.png")
 }
 
 async fn load_web_search(
@@ -91,12 +97,12 @@ async fn load_image_generation(
 async fn run_web_execute(case: &Value) -> Value {
     let captured: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
     let capture = Arc::clone(&captured);
-    let run_error = case.get("runError").and_then(Value::as_str).map(str::to_owned);
+    let run_error = case.get("runError").and_then(Value::as_string).cloned();
     let run_result = case
         .get("runResult")
-        .and_then(Value::as_str)
-        .unwrap_or("Search result text")
-        .to_owned();
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_else(|| JsString::from("Search result text"));
     let run_search: RunWebSearch = Arc::new(move |request: WebSearchRequest, _ctx| {
         *capture.lock().unwrap() = Some(json!({
             "query": request.query,
@@ -169,7 +175,7 @@ async fn run_web_execute(case: &Value) -> Value {
 async fn run_image_execute(case: &Value) -> Value {
     let captured: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
     let capture = Arc::clone(&captured);
-    let run_error = case.get("runError").and_then(Value::as_str).map(str::to_owned);
+    let run_error = case.get("runError").and_then(Value::as_string).cloned();
     let run_generation: RunImageGeneration = Arc::new(move |request: ImageGenerationRequest, _ctx| {
         *capture.lock().unwrap() = Some(json!({
             "prompt": request.prompt,
@@ -193,8 +199,12 @@ async fn run_image_execute(case: &Value) -> Value {
         },
     )
     .await;
-    let cwd = case.get("cwd").and_then(Value::as_str).unwrap_or("/tmp").to_owned();
-    let mut options = HarnessOptions::new(&cwd);
+    let cwd = case
+        .get("cwd")
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_else(|| JsString::from("/tmp"));
+    let mut options = HarnessOptions::new(&cwd.to_utf8().expect("utf-8 test path"));
     let model_case = case.get("model").cloned().unwrap_or(Value::Null);
     options.model = Some(model(&model_case));
     options.auth = oauth_auth("openai-codex");
@@ -246,54 +256,57 @@ async fn run_image_execute(case: &Value) -> Value {
 async fn rust_results(cases: &[Value]) -> Vec<Value> {
     let mut results = Vec::new();
     for case in cases {
-        let kind = case.get("kind").and_then(Value::as_str).unwrap_or_default();
+        let kind = case.get("kind").and_then(Value::as_string).cloned().unwrap_or_default();
         let mut output = Map::new();
-        output.insert("name".to_owned(), case.get("name").cloned().unwrap_or(Value::Null));
+        output.insert(
+            "name".to_owned().into(),
+            case.get("name").cloned().unwrap_or(Value::Null),
+        );
         match kind {
-            "web_payload" => {
+            kind if kind == "web_payload" => {
                 output.insert(
-                    "value".to_owned(),
+                    "value".to_owned().into(),
                     add_web_search_tool_to_payload(case.get("payload").unwrap_or(&Value::Null)).unwrap_or(Value::Null),
                 );
             }
-            "image_payload" => {
+            kind if kind == "image_payload" => {
                 output.insert(
-                    "value".to_owned(),
+                    "value".to_owned().into(),
                     add_image_generation_tool_to_payload(case.get("payload").unwrap_or(&Value::Null))
                         .unwrap_or(Value::Null),
                 );
             }
-            "web_model" => {
+            kind if kind == "web_model" => {
                 output.insert(
-                    "value".to_owned(),
+                    "value".to_owned().into(),
                     Value::Bool(is_openai_hosted_web_search_model(Some(&model(
                         case.get("model").unwrap_or(&Value::Null),
                     )))),
                 );
             }
-            "image_model" => {
+            kind if kind == "image_model" => {
                 output.insert(
-                    "value".to_owned(),
+                    "value".to_owned().into(),
                     Value::Bool(is_openai_hosted_image_generation_model(Some(&model(
                         case.get("model").unwrap_or(&Value::Null),
                     )))),
                 );
             }
-            "web_metadata" => {
+            kind if kind == "web_metadata" => {
                 output.insert(
-                    "metadata".to_owned(),
+                    "metadata".to_owned().into(),
                     metadata(&create_web_search_tool_definition(&WebSearchToolOptions::default())),
                 );
             }
-            "image_metadata" => {
+            kind if kind == "image_metadata" => {
                 output.insert(
-                    "metadata".to_owned(),
+                    "metadata".to_owned().into(),
                     metadata(&create_image_generation_tool_definition(
                         &ImageGenerationToolOptions::default(),
                     )),
                 );
             }
-            "web_execute" => {
+            kind if kind == "web_execute" => {
                 let value = run_web_execute(case).await;
                 if let Value::Object(object) = value {
                     for (key, value) in object {
@@ -301,7 +314,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                     }
                 }
             }
-            "image_execute" => {
+            kind if kind == "image_execute" => {
                 let value = run_image_execute(case).await;
                 if let Value::Object(object) = value {
                     for (key, value) in object {
@@ -309,7 +322,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                     }
                 }
             }
-            other => panic!("unknown hosted tools case {other}"),
+            other => panic!("unknown hosted tools case {other:?}"),
         }
         results.push(Value::Object(output));
     }
@@ -345,15 +358,20 @@ async fn differential_codex_hosted_tools() {
     ];
     let mut ts = TsOracle::spawn("codex-hosted-tools-oracle.ts", SOURCE);
     let response = ts.request(&json!({"id": 1, "operation": "cases", "cases": cases}));
-    assert_eq!(response["ok"], true, "oracle failed: {response}");
-    let expected: Vec<Value> = serde_json::from_value(response["output"]["results"].clone()).expect("oracle results");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "oracle failed: {response:?}"
+    );
+    let expected: Vec<Value> =
+        pi_js_compat::js_json::from_value(&response["output"]["results"].clone()).expect("oracle results");
     let actual = rust_results(&cases).await;
     assert_eq!(actual.len(), expected.len());
     for (index, (actual, expected)) in actual.iter().zip(expected.iter()).enumerate() {
         assert_eq!(
             actual,
             expected,
-            "case {index} ({}) mismatch\nactual:\n{}\nexpected:\n{}",
+            "case {index} ({:?}) mismatch\nactual:\n{}\nexpected:\n{}",
             cases[index]["name"],
             serde_json::to_string_pretty(actual).unwrap(),
             serde_json::to_string_pretty(expected).unwrap()

@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 #[path = "support/oracle.rs"]
 mod oracle;
 #[path = "support/tool_context.rs"]
@@ -32,12 +33,12 @@ use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, NoTools, create_agen
 use pi_coding_agent::core::session_control_db::get_control_db_path;
 use pi_coding_agent::core::session_manager::{SessionManager, lock_session_manager};
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
-use serde_json::json;
+use pi_js_compat::js_json as json;
 
 fn user_message(content: &str, input_source: Option<pi_ai::types::InputSource>, timestamp: i64) -> AgentMessage {
     AgentMessage::User(UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text(content.to_owned()),
+        content: UserContent::Text(content.to_owned().into()),
         input_source,
         provider_native: None,
         timestamp,
@@ -96,22 +97,34 @@ fn turn_decision_tracks_pending_real_user_turns_across_continuations() {
 
 #[test]
 fn titles_are_normalized_like_the_typescript_helper() {
-    assert_eq!(normalize_title("## Session Title: Fix Login"), "Fix Login");
-    assert_eq!(normalize_title("title - Port Control DB"), "Port Control DB");
-    assert_eq!(normalize_title("  **\"Quoted Name\"**  "), "Quoted Name");
-    assert_eq!(normalize_title("\n\n   spaced   out   \nsecond line"), "spaced out");
-    assert_eq!(normalize_title(""), "");
+    assert_eq!(
+        normalize_title(&JsString::from("## Session Title: Fix Login")),
+        "Fix Login"
+    );
+    assert_eq!(
+        normalize_title(&JsString::from("title - Port Control DB")),
+        "Port Control DB"
+    );
+    assert_eq!(
+        normalize_title(&JsString::from("  **\"Quoted Name\"**  ")),
+        "Quoted Name"
+    );
+    assert_eq!(
+        normalize_title(&JsString::from("\n\n   spaced   out   \nsecond line")),
+        "spaced out"
+    );
+    assert_eq!(normalize_title(&JsString::from("")), "");
 }
 
 #[test]
 fn titles_truncate_at_word_boundaries_and_hard_cap() {
-    assert_eq!(truncate_title("short title"), "short title");
+    assert_eq!(truncate_title(&JsString::from("short title")), "short title");
     let long_words = "a".repeat(120);
-    assert_eq!(truncate_title(&long_words), "a".repeat(80));
+    assert_eq!(truncate_title(&JsString::from(long_words)), "a".repeat(80));
     let sentence = "Port the control database schema to version fifteen";
-    let truncated = truncate_title(sentence);
+    let truncated = truncate_title(&JsString::from(sentence));
     assert!(truncated.len() <= 80);
-    assert!(sentence.starts_with(&truncated));
+    assert!(JsString::from(sentence).starts_with(&truncated));
 }
 
 #[test]
@@ -122,7 +135,7 @@ fn generated_titles_map_stop_reasons_to_outcomes() {
 
     let mut failed = faux_assistant_message("", FauxAssistantMessageOptions::default());
     failed.stop_reason = StopReason::Error;
-    failed.error_message = Some("invalid_api_key".to_owned());
+    failed.error_message = Some("invalid_api_key".to_owned().into());
     assert_eq!(
         read_generated_title(&failed).expect_err("error").to_string(),
         "invalid_api_key"
@@ -144,21 +157,21 @@ fn generated_titles_map_stop_reasons_to_outcomes() {
     let titled = faux_assistant_message("Session Title: Control DB v15", FauxAssistantMessageOptions::default());
     assert_eq!(
         read_generated_title(&titled).expect("title"),
-        Some("Control DB v15".to_owned())
+        Some(JsString::from("Control DB v15"))
     );
 }
 
 #[test]
 fn title_context_bounds_the_transcript_and_labels_missing_responses() {
     let exchange = pi_coding_agent::bundled_extensions::session_autoname::FirstExchange {
-        user_text: "Name this".to_owned(),
-        assistant_text: String::new(),
+        user_text: "Name this".to_owned().into(),
+        assistant_text: String::new().into(),
     };
     let context = build_title_context(&exchange);
     assert!(
         context
             .system_prompt
-            .as_deref()
+            .clone()
             .unwrap_or_default()
             .contains("session title")
     );
@@ -178,8 +191,8 @@ struct Env {
     session: AgentSession,
     faux: FauxProviderHandle,
     control_db_path: String,
-    session_file: String,
-    extension_name_events: Arc<Mutex<Vec<Option<String>>>>,
+    session_file: JsString,
+    extension_name_events: Arc<Mutex<Vec<Option<JsString>>>>,
     _dir: tempfile::TempDir,
 }
 
@@ -203,8 +216,8 @@ async fn env() -> Env {
         }]),
         ..Default::default()
     });
-    let mut credentials = serde_json::Map::new();
-    credentials.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
+    let mut credentials = pi_js_compat::js_json::JsObject::new();
+    credentials.insert(JsString::from("faux"), json!({"type": "api_key", "key": "faux-key"}));
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(credentials))),
         models_path: Some(None),
@@ -217,10 +230,11 @@ async fn env() -> Env {
     let model = faux.get_model(None).expect("faux model");
 
     let control_db_path = get_control_db_path(std::path::Path::new(&agent_dir));
-    let mut manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
+    let mut manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(session_dir)), None)
+        .expect("session manager");
     manager
         .set_metadata_control_db_path(
-            Some(&control_db_path),
+            Some(&JsString::from(&control_db_path)),
             pi_coding_agent::core::session_manager::SetMetadataControlDbPathOptions::default(),
         )
         .expect("control db");
@@ -248,8 +262,8 @@ async fn env() -> Env {
     });
     let settings_manager = SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default());
     let result = create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(cwd),
-        agent_dir: Some(agent_dir),
+        cwd: Some(cwd.into()),
+        agent_dir: Some(agent_dir.into()),
         model_runtime: Some(model_runtime),
         model: Some(model),
         thinking_level: Some(ThinkingLevel::Off),
@@ -257,7 +271,7 @@ async fn env() -> Env {
         session_manager: Some(manager),
         settings_manager: Some(Arc::new(Mutex::new(settings_manager))),
         extension_factories: vec![InlineExtension::Factory {
-            extension_path: Some("<inline:session-autoname>".to_owned()),
+            extension_path: Some("<inline:session-autoname>".to_owned().into()),
             factory,
         }],
         ..Default::default()
@@ -273,10 +287,11 @@ async fn env() -> Env {
     session
         .bind_extensions(ExtensionBindings {
             mode: Some(ExtensionMode::Tui),
-            control_db_path: Some(control_db_path.clone()),
+            control_db_path: Some(control_db_path.clone().into()),
             ..Default::default()
         })
-        .await;
+        .await
+        .expect("bind extensions");
     Env {
         session,
         faux,
@@ -296,7 +311,7 @@ async fn emit_agent_end(session: &AgentSession, event: AgentEndEvent) {
     session.extension_runner().emit(&mut event).await;
 }
 
-async fn wait_for_name(session: &AgentSession) -> Option<String> {
+async fn wait_for_name(session: &AgentSession) -> Option<JsString> {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         if let Some(name) = lock_session_manager(&session.session_manager_handle()).get_session_name() {
@@ -309,7 +324,7 @@ async fn wait_for_name(session: &AgentSession) -> Option<String> {
     }
 }
 
-fn persisted_session_name(env: &Env) -> Option<String> {
+fn persisted_session_name(env: &Env) -> Option<JsString> {
     pi_coding_agent::core::session_control_db::read_session_metadata(&env.control_db_path, &env.session_file)
         .expect("metadata")
         .and_then(|metadata| metadata.name)
@@ -418,9 +433,15 @@ async fn the_first_real_user_turn_after_extension_activity_names_the_session() {
     )
     .await;
 
-    assert_eq!(wait_for_name(&env.session).await.as_deref(), Some("Real User Session"));
+    assert_eq!(
+        wait_for_name(&env.session).await.clone(),
+        Some(JsString::from("Real User Session"))
+    );
     assert_eq!(faux_call_count(&env.faux), 1);
-    assert_eq!(persisted_session_name(&env).as_deref(), Some("Real User Session"));
+    assert_eq!(
+        persisted_session_name(&env).clone(),
+        Some(JsString::from("Real User Session"))
+    );
 }
 
 #[tokio::test]
@@ -429,19 +450,19 @@ async fn historical_jsonl_session_info_does_not_block_naming_without_metadata_st
     {
         let mut file = std::fs::OpenOptions::new()
             .append(true)
-            .open(&env.session_file)
+            .open(env.session_file.to_utf8().expect("utf-8 test path"))
             .expect("open session file");
         use std::io::Write;
         writeln!(
             file,
             "{}",
-            json!({
+            pi_js_compat::js_json::stringify_lossless(&json!({
                 "type": "session_info",
                 "id": "legacy-session-name",
                 "parentId": null,
                 "timestamp": "2025-01-01T00:00:00.000Z",
                 "name": "Historical JSONL Name",
-            })
+            }))
         )
         .expect("append session info");
     }
@@ -449,7 +470,7 @@ async fn historical_jsonl_session_info_does_not_block_naming_without_metadata_st
     {
         let mut manager = lock_session_manager(&manager_handle);
         manager
-            .set_session_file(&env.session_file)
+            .set_session_file(&JsString::from(env.session_file))
             .expect("reload session file");
         manager
             .append_message(user_message(
@@ -482,8 +503,8 @@ async fn historical_jsonl_session_info_does_not_block_naming_without_metadata_st
     .await;
 
     assert_eq!(
-        wait_for_name(&env.session).await.as_deref(),
-        Some("Metadata Authority Name")
+        wait_for_name(&env.session).await.clone(),
+        Some(JsString::from("Metadata Authority Name"))
     );
 }
 
@@ -539,7 +560,9 @@ async fn an_explicit_clear_before_the_first_exchange_blocks_naming() {
 #[tokio::test]
 async fn a_name_set_before_the_first_exchange_blocks_naming() {
     let env = env().await;
-    env.session.set_session_name("Manual Session Name").expect("set name");
+    env.session
+        .set_session_name(&JsString::from("Manual Session Name"))
+        .expect("set name");
     {
         let handle = env.session.session_manager_handle();
         let mut manager = lock_session_manager(&handle);
@@ -576,8 +599,8 @@ async fn a_name_set_before_the_first_exchange_blocks_naming() {
     assert_eq!(
         lock_session_manager(&env.session.session_manager_handle())
             .get_session_name()
-            .as_deref(),
-        Some("Manual Session Name")
+            .clone(),
+        Some(JsString::from("Manual Session Name"))
     );
 }
 
@@ -598,7 +621,7 @@ async fn naming_failures_are_reported_without_setting_a_name() {
     }
     let mut failure = faux_assistant_message("", FauxAssistantMessageOptions::default());
     failure.stop_reason = StopReason::Error;
-    failure.error_message = Some("invalid_api_key".to_owned());
+    failure.error_message = Some("invalid_api_key".to_owned().into());
     env.faux.set_responses(vec![failure.into()]);
 
     emit_agent_end(
@@ -626,10 +649,12 @@ async fn naming_failures_are_reported_without_setting_a_name() {
 #[test]
 fn titles_use_javascript_whitespace_not_rust_unicode_whitespace() {
     assert_eq!(
-        normalize_title("###\u{feff}Session\u{feff}Title:\u{feff}Keep\u{feff}Words"),
+        normalize_title(&JsString::from(
+            "###\u{feff}Session\u{feff}Title:\u{feff}Keep\u{feff}Words"
+        )),
         "Keep Words"
     );
-    assert_eq!(normalize_title("Keep\u{85}Words"), "Keep\u{85}Words");
+    assert_eq!(normalize_title(&JsString::from("Keep\u{85}Words")), "Keep\u{85}Words");
 }
 
 fn seed_exchange(env: &Env, stop: StopReason, assistant_text: &str) -> Vec<AgentMessage> {
@@ -672,7 +697,7 @@ async fn title_outputs_match_the_real_c248_extension() {
     for title in cases {
         let expected = oracle.request(&json!({"title": title}));
         let env = env().await;
-        let names = Arc::new(Mutex::new(Vec::<Option<String>>::new()));
+        let names = Arc::new(Mutex::new(Vec::<Option<JsString>>::new()));
         let sink = Arc::clone(&names);
         env.session.subscribe(Arc::new(
             move |event: &pi_coding_agent::core::agent_session::AgentSessionEvent| {
@@ -703,8 +728,8 @@ async fn title_outputs_match_the_real_c248_extension() {
             "hasStoredValue": lock_session_manager(&handle).has_session_name_state(),
         });
         assert_eq!(
-            pi_js_compat::js_json::stringify(&actual),
-            pi_js_compat::js_json::stringify(&expected),
+            pi_js_compat::js_json::stringify_lossless(&actual),
+            pi_js_compat::js_json::stringify_lossless(&expected),
             "title {title:?}"
         );
     }
@@ -722,7 +747,8 @@ async fn modes_and_ephemeral_subagent_boundaries_control_naming() {
         let env = env().await;
         let handle = env.session.session_manager_handle();
         if !persisted {
-            *lock_session_manager(&handle) = SessionManager::in_memory(Some("/tmp"), None).expect("ephemeral");
+            *lock_session_manager(&handle) =
+                SessionManager::in_memory(Some(&JsString::from("/tmp")), None).expect("ephemeral");
         }
         if subagent {
             lock_session_manager(&handle)
@@ -737,7 +763,8 @@ async fn modes_and_ephemeral_subagent_boundaries_control_naming() {
                 mode: Some(mode),
                 ..Default::default()
             })
-            .await;
+            .await
+            .expect("rebind extensions");
         let messages = seed_exchange(&env, StopReason::Stop, "Substantive answer");
         env.faux.set_responses(vec![
             faux_assistant_message("RPC Session Autonaming", Default::default()).into(),
@@ -752,8 +779,8 @@ async fn modes_and_ephemeral_subagent_boundaries_control_naming() {
         .await;
         if expected_calls == 1 {
             assert_eq!(
-                wait_for_name(&env.session).await.as_deref(),
-                Some("RPC Session Autonaming")
+                wait_for_name(&env.session).await.clone(),
+                Some(JsString::from("RPC Session Autonaming"))
             );
         } else {
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -793,8 +820,8 @@ async fn empty_failed_aborted_and_partially_failed_exchanges_still_name_from_the
         )
         .await;
         assert_eq!(
-            wait_for_name(&env.session).await.as_deref(),
-            Some("Named From User Prompt")
+            wait_for_name(&env.session).await.clone(),
+            Some(JsString::from("Named From User Prompt"))
         );
     }
     let env = env().await;
@@ -818,8 +845,8 @@ async fn empty_failed_aborted_and_partially_failed_exchanges_still_name_from_the
     )
     .await;
     assert_eq!(
-        wait_for_name(&env.session).await.as_deref(),
-        Some("Failed Work Session")
+        wait_for_name(&env.session).await.clone(),
+        Some(JsString::from("Failed Work Session"))
     );
 }
 
@@ -848,8 +875,8 @@ async fn cwd_continuation_defers_until_the_following_agent_end() {
     )
     .await;
     assert_eq!(
-        wait_for_name(&env.session).await.as_deref(),
-        Some("Relocated Project Work")
+        wait_for_name(&env.session).await.clone(),
+        Some(JsString::from("Relocated Project Work"))
     );
 }
 
@@ -899,14 +926,18 @@ async fn shutdown_manual_clear_and_manual_name_cancel_pending_title_requests() {
             "clear" => env.session.clear_session_name().expect("manual clear"),
             "name" => env
                 .session
-                .set_session_name("Manual Name During Generation")
+                .set_session_name(&JsString::from("Manual Name During Generation"))
                 .expect("manual name"),
             _ => unreachable!(),
         }
         release.notify_one();
         tokio::time::sleep(Duration::from_millis(100)).await;
         let expected = (action == "name").then_some("Manual Name During Generation");
-        assert_eq!(env.session.session_name().as_deref(), expected, "{action}");
+        assert_eq!(
+            env.session.session_name().clone(),
+            expected.map(JsString::from),
+            "{action}"
+        );
     }
 }
 
@@ -919,7 +950,7 @@ async fn prompt_settles_before_the_background_title_response() {
             pi_ai::providers::faux::faux_text("Substantive answer"),
             pi_ai::providers::faux::faux_tool_call(
                 "end_turn",
-                serde_json::Map::from_iter([("reason".to_owned(), json!("answered"))]),
+                pi_js_compat::js_json::JsObject::from_iter([(JsString::from("reason"), json!("answered"))]),
                 Some("end-main".to_owned()),
             ),
         ],
@@ -940,8 +971,8 @@ async fn prompt_settles_before_the_background_title_response() {
         .expect("prompt must not wait for title generation")
         .expect("prompt");
     assert_eq!(
-        wait_for_name(&env.session).await.as_deref(),
-        Some("Generated Session Name")
+        wait_for_name(&env.session).await.clone(),
+        Some(JsString::from("Generated Session Name"))
     );
     assert_eq!(faux_call_count(&env.faux), 2);
 }
@@ -964,12 +995,12 @@ async fn split_surrogate_titles_match_typescript_at_the_sqlite_boundary() {
     );
     assert_eq!(source["storedNameJson"], json!(format!("\"{}�\"", "x".repeat(79))));
     let env = env().await;
-    let rust_title = normalize_title(&input);
+    let rust_title = normalize_title(&JsString::from(input));
     env.session.set_session_name(&rust_title).expect("persist Rust name");
-    let expected_stored: String = serde_json::from_value(source["storedNameJson"].clone())
+    let expected_stored: String = pi_js_compat::js_json::from_value(&source["storedNameJson"].clone())
         .and_then(|encoded: String| serde_json::from_str(&encoded))
         .expect("TypeScript stored name");
-    assert_eq!(persisted_session_name(&env), Some(expected_stored));
+    assert_eq!(persisted_session_name(&env), Some(JsString::from(expected_stored)));
 }
 
 #[tokio::test]
@@ -1031,8 +1062,12 @@ async fn title_requests_carry_the_source_limits_and_abort_after_fifteen_seconds(
 #[tokio::test]
 async fn set_and_clear_publish_name_events_to_extensions_in_order() {
     let env = env().await;
-    env.session.set_session_name("first").expect("first name");
-    env.session.set_session_name("second").expect("second name");
+    env.session
+        .set_session_name(&JsString::from("first"))
+        .expect("first name");
+    env.session
+        .set_session_name(&JsString::from("second"))
+        .expect("second name");
     env.session.clear_session_name().expect("clear name");
     let deadline = Instant::now() + Duration::from_secs(2);
     while env.extension_name_events.lock().expect("events").len() < 3 {
@@ -1041,7 +1076,7 @@ async fn set_and_clear_publish_name_events_to_extensions_in_order() {
     }
     assert_eq!(
         *env.extension_name_events.lock().expect("events"),
-        vec![Some("first".to_owned()), Some("second".to_owned()), None,]
+        vec![Some(JsString::from("first")), Some(JsString::from("second")), None,]
     );
     assert!(env.session.session_manager().has_session_name_state());
 }

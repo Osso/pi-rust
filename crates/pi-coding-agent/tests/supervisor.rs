@@ -1,6 +1,7 @@
 //! Behavioral port of the supervisor service, client, and request-loop tests
 //! (approval-reviewer cases live in `approval_reviewer.rs`).
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::AgentMessage;
@@ -20,21 +21,23 @@ use pi_coding_agent::supervisor::service::{
     RunSupervisorRequestInput, RunSupervisorRequestOutcome, build_supervisor_prompt, parse_supervisor_response,
     run_supervisor_request,
 };
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsObject as Map;
+use pi_js_compat::js_json::JsValue as Value;
 use tempfile::TempDir;
 
 fn request(kind: SupervisorRequestKind, payload: Value) -> SupervisorRequest {
     SupervisorRequest {
         id: 1,
-        sender_session_id: "main".to_owned(),
-        project_id: "pi".to_owned(),
+        sender_session_id: "main".to_owned().into(),
+        project_id: "pi".to_owned().into(),
         kind,
         payload: payload.as_object().cloned().unwrap_or_else(Map::new),
         deadline_at: "2026-07-14T12:00:30.000Z".to_owned(),
         status: SupervisorRequestStatus::Claimed,
         created_at: "2026-07-14T12:00:00.000Z".to_owned(),
         claimed_at: Some("2026-07-14T12:00:00.000Z".to_owned()),
-        claim_token: Some("runtime".to_owned()),
+        claim_token: Some("runtime".to_owned().into()),
         completed_at: None,
         response: None,
     }
@@ -122,10 +125,10 @@ fn parses_responses_per_request_kind() {
     assert_eq!(
         parse_supervisor_response(
             SupervisorRequestKind::ApprovalReview,
-            &Value::String(r#"{"kind":"approve","reason":"bounded"}"#.to_owned())
+            &Value::String(r#"{"kind":"approve","reason":"bounded"}"#.to_owned().into())
         ),
         Some(SupervisorResponse::Approve {
-            reason: "bounded".to_owned()
+            reason: "bounded".to_owned().into()
         })
     );
     assert_eq!(
@@ -134,7 +137,7 @@ fn parses_responses_per_request_kind() {
             &json!({"kind": "reject", "reason": "unsafe"})
         ),
         Some(SupervisorResponse::Reject {
-            reason: "unsafe".to_owned()
+            reason: "unsafe".to_owned().into()
         })
     );
     assert_eq!(
@@ -143,7 +146,7 @@ fn parses_responses_per_request_kind() {
             &json!({"kind": "wait", "reason": "reviewer is running"})
         ),
         Some(SupervisorResponse::Wait {
-            reason: "reviewer is running".to_owned()
+            reason: "reviewer is running".to_owned().into()
         })
     );
     assert_eq!(
@@ -152,8 +155,8 @@ fn parses_responses_per_request_kind() {
             &json!({"kind": "continue", "reason": "recovered", "instructions": "Continue the goal."})
         ),
         Some(SupervisorResponse::Continue {
-            instructions: "Continue the goal.".to_owned(),
-            reason: "recovered".to_owned()
+            instructions: "Continue the goal.".to_owned().into(),
+            reason: "recovered".to_owned().into()
         })
     );
     assert_eq!(
@@ -183,7 +186,7 @@ fn parses_responses_per_request_kind() {
             &json!({"kind": "advisory", "answer": "Nothing is missing."})
         ),
         Some(SupervisorResponse::Advisory {
-            answer: "Nothing is missing.".to_owned()
+            answer: "Nothing is missing.".to_owned().into()
         })
     );
     assert_eq!(
@@ -199,7 +202,7 @@ fn parses_responses_per_request_kind() {
             &json!({"content": [{"type": "text", "text": "{\"kind\":\"complete\",\"reason\":\"done\"}"}]})
         ),
         Some(SupervisorResponse::Complete {
-            reason: "done".to_owned()
+            reason: "done".to_owned().into()
         })
     );
 }
@@ -214,8 +217,8 @@ fn post_request(control_db_path: &str, kind: SupervisorRequestKind) -> i64 {
     post_supervisor_request(
         control_db_path,
         &PostSupervisorRequestInput {
-            sender_session_id: "main".to_owned(),
-            project_id: "pi".to_owned(),
+            sender_session_id: "main".to_owned().into(),
+            project_id: "pi".to_owned().into(),
             kind,
             payload: json!({"toolName": "read"}).as_object().cloned().unwrap_or_default(),
             deadline_at: pi_coding_agent::utils::iso_time::format_iso_millis(now_millis() + 30_000),
@@ -235,17 +238,17 @@ fn now_millis() -> i64 {
 async fn completes_a_request_with_the_parsed_response() {
     let (_temp, control_db_path) = fixture();
     let request_id = post_request(&control_db_path, SupervisorRequestKind::ApprovalReview);
-    let request = claim_next_supervisor_request(&control_db_path, "runtime")
+    let request = claim_next_supervisor_request(&control_db_path, &JsString::from("runtime"))
         .unwrap()
         .unwrap();
     assert_eq!(request.id, request_id);
 
-    let evaluate = Arc::new(|_prompt: String, _signal: tokio_util::sync::CancellationToken| {
+    let evaluate = Arc::new(|_prompt: JsString, _signal: tokio_util::sync::CancellationToken| {
         Box::pin(async { Ok(json!({"kind": "approve", "reason": "bounded"})) })
-            as BoxFuture<'static, Result<Value, String>>
+            as BoxFuture<'static, Result<Value, JsString>>
     });
     let outcome = run_supervisor_request(RunSupervisorRequestInput {
-        control_db_path: control_db_path.clone(),
+        control_db_path: control_db_path.clone().into(),
         evaluate,
         request,
         poll_interval_ms: Some(1),
@@ -259,7 +262,7 @@ async fn completes_a_request_with_the_parsed_response() {
     assert_eq!(
         stored.response,
         Some(SupervisorResponse::Approve {
-            reason: "bounded".to_owned()
+            reason: "bounded".to_owned().into()
         })
     );
 }
@@ -268,19 +271,19 @@ async fn completes_a_request_with_the_parsed_response() {
 async fn expired_requests_complete_with_the_deadline_error() {
     let (_temp, control_db_path) = fixture();
     let request_id = post_request(&control_db_path, SupervisorRequestKind::GoalIdleReview);
-    let mut request = claim_next_supervisor_request(&control_db_path, "runtime")
+    let mut request = claim_next_supervisor_request(&control_db_path, &JsString::from("runtime"))
         .unwrap()
         .unwrap();
     request.deadline_at = pi_coding_agent::utils::iso_time::format_iso_millis(now_millis() - 1);
 
-    let evaluate = Arc::new(|_prompt: String, _signal: tokio_util::sync::CancellationToken| {
+    let evaluate = Arc::new(|_prompt: JsString, _signal: tokio_util::sync::CancellationToken| {
         Box::pin(async {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             Ok(json!({"kind": "complete", "reason": "late"}))
-        }) as BoxFuture<'static, Result<Value, String>>
+        }) as BoxFuture<'static, Result<Value, JsString>>
     });
     let outcome = run_supervisor_request(RunSupervisorRequestInput {
-        control_db_path: control_db_path.clone(),
+        control_db_path: control_db_path.clone().into(),
         evaluate,
         request,
         poll_interval_ms: Some(1),
@@ -293,7 +296,7 @@ async fn expired_requests_complete_with_the_deadline_error() {
     assert_eq!(
         stored.response,
         Some(SupervisorResponse::Error {
-            reason: "Supervisor request deadline expired".to_owned()
+            reason: "Supervisor request deadline expired".to_owned().into()
         })
     );
 }
@@ -376,8 +379,13 @@ fn supervisor_settings_and_tool_allowlists_match_the_source() {
 #[test]
 fn extension_load_diagnostics_are_rejected_before_startup() {
     assert_eq!(
-        validate_supervisor_extension_load(&[("<openai-remote-compact>".to_owned(), "factory failed".to_owned())]),
-        Err("Supervisor extension load failed: <openai-remote-compact>: factory failed".to_owned())
+        validate_supervisor_extension_load(&[(
+            "<openai-remote-compact>".to_owned().into(),
+            "factory failed".to_owned().into()
+        )]),
+        Err(JsString::from(
+            "Supervisor extension load failed: <openai-remote-compact>: factory failed"
+        ))
     );
     assert_eq!(validate_supervisor_extension_load(&[]), Ok(()));
 }
@@ -388,11 +396,11 @@ struct SharedSession {
 }
 
 impl SupervisorSession for SharedSession {
-    fn abort(&self) -> BoxFuture<'static, Result<(), String>> {
+    fn abort(&self) -> BoxFuture<'static, Result<(), JsString>> {
         Box::pin(async { Ok(()) })
     }
 
-    fn prompt(&self, _content: String) -> BoxFuture<'static, Result<(), String>> {
+    fn prompt(&self, _content: JsString) -> BoxFuture<'static, Result<(), JsString>> {
         let manager = self.manager.clone();
         let action = &self.on_prompt;
         // Apply synchronously before returning the future so callers observe the append.
@@ -404,8 +412,8 @@ impl SupervisorSession for SharedSession {
         self.manager.lock().unwrap().get_branch(None)
     }
 
-    fn get_leaf_id(&self) -> Option<String> {
-        self.manager.lock().unwrap().get_leaf_id().map(str::to_owned)
+    fn get_leaf_id(&self) -> Option<JsString> {
+        self.manager.lock().unwrap().get_leaf_id().cloned()
     }
 }
 
@@ -413,13 +421,13 @@ impl SupervisorSession for SharedSession {
 async fn process_request_does_not_reuse_a_prior_assistant_response() {
     let (temp, control_db_path) = fixture();
     let request_id = post_request(&control_db_path, SupervisorRequestKind::ApprovalReview);
-    let request = claim_next_supervisor_request(&control_db_path, "runtime")
+    let request = claim_next_supervisor_request(&control_db_path, &JsString::from("runtime"))
         .unwrap()
         .unwrap();
     let manager = Arc::new(Mutex::new(
         SessionManager::create(
-            &temp.path().display().to_string(),
-            Some(&temp.path().display().to_string()),
+            &JsString::from(temp.path().display().to_string()),
+            Some(&JsString::from(temp.path().display().to_string())),
             None,
         )
         .unwrap(),
@@ -437,29 +445,31 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
             }
         }),
     });
-    process_supervisor_request(&control_db_path, request, session).await;
+    process_supervisor_request(&JsString::from(&control_db_path), request, session).await;
     let stored = read_supervisor_request(&control_db_path, request_id).unwrap().unwrap();
     assert_eq!(
         stored.response,
         Some(SupervisorResponse::Approve {
-            reason: "prior approval".to_owned()
+            reason: "prior approval".to_owned().into()
         })
     );
 
     let goal_id = post_request(&control_db_path, SupervisorRequestKind::GoalIdleReview);
-    let goal_request = claim_next_supervisor_request(&control_db_path, "runtime")
+    let goal_request = claim_next_supervisor_request(&control_db_path, &JsString::from("runtime"))
         .unwrap()
         .unwrap();
     let goal_session = Arc::new(SharedSession {
         manager: Arc::clone(&manager),
         on_prompt: Box::new(|_manager| {}),
     });
-    process_supervisor_request(&control_db_path, goal_request, goal_session).await;
+    process_supervisor_request(&JsString::from(&control_db_path), goal_request, goal_session).await;
     let stored = read_supervisor_request(&control_db_path, goal_id).unwrap().unwrap();
     assert_eq!(
         stored.response,
         Some(SupervisorResponse::Error {
-            reason: "Supervisor model returned no assistant text for current request".to_owned()
+            reason: "Supervisor model returned no assistant text for current request"
+                .to_owned()
+                .into()
         })
     );
 }
@@ -469,7 +479,7 @@ fn structured_tool_calls_are_read_without_assistant_text() {
     let (_temp, control_db_path) = fixture();
     let _ = control_db_path;
     let mut manager = SessionManager::in_memory(None, None).unwrap();
-    let previous_leaf = manager.get_leaf_id().map(str::to_owned);
+    let previous_leaf = manager.get_leaf_id().cloned();
     manager
         .append_message(tool_call_assistant(
             "supervisor_response",
@@ -478,7 +488,7 @@ fn structured_tool_calls_are_read_without_assistant_text() {
         ))
         .unwrap();
     assert_eq!(
-        read_current_supervisor_response(&manager.get_branch(None), previous_leaf.as_deref()).unwrap(),
+        read_current_supervisor_response(&manager.get_branch(None), previous_leaf.as_ref()).unwrap(),
         json!({"kind": "complete", "reason": "structured proof"})
     );
 }
@@ -486,7 +496,7 @@ fn structured_tool_calls_are_read_without_assistant_text() {
 #[test]
 fn end_turn_tool_use_falls_back_to_the_last_stopped_assistant_message() {
     let mut manager = SessionManager::in_memory(None, None).unwrap();
-    let previous_leaf = manager.get_leaf_id().map(str::to_owned);
+    let previous_leaf = manager.get_leaf_id().cloned();
     manager
         .append_message(text_assistant(
             r#"{"kind":"complete","reason":"final"}"#,
@@ -497,15 +507,15 @@ fn end_turn_tool_use_falls_back_to_the_last_stopped_assistant_message() {
         .append_message(tool_call_assistant("end_turn", json!({}), StopReason::ToolUse))
         .unwrap();
     assert_eq!(
-        read_current_supervisor_response(&manager.get_branch(None), previous_leaf.as_deref()).unwrap(),
-        Value::String(r#"{"kind":"complete","reason":"final"}"#.to_owned())
+        read_current_supervisor_response(&manager.get_branch(None), previous_leaf.as_ref()).unwrap(),
+        Value::String(r#"{"kind":"complete","reason":"final"}"#.to_owned().into())
     );
 }
 
 #[test]
 fn assistant_text_with_a_structured_response_is_rejected() {
     let mut manager = SessionManager::in_memory(None, None).unwrap();
-    let previous_leaf = manager.get_leaf_id().map(str::to_owned);
+    let previous_leaf = manager.get_leaf_id().cloned();
     manager
         .append_message(assistant(
             vec![
@@ -520,7 +530,7 @@ fn assistant_text_with_a_structured_response_is_rejected() {
         ))
         .unwrap();
     assert_eq!(
-        read_current_supervisor_response(&manager.get_branch(None), previous_leaf.as_deref()).unwrap_err(),
+        read_current_supervisor_response(&manager.get_branch(None), previous_leaf.as_ref()).unwrap_err(),
         "Supervisor model emitted assistant text with structured response"
     );
 }
@@ -543,7 +553,7 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_runtime::ModelRunt
     let runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
         pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
             credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-                serde_json::Map::new(),
+                pi_js_compat::js_json::JsObject::new(),
             ))),
             models_path: Some(None),
             refresh_on_create: Some(false),
@@ -572,9 +582,13 @@ async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
     std::fs::write(kb.join("notes").join("inside.md"), "inside").unwrap();
     std::fs::write(temp.path().join("outside.md"), "outside").unwrap();
     let settings = Arc::new(Mutex::new(create_supervisor_settings_manager()));
-    let loader = create_supervisor_resource_loader(&agent.display().to_string(), &kb.display().to_string(), settings)
-        .await
-        .expect("loader");
+    let loader = create_supervisor_resource_loader(
+        &JsString::from(&(agent.display().to_string())),
+        &JsString::from(&(kb.display().to_string())),
+        settings,
+    )
+    .await
+    .expect("loader");
     let extensions = loader.get_extensions();
     assert!(extensions.errors.is_empty());
     assert_eq!(extensions.extensions.len(), 2);
@@ -587,7 +601,7 @@ async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
         extensions.runtime.clone(),
         kb.display().to_string(),
         Arc::new(Mutex::new(
-            SessionManager::in_memory(Some(&kb.display().to_string()), None).unwrap(),
+            SessionManager::in_memory(Some(&JsString::from(kb.display().to_string())), None).unwrap(),
         )),
         Arc::new(ModelRegistry::new(runtime)),
         None,
@@ -598,7 +612,7 @@ async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
         tool_name: ToolName::Read,
         tool_call_id: "call".to_owned(),
         bypass_permissions: false,
-        input: serde_json::Map::from_iter([("path".to_owned(), serde_json::json!(path))]),
+        input: pi_js_compat::js_json::JsObject::from_iter([(JsString::from("path"), pi_js_compat::js_json!(path))]),
     };
     let blocked = gate
         .call(
@@ -610,8 +624,10 @@ async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
         .expect("block result");
     assert_eq!(blocked.block, Some(true));
     assert_eq!(
-        blocked.reason.as_deref(),
-        Some("Pi Supervisor may access files only inside the configured KB directory.")
+        blocked.reason.clone(),
+        Some(JsString::from(
+            "Pi Supervisor may access files only inside the configured KB directory."
+        ))
     );
     let allowed = gate
         .call(
@@ -632,10 +648,10 @@ async fn supervisor_session_uses_the_sol_model_and_supervisor_tool_set() {
     let temp = tempfile::tempdir().unwrap();
     let cwd = temp.path().display().to_string();
     let runtime = faux_codex_runtime().await;
-    let session_manager = SessionManager::in_memory(Some(&cwd), None).unwrap();
+    let session_manager = SessionManager::in_memory(Some(&JsString::from(&cwd)), None).unwrap();
     let result = create_supervisor_session(CreateSupervisorSessionOptions {
-        agent_dir: cwd.clone(),
-        kb_dir: cwd.clone(),
+        agent_dir: cwd.clone().into(),
+        kb_dir: cwd.clone().into(),
         model_runtime: runtime,
         resource_loader: StaticResourceLoader::new(),
         session_manager,

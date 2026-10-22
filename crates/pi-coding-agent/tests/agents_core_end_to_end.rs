@@ -27,7 +27,7 @@ use pi_coding_agent::core::multi_agent_store::{
 use pi_coding_agent::core::resource_loader::InlineExtension;
 use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session};
 use pi_coding_agent::core::session_control_db::{get_control_db_path, read_multi_agent_agent};
-use pi_coding_agent::core::session_manager::{SessionEntry, SessionManager, lock_session_manager};
+use pi_coding_agent::core::session_manager::{SessionManager, lock_session_manager};
 use pi_js_compat::js_json as json;
 
 struct TestPersistence {
@@ -171,7 +171,8 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
     let parent = result.session;
     parent
         .bind_extensions(pi_coding_agent::core::agent_session::ExtensionBindings::default())
-        .await;
+        .await
+        .expect("bind parent extensions");
 
     faux.set_responses(vec![
         faux_assistant_message("child finished the task", FauxAssistantMessageOptions::default()).into(),

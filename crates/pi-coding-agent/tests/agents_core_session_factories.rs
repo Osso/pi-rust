@@ -387,9 +387,11 @@ async fn fresh_child_gets_its_own_session_with_only_the_assignment() {
             options.exclude_tools.clone().expect("exclude tools"),
             vec![
                 "agent_viewer",
+                "answer_question",
                 "attach_session_agent",
                 "close_agent",
                 "list_agents",
+                "set_agent_model",
                 "spawn_agent",
                 "steer_agent",
                 "wait_agent",
@@ -859,7 +861,13 @@ async fn attached_session_rejects_missing_paths_and_session_mismatches() {
         .expect("mismatch");
     assert_eq!(
         error,
-        format!("Child agent transcript session mismatch: expected different-session, found {target_id:?}")
+        JsString::join(
+            [
+                JsString::from("Child agent transcript session mismatch: expected different-session, found "),
+                target_id
+            ],
+            ""
+        )
     );
     assert_eq!(*captured.calls.lock().expect("calls"), 0);
 }

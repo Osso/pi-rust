@@ -1,6 +1,7 @@
 //! Differential tests for the bundled `loop`, `codex-fast`, and `effort`
 //! extensions against the pinned TypeScript modules.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/bundled.rs"]
 mod bundled;
 #[path = "support/oracle.rs"]
@@ -23,11 +24,12 @@ use pi_coding_agent::core::extensions::{
 };
 use pi_coding_agent::core::system_prompt::BuildSystemPromptOptions;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path, set_theme_instance};
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 
 const LOOP_SOURCE: &str = "packages/coding-agent/extensions/loop/src/index.ts";
 
-fn notification_value(notifications: &[(String, Option<NotifyType>)]) -> Value {
+fn notification_value(notifications: &[(JsString, Option<NotifyType>)]) -> Value {
     Value::Array(
         notifications
             .iter()
@@ -45,7 +47,7 @@ fn notification_value(notifications: &[(String, Option<NotifyType>)]) -> Value {
     )
 }
 
-fn status_value(statuses: &[(String, Option<String>)]) -> Value {
+fn status_value(statuses: &[(JsString, Option<JsString>)]) -> Value {
     Value::Array(statuses.iter().map(|(key, value)| json!([key, value])).collect())
 }
 
@@ -55,10 +57,10 @@ async fn load_loop(runtime: &ExtensionRuntime) -> Extension {
             let result = pi_coding_agent::bundled_extensions::r#loop::loop_extension(pi);
             Box::pin(async move { result })
         }),
-        "/repo",
+        &JsString::from("/repo"),
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         runtime.clone(),
-        "<first-party:loop>",
+        &JsString::from("<first-party:loop>"),
     )
     .await
     .expect("loop extension")
@@ -70,10 +72,10 @@ async fn load_effort(runtime: &ExtensionRuntime) -> Extension {
             let result = pi_coding_agent::bundled_extensions::effort::effort_extension(pi);
             Box::pin(async move { result })
         }),
-        "/repo",
+        &JsString::from("/repo"),
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         runtime.clone(),
-        "<first-party:effort>",
+        &JsString::from("<first-party:effort>"),
     )
     .await
     .expect("effort extension")
@@ -107,7 +109,7 @@ async fn rust_loop_results(cases: &[Value]) -> Vec<Value> {
         let harness = Harness::new(vec![extension.clone()], runtime.clone(), HarnessOptions::new("/repo")).await;
         let name = case.get("name").cloned().unwrap_or(Value::Null);
         let metadata = loop_metadata(&extension);
-        if let Some(command) = case.get("command").and_then(Value::as_str) {
+        if let Some(command) = case.get("command").and_then(Value::as_string) {
             let handler = extension
                 .read()
                 .commands
@@ -179,8 +181,13 @@ async fn differential_loop_registration_and_handlers() {
     ];
     let mut ts = TsOracle::spawn("bundled-extensions-a-oracle.ts", LOOP_SOURCE);
     let response = ts.request(&json!({"id": 1, "operation": "loop", "cases": cases}));
-    assert_eq!(response["ok"], true, "oracle failed: {response}");
-    let expected: Vec<Value> = serde_json::from_value(response["output"]["results"].clone()).expect("oracle results");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "oracle failed: {response:?}"
+    );
+    let expected: Vec<Value> =
+        pi_js_compat::js_json::from_value(&response["output"]["results"].clone()).expect("oracle results");
     let actual = rust_loop_results(&cases).await;
     assert_eq!(actual, expected);
 }
@@ -193,30 +200,35 @@ fn fast_model(case: &Value) -> Option<pi_ai::types::Model> {
     let mut test_model = test_model(model.get("reasoning").and_then(Value::as_bool).unwrap_or(true));
     test_model.id = model
         .get("modelId")
-        .and_then(Value::as_str)
-        .unwrap_or("test-model")
-        .to_owned();
+        .and_then(Value::as_string)
+        .map(|tag| tag.to_utf8().expect("scalar model tag"))
+        .unwrap_or_else(|| "test-model".to_owned());
     test_model.provider = model
         .get("provider")
-        .and_then(Value::as_str)
-        .unwrap_or("openai-codex")
-        .to_owned();
+        .and_then(Value::as_string)
+        .map(|tag| tag.to_utf8().expect("scalar model tag"))
+        .unwrap_or_else(|| "openai-codex".to_owned());
     test_model.api = model
         .get("api")
-        .and_then(Value::as_str)
-        .unwrap_or("openai-codex-responses")
-        .to_owned();
+        .and_then(Value::as_string)
+        .map(|tag| tag.to_utf8().expect("scalar model tag"))
+        .unwrap_or_else(|| "openai-codex-responses".to_owned());
     Some(test_model)
 }
 
 fn fast_session(case: &Value) -> pi_coding_agent::core::session_manager::SharedSessionManager {
     let mut session =
-        pi_coding_agent::core::session_manager::SessionManager::in_memory(Some("/repo"), None).expect("session");
+        pi_coding_agent::core::session_manager::SessionManager::in_memory(Some(&JsString::from("/repo")), None)
+            .expect("session");
     if let Some(branch) = case.get("branch").and_then(Value::as_array) {
         for entry in branch {
             session
                 .append_custom_entry(
-                    entry.get("customType").and_then(Value::as_str).unwrap_or_default(),
+                    &entry
+                        .get("customType")
+                        .and_then(Value::as_string)
+                        .cloned()
+                        .unwrap_or_default(),
                     entry.get("data").cloned(),
                 )
                 .expect("custom entry");
@@ -230,9 +242,9 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
     for case in cases {
         let runtime = create_extension_runtime();
         let authority = pi_coding_agent::bundled_extensions::codex_fast::FastModeAuthority::new();
-        if let Some(tier) = case.get("tier").and_then(Value::as_str) {
+        if let Some(tier) = case.get("tier").and_then(Value::as_string) {
             authority.set_service_tier(Some(match tier {
-                "ultra" => pi_coding_agent::bundled_extensions::codex_fast::FastServiceTier::Ultrafast,
+                kind if kind == "ultra" => pi_coding_agent::bundled_extensions::codex_fast::FastServiceTier::Ultrafast,
                 _ => pi_coding_agent::bundled_extensions::codex_fast::FastServiceTier::Priority,
             }));
         }
@@ -245,10 +257,10 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
                 let result = pi_coding_agent::bundled_extensions::codex_fast::codex_fast_extension(pi, &options);
                 Box::pin(async move { result })
             }),
-            "/repo",
+            &JsString::from("/repo"),
             Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
             runtime.clone(),
-            "<first-party:codex-fast>",
+            &JsString::from("<first-party:codex-fast>"),
         )
         .await
         .expect("codex-fast extension");
@@ -261,13 +273,13 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
             .get("child")
             .and_then(Value::as_bool)
             .filter(|child| *child)
-            .map(|_| "child-agent".to_owned());
+            .map(|_| JsString::from("child-agent"));
         let harness = Harness::new(vec![extension.clone()], runtime, options).await;
 
         let mut handler_result = Value::Null;
         for op in case.get("ops").and_then(Value::as_array).cloned().unwrap_or_default() {
-            match op.get("kind").and_then(Value::as_str).unwrap_or_default() {
-                "command" => {
+            match op.get("kind").and_then(Value::as_string).cloned().unwrap_or_default() {
+                kind if kind == "command" => {
                     let handler = extension
                         .read()
                         .commands
@@ -276,20 +288,20 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
                         .handler
                         .clone();
                     handler(
-                        op.get("args").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                        op.get("args").and_then(Value::as_string).cloned().unwrap_or_default(),
                         harness.command_context(),
                     )
                     .await
                     .expect("fast command");
                 }
-                "session_start" => {
+                kind if kind == "session_start" => {
                     let mut event = ExtensionEvent::SessionStart(SessionStartEvent {
                         reason: SessionStartReason::Resume,
                         previous_session_file: None,
                     });
                     harness.runner.emit(&mut event).await;
                 }
-                "model_select" => {
+                kind if kind == "model_select" => {
                     let model = op
                         .get("model")
                         .and_then(|model| fast_model(&json!({"model": model})))
@@ -301,7 +313,7 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
                     }));
                     harness.runner.emit(&mut event).await;
                 }
-                "before_provider_request" => {
+                kind if kind == "before_provider_request" => {
                     let handler = extension
                         .read()
                         .handlers
@@ -321,7 +333,7 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
                         .expect("before_provider_request");
                     handler_result = result.unwrap_or(Value::Null);
                 }
-                other => panic!("unknown fast op {other}"),
+                other => panic!("unknown fast op {other:?}"),
             }
         }
 
@@ -355,8 +367,13 @@ async fn differential_codex_fast_handlers() {
     ];
     let mut ts = TsOracle::spawn("bundled-extensions-a-oracle.ts", LOOP_SOURCE);
     let response = ts.request(&json!({"id": 2, "operation": "fast", "cases": cases}));
-    assert_eq!(response["ok"], true, "oracle failed: {response}");
-    let expected: Vec<Value> = serde_json::from_value(response["output"]["results"].clone()).expect("oracle results");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "oracle failed: {response:?}"
+    );
+    let expected: Vec<Value> =
+        pi_js_compat::js_json::from_value(&response["output"]["results"].clone()).expect("oracle results");
     let actual = rust_fast_results(&cases).await;
     assert_eq!(actual, expected);
 }
@@ -373,12 +390,17 @@ fn effort_model(case: &Value) -> Option<pi_ai::types::Model> {
 
 fn effort_session(case: &Value) -> pi_coding_agent::core::session_manager::SharedSessionManager {
     let mut session =
-        pi_coding_agent::core::session_manager::SessionManager::in_memory(Some("/repo"), None).expect("session");
+        pi_coding_agent::core::session_manager::SessionManager::in_memory(Some(&JsString::from("/repo")), None)
+            .expect("session");
     if let Some(branch) = case.get("branch").and_then(Value::as_array) {
         for entry in branch {
             session
                 .append_custom_entry(
-                    entry.get("customType").and_then(Value::as_str).unwrap_or_default(),
+                    &entry
+                        .get("customType")
+                        .and_then(Value::as_string)
+                        .cloned()
+                        .unwrap_or_default(),
                     entry.get("data").cloned(),
                 )
                 .expect("custom entry");
@@ -389,7 +411,11 @@ fn effort_session(case: &Value) -> pi_coding_agent::core::session_manager::Share
 
 async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
     let theme_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
-    let theme = load_theme_from_path(&theme_path, Some(ColorMode::Truecolor)).expect("dark theme");
+    let theme = load_theme_from_path(
+        &JsString::from(theme_path.to_str().expect("utf-8 test path")),
+        Some(ColorMode::Truecolor),
+    )
+    .expect("dark theme");
     set_theme_instance(Arc::new(theme));
 
     let mut results = Vec::new();
@@ -399,27 +425,34 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
         let mut options = HarnessOptions::new("/repo");
         options.model = effort_model(case);
         options.session_manager = effort_session(case);
-        options.thinking_level = match case.get("thinkingLevel").and_then(Value::as_str) {
-            Some("ultra") => ThinkingLevel::Ultra,
-            Some("max") => ThinkingLevel::Max,
-            Some("high") => ThinkingLevel::High,
+        options.thinking_level = match case.get("thinkingLevel").and_then(Value::as_string) {
+            Some(value) if value == "ultra" => ThinkingLevel::Ultra,
+            Some(value) if value == "max" => ThinkingLevel::Max,
+            Some(value) if value == "high" => ThinkingLevel::High,
             _ => ThinkingLevel::Off,
         };
         options.multi_agent_agent_id = case
             .get("child")
             .and_then(Value::as_bool)
             .filter(|child| *child)
-            .map(|_| "child-agent".to_owned());
+            .map(|_| JsString::from("child-agent"));
         let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-        harness
-            .ui
-            .select_result(case.get("selectResult").and_then(Value::as_str));
+        harness.ui.select_result(
+            case.get("selectResult")
+                .and_then(Value::as_string)
+                .map(|text| text.to_utf8().expect("fixture selector choice"))
+                .as_deref(),
+        );
 
         let mut system_prompt = Value::Null;
         for op in case.get("ops").and_then(Value::as_array).cloned().unwrap_or_default() {
-            match op.get("kind").and_then(Value::as_str).unwrap_or_default() {
-                "command" => {
-                    let name = op.get("command").and_then(Value::as_str).unwrap_or_default();
+            match op.get("kind").and_then(Value::as_string).cloned().unwrap_or_default() {
+                kind if kind == "command" => {
+                    let name = op
+                        .get("command")
+                        .and_then(Value::as_string)
+                        .cloned()
+                        .unwrap_or_default();
                     let handler = extension
                         .read()
                         .commands
@@ -428,36 +461,39 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
                         .handler
                         .clone();
                     handler(
-                        op.get("args").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                        op.get("args").and_then(Value::as_string).cloned().unwrap_or_default(),
                         harness.command_context(),
                     )
                     .await
                     .expect("effort command");
                 }
-                "session_start" => {
+                kind if kind == "session_start" => {
                     let mut event = ExtensionEvent::SessionStart(SessionStartEvent {
                         reason: SessionStartReason::Resume,
                         previous_session_file: None,
                     });
                     harness.runner.emit(&mut event).await;
                 }
-                "thinking_level_select" => {
+                kind if kind == "thinking_level_select" => {
                     let mut event = ExtensionEvent::ThinkingLevelSelect(ThinkingLevelSelectEvent {
-                        level: match op.get("level").and_then(Value::as_str) {
-                            Some("ultra") => ThinkingLevel::Ultra,
+                        level: match op.get("level").and_then(Value::as_string) {
+                            Some(value) if value == "ultra" => ThinkingLevel::Ultra,
                             _ => ThinkingLevel::Max,
                         },
                         previous_level: ThinkingLevel::Max,
                     });
                     harness.runner.emit(&mut event).await;
                 }
-                "before_agent_start" => {
+                kind if kind == "before_agent_start" => {
                     let result = harness
                         .runner
                         .emit_before_agent_start(
-                            "hi",
+                            &JsString::from("hi"),
                             None,
-                            op.get("systemPrompt").and_then(Value::as_str).unwrap_or_default(),
+                            &op.get("systemPrompt")
+                                .and_then(Value::as_string)
+                                .cloned()
+                                .unwrap_or_default(),
                             BuildSystemPromptOptions::default(),
                         )
                         .await;
@@ -466,7 +502,7 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
                         .map(Value::String)
                         .unwrap_or(Value::Null);
                 }
-                other => panic!("unknown effort op {other}"),
+                other => panic!("unknown effort op {other:?}"),
             }
         }
 
@@ -520,8 +556,13 @@ async fn differential_effort_handlers() {
     ];
     let mut ts = TsOracle::spawn("bundled-extensions-a-oracle.ts", LOOP_SOURCE);
     let response = ts.request(&json!({"id": 3, "operation": "effort", "cases": cases}));
-    assert_eq!(response["ok"], true, "oracle failed: {response}");
-    let expected: Vec<Value> = serde_json::from_value(response["output"]["results"].clone()).expect("oracle results");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "oracle failed: {response:?}"
+    );
+    let expected: Vec<Value> =
+        pi_js_compat::js_json::from_value(&response["output"]["results"].clone()).expect("oracle results");
     let actual = rust_effort_results(&cases).await;
     assert_eq!(actual, expected);
 }

@@ -1,5 +1,6 @@
 //! Behavioral tests for the bundled `loop`, `codex-fast`, and `effort` extensions.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/bundled.rs"]
 mod bundled;
 #[path = "support/extensions.rs"]
@@ -16,7 +17,7 @@ use pi_coding_agent::core::extensions::types::{
 };
 use pi_coding_agent::core::extensions::{Extension, ExtensionRuntime, create_extension_runtime};
 use pi_coding_agent::core::system_prompt::BuildSystemPromptOptions;
-use serde_json::json;
+use pi_js_compat::js_json as json;
 
 async fn load_loop(runtime: &ExtensionRuntime, cwd: &str) -> Extension {
     support::extension(runtime, cwd, "<first-party:loop>", |pi| {
@@ -55,7 +56,7 @@ fn tool(extension: &Extension, name: &str) -> pi_coding_agent::core::extensions:
     extension.read().tools.get(name).expect("tool").definition.clone()
 }
 
-fn text(result: &pi_agent_core::AgentToolResult) -> String {
+fn text(result: &pi_agent_core::AgentToolResult) -> JsString {
     let TextOrImageContent::Text(text) = &result.content[0] else {
         panic!("text result");
     };
@@ -77,14 +78,15 @@ async fn loop_registers_command_and_tool() {
     assert_eq!(
         loop_tool.prompt_guidelines,
         Some(vec![
-            "Use loop only when the user wants recurring follow-up prompts injected into the current session."
-                .to_owned(),
-            "Prefer action=status before changing an existing loop when unsure.".to_owned(),
-            "Use action=stop when the recurring prompts are no longer needed.".to_owned(),
+            JsString::from(
+                "Use loop only when the user wants recurring follow-up prompts injected into the current session."
+            ),
+            JsString::from("Prefer action=status before changing an existing loop when unsure."),
+            JsString::from("Use action=stop when the recurring prompts are no longer needed."),
         ])
     );
     assert_eq!(
-        loop_tool.parameters,
+        pi_js_compat::js_json::JsValue::from(loop_tool.parameters),
         json!({
             "type": "object",
             "required": ["action"],
@@ -114,8 +116,10 @@ async fn loop_registers_command_and_tool() {
             .get(&pi_js_compat::js_json::JsString::from("loop"))
             .expect("loop command")
             .description
-            .as_deref(),
-        Some("Inject a recurring prompt (/loop <interval> <prompt> | /loop status | /loop stop).")
+            .clone(),
+        Some(JsString::from(
+            "Inject a recurring prompt (/loop <interval> <prompt> | /loop status | /loop stop)."
+        ))
     );
 }
 
@@ -132,12 +136,12 @@ async fn loop_command_injects_prompt_at_interval() {
         .handler
         .clone();
 
-    command("10s check progress".to_owned(), harness.command_context())
+    command("10s check progress".to_owned().into(), harness.command_context())
         .await
         .expect("loop command");
     assert_eq!(
         harness.ui.last_notification(),
-        Some(("Loop started every 10s".to_owned(), Some(NotifyType::Info)))
+        Some((JsString::from("Loop started every 10s"), Some(NotifyType::Info)))
     );
     assert_eq!(harness.ui.editor_texts.lock().unwrap().as_slice(), [""]);
     assert!(harness.actions.user_messages.lock().unwrap().is_empty());
@@ -151,7 +155,10 @@ async fn loop_command_injects_prompt_at_interval() {
     tokio::task::yield_now().await;
     let messages = harness.actions.user_messages.lock().unwrap();
     assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].0, UserMessageContent::Text("check progress".to_owned()));
+    assert_eq!(
+        messages[0].0,
+        UserMessageContent::Text("check progress".to_owned().into())
+    );
     assert_eq!(
         messages[0].1.as_ref().and_then(|options| options.deliver_as),
         Some(UserMessageDelivery::FollowUp)
@@ -171,10 +178,10 @@ async fn loop_command_stops_active_loop() {
         .handler
         .clone();
 
-    command("5s check progress".to_owned(), harness.command_context())
+    command("5s check progress".to_owned().into(), harness.command_context())
         .await
         .expect("start");
-    command("stop".to_owned(), harness.command_context())
+    command("stop".to_owned().into(), harness.command_context())
         .await
         .expect("stop");
     tokio::time::advance(std::time::Duration::from_millis(5_000)).await;
@@ -183,7 +190,7 @@ async fn loop_command_stops_active_loop() {
     assert!(harness.actions.user_messages.lock().unwrap().is_empty());
     assert_eq!(
         harness.ui.last_notification(),
-        Some(("Loop stopped".to_owned(), Some(NotifyType::Info)))
+        Some((JsString::from("Loop stopped"), Some(NotifyType::Info)))
     );
 }
 
@@ -237,7 +244,7 @@ async fn loop_shutdown_clears_timer() {
         .handler
         .clone();
 
-    command("2s keep going".to_owned(), harness.command_context())
+    command("2s keep going".to_owned().into(), harness.command_context())
         .await
         .expect("start");
     let mut event = ExtensionEvent::SessionShutdown(SessionShutdownEvent {
@@ -264,23 +271,23 @@ async fn loop_command_reports_usage_and_missing_prompt() {
         .handler
         .clone();
 
-    command("bogus".to_owned(), harness.command_context())
+    command("bogus".to_owned().into(), harness.command_context())
         .await
         .expect("usage");
     assert_eq!(
         harness.ui.last_notification(),
         Some((
-            "Usage: /loop <interval> <prompt> | /loop status | /loop stop".to_owned(),
+            JsString::from("Usage: /loop <interval> <prompt> | /loop status | /loop stop"),
             Some(NotifyType::Error)
         ))
     );
 
-    command("5s".to_owned(), harness.command_context())
+    command("5s".to_owned().into(), harness.command_context())
         .await
         .expect("missing prompt");
     assert_eq!(
         harness.ui.last_notification(),
-        Some(("Loop prompt is required.".to_owned(), Some(NotifyType::Error)))
+        Some((JsString::from("Loop prompt is required."), Some(NotifyType::Error)))
     );
 }
 
@@ -300,21 +307,21 @@ async fn fast_toggles_priority_and_updates_status() {
         .handler
         .clone();
 
-    command(String::new(), harness.command_context())
+    command(String::new().into(), harness.command_context())
         .await
         .expect("toggle on");
     assert_eq!(
         harness.ui.last_notification(),
-        Some(("Fast mode: on".to_owned(), Some(NotifyType::Info)))
+        Some((JsString::from("Fast mode: on"), Some(NotifyType::Info)))
     );
-    assert_eq!(harness.ui.status("codex-fast"), Some("fast".to_owned()));
+    assert_eq!(harness.ui.status("codex-fast"), Some(JsString::from("fast")));
 
-    command(String::new(), harness.command_context())
+    command(String::new().into(), harness.command_context())
         .await
         .expect("toggle off");
     assert_eq!(
         harness.ui.last_notification(),
-        Some(("Fast mode: off".to_owned(), Some(NotifyType::Info)))
+        Some((JsString::from("Fast mode: off"), Some(NotifyType::Info)))
     );
     assert_eq!(harness.ui.status("codex-fast"), None);
     assert_eq!(harness.ui.editor_texts.lock().unwrap().len(), 2);
@@ -336,14 +343,21 @@ async fn fast_persists_explicit_on_and_off() {
         .handler
         .clone();
 
-    command("on".to_owned(), harness.command_context()).await.expect("on");
-    command("off".to_owned(), harness.command_context()).await.expect("off");
+    command("on".to_owned().into(), harness.command_context())
+        .await
+        .expect("on");
+    command("off".to_owned().into(), harness.command_context())
+        .await
+        .expect("off");
 
     assert_eq!(
         harness.actions.entries.lock().unwrap().as_slice(),
         [
-            ("codex-fast-mode".to_owned(), Some(json!({"serviceTier": "priority"}))),
-            ("codex-fast-mode".to_owned(), Some(json!({"serviceTier": null}))),
+            (
+                JsString::from("codex-fast-mode"),
+                Some(json!({"serviceTier": "priority"}))
+            ),
+            (JsString::from("codex-fast-mode"), Some(json!({"serviceTier": null}))),
         ]
     );
 }
@@ -364,14 +378,14 @@ async fn fast_ultra_adds_service_tier_until_disabled() {
         .handler
         .clone();
 
-    command("ultra".to_owned(), harness.command_context())
+    command("ultra".to_owned().into(), harness.command_context())
         .await
         .expect("ultra");
     assert_eq!(
         harness.ui.last_notification(),
-        Some(("Fast mode: ultra".to_owned(), Some(NotifyType::Info)))
+        Some((JsString::from("Fast mode: ultra"), Some(NotifyType::Info)))
     );
-    assert_eq!(harness.ui.status("codex-fast"), Some("fast ultra".to_owned()));
+    assert_eq!(harness.ui.status("codex-fast"), Some(JsString::from("fast ultra")));
 
     assert_eq!(
         harness
@@ -381,7 +395,9 @@ async fn fast_ultra_adds_service_tier_until_disabled() {
         json!({"model": "test-model", "service_tier": "ultrafast"})
     );
 
-    command("off".to_owned(), harness.command_context()).await.expect("off");
+    command("off".to_owned().into(), harness.command_context())
+        .await
+        .expect("off");
     assert_eq!(
         harness
             .runner
@@ -410,12 +426,14 @@ async fn fast_rejects_unsupported_providers() {
         .handler
         .clone();
 
-    command("on".to_owned(), harness.command_context()).await.expect("on");
+    command("on".to_owned().into(), harness.command_context())
+        .await
+        .expect("on");
 
     assert_eq!(
         harness.ui.last_notification(),
         Some((
-            "Fast mode requires openai-codex or openai-codex-gc".to_owned(),
+            JsString::from("Fast mode requires openai-codex or openai-codex-gc"),
             Some(NotifyType::Warning)
         ))
     );
@@ -437,7 +455,9 @@ async fn fast_skips_non_object_payload_without_losing_mode() {
         .expect("fast command")
         .handler
         .clone();
-    command("on".to_owned(), harness.command_context()).await.expect("on");
+    command("on".to_owned().into(), harness.command_context())
+        .await
+        .expect("on");
 
     assert_eq!(
         harness.runner.emit_before_provider_request(json!("unexpected")).await,
@@ -446,7 +466,7 @@ async fn fast_skips_non_object_payload_without_losing_mode() {
     assert_eq!(
         harness.ui.last_notification(),
         Some((
-            "Fast mode skipped: provider payload is not an object".to_owned(),
+            JsString::from("Fast mode skipped: provider payload is not an object"),
             Some(NotifyType::Warning)
         ))
     );
@@ -468,13 +488,13 @@ async fn fast_shares_authority_and_blocks_child_commands() {
     let main = build_harness(main, main_runtime, main_options).await;
     let mut child_options = HarnessOptions::new("/repo");
     child_options.model = Some(test_model(true));
-    child_options.multi_agent_agent_id = Some("child-agent".to_owned());
+    child_options.multi_agent_agent_id = Some("child-agent".to_owned().into());
     let child = build_harness(child, child_runtime, child_options).await;
 
     let main_command = main.runner.get_command("fast").expect("fast command").handler.clone();
     let child_command = child.runner.get_command("fast").expect("fast command").handler.clone();
 
-    main_command("on".to_owned(), main.command_context())
+    main_command("on".to_owned().into(), main.command_context())
         .await
         .expect("main on");
     assert_eq!(
@@ -485,13 +505,13 @@ async fn fast_shares_authority_and_blocks_child_commands() {
         json!({"model": "test-model", "service_tier": "priority"})
     );
 
-    child_command("off".to_owned(), child.command_context())
+    child_command("off".to_owned().into(), child.command_context())
         .await
         .expect("child off");
     assert_eq!(
         child.ui.last_notification(),
         Some((
-            "Fast mode is controlled by the main thread".to_owned(),
+            JsString::from("Fast mode is controlled by the main thread"),
             Some(NotifyType::Warning)
         ))
     );
@@ -505,9 +525,13 @@ async fn fast_shares_authority_and_blocks_child_commands() {
 async fn fast_restores_persisted_and_configured_modes() {
     let cwd = "/repo";
     let mut session =
-        pi_coding_agent::core::session_manager::SessionManager::in_memory(Some(cwd), None).expect("session");
+        pi_coding_agent::core::session_manager::SessionManager::in_memory(Some(&JsString::from(cwd)), None)
+            .expect("session");
     session
-        .append_custom_entry("codex-fast-mode", Some(json!({"serviceTier": "ultrafast"})))
+        .append_custom_entry(
+            &JsString::from("codex-fast-mode"),
+            Some(json!({"serviceTier": "ultrafast"})),
+        )
         .expect("custom entry");
     let authority = pi_coding_agent::bundled_extensions::codex_fast::FastModeAuthority::new();
     let runtime = create_extension_runtime();
@@ -532,7 +556,8 @@ async fn fast_restores_persisted_and_configured_modes() {
     let extension = load_fast(&runtime, cwd, &authority).await;
     let mut options = HarnessOptions::new(cwd);
     options.model = Some(test_model(true));
-    options.settings = Some(serde_json::from_value(json!({"defaultCodexFastMode": "priority"})).expect("settings"));
+    options.settings =
+        Some(pi_js_compat::js_json::from_value(&json!({"defaultCodexFastMode": "priority"})).expect("settings"));
     let harness = build_harness(extension, runtime.clone(), options).await;
     harness.runner.emit(&mut event).await;
     assert_eq!(
@@ -552,8 +577,8 @@ async fn effort_registers_command_and_opens_selector() {
             .get(&pi_js_compat::js_json::JsString::from("effort"))
             .expect("effort command")
             .description
-            .as_deref(),
-        Some("Set model effort level (depends on selected model)")
+            .clone(),
+        Some(JsString::from("Set model effort level (depends on selected model)"))
     );
     let mut options = HarnessOptions::new("/repo");
     options.model = Some(test_model(true));
@@ -567,16 +592,18 @@ async fn effort_registers_command_and_opens_selector() {
         .handler
         .clone();
 
-    command(String::new(), harness.command_context()).await.expect("effort");
+    command(String::new().into(), harness.command_context())
+        .await
+        .expect("effort");
 
     let calls = harness.ui.select_calls.lock().unwrap();
     assert_eq!(calls[0].0, "Select effort");
-    assert!(calls[0].1.contains(&"off".to_owned()));
-    assert!(calls[0].1.contains(&"high".to_owned()));
+    assert!(calls[0].1.contains(&JsString::from("off".to_owned())));
+    assert!(calls[0].1.contains(&JsString::from("high".to_owned())));
     assert_eq!(*harness.thinking.lock().unwrap(), ThinkingLevel::High);
     assert_eq!(
         harness.ui.last_notification(),
-        Some(("Effort: high".to_owned(), Some(NotifyType::Info)))
+        Some((JsString::from("Effort: high"), Some(NotifyType::Info)))
     );
     assert_eq!(harness.ui.editor_texts.lock().unwrap().as_slice(), [""]);
 }
@@ -597,7 +624,9 @@ async fn effort_only_offers_supported_levels() {
         .handler
         .clone();
 
-    command(String::new(), harness.command_context()).await.expect("effort");
+    command(String::new().into(), harness.command_context())
+        .await
+        .expect("effort");
 
     assert_eq!(harness.ui.select_calls.lock().unwrap()[0].1, vec!["off".to_owned()]);
     assert_eq!(*harness.thinking.lock().unwrap(), ThinkingLevel::Off);
@@ -619,7 +648,9 @@ async fn effort_cancelled_selector_changes_nothing() {
         .handler
         .clone();
 
-    command(String::new(), harness.command_context()).await.expect("effort");
+    command(String::new().into(), harness.command_context())
+        .await
+        .expect("effort");
 
     assert_eq!(*harness.thinking.lock().unwrap(), ThinkingLevel::Off);
     assert!(harness.ui.notifications().is_empty());
@@ -641,7 +672,7 @@ async fn effort_rejects_unsupported_levels() {
         .handler
         .clone();
 
-    command("high".to_owned(), harness.command_context())
+    command("high".to_owned().into(), harness.command_context())
         .await
         .expect("effort");
 
@@ -649,7 +680,7 @@ async fn effort_rejects_unsupported_levels() {
     assert_eq!(
         harness.ui.last_notification(),
         Some((
-            "Invalid effort \"high\". Available: off".to_owned(),
+            JsString::from("Invalid effort \"high\". Available: off"),
             Some(NotifyType::Warning)
         ))
     );
@@ -668,13 +699,13 @@ async fn effort_reports_missing_model() {
         .handler
         .clone();
 
-    command("high".to_owned(), harness.command_context())
+    command("high".to_owned().into(), harness.command_context())
         .await
         .expect("effort");
 
     assert_eq!(
         harness.ui.last_notification(),
-        Some(("No model selected".to_owned(), Some(NotifyType::Warning)))
+        Some((JsString::from("No model selected"), Some(NotifyType::Warning)))
     );
 }
 
@@ -688,7 +719,12 @@ async fn effort_injects_proactive_policy_and_restores_explicit_mode() {
 
     let result = harness
         .runner
-        .emit_before_agent_start("hi", None, "base", BuildSystemPromptOptions::default())
+        .emit_before_agent_start(
+            &JsString::from("hi"),
+            None,
+            &JsString::from("base"),
+            BuildSystemPromptOptions::default(),
+        )
         .await
         .expect("before_agent_start result");
     assert!(
@@ -705,20 +741,20 @@ async fn effort_injects_proactive_policy_and_restores_explicit_mode() {
         .expect("multi-agent command")
         .handler
         .clone();
-    multi_agent("explicit".to_owned(), harness.command_context())
+    multi_agent("explicit".to_owned().into(), harness.command_context())
         .await
         .expect("explicit");
     assert_eq!(
         harness.actions.entries.lock().unwrap().last().cloned(),
-        Some(("multi-agent-mode".to_owned(), Some(json!({"mode": "explicit"}))))
+        Some((JsString::from("multi-agent-mode"), Some(json!({"mode": "explicit"}))))
     );
 
     let result = harness
         .runner
         .emit_before_agent_start(
-            "hi",
+            &JsString::from("hi"),
             None,
-            "base\n\n<multi_agent_mode>Proactive multi-agent delegation is active.</multi_agent_mode>",
+            &JsString::from("base\n\n<multi_agent_mode>Proactive multi-agent delegation is active.</multi_agent_mode>"),
             BuildSystemPromptOptions::default(),
         )
         .await
@@ -732,9 +768,10 @@ async fn effort_injects_proactive_policy_and_restores_explicit_mode() {
 async fn effort_restores_mode_from_branch() {
     let cwd = "/repo";
     let mut session =
-        pi_coding_agent::core::session_manager::SessionManager::in_memory(Some(cwd), None).expect("session");
+        pi_coding_agent::core::session_manager::SessionManager::in_memory(Some(&JsString::from(cwd)), None)
+            .expect("session");
     session
-        .append_custom_entry("multi-agent-mode", Some(json!({"mode": "explicit"})))
+        .append_custom_entry(&JsString::from("multi-agent-mode"), Some(json!({"mode": "explicit"})))
         .expect("entry");
     let runtime = create_extension_runtime();
     let extension = load_effort(&runtime, cwd).await;
@@ -751,7 +788,12 @@ async fn effort_restores_mode_from_branch() {
 
     let result = harness
         .runner
-        .emit_before_agent_start("hi", None, "base", BuildSystemPromptOptions::default())
+        .emit_before_agent_start(
+            &JsString::from("hi"),
+            None,
+            &JsString::from("base"),
+            BuildSystemPromptOptions::default(),
+        )
         .await
         .expect("before_agent_start result");
     assert!(
@@ -778,18 +820,21 @@ async fn effort_ultra_activates_proactive_and_maps_thinking() {
         .handler
         .clone();
 
-    command("ultra".to_owned(), harness.command_context())
+    command("ultra".to_owned().into(), harness.command_context())
         .await
         .expect("ultra");
 
     assert_eq!(*harness.thinking.lock().unwrap(), ThinkingLevel::Ultra);
     assert_eq!(
         harness.actions.entries.lock().unwrap().last().cloned(),
-        Some(("multi-agent-mode".to_owned(), Some(json!({"mode": "proactive"}))))
+        Some((JsString::from("multi-agent-mode"), Some(json!({"mode": "proactive"}))))
     );
     assert_eq!(
         harness.ui.last_notification(),
-        Some(("Effort: ultra (max + proactive)".to_owned(), Some(NotifyType::Info)))
+        Some((
+            JsString::from("Effort: ultra (max + proactive)"),
+            Some(NotifyType::Info)
+        ))
     );
 }
 
@@ -809,7 +854,7 @@ async fn effort_explicit_from_ultra_keeps_max_reasoning() {
         .handler
         .clone();
 
-    multi_agent("explicit".to_owned(), harness.command_context())
+    multi_agent("explicit".to_owned().into(), harness.command_context())
         .await
         .expect("explicit");
 
@@ -830,7 +875,7 @@ async fn effort_thinking_level_ultra_reactivates_proactive() {
         .expect("multi-agent command")
         .handler
         .clone();
-    multi_agent("explicit".to_owned(), harness.command_context())
+    multi_agent("explicit".to_owned().into(), harness.command_context())
         .await
         .expect("explicit");
     harness.actions.entries.lock().unwrap().clear();
@@ -843,7 +888,7 @@ async fn effort_thinking_level_ultra_reactivates_proactive() {
 
     assert_eq!(
         harness.actions.entries.lock().unwrap().last().cloned(),
-        Some(("multi-agent-mode".to_owned(), Some(json!({"mode": "proactive"}))))
+        Some((JsString::from("multi-agent-mode"), Some(json!({"mode": "proactive"}))))
     );
 }
 
@@ -853,7 +898,7 @@ async fn effort_child_runtime_cannot_change_mode_or_receive_policy() {
     let extension = load_effort(&runtime, "/repo").await;
     let mut options = HarnessOptions::new("/repo");
     options.model = Some(test_model(true));
-    options.multi_agent_agent_id = Some("child-agent".to_owned());
+    options.multi_agent_agent_id = Some("child-agent".to_owned().into());
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
     let multi_agent = extension
         .read()
@@ -863,7 +908,7 @@ async fn effort_child_runtime_cannot_change_mode_or_receive_policy() {
         .handler
         .clone();
 
-    multi_agent("explicit".to_owned(), harness.command_context())
+    multi_agent("explicit".to_owned().into(), harness.command_context())
         .await
         .expect("explicit");
 
@@ -871,7 +916,7 @@ async fn effort_child_runtime_cannot_change_mode_or_receive_policy() {
     assert_eq!(
         harness.ui.last_notification(),
         Some((
-            "Multi-agent mode is controlled by the main thread".to_owned(),
+            JsString::from("Multi-agent mode is controlled by the main thread"),
             Some(NotifyType::Warning)
         ))
     );
@@ -879,7 +924,12 @@ async fn effort_child_runtime_cannot_change_mode_or_receive_policy() {
     assert!(
         harness
             .runner
-            .emit_before_agent_start("hi", None, "base", BuildSystemPromptOptions::default())
+            .emit_before_agent_start(
+                &JsString::from("hi"),
+                None,
+                &JsString::from("base"),
+                BuildSystemPromptOptions::default()
+            )
             .await
             .is_none()
     );
@@ -902,12 +952,15 @@ async fn effort_status_dims_only_the_prefix() {
 
     assert_eq!(
         harness.ui.status("multi-agent-mode"),
-        Some(format!(
-            "{}proactive",
-            theme.fg(
-                pi_coding_agent::modes::interactive::theme::ThemeColor::Dim,
-                "multi-agent: "
-            )
+        Some(JsString::join(
+            [
+                theme.fg(
+                    pi_coding_agent::modes::interactive::theme::ThemeColor::Dim,
+                    "multi-agent: "
+                ),
+                JsString::from("proactive")
+            ],
+            ""
         ))
     );
 }
