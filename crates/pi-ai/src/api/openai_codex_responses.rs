@@ -308,6 +308,11 @@ fn fail_stream(
     sender: &AssistantMessageEventSender,
     message: impl Into<JsString>,
 ) {
+    for block in &mut output.content {
+        if let crate::types::AssistantContent::ToolCall(block) = block {
+            block.partial_json = None;
+        }
+    }
     let aborted = is_aborted(options.stream.request.signal.as_ref());
     output.stop_reason = if aborted {
         StopReason::Aborted
