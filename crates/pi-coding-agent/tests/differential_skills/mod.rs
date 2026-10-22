@@ -99,10 +99,7 @@ fn compare_format(oracle: &mut oracle::TsOracle) {
     ];
     let response = oracle.request(&json!({"id": 200, "operation": "format", "skills": skills}));
     assert_eq!(response["ok"], true, "oracle failed: {response}");
-    assert_eq!(
-        Value::String(format_skills_for_prompt(&skills)),
-        response["output"]["prompt"]
-    );
+    assert_eq!(json!(format_skills_for_prompt(&skills)), response["output"]["prompt"]);
     assert_eq!(format_skills_for_prompt(&[]), "");
     assert_eq!(format_skills_for_prompt(&skills[1..2]), "");
 }
@@ -164,11 +161,10 @@ fn compare_load(oracle: &mut oracle::TsOracle, root: &Path, fixtures: &Path) {
         let actual = load_skills(&LoadSkillsOptions {
             cwd: cwd.to_string_lossy().into_owned().into(),
             agent_dir: agent_dir.to_string_lossy().into_owned().into(),
-            skill_paths: skill_paths.clone(),
+            skill_paths: skill_paths.iter().map(JsString::from).collect(),
             include_defaults: *include_defaults,
         })
-        .unwrap()
-        .expect("skills load");
+        .unwrap();
         assert_eq!(json!(actual.skills), response["output"]["skills"], "case {index}");
         assert_eq!(
             json!(actual.diagnostics),

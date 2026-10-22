@@ -36,7 +36,7 @@ fn model(provider: &str, base_url: &str, id: &str) -> Model {
 fn headers(pairs: &[(&str, &str)]) -> ProviderHeaders {
     pairs
         .iter()
-        .map(|(name, value)| ((*name).to_owned(), Some((*value).to_owned())))
+        .map(|(name, value)| ((*name).to_owned(), Some(JsString::from(*value))))
         .collect()
 }
 

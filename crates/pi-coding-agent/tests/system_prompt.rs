@@ -111,7 +111,7 @@ fn includes_tool_snippets_only_for_selected_tools() {
         selected_tools: Some(vec!["read".to_owned(), "dynamic_tool".to_owned()]),
         tool_snippets: Some(HashMap::from([(
             "dynamic_tool".to_owned(),
-            "Run dynamic test behavior".to_owned(),
+            JsString::from("Run dynamic test behavior"),
         )])),
         ..options("/repo/project")
     });

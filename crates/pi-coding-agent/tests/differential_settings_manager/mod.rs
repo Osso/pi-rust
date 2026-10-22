@@ -197,19 +197,19 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         "set_hide_tool_output" => manager.set_hide_tool_output(value.as_bool().unwrap()),
         "set_hide_coordination_messages" => manager.set_hide_coordination_messages(value.as_bool().unwrap()),
         "set_hide_thinking_block" => manager.set_hide_thinking_block(value.as_bool().unwrap()),
-        "set_shell_path" => manager.set_shell_path(value.as_str()),
+        "set_shell_path" => manager.set_shell_path(value.as_str().map(JsString::from).as_ref()),
         "set_quiet_startup" => manager.set_quiet_startup(value.as_bool().unwrap()),
         "set_default_project_trust" => manager.set_default_project_trust(match value.as_str().unwrap() {
             "always" => DefaultProjectTrust::Always,
             "never" => DefaultProjectTrust::Never,
             _ => DefaultProjectTrust::Ask,
         }),
-        "set_shell_command_prefix" => manager.set_shell_command_prefix(value.as_str()),
+        "set_shell_command_prefix" => manager.set_shell_command_prefix(value.as_str().map(JsString::from).as_ref()),
         "set_npm_command" => {
             let command = value.as_array().map(|values| {
                 values
                     .iter()
-                    .map(|value| value.as_str().unwrap().to_owned())
+                    .map(|value| JsString::from(value.as_str().unwrap()))
                     .collect::<Vec<_>>()
             });
             manager.set_npm_command(command.as_deref());
@@ -366,9 +366,9 @@ fn parse_transport(value: &str) -> pi_ai::types::Transport {
 
 fn snapshot(manager: &SettingsManager) -> Value {
     json!({
-        "globalSettings": Value::Object(manager.get_global_settings()),
-        "projectSettings": Value::Object(manager.get_project_settings()),
-        "mergedSettings": Value::Object(manager.get_merged_settings()),
+        "globalSettings": json!(manager.get_global_settings()),
+        "projectSettings": json!(manager.get_project_settings()),
+        "mergedSettings": json!(manager.get_merged_settings()),
         "projectTrusted": manager.is_project_trusted(),
         "lastChangelogVersion": option_str(manager.get_last_changelog_version()),
         "externalEditorCommand": manager.get_external_editor_command(),
@@ -449,7 +449,7 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "outputPad": manager.get_output_pad(),
         "autocompleteMaxVisible": number(manager.get_autocomplete_max_visible()),
         "codeBlockIndent": manager.get_code_block_indent(),
-        "warnings": Value::Object(manager.get_warnings()),
+        "warnings": json!(manager.get_warnings()),
         "permissionPromptTool": manager.get_permission_prompt_tool(),
         "agentProfiles": {
             "browser": manager.get_agent_profile(&JsString::from("browser")),
@@ -477,8 +477,8 @@ fn provider_retry_snapshot(manager: &SettingsManager) -> Value {
     Value::Object(object)
 }
 
-fn option_str(value: Option<&str>) -> Value {
-    value.map_or(Value::Null, |value| Value::String(value.to_owned()))
+fn option_str(value: Option<impl serde::Serialize>) -> Value {
+    json!(value)
 }
 
 /// JavaScript numbers are compared as integers when integral.

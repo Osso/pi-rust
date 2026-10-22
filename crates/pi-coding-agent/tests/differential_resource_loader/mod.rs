@@ -31,10 +31,7 @@ pub(crate) fn run() {
         assert_eq!(Value::Array(actual_files), response["output"]["files"]);
 
         let content = load_rules_from_dir(&JsString::from(&dir)).expect("rules content load");
-        assert_eq!(
-            content.map_or(Value::Null, Value::String),
-            response["output"]["content"]
-        );
+        assert_eq!(json!(content), response["output"]["content"]);
     }
 }
 

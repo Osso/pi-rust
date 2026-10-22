@@ -23,7 +23,7 @@ struct FakeSettings {
     global: Mutex<PackageSettingsSnapshot>,
     project: Mutex<PackageSettingsSnapshot>,
     trusted: bool,
-    npm_command: Option<Vec<String>>,
+    npm_command: Option<Vec<JsString>>,
 }
 
 impl PackageSettingsStore for FakeSettings {
@@ -47,7 +47,7 @@ impl PackageSettingsStore for FakeSettings {
         self.trusted
     }
 
-    fn get_npm_command(&self) -> Option<Vec<String>> {
+    fn get_npm_command(&self) -> Option<Vec<JsString>> {
         self.npm_command.clone()
     }
 }
@@ -56,7 +56,7 @@ struct Scenario {
     global: Value,
     project: Value,
     trusted: bool,
-    npm_command: Option<Vec<String>>,
+    npm_command: Option<Vec<JsString>>,
 }
 
 impl Default for Scenario {
@@ -100,11 +100,11 @@ impl Scenario {
 }
 
 fn snapshot_from(value: &Value) -> PackageSettingsSnapshot {
-    let strings = |key: &str| -> Vec<String> {
+    let strings = |key: &str| -> Vec<JsString> {
         value
             .get(key)
             .and_then(Value::as_array)
-            .map(|entries| entries.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .map(|entries| entries.iter().filter_map(Value::as_str).map(JsString::from).collect())
             .unwrap_or_default()
     };
     let packages = value
