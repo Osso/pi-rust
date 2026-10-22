@@ -8,9 +8,12 @@ use pi_agent_core::AgentToolResult;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::{TextOrImageContent, ToolCallExecution};
 use pi_ai::utils::uuid::uuidv7;
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsObject as Map, JsString, JsValue as Value, encode_node_utf8},
+};
 use pi_tui::components::text::Text;
 use pi_tui::tui::ComponentRef;
-use serde_json::{Map, Value, json};
 
 use crate::bundled_extensions::bwrap::backend::{
     BwrapRunnerCommandOptions, create_bwrap_runner_command, create_bwrap_runner_environment,
@@ -226,8 +229,8 @@ fn dispose_executor(slot: &ExecutorSlot) {
     }
 }
 
-fn read_string_arg(args: &Value, key: &str) -> Option<String> {
-    args.get(key).and_then(Value::as_str).map(str::to_owned)
+fn read_string_arg(args: &Value, key: &str) -> Option<JsString> {
+    args.get(key).and_then(Value::as_string).cloned()
 }
 
 fn format_pyrun_result(text: &str, executed: Option<&str>, is_error: bool, theme: &Theme) -> String {
@@ -246,8 +249,8 @@ fn format_pyrun_result(text: &str, executed: Option<&str>, is_error: bool, theme
     theme.fg(ThemeColor::ToolOutput, remainder)
 }
 
-fn get_executed_code(details: Option<&Value>) -> Option<String> {
-    details?.get("executed").and_then(Value::as_str).map(str::to_owned)
+fn get_executed_code(details: Option<&Value>) -> Option<JsString> {
+    details?.get("executed").and_then(Value::as_string).cloned()
 }
 
 fn normalize_restart_params(params: Option<&Value>) -> Result<RestartOptions, HandlerError> {
@@ -263,7 +266,7 @@ fn normalize_restart_params(params: Option<&Value>) -> Result<RestartOptions, Ha
             process: Some(true),
         });
     }
-    if let Some(notice) = params.as_str() {
+    if let Some(notice) = params.as_string() {
         return Ok(RestartOptions {
             notice: Some(notice.to_owned()),
             process: Some(true),
@@ -292,7 +295,7 @@ fn normalize_compact_params(params: Option<&Value>) -> Result<CompactOptions, Ha
     if params.is_null() {
         return Ok(CompactOptions::default());
     }
-    if let Some(custom_instructions) = params.as_str() {
+    if let Some(custom_instructions) = params.as_string() {
         return Ok(CompactOptions {
             custom_instructions: Some(custom_instructions.to_owned()),
             on_complete: None,
@@ -323,7 +326,7 @@ struct ResumeSessionParams {
     path: Option<String>,
 }
 
-fn read_non_empty_string(record: &Map<String, Value>, key: &str) -> Result<Option<String>, HandlerError> {
+fn read_non_empty_string(record: &Map, key: &str) -> Result<Option<String>, HandlerError> {
     let Some(value) = record.get(key) else {
         return Ok(None);
     };
@@ -444,14 +447,14 @@ fn list_scoped_models(ctx: &ExtensionContext) -> Result<Value, HandlerError> {
         .into_iter()
         .map(|scoped| {
             let mut model = Map::new();
-            model.insert("id".to_owned(), Value::String(scoped.model.id.clone()));
+            model.insert("id".into(), Value::String(scoped.model.id.clone()));
             if !scoped.model.name.is_empty() {
-                model.insert("name".to_owned(), Value::String(scoped.model.name.clone()));
+                model.insert("name".into(), Value::String(scoped.model.name.clone()));
             }
-            model.insert("provider".to_owned(), Value::String(scoped.model.provider.to_string()));
+            model.insert("provider".into(), Value::String(scoped.model.provider.to_string()));
             if let Some(thinking_level) = scoped.thinking_level {
                 model.insert(
-                    "thinkingLevel".to_owned(),
+                    "thinkingLevel".into(),
                     Value::String(thinking_level.as_str().to_owned()),
                 );
             }
@@ -485,11 +488,11 @@ async fn set_session_model(
             "pi.models.set requires { provider, id, thinkingLevel? }",
         ));
     };
-    let provider = record.get("provider").and_then(Value::as_str).unwrap_or_default();
+    let provider = record.get("provider").and_then(Value::as_string).unwrap_or_default();
     if pi_js_compat::string::js_trim(provider).is_empty() {
         return Err(HandlerError::new("pi.models.set requires a non-empty provider"));
     }
-    let id = record.get("id").and_then(Value::as_str).unwrap_or_default();
+    let id = record.get("id").and_then(Value::as_string).unwrap_or_default();
     if pi_js_compat::string::js_trim(id).is_empty() {
         return Err(HandlerError::new("pi.models.set requires a non-empty id"));
     }
@@ -527,9 +530,9 @@ async fn set_session_model(
             .map_err(|error| HandlerError::new(error.to_string()))?;
     }
     let mut result = Map::new();
-    result.insert("model".to_owned(), serde_json::to_value(&model).unwrap_or(Value::Null));
+    result.insert("model".into(), js_json::to_value(&model).unwrap_or(Value::Null));
     if let Some(level) = thinking_level {
-        result.insert("thinkingLevel".to_owned(), Value::String(level.as_str().to_owned()));
+        result.insert("thinkingLevel".into(), Value::String(level.as_str().to_owned()));
     }
     Ok(Value::Object(result))
 }
@@ -539,7 +542,7 @@ fn normalize_tool_call_params(params: Option<&Value>) -> Result<(String, Value),
         return Err(HandlerError::new("pi.tools.call requires { name, params }"));
     };
     let name = record.get("name").or_else(|| record.get("toolName"));
-    let Some(name) = name.and_then(Value::as_str) else {
+    let Some(name) = name.and_then(Value::as_string) else {
         return Err(HandlerError::new("pi.tools.call requires a non-empty tool name"));
     };
     let name = pi_js_compat::string::js_trim(name);
@@ -549,11 +552,11 @@ fn normalize_tool_call_params(params: Option<&Value>) -> Result<(String, Value),
     Ok((name.to_owned(), record.get("params").cloned().unwrap_or(Value::Null)))
 }
 
-fn normalize_command_run_params(params: Option<&Value>) -> Result<(String, String), HandlerError> {
+fn normalize_command_run_params(params: Option<&Value>) -> Result<(String, JsString), HandlerError> {
     let Some(Value::Object(record)) = params else {
         return Err(HandlerError::new("pi.commands.run requires { name, args }"));
     };
-    let Some(name) = record.get("name").and_then(Value::as_str) else {
+    let Some(name) = record.get("name").and_then(Value::as_string) else {
         return Err(HandlerError::new("pi.commands.run requires a non-empty command name"));
     };
     let name = pi_js_compat::string::js_trim(name);
@@ -563,18 +566,18 @@ fn normalize_command_run_params(params: Option<&Value>) -> Result<(String, Strin
     let args = match record.get("args") {
         Some(Value::String(args)) => args.clone(),
         Some(_) => return Err(HandlerError::new("pi.commands.run args must be a string when provided")),
-        None => String::new(),
+        None => JsString::default(),
     };
     Ok((name.to_owned(), args))
 }
 
-fn normalize_message_params(params: Option<&Value>) -> Result<(String, Option<UserMessageDelivery>), HandlerError> {
+fn normalize_message_params(params: Option<&Value>) -> Result<(JsString, Option<UserMessageDelivery>), HandlerError> {
     let Some(params) = params else {
         return Err(HandlerError::new(
             "pi.messages.enqueue requires a message string or { message } object",
         ));
     };
-    if let Some(message) = params.as_str() {
+    if let Some(message) = params.as_string() {
         return Ok((message.to_owned(), None));
     }
     let Some(record) = params.as_object() else {
@@ -582,12 +585,12 @@ fn normalize_message_params(params: Option<&Value>) -> Result<(String, Option<Us
             "pi.messages.enqueue requires a message string or { message } object",
         ));
     };
-    let Some(message) = record.get("message").and_then(Value::as_str) else {
+    let Some(message) = record.get("message").and_then(Value::as_string) else {
         return Err(HandlerError::new("pi.messages.enqueue requires a string message"));
     };
-    let deliver_as = match record.get("deliverAs").and_then(Value::as_str) {
-        Some("steer") => Some(UserMessageDelivery::Steer),
-        Some("followUp") => Some(UserMessageDelivery::FollowUp),
+    let deliver_as = match record.get("deliverAs").and_then(Value::as_string) {
+        Some(value) if value == "steer" => Some(UserMessageDelivery::Steer),
+        Some(value) if value == "followUp" => Some(UserMessageDelivery::FollowUp),
         _ => None,
     };
     Ok((message.to_owned(), deliver_as))
@@ -606,11 +609,11 @@ async fn dispatch_builtin_pyrun_request(
         "tools.call" => {
             let (name, params) = normalize_tool_call_params(Some(&request.params))?;
             let result = pi
-                .call_tool(name, params, signal, active_tool_call_id.map(str::to_owned))
+                .call_tool(name, params.into(), signal, active_tool_call_id.map(str::to_owned))
                 .await?;
-            Ok(Some(serde_json::to_value(&result).unwrap_or(Value::Null)))
+            Ok(Some(js_json::to_value(&result).unwrap_or(Value::Null)))
         }
-        "commands.list" => Ok(Some(serde_json::to_value(pi.get_commands()?).unwrap_or(Value::Null))),
+        "commands.list" => Ok(Some(js_json::to_value(pi.get_commands()?).unwrap_or(Value::Null))),
         "commands.run" => {
             let (name, args) = normalize_command_run_params(Some(&request.params))?;
             Ok(Some(pi.call_command(name, Some(args)).await?))
@@ -622,7 +625,7 @@ async fn dispatch_builtin_pyrun_request(
         "messages.enqueue" => {
             let (message, deliver_as) = normalize_message_params(Some(&request.params))?;
             pi.send_user_message(
-                UserMessageContent::Text(message),
+                UserMessageContent::Text(message.into()),
                 Some(SendUserMessageOptions {
                     deliver_as,
                     expand_prompt_templates: None,
@@ -682,8 +685,8 @@ pub fn create_pyrun_pi_dispatcher(pi: &ExtensionApi, options: &PyrunExtensionOpt
     })
 }
 
-fn pyrun_parameters() -> Value {
-    json!({
+fn pyrun_parameters() -> serde_json::Value {
+    serde_json::json!({
         "type": "object",
         "properties": {
             "code": {"type": "string", "description": "Python source to evaluate."},
@@ -706,13 +709,13 @@ fn update_existing_text(context: &ToolRenderContext, text: String) -> Option<Com
 fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     let session_id = read_string_arg(args, "session_id");
     let label = match session_id {
-        Some(session_id) if session_id != "default" => format!("pyrun_eval({session_id})"),
-        _ => "pyrun_eval".to_owned(),
+        Some(session_id) if session_id != "default" => format!("pyrun_eval({})", encode_node_utf8(&session_id)),
+        _ => "pyrun_eval".into(),
     };
     let code = read_string_arg(args, "code");
     let highlighted = code
-        .as_deref()
-        .map(|code| highlight_code(code, Some("python")).join("\n"));
+        .as_ref()
+        .map(|code| highlight_code(&encode_node_utf8(code), Some("python")).join("\n"));
     let text = match highlighted {
         Some(highlighted) => format!("{}\n{highlighted}", theme.bold(&label)),
         None => theme.bold(&label),
@@ -729,17 +732,20 @@ fn render_result(
     theme: &Theme,
     context: &ToolRenderContext,
 ) -> ComponentRef {
-    let output = result
-        .content
-        .iter()
-        .filter_map(|item| match item {
-            TextOrImageContent::Text(text) => Some(text.text.as_str()),
-            TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let output = JsString::join(
+        result
+            .content
+            .iter()
+            .filter_map(|item| match item {
+                TextOrImageContent::Text(text) => Some(text.text.clone()),
+                TextOrImageContent::Image(_) => None,
+            })
+            .collect::<Vec<_>>(),
+        "\n",
+    );
     let executed = get_executed_code(result.details.as_ref()).or_else(|| read_string_arg(&context.args, "code"));
-    let text = format_pyrun_result(&output, executed.as_deref(), context.is_error, theme);
+    let executed = executed.as_ref().map(encode_node_utf8);
+    let text = format_pyrun_result(&encode_node_utf8(&output), executed.as_deref(), context.is_error, theme);
     if let Some(component) = update_existing_text(context, text.clone()) {
         return component;
     }
@@ -755,10 +761,13 @@ pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
                 let params = PyrunEvalParams {
                     code: params
                         .get("code")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_owned(),
-                    session_id: params.get("session_id").and_then(Value::as_str).map(str::to_owned),
+                        .and_then(Value::as_string)
+                        .cloned()
+                        .unwrap_or_default(),
+                    session_id: params
+                        .get("session_id")
+                        .and_then(Value::as_string)
+                        .and_then(|id| id.to_utf8().ok()),
                 };
                 evaluate(params, ctx, on_update, signal, Some(_tool_call_id)).await
             }) as BoxFuture<'static, Result<AgentToolResult, HandlerError>>
@@ -769,7 +778,7 @@ pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
     let render_call: ToolRenderer = infallible_render_call(render_call);
     let render_result: ToolResultRenderer = infallible_render_result(render_result);
     ToolDefinition {
-        name: "pyrun_eval".to_owned(),
+        name: "pyrun_eval".into(),
         label: "Pyrun Eval".to_owned(),
         description: "Evaluate Python/Pyrun code through the canonical Pyrun JSONL runtime adapter.".to_owned(),
         prompt_snippet: Some(PYRUN_PROMPT_SNIPPET.to_owned()),
