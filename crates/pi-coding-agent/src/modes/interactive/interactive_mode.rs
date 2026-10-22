@@ -129,9 +129,7 @@ use serde_json::Value;
 
 pub(crate) const PARTIAL_UPDATE_RENDER_THROTTLE_MS: u64 = 50;
 
-const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING: &str = &JsString::from(
-    "Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage. Disable this warning in /settings.",
-);
+const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING: &str = "Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage. Disable this warning in /settings.";
 pub(crate) const FOLLOW_UP_BODY_PREVIEW_LENGTH: usize = 50;
 
 pub(crate) fn is_unknown_model(model: Option<&pi_ai::types::Model>) -> bool {
@@ -427,7 +425,7 @@ pub fn format_resume_command(session_manager: &crate::core::session_manager::Ses
     }
     args.push(JsString::from("--session"));
     args.push(session_manager.get_session_id().to_owned());
-    Some((args.join(" ")).into())
+    Some(JsString::join(args, " "))
 }
 
 pub(crate) fn format_follow_up_preview(message: impl Into<JsString>) -> JsString {
@@ -646,7 +644,7 @@ fn home_directory() -> JsString {
     }
     #[cfg(not(windows))]
     {
-        (pi_js_compat::process_env::get("HOME").unwrap_or_default().into()).into()
+        pi_js_compat::process_env::get("HOME").unwrap_or_default().into()
     }
 }
 
@@ -756,7 +754,7 @@ pub(crate) fn get_compact_package_source_label(source_info: Option<&SourceInfo>)
             stripped.to_owned()
         };
     }
-    if let Some(git_source) = parse_git_url(source) {
+    if let Some(git_source) = parse_git_url(&source) {
         return if git_source.path.is_empty() {
             source.to_owned()
         } else {
@@ -953,8 +951,14 @@ pub(crate) fn get_scope_group(source_info: Option<&SourceInfo>) -> ScopeGroupKin
 }
 
 pub(crate) fn is_package_source(source_info: Option<&SourceInfo>) -> bool {
-    source_info.map(|info| &info.source).unwrap_or("").starts_with("npm:")
-        || source_info.map(|info| &info.source).unwrap_or("").starts_with("git:")
+    source_info
+        .map(|info| &info.source)
+        .unwrap_or(&JsString::from(""))
+        .starts_with("npm:")
+        || source_info
+            .map(|info| &info.source)
+            .unwrap_or(&JsString::from(""))
+            .starts_with("git:")
 }
 
 #[derive(Debug, Clone)]
@@ -1318,7 +1322,7 @@ pub fn create_interactive_tui(options: InteractiveTuiOptions) -> Renderer {
     Renderer::Main(TUI::with_options(
         terminal,
         Some(options.show_hardware_cursor),
-        Some(PathBuf::from(&options.log_directory)),
+        Some(PathBuf::from(encode_node_utf8(&options.log_directory))),
     ))
 }
 
@@ -2475,8 +2479,10 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
     }
 
     fn start(&self) -> Result<(), JsString> {
-        with_mode(self.mode_id, |mode| mode.ui.start().map_err(|error| error.to_string()))
-            .expect("extension TUI start requires the owning live UI thread")
+        with_mode(self.mode_id, |mode| {
+            mode.ui.start().map_err(|error| JsString::from(error.to_string()))
+        })
+        .expect("extension TUI start requires the owning live UI thread")
     }
 
     fn terminal_rows(&self) -> usize {
@@ -2808,15 +2814,15 @@ struct ChildAgentView {
 
 /// Agent slot selection keybindings (`AGENT_SLOT_KEYBINDINGS`).
 const AGENT_SLOT_KEYBINDINGS: [(&JsString, i64); 9] = [
-    (&JsString::from("app.agent.slot1"), 0),
-    (&JsString::from("app.agent.slot2"), 1),
-    (&JsString::from("app.agent.slot3"), 2),
-    (&JsString::from("app.agent.slot4"), 3),
-    (&JsString::from("app.agent.slot5"), 4),
-    (&JsString::from("app.agent.slot6"), 5),
-    (&JsString::from("app.agent.slot7"), 6),
-    (&JsString::from("app.agent.slot8"), 7),
-    (&JsString::from("app.agent.slot9"), 8),
+    ("app.agent.slot1", 0),
+    ("app.agent.slot2", 1),
+    ("app.agent.slot3", 2),
+    ("app.agent.slot4", 3),
+    ("app.agent.slot5", 4),
+    ("app.agent.slot6", 5),
+    ("app.agent.slot7", 6),
+    ("app.agent.slot8", 7),
+    ("app.agent.slot9", 8),
 ];
 
 /// Maximum number of child transcript reload retries after a partial write.
@@ -2833,20 +2839,22 @@ fn find_readable_agent_file_path(agent: &AgentSnapshot, label: &JsString) -> Opt
         .and_then(|file_refs| {
             file_refs
                 .iter()
-                .find(|file_ref| file_ref.label.as_ref() == Some(label) && Path::new(&file_ref.path).exists())
+                .find(|file_ref| {
+                    file_ref.label.as_ref() == Some(label) && Path::new(&encode_node_utf8(&file_ref.path)).exists()
+                })
                 .map(|file_ref| file_ref.path.clone())
         })
 }
 
 /// `isCompleteJsonlFile`: an empty file or one ending in a newline.
 fn is_complete_jsonl_file(path: &JsString) -> std::io::Result<bool> {
-    let metadata = std::fs::metadata(path)?;
+    let metadata = std::fs::metadata(encode_node_utf8(path))?;
     let size = metadata.len();
     if size == 0 {
         return Ok(true);
     }
     use std::io::{Read, Seek, SeekFrom};
-    let mut file = std::fs::File::open(path)?;
+    let mut file = std::fs::File::open(encode_node_utf8(path))?;
     file.seek(SeekFrom::Start(size - 1))?;
     let mut last = [0u8; 1];
     file.read_exact(&mut last)?;
@@ -2855,7 +2863,7 @@ fn is_complete_jsonl_file(path: &JsString) -> std::io::Result<bool> {
 
 /// Reads a child agent transcript for the selected-agent view.
 pub fn read_child_transcript(path: &JsString, session_dir: &JsString) -> Option<Vec<AgentMessage>> {
-    if !std::path::Path::new(path).exists() {
+    if !std::path::Path::new(&encode_node_utf8(path)).exists() {
         return None;
     }
     let manager = SessionManager::open(path, Some(session_dir), None).ok()?;
@@ -2942,7 +2950,7 @@ impl InteractiveMode {
                 move || ui.request_render()
             }),
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| JsString::from(error.to_string()))?;
 
         let (header_container, header_ref) = SharedContainer::create();
         let (loaded_resources_container, loaded_ref) = SharedContainer::create();
@@ -2975,7 +2983,7 @@ impl InteractiveMode {
                     prompt_history_filter: Some(Rc::new(|text: &JsString| !is_skill_invocation(text, &[]))),
                 },
             )
-            .map_err(|error| error.to_string())?,
+            .map_err(|error| JsString::from(error.to_string()))?,
         ));
         let editor: Rc<RefCell<dyn EditorComponent>> = default_editor.clone();
         let editor_handle: ComponentRef = component(AnyEditorHandle(Rc::clone(&editor)));
@@ -3804,7 +3812,7 @@ impl InteractiveMode {
             self.render_live_agent_placeholder(agent, None);
             return true;
         };
-        if !Path::new(path).exists() {
+        if !Path::new(&encode_node_utf8(path)).exists() {
             self.render_live_agent_placeholder(agent, Some(path));
             return true;
         }
@@ -3827,24 +3835,17 @@ impl InteractiveMode {
 
     /// `watchSelectedAgentTranscript`.
     fn watch_selected_agent_transcript(&self, transcript_path: &JsString) {
-        let watch_path = if Path::new(transcript_path).exists() {
+        let watch_path = if Path::new(&encode_node_utf8(transcript_path)).exists() {
             transcript_path.to_owned()
         } else {
-            (Path::new(transcript_path)
-                .parent()
-                .map(|parent| parent.display().to_string())
-                .unwrap_or_default())
-            .into()
+            node_dirname(transcript_path)
         };
-        let target_name = Path::new(transcript_path)
-            .file_name()
-            .map(|name| name.to_os_string())
-            .unwrap_or_default();
-        let is_file_watch = watch_path == transcript_path;
+        let target_name = std::ffi::OsString::from(encode_node_utf8(&node_basename(transcript_path)));
+        let is_file_watch = &watch_path == transcript_path;
         let sender = self.child_view_watch_sender.clone();
         let listener_sender = sender.clone();
         let watcher = watch_with_error_handler(
-            Path::new(&watch_path),
+            Path::new(&encode_node_utf8(&watch_path)),
             move |_kind: WatchEventKind, path: Option<PathBuf>| {
                 let matches_target = path
                     .as_ref()
@@ -3936,7 +3937,7 @@ impl InteractiveMode {
         self.child_view
             .borrow()
             .as_ref()
-            .is_some_and(|view| store.get_selected_agent_id().as_ref() == Some(view.agent_id.as_str()))
+            .is_some_and(|view| store.get_selected_agent_id().as_ref() == Some(&view.agent_id))
     }
 
     /// `reloadSelectedAgentTranscript`.
@@ -3952,12 +3953,12 @@ impl InteractiveMode {
         else {
             return;
         };
-        if !Path::new(&path).exists() {
+        if !Path::new(&encode_node_utf8(&path)).exists() {
             let rewatch = self
                 .child_view
                 .borrow()
                 .as_ref()
-                .is_some_and(|view| view.watch_path.as_ref() == Some(path.as_str()));
+                .is_some_and(|view| view.watch_path.as_ref() == Some(&path));
             if rewatch {
                 self.watch_selected_agent_transcript(&path);
             }
@@ -3981,7 +3982,7 @@ impl InteractiveMode {
             view.reload_retries = 0;
             view.watch_path.clone()
         };
-        if watch_path.as_ref() != Some(path.as_str()) {
+        if watch_path.as_ref() != Some(&path) {
             self.watch_selected_agent_transcript(&path);
         }
         if self.render_selected_agent_view() {
@@ -4088,7 +4089,7 @@ impl InteractiveMode {
                     .iter()
                     .find(|file_ref| {
                         file_ref.label.as_ref() != Some(&JsString::from("Pyrun script"))
-                            && Path::new(&file_ref.path).exists()
+                            && Path::new(&encode_node_utf8(&file_ref.path)).exists()
                     })
                     .map(|file_ref| file_ref.path.clone())
             })
@@ -4102,12 +4103,12 @@ impl InteractiveMode {
 
     /// `readAgentLogPreviewUnchecked`.
     fn read_agent_log_preview_unchecked(&self, log_path: &JsString) -> std::io::Result<JsString> {
-        let log_size = std::fs::metadata(log_path)?.len() as usize;
+        let log_size = std::fs::metadata(encode_node_utf8(log_path))?.len() as usize;
         if log_size <= MAX_AGENT_LOG_VIEW_BYTES {
-            return std::fs::read_to_string(log_path);
+            return std::fs::read_to_string(encode_node_utf8(log_path)).map(JsString::from);
         }
         let start_offset = log_size - MAX_AGENT_LOG_VIEW_BYTES;
-        let bytes = std::fs::read(log_path)?;
+        let bytes = std::fs::read(encode_node_utf8(log_path))?;
         let tail = String::from_utf8_lossy(&bytes[start_offset..]);
         Ok(js_format!(
             "[Showing last {} bytes]\n{}",
@@ -4222,7 +4223,7 @@ impl InteractiveMode {
             let Some(store) = self.multi_agent_store.as_ref() else {
                 continue;
             };
-            if store.get_selected_agent_id().as_ref() != Some(current.id.as_str()) {
+            if store.get_selected_agent_id().as_ref() != Some(&current.id) {
                 continue;
             }
             if matches!(
@@ -4411,7 +4412,7 @@ impl InteractiveMode {
 
     fn update_terminal_current_directory(&self) {
         let cwd = self.cwd();
-        if self.terminal_current_directory.borrow().as_ref() == Some(cwd.as_str()) {
+        if self.terminal_current_directory.borrow().as_ref() == Some(&cwd) {
             return;
         }
         *self.terminal_current_directory.borrow_mut() = Some(cwd.clone());
@@ -4730,7 +4731,7 @@ impl InteractiveMode {
                 let message = crate::core::messages::BranchSummaryMessage {
                     role: pi_agent_core::harness::messages::BranchSummaryRole::BranchSummary,
                     summary: json_string(object, &JsString::from("summary")),
-                    from_id: encode_node_utf8(&json_string(object, &JsString::from("fromId"))),
+                    from_id: (encode_node_utf8(&json_string(object, &JsString::from("fromId")))).into(),
                     timestamp: object.get("timestamp").and_then(JsValue::as_f64).unwrap_or_default(),
                 };
                 self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
@@ -5146,15 +5147,15 @@ impl InteractiveMode {
                 );
                 let by_path: HashMap<&JsString, &JsString> = prompt_templates
                     .iter()
-                    .map(|template| (template.file_path.as_str(), template.name.as_str()))
+                    .map(|template| (template.file_ & path, &template.name))
                     .collect();
                 let expanded_body = format_scope_groups(
                     &groups,
-                    |item| match by_path.get(item.path.as_str()) {
+                    |item| match by_path.get(&item.path) {
                         Some(name) => js_format!("/{}", name),
                         None => format_display_path(&item.path),
                     },
-                    |item, _source| match by_path.get(item.path.as_str()) {
+                    |item, _source| match by_path.get(&item.path) {
                         Some(name) => js_format!("/{}", name),
                         None => format_display_path(&item.path),
                     },
@@ -5371,14 +5372,14 @@ impl InteractiveMode {
             SourceScope::Project => "p",
             SourceScope::Temporary => "t",
         };
-        let source = pi_js_compat::string::js_trim(&source_info.source);
+        let source = source_info.source.trim();
         if matches!(source, "auto" | "local" | "cli") {
             return Some((scope_prefix.to_owned()).into());
         }
         if source.starts_with("npm:") {
             return Some(js_format!("{}:{}", scope_prefix, source));
         }
-        if let Some(git_source) = parse_git_url(source) {
+        if let Some(git_source) = parse_git_url(&source) {
             let reference = git_source
                 .reference
                 .map(|reference| js_format!("@{}", reference))
@@ -5415,7 +5416,7 @@ impl InteractiveMode {
         for command in crate::core::slash_commands::builtin_slash_commands() {
             let mut slash = SlashCommand::new(command.name);
             slash.description = Some((command.description).into());
-            slash.argument_hint = command.argument_hint.cloned();
+            slash.argument_hint = command.argument_hint.map(JsString::from);
             if command.name == "cd" {
                 slash.argument_hint = Some(JsString::from("<path>"));
                 let cwd = self.cwd();
@@ -5458,7 +5459,7 @@ impl InteractiveMode {
             .map(|command| command.name)
             .collect();
         for command in self.session().extension_runner().get_registered_commands() {
-            if builtin_names.contains(&command.name.as_str()) {
+            if builtin_names.iter().any(|name| command.name == *name) {
                 continue;
             }
             let mut slash = SlashCommand::new(&command.invocation_name);
@@ -5466,19 +5467,21 @@ impl InteractiveMode {
                 self.prefix_autocomplete_description(command.description.as_ref(), Some(&command.source_info));
             if let Some(completions) = command.get_argument_completions.clone() {
                 slash.get_argument_completions = Some(Box::new(move |prefix: &JsString| {
-                    completions(prefix).and_then(|items| {
-                        items
-                            .map(|items| {
-                                items
-                                    .into_iter()
-                                    .map(|item| {
-                                        autocomplete_item_from_value(&item)
-                                            .ok_or_else(|| JsString::from("Invalid extension argument completion"))
-                                    })
-                                    .collect::<Result<Vec<_>, _>>()
-                            })
-                            .transpose()
-                    })
+                    completions(prefix)
+                        .and_then(|items| {
+                            items
+                                .map(|items| {
+                                    items
+                                        .into_iter()
+                                        .map(|item| {
+                                            autocomplete_item_from_value(&item)
+                                                .ok_or_else(|| JsString::from("Invalid extension argument completion"))
+                                        })
+                                        .collect::<Result<Vec<_>, _>>()
+                                })
+                                .transpose()
+                        })
+                        .unwrap_or_else(|error| throw_uncaught(ERROR, error))
                 }));
             }
             commands.push(CommandEntry::Command(slash));
@@ -5834,7 +5837,7 @@ impl InteractiveMode {
 
     /// `handleCtrlZ`: restore the terminal and suspend the process group.
     fn handle_ctrl_z(self: &Rc<Self>) {
-        self.handle_ctrl_z_for_platform(std::env::consts::OS);
+        self.handle_ctrl_z_for_platform(&std::env::consts::OS.into());
     }
 
     fn handle_ctrl_z_for_platform(self: &Rc<Self>, platform: &JsString) {
@@ -6161,7 +6164,7 @@ impl pi_tui::components::markdown::MarkdownTheme for SettingsMarkdownTheme {
         self.inner.highlight_code(code, lang)
     }
     fn code_block_indent(&self) -> JsString {
-        &self.code_block_indent
+        (&self.code_block_indent).clone()
     }
 }
 
@@ -6486,7 +6489,7 @@ impl InteractiveMode {
 
         let http_idle_timeout_ms = self
             .settings(|settings| settings.get_http_idle_timeout_ms())
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| JsString::from(error.to_string()))?;
         let fetch = crate::core::http_dispatcher::configure_http_dispatcher(http_idle_timeout_ms as f64)?;
         *self.http_fetch.borrow_mut() = Some(Arc::clone(&fetch));
 
@@ -6500,7 +6503,7 @@ impl InteractiveMode {
         self.mount_interactive_tui();
         let editor_ref = Rc::clone(&self.editor_handle.borrow());
         self.ui.set_focus(Some(editor_ref));
-        self.ui.start().map_err(|error| error.to_string())?;
+        self.ui.start().map_err(|error| JsString::from(error.to_string()))?;
         self.is_initialized.set(true);
         self.subscribe_to_multi_agent_store();
         self.update_terminal_current_directory();
@@ -6816,7 +6819,7 @@ impl InteractiveMode {
                 message.id,
                 &encode_node_utf8(&error_message),
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| JsString::from(error.to_string()))?;
             self.show_error(&error_message);
         }
         Ok(())
@@ -6887,11 +6890,11 @@ impl InteractiveMode {
         }
 
         if let Some(command) = text.strip_prefix('/') {
-            let (name, args) = match command.split_once(' ') {
-                Some((name, args)) => (name, args.trim()),
-                None => (command, ""),
+            let (name, args) = match command.find(' ') {
+                Some(index) => (command.slice(0, index), command.slice(index + 1, command.len()).trim()),
+                None => (command, JsString::default()),
             };
-            let handled = self.handle_slash_command(name, args).await;
+            let handled = self.handle_slash_command(&name, &args).await;
             if handled {
                 self.clear_editor();
                 return;
@@ -6901,7 +6904,7 @@ impl InteractiveMode {
         if let Some(command) = text.strip_prefix('!') {
             let exclude_from_context = command.starts_with('!');
             let command = if exclude_from_context {
-                command[1..].trim()
+                command.slice(1, command.len()).trim()
             } else {
                 command.trim()
             };
@@ -6994,7 +6997,12 @@ impl InteractiveMode {
         let Some(command) = text.strip_prefix('/') else {
             return false;
         };
-        let name = command.split_whitespace().next().unwrap_or_default();
+        let name = command
+            .units()
+            .split(|unit| pi_js_compat::string::is_js_whitespace_unit(*unit))
+            .find(|part| !part.is_empty())
+            .map(|part| JsString::from_utf16(part.to_vec()))
+            .unwrap_or_default();
         self.session.borrow().extension_runner().get_command(name).is_some()
     }
 
@@ -7220,7 +7228,7 @@ impl InteractiveMode {
             warnings: {
                 let warnings = self.settings(|settings| settings.get_warnings());
                 crate::core::settings_manager::WarningSettings {
-                    anthropic_extra_usage: warnings.get("anthropicExtraUsage").and_then(Value::as_bool),
+                    anthropic_extra_usage: warnings.get("anthropicExtraUsage").and_then(JsValue::as_bool),
                 }
             },
         };
@@ -7476,9 +7484,9 @@ impl InteractiveMode {
             ),
             on_warnings_change: callback!(
                 |mode: Rc<InteractiveMode>, warnings: crate::core::settings_manager::WarningSettings| {
-                    let mut value = serde_json::Map::new();
+                    let mut value = JsObject::new();
                     if let Some(anthropic) = warnings.anthropic_extra_usage {
-                        value.insert(JsString::from("anthropicExtraUsage"), Value::Bool(anthropic));
+                        value.insert(JsString::from("anthropicExtraUsage"), JsValue::Bool(anthropic));
                     }
                     mode.settings_mut(|settings| settings.set_warnings(&value));
                 }
@@ -7570,7 +7578,7 @@ impl InteractiveMode {
         } else {
             scoped.into_iter().map(|scoped| scoped.model).collect()
         };
-        let unique_providers: HashSet<&JsString> = models.iter().map(|model| model.provider.as_str()).collect();
+        let unique_providers: HashSet<&str> = models.iter().map(|model| model.provider.as_str()).collect();
         self.footer_data_provider
             .set_available_provider_count(unique_providers.len());
     }
@@ -8000,7 +8008,7 @@ impl InteractiveMode {
         let mut text = self.editor().borrow().get_text();
         for message in steering.into_iter().chain(follow_up) {
             if !text.is_empty() {
-                text.push('\n');
+                text.push_str("\n");
             }
             text.push_str(&encode_node_utf8(&message));
         }
@@ -8341,7 +8349,7 @@ impl InteractiveMode {
     fn finish_share_loader(&self, loader: &Rc<RefCell<BorderedLoader>>, tmp_path: &JsString) {
         self.restore_editor();
         loader.borrow_mut().dispose();
-        let _ = std::fs::remove_file(tmp_path);
+        let _ = std::fs::remove_file(encode_node_utf8(tmp_path));
     }
 
     async fn handle_copy_command(&self, flash_confirmation: bool) {
@@ -8405,7 +8413,7 @@ impl InteractiveMode {
             stats.tool_calls,
             stats.tool_results
         );
-        info.push('\n');
+        info.push_str("\n");
         info.push_str(&format_session_token_info(&stats.tokens));
         info.push_str(&format_session_cost_info(
             stats.cost,
@@ -9048,7 +9056,7 @@ impl InteractiveMode {
                         .map(|callback| callback as &mut dyn FnMut(usize, usize)),
                     control_db_path.as_ref(),
                 )
-                .map_err(|error| error.to_string());
+                .map_err(|error| JsString::from(error.to_string()));
                 let applied = result.map(|sessions| apply(sessions));
                 Box::pin(async move { applied })
             })
@@ -9068,7 +9076,7 @@ impl InteractiveMode {
                         .map(|callback| callback as &mut dyn FnMut(usize, usize)),
                     control_db_path.as_ref(),
                 )
-                .map_err(|error| error.to_string());
+                .map_err(|error| JsString::from(error.to_string()));
                 let applied = result.map(|sessions| apply(sessions));
                 Box::pin(async move { applied })
             })
@@ -9081,7 +9089,7 @@ impl InteractiveMode {
                 let dir = (!uses_default_dir).then(|| session_dir.clone());
                 let result =
                     crate::core::session_manager::SessionManager::list_archived(dir.as_ref(), control_db_path.as_ref())
-                        .map_err(|error| error.to_string());
+                        .map_err(|error| JsString::from(error.to_string()));
                 let applied = result.map(|sessions| apply(sessions));
                 Box::pin(async move { applied })
             })
@@ -9123,7 +9131,7 @@ impl InteractiveMode {
                         return Ok(());
                     };
                     crate::core::session_control_db::write_session_name(&control_db_path, &path, next_name.as_ref())
-                        .map_err(|error| error.to_string())?;
+                        .map_err(|error| JsString::from(error.to_string()))?;
                     Ok(())
                 })
             })
@@ -11442,7 +11450,7 @@ impl InteractiveMode {
         self.chat_container.borrow_mut().add_child(Rc::clone(&component_ref));
         self.pending_tools
             .borrow_mut()
-            .insert(tool_call_id.to_owned(), component_ref);
+            .insert((tool_call_id.to_owned()).into(), component_ref);
     }
 
     /// Builds a tool execution component without mounting it.
@@ -11694,7 +11702,10 @@ fn format_compaction_original_error(error_message: &JsString, reason: &JsString)
     let prefixes: &[&JsString] = if reason == "overflow" {
         &[&JsString::from("Context overflow recovery failed: ")]
     } else {
-        &[&JsString::from("Compaction failed: "), "Auto-compaction failed: "]
+        &[
+            &JsString::from("Compaction failed: "),
+            &JsString::from("Auto-compaction failed: "),
+        ]
     };
     for prefix in prefixes {
         if let Some(rest) = error_message.strip_prefix(*prefix) {
