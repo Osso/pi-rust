@@ -1,36 +1,29 @@
-# coding-agent paths traceability
+# coding-agent paths — native checkpoint
 
-Pinned source: `packages/coding-agent/src/utils/paths.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen module: `packages/coding-agent/src/utils/paths.ts` at `4f9e6f8a4`. Rust: `utils/paths.rs`. Historical `532f7d12` proofs are not common-pin acceptance.
 
-Differential proof: request `26009` executes the real pinned module across 78 cases covering local-path classification, Windows shell paths, normalization options, file URLs, resolution, relative paths, canonicalization, and file revisions. Focused tests: `crates/pi-coding-agent/tests/paths.rs`.
-
-| TypeScript source | Observable contract | Rust mapping and proof |
+| Source capability | Implementation / exact proof | Missing or blocked |
 |---|---|---|
-| `paths.ts:7` | Unicode space set | `is_unicode_space`; focused Unicode-space option test |
-| `paths.ts:9-20` | Input options: trim, tilde expansion, home dir, `@` stripping, Unicode spaces | `utils::paths::PathInputOptions`; focused option tests |
-| `paths.ts:28-34` | Canonicalize with raw-path fallback | `canonicalize_path`; focused regular/symlink/missing/dangling tests and differential |
-| `paths.ts:36-43` | Revision is `dev:ino:size:mtimeNs:ctimeNs` | `get_file_revision` via `MetadataExt`; focused format test and exact differential comparison |
-| `paths.ts:50-64` | Non-local prefixes: `npm:`, `git:`, `github:`, `http:`, `https:`, `ssh:` | `is_local_path`; focused and differential cases |
-| `paths.ts:67-73` | Git Bash/MSYS/Cygwin/WSL drive conversion | `normalize_windows_shell_path`; focused and differential cases |
-| `paths.ts:75-100` | Normalize options, Windows conversion, `~` expansion, `file://` conversion | `normalize_path`; focused and differential cases |
-| `paths.ts:102-106` | Resolve against a base directory with lexical `.`/`..` handling | `resolve_path`; focused and differential cases |
-| `paths.ts:108-117` | Cwd-relative path only when inside cwd; `.` for the cwd itself | `get_cwd_relative_path`; focused traversal tests and differential |
-| `paths.ts:119-122` | Relative-or-absolute formatting with forward slashes | `format_path_relative_to_cwd_or_absolute`; focused and differential cases |
-| `paths.ts:124-139` | Cloud-sync attributes: macOS `xattr`, Linux `setfattr`, best effort | `mark_path_ignored_by_cloud_sync`; focused best-effort test |
+| Input trim, Unicode-space replacement, `@`, tilde/home | Native `JsString` input/output/options; 96 source-wrapper outcomes include raw home/path units | Broad prior fixtures need native API migration |
+| Local-prefix classification | Native JS trim and literal prefixes | No whole-platform claim |
+| Resolve, cwd-relative, display-relative | Native POSIX component operations; 2,527 Node POSIX outcomes across scalar/raw segments, dot/parent/trailing/root/backslash cases | Windows path operations unimplemented, not an approved gap |
+| Canonicalize / source catch-and-return-original | Node-style JS realpath walk retains native non-link components; actual filesystem binding alone encodes. Existing replacement-named files and symlink prefixes: four exact frozen comparisons | Wider realpath race/device/pipe/cache cases unproven |
+| `file://` | Actual WHATWG URL boundary consumes USVString; native raw input retained until that constructor | Comprehensive URL error codes/names, Windows drive/UNC behavior unproven |
+| Cloud-sync marking | Native text until actual process argv encoding | Invocation/error behavior not re-proven |
+| `process.cwd()` dependency | Explicit `Result`; no empty-path fallback | Exact deleted-cwd error text not yet proven |
 
-## Discrepancies
+## Removed old-pin exports
 
-- File URLs with encoded `/` (`%2F`) are rejected, matching Node `fileURLToPath`.
-- File URLs with a non-local host are rejected on non-Windows platforms.
-- `get_file_revision` is implemented for Unix metadata; non-Unix returns `None` (explicit typed-boundary gap).
-- Windows-only runtime branches (`normalizePath` applying shell-path conversion, drive-letter file URLs, `~\` expansion) are implemented behind `cfg` but are not exercised on this Linux host; the pure conversion function is differentially proven.
-- Rust paths are UTF-8 strings; non-UTF-8 OS paths are converted lossily at the boundary.
+Frozen paths has neither `normalizeWindowsShellPath` nor `getFileRevision`. Shell-drive conversion is removed. The revision helper remains crate-private solely for its current model-cache consumer; model-cache source alignment remains separate. Old focused/differential fixtures invoking these exports must be retired/adapted, not treated as new-pin proof.
 
-## Proof inventory
+## Development proof ledger
 
-- Focused cases: 13.
-- Differential request: `26009`, 78 cases.
+`tests/lossless_paths.rs` and `oracle/lossless-node-path-oracle.ts` exercise actual source modules/Node functions. The standalone manifest under `/tmp/pi-rust-repin-lossless-content/chalk-standalone/crates/probe` imports the actual Rust file and test target; unchanged mandatory runner, explicit private `PI_TEST_SANDBOX_DIR`, fake/private filesystem only. Logs there:
 
-## Literal Node resolution helper (2026-10-20)
+- `paths-red.log`: scalar-only API compiler RED.
+- `paths-green-attempt.log`: behavioral mismatch for `canonicalizePath("")`; Node resolves cwd before filesystem access.
+- `paths-posix-matrix.log`: two tests, 96 wrapper + 2,527 Node POSIX outcomes.
+- `paths-realpath.log`: behavioral RED, existing raw input replaced before returning realpath.
+- `paths-realpath-green.log`: three tests, including four actual realpath/symlink comparisons. Intermediate compile attempt needed an explicit cache value type.
 
-`node_resolve(base, tail)` is public for native examples needing literal Node path.resolve semantics without general input URL/tilde normalization. `example_tool_override` compares a file:// string naming an existing file against pinned TS, including literal failed-access path and audit log. Existing resolve_path callers retain their normalization contract.
+Standalone output reports unused internal model-revision/helper-method warnings; not suppressed and not a warning-free project gate. Current source/caller integration, broad prior fixtures, readability/final checks and independent verification remain open. This checkpoint is not whole-module or full-port acceptance.

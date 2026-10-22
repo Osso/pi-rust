@@ -1,59 +1,128 @@
-use std::path::{Component, Path, PathBuf};
-
 use percent_encoding::percent_decode_str;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
-/// Options for path normalization.
+/// Options for the source `utils/paths.ts` input normalization.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PathInputOptions {
-    /// Trim leading and trailing whitespace before normalization.
     pub trim: bool,
-    /// Expand a leading `~` to a home directory. Defaults to true.
     pub expand_tilde: Option<bool>,
-    /// Home directory used for `~` expansion. Defaults to the process home.
-    pub home_dir: Option<String>,
-    /// Strip a leading `@`, used for CLI `@file` paths.
+    pub home_dir: Option<JsString>,
     pub strip_at_prefix: bool,
-    /// Normalize Unicode space variants to regular spaces.
     pub normalize_unicode_spaces: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathError {
-    message: String,
+    message: JsString,
 }
 
 impl PathError {
-    fn new(message: impl Into<String>) -> Self {
+    fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
+    }
+
+    pub fn message(&self) -> &JsString {
+        &self.message
     }
 }
 
 impl std::fmt::Display for PathError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
-
 impl std::error::Error for PathError {}
 
-/// Resolve a path to its canonical (real) form, following symlinks.
-///
-/// Falls back to the raw path when resolution fails, so callers never fail on
-/// missing filesystem entries.
-pub fn canonicalize_path(path: &str) -> String {
-    std::fs::canonicalize(path)
-        .map(|value| value.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| path.to_owned())
+/// The source explicitly returns the original string after a realpath failure.
+pub fn canonicalize_path(path: impl Into<JsString>) -> JsString {
+    let path = path.into();
+    let resolved = match node_resolve("", &path) {
+        Ok(resolved) => resolved,
+        Err(_) => return path,
+    };
+    read_realpath(resolved).unwrap_or(path)
 }
 
-/// Return a stable file revision string, or `None` when metadata is unavailable.
-pub fn get_file_revision(path: &str) -> Option<String> {
+/// Node's JS realpath walk retains input units in non-symlink components.
+fn read_realpath(mut path: JsString) -> Result<JsString, PathError> {
+    let mut known_hard = std::collections::HashSet::new();
+    let mut seen_links: std::collections::HashMap<(u64, u64), JsString> = std::collections::HashMap::new();
+    let mut current = JsString::from("/");
+    let mut position = 1;
+    let mut reached_pipe_or_socket = false;
+    while position < path.len() {
+        let previous = current;
+        let next = path.find_from('/', position);
+        let end = next.unwrap_or(path.len());
+        let base = path.slice(0, end);
+        position = next.map_or(path.len(), |index| index + 1);
+        current = path.slice(0, position);
+        if known_hard.contains(&base) {
+            if reached_pipe_or_socket {
+                break;
+            }
+            continue;
+        }
+        let encoded = encode_node_utf8(&base);
+        let metadata = std::fs::symlink_metadata(&encoded).map_err(|error| PathError::new(error.to_string()))?;
+        if !metadata.file_type().is_symlink() {
+            known_hard.insert(base);
+            continue;
+        }
+        let identity = link_identity(&metadata);
+        let target = if let Some(target) = identity.and_then(|identity| seen_links.get(&identity)) {
+            target.clone()
+        } else {
+            let target_metadata = std::fs::metadata(&encoded).map_err(|error| PathError::new(error.to_string()))?;
+            reached_pipe_or_socket = is_pipe_or_socket(&target_metadata);
+            let target = std::fs::read_link(&encoded).map_err(|error| PathError::new(error.to_string()))?;
+            let target = JsString::from(target.to_string_lossy().as_ref());
+            if let Some(identity) = identity {
+                seen_links.insert(identity, target.clone());
+            }
+            target
+        };
+        let resolved = node_resolve(previous, target)?;
+        path = node_resolve(resolved, path.slice(position, path.len()))?;
+        current = "/".into();
+        position = 1;
+    }
+    Ok(path)
+}
+
+fn link_identity(metadata: &std::fs::Metadata) -> Option<(u64, u64)> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
+        Some((metadata.dev(), metadata.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        None
+    }
+}
 
+fn is_pipe_or_socket(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        metadata.file_type().is_fifo() || metadata.file_type().is_socket()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        false
+    }
+}
+
+/// Internal model-cache revision helper, not a frozen paths-module export.
+pub(crate) fn get_file_revision(path: &str) -> Option<String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
         let metadata = std::fs::metadata(path).ok()?;
         let mtime_ns = i128::from(metadata.mtime()) * 1_000_000_000 + i128::from(metadata.mtime_nsec());
         let ctime_ns = i128::from(metadata.ctime()) * 1_000_000_000 + i128::from(metadata.ctime_nsec());
@@ -73,57 +142,47 @@ pub fn get_file_revision(path: &str) -> Option<String> {
     }
 }
 
-/// True when the value is not a package source or remote URL protocol.
-pub fn is_local_path(value: &str) -> bool {
-    let trimmed = value.trim();
+pub fn is_local_path(value: impl Into<JsString>) -> bool {
+    let trimmed = value.into().trim();
     !["npm:", "git:", "github:", "http:", "https:", "ssh:"]
         .iter()
-        .any(|prefix| trimmed.starts_with(prefix))
+        .any(|prefix| trimmed.starts_with(*prefix))
 }
 
-/// Convert Git Bash, MSYS, Cygwin, and WSL drive paths to native Windows form.
-pub fn normalize_windows_shell_path(file_path: &str) -> String {
-    if !file_path.starts_with('/') || file_path.starts_with("//") || file_path.contains('\\') {
-        return file_path.to_owned();
+pub fn normalize_path(input: impl Into<JsString>, options: &PathInputOptions) -> Result<JsString, PathError> {
+    let input = input.into();
+    let mut normalized = if options.trim { input.trim() } else { input };
+    if options.normalize_unicode_spaces {
+        normalized = JsString::from_utf16(
+            normalized
+                .units()
+                .iter()
+                .map(|unit| {
+                    if matches!(unit, 0x00a0 | 0x2000..=0x200a | 0x202f | 0x205f | 0x3000) {
+                        0x20
+                    } else {
+                        *unit
+                    }
+                })
+                .collect(),
+        );
     }
-
-    let Some(rest) = file_path.strip_prefix('/') else {
-        return file_path.to_owned();
-    };
-    let rest = strip_ascii_prefix(rest, "mnt/")
-        .or_else(|| strip_ascii_prefix(rest, "cygdrive/"))
-        .unwrap_or(rest);
-
-    let mut characters = rest.chars();
-    let Some(drive) = characters.next() else {
-        return file_path.to_owned();
-    };
-    if !drive.is_ascii_alphabetic() {
-        return file_path.to_owned();
+    if options.strip_at_prefix && normalized.starts_with('@') {
+        normalized = normalized.slice(1, normalized.len());
     }
-
-    let remainder = characters.as_str();
-    let suffix = match remainder.strip_prefix('/') {
-        Some(value) => value.replace('/', "\\"),
-        None if remainder.is_empty() => String::new(),
-        None => return file_path.to_owned(),
-    };
-
-    format!("{}:\\{suffix}", drive.to_ascii_uppercase())
-}
-
-fn strip_ascii_prefix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
-    value
-        .get(..prefix.len())
-        .filter(|candidate| candidate.eq_ignore_ascii_case(prefix))
-        .map(|_| &value[prefix.len()..])
-}
-
-/// Normalize a path input without resolving it against a base directory.
-pub fn normalize_path(input: &str, options: &PathInputOptions) -> Result<String, PathError> {
-    let normalized = normalize_input(input, options);
-    if let Some(expanded) = expand_home_directory(&normalized, options) {
-        return Ok(expanded);
+    if options.expand_tilde.unwrap_or(true) {
+        if normalized == "~" {
+            return Ok(options.home_dir.clone().unwrap_or_else(home_directory));
+        }
+        let prefix = if cfg!(windows) && normalized.starts_with("~\\") {
+            "~\\"
+        } else {
+            "~/"
+        };
+        if let Some(remainder) = normalized.strip_prefix(prefix) {
+            let home = options.home_dir.clone().unwrap_or_else(home_directory);
+            return Ok(node_join(home, remainder));
+        }
     }
     if normalized.starts_with("file://") {
         return file_url_to_path(&normalized);
@@ -131,104 +190,53 @@ pub fn normalize_path(input: &str, options: &PathInputOptions) -> Result<String,
     Ok(normalized)
 }
 
-fn normalize_input(input: &str, options: &PathInputOptions) -> String {
-    let mut normalized = if options.trim {
-        input.trim().to_owned()
-    } else {
-        input.to_owned()
-    };
-    if options.normalize_unicode_spaces {
-        normalized = replace_unicode_spaces(&normalized);
-    }
-    if options.strip_at_prefix {
-        normalized = strip_at_prefix(&normalized);
-    }
-    if cfg!(windows) {
-        normalized = normalize_windows_shell_path(&normalized);
-    }
-    normalized
-}
-
-fn replace_unicode_spaces(text: &str) -> String {
-    text.chars()
-        .map(|character| if is_unicode_space(character) { ' ' } else { character })
-        .collect()
-}
-
-fn strip_at_prefix(text: &str) -> String {
-    text.strip_prefix('@').unwrap_or(text).to_owned()
-}
-
-fn expand_home_directory(normalized: &str, options: &PathInputOptions) -> Option<String> {
-    if !options.expand_tilde.unwrap_or(true) {
-        return None;
-    }
-    let home = options.home_dir.clone().unwrap_or_else(home_directory);
-    if normalized == "~" {
-        return Some(home);
-    }
-    let tilde_prefix = if cfg!(windows) { "~\\" } else { "~/" };
-    let remainder = normalized.strip_prefix(tilde_prefix)?;
-    Some(node_join(&home, remainder))
-}
-
-/// Resolve an input path against a base directory.
-pub fn resolve_path(input: &str, base_dir: &str, options: &PathInputOptions) -> Result<String, PathError> {
+pub fn resolve_path(
+    input: impl Into<JsString>,
+    base_dir: impl Into<JsString>,
+    options: &PathInputOptions,
+) -> Result<JsString, PathError> {
     let normalized = normalize_path(input, options)?;
-    let normalized_base_dir = normalize_path(base_dir, &PathInputOptions::default())?;
-
-    if Path::new(&normalized).is_absolute() {
-        return Ok(lexical_normalize(&PathBuf::from(normalized)));
-    }
-    Ok(node_resolve(&normalized_base_dir, &normalized))
+    let base = normalize_path(base_dir, &PathInputOptions::default())?;
+    node_resolve(base, normalized)
 }
 
-/// Return a path relative to the cwd when it stays inside the cwd.
-pub fn get_cwd_relative_path(file_path: &str, cwd: &str) -> Result<Option<String>, PathError> {
-    let resolved_cwd = resolve_from_process_cwd(cwd)?;
+pub fn get_cwd_relative_path(
+    file_path: impl Into<JsString>,
+    cwd: impl Into<JsString>,
+) -> Result<Option<JsString>, PathError> {
+    let resolved_cwd = resolve_path(cwd, process_cwd()?, &PathInputOptions::default())?;
     let resolved_path = resolve_path(file_path, &resolved_cwd, &PathInputOptions::default())?;
-    let relative_path = relative_path(&resolved_cwd, &resolved_path);
-
-    let is_inside_cwd = relative_path.is_empty()
-        || (relative_path != ".."
-            && !relative_path.starts_with(&format!("..{}", std::path::MAIN_SEPARATOR))
-            && !Path::new(&relative_path).is_absolute());
-
-    Ok(is_inside_cwd.then(|| {
-        if relative_path.is_empty() {
-            ".".to_owned()
-        } else {
-            relative_path
-        }
-    }))
+    let relative = relative_path(&resolved_cwd, &resolved_path)?;
+    let inside =
+        relative.is_empty() || (relative != ".." && !relative.starts_with("../") && !node_is_absolute(&relative));
+    Ok(inside.then(|| if relative.is_empty() { ".".into() } else { relative }))
 }
 
-/// Format a path relative to the cwd when possible, otherwise as an absolute
-/// path with forward slashes.
-pub fn format_path_relative_to_cwd_or_absolute(file_path: &str, cwd: &str) -> Result<String, PathError> {
-    let absolute_path = resolve_path(file_path, cwd, &PathInputOptions::default())?;
-    let relative = get_cwd_relative_path(&absolute_path, cwd)?;
-    let text = relative.unwrap_or(absolute_path);
-    Ok(if cfg!(windows) { text.replace('\\', "/") } else { text })
+pub fn format_path_relative_to_cwd_or_absolute(
+    file_path: impl Into<JsString>,
+    cwd: impl Into<JsString>,
+) -> Result<JsString, PathError> {
+    let cwd = cwd.into();
+    let absolute = resolve_path(file_path, &cwd, &PathInputOptions::default())?;
+    Ok(get_cwd_relative_path(&absolute, cwd)?.unwrap_or(absolute))
 }
 
-/// Mark a path as ignored by cloud sync clients when the platform supports it.
-pub fn mark_path_ignored_by_cloud_sync(path: &str) {
+/// The actual argv binding, rather than the normalization functions, encodes text.
+pub fn mark_path_ignored_by_cloud_sync(path: impl Into<JsString>) {
+    let path = path.into();
     #[cfg(target_os = "macos")]
-    {
-        for attribute in ["com.dropbox.ignored", "com.apple.fileprovider.ignore#P"] {
-            let _ = std::process::Command::new("xattr")
-                .args(["-w", attribute, "1", path])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
-        }
+    for attribute in ["com.dropbox.ignored", "com.apple.fileprovider.ignore#P"] {
+        let _ = std::process::Command::new("xattr")
+            .args(["-w", attribute, "1", &encode_node_utf8(&path)])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
     #[cfg(target_os = "linux")]
     {
         let _ = std::process::Command::new("setfattr")
-            .args(["-n", "user.com.dropbox.ignored", "-v", "1", path])
+            .args(["-n", "user.com.dropbox.ignored", "-v", "1", &encode_node_utf8(&path)])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -240,155 +248,164 @@ pub fn mark_path_ignored_by_cloud_sync(path: &str) {
     }
 }
 
-fn resolve_from_process_cwd(path: &str) -> Result<String, PathError> {
-    let normalized = normalize_path(path, &PathInputOptions::default())?;
-    if Path::new(&normalized).is_absolute() {
-        return Ok(lexical_normalize(&PathBuf::from(normalized)));
+pub(crate) fn process_cwd() -> Result<JsString, PathError> {
+    std::env::current_dir()
+        .map(|path| JsString::from(path.to_string_lossy().as_ref()))
+        .map_err(|error| PathError::new(error.to_string()))
+}
+
+/// Native POSIX path operations. Separators/dot components are ASCII; all other units are opaque.
+pub fn node_is_absolute(path: impl Into<JsString>) -> bool {
+    path.into().starts_with('/')
+}
+
+pub fn node_normalize(path: impl Into<JsString>) -> JsString {
+    let path = path.into();
+    if path.is_empty() {
+        return ".".into();
     }
-    Ok(node_resolve(&current_directory(), &normalized))
-}
-
-fn current_directory() -> String {
-    std::env::current_dir()
-        .map(|value| value.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "/".to_owned())
-}
-
-/// `process.cwd()` as a display string.
-pub(crate) fn process_cwd() -> String {
-    std::env::current_dir()
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_default()
-}
-
-/// Resolve literal filesystem path segments without URL decoding or tilde expansion.
-pub fn node_resolve(base: &str, tail: &str) -> String {
-    let mut resolved = PathBuf::from(base);
-    resolved.push(tail);
-    lexical_normalize(&resolved)
-}
-
-pub(crate) fn node_join(base: &str, tail: &str) -> String {
-    lexical_normalize(Path::new(&format!("{base}/{tail}")))
-}
-
-pub(crate) fn lexical_normalize(path: &Path) -> String {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
-            Component::RootDir => normalized.push(Component::RootDir.as_os_str()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
+    let absolute = node_is_absolute(&path);
+    let trailing = path.ends_with('/');
+    let mut parts: Vec<JsString> = Vec::new();
+    for part in path.split('/') {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if part == ".." {
+            if parts.last().is_some_and(|last| last != "..") {
+                parts.pop();
+            } else if !absolute {
+                parts.push(part);
             }
-            Component::Normal(value) => normalized.push(value),
+        } else {
+            parts.push(part);
         }
     }
-    normalized.to_string_lossy().into_owned()
+    let mut result = JsString::join(parts, "/");
+    if absolute {
+        result = JsString::from("/") + result;
+    }
+    if result.is_empty() {
+        result = ".".into();
+    }
+    if trailing && result != "/" {
+        result.push_str("/");
+    }
+    result
 }
 
-pub fn relative_path(from: &str, to: &str) -> String {
-    let from_components = Path::new(from).components().collect::<Vec<_>>();
-    let to_components = Path::new(to).components().collect::<Vec<_>>();
-
-    if !same_root(&from_components, &to_components) {
-        return to.to_owned();
+pub fn node_join(base: impl Into<JsString>, tail: impl Into<JsString>) -> JsString {
+    let base = base.into();
+    let tail = tail.into();
+    if base.is_empty() {
+        return node_normalize(tail);
     }
+    if tail.is_empty() {
+        return node_normalize(base);
+    }
+    node_normalize(base + "/" + tail)
+}
 
-    let common = from_components
+pub fn node_resolve(base: impl Into<JsString>, tail: impl Into<JsString>) -> Result<JsString, PathError> {
+    let base = base.into();
+    let tail = tail.into();
+    let joined = if node_is_absolute(&tail) {
+        tail
+    } else if base.is_empty() {
+        tail
+    } else {
+        base + "/" + tail
+    };
+    let joined = if node_is_absolute(&joined) {
+        joined
+    } else {
+        process_cwd()? + "/" + joined
+    };
+    let normalized = node_normalize(joined);
+    Ok(if normalized.len() > 1 && normalized.ends_with('/') {
+        normalized.slice(0, normalized.len() - 1)
+    } else {
+        normalized
+    })
+}
+
+pub fn relative_path(from: impl Into<JsString>, to: impl Into<JsString>) -> Result<JsString, PathError> {
+    let from = node_resolve("", from)?;
+    let to = node_resolve("", to)?;
+    let from: Vec<_> = from.split('/').filter(|part| !part.is_empty()).collect();
+    let to: Vec<_> = to.split('/').filter(|part| !part.is_empty()).collect();
+    let common = from.iter().zip(&to).take_while(|(left, right)| left == right).count();
+    Ok(JsString::join(
+        std::iter::repeat_n(JsString::from(".."), from.len() - common).chain(to.into_iter().skip(common)),
+        "/",
+    ))
+}
+
+pub fn node_dirname(path: impl Into<JsString>) -> JsString {
+    let path = path.into();
+    let end = path
+        .units()
         .iter()
-        .zip(&to_components)
-        .take_while(|(left, right)| left == right)
-        .count();
-
-    let mut relative = PathBuf::new();
-    for _ in common..from_components.len() {
-        relative.push("..");
+        .rposition(|unit| *unit != u16::from(b'/'))
+        .map_or(0, |index| index + 1);
+    let Some(slash) = path.units()[..end].iter().rposition(|unit| *unit == u16::from(b'/')) else {
+        return if node_is_absolute(&path) {
+            "/".into()
+        } else {
+            ".".into()
+        };
+    };
+    if slash == 0 {
+        return "/".into();
     }
-    for component in &to_components[common..] {
-        relative.push(component.as_os_str());
+    if slash == 1 && path.starts_with("//") {
+        return "//".into();
     }
-    relative.to_string_lossy().into_owned()
+    path.slice(0, slash)
 }
 
-fn same_root(left: &[Component<'_>], right: &[Component<'_>]) -> bool {
-    let left_root = left
-        .first()
-        .is_some_and(|component| matches!(component, Component::RootDir));
-    let right_root = right
-        .first()
-        .is_some_and(|component| matches!(component, Component::RootDir));
-    if left_root != right_root {
-        return false;
-    }
-    let left_prefix = left.first().and_then(|component| match component {
-        Component::Prefix(prefix) => Some(prefix.kind()),
-        _ => None,
-    });
-    let right_prefix = right.first().and_then(|component| match component {
-        Component::Prefix(prefix) => Some(prefix.kind()),
-        _ => None,
-    });
-    left_prefix == right_prefix
+pub fn node_basename(path: impl Into<JsString>) -> JsString {
+    let path = path.into();
+    let end = path
+        .units()
+        .iter()
+        .rposition(|unit| *unit != u16::from(b'/'))
+        .map_or(0, |index| index + 1);
+    let start = path.units()[..end]
+        .iter()
+        .rposition(|unit| *unit == u16::from(b'/'))
+        .map_or(0, |index| index + 1);
+    path.slice(start, end)
 }
 
-fn home_directory() -> String {
-    #[cfg(windows)]
-    {
-        pi_js_compat::process_env::get("USERPROFILE").unwrap_or_default()
-    }
-    #[cfg(not(windows))]
-    {
-        pi_js_compat::process_env::get("HOME").unwrap_or_default()
-    }
+fn home_directory() -> JsString {
+    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    pi_js_compat::process_env::get(key).unwrap_or_default().into()
 }
 
-fn is_unicode_space(character: char) -> bool {
-    matches!(
-        character,
-        '\u{a0}' | '\u{2000}'..='\u{200a}' | '\u{202f}' | '\u{205f}' | '\u{3000}'
-    )
-}
-
-fn file_url_to_path(value: &str) -> Result<String, PathError> {
-    let url = url::Url::parse(value).map_err(|error| PathError::new(error.to_string()))?;
+fn file_url_to_path(value: &JsString) -> Result<JsString, PathError> {
+    // WHATWG URL consumes a USVString; replacement belongs at this source boundary.
+    let url = url::Url::parse(&encode_node_utf8(value)).map_err(|_| PathError::new("Invalid URL"))?;
     if url.scheme() != "file" {
-        return Err(PathError::new("not a file URL"));
+        return Err(PathError::new("The URL must be of scheme file"));
     }
-
-    if !cfg!(windows) {
-        match url.host_str() {
-            None | Some("") | Some("localhost") => {}
-            Some(host) => {
-                return Err(PathError::new(format!(
-                    "file URL host must be 'localhost' or empty, got {host}"
-                )));
-            }
-        }
+    if !cfg!(windows) && !matches!(url.host_str(), None | Some("" | "localhost")) {
+        return Err(PathError::new(format!(
+            "File URL host must be \"localhost\" or empty on {}",
+            std::env::consts::OS
+        )));
     }
-
-    let encoded_path = url.path();
-    if encoded_path.contains("%2F") || encoded_path.contains("%2f") {
-        return Err(PathError::new("file URL must not include encoded '/' characters"));
+    let encoded = url.path();
+    if encoded.contains("%2F") || encoded.contains("%2f") {
+        return Err(PathError::new("File URL path must not include encoded / characters"));
     }
-    if !has_valid_percent_sequences(encoded_path) {
+    if !has_valid_percent_sequences(encoded) {
         return Err(PathError::new("URI malformed"));
     }
-    let decoded = percent_decode_str(encoded_path)
+    let decoded = percent_decode_str(encoded)
         .decode_utf8()
-        .map_err(|error| PathError::new(error.to_string()))?
-        .into_owned();
-
-    #[cfg(windows)]
-    {
-        let bytes = decoded.as_bytes();
-        if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':' {
-            return Ok(decoded[1..].to_owned());
-        }
-    }
-
-    Ok(decoded)
+        .map_err(|_| PathError::new("URI malformed"))?;
+    Ok(decoded.as_ref().into())
 }
 
 fn has_valid_percent_sequences(value: &str) -> bool {
@@ -403,9 +420,9 @@ fn has_valid_percent_sequences(value: &str) -> bool {
                 return false;
             }
             index += 3;
-            continue;
+        } else {
+            index += 1;
         }
-        index += 1;
     }
     true
 }
