@@ -5,25 +5,9 @@ use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::encode_node_utf8;
 use serde_json::{Value, json};
-fn configure_worker() {
-    static PACKAGE: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
-    let package = PACKAGE.get_or_init(|| {
-        let package = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_pi"), package.path().join("pi")).unwrap();
-        std::fs::create_dir(package.path().join("theme")).unwrap();
-        for name in ["dark.json", "light.json"] {
-            std::fs::copy(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("theme")
-                    .join(name),
-                package.path().join("theme").join(name),
-            )
-            .unwrap();
-        }
-        package
-    });
-    pi_js_compat::process_env::set("PI_PACKAGE_DIR", package.path().to_str().unwrap());
-}
+#[path = "support/transcript_worker.rs"]
+mod transcript_worker;
+use transcript_worker::configure_worker;
 
 fn call(ts: &mut oracle::TsOracle, mut request: Value) -> Value {
     request["id"] = json!(1);

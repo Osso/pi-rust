@@ -1,5 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
+#[path = "support/transcript_worker.rs"]
+mod transcript_worker;
 
 use pi_coding_agent::core::session_manager::{ForkEntrySelection, SessionManager, load_entries_from_file};
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
@@ -189,6 +191,7 @@ fn tree_sort_does_not_replace_invalid_raw_timestamps_with_epoch_zero() {
 
 #[test]
 fn compressed_transcript_load_preserves_raw_records() {
+    transcript_worker::configure_worker();
     let sandbox = tempfile::tempdir().unwrap();
     let path: JsString = sandbox.path().join("source.jsonl.zst").display().to_string().into();
     let content = fixture();
