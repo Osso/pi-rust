@@ -15,7 +15,7 @@ use pi_js_compat::js_regex::JsRegex;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
-use pi_tui::keybindings::{KeyId, get_keybindings};
+use pi_tui::keybindings::get_keybindings;
 use pi_tui::tui::{Component, ComponentRef, Container, Focusable, component};
 use pi_tui::utils::{slice_by_column, truncate_to_width_with, visible_width, wrap_text_with_ansi};
 
