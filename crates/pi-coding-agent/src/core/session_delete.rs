@@ -2,7 +2,8 @@
 use std::path::Path;
 use std::process::Stdio;
 
-use pi_js_compat::js_json::{JsString, JsValue, stringify_lossless};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8, stringify_lossless};
 use serde::{Serialize, Serializer};
 use tokio::io::AsyncReadExt;
 
@@ -23,11 +24,8 @@ pub enum SessionDeleteResult {
     },
 }
 
-fn failure(error: String) -> SessionDeleteResult {
-    SessionDeleteResult::Failure {
-        ok: false,
-        error: JsString::from(error.as_str()),
-    }
+fn failure(error: JsString) -> SessionDeleteResult {
+    SessionDeleteResult::Failure { ok: false, error }
 }
 
 fn serialize_error<S: Serializer>(error: &JsString, serializer: S) -> Result<S::Ok, S::Error> {
@@ -36,31 +34,35 @@ fn serialize_error<S: Serializer>(error: &JsString, serializer: S) -> Result<S::
     raw.serialize(serializer)
 }
 
-pub async fn delete_session_tree(path: &str, db: Option<&str>) -> SessionDeleteResult {
+pub async fn delete_session_tree(path: &JsString, db: Option<&JsString>) -> SessionDeleteResult {
+    let db = db.filter(|db| !db.is_empty());
     let mut deleted = Vec::new();
     let mut result = delete_tree_files(path, db, &mut deleted).await;
-    if let Some(db) = db.filter(|_| !deleted.is_empty()) {
-        let paths: Vec<&str> = deleted.iter().map(String::as_str).collect();
-        if let Err(error) = remove_sessions_metadata(db, &paths) {
-            result = failure(format!(
-                "Cannot clean metadata for {} deleted transcripts under {path}: Error: {error}",
-                deleted.len()
-            ));
-        }
+    if let Some(db) = db.filter(|_| !deleted.is_empty())
+        && let Err(error) = remove_sessions_metadata(db, &deleted)
+    {
+        result = failure(js_format!(
+            "Cannot clean metadata for {} deleted transcripts under {}: Error: {}",
+            deleted.len(),
+            path,
+            error.message()
+        ));
     }
     result
 }
 
-async fn delete_tree_files(path: &str, db: Option<&str>, deleted: &mut Vec<String>) -> SessionDeleteResult {
-    let mut paths = match db
-        .filter(|db| !db.is_empty())
-        .map(|db| list_descendant_session_paths(db, path))
-        .transpose()
-    {
+async fn delete_tree_files(path: &JsString, db: Option<&JsString>, deleted: &mut Vec<JsString>) -> SessionDeleteResult {
+    let mut paths = match db.map(|db| list_descendant_session_paths(db, path)).transpose() {
         Ok(paths) => paths.unwrap_or_default(),
-        Err(error) => return failure(format!("Cannot delete session tree {path}: Error: {error}")),
+        Err(error) => {
+            return failure(js_format!(
+                "Cannot delete session tree {}: Error: {}",
+                path,
+                error.message()
+            ));
+        }
     };
-    paths.push(path.to_owned());
+    paths.push(path.clone());
     let mut method = "trash";
     for batch in chunk_session_paths(&paths) {
         match delete_session_batch(batch, deleted).await {
@@ -72,13 +74,14 @@ async fn delete_tree_files(path: &str, db: Option<&str>, deleted: &mut Vec<Strin
     SessionDeleteResult::Success { ok: true, method }
 }
 
-fn chunk_session_paths(paths: &[String]) -> Vec<&[String]> {
+/// Budgets use `Buffer.byteLength`, which counts an unpaired unit as the 3-byte U+FFFD.
+fn chunk_session_paths(paths: &[JsString]) -> Vec<&[JsString]> {
     const BYTE_BUDGET: usize = 64 * 1024;
     let mut chunks = Vec::new();
     let mut start = 0;
     let mut bytes = 0;
     for (index, path) in paths.iter().enumerate() {
-        let path_bytes = path.len() + 1 + 8;
+        let path_bytes = encode_node_utf8(path).len() + 1 + 8;
         if index > start && bytes + path_bytes > BYTE_BUDGET {
             chunks.push(&paths[start..index]);
             start = index;
@@ -92,35 +95,32 @@ fn chunk_session_paths(paths: &[String]) -> Vec<&[String]> {
     chunks
 }
 
-async fn delete_session_batch(paths: &[String], deleted: &mut Vec<String>) -> SessionDeleteResult {
+async fn delete_session_batch(paths: &[JsString], deleted: &mut Vec<JsString>) -> SessionDeleteResult {
     let trash_error = trash_session_files(paths).await;
-    let (remaining, removed): (Vec<&String>, Vec<&String>) = paths.iter().partition(|path| Path::new(path).exists());
+    let (remaining, removed): (Vec<&JsString>, Vec<&JsString>) = paths
+        .iter()
+        .partition(|path| Path::new(&encode_node_utf8(path)).exists());
     deleted.extend(removed.into_iter().cloned());
     let method = if remaining.is_empty() { "trash" } else { "unlink" };
     for path in remaining {
-        if let Err(error) = tokio::fs::remove_file(path).await {
+        if let Err(error) = tokio::fs::remove_file(encode_node_utf8(path)).await {
             let error = node_fs_error(&error, "unlink", path);
-            let mut units: Vec<u16> = error.encode_utf16().collect();
-            if let Some(trash) = trash_error {
-                units.extend(" (trash: ".encode_utf16());
-                units.extend_from_slice(trash.units());
-                units.push(u16::from(b')'));
-            }
-            return SessionDeleteResult::Failure {
-                ok: false,
-                error: JsString::from_utf16(units),
-            };
+            return failure(match trash_error {
+                Some(trash) => js_format!("{} (trash: {})", error, trash),
+                None => error,
+            });
         }
         deleted.push(path.clone());
     }
     SessionDeleteResult::Success { ok: true, method }
 }
 
-fn spawn_trash(paths: &[String]) -> std::io::Result<tokio::process::Child> {
+fn spawn_trash(paths: &[JsString]) -> std::io::Result<tokio::process::Child> {
+    let arguments: Vec<String> = paths.iter().map(encode_node_utf8).collect();
     let spawn = |command: &mut tokio::process::Command| {
         command
             .arg("--")
-            .args(paths)
+            .args(&arguments)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -137,14 +137,14 @@ fn spawn_trash(paths: &[String]) -> std::io::Result<tokio::process::Child> {
     }
 }
 
-async fn trash_session_files(paths: &[String]) -> Option<JsString> {
+async fn trash_session_files(paths: &[JsString]) -> Option<JsString> {
     let child = spawn_trash(paths);
     let mut child = match child {
         Ok(child) => child,
         Err(error) => {
-            let diagnostic = node_fs_error(&error, "spawn", "trash");
+            let diagnostic = node_fs_error(&error, "spawn", &JsString::from("trash"));
             let code = diagnostic.split(':').next().unwrap_or_default();
-            return Some(JsString::from(format!("spawn trash {code}").as_str()));
+            return Some(js_format!("spawn trash {}", code));
         }
     };
     let stderr = child.stderr.take().expect("trash stderr is piped");
@@ -152,7 +152,7 @@ async fn trash_session_files(paths: &[String]) -> Option<JsString> {
     match (status, stderr) {
         (Ok(status), _) if status.success() => None,
         (Ok(status), Ok(stderr)) => Some(format_trash_error(status, &stderr)),
-        (Err(error), _) | (_, Err(error)) => Some(JsString::from(error.to_string().as_str())),
+        (Err(error), _) | (_, Err(error)) => Some(JsString::from(error.to_string())),
     }
 }
 

@@ -10,7 +10,9 @@ async fn delete_worker() {
         return;
     };
     let db = std::env::var("DELETE_DB").ok();
-    let result = delete_session_tree(&path, db.as_deref()).await;
+    let path_text = pi_js_compat::js_json::JsString::from(path.as_str());
+    let db = db.map(pi_js_compat::js_json::JsString::from);
+    let result = delete_session_tree(&path_text, db.as_ref()).await;
     let output = if std::env::var_os("DELETE_UTF16").is_some() {
         let units: Vec<u16> = match &result {
             pi_coding_agent::core::session_delete::SessionDeleteResult::Failure { error, .. } => error.units().to_vec(),
