@@ -6,6 +6,12 @@ async function main() {
 	const module = await import(pathToFileURL(process.argv[2]).href);
 	for await (const line of createInterface({ input: process.stdin, terminal: false })) {
 		const input = JSON.parse(line);
+		if (input.kind === "cleanup") {
+			const shell = await import(pathToFileURL(process.argv[2].replace(/ansi\.ts$/, "shell.ts")).href);
+			const output = shell.sanitizeBinaryOutput(module.stripAnsi(String.fromCharCode(...input.units)));
+			process.stdout.write(`${JSON.stringify({ units: Array.from({length:output.length},(_,i)=>output.charCodeAt(i)) })}\n`);
+			continue;
+		}
 		if (input.kind === "display") {
 			const raw = String.fromCharCode(...input.units);
 			const output = module.normalizeDisplayText(module.replaceTabs(module.str(raw)));

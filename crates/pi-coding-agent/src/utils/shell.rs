@@ -179,20 +179,13 @@ pub fn get_shell_env() -> BTreeMap<String, String> {
 }
 
 /// `sanitizeBinaryOutput`: drop characters that break width calculation or display.
-pub fn sanitize_binary_output(input: &str) -> String {
-    input
-        .chars()
-        .filter(|character| {
-            let code = *character as u32;
-            if matches!(code, 0x09 | 0x0a | 0x0d) {
-                return true;
-            }
-            if code <= 0x1f {
-                return false;
-            }
-            !(0xfff9..=0xfffb).contains(&code)
-        })
-        .collect()
+pub fn sanitize_binary_output(input: &pi_js_compat::js_json::JsString) -> pi_js_compat::js_json::JsString {
+    let units = input.units().iter().copied().filter(|unit| {
+        let is_layout_control = matches!(unit, 0x09 | 0x0a | 0x0d);
+        let is_display_text = *unit > 0x1f && !(0xfff9..=0xfffb).contains(unit);
+        is_layout_control || is_display_text
+    });
+    pi_js_compat::js_json::JsString::from_utf16(units.collect())
 }
 
 fn tracked_detached_child_pids() -> &'static Mutex<Vec<u32>> {
