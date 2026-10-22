@@ -84,5 +84,10 @@ fn tree_label_editor_keeps_units_through_input_and_render() {
     let label = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
     let mut input = LabelInput::new(&"entry".into(), Some(&label));
     assert_eq!(input.input().get_value(), &label);
-    assert!(input.render(80).iter().any(|line| line.contains(&label)));
+    assert!(
+        input
+            .render(80)
+            .iter()
+            .any(|line| pi_tui::utils::strip_terminal_sequences(line).contains(&label))
+    );
 }
