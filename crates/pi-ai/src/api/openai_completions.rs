@@ -1113,19 +1113,6 @@ pub fn build_params(
         if let Some(values) = build_chat_template_values(model, effort, &compat.chat_template_kwargs) {
             params.insert("chat_template_kwargs".into(), values.into());
         }
-    } else if compat.thinking_format == ThinkingFormat::Baseten && model.reasoning {
-        if let Some(values) = build_chat_template_values(model, effort, &compat.chat_template_args) {
-            params.insert("chat_template_args".into(), values.into());
-        }
-        if compat.supports_reasoning_effort {
-            let mapped = match effort {
-                Some(effort) => strict_effort(model, effort),
-                None => off_value(model).flatten(),
-            };
-            if let Some(mapped) = mapped {
-                params.insert("reasoning_effort".into(), JsValue::String(mapped.into()));
-            }
-        }
     } else if compat.thinking_format == ThinkingFormat::Deepseek && model.reasoning {
         if effort.is_some() {
             params.insert(
