@@ -75,7 +75,7 @@ impl ModelConfig {
     }
 
     pub fn get_provider(&self, provider_id: &str) -> Option<&JsValue> {
-        self.providers.get(&provider_id.into())
+        self.providers.get(&JsString::from(provider_id))
     }
 
     pub fn get_provider_ids(&self) -> Vec<String> {
