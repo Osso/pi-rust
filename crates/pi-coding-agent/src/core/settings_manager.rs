@@ -172,12 +172,15 @@ pub trait SettingsStorage: Send {
 /// Global `<agentDir>/settings.json` and project `<cwd>/.pi/settings.json`.
 #[derive(Debug, Clone)]
 pub struct FileSettingsStorage {
-    global_settings_path: PathBuf,
-    project_settings_path: PathBuf,
+    global_settings_path: pi_js_compat::js_json::JsString,
+    project_settings_path: pi_js_compat::js_json::JsString,
 }
 
 impl FileSettingsStorage {
-    pub fn new(cwd: &str, agent_dir: &str) -> Result<Self, SettingsFailure> {
+    pub fn new(
+        cwd: &pi_js_compat::js_json::JsString,
+        agent_dir: &pi_js_compat::js_json::JsString,
+    ) -> Result<Self, SettingsFailure> {
         let process_cwd =
             std::env::current_dir().map_or_else(|_| "/".to_owned(), |path| path.to_string_lossy().into_owned());
         let resolved_cwd = resolve_path(cwd, &process_cwd, &PathInputOptions::default())
@@ -185,10 +188,11 @@ impl FileSettingsStorage {
         let resolved_agent_dir = resolve_path(agent_dir, &process_cwd, &PathInputOptions::default())
             .map_err(|error| SettingsFailure::new(error.to_string()))?;
         Ok(Self {
-            global_settings_path: Path::new(&resolved_agent_dir).join("settings.json"),
-            project_settings_path: Path::new(&resolved_cwd)
-                .join(&package_config().config_dir_name)
-                .join("settings.json"),
+            global_settings_path: crate::utils::paths::node_join(&resolved_agent_dir, "settings.json"),
+            project_settings_path: crate::utils::paths::node_join(
+                crate::utils::paths::node_join(&resolved_cwd, &package_config().config_dir_name),
+                "settings.json",
+            ),
         })
     }
 
@@ -226,6 +230,8 @@ impl SettingsStorage for FileSettingsStorage {
             SettingsScope::Global => &self.global_settings_path,
             SettingsScope::Project => &self.project_settings_path,
         };
+        let encoded = pi_js_compat::js_json::encode_node_utf8(path);
+        let path = Path::new(&encoded);
         let dir = path.parent().map_or_else(|| PathBuf::from("."), Path::to_path_buf);
 
         let file_exists = path.exists();
@@ -572,12 +578,14 @@ impl std::fmt::Debug for SettingsManager {
 impl SettingsManager {
     /// Creates a manager that loads `<agentDir>/settings.json` and `<cwd>/.pi/settings.json`.
     pub fn create(
-        cwd: &str,
-        agent_dir: Option<&Path>,
+        cwd: &pi_js_compat::js_json::JsString,
+        agent_dir: Option<&pi_js_compat::js_json::JsString>,
         options: SettingsManagerCreateOptions,
     ) -> Result<Self, SettingsFailure> {
-        let agent_dir = agent_dir.map_or_else(get_agent_dir, Path::to_path_buf);
-        let storage = FileSettingsStorage::new(cwd, &agent_dir.to_string_lossy())?;
+        let agent_dir = agent_dir
+            .cloned()
+            .unwrap_or_else(|| get_agent_dir().to_string_lossy().as_ref().into());
+        let storage = FileSettingsStorage::new(cwd, &agent_dir)?;
         Ok(Self::from_storage(Box::new(storage), options))
     }
 

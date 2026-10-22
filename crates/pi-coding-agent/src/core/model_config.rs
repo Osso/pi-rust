@@ -10,29 +10,29 @@ use pi_ai::utils::validation::schema_error_lines;
 use serde_json::{Map, Value, json};
 
 use crate::utils::paths::normalize_path;
-use pi_js_compat::js_json;
+use pi_js_compat::js_json::{self, JsString, encode_node_utf8};
 
 /// One immutable load of `models.json`.
 #[derive(Debug, Clone, Default)]
 pub struct ModelConfig {
     providers: Map<String, Value>,
-    error: Option<String>,
+    error: Option<JsString>,
 }
 
 impl ModelConfig {
     /// Loads `models.json`; a missing file yields an empty configuration.
-    pub fn load(models_json_path: Option<&str>) -> Self {
+    pub fn load(models_json_path: Option<&JsString>) -> Self {
         let Some(path) = models_json_path else {
             return Self::default();
         };
         let path = normalize_path(path, &Default::default()).unwrap_or_else(|_| path.to_owned());
-        let content = match std::fs::read_to_string(&path) {
+        let content = match std::fs::read_to_string(encode_node_utf8(&path)) {
             Ok(content) => content,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Self::default(),
             Err(error) => {
                 return Self {
                     providers: Map::new(),
-                    error: Some(format!("Failed to load models.json: {error}\n\nFile: {path}")),
+                    error: Some(JsString::from(format!("Failed to load models.json: {error}\n\nFile: ")) + &path),
                 };
             }
         };
@@ -42,7 +42,7 @@ impl ModelConfig {
             Err(error) => {
                 return Self {
                     providers: Map::new(),
-                    error: Some(format!("Failed to parse models.json: {error}\n\nFile: {path}")),
+                    error: Some(JsString::from(format!("Failed to parse models.json: {error}\n\nFile: ")) + &path),
                 };
             }
         };
@@ -51,10 +51,12 @@ impl ModelConfig {
         if !errors.is_empty() {
             return Self {
                 providers: Map::new(),
-                error: Some(format!(
-                    "Invalid models.json schema:\n{}\n\nFile: {path}",
-                    pi_js_compat::js_json::encode_node_utf8(&pi_js_compat::js_json::JsString::join(errors, "\n"))
-                )),
+                error: Some(
+                    JsString::from("Invalid models.json schema:\n")
+                        + JsString::join(errors, "\n")
+                        + "\n\nFile: "
+                        + &path,
+                ),
             };
         }
 
@@ -77,8 +79,8 @@ impl ModelConfig {
             .collect()
     }
 
-    pub fn get_error(&self) -> Option<&str> {
-        self.error.as_deref()
+    pub fn get_error(&self) -> Option<&JsString> {
+        self.error.as_ref()
     }
 
     /// Provider map (insertion ordered), for consumers that need all entries.
