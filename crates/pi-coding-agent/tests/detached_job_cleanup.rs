@@ -5,7 +5,10 @@ use std::sync::Mutex;
 
 use pi_coding_agent::core::detached_job_cleanup::{DetachedJobCleanupOptions, cleanup_detached_job_artifacts};
 use pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent;
-use serde_json::{Value, json};
+use pi_js_compat::{
+    js_json as json,
+    js_json::{JsString, JsValue as Value, encode_node_utf8},
+};
 use tempfile::TempDir;
 
 const EXPIRED_AT: &str = "2026-07-19T18:00:00.000Z";
@@ -70,8 +73,8 @@ fn persist_artifact(
     });
     bootstrap_multi_agent_agent(
         &fixture.control_db_path,
-        &session_path.to_string_lossy(),
-        job_id,
+        session_path.to_string_lossy().as_ref(),
+        &job_id.into(),
         &agent,
     )
     .expect("bootstrap agent");
@@ -80,9 +83,9 @@ fn persist_artifact(
 
 fn cleanup(fixture: &Fixture) -> pi_coding_agent::core::detached_job_cleanup::DetachedJobCleanupResult {
     cleanup_detached_job_artifacts(
-        &fixture.control_db_path,
+        &JsString::from(&fixture.control_db_path),
         &DetachedJobCleanupOptions {
-            artifact_root: fixture.root.clone(),
+            artifact_root: fixture.root.clone().into(),
             now: Some(now_millis()),
             on_directory_quarantined: None,
         },
@@ -96,7 +99,7 @@ fn deletes_expired_terminal_artifacts_and_preserves_nonterminal_directories() {
     let expired = persist_artifact(&fixture, "session", "pyrun_expired", "completed", EXPIRED_AT, None);
     let running = persist_artifact(&fixture, "session", "pyrun_running", "running", EXPIRED_AT, None);
     let result = cleanup(&fixture);
-    assert_eq!(result.deleted_directories, vec![expired.clone()]);
+    assert_eq!(result.deleted_directories, vec![JsString::from(expired.clone())]);
     assert!(!std::path::Path::new(&expired).exists());
     assert!(std::path::Path::new(&running).exists());
     assert!(result.errors.is_empty());
@@ -112,7 +115,7 @@ fn preserves_a_terminal_directory_containing_an_open_file_descriptor() {
     assert!(std::path::Path::new(&directory).exists());
     drop(held);
     let second = cleanup(&fixture);
-    assert_eq!(second.deleted_directories, vec![directory.clone()]);
+    assert_eq!(second.deleted_directories, vec![JsString::from(directory.clone())]);
     assert!(!std::path::Path::new(&directory).exists());
 }
 
@@ -128,8 +131,8 @@ fn refuses_an_artifact_path_outside_the_agent_artifact_root() {
         .join("session.jsonl");
     bootstrap_multi_agent_agent(
         &fixture.control_db_path,
-        &session_path.to_string_lossy(),
-        "outside",
+        session_path.to_string_lossy().as_ref(),
+        &"outside".into(),
         &json!({
             "agentType": "background",
             "createdAt": EXPIRED_AT,
@@ -167,8 +170,8 @@ fn refuses_a_detached_job_id_containing_path_traversal() {
         .join("session.jsonl");
     bootstrap_multi_agent_agent(
         &fixture.control_db_path,
-        &session_path.to_string_lossy(),
-        "..",
+        session_path.to_string_lossy().as_ref(),
+        &"..".into(),
         &json!({
             "agentType": "background",
             "createdAt": EXPIRED_AT,
@@ -211,7 +214,7 @@ fn deletes_oldest_recent_terminal_directories_until_retained_bytes_fit_the_two_g
         Some(one_point_five_gib),
     );
     let result = cleanup(&fixture);
-    assert_eq!(result.deleted_directories, vec![oldest.clone()]);
+    assert_eq!(result.deleted_directories, vec![JsString::from(oldest.clone())]);
     assert!(!std::path::Path::new(&oldest).exists());
     assert!(std::path::Path::new(&newest).exists());
     assert!(result.retained_bytes >= 0);
@@ -221,11 +224,11 @@ fn deletes_oldest_recent_terminal_directories_until_retained_bytes_fit_the_two_g
 fn reports_quarantine_paths_and_removes_them_on_success() {
     let fixture = fixture();
     let directory = persist_artifact(&fixture, "session", "pyrun_quarantine", "completed", EXPIRED_AT, None);
-    let quarantined: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let quarantined: Mutex<Vec<JsString>> = Mutex::new(Vec::new());
     let result = cleanup_detached_job_artifacts(
-        &fixture.control_db_path,
+        &JsString::from(&fixture.control_db_path),
         &DetachedJobCleanupOptions {
-            artifact_root: fixture.root.clone(),
+            artifact_root: fixture.root.clone().into(),
             now: Some(now_millis()),
             on_directory_quarantined: Some(&|path| {
                 quarantined.lock().expect("quarantine").push(path.to_owned());
@@ -233,11 +236,11 @@ fn reports_quarantine_paths_and_removes_them_on_success() {
         },
     )
     .expect("cleanup");
-    assert_eq!(result.deleted_directories, vec![directory.clone()]);
+    assert_eq!(result.deleted_directories, vec![JsString::from(directory.clone())]);
     let paths = quarantined.lock().expect("quarantine");
     assert_eq!(paths.len(), 1);
     assert!(paths[0].contains(".cleanup-pyrun_quarantine-"));
-    assert!(!std::path::Path::new(&paths[0]).exists());
+    assert!(!std::path::Path::new(&encode_node_utf8(&paths[0])).exists());
 }
 
 #[test]

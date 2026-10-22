@@ -3,15 +3,20 @@
 use std::collections::HashSet;
 use std::fs;
 use std::io;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, encode_node_utf8},
+};
 
 use crate::core::detached_job_retention::{
     DetachedArtifactRetentionCandidate, DetachedArtifactRetentionPolicy, select_detached_artifact_directories_to_delete,
 };
 use crate::core::multi_agent_store::AgentSnapshot;
 use crate::core::session_control_db::list_detached_artifact_agents_updated_at_or_before;
+use crate::utils::paths::{node_basename, node_dirname, node_extname, node_join, node_resolve};
 
 const DETACHED_ARTIFACT_MAX_AGE_MS: f64 = (3 * 24 * 60 * 60 * 1_000) as f64;
 const DETACHED_ARTIFACT_MAX_BYTES: f64 = (2_u64 * 1024 * 1024 * 1024) as f64;
@@ -20,28 +25,25 @@ const NO_BYTE_CAP: f64 = 9_007_199_254_740_991.0;
 const DETACHED_OUTPUT_LABELS: [&str; 2] = ["Bash output", "Pyrun output"];
 const DELETED_PATH_SUFFIX: &str = " (deleted)";
 
-/// `DetachedJobCleanupResult`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DetachedJobCleanupResult {
     pub deleted_bytes: i64,
-    pub deleted_directories: Vec<String>,
-    pub errors: Vec<String>,
+    pub deleted_directories: Vec<JsString>,
+    pub errors: Vec<JsString>,
     pub retained_bytes: i64,
-    pub skipped_reason: Option<String>,
+    pub skipped_reason: Option<JsString>,
 }
 
-/// `DetachedJobCleanupOptions`.
 pub struct DetachedJobCleanupOptions<'a> {
-    pub artifact_root: String,
+    pub artifact_root: JsString,
     pub now: Option<i64>,
-    pub on_directory_quarantined: Option<&'a dyn Fn(&str)>,
+    pub on_directory_quarantined: Option<&'a dyn Fn(&JsString)>,
 }
 
-/// `cleanupDetachedJobArtifacts`; `Err` models the source's thrown selection error.
 pub fn cleanup_detached_job_artifacts(
-    control_db_path: &str,
+    control_db_path: &JsString,
     options: &DetachedJobCleanupOptions<'_>,
-) -> Result<DetachedJobCleanupResult, String> {
+) -> Result<DetachedJobCleanupResult, JsString> {
     let Some(process_references) = read_linux_process_references()? else {
         return Ok(empty_cleanup_result(
             "live process reference inspection requires Linux /proc",
@@ -71,11 +73,14 @@ pub fn cleanup_detached_job_artifacts(
     ))
 }
 
-/// `runDetachedJobArtifactCleanup`.
-pub fn run_detached_job_artifact_cleanup(control_db_path: &str, artifact_root: Option<&str>, now: Option<i64>) {
+pub fn run_detached_job_artifact_cleanup(
+    control_db_path: &JsString,
+    artifact_root: Option<&JsString>,
+    now: Option<i64>,
+) {
     let artifact_root = artifact_root
-        .map(str::to_owned)
-        .unwrap_or_else(|| crate::config::get_agent_dir().to_string_lossy().into_owned());
+        .cloned()
+        .unwrap_or_else(|| crate::config::get_agent_dir().to_string_lossy().into_owned().into());
     let now = now.unwrap_or_else(now_millis);
     match cleanup_expired_detached_job_artifacts(control_db_path, &artifact_root, now) {
         Ok(mut errors) => {
@@ -96,10 +101,10 @@ pub fn run_detached_job_artifact_cleanup(control_db_path: &str, artifact_root: O
                 _ => {}
             }
             for error in errors {
-                eprintln!("Detached artifact cleanup: {error}");
+                eprintln!("Detached artifact cleanup: {}", encode_node_utf8(&error));
             }
         }
-        Err(error) => eprintln!("Detached artifact cleanup failed: {error}"),
+        Err(error) => eprintln!("Detached artifact cleanup failed: {}", encode_node_utf8(&error)),
     }
 }
 
@@ -111,10 +116,10 @@ fn now_millis() -> i64 {
 }
 
 fn cleanup_expired_detached_job_artifacts(
-    control_db_path: &str,
-    artifact_root: &str,
+    control_db_path: &JsString,
+    artifact_root: &JsString,
     now: i64,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<JsString>, JsString> {
     let Some(process_references) = read_linux_process_references()? else {
         return Ok(Vec::new());
     };
@@ -139,34 +144,31 @@ fn cleanup_expired_detached_job_artifacts(
     Ok(errors)
 }
 
-fn detached_artifact_bytes(artifact_root: &str, errors: &mut Vec<String>) -> Option<i64> {
-    read_directory_byte_size(
-        &Path::new(artifact_root).join("detached-jobs").to_string_lossy(),
-        errors,
-    )
+fn detached_artifact_bytes(artifact_root: &JsString, errors: &mut Vec<JsString>) -> Option<i64> {
+    read_directory_byte_size(&node_join(artifact_root, "detached-jobs"), errors)
 }
 
-fn empty_cleanup_result(skipped_reason: &str) -> DetachedJobCleanupResult {
+fn empty_cleanup_result(reason: &str) -> DetachedJobCleanupResult {
     DetachedJobCleanupResult {
-        skipped_reason: Some(skipped_reason.to_owned()),
-        ..DetachedJobCleanupResult::default()
+        skipped_reason: Some(reason.into()),
+        ..Default::default()
     }
 }
 
 fn delete_selected_artifact_directories(
     candidates: &[DetachedArtifactRetentionCandidate],
-    paths_to_delete: &[String],
-    errors: &mut Vec<String>,
-    on_directory_quarantined: Option<&dyn Fn(&str)>,
+    paths_to_delete: &[JsString],
+    errors: &mut Vec<JsString>,
+    on_directory_quarantined: Option<&dyn Fn(&JsString)>,
 ) -> DetachedJobCleanupResult {
-    let candidates_by_path: IndexMap<&str, &DetachedArtifactRetentionCandidate> = candidates
+    let candidates_by_path: IndexMap<&JsString, &DetachedArtifactRetentionCandidate> = candidates
         .iter()
-        .map(|candidate| (candidate.directory_path.as_str(), candidate))
+        .map(|candidate| (&candidate.directory_path, candidate))
         .collect();
     let mut deleted_directories = Vec::new();
     let mut deleted_bytes = 0.0;
     for directory_path in paths_to_delete {
-        let Some(candidate) = candidates_by_path.get(directory_path.as_str()) else {
+        let Some(candidate) = candidates_by_path.get(directory_path) else {
             continue;
         };
         if delete_unreferenced_artifact_directory(directory_path, errors, on_directory_quarantined) {
@@ -185,42 +187,45 @@ fn delete_selected_artifact_directories(
 }
 
 fn delete_unreferenced_artifact_directory(
-    directory_path: &str,
-    errors: &mut Vec<String>,
-    on_directory_quarantined: Option<&dyn Fn(&str)>,
+    directory_path: &JsString,
+    errors: &mut Vec<JsString>,
+    on_directory_quarantined: Option<&dyn Fn(&JsString)>,
 ) -> bool {
-    let directory = Path::new(directory_path);
-    let name = directory
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let quarantine_path = directory
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(format!(".cleanup-{name}-{}", pi_ai::utils::uuid::random_uuid()));
-    let quarantine = quarantine_path.to_string_lossy().into_owned();
-    match fs::symlink_metadata(directory) {
+    let quarantine = node_join(
+        node_dirname(directory_path),
+        js_format!(
+            ".cleanup-{}-{}",
+            node_basename(directory_path),
+            pi_ai::utils::uuid::random_uuid()
+        ),
+    );
+    match fs::symlink_metadata(encode_node_utf8(directory_path)) {
         Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
-            errors.push(format!(
-                "Refused to delete non-directory detached artifact path: {directory_path}"
+            errors.push(js_format!(
+                "Refused to delete non-directory detached artifact path: {}",
+                directory_path
             ));
             return false;
         }
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => return false,
         Err(error) => {
-            errors.push(format!(
-                "Could not delete detached artifact directory {directory_path}: {error}"
+            errors.push(js_format!(
+                "Could not delete detached artifact directory {}: {}",
+                directory_path,
+                error.to_string()
             ));
             return false;
         }
     }
-    if let Err(error) = fs::rename(directory, &quarantine_path) {
+    if let Err(error) = fs::rename(encode_node_utf8(directory_path), encode_node_utf8(&quarantine)) {
         if error.kind() == io::ErrorKind::NotFound {
             return false;
         }
-        errors.push(format!(
-            "Could not delete detached artifact directory {directory_path}: {error}"
+        errors.push(js_format!(
+            "Could not delete detached artifact directory {}: {}",
+            directory_path,
+            error.to_string()
         ));
         return false;
     }
@@ -228,67 +233,62 @@ fn delete_unreferenced_artifact_directory(
         on_directory_quarantined(&quarantine);
     }
     if quarantined_directory_has_live_reference(&quarantine) {
-        let _ = fs::rename(&quarantine_path, directory);
+        let _ = fs::rename(encode_node_utf8(&quarantine), encode_node_utf8(directory_path));
         return false;
     }
-    match fs::remove_dir_all(&quarantine_path) {
+    match fs::remove_dir_all(encode_node_utf8(&quarantine)) {
         Ok(()) => true,
         Err(error) => {
-            restore_quarantined_directory(&quarantine_path, directory, errors);
+            restore_quarantined_directory(&quarantine, directory_path, errors);
             if error.kind() == io::ErrorKind::NotFound {
                 return false;
             }
-            errors.push(format!(
-                "Could not delete detached artifact directory {directory_path}: {error}"
+            errors.push(js_format!(
+                "Could not delete detached artifact directory {}: {}",
+                directory_path,
+                error.to_string()
             ));
             false
         }
     }
 }
 
-fn quarantined_directory_has_live_reference(quarantine_path: &str) -> bool {
-    let Ok(process_references) = read_linux_process_references() else {
+fn quarantined_directory_has_live_reference(quarantine: &JsString) -> bool {
+    let Ok(Some(references)) = read_linux_process_references() else {
         return true;
     };
-    let Some(process_references) = process_references else {
-        return true;
-    };
-    match fs::canonicalize(quarantine_path) {
-        Ok(canonical) => directory_has_live_reference(&canonical.to_string_lossy(), &process_references),
+    match fs::canonicalize(encode_node_utf8(quarantine)) {
+        Ok(canonical) => directory_has_live_reference(&filesystem_path_text(&canonical), &references),
         Err(_) => true,
     }
 }
 
-fn restore_quarantined_directory(quarantine_path: &Path, directory_path: &Path, errors: &mut Vec<String>) {
-    if !quarantine_path.exists() || directory_path.exists() {
+fn restore_quarantined_directory(quarantine: &JsString, directory: &JsString, errors: &mut Vec<JsString>) {
+    if !Path::new(&encode_node_utf8(quarantine)).exists() || Path::new(&encode_node_utf8(directory)).exists() {
         return;
     }
-    if let Err(error) = fs::rename(quarantine_path, directory_path) {
-        errors.push(format!(
-            "Could not restore referenced detached artifact directory {}: {error}",
-            directory_path.to_string_lossy()
+    if let Err(error) = fs::rename(encode_node_utf8(quarantine), encode_node_utf8(directory)) {
+        errors.push(js_format!(
+            "Could not restore referenced detached artifact directory {}: {}",
+            directory,
+            error.to_string()
         ));
     }
 }
 
 fn collect_terminal_artifact_candidates(
-    control_db_path: &str,
-    artifact_root: &str,
-    process_references: &HashSet<String>,
-    errors: &mut Vec<String>,
-    updated_at_cutoff: &str,
-) -> Result<Vec<DetachedArtifactRetentionCandidate>, String> {
-    let mut candidates_by_path: IndexMap<String, DetachedArtifactRetentionCandidate> = IndexMap::new();
-    let records = list_detached_artifact_agents_updated_at_or_before(control_db_path, updated_at_cutoff)
-        .map_err(|error| error.message().to_owned())?;
+    control_db_path: &JsString,
+    artifact_root: &JsString,
+    references: &HashSet<JsString>,
+    errors: &mut Vec<JsString>,
+    cutoff: &str,
+) -> Result<Vec<DetachedArtifactRetentionCandidate>, JsString> {
+    let mut candidates_by_path: IndexMap<JsString, DetachedArtifactRetentionCandidate> = IndexMap::new();
+    let records = list_detached_artifact_agents_updated_at_or_before(control_db_path, cutoff)
+        .map_err(|error| error.message().clone())?;
     for record in records {
-        let Some(candidate) = terminal_artifact_candidate(
-            &record.agent,
-            &record.session_path,
-            artifact_root,
-            process_references,
-            errors,
-        )?
+        let Some(candidate) =
+            terminal_artifact_candidate(&record.agent, &record.session_path, artifact_root, references, errors)?
         else {
             continue;
         };
@@ -304,11 +304,11 @@ fn collect_terminal_artifact_candidates(
 
 fn terminal_artifact_candidate(
     agent: &AgentSnapshot,
-    session_path: &str,
-    artifact_root: &str,
-    process_references: &HashSet<String>,
-    errors: &mut Vec<String>,
-) -> Result<Option<DetachedArtifactRetentionCandidate>, String> {
+    session_path: &JsString,
+    artifact_root: &JsString,
+    references: &HashSet<JsString>,
+    errors: &mut Vec<JsString>,
+) -> Result<Option<DetachedArtifactRetentionCandidate>, JsString> {
     if crate::core::multi_agent_store::is_active_lifecycle(agent.lifecycle) {
         return Ok(None);
     }
@@ -319,124 +319,106 @@ fn terminal_artifact_candidate(
     else {
         return Ok(None);
     };
-    let Some(terminal_at) = pi_js_compat::date::date_parse_millis(&agent.updated_at) else {
-        errors.push(format!(
-            "Invalid detached artifact terminal timestamp for {session_path}#{}",
+    let terminal_at = pi_js_compat::date::date_parse_utf16(agent.updated_at.units());
+    if !terminal_at.is_finite() {
+        errors.push(js_format!(
+            "Invalid detached artifact terminal timestamp for {}#{}",
+            session_path,
             agent.id
         ));
         return Ok(None);
-    };
+    }
     let Some(byte_size) = read_directory_byte_size(&directory_path, errors) else {
         return Ok(None);
     };
     Ok(Some(DetachedArtifactRetentionCandidate {
-        protected_by_live_reference: directory_has_live_reference(&directory_path, process_references),
+        protected_by_live_reference: directory_has_live_reference(&directory_path, references),
         byte_size: byte_size as f64,
         directory_path,
-        terminal_at: terminal_at as f64,
+        terminal_at,
     }))
 }
 
-fn detached_output_path(agent: &AgentSnapshot) -> Option<String> {
-    agent.result.as_ref()?.file_refs.as_ref()?.iter().find_map(|file_ref| {
-        file_ref
+fn detached_output_path(agent: &AgentSnapshot) -> Option<JsString> {
+    agent.result.as_ref()?.file_refs.as_ref()?.iter().find_map(|reference| {
+        reference
             .label
-            .as_deref()
-            .filter(|label| DETACHED_OUTPUT_LABELS.contains(label))
-            .map(|_| file_ref.path.clone())
+            .as_ref()
+            .filter(|label| DETACHED_OUTPUT_LABELS.iter().any(|expected| *label == expected))
+            .map(|_| reference.path.clone())
     })
 }
 
 fn detached_artifact_directory(
-    output_path: &str,
-    session_path: &str,
-    job_id: &str,
-    artifact_root: &str,
-) -> Result<Option<String>, String> {
-    if !Path::new(output_path).is_absolute() || !is_path_segment(job_id) {
+    output_path: &JsString,
+    session_path: &JsString,
+    job_id: &JsString,
+    artifact_root: &JsString,
+) -> Result<Option<JsString>, JsString> {
+    if !output_path.starts_with("/") || !is_path_segment(job_id) || node_basename(output_path) != "output.log" {
         return Ok(None);
     }
-    let directory_path = Path::new(output_path);
-    if directory_path.file_name().and_then(|name| name.to_str()) != Some("output.log") {
-        return Ok(None);
-    }
-    let directory_path = resolve_path(directory_path.parent().unwrap_or_else(|| Path::new("/")));
-    let Some(session_name) = session_stem(session_path) else {
-        return Ok(None);
-    };
+    let directory_path = resolve_path(&node_dirname(output_path))?;
+    let name = node_basename(session_path);
+    let session_name = name.slice(0, name.len() - node_extname(&name).len());
     if !is_path_segment(&session_name) {
         return Ok(None);
     }
-    let expected_directory_path = resolve_path(
-        &Path::new(artifact_root)
-            .join("detached-jobs")
-            .join(&session_name)
-            .join(job_id),
-    );
-    if directory_path != expected_directory_path {
+    let expected = resolve_path(&node_join(
+        node_join(node_join(artifact_root, "detached-jobs"), &session_name),
+        job_id,
+    ))?;
+    if directory_path != expected {
         return Ok(None);
     }
-    let metadata = match fs::symlink_metadata(&directory_path) {
+    let metadata = match fs::symlink_metadata(encode_node_utf8(&directory_path)) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(error.to_string().into()),
     };
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return Ok(None);
     }
-    let canonical_directory_path = fs::canonicalize(&directory_path).map_err(|error| error.to_string())?;
-    let canonical_artifact_root = fs::canonicalize(artifact_root).map_err(|error| error.to_string())?;
-    let expected_canonical_path = canonical_artifact_root
-        .join("detached-jobs")
-        .join(&session_name)
-        .join(job_id);
-    Ok((canonical_directory_path == expected_canonical_path)
-        .then(|| canonical_directory_path.to_string_lossy().into_owned()))
+    let canonical_directory =
+        fs::canonicalize(encode_node_utf8(&directory_path)).map_err(|error| JsString::from(error.to_string()))?;
+    let canonical_root =
+        fs::canonicalize(encode_node_utf8(artifact_root)).map_err(|error| JsString::from(error.to_string()))?;
+    let canonical_directory = filesystem_path_text(&canonical_directory);
+    let expected_canonical = node_join(
+        node_join(
+            node_join(filesystem_path_text(&canonical_root), "detached-jobs"),
+            &session_name,
+        ),
+        job_id,
+    );
+    Ok((canonical_directory == expected_canonical).then_some(canonical_directory))
 }
 
-fn session_stem(session_path: &str) -> Option<String> {
-    Path::new(session_path)
-        .file_stem()
-        .map(|name| name.to_string_lossy().into_owned())
+fn is_path_segment(value: &JsString) -> bool {
+    !value.is_empty() && value != "." && value != ".." && node_basename(value) == *value
 }
 
-fn is_path_segment(value: &str) -> bool {
-    !value.is_empty()
-        && value != "."
-        && value != ".."
-        && Path::new(value)
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            == Some(value.to_owned())
+fn resolve_path(path: &JsString) -> Result<JsString, JsString> {
+    node_resolve("", path).map_err(|error| error.message().clone())
 }
 
-/// `path.resolve`: absolute lexical resolution without touching the filesystem.
-fn resolve_path(path: &Path) -> PathBuf {
-    let mut resolved = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Prefix(prefix) => resolved.push(prefix.as_os_str()),
-            Component::RootDir => resolved.push("/"),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                resolved.pop();
-            }
-            Component::Normal(part) => resolved.push(part),
-        }
-    }
-    resolved
+/// OS-returned UTF-8 filenames are decoded only after the filesystem boundary.
+fn filesystem_path_text(path: &Path) -> JsString {
+    path.to_string_lossy().into_owned().into()
 }
 
-fn read_directory_byte_size(directory_path: &str, errors: &mut Vec<String>) -> Option<i64> {
-    let mut byte_size = 0_i64;
-    let mut pending_directories = vec![PathBuf::from(directory_path)];
-    while let Some(current_directory) = pending_directories.pop() {
-        let entries = match fs::read_dir(&current_directory) {
+fn read_directory_byte_size(directory: &JsString, errors: &mut Vec<JsString>) -> Option<i64> {
+    let mut bytes = 0_i64;
+    let mut pending = vec![PathBuf::from(encode_node_utf8(directory))];
+    while let Some(current) = pending.pop() {
+        let entries = match fs::read_dir(&current) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
             Err(error) => {
-                errors.push(format!(
-                    "Could not measure detached artifact directory {directory_path}: {error}"
+                errors.push(js_format!(
+                    "Could not measure detached artifact directory {}: {}",
+                    directory,
+                    error.to_string()
                 ));
                 return None;
             }
@@ -445,34 +427,38 @@ fn read_directory_byte_size(directory_path: &str, errors: &mut Vec<String>) -> O
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(error) => {
-                    errors.push(format!(
-                        "Could not measure detached artifact directory {directory_path}: {error}"
+                    errors.push(js_format!(
+                        "Could not measure detached artifact directory {}: {}",
+                        directory,
+                        error.to_string()
                     ));
                     return None;
                 }
             };
-            let entry_path = entry.path();
-            let metadata = match fs::symlink_metadata(&entry_path) {
+            let path = entry.path();
+            let metadata = match fs::symlink_metadata(&path) {
                 Ok(metadata) => metadata,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
                 Err(error) => {
-                    errors.push(format!(
-                        "Could not measure detached artifact directory {directory_path}: {error}"
+                    errors.push(js_format!(
+                        "Could not measure detached artifact directory {}: {}",
+                        directory,
+                        error.to_string()
                     ));
                     return None;
                 }
             };
             if metadata.is_dir() {
-                pending_directories.push(entry_path);
-                continue;
+                pending.push(path);
+            } else {
+                bytes += metadata.len() as i64;
             }
-            byte_size += metadata.len() as i64;
         }
     }
-    Some(byte_size)
+    Some(bytes)
 }
 
-fn read_linux_process_references() -> Result<Option<HashSet<String>>, String> {
+fn read_linux_process_references() -> Result<Option<HashSet<JsString>>, JsString> {
     if !cfg!(target_os = "linux") || !Path::new("/proc").exists() {
         return Ok(None);
     }
@@ -480,86 +466,81 @@ fn read_linux_process_references() -> Result<Option<HashSet<String>>, String> {
     let entries = match fs::read_dir("/proc") {
         Ok(entries) => entries,
         Err(error) if is_expected_process_read_error(&error) => return Ok(Some(references)),
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(error.to_string().into()),
     };
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) if is_expected_process_read_error(&error) => continue,
-            Err(error) => return Err(error.to_string()),
+            Err(error) => return Err(error.to_string().into()),
         };
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if !entry.path().is_dir() || !name.chars().all(|character| character.is_ascii_digit()) {
+        if !entry.path().is_dir() || !name.chars().all(|ch| ch.is_ascii_digit()) {
             continue;
         }
-        let process_directory = Path::new("/proc").join(name.as_ref());
-        add_link_reference(&mut references, &process_directory.join("cwd"))?;
-        add_link_reference(&mut references, &process_directory.join("exe"))?;
-        add_descriptor_references(&mut references, &process_directory.join("fd"))?;
+        let directory = Path::new("/proc").join(name.as_ref());
+        add_link_reference(&mut references, &directory.join("cwd"))?;
+        add_link_reference(&mut references, &directory.join("exe"))?;
+        add_descriptor_references(&mut references, &directory.join("fd"))?;
     }
     Ok(Some(references))
 }
 
-fn add_link_reference(references: &mut HashSet<String>, link_path: &Path) -> Result<(), String> {
-    match fs::read_link(link_path) {
-        Ok(target) => add_absolute_reference(references, &target.to_string_lossy()),
+fn add_link_reference(references: &mut HashSet<JsString>, path: &Path) -> Result<(), JsString> {
+    match fs::read_link(path) {
+        Ok(target) => add_absolute_reference(references, &filesystem_path_text(&target)),
         Err(error) if is_expected_process_read_error(&error) => Ok(()),
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(error.to_string().into()),
     }
 }
 
-fn add_descriptor_references(references: &mut HashSet<String>, descriptor_directory: &Path) -> Result<(), String> {
-    let entries = match fs::read_dir(descriptor_directory) {
+fn add_descriptor_references(references: &mut HashSet<JsString>, directory: &Path) -> Result<(), JsString> {
+    let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if is_expected_process_read_error(&error) => return Ok(()),
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(error.to_string().into()),
     };
-    for descriptor in entries {
-        let descriptor = match descriptor {
-            Ok(descriptor) => descriptor,
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
             Err(error) if is_expected_process_read_error(&error) => continue,
-            Err(error) => return Err(error.to_string()),
+            Err(error) => return Err(error.to_string().into()),
         };
-        add_link_reference(references, &descriptor.path())?;
+        add_link_reference(references, &entry.path())?;
     }
     Ok(())
 }
 
-fn add_absolute_reference(references: &mut HashSet<String>, value: &str) -> Result<(), String> {
-    let path = value.strip_suffix(DELETED_PATH_SUFFIX).unwrap_or(value);
-    if !Path::new(path).is_absolute() {
+fn add_absolute_reference(references: &mut HashSet<JsString>, value: &JsString) -> Result<(), JsString> {
+    let path = value.strip_suffix(DELETED_PATH_SUFFIX).unwrap_or_else(|| value.clone());
+    if !path.starts_with("/") {
         return Ok(());
     }
-    match fs::canonicalize(path) {
+    match fs::canonicalize(encode_node_utf8(&path)) {
         Ok(canonical) => {
-            references.insert(canonical.to_string_lossy().into_owned());
+            references.insert(filesystem_path_text(&canonical));
             Ok(())
         }
-        Err(error) if is_error_code(&error, 36) => Ok(()),
+        Err(error) if error.raw_os_error() == Some(36) => Ok(()),
         Err(error) if is_expected_reference_resolution_error(&error) => {
-            references.insert(resolve_path(Path::new(path)).to_string_lossy().into_owned());
+            references.insert(resolve_path(&path)?);
             Ok(())
         }
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(error.to_string().into()),
     }
 }
 
-fn directory_has_live_reference(directory_path: &str, references: &HashSet<String>) -> bool {
-    let nested_prefix = format!("{directory_path}/");
+fn directory_has_live_reference(directory: &JsString, references: &HashSet<JsString>) -> bool {
+    let prefix = directory.clone() + "/";
     references
         .iter()
-        .any(|reference| reference == directory_path || reference.starts_with(&nested_prefix))
+        .any(|reference| reference == directory || reference.starts_with(&prefix))
 }
 
 fn is_expected_reference_resolution_error(error: &io::Error) -> bool {
     matches!(error.raw_os_error(), Some(13 | 2 | 20 | 1))
 }
-
 fn is_expected_process_read_error(error: &io::Error) -> bool {
     matches!(error.raw_os_error(), Some(13 | 2 | 1 | 3))
-}
-
-fn is_error_code(error: &io::Error, code: i32) -> bool {
-    error.raw_os_error() == Some(code)
 }
