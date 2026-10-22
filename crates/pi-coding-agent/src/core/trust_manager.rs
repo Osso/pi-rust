@@ -84,7 +84,7 @@ pub struct TrustError {
 }
 
 impl TrustError {
-    fn new(message: impl Into<JsString>) -> Self {
+    pub(crate) fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
@@ -267,8 +267,13 @@ fn write_trust_file(path: &JsString, data: &JsObject) -> Result<(), TrustError> 
 fn acquire_trust_lock(path: &JsString) -> Result<crate::utils::lockfile::LockGuard, TrustError> {
     let encoded_path = encode_node_utf8(path);
     let directory = encode_node_utf8(&node_dirname(path));
-    std::fs::create_dir_all(&directory)
-        .map_err(|error| TrustError::new(format!("Failed to create trust directory {directory}: {error}")))?;
+    std::fs::create_dir_all(&directory).map_err(|error| {
+        TrustError::new(js_format!(
+            "Failed to create trust directory {}: {}",
+            node_dirname(path),
+            error.to_string()
+        ))
+    })?;
     let options = LockOptions {
         lockfile_path: Some(PathBuf::from(format!("{encoded_path}.lock"))),
         realpath: false,

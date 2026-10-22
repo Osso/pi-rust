@@ -1564,7 +1564,7 @@ impl ToolDefinition {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectTrustEvent {
-    pub cwd: String,
+    pub cwd: JsString,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1585,7 +1585,7 @@ pub struct ProjectTrustEventResult {
 
 #[derive(Clone)]
 pub struct ProjectTrustContext {
-    pub cwd: String,
+    pub cwd: JsString,
     pub mode: ExtensionMode,
     pub has_ui: bool,
     pub ui: Arc<dyn ExtensionUiContext>,

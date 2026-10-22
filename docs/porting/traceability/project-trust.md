@@ -72,3 +72,17 @@ the prompt test asserts the full five-label list including the parent-folder lab
 - **`notify` output** is written with `eprintln!` after the same chalk color selection as the
   TypeScript `console.error`; there is no stderr capture in the test harness, so the color path is
   covered only by inspection.
+
+## Q18 native trust continuation (2026-10-22)
+
+Trust persistence already uses native JsObject path keys with lossless JSON.
+ProjectTrustContext/Event cwd, resolution callbacks, prompts/options/selections,
+and CLI startup UI now use JsString. CLI notification coloring stays native until
+stderr write. Project-trust UI selection errors propagate like the frozen source;
+no `.ok().flatten()` suppression. Trust-directory error context retains original
+units instead of reusing its encoded filesystem argument.
+
+`lossless_project_trust` covers raw trust-key persistence/reopen, raw cwd prompt,
+and raw UI failure propagation. Written but unexecuted while coding compilation
+is blocked. replacement-cli-2 has zero trust/resource/package module primaries;
+no runtime PASS or renewed frozen differential parity claimed.

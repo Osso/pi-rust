@@ -1,5 +1,9 @@
 //! Project trust UI context (`cli/project-trust.ts`).
 
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, encode_node_utf8},
+};
 use std::sync::Arc;
 
 use pi_ai::request::BoxFuture;
@@ -11,12 +15,12 @@ use crate::utils::chalk::Chalk;
 /// Startup selectors used by the trust prompt. The TUI-backed implementation
 /// arrives with `cli/startup-ui.ts`; the trait keeps this module testable.
 pub trait ProjectTrustStartupUi: Send + Sync {
-    fn select<'a>(&'a self, title: &'a str, options: &'a [String]) -> BoxFuture<'a, Option<String>>;
-    fn input<'a>(&'a self, title: &'a str, placeholder: Option<&'a str>) -> BoxFuture<'a, Option<String>>;
+    fn select<'a>(&'a self, title: &'a JsString, options: &'a [JsString]) -> BoxFuture<'a, Option<JsString>>;
+    fn input<'a>(&'a self, title: &'a JsString, placeholder: Option<&'a JsString>) -> BoxFuture<'a, Option<JsString>>;
 }
 
 pub struct CreateProjectTrustContextOptions {
-    pub cwd: String,
+    pub cwd: JsString,
     pub mode: AppMode,
     pub has_ui: bool,
     pub startup_ui: Option<Arc<dyn ProjectTrustStartupUi>>,
@@ -51,10 +55,10 @@ impl ProjectTrustUi {
 impl ExtensionUiContext for ProjectTrustUi {
     fn select<'a>(
         &'a self,
-        title: &str,
-        options: &[String],
+        title: &JsString,
+        options: &[JsString],
         _opts: Option<&crate::core::extensions::types::ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let title = title.to_owned();
         let options = options.to_vec();
         Box::pin(async move {
@@ -70,11 +74,11 @@ impl ExtensionUiContext for ProjectTrustUi {
 
     fn confirm<'a>(
         &'a self,
-        title: &str,
-        message: &str,
+        title: &JsString,
+        message: &JsString,
         _opts: Option<&crate::core::extensions::types::ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, String>> {
-        let title = format!("{title}\n{message}");
+    ) -> BoxFuture<'a, Result<bool, JsString>> {
+        let title = js_format!("{}\n{}", title, message);
         Box::pin(async move {
             if !self.interactive() {
                 return Ok(false);
@@ -82,20 +86,20 @@ impl ExtensionUiContext for ProjectTrustUi {
             let Some(startup_ui) = self.startup_ui.as_ref() else {
                 return Ok(false);
             };
-            let options = ["Yes".to_owned(), "No".to_owned()];
+            let options = [JsString::from("Yes"), JsString::from("No")];
             let selected = startup_ui.select(&title, &options).await;
-            Ok(selected.as_deref() == Some("Yes"))
+            Ok(selected.as_ref().is_some_and(|selected| selected == "Yes"))
         })
     }
 
     fn input<'a>(
         &'a self,
-        title: &str,
-        placeholder: Option<&str>,
+        title: &JsString,
+        placeholder: Option<&JsString>,
         _opts: Option<&crate::core::extensions::types::ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let title = title.to_owned();
-        let placeholder = placeholder.map(str::to_owned);
+        let placeholder = placeholder.cloned();
         Box::pin(async move {
             if !self.interactive() {
                 return Ok(None);
@@ -103,7 +107,7 @@ impl ExtensionUiContext for ProjectTrustUi {
             let Some(startup_ui) = self.startup_ui.as_ref() else {
                 return Ok(None);
             };
-            Ok(startup_ui.input(&title, placeholder.as_deref()).await)
+            Ok(startup_ui.input(&title, placeholder.as_ref()).await)
         })
     }
 
@@ -111,14 +115,12 @@ impl ExtensionUiContext for ProjectTrustUi {
         if self.mode == AppMode::Interactive {
             return;
         }
-        let message = pi_js_compat::js_json::encode_node_utf8(message);
-        let message = message.as_str();
         let chalk = Chalk::stderr();
         let colored = match notify_type.unwrap_or(NotifyType::Info) {
             NotifyType::Error => chalk.red(message),
             NotifyType::Warning => chalk.yellow(message),
             NotifyType::Info => chalk.cyan(message),
         };
-        eprintln!("{colored}");
+        eprintln!("{}", encode_node_utf8(&colored));
     }
 }
