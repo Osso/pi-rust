@@ -5646,11 +5646,37 @@ impl InteractiveMode {
         self.render_widgets();
     }
 
-    fn update_pending_messages_display(&self) {
+    fn get_all_queued_messages(&self, visible_only: bool) -> (Vec<JsString>, Vec<JsString>) {
+        use crate::modes::interactive::coordination_visibility::is_coordination_preview;
+        let hide = visible_only && self.settings(|settings| settings.get_hide_coordination_messages());
         let session = self.session.borrow();
-        let steering = session.get_steering_messages();
-        let follow_up = session.get_follow_up_messages();
-        drop(session);
+        let (mut steering, mut follow_up) = if hide {
+            let queued = session.get_queued_message_previews();
+            let visible = |messages: Vec<crate::core::agent_session::QueuedMessagePreview>| {
+                messages
+                    .into_iter()
+                    .filter(|message| !is_coordination_preview(message))
+                    .map(|message| message.text)
+                    .collect::<Vec<_>>()
+            };
+            (visible(queued.steering), visible(queued.follow_up))
+        } else {
+            (session.get_steering_messages(), session.get_follow_up_messages())
+        };
+        for message in self.compaction_queued_messages.borrow().iter() {
+            if message.mode == "steer" {
+                steering.push(message.text.clone());
+            } else if message.mode == "followUp" {
+                follow_up.push(message.text.clone());
+            }
+        }
+        (steering, follow_up)
+    }
+
+    fn update_pending_messages_display(&self) {
+        use crate::modes::interactive::components::keybinding_hints::key_display_text;
+        use pi_tui::TruncatedText;
+        let (steering, follow_up) = self.get_all_queued_messages(true);
         let mut container = self.pending_messages_container.borrow_mut();
         container.clear();
         if steering.is_empty() && follow_up.is_empty() {
@@ -5658,37 +5684,16 @@ impl InteractiveMode {
         }
         container.add_child(component(Spacer::new(1)));
         for message in steering {
-            container.add_child(component(Text::new(
-                with_theme(|theme| {
-                    theme.fg(
-                        ThemeColor::Dim,
-                        &js_format!(
-                            "  {} {}",
-                            with_theme(|theme| theme.fg(ThemeColor::Accent, "Steering:")),
-                            (&message).clone()
-                        ),
-                    )
-                }),
-                1,
-                0,
-            )));
+            let text = with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("Steering: {}", message)));
+            container.add_child(component(TruncatedText::new(text, 1, 0)));
         }
         for message in follow_up {
-            container.add_child(component(Text::new(
-                with_theme(|theme| {
-                    theme.fg(
-                        ThemeColor::Dim,
-                        &js_format!(
-                            "  {} {}",
-                            with_theme(|theme| theme.fg(ThemeColor::Accent, "Follow-up:")),
-                            format_follow_up_preview(&message)
-                        ),
-                    )
-                }),
-                1,
-                0,
-            )));
+            let text = with_theme(|theme| theme.fg(ThemeColor::Dim, format_follow_up_preview(&message)));
+            container.add_child(component(TruncatedText::new(text, 1, 0)));
         }
+        let hint = key_display_text("app.message.dequeue");
+        let text = with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("↳ {} to edit all queued messages", hint)));
+        container.add_child(component(TruncatedText::new(text, 1, 0)));
     }
 
     /// `addRenderedMessageToEditorHistory`: the default editor skips persistence
@@ -11649,6 +11654,78 @@ mod ui_tests {
         fn poll_events(&mut self) -> Vec<TerminalEvent> {
             std::mem::take(&mut self.events)
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn hidden_coordination_queue_keeps_user_input_and_delivery_intact() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, faux, _temp) = build_mode().await;
+                mode.settings_mut(|settings| settings.set_hide_coordination_messages(true));
+                let gate = Arc::new(tokio::sync::Notify::new());
+                let entered = Arc::new(tokio::sync::Notify::new());
+                let stream_gate = Arc::clone(&gate);
+                let stream_entered = Arc::clone(&entered);
+                faux.set_responses(vec![
+                    pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(move |_, _, _, _| {
+                        let gate = Arc::clone(&stream_gate);
+                        let entered = Arc::clone(&stream_entered);
+                        Box::pin(async move {
+                            entered.notify_one();
+                            gate.notified().await;
+                            Ok(pi_ai::providers::faux::faux_assistant_message(
+                                "done",
+                                Default::default(),
+                            ))
+                        })
+                    })),
+                    pi_ai::providers::faux::faux_assistant_message("queued", Default::default()).into(),
+                ]);
+                let session = mode.session();
+                let task =
+                    tokio::task::spawn_local(async move { session.prompt("start", PromptOptions::default()).await });
+                entered.notified().await;
+                let envelope = JsString::from("From:\n- agent: peer\n\nMessage:\nsecret coordination");
+                mode.session()
+                    .prompt(
+                        envelope.clone(),
+                        PromptOptions {
+                            streaming_behavior: Some(StreamingBehavior::FollowUp),
+                            source: Some(pi_ai::types::InputSource::Extension),
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .unwrap();
+                mode.session().follow_up("visible user input", &[]).await.unwrap();
+                mode.update_pending_messages_display();
+                let output = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                    mode.pending_messages_container.borrow_mut().render(100),
+                    "\n",
+                ));
+                assert!(!output.contains("secret coordination"), "{output:?}");
+                assert!(output.contains("visible user input"), "{output:?}");
+                assert_eq!(
+                    mode.session().get_follow_up_messages(),
+                    vec![envelope.clone(), "visible user input".into()]
+                );
+                mode.compaction_queued_messages
+                    .borrow_mut()
+                    .push(CompactionQueuedMessage {
+                        text: envelope.clone(),
+                        mode: "steer",
+                    });
+                let (steering, follow_up) = mode.get_all_queued_messages(true);
+                assert_eq!(steering, vec![envelope.clone()], "compaction input is not filtered");
+                assert_eq!(follow_up, vec![JsString::from("visible user input")]);
+                assert_eq!(mode.get_all_queued_messages(false).1.len(), 2);
+                mode.settings_mut(|settings| settings.set_hide_coordination_messages(false));
+                assert_eq!(mode.get_all_queued_messages(true).1.len(), 2);
+                gate.notify_one();
+                task.await.unwrap().unwrap();
+            })
+            .await;
     }
 
     async fn build_mode() -> (

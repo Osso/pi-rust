@@ -320,6 +320,25 @@ pub struct PromptOptions {
     pub on_user_message_prepared: Option<UserMessagePreparedCallback>,
 }
 
+/// Display-only queue projection; Agent still owns delivery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedMessagePreview {
+    pub text: JsString,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_source: Option<InputSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_type: Option<JsString>,
+}
+
+/// Independent snapshots of the two display queues.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedMessagePreviews {
+    pub steering: Vec<QueuedMessagePreview>,
+    pub follow_up: Vec<QueuedMessagePreview>,
+}
+
 /// `ModelCycleResult`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -928,8 +947,8 @@ struct Inner {
     event_listeners: Mutex<Vec<(u64, AgentSessionEventListener)>>,
     next_listener_id: AtomicU64,
     agent_subscription: Mutex<Option<u64>>,
-    steering_messages: Mutex<Vec<JsString>>,
-    follow_up_messages: Mutex<Vec<JsString>>,
+    steering_messages: Mutex<Vec<QueuedMessagePreview>>,
+    follow_up_messages: Mutex<Vec<QueuedMessagePreview>>,
     last_assistant_turn_fingerprint: Mutex<Option<String>>,
     duplicate_turn_guard_injected: AtomicBool,
     duplicate_turn_loop_detected: AtomicBool,
@@ -3239,7 +3258,11 @@ impl AgentSession {
             .await?;
             return Ok(false);
         }
-        lock(&self.inner.follow_up_messages).push(prompt.into());
+        lock(&self.inner.follow_up_messages).push(QueuedMessagePreview {
+            text: prompt.clone(),
+            input_source: None,
+            custom_type: Some("shared_channel".into()),
+        });
         self.emit_queue_update();
         self.inner.agent.follow_up(create_custom_message(
             &"shared_channel".into(),
@@ -3264,8 +3287,8 @@ impl AgentSession {
     fn emit_queue_update(&self) {
         self.emit(AgentSessionEvent::QueueUpdate(QueueUpdateEvent {
             event_type: "queue_update",
-            steering: lock(&self.inner.steering_messages).clone(),
-            follow_up: lock(&self.inner.follow_up_messages).clone(),
+            steering: self.get_steering_messages(),
+            follow_up: self.get_follow_up_messages(),
         }));
     }
 
@@ -3915,7 +3938,7 @@ impl AgentSession {
                     return;
                 }
                 let mut follow_ups = lock(&self.inner.follow_up_messages);
-                if let Some(index) = follow_ups.iter().position(|text| text == content) {
+                if let Some(index) = follow_ups.iter().position(|message| &message.text == content) {
                     follow_ups.remove(index);
                     drop(follow_ups);
                     self.emit_queue_update();
@@ -3932,7 +3955,7 @@ impl AgentSession {
                     return;
                 }
                 let mut steering = lock(&self.inner.steering_messages);
-                if let Some(index) = steering.iter().position(|message| message == &text) {
+                if let Some(index) = steering.iter().position(|message| message.text == text) {
                     steering.remove(index);
                     drop(steering);
                     self.emit_queue_update();
@@ -3940,7 +3963,7 @@ impl AgentSession {
                 }
                 drop(steering);
                 let mut follow_ups = lock(&self.inner.follow_up_messages);
-                if let Some(index) = follow_ups.iter().position(|message| message == &text) {
+                if let Some(index) = follow_ups.iter().position(|message| message.text == text) {
                     follow_ups.remove(index);
                     drop(follow_ups);
                     self.emit_queue_update();
@@ -4595,7 +4618,11 @@ impl AgentSession {
     }
 
     async fn queue_steer(&self, text: &JsString, images: &[ImageContent], source: Option<InputSource>) {
-        lock(&self.inner.steering_messages).push(text.to_owned());
+        lock(&self.inner.steering_messages).push(QueuedMessagePreview {
+            text: text.clone(),
+            input_source: source,
+            custom_type: None,
+        });
         self.emit_queue_update();
         let mut content = vec![TextOrImageContent::Text(TextContent::new(text))];
         content.extend(images.iter().cloned().map(TextOrImageContent::Image));
@@ -4612,7 +4639,11 @@ impl AgentSession {
     }
 
     async fn queue_follow_up(&self, text: &JsString, images: &[ImageContent], source: Option<InputSource>) {
-        lock(&self.inner.follow_up_messages).push(text.to_owned());
+        lock(&self.inner.follow_up_messages).push(QueuedMessagePreview {
+            text: text.clone(),
+            input_source: source,
+            custom_type: None,
+        });
         self.emit_queue_update();
         let mut content = vec![TextOrImageContent::Text(TextContent::new(text))];
         content.extend(images.iter().cloned().map(TextOrImageContent::Image));
@@ -4743,7 +4774,10 @@ impl AgentSession {
         let follow_up = std::mem::take(&mut *lock(&self.inner.follow_up_messages));
         self.inner.agent.clear_all_queues();
         self.emit_queue_update();
-        (steering, follow_up)
+        (
+            steering.into_iter().map(|message| message.text).collect(),
+            follow_up.into_iter().map(|message| message.text).collect(),
+        )
     }
 
     pub fn pending_message_count(&self) -> usize {
@@ -4765,11 +4799,24 @@ impl AgentSession {
     }
 
     pub fn get_steering_messages(&self) -> Vec<JsString> {
-        lock(&self.inner.steering_messages).clone()
+        lock(&self.inner.steering_messages)
+            .iter()
+            .map(|message| message.text.clone())
+            .collect()
     }
 
     pub fn get_follow_up_messages(&self) -> Vec<JsString> {
-        lock(&self.inner.follow_up_messages).clone()
+        lock(&self.inner.follow_up_messages)
+            .iter()
+            .map(|message| message.text.clone())
+            .collect()
+    }
+
+    pub fn get_queued_message_previews(&self) -> QueuedMessagePreviews {
+        QueuedMessagePreviews {
+            steering: lock(&self.inner.steering_messages).clone(),
+            follow_up: lock(&self.inner.follow_up_messages).clone(),
+        }
     }
 
     /// Aborts the current operation, then submits preserved user input.
