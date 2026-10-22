@@ -51,6 +51,12 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## Output accumulator checkpoint
+
+OutputSnapshot.content/full_output_path, retained tail text, temp-file prefix and configured/persisted paths are native. Removed the checked `truncation.content.to_utf8().expect(...)` projection. Decoded process bytes enter the native tail; byte counts and rolling tail clipping retain the frozen explicit Buffer boundary. Temp paths encode only at File::create. `accumulator-red.log`: compiler RED. `accumulator-green.log`: **1/1 actual-module test PASS, zero warnings**, original raw configured path remains in the snapshot while actual disk bytes/path match Node encoding.
+
+Existing Rust discrepancy (not introduced here): ensure_temp_file uses File::create.ok and write_to_temp_file ignores write errors; frozen createWriteStream errors surface asynchronously. This error/process-lifetime boundary is unproven and requires classification before whole-module acceptance. No silent-error parity claim. Outside callers: own Bash pipeline; `core/bash_executor.rs`, `modes/interactive/components/bash_execution.rs` and accumulator-based tests need native snapshot/path fixture adaptation.
+
 ## Supervisor path-utils caller
 
 Removed `path.to_utf8_lossy()` before native read/general path resolution in `supervisor/main.rs`. Main subsequently granted the containment chain. `block_supervisor_file_access` accepts native roots; `resolve_existing_path` keeps resolved missing suffixes native, encoding only exists/canonicalize calls, and decodes the existing prefix returned by realpath. Containment compares native units. The helper now uses frozen `path.resolve`, not the old Rust-only home-expanding generic resolver. A unit test asserts an OS-replaced existing prefix plus distinct raw missing suffix; `supervisor-path-red.log` is compiler-blocked in pi-ai (12 errors), not runtime RED/PASS. No runtime security-policy proof yet.
