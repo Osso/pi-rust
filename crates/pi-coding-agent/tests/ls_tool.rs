@@ -32,7 +32,7 @@ fn lists_dotfiles_and_directories_sorted_case_insensitively() {
     std::fs::write(temp.path().join(".hidden"), "h").expect("file");
     std::fs::write(temp.path().join("B.txt"), "b").expect("file");
     std::fs::create_dir(temp.path().join("zdir")).expect("dir");
-    let result = execute(&LsTool::new(temp.path().to_string_lossy().as_ref()), json!({})).expect("ls result");
+    let result = execute(&LsTool::new(temp.path().to_str().expect("utf-8 test path")), json!({})).expect("ls result");
     assert_eq!(text(&result), ".hidden\na.txt\nB.txt\nzdir/");
     assert!(result.details.is_none());
 }
@@ -40,7 +40,7 @@ fn lists_dotfiles_and_directories_sorted_case_insensitively() {
 #[test]
 fn reports_empty_directories() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let result = execute(&LsTool::new(temp.path().to_string_lossy().as_ref()), json!({})).expect("ls result");
+    let result = execute(&LsTool::new(temp.path().to_str().expect("utf-8 test path")), json!({})).expect("ls result");
     assert_eq!(text(&result), "(empty directory)");
 }
 
@@ -51,7 +51,7 @@ fn enforces_the_entry_limit_and_reports_it() {
         std::fs::write(temp.path().join(format!("file-{index}")), "x").expect("file");
     }
     let result = execute(
-        &LsTool::new(temp.path().to_string_lossy().as_ref()),
+        &LsTool::new(temp.path().to_str().expect("utf-8 test path")),
         json!({"limit": 2}),
     )
     .expect("ls result");
@@ -68,7 +68,7 @@ fn truncates_by_byte_limit() {
     for index in 0..500 {
         std::fs::write(temp.path().join(format!("file-{index:03}-xxxxxxxxxxxxxxxx")), "x").expect("file");
     }
-    let result = execute(&LsTool::new(temp.path().to_string_lossy().as_ref()), json!({})).expect("ls result");
+    let result = execute(&LsTool::new(temp.path().to_str().expect("utf-8 test path")), json!({})).expect("ls result");
     let output = text(&result);
     assert!(output.contains("[10.0KB limit reached]"), "{output:?}");
     let details = result.details.expect("details");
@@ -79,12 +79,18 @@ fn truncates_by_byte_limit() {
 #[test]
 fn reports_missing_and_non_directory_paths() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let tool = LsTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = LsTool::new(temp.path().to_str().expect("utf-8 test path"));
     let missing = temp.path().join("missing");
-    let error = execute(&tool, json!({"path": missing.to_string_lossy().as_ref()})).expect_err("missing path");
-    assert_eq!(error, format!("Path not found: {}", missing.to_string_lossy().as_ref()));
+    let error = execute(&tool, json!({"path": missing.to_str().expect("utf-8 test path")})).expect_err("missing path");
+    assert_eq!(
+        error,
+        format!("Path not found: {}", missing.to_str().expect("utf-8 test path"))
+    );
     let file = temp.path().join("file.txt");
     std::fs::write(&file, "x").expect("file");
-    let error = execute(&tool, json!({"path": file.to_string_lossy().as_ref()})).expect_err("file path");
-    assert_eq!(error, format!("Not a directory: {}", file.to_string_lossy().as_ref()));
+    let error = execute(&tool, json!({"path": file.to_str().expect("utf-8 test path")})).expect_err("file path");
+    assert_eq!(
+        error,
+        format!("Not a directory: {}", file.to_str().expect("utf-8 test path"))
+    );
 }

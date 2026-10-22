@@ -48,9 +48,19 @@ struct Fixture {
 
 fn fixture(owner_session_id: &str) -> Fixture {
     let directory = tempfile::tempdir().expect("temp dir");
-    let root = directory.path().to_string_lossy().into_owned();
-    let control_db_path = directory.path().join("control.sqlite").to_string_lossy().into_owned();
-    let session_path = directory.path().join("session.jsonl").to_string_lossy().into_owned();
+    let root = directory.path().to_str().expect("utf-8 test path").to_owned();
+    let control_db_path = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let session_path = directory
+        .path()
+        .join("session.jsonl")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.clone().into(),
@@ -98,7 +108,7 @@ fn register_bash(fixture: &Fixture, job_id: &JsString, identity: ProcessIdentity
 #[test]
 fn builds_an_immutable_terminal_input_from_the_completed_output_artifact() {
     let directory = tempfile::tempdir().expect("temp dir");
-    let root = directory.path().to_string_lossy().into_owned();
+    let root = directory.path().to_str().expect("utf-8 test path").to_owned();
     let artifacts = create_detached_job_artifacts(&root, "job-1").expect("artifacts");
     fs::write(&encode_node_utf8(&artifacts.output_path), "stdout\nstderr\n").expect("output");
     let identity = pi_coding_agent::core::detached_job_runner::DetachedJobOwnershipIdentity {
@@ -138,7 +148,7 @@ fn builds_an_immutable_terminal_input_from_the_completed_output_artifact() {
 #[test]
 fn rejects_job_ids_that_escape_their_artifact_root() {
     let directory = tempfile::tempdir().expect("temp dir");
-    let root = directory.path().to_string_lossy().into_owned();
+    let root = directory.path().to_str().expect("utf-8 test path").to_owned();
     let error = create_detached_job_artifacts(&root, "../escape").expect_err("invalid id");
     assert_eq!(error.to_string(), "Detached job ID must be one path segment");
     assert!(matches!(error, DetachedJobError::InvalidJobId));
@@ -162,7 +172,7 @@ fn rejects_an_existing_detached_job_directory_before_runner_launch() {
 #[test]
 fn isolates_reused_agent_ids_by_supervisor_session() {
     let first_directory = tempfile::tempdir().expect("temp dir");
-    let root = first_directory.path().to_string_lossy().into_owned();
+    let root = first_directory.path().to_str().expect("utf-8 test path").to_owned();
     let first = fixture_in_root(&root, "session-1.jsonl", "supervisor-1");
     let second = fixture_in_root(&root, "session-2.jsonl", "supervisor-2");
     let first_artifacts = first
@@ -181,12 +191,14 @@ fn isolates_reused_agent_ids_by_supervisor_session() {
 fn fixture_in_root(root: &str, session_name: &str, owner_session_id: &str) -> Fixture {
     let control_db_path = std::path::Path::new(root)
         .join("control.sqlite")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let session_path = std::path::Path::new(root)
         .join(session_name)
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.clone().into(),
@@ -249,9 +261,19 @@ fn reserves_distinct_jobs_without_reusing_retained_artifact_directories() {
 #[test]
 fn preserves_retained_artifacts_when_launch_manifest_persistence_fails() {
     let directory = tempfile::tempdir().expect("temp dir");
-    let root = directory.path().to_string_lossy().into_owned();
-    let control_db_path = directory.path().join("control.sqlite").to_string_lossy().into_owned();
-    let session_path = directory.path().join("session.jsonl").to_string_lossy().into_owned();
+    let root = directory.path().to_str().expect("utf-8 test path").to_owned();
+    let control_db_path = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let session_path = directory
+        .path()
+        .join("session.jsonl")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.clone().into(),

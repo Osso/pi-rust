@@ -29,7 +29,7 @@ fn normalize_claim_wire(wire: &str) -> String {
 fn actual_source_and_native_claim_serialize_missing_delivery_fields_in_the_same_order() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("control.sqlite");
-    let db: JsString = path.to_str().unwrap().into();
+    let db: JsString = path.to_str().expect("utf-8 test path").into();
     let recipient = RuntimeMailboxAddress {
         session_id: "recipient".into(),
         agent_id: None,

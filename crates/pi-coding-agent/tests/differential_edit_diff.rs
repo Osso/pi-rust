@@ -26,7 +26,7 @@ enum Case {
 #[test]
 fn coding_agent_edit_diff_matches_the_pinned_typescript_source() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let cwd = temp.path().to_string_lossy().into_owned();
+    let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     let cases = cases(&cwd, temp.path());
     let mut oracle = oracle::TsOracle::spawn(
         "coding-agent-edit-diff-oracle.ts",
@@ -253,19 +253,19 @@ fn targeted_cases(cwd: &str, dir: &std::path::Path) -> Vec<Case> {
         apply("a\r\nb\r\n", &[("b", "B")]),
         apply("line\n".repeat(8).as_str(), &[("line", "LINE")]),
         apply("\u{1F600}\n\u{1F600}\n", &[("\u{1F600}", "star")]),
-        Case::Preview(preview_file.to_string_lossy().into_owned(), vec![Edit {
+        Case::Preview(preview_file.to_str().expect("utf-8 test path").to_owned(), vec![Edit {
             old_text: "two".into(),
             new_text: "TWO".into(),
         }]),
-        Case::Preview(fuzzy_file.to_string_lossy().into_owned(), vec![Edit {
+        Case::Preview(fuzzy_file.to_str().expect("utf-8 test path").to_owned(), vec![Edit {
             old_text: "say \"hi\"".into(),
             new_text: "say \"bye\"".into(),
         }]),
-        Case::Preview(missing_file.to_string_lossy().into_owned(), vec![Edit {
+        Case::Preview(missing_file.to_str().expect("utf-8 test path").to_owned(), vec![Edit {
             old_text: "hello".into(),
             new_text: "world".into(),
         }]),
-        Case::Preview(unreadable_file.to_string_lossy().into_owned(), vec![Edit {
+        Case::Preview(unreadable_file.to_str().expect("utf-8 test path").to_owned(), vec![Edit {
             old_text: "hello".into(),
             new_text: "world".into(),
         }]),
@@ -273,7 +273,7 @@ fn targeted_cases(cwd: &str, dir: &std::path::Path) -> Vec<Case> {
             old_text: "hello".into(),
             new_text: "world".into(),
         }]),
-        Case::Preview(preview_file.to_string_lossy().into_owned(), vec![Edit {
+        Case::Preview(preview_file.to_str().expect("utf-8 test path").to_owned(), vec![Edit {
             old_text: "missing text".into(),
             new_text: "x".into(),
         }]),

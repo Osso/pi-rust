@@ -42,10 +42,12 @@ async fn client_retains_frozen_identity_metadata_in_the_attached_snapshot() {
             .await
             .unwrap();
     });
-    let client: ResidentConsoleClient<JsValue, JsValue> =
-        ResidentConsoleClient::connect(path.to_str().unwrap(), ResidentConsoleService::Supervisor)
-            .await
-            .unwrap();
+    let client: ResidentConsoleClient<JsValue, JsValue> = ResidentConsoleClient::connect(
+        path.to_str().expect("utf-8 test path"),
+        ResidentConsoleService::Supervisor,
+    )
+    .await
+    .unwrap();
     let actual = js_json::to_value(client.snapshot()).unwrap();
     client.close().await;
     send_frame.await.unwrap();
@@ -87,15 +89,17 @@ async fn probe_returns_a_snapshot_without_replacing_the_attached_owner() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("probe.sock");
     let server = ResidentConsoleServer::new(ResidentConsoleServerOptions {
-        socket_path: path.to_str().unwrap().into(),
+        socket_path: path.to_str().expect("utf-8 test path").into(),
         service: ResidentConsoleService::Supervisor,
         host: Arc::new(Host),
     });
     server.start().await.unwrap();
-    let owner: ResidentConsoleClient<JsValue, JsValue> =
-        ResidentConsoleClient::connect(path.to_str().unwrap(), ResidentConsoleService::Supervisor)
-            .await
-            .unwrap();
+    let owner: ResidentConsoleClient<JsValue, JsValue> = ResidentConsoleClient::connect(
+        path.to_str().expect("utf-8 test path"),
+        ResidentConsoleService::Supervisor,
+    )
+    .await
+    .unwrap();
     let stream = tokio::net::UnixStream::connect(&path).await.unwrap();
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();

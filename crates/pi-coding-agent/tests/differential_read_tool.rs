@@ -11,7 +11,7 @@ use pi_js_compat::js_json::JsValue as Value;
 #[test]
 fn coding_agent_read_tool_matches_the_pinned_typescript_source() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let cwd = temp.path().to_string_lossy().into_owned();
+    let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     let fit = temp.path().join("fit.txt");
     std::fs::write(&fit, "Hello, world!\nLine 2\nLine 3").expect("fit fixture");
     let numbered = temp.path().join("numbered.txt");
@@ -38,17 +38,17 @@ fn coding_agent_read_tool_matches_the_pinned_typescript_source() {
     std::fs::write(&short, "Line 1\nLine 2\nLine 3").expect("short fixture");
 
     let cases = vec![
-        json!({"path": fit.to_string_lossy()}),
-        json!({"path": numbered.to_string_lossy(), "offset": 51}),
-        json!({"path": numbered.to_string_lossy(), "limit": 10}),
-        json!({"path": numbered.to_string_lossy(), "offset": 41, "limit": 20}),
-        json!({"path": numbered.to_string_lossy(), "offset": 100}),
-        json!({"path": numbered.to_string_lossy(), "offset": 101}),
-        json!({"path": many_lines.to_string_lossy()}),
-        json!({"path": many_bytes.to_string_lossy()}),
-        json!({"path": many_lines.to_string_lossy(), "limit": 5000}),
-        json!({"path": short.to_string_lossy(), "offset": 100}),
-        json!({"path": temp.path().join("missing.txt").to_string_lossy()}),
+        json!({"path": fit.to_str().expect("utf-8 test path")}),
+        json!({"path": numbered.to_str().expect("utf-8 test path"), "offset": 51}),
+        json!({"path": numbered.to_str().expect("utf-8 test path"), "limit": 10}),
+        json!({"path": numbered.to_str().expect("utf-8 test path"), "offset": 41, "limit": 20}),
+        json!({"path": numbered.to_str().expect("utf-8 test path"), "offset": 100}),
+        json!({"path": numbered.to_str().expect("utf-8 test path"), "offset": 101}),
+        json!({"path": many_lines.to_str().expect("utf-8 test path")}),
+        json!({"path": many_bytes.to_str().expect("utf-8 test path")}),
+        json!({"path": many_lines.to_str().expect("utf-8 test path"), "limit": 5000}),
+        json!({"path": short.to_str().expect("utf-8 test path"), "offset": 100}),
+        json!({"path": temp.path().join("missing.txt").to_str().expect("utf-8 test path")}),
     ];
 
     let mut oracle = oracle::TsOracle::spawn(

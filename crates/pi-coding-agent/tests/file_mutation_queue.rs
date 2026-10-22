@@ -7,7 +7,11 @@ use pi_js_compat::js_json::JsString;
 use tokio::sync::Barrier;
 
 fn path(name: &str) -> JsString {
-    std::env::temp_dir().join(name).to_string_lossy().as_ref().into()
+    std::env::temp_dir()
+        .join(name)
+        .to_str()
+        .expect("utf-8 test path")
+        .into()
 }
 
 /// Records start/end order and tracks the peak number of concurrent operations.
@@ -125,8 +129,8 @@ async fn uses_the_same_queue_for_symlink_aliases() {
     std::os::unix::fs::symlink(&target, &alias).unwrap();
 
     let recorder = Recorder::default();
-    let target_path = JsString::from(target.to_string_lossy().as_ref());
-    let alias_path = JsString::from(alias.to_string_lossy().as_ref());
+    let target_path = JsString::from(target.to_str().expect("utf-8 test path"));
+    let alias_path = JsString::from(alias.to_str().expect("utf-8 test path"));
     let first = {
         let recorder = recorder.clone();
         let target_path = target_path.clone();

@@ -64,7 +64,7 @@ fn coding_agent_edit_prepare_arguments_match_the_pinned_typescript_source() {
 #[test]
 fn coding_agent_edit_and_write_tools_match_the_pinned_typescript_source() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let cwd = temp.path().to_string_lossy().into_owned();
+    let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     let edit_file = temp.path().join("edit.txt");
     let multi_file = temp.path().join("multi.txt");
     let ambiguous_file = temp.path().join("ambiguous.txt");
@@ -74,13 +74,13 @@ fn coding_agent_edit_and_write_tools_match_the_pinned_typescript_source() {
     let cases = vec![
         Case {
             kind: "edit",
-            params: json!({"path": edit_file.to_string_lossy(), "edits": [{"oldText": "world", "newText": "universe"}]}),
+            params: json!({"path": edit_file.to_str().expect("utf-8 test path"), "edits": [{"oldText": "world", "newText": "universe"}]}),
             original: Some("Hello, world!"),
             file: edit_file.clone(),
         },
         Case {
             kind: "edit",
-            params: json!({"path": multi_file.to_string_lossy(), "edits": [
+            params: json!({"path": multi_file.to_str().expect("utf-8 test path"), "edits": [
                 {"oldText": "alpha", "newText": "one"},
                 {"oldText": "gamma", "newText": "three"}
             ]}),
@@ -89,19 +89,19 @@ fn coding_agent_edit_and_write_tools_match_the_pinned_typescript_source() {
         },
         Case {
             kind: "edit",
-            params: json!({"path": ambiguous_file.to_string_lossy(), "edits": [{"oldText": "same", "newText": "x"}]}),
+            params: json!({"path": ambiguous_file.to_str().expect("utf-8 test path"), "edits": [{"oldText": "same", "newText": "x"}]}),
             original: Some("same\nsame"),
             file: ambiguous_file.clone(),
         },
         Case {
             kind: "edit",
-            params: json!({"path": missing_file.to_string_lossy(), "edits": [{"oldText": "a", "newText": "b"}]}),
+            params: json!({"path": missing_file.to_str().expect("utf-8 test path"), "edits": [{"oldText": "a", "newText": "b"}]}),
             original: None,
             file: missing_file.clone(),
         },
         Case {
             kind: "write",
-            params: json!({"path": write_file.to_string_lossy(), "content": "written 😀 content"}),
+            params: json!({"path": write_file.to_str().expect("utf-8 test path"), "content": "written 😀 content"}),
             original: None,
             file: write_file.clone(),
         },

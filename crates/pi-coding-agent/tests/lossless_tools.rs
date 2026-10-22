@@ -47,7 +47,7 @@ async fn coding_file_edit_retains_raw_result_before_node_write_encoding() {
     let path = JsString::from("file-") + JsString::from_utf16(vec![0xd800]);
     let disk_path = directory.path().join(encode_node_utf8(&path));
     std::fs::write(&disk_path, "😀").unwrap();
-    let tool = EditTool::new(directory.path().to_str().unwrap());
+    let tool = EditTool::new(directory.path().to_str().expect("utf-8 test path"));
     let params = parse_lossless(r#"{"path":"file-\ud800","edits":[{"oldText":"\ude00","newText":"x"}]}"#).unwrap();
     let result = tool
         .execute("edit".into(), params, None, Arc::new(|_| {}), None)
@@ -71,7 +71,7 @@ async fn coding_file_edit_retains_raw_result_before_node_write_encoding() {
 #[tokio::test]
 async fn file_write_encodes_only_at_node_boundary_and_keeps_original_success_path() {
     let directory = tempfile::tempdir().unwrap();
-    let tool = WriteTool::new(directory.path().to_str().unwrap());
+    let tool = WriteTool::new(directory.path().to_str().expect("utf-8 test path"));
     let params = parse_lossless(r#"{"path":"file-\ud800","content":"\udfff"}"#).unwrap();
     let result = tool
         .execute("write".into(), params, None, Arc::new(|_| {}), None)

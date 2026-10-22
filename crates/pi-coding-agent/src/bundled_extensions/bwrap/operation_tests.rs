@@ -4,7 +4,9 @@ use std::path::Path;
 #[test]
 fn worker_invocation_keeps_raw_workspace_and_payload_units_until_argv() {
     let directory = tempfile::tempdir().unwrap();
-    let cwd = JsString::from(directory.path().to_str().unwrap()) + "/cwd-" + JsString::from_utf16(vec![0xd800]);
+    let cwd = JsString::from(directory.path().to_str().expect("utf-8 test path"))
+        + "/cwd-"
+        + JsString::from_utf16(vec![0xd800]);
     std::fs::create_dir(encode_node_utf8(&cwd)).unwrap();
     let path = cwd.clone() + "/file-" + JsString::from_utf16(vec![0xdfff]);
     let params = SandboxParams {
@@ -43,7 +45,7 @@ fn unavailable_sandbox(directory: &Path) -> (SandboxParams, String) {
     (
         SandboxParams {
             bwrap_command: command.into(),
-            cwd: directory.to_string_lossy().into_owned().into(),
+            cwd: JsString::from(directory.to_str().expect("utf-8 test path")),
             profile: BwrapSandboxProfile(SandboxProfileName::ReadOnly),
         },
         expected,

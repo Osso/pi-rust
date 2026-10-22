@@ -84,7 +84,7 @@ impl ResidentConsoleHost<Value, Value> for TestHost {
 fn socket_path() -> (tempfile::TempDir, String) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("console.sock");
-    (directory, path.to_string_lossy().into_owned())
+    (directory, path.to_str().expect("utf-8 test path").to_owned())
 }
 
 fn options(socket_path: &str, host: Arc<TestHost>) -> ResidentConsoleServerOptions<Value, Value> {

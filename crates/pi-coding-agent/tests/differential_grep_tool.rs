@@ -11,7 +11,7 @@ use pi_js_compat::js_json::JsValue as Value;
 #[test]
 fn coding_agent_grep_tool_matches_the_pinned_typescript_source() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let cwd = temp.path().to_string_lossy().into_owned();
+    let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     std::fs::write(
         temp.path().join("a.txt"),
         "alpha-match\nsecond line\nalpha-match again\n",

@@ -45,7 +45,10 @@ fn test_process_identity(name: &str) -> ProcessIdentity {
 fn environment() -> JsObject {
     let mut env = JsObject::new();
     if let Some(path) = std::env::var_os("PATH") {
-        env.insert("PATH".into(), JsValue::String(path.to_string_lossy().as_ref().into()));
+        env.insert(
+            "PATH".into(),
+            JsValue::String(JsString::from(path.to_str().expect("utf-8 test path"))),
+        );
     }
     env
 }
@@ -60,9 +63,19 @@ struct Fixture {
 
 fn fixture(now: &'static str) -> Fixture {
     let directory = tempfile::tempdir().expect("temp dir");
-    let root = directory.path().to_string_lossy().into_owned();
-    let control_db_path = directory.path().join("control.sqlite").to_string_lossy().into_owned();
-    let session_path = directory.path().join("session.jsonl").to_string_lossy().into_owned();
+    let root = directory.path().to_str().expect("utf-8 test path").to_owned();
+    let control_db_path = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let session_path = directory
+        .path()
+        .join("session.jsonl")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.clone().into(),
@@ -95,7 +108,13 @@ fn register(fixture: &Fixture, job_id: &JsString, identity: ProcessIdentity) -> 
         .controller
         .register(&RegisterDetachedJobInput {
             agent_type: DetachedJobAgentType::Bash,
-            cwd: fixture.directory.path().to_string_lossy().into_owned().into(),
+            cwd: fixture
+                .directory
+                .path()
+                .to_str()
+                .expect("utf-8 test path")
+                .to_owned()
+                .into(),
             display_name: "Bash command".into(),
             job_id: job_id.into(),
             process_identity: identity,
@@ -120,7 +139,13 @@ fn manifest(
         artifacts: fixture.controller.create_artifacts(job_id).expect("artifacts"),
         command: "/bin/sh".into(),
         control_db_path: fixture.control_db_path.clone().into(),
-        cwd: fixture.directory.path().to_string_lossy().into_owned().into(),
+        cwd: fixture
+            .directory
+            .path()
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned()
+            .into(),
         env: environment(),
         foreground_completion_path: foreground_completion_path.into(),
         runner_address: RuntimeMailboxAddress {
@@ -150,7 +175,7 @@ fn launch_manifest_enumerates_numeric_environment_names_like_javascript() {
     ]
     .into();
     let path = fixture.directory.path().join("launch.json");
-    write_detached_bash_launch_manifest(&JsString::from(path.to_str().unwrap()), &data).unwrap();
+    write_detached_bash_launch_manifest(&JsString::from(path.to_str().expect("utf-8 test path")), &data).unwrap();
     let bytes = fs::read_to_string(path).unwrap();
     assert!(bytes.contains(r#""env":{"1":"one","2":"two","10":"ten"}"#), "{bytes}");
 }
@@ -163,14 +188,16 @@ async fn owns_payload_exit_and_commits_one_exact_terminal_input() {
         .directory
         .path()
         .join("activation.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let foreground_completion_path = fixture
         .directory
         .path()
         .join("foreground-completed")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let data = manifest(
         &fixture,
         &job_id,
@@ -184,8 +211,9 @@ async fn owns_payload_exit_and_commits_one_exact_terminal_input() {
         .directory
         .path()
         .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let result = run_detached_bash_runner(&JsString::from(&manifest_path), None)
@@ -221,14 +249,16 @@ async fn completes_a_foreground_run_without_registering_a_background_job() {
         .directory
         .path()
         .join("activation.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let foreground_completion_path = fixture
         .directory
         .path()
         .join("foreground-completed")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let data = manifest(
         &fixture,
         &job_id,
@@ -240,8 +270,9 @@ async fn completes_a_foreground_run_without_registering_a_background_job() {
         .directory
         .path()
         .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let result = run_detached_bash_runner(&JsString::from(&manifest_path), None)
@@ -269,14 +300,16 @@ async fn adopts_the_cancelling_revision_terminates_the_payload_group_and_finaliz
         .directory
         .path()
         .join("activation.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let foreground_completion_path = fixture
         .directory
         .path()
         .join("foreground-completed")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let data = manifest(
         &fixture,
         &JsString::from(job_id),
@@ -294,8 +327,9 @@ async fn adopts_the_cancelling_revision_terminates_the_payload_group_and_finaliz
         .directory
         .path()
         .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let runner = tokio::spawn({
@@ -383,14 +417,16 @@ async fn answers_status_requests_while_the_payload_runs() {
         .directory
         .path()
         .join("activation.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let foreground_completion_path = fixture
         .directory
         .path()
         .join("foreground-completed")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let data = manifest(
         &fixture,
         &JsString::from(job_id),
@@ -408,8 +444,9 @@ async fn answers_status_requests_while_the_payload_runs() {
         .directory
         .path()
         .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let runner = tokio::spawn({
@@ -497,14 +534,16 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
         .directory
         .path()
         .join("activation.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let foreground_completion_path = fixture
         .directory
         .path()
         .join("foreground-completed")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     // The payload blocks until the test has inspected its parent, so a loaded
     // machine cannot let it exit before `/proc/<pid>/status` is read.
     let release_path = fixture.directory.path().join("release-payload");
@@ -517,7 +556,7 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
             "-c".into(),
             pi_js_compat::js_format!(
                 "while [ ! -e '{}' ]; do sleep 0.01; done; printf independent",
-                release_path.to_str().unwrap()
+                release_path.to_str().expect("utf-8 test path")
             ),
         ],
     );
@@ -525,8 +564,9 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
         .directory
         .path()
         .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
     let mut runner = std::process::Command::new(std::env::current_exe().expect("test binary"))
         .args(["--exact", "detached_runner_process_entry", "--nocapture"])
@@ -579,12 +619,13 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
 async fn does_not_retry_non_database_terminal_finalization_failures() {
     let directory = tempfile::tempdir().expect("temp dir");
     let artifacts = pi_coding_agent::core::detached_job_runner::DetachedJobArtifacts {
-        directory: directory.path().to_string_lossy().into_owned().into(),
+        directory: directory.path().to_str().expect("utf-8 test path").to_owned().into(),
         output_path: directory
             .path()
             .join("output.log")
-            .to_string_lossy()
-            .into_owned()
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned()
             .into(),
     };
     fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
@@ -627,12 +668,13 @@ async fn does_not_retry_non_database_terminal_finalization_failures() {
 async fn retries_the_same_terminal_input_after_transient_database_failures() {
     let directory = tempfile::tempdir().expect("temp dir");
     let artifacts = pi_coding_agent::core::detached_job_runner::DetachedJobArtifacts {
-        directory: directory.path().to_string_lossy().into_owned().into(),
+        directory: directory.path().to_str().expect("utf-8 test path").to_owned().into(),
         output_path: directory
             .path()
             .join("output.log")
-            .to_string_lossy()
-            .into_owned()
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned()
             .into(),
     };
     fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
@@ -680,12 +722,13 @@ async fn retries_the_same_terminal_input_after_transient_database_failures() {
 async fn default_retry_delay_is_250_milliseconds() {
     let directory = tempfile::tempdir().expect("temp dir");
     let artifacts = pi_coding_agent::core::detached_job_runner::DetachedJobArtifacts {
-        directory: directory.path().to_string_lossy().into_owned().into(),
+        directory: directory.path().to_str().expect("utf-8 test path").to_owned().into(),
         output_path: directory
             .path()
             .join("output.log")
-            .to_string_lossy()
-            .into_owned()
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned()
             .into(),
     };
     fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
@@ -739,7 +782,12 @@ impl DetachedFinalizeError for FakeError {
 #[tokio::test]
 async fn reads_activation_only_when_the_file_exists() {
     let directory = tempfile::tempdir().expect("temp dir");
-    let path = directory.path().join("activation.json").to_string_lossy().into_owned();
+    let path = directory
+        .path()
+        .join("activation.json")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     assert_eq!(
         read_detached_bash_activation(&JsString::from(&path)).expect("read"),
         None
@@ -764,14 +812,16 @@ fn real_pi_binary_finalizes_a_detached_bash_job() {
         .directory
         .path()
         .join("activation.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let foreground_completion_path = fixture
         .directory
         .path()
         .join("foreground-completed")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let data = manifest(
         &fixture,
         &job_id,
@@ -785,8 +835,9 @@ fn real_pi_binary_finalizes_a_detached_bash_job() {
         .directory
         .path()
         .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_pi"));

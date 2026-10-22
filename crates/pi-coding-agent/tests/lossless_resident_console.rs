@@ -59,7 +59,7 @@ async fn client_preserves_snapshot_events_prompt_errors_and_raw_socket_path() {
     let raw = JsString::from_utf16(vec![0xd800]);
     let rejection = JsString::from("rejected-") + &raw;
     let host = Host::new(Some(rejection.clone()));
-    let path = JsString::from(temp.path().to_str().unwrap()) + "/console-" + &raw;
+    let path = JsString::from(temp.path().to_str().expect("utf-8 test path")) + "/console-" + &raw;
     let server = ResidentConsoleServer::new(ResidentConsoleServerOptions {
         socket_path: path.clone(),
         service: ResidentConsoleService::Supervisor,
@@ -112,7 +112,7 @@ async fn socket_prompt_preserves_unpaired_units_and_correlates_raw_id() {
     let host = Host::new(None);
     let path = temp.path().join("resident.sock");
     let server = ResidentConsoleServer::new(ResidentConsoleServerOptions {
-        socket_path: path.to_str().unwrap().into(),
+        socket_path: path.to_str().expect("utf-8 test path").into(),
         service: ResidentConsoleService::Supervisor,
         host: host.clone(),
     });

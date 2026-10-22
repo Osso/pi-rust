@@ -33,7 +33,7 @@ fn includes_hidden_files_and_respects_gitignore() {
     std::fs::write(temp.path().join("ignored.txt"), "x").expect("ignored");
     std::fs::write(temp.path().join(".gitignore"), "ignored.txt\n").expect("gitignore");
     std::fs::create_dir(temp.path().join(".git")).expect("git dir");
-    let tool = FindTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = FindTool::new(temp.path().to_str().expect("utf-8 test path"));
     let result = execute(&tool, json!({"pattern": "*hidden*"})).expect("hidden find");
     assert_eq!(text(&result), ".hidden.txt");
     let result = execute(&tool, json!({"pattern": "ignored.txt"})).expect("ignored find");
@@ -44,7 +44,7 @@ fn includes_hidden_files_and_respects_gitignore() {
 fn reports_result_limits_and_flag_like_patterns() {
     let temp = tempfile::tempdir().expect("temp dir");
     std::fs::write(temp.path().join("-dash.txt"), "x").expect("dash file");
-    let tool = FindTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = FindTool::new(temp.path().to_str().expect("utf-8 test path"));
     let result = execute(&tool, json!({"pattern": "-dash.txt"})).expect("dash find");
     assert_eq!(text(&result), "-dash.txt");
     let result = execute(&tool, json!({"pattern": "-dash.txt", "limit": 1})).expect("limit find");
@@ -92,13 +92,13 @@ fn custom_glob_operations_relativize_absolute_results() {
     let absolute = search.join("nested/file.txt");
     let operations = Arc::new(GlobOperations {
         results: vec![
-            JsString::from(absolute.to_string_lossy().as_ref()),
+            JsString::from(absolute.to_str().expect("utf-8 test path")),
             "relative.txt".into(),
         ],
         exists: true,
     });
     let tool = FindTool::with_options(
-        temp.path().to_string_lossy().as_ref(),
+        temp.path().to_str().expect("utf-8 test path"),
         FindToolOptions {
             operations: Some(operations),
         },
@@ -111,7 +111,7 @@ fn custom_glob_operations_relativize_absolute_results() {
 fn custom_glob_operations_report_missing_paths() {
     let temp = tempfile::tempdir().expect("temp dir");
     let tool = FindTool::with_options(
-        temp.path().to_string_lossy().as_ref(),
+        temp.path().to_str().expect("utf-8 test path"),
         FindToolOptions {
             operations: Some(Arc::new(GlobOperations {
                 results: Vec::new(),
@@ -122,8 +122,11 @@ fn custom_glob_operations_report_missing_paths() {
     let missing = temp.path().join("missing");
     let error = execute(
         &tool,
-        json!({"pattern": "*.txt", "path": missing.to_string_lossy().as_ref()}),
+        json!({"pattern": "*.txt", "path": missing.to_str().expect("utf-8 test path")}),
     )
     .expect_err("missing path");
-    assert_eq!(error, format!("Path not found: {}", missing.to_string_lossy().as_ref()));
+    assert_eq!(
+        error,
+        format!("Path not found: {}", missing.to_str().expect("utf-8 test path"))
+    );
 }

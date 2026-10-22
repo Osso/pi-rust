@@ -9,7 +9,7 @@ use std::fs;
 #[test]
 fn directory_read_message_matches_real_node() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().to_str().unwrap();
+    let path = dir.path().to_str().expect("utf-8 test path");
     let error = fs::read(path).unwrap_err();
     let mut node = oracle::TsOracle::spawn("node-fs-error-oracle.ts", "packages/coding-agent/package.json");
     let expected = node.request(&json!({"operation":"read", "path":path}));
@@ -24,7 +24,7 @@ fn symlink_loop_read_message_matches_real_node() {
     let dir = tempfile::tempdir().unwrap();
     let link = dir.path().join("loop");
     std::os::unix::fs::symlink("loop", &link).unwrap();
-    let path = link.to_str().unwrap();
+    let path = link.to_str().expect("utf-8 test path");
     let error = fs::read(path).unwrap_err();
     let mut node = oracle::TsOracle::spawn("node-fs-error-oracle.ts", "packages/coding-agent/package.json");
     let expected = node.request(&json!({"operation":"read", "path":path}));
@@ -37,7 +37,7 @@ fn symlink_loop_read_message_matches_real_node() {
 #[test]
 fn directory_write_message_matches_real_node() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().to_str().unwrap();
+    let path = dir.path().to_str().expect("utf-8 test path");
     let error = fs::write(path, "fixture").unwrap_err();
     let mut node = oracle::TsOracle::spawn("node-fs-error-oracle.ts", "packages/coding-agent/package.json");
     let expected = node.request(&json!({"operation":"write", "path":path}));

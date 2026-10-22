@@ -33,8 +33,8 @@ fn reads_files_that_fit_within_limits() {
     let content = "Hello, world!\nLine 2\nLine 3";
     std::fs::write(&file, content).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
-        json!({"path": file.to_string_lossy()}),
+        &ReadTool::new(temp.path().to_str().expect("utf-8 test path")),
+        json!({"path": file.to_str().expect("utf-8 test path")}),
     )
     .expect("read result");
     assert_eq!(text(&result), content);
@@ -47,8 +47,8 @@ fn missing_files_report_enoent() {
     let temp = tempfile::tempdir().expect("temp dir");
     let file = temp.path().join("nonexistent.txt");
     let error = execute(
-        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
-        json!({"path": file.to_string_lossy()}),
+        &ReadTool::new(temp.path().to_str().expect("utf-8 test path")),
+        json!({"path": file.to_str().expect("utf-8 test path")}),
     )
     .expect_err("missing file");
     assert!(error.contains("ENOENT"), "{error:?}");
@@ -62,8 +62,8 @@ fn truncates_files_exceeding_the_line_limit() {
     let lines = vec!["x"; 2500];
     std::fs::write(&file, lines.join("\n")).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
-        json!({"path": file.to_string_lossy()}),
+        &ReadTool::new(temp.path().to_str().expect("utf-8 test path")),
+        json!({"path": file.to_str().expect("utf-8 test path")}),
     )
     .expect("read result");
     let output = text(&result);
@@ -88,8 +88,8 @@ fn truncates_when_the_byte_limit_is_exceeded() {
         .collect::<Vec<_>>();
     std::fs::write(&file, lines.join("\n")).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
-        json!({"path": file.to_string_lossy()}),
+        &ReadTool::new(temp.path().to_str().expect("utf-8 test path")),
+        json!({"path": file.to_str().expect("utf-8 test path")}),
     )
     .expect("read result");
     let output = text(&result);
@@ -109,8 +109,8 @@ fn caps_oversized_user_limits_before_returning_content() {
         .collect::<Vec<_>>();
     std::fs::write(&file, lines.join("\n")).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
-        json!({"path": file.to_string_lossy(), "limit": 5000}),
+        &ReadTool::new(temp.path().to_str().expect("utf-8 test path")),
+        json!({"path": file.to_str().expect("utf-8 test path"), "limit": 5000}),
     )
     .expect("read result");
     let output = text(&result);
@@ -163,7 +163,7 @@ fn avoids_full_reads_for_oversized_files() {
         range_reads: AtomicUsize::new(0),
     });
     let tool = ReadTool::with_options(
-        temp.path().to_string_lossy().as_ref(),
+        temp.path().to_str().expect("utf-8 test path"),
         ReadToolOptions {
             auto_resize_images: None,
             operations: Some(operations.clone()),
@@ -183,16 +183,24 @@ fn offset_and_limit_select_lines_and_report_remaining() {
     let file = temp.path().join("offset-test.txt");
     let lines = (0..100).map(|index| format!("Line {}", index + 1)).collect::<Vec<_>>();
     std::fs::write(&file, lines.join("\n")).expect("fixture");
-    let tool = ReadTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = ReadTool::new(temp.path().to_str().expect("utf-8 test path"));
 
-    let result = execute(&tool, json!({"path": file.to_string_lossy(), "offset": 51})).expect("offset read");
+    let result = execute(
+        &tool,
+        json!({"path": file.to_str().expect("utf-8 test path"), "offset": 51}),
+    )
+    .expect("offset read");
     let output = text(&result);
     assert!(!output.contains("Line 50"), "{output:?}");
     assert!(output.contains("Line 51"), "{output:?}");
     assert!(output.contains("Line 100"), "{output:?}");
     assert!(!output.contains("Use offset="), "{output:?}");
 
-    let result = execute(&tool, json!({"path": file.to_string_lossy(), "limit": 10})).expect("limit read");
+    let result = execute(
+        &tool,
+        json!({"path": file.to_str().expect("utf-8 test path"), "limit": 10}),
+    )
+    .expect("limit read");
     let output = text(&result);
     assert!(output.contains("Line 1"), "{output:?}");
     assert!(output.contains("Line 10"), "{output:?}");
@@ -204,7 +212,7 @@ fn offset_and_limit_select_lines_and_report_remaining() {
 
     let result = execute(
         &tool,
-        json!({"path": file.to_string_lossy(), "offset": 41, "limit": 20}),
+        json!({"path": file.to_str().expect("utf-8 test path"), "offset": 41, "limit": 20}),
     )
     .expect("offset+limit read");
     let output = text(&result);
@@ -224,8 +232,8 @@ fn offset_beyond_end_reports_the_total_line_count() {
     let file = temp.path().join("short.txt");
     std::fs::write(&file, "Line 1\nLine 2\nLine 3").expect("fixture");
     let error = execute(
-        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
-        json!({"path": file.to_string_lossy(), "offset": 100}),
+        &ReadTool::new(temp.path().to_str().expect("utf-8 test path")),
+        json!({"path": file.to_str().expect("utf-8 test path"), "offset": 100}),
     )
     .expect_err("offset beyond end");
     assert_eq!(error, "Offset 100 is beyond end of file (3 lines total)");
@@ -238,8 +246,8 @@ fn detects_images_from_file_magic() {
     let png = base64_png();
     std::fs::write(&file, &png).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
-        json!({"path": file.to_string_lossy()}),
+        &ReadTool::new(temp.path().to_str().expect("utf-8 test path")),
+        json!({"path": file.to_str().expect("utf-8 test path")}),
     )
     .expect("read result");
     assert!(
@@ -265,8 +273,8 @@ fn converts_bmp_files_to_png_attachments() {
     let file = temp.path().join("image.bmp");
     std::fs::write(&file, tiny_bmp()).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
-        json!({"path": file.to_string_lossy()}),
+        &ReadTool::new(temp.path().to_str().expect("utf-8 test path")),
+        json!({"path": file.to_str().expect("utf-8 test path")}),
     )
     .expect("read result");
     let output = text(&result);
@@ -292,8 +300,8 @@ fn treats_image_extension_with_non_image_content_as_text() {
     let file = temp.path().join("not-an-image.png");
     std::fs::write(&file, "definitely not a png").expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
-        json!({"path": file.to_string_lossy()}),
+        &ReadTool::new(temp.path().to_str().expect("utf-8 test path")),
+        json!({"path": file.to_str().expect("utf-8 test path")}),
     )
     .expect("read result");
     assert!(text(&result).contains("definitely not a png"));
@@ -312,7 +320,7 @@ fn aborted_reads_return_the_source_error() {
     token.cancel();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let error = runtime
-        .block_on(ReadTool::new(temp.path().to_string_lossy().as_ref()).execute(
+        .block_on(ReadTool::new(temp.path().to_str().expect("utf-8 test path")).execute(
             "call".to_owned(),
             json!({"path": "file.txt"}),
             Some(token),

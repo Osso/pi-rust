@@ -11,20 +11,20 @@ use pi_js_compat::js_json::JsValue as Value;
 #[test]
 fn coding_agent_code_index_tools_match_the_pinned_typescript_source() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let cwd = temp.path().to_string_lossy().into_owned();
+    let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     let source = temp.path().join("sample.rs");
     std::fs::write(&source, "pub fn alpha() {}\n\nstruct Beta;\n").expect("sample.rs");
 
     let cases = vec![
-        json!({"kind": "outline", "params": {"path": source.to_string_lossy()}}),
-        json!({"kind": "outline", "params": {"path": source.to_string_lossy(), "show": "alpha"}}),
+        json!({"kind": "outline", "params": {"path": source.to_str().expect("utf-8 test path")}}),
+        json!({"kind": "outline", "params": {"path": source.to_str().expect("utf-8 test path"), "show": "alpha"}}),
         json!({"kind": "symbol", "params": {"name": "alpha"}}),
         json!({"kind": "symbol", "params": {"name": "alpha", "kind": "function"}}),
         json!({"kind": "symbol", "params": {"name": "missing"}}),
         json!({"kind": "references", "params": {"name": "alpha"}}),
         json!({"kind": "references", "params": {"name": "alpha", "kind": "call"}}),
         json!({"kind": "references", "params": {"name": "missing"}}),
-        json!({"kind": "outline", "params": {"path": temp.path().join("missing.rs").to_string_lossy()}}),
+        json!({"kind": "outline", "params": {"path": temp.path().join("missing.rs").to_str().expect("utf-8 test path")}}),
     ];
 
     let mut oracle = oracle::TsOracle::spawn(
