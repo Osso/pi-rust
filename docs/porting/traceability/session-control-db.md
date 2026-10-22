@@ -12,7 +12,7 @@ Main decision (2026-10-22): process identity JSON is internal ASCII; not part of
 
 ### Parked claim-order drift
 
-Ordinary claim persistence currently appends missing fields in `claimedAt, updatedAt, claimantProcessIdentity, status` order; frozen source appends `claimedAt, claimantProcessIdentity, status, updatedAt`. Native-authority migration preserves existing persistence order; correction requires a separately executed in-crate behavioral RED. Existing scalar projection previously constructed another order; that duplicate write authority is removed.
+Ordinary claim persistence currently appends missing fields in `claimedAt, updatedAt, claimantProcessIdentity, status` order; frozen source appends `claimedAt, claimantProcessIdentity, status, updatedAt`. Native-authority migration preserves existing persistence order. `lossless_control_claim_order` claims the same source-created raw row with real source/native runtime listeners, restores the exact original row between claims, then compares canonical bytes after normalizing only volatile claim values. Test unexecuted; correction requires its in-crate behavioral RED. Existing scalar projection previously constructed another order; that duplicate write authority is removed.
 
 ## Blocking canonical JSON counterexample — current group is not accepted
 
