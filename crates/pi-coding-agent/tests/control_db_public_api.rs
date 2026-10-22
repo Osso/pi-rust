@@ -13,29 +13,43 @@ use pi_coding_agent::core::session_control_db::{
     write_session_sandbox_profile, write_session_thinking_level,
 };
 use pi_coding_agent::core::session_health::SessionHealthRecord;
-use serde_json::Value;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 
 #[test]
 fn session_manager_contract_is_public() {
     let _: fn(&Path) -> String = get_control_db_path;
-    let _: fn(&str, &str) -> Result<Option<SessionMetadata>, ControlDbError> = read_session_metadata;
-    let _: fn(&str, &WritableSessionMetadata) -> Result<(), ControlDbError> = write_session_metadata;
-    let _: fn(&str) -> Result<Vec<SessionMetadata>, ControlDbError> = list_session_metadata;
-    let _: fn(&str) -> Result<Vec<SessionMetadata>, ControlDbError> = list_active_session_metadata;
-    let _: fn(&str) -> Result<Vec<SessionMetadata>, ControlDbError> = list_archived_session_metadata;
-    let _: fn(&str, &str) -> Result<Option<String>, ControlDbError> = read_session_goal;
-    let _: fn(&str, &str, Option<&str>) -> Result<(), ControlDbError> = write_session_goal;
-    let _: fn(&str, &str, &str, &str) -> Result<(), ControlDbError> = write_session_model;
-    let _: fn(&str, &str, &str) -> Result<(), ControlDbError> = write_session_thinking_level;
-    let _: fn(&str, &str, &str) -> Result<Option<SandboxProfileName>, ControlDbError> = read_session_sandbox_profile;
-    let _: fn(&str, &str, &str, SandboxProfileName) -> Result<(), ControlDbError> = write_session_sandbox_profile;
-    let _: fn(&str, &str, &str) -> Result<(), ControlDbError> = clear_session_sandbox_profile;
-    let _: fn(&str, &str, &str) -> Result<(), ControlDbError> = relocate_session_control_data;
-    let _: fn(&str) -> Result<Vec<SessionHealthRecord>, ControlDbError> = list_session_health;
-    let _: fn(&str, &SessionHealthRecord) -> Result<(), ControlDbError> = write_session_health;
-    let _: fn(&str) -> Result<Vec<RuntimeMailboxListener>, ControlDbError> = list_runtime_mailbox_listeners;
-    let _: fn(&str, &RuntimeMailboxAddress, u32) -> Result<bool, ControlDbError> = retire_runtime_mailbox_listener;
-    let _: fn(&str, &EnqueueRuntimeMailboxMessageInput) -> Result<i64, ControlDbError> =
-        enqueue_runtime_mailbox_message;
-    let _: fn(&str, &str, &str, &Value) -> Result<(), ControlDbError> = upsert_multi_agent_mailbox_message;
+    let _: fn(&JsString, &JsString) -> Result<Option<SessionMetadata>, ControlDbError> =
+        |db, path| read_session_metadata(db, path);
+    let _: fn(&JsString, &WritableSessionMetadata) -> Result<(), ControlDbError> =
+        |db, metadata| write_session_metadata(db, metadata);
+    let _: fn(&JsString) -> Result<Vec<SessionMetadata>, ControlDbError> = |db| list_session_metadata(db);
+    let _: fn(&JsString) -> Result<Vec<SessionMetadata>, ControlDbError> = |db| list_active_session_metadata(db);
+    let _: fn(&JsString) -> Result<Vec<SessionMetadata>, ControlDbError> = |db| list_archived_session_metadata(db);
+    let _: fn(&JsString, &JsString) -> Result<Option<JsString>, ControlDbError> =
+        |db, path| read_session_goal(db, path);
+    let _: fn(&JsString, &JsString, Option<&JsString>) -> Result<(), ControlDbError> =
+        |db, path, goal| write_session_goal(db, path, goal);
+    let _: fn(&JsString, &JsString, &str, &str) -> Result<(), ControlDbError> =
+        |db, path, provider, model| write_session_model(db, path, provider, model);
+    let _: fn(&JsString, &JsString, &str) -> Result<(), ControlDbError> =
+        |db, path, level| write_session_thinking_level(db, path, level);
+    let _: fn(&JsString, &JsString, &JsString) -> Result<Option<SandboxProfileName>, ControlDbError> =
+        |db, path, cwd| read_session_sandbox_profile(db, path, cwd);
+    let _: fn(&JsString, &JsString, &JsString, SandboxProfileName) -> Result<(), ControlDbError> =
+        |db, path, cwd, profile| write_session_sandbox_profile(db, path, cwd, profile);
+    let _: fn(&JsString, &JsString, &JsString) -> Result<(), ControlDbError> =
+        |db, path, cwd| clear_session_sandbox_profile(db, path, cwd);
+    let _: fn(&JsString, &JsString, &JsString) -> Result<(), ControlDbError> =
+        |db, source, target| relocate_session_control_data(db, source, target);
+    let _: fn(&JsString) -> Result<Vec<SessionHealthRecord>, ControlDbError> = |db| list_session_health(db);
+    let _: fn(&JsString, &SessionHealthRecord) -> Result<(), ControlDbError> =
+        |db, health| write_session_health(db, health);
+    let _: fn(&JsString) -> Result<Vec<RuntimeMailboxListener>, ControlDbError> =
+        |db| list_runtime_mailbox_listeners(db);
+    let _: fn(&JsString, &RuntimeMailboxAddress, u32) -> Result<bool, ControlDbError> =
+        |db, recipient, pid| retire_runtime_mailbox_listener(db, recipient, pid);
+    let _: fn(&JsString, &EnqueueRuntimeMailboxMessageInput) -> Result<i64, ControlDbError> =
+        |db, input| enqueue_runtime_mailbox_message(db, input);
+    let _: fn(&JsString, &JsString, &JsString, &Value) -> Result<(), ControlDbError> =
+        |db, path, id, message| upsert_multi_agent_mailbox_message(db, path, id, message);
 }

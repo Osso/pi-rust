@@ -1,5 +1,6 @@
 //! Behavioral tests for the lifecycle coordinator (`core/lifecycle-coordinator.ts`).
 
+use pi_js_compat::js_json::{self, JsString};
 use std::sync::Arc;
 
 use pi_coding_agent::core::lifecycle_coordinator::{
@@ -42,23 +43,23 @@ fn temp_db() -> (TempDir, String) {
 }
 
 fn create_coordinator(control_db_path: &str, session_path: &str) -> LifecycleCoordinator {
-    create_coordinator_with(control_db_path, session_path, || "agent-child".to_owned())
+    create_coordinator_with(control_db_path, session_path, || "agent-child".into())
 }
 
 fn create_coordinator_with(
     control_db_path: &str,
     session_path: &str,
-    create_agent_id: impl Fn() -> String + Send + Sync + 'static,
+    create_agent_id: impl Fn() -> JsString + Send + Sync + 'static,
 ) -> LifecycleCoordinator {
     let identity = current_identity();
     register_runtime_mailbox_listener(
         control_db_path,
         &pi_coding_agent::core::session_control_db::RuntimeMailboxAddress {
-            session_id: "supervisor-session".to_owned(),
+            session_id: "supervisor-session".into(),
             agent_id: None,
         },
         identity.pid,
-        Some(session_path),
+        Some(&JsString::from(session_path)),
         pi_coding_agent::core::session_control_db::RuntimeMailboxRegistrationOptions {
             runtime_instance_id: Some(pi_coding_agent::core::session_control_db::serialize_process_identity(
                 &identity,
@@ -68,22 +69,22 @@ fn create_coordinator_with(
     )
     .expect("register listener");
     LifecycleCoordinator::new(LifecycleCoordinatorOptions {
-        control_db_path: control_db_path.to_owned(),
+        control_db_path: control_db_path.into(),
         create_agent_id: Arc::new(move || Ok(create_agent_id())),
         // Frozen session-control-db.ts:2331 filters transport against Date.now().
         now: Arc::new(pi_coding_agent::utils::iso_time::now_iso_string),
         process_identity: identity,
-        session_path: session_path.to_owned(),
+        session_path: session_path.into(),
     })
 }
 
-fn child_input(parent_id: Option<&str>) -> SpawnAgent {
+fn child_input(parent_id: Option<&JsString>) -> SpawnAgent {
     SpawnAgent {
-        parent_id: parent_id.map(str::to_owned),
-        display_name: "Explorer".to_owned(),
+        parent_id: parent_id.map(JsString::from),
+        display_name: "Explorer".into(),
         agent_type: "explore".into(),
         origin: None,
-        cwd: "/tmp/worktree".to_owned(),
+        cwd: "/tmp/worktree".into(),
         permission: AgentPermission {
             policy: "on-request".into(),
             inherited_from: None,
@@ -112,7 +113,12 @@ fn create_running_child(
         })
         .unwrap();
     coordinator
-        .commit_running_child(&prepared, "supervisor-session", &current_identity(), None)
+        .commit_running_child(
+            &prepared,
+            &JsString::from("supervisor-session"),
+            &current_identity(),
+            None,
+        )
         .expect("commit child")
 }
 
@@ -143,7 +149,7 @@ fn owned(
 fn force_runtime_ownership(
     control_db_path: &str,
     session_path: &str,
-    agent_id: &str,
+    agent_id: &JsString,
     owner: &MultiAgentRuntimeOwnerIdentity,
     process_identity: &ProcessIdentity,
 ) -> bool {
@@ -183,13 +189,13 @@ fn atomically_creates_a_running_child_with_runtime_ownership() {
     let (agent, ownership) = expect_created(create_running_child(&coordinator, child_input(None)));
     assert_eq!(agent.id, "agent-child");
     assert_eq!(agent.lifecycle, AgentLifecycle::Running);
-    assert_eq!(agent.parent_id.as_deref(), Some("main"));
+    assert_eq!(agent.parent_id.as_ref(), Some(&JsString::from("main")));
     assert_eq!(agent.revision, 1);
     assert_eq!(ownership.agent_id, "agent-child");
     assert_eq!(
         ownership.owner,
         pi_coding_agent::core::session_control_db::MultiAgentRuntimeOwner {
-            session_id: Some("supervisor-session".to_owned()),
+            session_id: Some("supervisor-session".into()),
             agent_id: None,
         }
     );
@@ -197,7 +203,7 @@ fn atomically_creates_a_running_child_with_runtime_ownership() {
         .expect("state")
         .expect("persisted");
     assert_eq!(state.agents.len(), 1);
-    let read = read_multi_agent_runtime_ownership(&db, SESSION_PATH, "agent-child")
+    let read = read_multi_agent_runtime_ownership(&db, SESSION_PATH, &JsString::from("agent-child"))
         .expect("ownership")
         .expect("row");
     assert_eq!(read.agent_id, ownership.agent_id);
@@ -207,16 +213,16 @@ fn atomically_creates_a_running_child_with_runtime_ownership() {
 fn acquires_attached_runtime_ownership_and_advances_revision() {
     let (_directory, db) = temp_db();
     let agent = pi_coding_agent::core::multi_agent_store::AgentSnapshot {
-        id: "attached-1".to_owned(),
+        id: "attached-1".into(),
         parent_id: None,
-        display_name: "Attached".to_owned(),
+        display_name: "Attached".into(),
         agent_type: "resumed-session".into(),
         origin: Some(pi_coding_agent::core::multi_agent_store::AgentOrigin::Attached),
         lifecycle: AgentLifecycle::Running,
         revision: 4,
-        created_at: "2026-07-11T19:00:00.000Z".to_owned(),
-        updated_at: "2026-07-11T19:00:00.000Z".to_owned(),
-        cwd: "/tmp/worktree".to_owned(),
+        created_at: "2026-07-11T19:00:00.000Z".into(),
+        updated_at: "2026-07-11T19:00:00.000Z".into(),
+        cwd: "/tmp/worktree".into(),
         worktree: None,
         model: None,
         account: None,
@@ -239,13 +245,13 @@ fn acquires_attached_runtime_ownership_and_advances_revision() {
     pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent(
         &db,
         SESSION_PATH,
-        "attached-1",
-        &serde_json::to_value(&agent).expect("agent"),
+        &JsString::from("attached-1"),
+        &js_json::to_value(&agent).expect("agent"),
     )
     .expect("bootstrap");
     let coordinator = create_coordinator(&db, SESSION_PATH);
     let result = coordinator
-        .acquire_attached_runtime(&agent, "supervisor-session")
+        .acquire_attached_runtime(&agent, &JsString::from("supervisor-session"))
         .expect("acquire");
     let pi_coding_agent::core::session_control_db::AcquireAttachedRuntimeOwnershipResult::Ok { agent, ownership } =
         result
@@ -257,7 +263,7 @@ fn acquires_attached_runtime_ownership_and_advances_revision() {
     assert_eq!(ownership.process_identity, Some(current_identity()));
 
     let mismatch = coordinator
-        .acquire_attached_runtime(&agent, "other-session")
+        .acquire_attached_runtime(&agent, &JsString::from("other-session"))
         .expect("acquire");
     assert!(matches!(
         mismatch,
@@ -277,7 +283,7 @@ fn rejects_ownership_takeover_while_the_exact_owner_process_is_alive() {
         SESSION_PATH,
         &agent.id,
         &MultiAgentRuntimeOwnerIdentity {
-            session_id: "supervisor-2".to_owned(),
+            session_id: "supervisor-2".into(),
             agent_id: None,
         },
         &current_identity(),
@@ -292,7 +298,7 @@ fn rejects_another_agents_ownership_token_under_the_same_supervisor() {
     let counter = next.clone();
     let coordinator = create_coordinator_with(&db, SESSION_PATH, move || {
         let value = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        format!("agent-{value}")
+        pi_js_compat::js_format!("agent-{}", value)
     });
     let (first_agent, first_ownership) = expect_created(create_running_child(&coordinator, child_input(None)));
     let (second_agent, _second_ownership) = expect_created(create_running_child(&coordinator, child_input(None)));
@@ -319,12 +325,12 @@ fn rejects_finalization_from_a_different_current_process() {
     let owner = create_coordinator(&db, SESSION_PATH);
     let (agent, ownership) = expect_created(create_running_child(&owner, child_input(None)));
     let foreign = LifecycleCoordinator::new(LifecycleCoordinatorOptions {
-        control_db_path: db.clone(),
-        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
+        control_db_path: db.clone().into(),
+        create_agent_id: Arc::new(|| Ok("unused".into())),
         // Frozen session-control-db.ts:2331 filters transport against Date.now().
         now: Arc::new(pi_coding_agent::utils::iso_time::now_iso_string),
         process_identity: test_process_identity("foreign-runtime"),
-        session_path: SESSION_PATH.to_owned(),
+        session_path: SESSION_PATH.into(),
     });
     let result = foreign
         .finalize_child(&FinalizeChildCommandInput {
@@ -332,7 +338,7 @@ fn rejects_finalization_from_a_different_current_process() {
             ownership: ownership.clone(),
             error: None,
             result: None,
-            terminal_lifecycle: "completed".to_owned(),
+            terminal_lifecycle: "completed".into(),
         })
         .expect("finalize");
     assert!(matches!(
@@ -397,7 +403,7 @@ fn requests_detached_cancellation_and_enqueues_the_runner_command() {
             agent: agent.clone(),
             ownership: ownership.clone(),
             output_label: "Bash output".into(),
-            reason: Some("user requested".to_owned()),
+            reason: Some("user requested".into()),
         })
         .expect("cancel");
     let LifecycleCommandResult::Ok { agent: cancelling } = result else {
@@ -412,17 +418,20 @@ fn requests_detached_cancellation_and_enqueues_the_runner_command() {
         messages[0].kind,
         pi_coding_agent::core::session_control_db::RuntimeMailboxMessageKind::System
     );
-    assert_eq!(messages[0].recipient.agent_id.as_deref(), Some(agent.id.as_str()));
+    assert_eq!(messages[0].recipient.agent_id.as_ref(), Some(&agent.id));
     assert_eq!(messages[0].recipient.session_id, "supervisor-session");
     assert_eq!(
         messages[0].status,
         pi_coding_agent::core::session_control_db::RuntimeMailboxMessageStatus::Pending
     );
-    let body: serde_json::Value = serde_json::from_str(&messages[0].body).expect("body");
-    assert_eq!(body["command"], "cancel");
-    assert_eq!(body["identity"]["jobId"], agent.id);
-    assert_eq!(body["identity"]["outputLabel"], "Bash output");
-    assert_eq!(body["identity"]["owner"]["sessionId"], "supervisor-session");
+    let body = js_json::parse_lossless(&messages[0].body).expect("body");
+    assert_eq!(body["command"], pi_js_compat::js_json!("cancel"));
+    assert_eq!(body["identity"]["jobId"], pi_js_compat::js_json!(agent.id));
+    assert_eq!(body["identity"]["outputLabel"], pi_js_compat::js_json!("Bash output"));
+    assert_eq!(
+        body["identity"]["owner"]["sessionId"],
+        pi_js_compat::js_json!("supervisor-session")
+    );
 }
 
 #[test]
@@ -453,8 +462,8 @@ fn rolls_back_detached_cancellation_when_mailbox_insertion_fails() {
         .expect("state")
         .expect("persisted");
     assert_eq!(
-        state.agents[0]["lifecycle"].as_str(),
-        Some("running"),
+        state.agents[0]["lifecycle"].as_string(),
+        Some(&JsString::from("running")),
         "agent must roll back to running"
     );
     assert!(list_runtime_mailbox_messages(&db).expect("messages").is_empty());
@@ -467,7 +476,7 @@ fn blocks_parent_recovery_until_active_descendants_are_terminal() {
     let counter = next.clone();
     let coordinator = create_coordinator_with(&db, SESSION_PATH, move || {
         let value = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        format!("agent-{value}")
+        pi_js_compat::js_format!("agent-{}", value)
     });
     let dead = test_process_identity("dead-parent-runtime");
     let parent = coordinator
@@ -479,7 +488,7 @@ fn blocks_parent_recovery_until_active_descendants_are_terminal() {
         })
         .unwrap();
     let parent = coordinator
-        .commit_running_child(&parent, "supervisor-session", &dead, None)
+        .commit_running_child(&parent, &JsString::from("supervisor-session"), &dead, None)
         .expect("parent");
     let CreateMultiAgentChildWithRuntimeOwnershipResult::Ok {
         agent: parent_agent,
@@ -497,14 +506,14 @@ fn blocks_parent_recovery_until_active_descendants_are_terminal() {
         })
         .unwrap();
     coordinator
-        .commit_running_child(&child, "supervisor-session", &dead, None)
+        .commit_running_child(&child, &JsString::from("supervisor-session"), &dead, None)
         .expect("child");
 
     let result = coordinator
         .recover_dead_child(&RecoverDeadChildCommandInput {
             agent: (*parent_agent).clone(),
             ownership: (*parent_ownership).clone(),
-            owner_session_id: "supervisor-session".to_owned(),
+            owner_session_id: "supervisor-session".into(),
             supervisor_agent_id: None,
         })
         .expect("recover");
@@ -531,7 +540,7 @@ fn recovers_a_dead_child_owned_by_a_prior_session_incarnation() {
     let created = coordinator
         .commit_running_child(
             &prepared,
-            "stale-incarnation-session",
+            &JsString::from("stale-incarnation-session"),
             &test_process_identity("stale-incarnation-runtime"),
             None,
         )
@@ -543,7 +552,7 @@ fn recovers_a_dead_child_owned_by_a_prior_session_incarnation() {
         .recover_dead_child(&RecoverDeadChildCommandInput {
             agent: (*agent).clone(),
             ownership: (*ownership).clone(),
-            owner_session_id: "supervisor-session".to_owned(),
+            owner_session_id: "supervisor-session".into(),
             supervisor_agent_id: None,
         })
         .expect("recover");
@@ -573,7 +582,7 @@ fn settles_a_cancelling_child_to_aborted_on_dead_owner_recovery() {
     let created = coordinator
         .commit_running_child(
             &prepared,
-            "supervisor-session",
+            &JsString::from("supervisor-session"),
             &test_process_identity("cancelling-dead-runtime"),
             None,
         )
@@ -586,7 +595,7 @@ fn settles_a_cancelling_child_to_aborted_on_dead_owner_recovery() {
             agent: (*agent).clone(),
             ownership: (*ownership).clone(),
             output_label: "Pyrun output".into(),
-            reason: Some("test cancel".to_owned()),
+            reason: Some("test cancel".into()),
         })
         .expect("cancel");
     let LifecycleCommandResult::Ok { agent: cancelling } = cancelling else {
@@ -596,7 +605,7 @@ fn settles_a_cancelling_child_to_aborted_on_dead_owner_recovery() {
         .recover_dead_child(&RecoverDeadChildCommandInput {
             agent: (*cancelling).clone(),
             ownership: (*ownership).clone(),
-            owner_session_id: "supervisor-session".to_owned(),
+            owner_session_id: "supervisor-session".into(),
             supervisor_agent_id: None,
         })
         .expect("recover");
@@ -613,7 +622,7 @@ fn blocks_parent_terminalization_until_descendants_are_terminal() {
     let counter = next.clone();
     let coordinator = create_coordinator_with(&db, SESSION_PATH, move || {
         let value = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        format!("agent-{value}")
+        pi_js_compat::js_format!("agent-{}", value)
     });
     let (parent, parent_ownership) = expect_created(create_running_child(&coordinator, child_input(None)));
     let (child, child_ownership) = expect_created(create_running_child(&coordinator, child_input(Some(&parent.id))));
@@ -624,7 +633,7 @@ fn blocks_parent_terminalization_until_descendants_are_terminal() {
             ownership: parent_ownership.clone(),
             error: None,
             result: None,
-            terminal_lifecycle: "completed".to_owned(),
+            terminal_lifecycle: "completed".into(),
         })
         .expect("finalize");
     assert!(matches!(
@@ -639,7 +648,7 @@ fn blocks_parent_terminalization_until_descendants_are_terminal() {
             ownership: child_ownership,
             error: None,
             result: None,
-            terminal_lifecycle: "completed".to_owned(),
+            terminal_lifecycle: "completed".into(),
         })
         .expect("finalize child");
     assert!(matches!(child_result, LifecycleCommandResult::Ok { .. }));
@@ -649,7 +658,7 @@ fn blocks_parent_terminalization_until_descendants_are_terminal() {
             ownership: parent_ownership,
             error: None,
             result: None,
-            terminal_lifecycle: "completed".to_owned(),
+            terminal_lifecycle: "completed".into(),
         })
         .expect("finalize parent");
     assert!(matches!(parent_result, LifecycleCommandResult::Ok { .. }));
@@ -666,12 +675,12 @@ fn orders_natural_completion_before_a_later_cancellation_request() {
             ownership: ownership.clone(),
             error: None,
             result: Some(AgentResult {
-                summary: Some("done".to_owned()),
+                summary: Some("done".into()),
                 file_refs: None,
                 duration_ms: None,
                 tool_call_id: None,
             }),
-            terminal_lifecycle: "completed".to_owned(),
+            terminal_lifecycle: "completed".into(),
         })
         .expect("finalize");
     let LifecycleCommandResult::Ok { agent: completed } = completed else {
@@ -707,7 +716,7 @@ fn orders_accepted_cancellation_before_completion_and_deduplicates_acknowledgeme
             ownership: ownership.clone(),
             error: None,
             result: None,
-            terminal_lifecycle: "completed".to_owned(),
+            terminal_lifecycle: "completed".into(),
         })
         .expect("finalize");
     assert!(matches!(
@@ -748,7 +757,12 @@ fn does_not_persist_a_child_until_construction_succeeds() {
     let state = read_multi_agent_state(&db, SESSION_PATH).expect("state");
     assert!(state.is_none());
     let result = coordinator
-        .commit_running_child(&prepared, "supervisor-session", &current_identity(), None)
+        .commit_running_child(
+            &prepared,
+            &JsString::from("supervisor-session"),
+            &current_identity(),
+            None,
+        )
         .expect("commit");
     assert!(matches!(
         result,
@@ -772,8 +786,8 @@ fn persists_interrupted_construction_as_failed_without_ownership() {
         .commit_failed_child(
             &prepared,
             AgentError {
-                code: Some("runtime_spawn_failed".to_owned()),
-                message: "factory interrupted".to_owned(),
+                code: Some("runtime_spawn_failed".into()),
+                message: "factory interrupted".into(),
             },
         )
         .expect("failed");
@@ -787,7 +801,7 @@ fn persists_interrupted_construction_as_failed_without_ownership() {
         Some("runtime_spawn_failed")
     );
     assert!(
-        read_multi_agent_runtime_ownership(&db, SESSION_PATH, "agent-child")
+        read_multi_agent_runtime_ownership(&db, SESSION_PATH, &JsString::from("agent-child"))
             .expect("ownership")
             .is_none()
     );
@@ -800,19 +814,24 @@ fn uses_a_preallocated_artifact_identity_without_consuming_another_id() {
     let captured = generated.clone();
     let coordinator = create_coordinator_with(&db, SESSION_PATH, move || {
         captured.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        "generated".to_owned()
+        "generated".into()
     });
     let prepared = coordinator
         .prepare_child(&PrepareChildCommandInput {
             spawn: child_input(None),
-            agent_id: Some("preallocated-job".to_owned()),
+            agent_id: Some("preallocated-job".into()),
             detached: None,
             result: None,
         })
         .unwrap();
     assert_eq!(prepared.id, "preallocated-job");
     coordinator
-        .commit_running_child(&prepared, "supervisor-session", &current_identity(), None)
+        .commit_running_child(
+            &prepared,
+            &JsString::from("supervisor-session"),
+            &current_identity(),
+            None,
+        )
         .expect("commit");
     assert_eq!(generated.load(std::sync::atomic::Ordering::SeqCst), 0);
 }
@@ -824,7 +843,7 @@ fn rejects_child_and_attachment_creation_beneath_a_terminal_parent() {
     let counter = next.clone();
     let coordinator = create_coordinator_with(&db, SESSION_PATH, move || {
         let value = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        format!("agent-{value}")
+        pi_js_compat::js_format!("agent-{}", value)
     });
     let (parent, ownership) = expect_created(create_running_child(&coordinator, child_input(None)));
     coordinator
@@ -833,7 +852,7 @@ fn rejects_child_and_attachment_creation_beneath_a_terminal_parent() {
             ownership,
             error: None,
             result: None,
-            terminal_lifecycle: "completed".to_owned(),
+            terminal_lifecycle: "completed".into(),
         })
         .expect("finalize");
 
@@ -865,14 +884,19 @@ fn rejects_a_missing_parent_without_committing_child_or_ownership() {
     let coordinator = create_coordinator(&db, SESSION_PATH);
     let prepared = coordinator
         .prepare_child(&PrepareChildCommandInput {
-            spawn: child_input(Some("missing-parent")),
+            spawn: child_input(Some(&JsString::from("missing-parent"))),
             agent_id: None,
             detached: None,
             result: None,
         })
         .unwrap();
     let result = coordinator
-        .commit_running_child(&prepared, "supervisor-session", &current_identity(), None)
+        .commit_running_child(
+            &prepared,
+            &JsString::from("supervisor-session"),
+            &current_identity(),
+            None,
+        )
         .expect("commit");
     assert!(matches!(
         result,
@@ -882,7 +906,7 @@ fn rejects_a_missing_parent_without_committing_child_or_ownership() {
     ));
     assert!(read_multi_agent_state(&db, SESSION_PATH).expect("state").is_none());
     assert!(
-        read_multi_agent_runtime_ownership(&db, SESSION_PATH, "agent-child")
+        read_multi_agent_runtime_ownership(&db, SESSION_PATH, &JsString::from("agent-child"))
             .expect("ownership")
             .is_none()
     );
@@ -894,7 +918,7 @@ fn steering_commands_require_registered_sender_and_recipient_listeners() {
     let coordinator = create_coordinator(&db, SESSION_PATH);
     let mut input = child_input(None);
     input.transcript = Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-        session_id: "child-session".to_owned(),
+        session_id: "child-session".into(),
         path: None,
     });
     let (agent, ownership) = expect_created(create_running_child(&coordinator, input));
@@ -904,11 +928,11 @@ fn steering_commands_require_registered_sender_and_recipient_listeners() {
             agent: agent.clone(),
             ownership,
             recipient: pi_coding_agent::core::session_control_db::RuntimeMailboxAddress {
-                session_id: "child-session".to_owned(),
+                session_id: "child-session".into(),
                 agent_id: Some(agent.id.clone()),
             },
-            from_agent_id: "supervisor".to_owned(),
-            body: "steer".to_owned(),
+            from_agent_id: "supervisor".into(),
+            body: "steer".into(),
             target_checkpoint: None,
             thread_id: None,
             file_refs: None,
@@ -925,7 +949,7 @@ fn steering_commands_require_registered_sender_and_recipient_listeners() {
 #[test]
 fn dead_runtime_reconciliation_is_a_noop_without_candidates() {
     let (_directory, db) = temp_db();
-    let count = LifecycleCoordinator::reconcile_dead_detached_runtimes(&db, NOW).expect("reconcile");
+    let count = LifecycleCoordinator::reconcile_dead_detached_runtimes(&JsString::from(&db), NOW).expect("reconcile");
     assert_eq!(count, 0);
 }
 
@@ -946,7 +970,7 @@ fn ownership_identity_requires_the_current_process_and_session_path() {
         }
     ));
     let mut wrong_path = ownership.clone();
-    wrong_path.session_path = "/tmp/other.jsonl".to_owned();
+    wrong_path.session_path = "/tmp/other.jsonl".into();
     let result = coordinator
         .mark_waiting_for_input(&owned(&agent, &wrong_path))
         .expect("waiting");
@@ -971,7 +995,12 @@ fn detach_mark_allows_a_foreign_owner_process() {
         })
         .unwrap();
     let created = coordinator
-        .commit_running_child(&prepared, "supervisor-session", &test_process_identity("runner"), None)
+        .commit_running_child(
+            &prepared,
+            &JsString::from("supervisor-session"),
+            &test_process_identity("runner"),
+            None,
+        )
         .expect("create");
     let (agent, ownership) = expect_created(created);
     let result = coordinator.mark_detached(&owned(&agent, &ownership)).expect("detach");

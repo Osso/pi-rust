@@ -1,5 +1,6 @@
 //! Behavioral tests for the in-memory multi-agent store (`core/multi-agent-store.ts`).
 
+use pi_js_compat::js_json::{self, JsString};
 use std::sync::{Arc, Mutex};
 
 use pi_coding_agent::core::multi_agent_store::{
@@ -22,18 +23,18 @@ fn new_store() -> MultiAgentStore {
     })
 }
 
-fn scout_input(parent: Option<&str>) -> AgentSnapshot {
+fn scout_input(parent: Option<&JsString>) -> AgentSnapshot {
     AgentSnapshot {
-        id: String::new(),
-        parent_id: parent.map(str::to_owned),
-        display_name: "Scout".to_owned(),
+        id: JsString::default(),
+        parent_id: parent.map(JsString::from),
+        display_name: "Scout".into(),
         agent_type: "scout".into(),
         origin: None,
         lifecycle: AgentLifecycle::Running,
         revision: 1,
-        created_at: fresh_time(),
-        updated_at: fresh_time(),
-        cwd: "/repo".to_owned(),
+        created_at: fresh_time().into(),
+        updated_at: fresh_time().into(),
+        cwd: "/repo".into(),
         worktree: None,
         model: None,
         account: None,
@@ -55,7 +56,7 @@ fn scout_input(parent: Option<&str>) -> AgentSnapshot {
     }
 }
 
-fn spawn_agent(store: &MultiAgentStore, parent: Option<&str>) -> AgentSnapshot {
+fn spawn_agent(store: &MultiAgentStore, parent: Option<&JsString>) -> AgentSnapshot {
     let mut agent = scout_input(parent);
     agent.id = store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap();
     if let Some(persistence) = store.get_persistence_target() {
@@ -63,7 +64,7 @@ fn spawn_agent(store: &MultiAgentStore, parent: Option<&str>) -> AgentSnapshot {
             &persistence.control_db_path,
             &persistence.session_path,
             &agent.id,
-            &serde_json::to_value(&agent).expect("agent"),
+            &js_json::to_value(&agent).expect("agent"),
         )
         .expect("bootstrap");
     }
@@ -112,7 +113,7 @@ fn can_transition(from: AgentLifecycle, to: AgentLifecycle) -> bool {
 
 fn transition(
     store: &MultiAgentStore,
-    agent_id: &str,
+    agent_id: &JsString,
     expected_revision: i64,
     requested: AgentLifecycle,
 ) -> Result<AgentSnapshot, &'static str> {
@@ -137,7 +138,7 @@ fn transition(
     Ok(updated)
 }
 
-type RecordedUpdates = Arc<Mutex<Vec<(AgentLifecycle, Option<String>)>>>;
+type RecordedUpdates = Arc<Mutex<Vec<(AgentLifecycle, Option<JsString>)>>>;
 
 fn record_updates(store: &MultiAgentStore) -> (RecordedUpdates, AgentSubscription) {
     let updates = Arc::new(Mutex::new(Vec::new()));
@@ -157,7 +158,7 @@ fn record_updates(store: &MultiAgentStore) -> (RecordedUpdates, AgentSubscriptio
 #[test]
 fn rejects_stale_lifecycle_mutations_and_returns_current_snapshot() {
     let store = new_store();
-    let spawned = spawn_agent(&store, Some("root"));
+    let spawned = spawn_agent(&store, Some(&JsString::from("root")));
     let waiting = transition(&store, &spawned.id, 1, AgentLifecycle::WaitingForInput).expect("waiting");
     assert_eq!(waiting.revision, 2);
 
@@ -171,11 +172,11 @@ fn rejects_stale_lifecycle_mutations_and_returns_current_snapshot() {
 #[test]
 fn notifies_subscribers_for_transcript_metadata_updates() {
     let store = new_store();
-    let spawned = spawn_agent(&store, Some("root"));
+    let spawned = spawn_agent(&store, Some(&JsString::from("root")));
     let (updates, _subscription) = record_updates(&store);
     let transcript = pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-        session_id: "child-session".to_owned(),
-        path: Some("/tmp/child-session.jsonl".to_owned()),
+        session_id: "child-session".into(),
+        path: Some("/tmp/child-session.jsonl".into()),
     };
     let result = store.update_agent_transcript(&spawned.id, &transcript).expect("update");
     assert!(matches!(
@@ -184,14 +185,14 @@ fn notifies_subscribers_for_transcript_metadata_updates() {
     ));
     assert_eq!(
         *updates.lock().expect("updates"),
-        vec![(AgentLifecycle::Running, Some("/tmp/child-session.jsonl".to_owned()))]
+        vec![(AgentLifecycle::Running, Some("/tmp/child-session.jsonl".into()))]
     );
 }
 
 #[test]
 fn view_selection_is_read_only_and_clears_without_mutating_lifecycle() {
     let store = new_store();
-    let spawned = spawn_agent(&store, Some("root"));
+    let spawned = spawn_agent(&store, Some(&JsString::from("root")));
     let viewed = store.select_agent_view(&spawned.id).expect("view");
     assert_eq!(viewed.id, spawned.id);
     assert_eq!(viewed.lifecycle, AgentLifecycle::Running);
@@ -208,8 +209,8 @@ fn view_selection_is_read_only_and_clears_without_mutating_lifecycle() {
 #[test]
 fn inactive_agents_are_viewable_but_not_active_targets() {
     let store = new_store();
-    let active = spawn_agent(&store, Some("root"));
-    let completed = spawn_agent(&store, Some("root"));
+    let active = spawn_agent(&store, Some(&JsString::from("root")));
+    let completed = spawn_agent(&store, Some(&JsString::from("root")));
     transition(&store, &completed.id, 1, AgentLifecycle::Completed).expect("complete");
     store.select_agent_view(&active.id);
     let viewed = store.select_agent_view(&completed.id).expect("view");
@@ -228,20 +229,20 @@ fn inactive_agents_are_viewable_but_not_active_targets() {
 #[test]
 fn steering_messages_move_through_pending_accepted_and_delivered() {
     let store = new_store();
-    let spawned = spawn_agent(&store, Some("root"));
+    let spawned = spawn_agent(&store, Some(&JsString::from("root")));
     let message = store
         .prepare_steering_message_for_lifecycle_coordinator(
             &spawned.id,
             &SendSteeringInput {
-                from_agent_id: "root".to_owned(),
-                body: "Inspect auth first".to_owned(),
+                from_agent_id: "root".into(),
+                body: "Inspect auth first".into(),
                 target_checkpoint: Some(pi_coding_agent::core::multi_agent_store::SteeringCheckpoint::NextModelCall),
                 thread_id: None,
                 file_refs: None,
             },
         )
         .expect("prepare");
-    assert_eq!(message.body.as_deref(), Some("Inspect auth first"));
+    assert_eq!(message.body.as_ref(), Some(&JsString::from("Inspect auth first")));
     assert_eq!(
         message.kind,
         pi_coding_agent::core::multi_agent_store::MailboxMessageKindValue::Steer
@@ -283,46 +284,46 @@ fn steering_messages_move_through_pending_accepted_and_delivered() {
 #[test]
 fn active_counts_follow_core_lifecycle_state() {
     let store = new_store();
-    let active = spawn_agent(&store, Some("root"));
-    let running = spawn_agent(&store, Some("root"));
-    let completed = spawn_agent(&store, Some("root"));
-    let failed = spawn_agent(&store, Some("root"));
-    let aborted = spawn_agent(&store, Some("root"));
+    let active = spawn_agent(&store, Some(&JsString::from("root")));
+    let running = spawn_agent(&store, Some(&JsString::from("root")));
+    let completed = spawn_agent(&store, Some(&JsString::from("root")));
+    let failed = spawn_agent(&store, Some(&JsString::from("root")));
+    let aborted = spawn_agent(&store, Some(&JsString::from("root")));
     transition(&store, &completed.id, 1, AgentLifecycle::Completed).expect("complete");
     transition(&store, &failed.id, 1, AgentLifecycle::Aborted).expect("abort");
     transition(&store, &aborted.id, 1, AgentLifecycle::Aborted).expect("abort");
     assert_eq!(store.get_active_agent_count(), 2);
-    let ids: Vec<String> = store.list_active_agents().into_iter().map(|agent| agent.id).collect();
+    let ids: Vec<JsString> = store.list_active_agents().into_iter().map(|agent| agent.id).collect();
     assert_eq!(ids, vec![active.id, running.id]);
 }
 
 #[test]
 fn pinned_slots_preserve_metadata_and_conflict_with_occupants() {
     let store = new_store();
-    let mut input = scout_input(Some("root"));
+    let mut input = scout_input(Some(&JsString::from("root")));
     input.id = store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap();
     input.account = Some(pi_coding_agent::core::multi_agent_store::AgentAccount {
-        id: "account-1".to_owned(),
-        budget_id: Some("budget-1".to_owned()),
+        id: "account-1".into(),
+        budget_id: Some("budget-1".into()),
         provider_fallback: None,
         token_budget: None,
         concurrency_cap: None,
         rate_limit: None,
     });
     input.model = Some(pi_coding_agent::core::multi_agent_store::AgentModel {
-        provider_id: "faux".to_owned(),
-        model_id: "gpt-test".to_owned(),
-        thinking_level: Some("medium".to_owned()),
+        provider_id: "faux".into(),
+        model_id: "gpt-test".into(),
+        thinking_level: Some("medium".into()),
     });
     input.slot = Some(pi_coding_agent::core::multi_agent_store::AgentSlot { index: 2, pinned: true });
     input.transcript = Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-        session_id: "session-1".to_owned(),
-        path: Some("/tmp/sessions/child.jsonl".to_owned()),
+        session_id: "session-1".into(),
+        path: Some("/tmp/sessions/child.jsonl".into()),
     });
     input.worktree = Some(pi_coding_agent::core::multi_agent_store::AgentWorktree {
-        path: "/repo-worktrees/worker".to_owned(),
-        branch: Some("agent/worker".to_owned()),
-        base: Some("main".to_owned()),
+        path: "/repo-worktrees/worker".into(),
+        branch: Some("agent/worker".into()),
+        base: Some("main".into()),
     });
     let spawned = input.clone();
     store.publish_lifecycle_coordinator_snapshot(&input).unwrap();
@@ -335,9 +336,9 @@ fn pinned_slots_preserve_metadata_and_conflict_with_occupants() {
     assert_eq!(pinned.lifecycle, AgentLifecycle::Running);
     assert_eq!(pinned.account.as_ref().expect("account").id, "account-1");
     assert_eq!(pinned.model.as_ref().expect("model").model_id, "gpt-test");
-    assert_eq!(pinned.parent_id.as_deref(), Some("root"));
+    assert_eq!(pinned.parent_id.as_ref(), Some(&JsString::from("root")));
 
-    let other = spawn_agent(&store, Some("root"));
+    let other = spawn_agent(&store, Some(&JsString::from("root")));
     let conflict = store.pin_agent_slot(&other.id, 1, 7).expect("conflict");
     assert!(matches!(
         conflict,
@@ -348,9 +349,9 @@ fn pinned_slots_preserve_metadata_and_conflict_with_occupants() {
 #[test]
 fn slot_fallback_uses_active_agent_order() {
     let store = new_store();
-    let first = spawn_agent(&store, Some("root"));
-    let second = spawn_agent(&store, Some("root"));
-    let third = spawn_agent(&store, Some("root"));
+    let first = spawn_agent(&store, Some(&JsString::from("root")));
+    let second = spawn_agent(&store, Some(&JsString::from("root")));
+    let third = spawn_agent(&store, Some(&JsString::from("root")));
     assert_eq!(store.select_agent_slot(1).expect("slot 1").id, first.id);
     assert_eq!(store.select_agent_slot(2).expect("slot 2").id, second.id);
     assert_eq!(store.select_agent_slot(3).expect("slot 3").id, third.id);
@@ -364,7 +365,7 @@ fn slot_fallback_uses_active_agent_order() {
 #[test]
 fn waiting_for_input_notifications_are_recorded_once() {
     let store = new_store();
-    let spawned = spawn_agent(&store, Some("root"));
+    let spawned = spawn_agent(&store, Some(&JsString::from("root")));
     let notifications = Arc::new(Mutex::new(Vec::new()));
     let captured = notifications.clone();
     let _subscription = store.subscribe_lifecycle_notifications(move |message| {
@@ -384,8 +385,8 @@ fn waiting_for_input_notifications_are_recorded_once() {
         pi_coding_agent::core::multi_agent_store::MailboxMessageKindValue::System
     );
     assert_eq!(
-        messages[0].thread_id.as_deref(),
-        Some(format!("agent-waiting-for-input:{}", spawned.id).as_str())
+        messages[0].thread_id.as_ref(),
+        Some(&pi_js_compat::js_format!("agent-waiting-for-input:{}", spawned.id))
     );
     assert_eq!(messages[0].to_agent_id, "root");
     assert_eq!(waiting.revision, 2);
@@ -397,11 +398,11 @@ fn waiting_for_input_notifications_are_recorded_once() {
 #[test]
 fn descendants_do_not_leak_sibling_branches() {
     let store = new_store();
-    let root = spawn_agent(&store, Some("root"));
+    let root = spawn_agent(&store, Some(&JsString::from("root")));
     let first = spawn_agent(&store, Some(&root.id));
     let second = spawn_agent(&store, Some(&root.id));
     let grandchild = spawn_agent(&store, Some(&first.id));
-    let ids: Vec<String> = store
+    let ids: Vec<JsString> = store
         .list_descendants(&root.id)
         .into_iter()
         .map(|agent| agent.id)
@@ -412,13 +413,13 @@ fn descendants_do_not_leak_sibling_branches() {
 #[test]
 fn contact_parent_only_targets_the_direct_parent() {
     let store = new_store();
-    let root = spawn_agent(&store, Some("root"));
+    let root = spawn_agent(&store, Some(&JsString::from("root")));
     let child = spawn_agent(&store, Some(&root.id));
     let result = store
         .contact_parent(
             &child.id,
             &ContactParentInput {
-                body: "need input".to_owned(),
+                body: "need input".into(),
                 thread_id: None,
                 file_refs: None,
             },
@@ -440,7 +441,7 @@ fn contact_parent_only_targets_the_direct_parent() {
         .contact_parent(
             &orphan.id,
             &ContactParentInput {
-                body: "need input".to_owned(),
+                body: "need input".into(),
                 thread_id: None,
                 file_refs: None,
             },
@@ -452,7 +453,7 @@ fn contact_parent_only_targets_the_direct_parent() {
 #[test]
 fn direct_mailbox_messages_require_a_parent_child_relationship() {
     let store = new_store();
-    let parent = spawn_agent(&store, Some("root"));
+    let parent = spawn_agent(&store, Some(&JsString::from("root")));
     let child = spawn_agent(&store, Some(&parent.id));
     let sibling = spawn_agent(&store, Some(&parent.id));
 
@@ -461,7 +462,7 @@ fn direct_mailbox_messages_require_a_parent_child_relationship() {
             &child.id,
             1,
             &SendMailboxMessageInput {
-                body: "hi parent".to_owned(),
+                body: "hi parent".into(),
                 to_agent_id: parent.id.clone(),
                 thread_id: None,
                 file_refs: None,
@@ -479,7 +480,7 @@ fn direct_mailbox_messages_require_a_parent_child_relationship() {
             &child.id,
             1,
             &SendMailboxMessageInput {
-                body: "hi sibling".to_owned(),
+                body: "hi sibling".into(),
                 to_agent_id: sibling.id.clone(),
                 thread_id: None,
                 file_refs: None,
@@ -492,7 +493,7 @@ fn direct_mailbox_messages_require_a_parent_child_relationship() {
 #[test]
 fn projections_are_snapshots_not_shared_state() {
     let store = new_store();
-    let spawned = spawn_agent(&store, Some("root"));
+    let spawned = spawn_agent(&store, Some(&JsString::from("root")));
     let projection = store.get_projection_snapshot().unwrap();
     assert_eq!(projection.active_count, 1);
     assert_eq!(projection.agents[0].id, spawned.id);
@@ -508,12 +509,12 @@ fn projections_are_snapshots_not_shared_state() {
 #[test]
 fn completion_and_failure_notifications_can_be_consumed() {
     let store = new_store();
-    let completed = spawn_agent(&store, Some("root"));
+    let completed = spawn_agent(&store, Some(&JsString::from("root")));
     let mut agent = store.get_agent(&completed.id).expect("agent");
     agent.lifecycle = AgentLifecycle::Completed;
     agent.revision += 1;
     agent.result = Some(pi_coding_agent::core::multi_agent_store::AgentResult {
-        summary: Some("all done".to_owned()),
+        summary: Some("all done".into()),
         file_refs: None,
         duration_ms: Some(1200),
         tool_call_id: None,
@@ -527,8 +528,8 @@ fn completion_and_failure_notifications_can_be_consumed() {
         .unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(
-        pending[0].body.as_deref(),
-        Some("Scout completed: all done. Duration: 1200ms")
+        pending[0].body.as_ref(),
+        Some(&JsString::from("Scout completed: all done. Duration: 1200ms"))
     );
     let consumed = store.consume_completion_notifications_for_agent(&completed.id).unwrap();
     assert_eq!(consumed.len(), 1);
@@ -542,18 +543,21 @@ fn completion_and_failure_notifications_can_be_consumed() {
             .is_empty()
     );
 
-    let failed = spawn_agent(&store, Some("root"));
+    let failed = spawn_agent(&store, Some(&JsString::from("root")));
     let mut agent = store.get_agent(&failed.id).expect("agent");
     agent.lifecycle = AgentLifecycle::Failed;
     agent.revision += 1;
     agent.error = Some(pi_coding_agent::core::multi_agent_store::AgentError {
-        message: "boom".to_owned(),
+        message: "boom".into(),
         code: None,
     });
     store.publish_terminal_outbox_snapshot(&agent).unwrap();
     let notifications = store.consume_failure_notifications_for_agent(&failed.id).unwrap();
     assert_eq!(notifications.len(), 1);
-    assert_eq!(notifications[0].body.as_deref(), Some("Scout failed: boom"));
+    assert_eq!(
+        notifications[0].body.as_ref(),
+        Some(&JsString::from("Scout failed: boom"))
+    );
 }
 
 #[test]
@@ -561,22 +565,22 @@ fn abort_handlers_fire_once_and_unregister_on_drop() {
     let store = new_store();
     let fired = Arc::new(Mutex::new(0));
     let captured = fired.clone();
-    let registration = store.register_agent_abort_handler("agent_1", move || {
+    let registration = store.register_agent_abort_handler(&JsString::from("agent_1"), move || {
         *captured.lock().expect("fired") += 1;
     });
-    assert!(store.abort_agent_handle("agent_1"));
+    assert!(store.abort_agent_handle(&JsString::from("agent_1")));
     assert_eq!(*fired.lock().expect("fired"), 1);
-    assert!(!store.abort_agent_handle("agent_1"));
+    assert!(!store.abort_agent_handle(&JsString::from("agent_1")));
     drop(registration);
-    assert!(!store.abort_agent_handle("agent_1"));
+    assert!(!store.abort_agent_handle(&JsString::from("agent_1")));
 
     let fired = Arc::new(Mutex::new(0));
     let captured = fired.clone();
-    let registration = store.register_agent_abort_handler("agent_2", move || {
+    let registration = store.register_agent_abort_handler(&JsString::from("agent_2"), move || {
         *captured.lock().expect("fired") += 1;
     });
     drop(registration);
-    assert!(!store.abort_agent_handle("agent_2"));
+    assert!(!store.abort_agent_handle(&JsString::from("agent_2")));
     assert_eq!(*fired.lock().expect("fired"), 0);
 }
 
@@ -585,10 +589,10 @@ fn outbound_session_messages_are_recorded_without_a_local_target() {
     let store = new_store();
     let message = store
         .record_outbound_session_message(&RecordOutboundSessionMessageInput {
-            from_agent_id: "main".to_owned(),
-            to_agent_id: "remote-session".to_owned(),
-            body: "hello".to_owned(),
-            thread_id: Some("thread".to_owned()),
+            from_agent_id: "main".into(),
+            to_agent_id: "remote-session".into(),
+            body: "hello".into(),
+            thread_id: Some("thread".into()),
             file_refs: None,
         })
         .expect("record");
@@ -596,7 +600,7 @@ fn outbound_session_messages_are_recorded_without_a_local_target() {
     assert_eq!(message.status, MailboxMessageStatusValue::Pending);
     assert_eq!(
         store
-            .list_pending_mailbox_messages_for_agent("remote-session")
+            .list_pending_mailbox_messages_for_agent(&JsString::from("remote-session"))
             .unwrap()
             .len(),
         1
@@ -631,14 +635,14 @@ fn persisted_metadata_updates_survive_reopen() {
     let directory = tempfile::tempdir().expect("tempdir");
     let session = TestSession {
         control_db_path: directory.path().join("control.sqlite").display().to_string(),
-        session_path: "/sessions/main.jsonl".to_owned(),
+        session_path: "/sessions/main.jsonl".into(),
     };
     let store = new_store();
     store.set_persistence_session_manager(Some(&session));
-    let spawned = spawn_agent(&store, Some("root"));
+    let spawned = spawn_agent(&store, Some(&JsString::from("root")));
     let transcript = pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-        session_id: "child".to_owned(),
-        path: Some("/tmp/child.jsonl".to_owned()),
+        session_id: "child".into(),
+        path: Some("/tmp/child.jsonl".into()),
     };
     store.update_agent_transcript(&spawned.id, &transcript).expect("update");
     let state = read_multi_agent_state(&session.control_db_path, &session.session_path)
@@ -649,19 +653,16 @@ fn persisted_metadata_updates_survive_reopen() {
         state.agents[0]
             .get("transcript")
             .and_then(|transcript| transcript.get("sessionId"))
-            .and_then(|value| value.as_str()),
-        Some("child")
+            .and_then(|value| value.as_string()),
+        Some(&JsString::from("child"))
     );
 
     let restored = new_store();
     restored.restore_from_session_manager(&session).expect("restore");
     let agent = restored.get_agent(&spawned.id).expect("restored agent");
     assert_eq!(
-        agent
-            .transcript
-            .as_ref()
-            .map(|transcript| transcript.session_id.as_str()),
-        Some("child")
+        agent.transcript.as_ref().map(|transcript| &transcript.session_id),
+        Some(&JsString::from("child"))
     );
 }
 
@@ -670,10 +671,10 @@ fn restore_clears_store_when_session_has_no_persisted_state() {
     let directory = tempfile::tempdir().expect("tempdir");
     let session = TestSession {
         control_db_path: directory.path().join("control.sqlite").display().to_string(),
-        session_path: "/sessions/empty.jsonl".to_owned(),
+        session_path: "/sessions/empty.jsonl".into(),
     };
     let store = new_store();
-    let spawned = spawn_agent(&store, Some("root"));
+    let spawned = spawn_agent(&store, Some(&JsString::from("root")));
     assert!(store.get_agent(&spawned.id).is_some());
     store.restore_from_session_manager(&session).expect("restore");
     assert!(store.list_agents().is_empty());
@@ -685,16 +686,16 @@ fn persisted_counters_are_shared_across_store_instances() {
     let directory = tempfile::tempdir().expect("tempdir");
     let session = TestSession {
         control_db_path: directory.path().join("control.sqlite").display().to_string(),
-        session_path: "/sessions/main.jsonl".to_owned(),
+        session_path: "/sessions/main.jsonl".into(),
     };
     let first = new_store();
     first.set_persistence_session_manager(Some(&session));
-    let first_agent = spawn_agent(&first, Some("root"));
+    let first_agent = spawn_agent(&first, Some(&JsString::from("root")));
     assert_eq!(first_agent.id, "agent_1");
 
     let second = new_store();
     second.set_persistence_session_manager(Some(&session));
-    let second_agent = spawn_agent(&second, Some("root"));
+    let second_agent = spawn_agent(&second, Some(&JsString::from("root")));
     assert_eq!(second_agent.id, "agent_2");
 }
 
@@ -703,27 +704,27 @@ fn crash_restore_clears_worker_handles_for_active_agents() {
     let directory = tempfile::tempdir().expect("tempdir");
     let session = TestSession {
         control_db_path: directory.path().join("control.sqlite").display().to_string(),
-        session_path: "/sessions/main.jsonl".to_owned(),
+        session_path: "/sessions/main.jsonl".into(),
     };
-    let mut agent = scout_input(Some("root"));
-    agent.id = "agent_1".to_owned();
+    let mut agent = scout_input(Some(&JsString::from("root")));
+    agent.id = "agent_1".into();
     agent.worker = Some(pi_coding_agent::core::multi_agent_store::AgentWorkerAdapter {
         adapter: pi_coding_agent::core::multi_agent_store::AgentWorkerAdapterKind::Runtime,
-        handle_id: "handle".to_owned(),
+        handle_id: "handle".into(),
         cwd: None,
         tool_call_id: None,
     });
     pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent(
         &session.control_db_path,
         &session.session_path,
-        "agent_1",
-        &serde_json::to_value(&agent).expect("agent"),
+        &JsString::from("agent_1"),
+        &js_json::to_value(&agent).expect("agent"),
     )
     .expect("bootstrap");
 
     let restored = new_store();
     restored.restore_from_session_manager(&session).expect("restore");
-    let agent = restored.get_agent("agent_1").expect("agent");
+    let agent = restored.get_agent(&JsString::from("agent_1")).expect("agent");
     assert_eq!(agent.lifecycle, AgentLifecycle::Running);
     assert_eq!(agent.worker, None);
 }
@@ -733,11 +734,11 @@ fn restore_preserves_waiting_notifications_and_mailbox_messages() {
     let directory = tempfile::tempdir().expect("tempdir");
     let session = TestSession {
         control_db_path: directory.path().join("control.sqlite").display().to_string(),
-        session_path: "/sessions/main.jsonl".to_owned(),
+        session_path: "/sessions/main.jsonl".into(),
     };
     let store = new_store();
     store.set_persistence_session_manager(Some(&session));
-    let spawned = spawn_agent(&store, Some("root"));
+    let spawned = spawn_agent(&store, Some(&JsString::from("root")));
     transition(&store, &spawned.id, 1, AgentLifecycle::WaitingForInput).expect("waiting");
     assert_eq!(store.list_mailbox_messages().unwrap().len(), 1);
 
@@ -746,15 +747,15 @@ fn restore_preserves_waiting_notifications_and_mailbox_messages() {
     let messages = restored.list_mailbox_messages().unwrap();
     assert_eq!(messages.len(), 1);
     assert_eq!(
-        messages[0].thread_id.as_deref(),
-        Some(format!("agent-waiting-for-input:{}", spawned.id).as_str())
+        messages[0].thread_id.as_ref(),
+        Some(&pi_js_compat::js_format!("agent-waiting-for-input:{}", spawned.id))
     );
 }
 
 #[test]
 fn listeners_registered_on_restored_sessions_are_dropped_by_restore() {
     let store = new_store();
-    let spawned = spawn_agent(&store, Some("root"));
+    let spawned = spawn_agent(&store, Some(&JsString::from("root")));
     let notified = Arc::new(Mutex::new(0));
     let captured = notified.clone();
     let _subscription = store.subscribe_agent_updates(move |_, _| {
@@ -762,8 +763,8 @@ fn listeners_registered_on_restored_sessions_are_dropped_by_restore() {
     });
     store.invalidate_in_flight_dispatches();
     let transcript = pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-        session_id: "child".to_owned(),
-        path: Some("/tmp/child.jsonl".to_owned()),
+        session_id: "child".into(),
+        path: Some("/tmp/child.jsonl".into()),
     };
     store.update_agent_transcript(&spawned.id, &transcript).expect("update");
     assert_eq!(*notified.lock().expect("notified"), 1);
@@ -774,11 +775,11 @@ fn runtime_mailbox_listeners_are_not_registered_by_the_store() {
     let directory = tempfile::tempdir().expect("tempdir");
     let session = TestSession {
         control_db_path: directory.path().join("control.sqlite").display().to_string(),
-        session_path: "/sessions/main.jsonl".to_owned(),
+        session_path: "/sessions/main.jsonl".into(),
     };
     let store = new_store();
     store.set_persistence_session_manager(Some(&session));
-    let _ = spawn_agent(&store, Some("root"));
+    let _ = spawn_agent(&store, Some(&JsString::from("root")));
     assert!(
         list_runtime_mailbox_listeners(&session.control_db_path)
             .expect("listeners")
