@@ -547,16 +547,16 @@ pub enum NotifyType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThemeInfo {
-    pub name: String,
+    pub name: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
+    pub path: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThemeSetResult {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub error: Option<JsString>,
 }
 
 /// UI surface exposed to extensions. Defaults match the source `noOpUIContext`;
@@ -661,14 +661,14 @@ pub trait ExtensionUiContext: Send + Sync {
     }
 
     /// Load a theme by name without switching to it.
-    fn get_theme(&self, _name: &str) -> Option<Arc<Theme>> {
+    fn get_theme(&self, _name: &JsString) -> Option<Arc<Theme>> {
         None
     }
 
-    fn set_theme(&self, _theme: &str) -> ThemeSetResult {
+    fn set_theme(&self, _theme: &JsString) -> ThemeSetResult {
         ThemeSetResult {
             success: false,
-            error: Some("UI not available".to_owned()),
+            error: Some("UI not available".into()),
         }
     }
 
@@ -676,7 +676,7 @@ pub trait ExtensionUiContext: Send + Sync {
     fn set_theme_object(&self, _theme: Arc<Theme>) -> ThemeSetResult {
         ThemeSetResult {
             success: false,
-            error: Some("UI not available".to_owned()),
+            error: Some("UI not available".into()),
         }
     }
 

@@ -1,5 +1,11 @@
 # theme.ts traceability
 
+## Common-pin native theme contract
+
+`Theme.name/source_path`, ThemeInfo, registered/current/watched names and paths, load/get/set APIs, auto-setting names, export text and extension ThemeSetResult use `JsString`. JSON uses `parse_lossless` and `JsValue`/`JsObject`; variable keys/references and validation labels/errors retain raw units. No scalar/raw copies or early encode adapter. Actual read/existence/watch paths encode at filesystem operations only; numeric hex channels project only their parseInt grammar prefix.
+
+`raw_theme_native.rs` tests native file metadata/registry/get-set, raw variable resolution/errors, and frozen source differential 24 file scenarios: high/low/pair × valid, slash-name error, raw variable validation error, missing reference, partial/invalid surrogate hex channels, circular reference and missing file. Paths themselves contain raw units and map to Node UTF8 only at file IO. Actual theme/controller/chalk/watch modules compile in the isolated harness; settings/source-info/highlighter/config fixtures bound proof to explicit theme files. No watcher/controller integration or full theme acceptance is claimed. `/tmp/q18-theme-native-source-green3.log` records GREEN. Parent owns SettingsManager native migration and whole-coding gate.
+
 Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines). Rust: `crates/pi-coding-agent/src/modes/interactive/theme/mod.rs`. JSON asset identity, actual inclusion paths and unresolved schema distribution are mapped separately in [theme assets](theme-assets.md).
 
 ## Exported symbols
