@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::AgentToolResult;
-use pi_js_compat::string::js_trim;
 use pi_js_compat::{
     js_format, js_json as json,
     js_json::{JsString, JsValue as Value},
@@ -48,7 +47,7 @@ const CRASH_RECOVERY_PROMPT: &str = "Continue the conversation from where it lef
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpawnAgentParams {
-    pub agent_type: Option<String>,
+    pub agent_type: Option<JsString>,
     pub context: Option<String>,
     pub display_name: Option<JsString>,
     pub parent_id: Option<JsString>,
@@ -58,7 +57,7 @@ pub struct SpawnAgentParams {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachSessionAgentParams {
-    pub agent_type: Option<String>,
+    pub agent_type: Option<JsString>,
     pub display_name: Option<JsString>,
     pub name: Option<JsString>,
     pub parent_id: Option<JsString>,
@@ -283,11 +282,10 @@ fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError>
     let agent_type = input
         .params
         .agent_type
-        .as_deref()
-        .map(js_trim)
+        .as_ref()
+        .map(JsString::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("default")
-        .to_owned();
+        .unwrap_or_else(|| "default".into());
     let profile = resolve_configured_agent_profile(&agent_type, &input.ctx)?;
     let display_name = input
         .params
@@ -299,10 +297,9 @@ fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError>
             input
                 .params
                 .agent_type
-                .as_deref()
-                .map(js_trim)
+                .as_ref()
+                .map(JsString::trim)
                 .filter(|value| !value.is_empty())
-                .map(JsString::from)
         })
         .unwrap_or_else(|| "Agent".into());
     let prepared = coordinator
@@ -314,7 +311,7 @@ fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError>
                 origin: None,
                 cwd: input.ctx.cwd()?,
                 permission: AgentPermission {
-                    policy: "on-request".to_owned(),
+                    policy: "on-request".into(),
                     inherited_from: None,
                     narrowed: true,
                 },
@@ -693,11 +690,10 @@ fn create_attached_agent(
 ) -> Result<Result<AgentSnapshot, (JsString, Option<AgentSnapshot>)>, HandlerError> {
     let agent_type = params
         .agent_type
-        .as_deref()
-        .map(js_trim)
+        .as_ref()
+        .map(JsString::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("resumed-session")
-        .to_owned();
+        .unwrap_or_else(|| "resumed-session".into());
     let parent = params
         .parent_id
         .as_ref()
@@ -756,14 +752,9 @@ fn build_attached_session_permission(
     ctx: &ExtensionContext,
 ) -> Result<AgentPermission, HandlerError> {
     let Some(parent_id) = parent_id else {
-        let policy = match ctx.settings_manager()? {
-            Some(settings) => settings
-                .lock()
-                .expect("settings")
-                .get_approval_policy()
-                .as_str()
-                .to_owned(),
-            None => "on-request".to_owned(),
+        let policy: JsString = match ctx.settings_manager()? {
+            Some(settings) => settings.lock().expect("settings").get_approval_policy().as_str().into(),
+            None => "on-request".into(),
         };
         return Ok(AgentPermission {
             policy,
@@ -776,7 +767,7 @@ fn build_attached_session_permission(
         policy: parent
             .as_ref()
             .map(|parent| parent.permission.policy.clone())
-            .unwrap_or_else(|| "on-request".to_owned()),
+            .unwrap_or_else(|| "on-request".into()),
         inherited_from: Some(parent_id.to_owned()),
         narrowed: true,
     })
@@ -1054,7 +1045,7 @@ fn has_live_agent_owner(input: &RecoverAgentsInput, agent: &AgentSnapshot) -> Re
 }
 
 fn resolve_configured_agent_profile(
-    agent_type: &str,
+    agent_type: &JsString,
     ctx: &ExtensionContext,
 ) -> Result<ResolvedAgentProfile, HandlerError> {
     let Some(settings) = ctx.settings_manager()? else {

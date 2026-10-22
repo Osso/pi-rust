@@ -757,7 +757,7 @@ fn create_attached_settings_manager(
         },
     )
     .map_err(|error| error.message().to_owned())?;
-    let approval_policy = normalize_approval_policy(Some(&agent.permission.policy));
+    let approval_policy = normalize_approval_policy(agent.permission.policy.to_utf8().ok().as_deref());
     let mut overrides = Settings::new();
     overrides.insert(
         "approvalPolicy".into(),

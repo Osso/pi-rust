@@ -663,11 +663,11 @@ async fn prepare_background_runtime(
             spawn: crate::core::multi_agent_store::SpawnAgent {
                 parent_id: None,
                 display_name: "Background Job".into(),
-                agent_type: "background".to_owned(),
+                agent_type: "background".into(),
                 origin: None,
                 cwd: ctx.cwd()?,
                 permission: crate::core::multi_agent_store::AgentPermission {
-                    policy: "on-request".to_owned(),
+                    policy: "on-request".into(),
                     inherited_from: None,
                     narrowed: true,
                 },
