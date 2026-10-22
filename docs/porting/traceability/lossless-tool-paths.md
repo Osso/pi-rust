@@ -14,6 +14,7 @@ Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
 | `shorten_path`, `render_tool_path`, `get_text_output`, `link_path` | `JsString` | propagation implemented; source terminal integration pending native TUI and utility refresh |
 | file URL | percent-encoded Node UTF-8 boundary | differential URL fixture pending |
 | `LsTool`, `LsOperations` | raw cwd, callback paths and directory entries; UTF-16 locale sort | callback order, raw output and missing-path error compared to frozen TS |
+| code-index outline/symbol/references | native cwd, argv, custom stdout/stderr and render suffixes | custom callback argv/cwd/result unit test PASS; actual CLI execution differential pending |
 | `GrepTool`, `GrepOperations`, context blocks | native cwd/path/glob, parsed event filename, custom read content and output prefixes | frozen TS missing-path callback/error differential PASS; raw context-prefix behavior test added; actual rg stream process proof pending |
 | `FindTool`, `FindOperations`, result relativization | native cwd, paths, pattern, ignore list and result entries | frozen custom-glob callback order/arguments/raw result differential PASS; actual fd execution excluded |
 | `EditTool`, `EditOperations`, diff preview cwd | raw paths and custom write content; native preview keys/error text | inside-pair edit callback/content/result/details compared to TS; preview UI integration pending |
@@ -49,6 +50,16 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 ## Utility checkpoint (after parent refresh `8f3aebbe`)
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
+
+## Code-index checkpoint
+
+`CodeIndexOperations::run` now receives `&[JsString]` argv and `&JsString` cwd; `CodeIndexCommandResult` stdout/stderr are native. Only LocalCodeIndexOperations encodes argv/cwd and decodes stream bytes. All three tool constructors/factories and render targets/suffixes are native. `lossless_code_index.rs` tests custom raw cwd/path/show arguments and retained output. `code-index-red.log`: compiler RED. `code-index-green.log`: **1/1 actual-module test PASS, zero warnings**. Existing trait-based code-index tests need signature/fixture adaptation; no real-process proof from this custom test.
+
+## Actual tool renderer differential
+
+`native_tool_renderers_match_frozen_raw_path_and_error_lines` exercises **six actual call/result renderers** (write/read/edit/ls/find/grep), actual Theme/Chalk, highlighter, diff/key-hints and native pi-tui Text/Box/Container. Forced hyperlink support verifies both retained styled path units and Node UTF-8 percent-encoding at the URL boundary. Raw multiline error text survives actual component rendering. Every returned UTF-16 line equals frozen TS, including ANSI controls and padding. `renderers-green.log`: **1/1 fixture PASS, six renderer pairs, zero warnings**.
+
+`renderers-red{,-diagnostic}.log` exposed a fixture-ordering error, not a production defect: TS stores its call component inside state; Rust `ToolExecutionComponent` carries it explicitly in `ToolRenderContext.call_component` (tool_execution.rs:278). The test now reproduces that actual caller sequence before rendering the result/header. Config discovery, settings persistence and extension execution wrappers are still probe support stubs; no whole interactive-mode or actual terminal-write proof is claimed.
 
 ## Native diff/key hints checkpoint
 

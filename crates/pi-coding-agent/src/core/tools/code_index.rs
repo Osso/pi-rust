@@ -3,6 +3,7 @@
 //! Thin wrappers over the external `code-index` CLI. Renderers are pending
 //! `theme.ts`.
 
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::io;
@@ -13,7 +14,7 @@ use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::js_json as json;
-use pi_js_compat::js_json::{JsObject as Map, JsValue as Value, encode_node_utf8};
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
@@ -49,8 +50,8 @@ const REFERENCE_KINDS: [&str; 5] = ["call", "inherit", "implement", "import", "t
 /// Result of running the external CLI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeIndexCommandResult {
-    pub stdout: String,
-    pub stderr: String,
+    pub stdout: JsString,
+    pub stderr: JsString,
     pub exit_code: Option<i32>,
 }
 
@@ -58,8 +59,8 @@ pub struct CodeIndexCommandResult {
 pub trait CodeIndexOperations: Send + Sync {
     fn run<'a>(
         &'a self,
-        args: &'a [String],
-        cwd: &'a str,
+        args: &'a [JsString],
+        cwd: &'a JsString,
         signal: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, io::Result<CodeIndexCommandResult>>;
 }
@@ -71,8 +72,8 @@ pub struct LocalCodeIndexOperations;
 impl CodeIndexOperations for LocalCodeIndexOperations {
     fn run<'a>(
         &'a self,
-        args: &'a [String],
-        cwd: &'a str,
+        args: &'a [JsString],
+        cwd: &'a JsString,
         signal: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, io::Result<CodeIndexCommandResult>> {
         Box::pin(async move { run_code_index_command("code-index", args, cwd, signal).await })
@@ -88,8 +89,8 @@ pub struct CodeIndexToolOptions {
 
 async fn run_code_index_command(
     code_index_path: &str,
-    args: &[String],
-    cwd: &str,
+    args: &[JsString],
+    cwd: &JsString,
     signal: Option<&CancellationToken>,
 ) -> io::Result<CodeIndexCommandResult> {
     if signal.is_some_and(CancellationToken::is_cancelled) {
@@ -97,8 +98,8 @@ async fn run_code_index_command(
     }
     let mut command = tokio::process::Command::new(code_index_path);
     command
-        .args(args)
-        .current_dir(cwd)
+        .args(args.iter().map(encode_node_utf8))
+        .current_dir(encode_node_utf8(cwd))
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
         .stdin(std::process::Stdio::null())
@@ -122,8 +123,8 @@ async fn run_code_index_command(
     let stdout = String::from_utf8_lossy(&stdout_task.await.unwrap_or_default()).into_owned();
     let stderr = String::from_utf8_lossy(&stderr_task.await.unwrap_or_default()).into_owned();
     Ok(CodeIndexCommandResult {
-        stdout,
-        stderr,
+        stdout: stdout.into(),
+        stderr: stderr.into(),
         exit_code: status.and_then(|status| status.code()),
     })
 }
@@ -147,8 +148,8 @@ async fn wait_with_cancellation(
 
 fn execute_code_index(
     operations: Arc<dyn CodeIndexOperations>,
-    cwd: String,
-    args: Vec<String>,
+    cwd: JsString,
+    args: Vec<JsString>,
     signal: Option<CancellationToken>,
 ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
     Box::pin(async move {
@@ -171,17 +172,17 @@ fn execute_code_index(
             } else if !result.stdout.trim().is_empty() {
                 result.stdout.trim().to_owned()
             } else {
-                format!(
+                JsString::from(format!(
                     "code-index exited with code {}",
                     result.exit_code.map_or("null".to_owned(), |code| code.to_string())
-                )
+                ))
             };
             return Err(ToolError::new(message));
         }
 
         let raw_output = result.stdout.trim_end();
         let output = if raw_output.is_empty() {
-            "No results found".to_owned()
+            JsString::from("No results found")
         } else {
             raw_output.to_owned()
         };
@@ -212,17 +213,17 @@ fn execute_code_index(
 
 /// `outline` tool.
 pub struct OutlineTool {
-    cwd: String,
+    cwd: JsString,
     parameters: SchemaValue,
     operations: Arc<dyn CodeIndexOperations>,
 }
 
 impl OutlineTool {
-    pub fn new(cwd: impl Into<String>) -> Self {
+    pub fn new(cwd: impl Into<JsString>) -> Self {
         Self::with_options(cwd, CodeIndexToolOptions::default())
     }
 
-    pub fn with_options(cwd: impl Into<String>, options: CodeIndexToolOptions) -> Self {
+    pub fn with_options(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> Self {
         Self {
             cwd: cwd.into(),
             parameters: outline_schema(),
@@ -269,17 +270,17 @@ impl AgentTool for OutlineTool {
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
-        let mut args = vec!["outline".to_owned()];
+        let mut args = vec!["outline".into()];
         args.push(string_argument(&params, "path").unwrap_or_default());
         if bool_argument(&params, "digest") {
-            args.push("--digest".to_owned());
+            args.push("--digest".into());
         }
         if let Some(glob) = string_argument(&params, "glob") {
-            args.push("--glob".to_owned());
+            args.push("--glob".into());
             args.push(glob);
         }
         if let Some(show) = string_argument(&params, "show") {
-            args.push("--show".to_owned());
+            args.push("--show".into());
             args.push(show);
         }
         execute_code_index(Arc::clone(&self.operations), self.cwd.clone(), args, signal)
@@ -288,17 +289,17 @@ impl AgentTool for OutlineTool {
 
 /// `symbol` tool.
 pub struct SymbolTool {
-    cwd: String,
+    cwd: JsString,
     parameters: SchemaValue,
     operations: Arc<dyn CodeIndexOperations>,
 }
 
 impl SymbolTool {
-    pub fn new(cwd: impl Into<String>) -> Self {
+    pub fn new(cwd: impl Into<JsString>) -> Self {
         Self::with_options(cwd, CodeIndexToolOptions::default())
     }
 
-    pub fn with_options(cwd: impl Into<String>, options: CodeIndexToolOptions) -> Self {
+    pub fn with_options(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> Self {
         Self {
             cwd: cwd.into(),
             parameters: symbol_schema(),
@@ -353,14 +354,14 @@ impl AgentTool for SymbolTool {
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
-        let mut args = vec!["symbol".to_owned()];
+        let mut args = vec!["symbol".into()];
         args.push(string_argument(&params, "name").unwrap_or_default());
         if let Some(kind) = string_argument(&params, "kind") {
-            args.push("--kind".to_owned());
+            args.push("--kind".into());
             args.push(kind);
         }
         if let Some(file) = string_argument(&params, "file") {
-            args.push("--file".to_owned());
+            args.push("--file".into());
             args.push(file);
         }
         execute_code_index(Arc::clone(&self.operations), self.cwd.clone(), args, signal)
@@ -369,17 +370,17 @@ impl AgentTool for SymbolTool {
 
 /// `references` tool.
 pub struct ReferencesTool {
-    cwd: String,
+    cwd: JsString,
     parameters: SchemaValue,
     operations: Arc<dyn CodeIndexOperations>,
 }
 
 impl ReferencesTool {
-    pub fn new(cwd: impl Into<String>) -> Self {
+    pub fn new(cwd: impl Into<JsString>) -> Self {
         Self::with_options(cwd, CodeIndexToolOptions::default())
     }
 
-    pub fn with_options(cwd: impl Into<String>, options: CodeIndexToolOptions) -> Self {
+    pub fn with_options(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> Self {
         Self {
             cwd: cwd.into(),
             parameters: references_schema(),
@@ -424,18 +425,18 @@ impl AgentTool for ReferencesTool {
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
-        let mut args = vec!["references".to_owned()];
+        let mut args = vec!["references".into()];
         args.push(string_argument(&params, "name").unwrap_or_default());
         if let Some(kind) = string_argument(&params, "kind") {
-            args.push("--kind".to_owned());
+            args.push("--kind".into());
             args.push(kind);
         }
         execute_code_index(Arc::clone(&self.operations), self.cwd.clone(), args, signal)
     }
 }
 
-fn string_argument(params: &JsValue, name: &str) -> Option<String> {
-    params.get(name).and_then(Value::as_string).map(encode_node_utf8)
+fn string_argument(params: &JsValue, name: &str) -> Option<JsString> {
+    params.get(name).and_then(Value::as_string).cloned()
 }
 
 fn bool_argument(params: &JsValue, name: &str) -> bool {
@@ -446,9 +447,14 @@ fn bool_argument(params: &JsValue, name: &str) -> bool {
 // Renderers
 // ============================================================================
 
-fn format_code_index_call(tool_name: &str, target: Option<String>, theme: &Theme, suffix: Option<String>) -> String {
+fn format_code_index_call(
+    tool_name: &str,
+    target: Option<JsString>,
+    theme: &Theme,
+    suffix: Option<JsString>,
+) -> JsString {
     let invalid_arg = invalid_arg_text(theme);
-    let mut text = format!(
+    let mut text = js_format!(
         "{} {}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold(tool_name)),
         match target {
@@ -457,7 +463,7 @@ fn format_code_index_call(tool_name: &str, target: Option<String>, theme: &Theme
         }
     );
     if let Some(suffix) = suffix.filter(|suffix| !suffix.is_empty()) {
-        text.push_str(&theme.fg(ThemeColor::ToolOutput, &format!(" {suffix}")));
+        text.push_str(&theme.fg(ThemeColor::ToolOutput, js_format!(" {}", suffix)));
     }
     text
 }
@@ -467,24 +473,23 @@ fn format_code_index_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     show_images: bool,
-) -> String {
+) -> JsString {
     let output = get_text_output(Some(result), show_images).trim().to_owned();
-    let mut text = String::new();
+    let mut text = JsString::default();
     if !output.is_empty() {
         let lines = output.split('\n').collect::<Vec<_>>();
         let max_lines = if options.expanded { lines.len() } else { 20 };
         let display_lines = lines.iter().take(max_lines).collect::<Vec<_>>();
         let remaining = lines.len().saturating_sub(max_lines);
-        text.push_str(&format!(
+        text.push_str(js_format!(
             "\n{}",
-            display_lines
-                .iter()
-                .map(|line| theme.fg(ThemeColor::ToolOutput, line))
-                .collect::<Vec<_>>()
-                .join("\n")
+            JsString::join(
+                display_lines.iter().map(|line| theme.fg(ThemeColor::ToolOutput, *line)),
+                "\n"
+            )
         ));
         if remaining > 0 {
-            text.push_str(&format!(
+            text.push_str(js_format!(
                 "{}{}{}",
                 theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
@@ -499,7 +504,7 @@ fn format_code_index_result(
         .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok())
         .filter(|truncation| truncation.truncated)
     {
-        text.push_str(&format!(
+        text.push_str(js_format!(
             "\n{}",
             theme.fg(
                 ThemeColor::Warning,
@@ -515,15 +520,15 @@ pub fn outline_render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderC
     let suffix = {
         let mut parts = Vec::new();
         if args.get("digest").and_then(Value::as_bool).unwrap_or(false) {
-            parts.push("digest".to_owned());
+            parts.push(JsString::from("digest"));
         }
         if let Some(glob) = str_value(args.get("glob")).filter(|glob| !glob.is_empty()) {
             parts.push(glob);
         }
         if let Some(show) = str_value(args.get("show")).filter(|show| !show.is_empty()) {
-            parts.push(format!("show {show}"));
+            parts.push(js_format!("show {}", show));
         }
-        (!parts.is_empty()).then(|| format!("({})", parts.join(", ")))
+        (!parts.is_empty()).then(|| js_format!("({})", JsString::join(&parts, ", ")))
     };
     Rc::new(RefCell::new(Text::new(
         format_code_index_call("outline", str_value(args.get("path")), theme, suffix),
@@ -540,9 +545,9 @@ pub fn symbol_render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderCo
             parts.push(kind);
         }
         if let Some(file) = str_value(args.get("file")).filter(|file| !file.is_empty()) {
-            parts.push(format!("in {}", shorten_path(&file)));
+            parts.push(js_format!("in {}", shorten_path(&file)));
         }
-        (!parts.is_empty()).then(|| format!("({})", parts.join(", ")))
+        (!parts.is_empty()).then(|| js_format!("({})", JsString::join(&parts, ", ")))
     };
     Rc::new(RefCell::new(Text::new(
         format_code_index_call("symbol", str_value(args.get("name")), theme, suffix),
@@ -555,7 +560,7 @@ pub fn symbol_render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderCo
 pub fn references_render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
     let suffix = str_value(args.get("kind"))
         .filter(|kind| !kind.is_empty())
-        .map(|kind| format!("({kind})"));
+        .map(|kind| js_format!("({})", kind));
     Rc::new(RefCell::new(Text::new(
         format_code_index_call("references", str_value(args.get("name")), theme, suffix),
         0,
@@ -587,7 +592,7 @@ fn with_renderers(tool: Arc<dyn AgentTool>, render_call: ToolRenderer, prompt_sn
 }
 
 /// `createOutlineToolDefinition`: outline plus renderers.
-pub fn create_outline_tool_definition(cwd: &str, options: CodeIndexToolOptions) -> ToolDefinition {
+pub fn create_outline_tool_definition(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> ToolDefinition {
     with_renderers(
         Arc::new(OutlineTool::with_options(cwd, options)),
         infallible_render_call(outline_render_call),
@@ -596,7 +601,7 @@ pub fn create_outline_tool_definition(cwd: &str, options: CodeIndexToolOptions) 
 }
 
 /// `createSymbolToolDefinition`: symbol plus renderers.
-pub fn create_symbol_tool_definition(cwd: &str, options: CodeIndexToolOptions) -> ToolDefinition {
+pub fn create_symbol_tool_definition(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> ToolDefinition {
     with_renderers(
         Arc::new(SymbolTool::with_options(cwd, options)),
         infallible_render_call(symbol_render_call),
@@ -605,7 +610,7 @@ pub fn create_symbol_tool_definition(cwd: &str, options: CodeIndexToolOptions) -
 }
 
 /// `createReferencesToolDefinition`: references plus renderers.
-pub fn create_references_tool_definition(cwd: &str, options: CodeIndexToolOptions) -> ToolDefinition {
+pub fn create_references_tool_definition(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> ToolDefinition {
     with_renderers(
         Arc::new(ReferencesTool::with_options(cwd, options)),
         infallible_render_call(references_render_call),
@@ -614,16 +619,16 @@ pub fn create_references_tool_definition(cwd: &str, options: CodeIndexToolOption
 }
 
 /// `createOutlineTool`: outline wrapped with the shared result cap.
-pub fn create_outline_tool(cwd: &str, options: CodeIndexToolOptions) -> Arc<dyn AgentTool> {
+pub fn create_outline_tool(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> Arc<dyn AgentTool> {
     wrap_agent_tool(Arc::new(OutlineTool::with_options(cwd, options)))
 }
 
 /// `createSymbolTool`: symbol wrapped with the shared result cap.
-pub fn create_symbol_tool(cwd: &str, options: CodeIndexToolOptions) -> Arc<dyn AgentTool> {
+pub fn create_symbol_tool(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> Arc<dyn AgentTool> {
     wrap_agent_tool(Arc::new(SymbolTool::with_options(cwd, options)))
 }
 
 /// `createReferencesTool`: references wrapped with the shared result cap.
-pub fn create_references_tool(cwd: &str, options: CodeIndexToolOptions) -> Arc<dyn AgentTool> {
+pub fn create_references_tool(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> Arc<dyn AgentTool> {
     wrap_agent_tool(Arc::new(ReferencesTool::with_options(cwd, options)))
 }
