@@ -778,7 +778,7 @@ async fn get_shell_config(custom_shell_path: Option<&JsString>) -> Result<ShellC
     }
     if let Some(bash) = find_bash_on_path().await {
         return Ok(ShellConfig {
-            shell: bash.into(),
+            shell: bash,
             args: vec!["-c".to_owned()],
         });
     }
@@ -788,16 +788,18 @@ async fn get_shell_config(custom_shell_path: Option<&JsString>) -> Result<ShellC
     })
 }
 
-async fn find_bash_on_path() -> Option<String> {
+async fn find_bash_on_path() -> Option<JsString> {
     let (stdout, status) = run_command("which", &["bash"], 5000).await?;
     if status != 0 || stdout.is_empty() {
         return None;
     }
-    let first_match = stdout.trim().lines().next()?.trim();
-    if first_match.is_empty() || !path_exists(&first_match.into()).await {
+    let trimmed = JsString::from(stdout).trim();
+    let first_match = trimmed.split('\n').next()?;
+    let first_match = first_match.strip_suffix("\r").unwrap_or(first_match);
+    if first_match.is_empty() || !path_exists(&first_match).await {
         return None;
     }
-    Some(first_match.to_owned())
+    Some(first_match)
 }
 
 async fn run_command(command: &str, args: &[&str], timeout_ms: u64) -> Option<(String, i32)> {
@@ -836,7 +838,9 @@ fn kill_process_tree(pid: u32) {
     let Some(pid) = rustix::process::Pid::from_raw(pid as i32) else {
         return;
     };
-    let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+    if rustix::process::kill_process_group(pid, rustix::process::Signal::KILL).is_err() {
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+    }
 }
 
 async fn create_parent_dir(resolved: &JsString) -> Result<(), FileError> {
