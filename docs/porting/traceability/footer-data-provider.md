@@ -48,4 +48,8 @@ Tests: `crates/pi-coding-agent/tests/footer_data_provider.rs` (ports
 
 ## Discrepancies
 
-None found.
+The extension-status Map-order discrepancy below was found and corrected during native migration.
+
+## Native extension statuses
+
+Status setters/getter/storage use `JsString`; getter returns `IndexMap<JsString,JsString>` to preserve frozen `Map` insertion order. Raw status replacement/removal/clear and exact entry order are compared with actual frozen FooterDataProvider in `raw_footer_statuses` (non-repository temp directory; no git watcher toggled). Existing BTreeMap sorted `a` before previously inserted `z`, unlike source (behavioral RED); native insertion-order storage corrects that Rust discrepancy. Git/session-override surfaces are unchanged by this slice.
