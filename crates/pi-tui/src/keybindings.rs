@@ -226,8 +226,9 @@ impl KeybindingsManager {
         }
     }
 
-    pub fn matches(&self, data: &str, keybinding: &str) -> bool {
-        self.get_keys(keybinding).iter().any(|key| matches_key(data, key))
+    pub fn matches(&self, data: impl Into<pi_js_compat::js_json::JsString>, keybinding: &str) -> bool {
+        let data = data.into();
+        self.get_keys(keybinding).iter().any(|key| matches_key(&data, key))
     }
 
     pub fn get_keys(&self, keybinding: &str) -> Vec<KeyId> {

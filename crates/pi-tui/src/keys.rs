@@ -5,6 +5,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::text_units::ascii_protocol;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::string::utf16_len;
 
 /// Event types from the Kitty keyboard protocol (flag 2).
@@ -584,7 +586,16 @@ fn legacy_sequence_key_id(data: &str) -> Option<&'static str> {
 }
 
 /// Match input data against a key identifier string.
-pub fn matches_key(data: &str, key_id: &str) -> bool {
+pub fn matches_key(data: impl Into<JsString>, key_id: impl Into<JsString>) -> bool {
+    let data = data.into();
+    let key_id = key_id.into().to_lowercase();
+    let (Some(data), Some(key_id)) = (ascii_protocol(&data), ascii_protocol(&key_id)) else {
+        return false;
+    };
+    matches_ascii_key(&data, &key_id)
+}
+
+fn matches_ascii_key(data: &str, key_id: &str) -> bool {
     let Some(parsed) = parse_key_id(key_id) else {
         return false;
     };
@@ -950,7 +961,12 @@ fn format_symbol_key(codepoint: i64, modifier: i64) -> Option<String> {
 }
 
 /// Parse input data and return the key identifier if recognized.
-pub fn parse_key(data: &str) -> Option<String> {
+pub fn parse_key(data: impl Into<JsString>) -> Option<JsString> {
+    let data = ascii_protocol(&data.into())?;
+    parse_ascii_key(&data).map(JsString::from)
+}
+
+fn parse_ascii_key(data: &str) -> Option<String> {
     if let Some(kitty) = parse_kitty_sequence(data) {
         return format_parsed_key(kitty.codepoint, kitty.modifier, kitty.base_layout_key);
     }
@@ -1044,7 +1060,12 @@ pub fn parse_key(data: &str) -> Option<String> {
 const KITTY_PRINTABLE_ALLOWED_MODIFIERS: i64 = MOD_SHIFT | LOCK_MASK;
 
 /// Decode a Kitty CSI-u sequence into a printable character, if applicable.
-pub fn decode_kitty_printable(data: &str) -> Option<String> {
+pub fn decode_kitty_printable(data: impl Into<JsString>) -> Option<JsString> {
+    let data = ascii_protocol(&data.into())?;
+    decode_ascii_kitty_printable(&data)
+}
+
+fn decode_ascii_kitty_printable(data: &str) -> Option<JsString> {
     let parsed = parse_kitty_csi_u(data)?;
 
     let modifier = parsed.modifier;
@@ -1066,10 +1087,10 @@ pub fn decode_kitty_printable(data: &str) -> Option<String> {
         return None;
     }
 
-    char::from_u32(u32::try_from(effective_codepoint).ok()?).map(|character| character.to_string())
+    native_codepoint(effective_codepoint)
 }
 
-fn decode_modify_other_keys_printable(data: &str) -> Option<String> {
+fn decode_modify_other_keys_printable(data: &str) -> Option<JsString> {
     let parsed = parse_modify_other_keys_sequence(data)?;
     let modifier = parsed.modifier & !LOCK_MASK;
     if modifier & !MOD_SHIFT != 0 {
@@ -1078,32 +1099,44 @@ fn decode_modify_other_keys_printable(data: &str) -> Option<String> {
     if parsed.codepoint < 32 {
         return None;
     }
-    char::from_u32(u32::try_from(parsed.codepoint).ok()?).map(|character| character.to_string())
+    native_codepoint(parsed.codepoint)
 }
 
 /// Decode a printable character from Kitty CSI-u or xterm modifyOtherKeys input.
-pub fn decode_printable_key(data: &str) -> Option<String> {
-    decode_kitty_printable(data).or_else(|| decode_modify_other_keys_printable(data))
+pub fn decode_printable_key(data: impl Into<JsString>) -> Option<JsString> {
+    let data = ascii_protocol(&data.into())?;
+    decode_ascii_kitty_printable(&data).or_else(|| decode_modify_other_keys_printable(&data))
+}
+
+fn native_codepoint(codepoint: i64) -> Option<JsString> {
+    let codepoint = u32::try_from(codepoint).ok()?;
+    if codepoint <= u32::from(u16::MAX) {
+        Some(JsString::from_utf16(vec![codepoint as u16]))
+    } else {
+        char::from_u32(codepoint).map(JsString::from)
+    }
 }
 
 /// Check if the input contains a Kitty key-release event.
-pub fn is_key_release(data: &str) -> bool {
+pub fn is_key_release(data: impl Into<JsString>) -> bool {
+    let data = data.into();
     if data.contains("\x1b[200~") {
         return false;
     }
     [":3u", ":3~", ":3A", ":3B", ":3C", ":3D", ":3H", ":3F"]
         .iter()
-        .any(|marker| data.contains(marker))
+        .any(|marker| data.contains(*marker))
 }
 
 /// Check if the input contains a Kitty key-repeat event.
-pub fn is_key_repeat(data: &str) -> bool {
+pub fn is_key_repeat(data: impl Into<JsString>) -> bool {
+    let data = data.into();
     if data.contains("\x1b[200~") {
         return false;
     }
     [":2u", ":2~", ":2A", ":2B", ":2C", ":2D", ":2H", ":2F"]
         .iter()
-        .any(|marker| data.contains(marker))
+        .any(|marker| data.contains(*marker))
 }
 
 /// Typed key-identifier helpers, mirroring the source `Key` object.
@@ -1176,76 +1209,76 @@ impl Key {
     pub const GREATER_THAN: &'static str = ">";
     pub const QUESTION: &'static str = "?";
 
-    pub fn ctrl(key: &str) -> String {
-        format!("ctrl+{key}")
+    pub fn ctrl(key: impl Into<JsString>) -> JsString {
+        JsString::from("ctrl+") + key.into()
     }
 
-    pub fn shift(key: &str) -> String {
-        format!("shift+{key}")
+    pub fn shift(key: impl Into<JsString>) -> JsString {
+        JsString::from("shift+") + key.into()
     }
 
-    pub fn alt(key: &str) -> String {
-        format!("alt+{key}")
+    pub fn alt(key: impl Into<JsString>) -> JsString {
+        JsString::from("alt+") + key.into()
     }
 
-    pub fn super_key(key: &str) -> String {
-        format!("super+{key}")
+    pub fn super_key(key: impl Into<JsString>) -> JsString {
+        JsString::from("super+") + key.into()
     }
 
-    pub fn ctrl_shift(key: &str) -> String {
-        format!("ctrl+shift+{key}")
+    pub fn ctrl_shift(key: impl Into<JsString>) -> JsString {
+        JsString::from("ctrl+shift+") + key.into()
     }
 
-    pub fn shift_ctrl(key: &str) -> String {
-        format!("shift+ctrl+{key}")
+    pub fn shift_ctrl(key: impl Into<JsString>) -> JsString {
+        JsString::from("shift+ctrl+") + key.into()
     }
 
-    pub fn ctrl_alt(key: &str) -> String {
-        format!("ctrl+alt+{key}")
+    pub fn ctrl_alt(key: impl Into<JsString>) -> JsString {
+        JsString::from("ctrl+alt+") + key.into()
     }
 
-    pub fn alt_ctrl(key: &str) -> String {
-        format!("alt+ctrl+{key}")
+    pub fn alt_ctrl(key: impl Into<JsString>) -> JsString {
+        JsString::from("alt+ctrl+") + key.into()
     }
 
-    pub fn shift_alt(key: &str) -> String {
-        format!("shift+alt+{key}")
+    pub fn shift_alt(key: impl Into<JsString>) -> JsString {
+        JsString::from("shift+alt+") + key.into()
     }
 
-    pub fn alt_shift(key: &str) -> String {
-        format!("alt+shift+{key}")
+    pub fn alt_shift(key: impl Into<JsString>) -> JsString {
+        JsString::from("alt+shift+") + key.into()
     }
 
-    pub fn ctrl_super(key: &str) -> String {
-        format!("ctrl+super+{key}")
+    pub fn ctrl_super(key: impl Into<JsString>) -> JsString {
+        JsString::from("ctrl+super+") + key.into()
     }
 
-    pub fn super_ctrl(key: &str) -> String {
-        format!("super+ctrl+{key}")
+    pub fn super_ctrl(key: impl Into<JsString>) -> JsString {
+        JsString::from("super+ctrl+") + key.into()
     }
 
-    pub fn shift_super(key: &str) -> String {
-        format!("shift+super+{key}")
+    pub fn shift_super(key: impl Into<JsString>) -> JsString {
+        JsString::from("shift+super+") + key.into()
     }
 
-    pub fn super_shift(key: &str) -> String {
-        format!("super+shift+{key}")
+    pub fn super_shift(key: impl Into<JsString>) -> JsString {
+        JsString::from("super+shift+") + key.into()
     }
 
-    pub fn alt_super(key: &str) -> String {
-        format!("alt+super+{key}")
+    pub fn alt_super(key: impl Into<JsString>) -> JsString {
+        JsString::from("alt+super+") + key.into()
     }
 
-    pub fn super_alt(key: &str) -> String {
-        format!("super+alt+{key}")
+    pub fn super_alt(key: impl Into<JsString>) -> JsString {
+        JsString::from("super+alt+") + key.into()
     }
 
-    pub fn ctrl_shift_alt(key: &str) -> String {
-        format!("ctrl+shift+alt+{key}")
+    pub fn ctrl_shift_alt(key: impl Into<JsString>) -> JsString {
+        JsString::from("ctrl+shift+alt+") + key.into()
     }
 
-    pub fn ctrl_shift_super(key: &str) -> String {
-        format!("ctrl+shift+super+{key}")
+    pub fn ctrl_shift_super(key: impl Into<JsString>) -> JsString {
+        JsString::from("ctrl+shift+super+") + key.into()
     }
 }
 

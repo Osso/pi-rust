@@ -38,3 +38,12 @@ pub fn insert(text: &mut JsString, index: usize, value: impl Into<JsString>) {
 pub fn truncate(text: &mut JsString, length: usize) {
     *text = text.slice(0, length);
 }
+
+/// Recognize the ASCII keyboard protocol grammar without changing native input.
+/// This projection is never component text state, a rendered line, or a fallback.
+pub fn ascii_protocol(data: &JsString) -> Option<String> {
+    data.units()
+        .iter()
+        .map(|unit| u8::try_from(*unit).ok().filter(u8::is_ascii).map(char::from))
+        .collect()
+}

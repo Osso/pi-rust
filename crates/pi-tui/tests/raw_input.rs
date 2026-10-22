@@ -25,6 +25,7 @@ struct Output {
 fn native_input_edits_paste_kill_yank_undo_and_submit_match_frozen_source() {
     let mut oracle = oracle::TsOracle::spawn("raw-tui-oracle.ts", "packages/tui/src");
     let scenarios = [
+        json!([{ "key": [27,91,53,53,50,57,54,117] }, { "key": [27,91,53,54,51,50,48,117] }, { "key": [13] }]),
         json!([{ "key": [97] }, { "set": [55357,56832] }, { "key": [120] }, { "key": [13] }]),
         json!([{ "key": [97] }, { "set": [55357,56832] }, { "key": [127] }, { "key": [31] }]),
         json!([{ "key": [97] }, { "set": [55357,56832] }, { "key": [27,91,51,126] }, { "key": [31] }]),

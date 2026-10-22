@@ -118,3 +118,19 @@ candidate strings are native UTF-16. Generic query/candidate inputs lift once in
 7 raw queries against 6 concrete candidates, matching scores and filter identity:
 high, low, half-pair, pair/slash, digit/letter swaps, Greek combining/lowercase tokens.
 Native API RED then frozen source differential GREEN.
+
+## Keyboard text decoding
+
+`keys::{matches_key,parse_key,decode_kitty_printable,decode_printable_key,
+is_key_release,is_key_repeat}` accept native inputs. Printable decoder outputs and
+Key identifier templates retain native units, including numeric surrogate codepoints.
+ASCII keyboard grammar recognition is a parser-only transient projection; raw input
+is never component text/output state or a compatibility fallback. Key IDs lowercase
+natively before grammar recognition, preserving e.g. Kelvin-sign -> ASCII k matching.
+Out-of-range numeric gaps are unchanged.
+
+`raw_keys`: six frozen decoder cases (high/low/pair/shifted/modifyOtherKeys), four
+native key/identifier/event cases. Behavioral RED caught source CSI-u 55296 decoding
+to a high surrogate while baseline returned None. GREEN retains raw output. Input
+source corpus expanded from 108 to 126 scenarios with Kitty high+low insertion and
+submission; previous 108 histories remain included and pass after decoder migration.

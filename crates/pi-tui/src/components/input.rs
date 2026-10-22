@@ -306,8 +306,7 @@ impl Input {
         }
 
         let keybindings = get_keybindings();
-        let ascii = ascii_protocol(data);
-        let matches = |command| ascii.as_ref().is_some_and(|value| keybindings.matches(value, command));
+        let matches = |command| keybindings.matches(data, command);
         if matches("tui.select.cancel") {
             if let Some(on_escape) = &self.on_escape {
                 on_escape();
@@ -389,8 +388,8 @@ impl Input {
             return;
         }
 
-        if let Some(printable) = ascii.as_ref().and_then(|value| decode_kitty_printable(value)) {
-            self.insert_character(&JsString::from(printable));
+        if let Some(printable) = decode_kitty_printable(data) {
+            self.insert_character(&printable);
             return;
         }
 
@@ -417,15 +416,6 @@ fn replace_first(data: &JsString, pattern: &str) -> JsString {
         return data.clone();
     };
     data.slice(0, index) + data.slice(index + pattern.len(), data.len())
-}
-
-// Keyboard protocol recognition is ASCII-only. This projection is never used
-// as text state or output; ordinary input retains the original native units.
-fn ascii_protocol(data: &JsString) -> Option<String> {
-    data.units()
-        .iter()
-        .map(|unit| u8::try_from(*unit).ok().filter(u8::is_ascii).map(char::from))
-        .collect()
 }
 
 impl Component for Input {

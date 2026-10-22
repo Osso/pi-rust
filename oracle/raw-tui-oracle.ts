@@ -39,7 +39,16 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "fuzzy") {
+			} else if (request.operation === "key_identity") {
+                const module = await import(pathToFileURL(path.join(source, "keys.ts")).href);
+                const input = native(request.units);
+                const key = native(request.key);
+                output = [module.matchesKey(input, key), module.Key.ctrl(key), module.Key.alt(key), module.isKeyRelease(input), module.isKeyRepeat(input)];
+            } else if (request.operation === "keys") {
+                const module = await import(pathToFileURL(path.join(source, "keys.ts")).href);
+                const input = native(request.units);
+                output = [module.decodePrintableKey(input) ?? null, module.parseKey(input) ?? null, module.isKeyRelease(input), module.isKeyRepeat(input)];
+            } else if (request.operation === "fuzzy") {
                 const module = await import(pathToFileURL(path.join(source, "fuzzy.ts")).href);
                 const query = native(request.query);
                 const items = request.items.map(native);
