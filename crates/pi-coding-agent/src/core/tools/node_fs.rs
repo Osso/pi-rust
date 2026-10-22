@@ -5,6 +5,11 @@ pub use pi_js_compat::node_fs::{node_fs_error, node_promises_read_error, node_re
 use pi_js_compat::js_json::JsString;
 use std::io;
 
+/// Preserve native messages through Operations traits, whose error carrier is IO.
+pub fn operation_error(message: impl Into<JsString>) -> io::Error {
+    io::Error::other(crate::core::extensions::types::HandlerError::new(message))
+}
+
 /// Custom sandbox operations carry native extension errors through the IO trait.
 /// Only actual OS errors use their already-scalar filesystem diagnostic.
 pub fn operation_error_message(error: &io::Error) -> JsString {

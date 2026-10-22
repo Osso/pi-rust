@@ -26,9 +26,11 @@ Approved by parent against the common pin on 2026-10-21: path/program inputs and
 | Unix connect/listen | Address text remains raw | `sockets_keep_raw_address_in_connect_and_listen_errors` |
 | NUL path validation | Inspect original UTF-16 before any FS call; truncate inspection by units | `nul_validation_inspects_raw_units_before_any_boundary_repair` |
 
-Evidence: direct builtin Node probes covered open/read/write/mkdir/stat/access/readdir in both sync/promises APIs, spawn/spawnSync, and Unix connect/listen. In-crate runner-backed RED `/tmp/pi-rust-repin-lossless-tools/node-origin-red.log` passed the two fs-origin cases and failed spawn/socket/NUL because scalar APIs forced premature encoding. No mock filesystem or probe crate is involved. GREEN pending at this checkpoint.
+Evidence: direct builtin Node probes covered open/read/write/mkdir/stat/access/readdir in both sync/promises APIs, spawn/spawnSync, and Unix connect/listen. In-crate runner-backed RED `/tmp/pi-rust-repin-lossless-tools/node-origin-red.log` passed the two fs-origin cases and failed spawn/socket/NUL because scalar APIs forced premature encoding. No mock filesystem or probe crate is involved. In-crate GREEN at revision `22c4fc90`: `node-origin-green.log`, 5/5 passed. Existing shared scalar filesystem/inspection regression suite is adapted; execution pending at the caller checkpoint.
 
 Additional observed origin distinction: rmSync's EISDIR directory validation retains raw path text; its OS-origin EACCES message repairs the path. The two branches remain explicit in `node_rm_error`, not a blanket sanitizer. Console inspection escapes lone units and preserves valid pairs.
+
+Owned local Operations pass raw paths to the shared formatter and encode only at FS calls. `core/tools/node_fs::operation_error` uses the existing native `HandlerError` IO carrier; `operation_error_message` recovers its sole message authority. `lossless_tool_paths::native_operation_error_survives_the_io_carrier` covers it. Tool wrapper spill paths/footer/details are native (`lossless_tool_output_spill`); coding-library execution remains blocked. Outside callers are assigned to main/owners in the lane inventory.
 
 ## Q18 close-error prerequisite
 

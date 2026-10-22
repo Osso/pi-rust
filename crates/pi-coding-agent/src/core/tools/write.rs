@@ -49,19 +49,17 @@ pub struct LocalWriteOperations;
 impl WriteOperations for LocalWriteOperations {
     fn write_file<'a>(&'a self, absolute_path: &'a JsString, content: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
-            let path = encode_node_utf8(absolute_path);
-            tokio::fs::write(&path, encode_node_utf8(content))
+            tokio::fs::write(encode_node_utf8(absolute_path), encode_node_utf8(content))
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "open", &path)))
+                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "open", absolute_path)))
         })
     }
 
     fn mkdir<'a>(&'a self, directory: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
-            let directory = encode_node_utf8(directory);
-            tokio::fs::create_dir_all(&directory)
+            tokio::fs::create_dir_all(encode_node_utf8(directory))
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "mkdir", &directory)))
+                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "mkdir", directory)))
         })
     }
 }

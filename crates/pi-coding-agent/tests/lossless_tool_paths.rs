@@ -12,6 +12,13 @@ use pi_coding_agent::core::tools::write::{WriteOperations, WriteTool, WriteToolO
 use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
 
 #[test]
+fn native_operation_error_survives_the_io_carrier() {
+    use pi_coding_agent::core::tools::node_fs::{operation_error, operation_error_message};
+    let message = JsString::from("operation-") + JsString::from_utf16(vec![0xd800]);
+    assert_eq!(operation_error_message(&operation_error(message.clone())), message);
+}
+
+#[test]
 fn native_tool_renderers_match_frozen_raw_path_and_error_lines() {
     use pi_coding_agent::core::extensions::types::{ToolRenderContext, ToolRenderResultOptions, ToolRenderState};
     use pi_coding_agent::core::tools::{edit, find, grep, ls, read, write};

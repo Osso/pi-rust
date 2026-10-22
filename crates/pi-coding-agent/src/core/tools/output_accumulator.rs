@@ -262,7 +262,7 @@ impl OutputAccumulator {
         }
         let path = self.configured_temp_file_path.clone();
         let file = File::create(encode_node_utf8(&path))
-            .unwrap_or_else(|error| throw_uncaught(ERROR, node_fs_error(&error, "open", &encode_node_utf8(&path))));
+            .unwrap_or_else(|error| throw_uncaught(ERROR, node_fs_error(&error, "open", &path)));
         self.temp_file = Some(file);
         self.temp_file_path = Some(path);
         let chunks = std::mem::take(&mut self.raw_chunks);
@@ -274,7 +274,7 @@ impl OutputAccumulator {
     fn write_to_temp_file(&mut self, data: &[u8]) {
         if let Some(file) = self.temp_file.as_mut() {
             file.write_all(data)
-                .unwrap_or_else(|error| throw_uncaught(ERROR, node_fs_error(&error, "write", "")));
+                .unwrap_or_else(|error| throw_uncaught(ERROR, node_fs_error(&error, "write", &JsString::default())));
         }
     }
 }

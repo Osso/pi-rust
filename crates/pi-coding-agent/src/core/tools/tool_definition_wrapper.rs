@@ -25,7 +25,7 @@ use crate::core::extensions::types::{ExtensionContext, HandlerError, ToolDefinit
 /// TypeScript `writeFileSync` throw would have aborted the tool call.
 #[derive(Debug, Default)]
 pub struct ToolOutputSpill {
-    pub full_output_path: Option<String>,
+    pub full_output_path: Option<JsString>,
     pub error: Option<JsString>,
 }
 
@@ -54,9 +54,9 @@ pub fn cap_tool_result_output(
         .full_output_path
         .get_or_insert_with(create_full_output_path)
         .clone();
-    std::fs::write(&full_output_path, encode_node_utf8(&full_text))
+    std::fs::write(encode_node_utf8(&full_output_path), encode_node_utf8(&full_text))
         .map_err(|error| ToolError::new(node_fs_error(&error, "open", &full_output_path)))?;
-    let footer = format!(
+    let footer = pi_js_compat::js_format!(
         "[Showing last {} of {}. Full output: {}]",
         format_size(truncation.output_bytes),
         format_size(truncation.total_bytes),
@@ -328,7 +328,7 @@ fn has_existing_output_details(details: Option<&JsValue>) -> bool {
 fn merge_output_details(
     details: Option<JsValue>,
     truncation: &super::truncate::TruncationResult,
-    full_output_path: &str,
+    full_output_path: &JsString,
 ) -> JsValue {
     let mut merged = match details {
         Some(JsValue::Object(details)) => details,
@@ -342,11 +342,11 @@ fn merge_output_details(
     JsValue::Object(merged)
 }
 
-fn create_full_output_path() -> String {
+fn create_full_output_path() -> JsString {
     let id = pi_ai::utils::uuid::random_uuid().replace('-', "");
     let id = &id[..16];
-    std::env::temp_dir()
-        .join(format!("pi-tool-{id}.log"))
-        .to_string_lossy()
-        .into_owned()
+    crate::utils::paths::node_join(
+        std::env::temp_dir().to_string_lossy().into_owned(),
+        format!("pi-tool-{id}.log"),
+    )
 }

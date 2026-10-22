@@ -156,8 +156,7 @@ pub async fn compute_edit_diff(
 }
 
 async fn read_editable_file(absolute_path: &JsString, display_path: &JsString) -> Result<String, JsString> {
-    let absolute_path = encode_node_utf8(absolute_path);
-    let mut file = match tokio::fs::File::open(&absolute_path).await {
+    let mut file = match tokio::fs::File::open(&encode_node_utf8(absolute_path)).await {
         Ok(file) => file,
         Err(error) => {
             return Err(JsString::from("Could not edit file: ")
