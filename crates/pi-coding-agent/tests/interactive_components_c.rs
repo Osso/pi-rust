@@ -402,7 +402,9 @@ impl EditorHost for TestHost {
 
 impl ExtensionEditorHost for TestHost {
     fn suspend(&self) {}
-    fn resume(&self) {}
+    fn resume(&self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+        Ok(())
+    }
     fn request_forced_render(&self) {}
 }
 

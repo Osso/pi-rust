@@ -1577,8 +1577,8 @@ impl ExtensionEditorHost for InteractiveTuiHost {
         self.0.stop();
     }
 
-    fn resume(&self) {
-        let _ = self.0.start();
+    fn resume(&self) -> Result<(), TerminalRawModeError> {
+        self.0.start()
     }
 
     fn request_forced_render(&self) {
