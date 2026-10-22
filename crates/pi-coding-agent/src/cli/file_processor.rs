@@ -78,7 +78,7 @@ async fn read_file_argument(
         .await
         .map_err(|error| FileProcessorError::new(js_format!("Could not read file {}: {}", path, error.to_string())))?;
     if let Some(mime_type) = mime_type {
-        return Ok(process_image_argument(path, &content, mime_type, auto_resize_images).await);
+        return Ok(process_image_argument(path, &content, &mime_type, auto_resize_images).await);
     }
     Ok(ProcessedFiles {
         text: js_format!(

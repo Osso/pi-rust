@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Duration;
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_tui::TUI;
 use pi_tui::terminal::Terminal;
 use pi_tui::tui::{ComponentRef, TuiExt};
@@ -20,8 +21,8 @@ use crate::modes::interactive::theme::{init_theme, stop_theme_watcher};
 pub struct ConfigSelectorOptions {
     pub resolved_paths: ScopedResolvedPaths,
     pub settings_manager: Rc<RefCell<SettingsManager>>,
-    pub cwd: String,
-    pub agent_dir: String,
+    pub cwd: JsString,
+    pub agent_dir: JsString,
     pub write_scope: ConfigWriteScope,
     pub project_mode_available: bool,
 }
@@ -44,12 +45,12 @@ const POLL_INTERVAL: Duration = Duration::from_millis(5);
 pub fn select_config(
     options: ConfigSelectorOptions,
     terminal: Rc<RefCell<dyn Terminal>>,
-) -> Result<SelectConfigOutcome, String> {
-    let theme = options.settings_manager.borrow().get_theme_setting().map(str::to_owned);
-    init_theme(theme.as_deref(), true).map_err(|error| error.to_string())?;
+) -> Result<SelectConfigOutcome, JsString> {
+    let theme = options.settings_manager.borrow().get_theme_setting().cloned();
+    init_theme(theme.as_ref(), true).map_err(|error| error.message().clone())?;
 
     let agent_dir = options.agent_dir.clone();
-    let ui = TUI::with_options(terminal, None, Some(PathBuf::from(&agent_dir)));
+    let ui = TUI::with_options(terminal, None, Some(PathBuf::from(encode_node_utf8(&agent_dir))));
     let (sender, receiver) = channel::<SelectConfigOutcome>();
     let close_sender = sender.clone();
     let exit_sender = sender.clone();
@@ -78,7 +79,7 @@ pub fn select_config(
     let selector: ComponentRef = Rc::new(RefCell::new(selector));
     ui.add_child(Rc::clone(&selector));
     ui.set_focus(Some(Rc::clone(&selector)));
-    ui.start().map_err(|error| error.to_string())?;
+    ui.start().map_err(|error| JsString::from(error.to_string()))?;
 
     let outcome = wait_for_close(&ui, &receiver);
     ui.stop();
@@ -101,16 +102,16 @@ impl crate::package_manager_cli::ConfigSelector for TuiConfigSelector {
     fn select<'a>(
         &'a self,
         request: crate::package_manager_cli::SelectConfigRequest,
-    ) -> crate::package_manager_cli::LocalBoxFuture<'a, Result<(), String>> {
+    ) -> crate::package_manager_cli::LocalBoxFuture<'a, Result<(), JsString>> {
         Box::pin(async move {
             let settings_manager = SettingsManager::create(
                 &request.cwd,
-                Some(std::path::Path::new(&request.agent_dir)),
+                Some(&request.agent_dir),
                 crate::core::settings_manager::SettingsManagerCreateOptions {
                     project_trusted: Some(request.project_mode_available),
                 },
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| error.message().clone())?;
             let outcome = select_config(
                 ConfigSelectorOptions {
                     resolved_paths: ScopedResolvedPaths {
