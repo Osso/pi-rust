@@ -369,7 +369,14 @@ fn args_json(args: &Args) -> Value {
     }
     insert_string(&mut output, "name", &args.name);
     insert_bool(&mut output, "noSession", args.no_session);
-    insert_string(&mut output, "session", &args.session);
+    insert_string(
+        &mut output,
+        "session",
+        &args
+            .session
+            .as_ref()
+            .map(|session| session.to_utf8().expect("argv fixtures are well-formed")),
+    );
     insert_string(&mut output, "sessionId", &args.session_id);
     insert_string(&mut output, "fork", &args.fork);
     insert_string(&mut output, "sessionDir", &args.session_dir);

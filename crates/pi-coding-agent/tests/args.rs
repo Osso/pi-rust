@@ -147,8 +147,8 @@ fn parses_flags_with_values() {
     assert_eq!(parse(&["--mode", "text"]).mode, Some(Mode::Text));
     assert_eq!(parse(&["--mode", "bogus"]).mode, None);
     assert_eq!(
-        parse(&["--session", "/path/to/session.jsonl"]).session.as_deref(),
-        Some("/path/to/session.jsonl")
+        parse(&["--session", "/path/to/session.jsonl"]).session,
+        Some("/path/to/session.jsonl".into())
     );
     assert_eq!(
         parse(&["--session-id", "orchestrated-session"]).session_id.as_deref(),

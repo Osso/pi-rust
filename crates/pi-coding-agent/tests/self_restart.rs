@@ -113,7 +113,7 @@ fn resumes_the_requested_session_without_submitting_the_restart_notice_as_a_prom
             old_pid: None,
         }),
     );
-    assert_eq!(args.session.as_deref(), Some("/tmp/session.jsonl"));
+    assert_eq!(args.session, Some("/tmp/session.jsonl".into()));
     assert!(args.messages.is_empty());
     assert!(args.file_args.is_empty());
     assert_eq!(args.continue_session, Some(true));

@@ -1531,7 +1531,7 @@ pub async fn create_session_manager(
         };
     }
 
-    if let Some(session) = parsed.session.as_deref().map(JsString::from) {
+    if let Some(session) = parsed.session.clone() {
         let resolved = resolve_session_path(&session, cwd, session_dir, control_db_path).map_err(|error| {
             console_error(Chalk::stderr().red(js_format!("Error: {}", error)));
             MainExit(1)

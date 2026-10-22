@@ -129,7 +129,8 @@ pub struct Args {
     pub name: Option<String>,
     pub no_session: Option<bool>,
     pub no_supervisor: Option<bool>,
-    pub session: Option<String>,
+    /// Native because the self-restart handoff replaces it with a persisted session path.
+    pub session: Option<JsString>,
     pub session_id: Option<String>,
     pub fork: Option<String>,
     pub session_dir: Option<String>,
@@ -239,7 +240,7 @@ pub fn parse_args(args: &[String]) -> Args {
             "--no-session" => result.no_session = Some(true),
             "--no-supervisor" => result.no_supervisor = Some(true),
             "--session" if next.is_some() => {
-                result.session = next.map(str::to_owned);
+                result.session = next.map(JsString::from);
                 index += 1;
             }
             "--session-id" if next.is_some() => {
