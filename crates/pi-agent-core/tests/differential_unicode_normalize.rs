@@ -5,6 +5,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use serde_json::{Value, json};
 
 use pi_agent_core::unicode::{normalize_nfc, normalize_nfd, normalize_nfkc, normalize_nfkd};
+use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
 
 const SOURCE_LOCK: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -32,7 +33,7 @@ impl Oracle {
         Self { child, stdin, stdout }
     }
 
-    fn request(&mut self, request: &Value) -> Value {
+    fn request(&mut self, request: &JsValue) -> JsValue {
         serde_json::to_writer(&mut self.stdin, request).expect("oracle request must serialize");
         self.stdin
             .write_all(b"\n")
@@ -44,7 +45,7 @@ impl Oracle {
             .read_line(&mut line)
             .expect("oracle response must be readable");
         assert_ne!(bytes_read, 0, "oracle must return one response per request");
-        serde_json::from_str(&line).expect("oracle response must be valid JSON")
+        parse_lossless(&line).expect("oracle response must be valid native JSON")
     }
 }
 
@@ -161,30 +162,65 @@ fn corpus() -> Vec<&'static str> {
 }
 
 #[test]
+fn lone_units_are_inert_starters_in_all_four_normalization_forms() {
+    let mut oracle = Oracle::spawn();
+    let cases = [
+        vec![0xd800],
+        vec![0xdfff],
+        vec![0xd800, 0xd800],
+        vec![0xdc00, 0xd800],
+        vec![0x41, 0xd800, 0x030a],
+        vec![0x65, 0xdfff, 0x0301],
+        vec![0x41, 0x030a, 0xd800, 0x0323],
+        vec![0xd800, 0x41, 0x030a, 0xdfff],
+        vec![0xd83d, 0xde00, 0xd800, 0x0301],
+        vec![0xfb01, 0xd800, 0x212b, 0x0323],
+        vec![0x1100, 0xd800, 0x1161],
+        vec![0xd800, 0x0301, 0x0323, 0xdfff],
+    ];
+    let normalizers: [(&str, fn(&JsString) -> JsString); 4] = [
+        ("nfc", normalize_nfc),
+        ("nfd", normalize_nfd),
+        ("nfkc", normalize_nfkc),
+        ("nfkd", normalize_nfkd),
+    ];
+    for (index, units) in cases.into_iter().enumerate() {
+        let text = JsString::from_utf16(units);
+        let request = pi_js_compat::js_json!({"id": index, "text": text});
+        let response = oracle.request(&request);
+        for (form, normalize) in normalizers {
+            let expected = response["result"][form].as_string().unwrap();
+            assert_eq!(normalize(&text).units(), expected.units(), "{form} native case {index}");
+        }
+    }
+}
+
+#[test]
 fn normalization_forms_match_node_icu() {
     let mut oracle = Oracle::spawn();
     for (index, text) in corpus().iter().enumerate() {
-        let response = oracle.request(&json!({"id": index, "text": text}));
-        assert_eq!(response["id"], json!(index), "oracle response id");
+        let response = oracle.request(&JsValue::from(json!({"id": index, "text": text})));
+        assert_eq!(response["id"].as_f64(), Some(index as f64), "oracle response id");
+        let text = JsString::from(*text);
         let expected = &response["result"];
         assert_eq!(
-            normalize_nfc(text),
-            expected["nfc"].as_str().expect("NFC string"),
+            normalize_nfc(&text),
+            expected["nfc"].as_string().expect("NFC string").clone(),
             "NFC case {index}: {text:?}"
         );
         assert_eq!(
-            normalize_nfd(text),
-            expected["nfd"].as_str().expect("NFD string"),
+            normalize_nfd(&text),
+            expected["nfd"].as_string().expect("NFD string").clone(),
             "NFD case {index}: {text:?}"
         );
         assert_eq!(
-            normalize_nfkc(text),
-            expected["nfkc"].as_str().expect("NFKC string"),
+            normalize_nfkc(&text),
+            expected["nfkc"].as_string().expect("NFKC string").clone(),
             "NFKC case {index}: {text:?}"
         );
         assert_eq!(
-            normalize_nfkd(text),
-            expected["nfkd"].as_str().expect("NFKD string"),
+            normalize_nfkd(&text),
+            expected["nfkd"].as_string().expect("NFKD string").clone(),
             "NFKD case {index}: {text:?}"
         );
     }

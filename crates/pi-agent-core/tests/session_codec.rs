@@ -221,6 +221,26 @@ fn encodes_every_record_variant_in_typescript_key_order() {
 }
 
 #[test]
+fn native_messages_and_payload_keys_round_trip_in_durable_records() {
+    use pi_js_compat::js_json::parse_lossless;
+    let raw_message = r#"{"role":"providerFailure","errorMessage":"\ud800!\udfff","\ud800":{"\udfff":"raw"}}"#;
+    let entry = format!(r#"{{"type":"message","id":"message","message":{raw_message}}}"#);
+    let bodies = [
+        format!(r#""type":"operation_started","id":"r","lane":"main","sourceLeafId":null,"intent":{{"kind":"run","originalPrompt":[{raw_message}],"initialMessages":[{entry}]}}"#),
+        format!(r#""type":"queue_enqueued","id":"r","lane":"main","queue":"nextRun","target":{entry}"#),
+        format!(r#""type":"write_deferred","id":"r","lane":"main","runId":"run","target":{entry}"#),
+        r#""type":"operation_finished","id":"r","lane":"main","runId":"run","outcome":"failed","error":{"code":"provider","message":"\ud800!\udfff"}"#.to_owned(),
+        r#""type":"tool_started","id":"r","lane":"main","runId":"run","assistantEntryId":"a","toolIndex":0,"toolCallId":"call","toolName":"read","effectiveArgs":{"\ud800":"\udfff"},"resultEntryId":"result","replay":"safe""#.to_owned(),
+    ];
+    for body in bodies {
+        let input = format!(r#"{{"kind":"record",{body},"seq":1,"timestamp":2}}"#);
+        let mutation = parse_mutation(&input).unwrap();
+        let output = encode_mutation(&mutation).unwrap();
+        assert_eq!(parse_lossless(&output).unwrap(), parse_lossless(&input).unwrap());
+    }
+}
+
+#[test]
 fn seq_and_timestamp_must_be_javascript_safe_integers() {
     // `Number.isSafeInteger` rejects 2^53 and non-integral numbers; TS accepts
     // integral floats such as 1.0 because they are still integers.
