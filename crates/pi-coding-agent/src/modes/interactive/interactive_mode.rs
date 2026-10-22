@@ -2736,7 +2736,7 @@ pub struct InteractiveMode {
     streaming_message: RefCell<Option<AssistantMessage>>,
     pending_tools: RefCell<IndexMap<JsString, ComponentRef>>,
     executing_tool_names: RefCell<IndexMap<String, String>>,
-    executing_tool_started_at: RefCell<IndexMap<JsString, f64>>,
+    executing_tool_started_at: RefCell<IndexMap<String, f64>>,
     completed_tool_timings: RefCell<IndexMap<JsString, (f64, f64)>>,
     extension_statuses: RefCell<IndexMap<JsString, JsString>>,
     extension_widgets_above: RefCell<IndexMap<JsString, ExtensionWidget>>,
@@ -6310,7 +6310,7 @@ fn changelog_display_for(
     let markdown = new_entries
         .iter()
         .map(|entry| {
-            let entry_version = js_format!("{}.{}.{}", entry.major, entry.minor, entry.patch);
+            let entry_version = format!("{}.{}.{}", entry.major, entry.minor, entry.patch);
             crate::utils::changelog::normalize_changelog_links_for_entry(&entry.content, &entry_version)
         })
         .collect::<Vec<_>>()
@@ -8335,7 +8335,7 @@ impl InteractiveMode {
             self.show_error("Failed to parse gist ID from gh output");
             return;
         };
-        let preview_url = crate::config::get_share_viewer_url(gist_id);
+        let preview_url = crate::config::get_share_viewer_url(&encode_node_utf8(&gist_id));
         self.show_status(&js_format!("Share URL: {}\nGist: {}", preview_url, gist_url));
     }
 
@@ -8351,7 +8351,7 @@ impl InteractiveMode {
             return;
         };
         match crate::utils::clipboard::copy_to_clipboard(
-            &encode_node_utf8(&text),
+            &text,
             &crate::utils::clipboard_image::ClipboardEnvironment::from_process(),
             None,
         )
@@ -8471,7 +8471,8 @@ impl InteractiveMode {
         };
         let url = js_format!(
             "https://pi.dev/api/report-install?version={}",
-            crate::utils::url_encoding::encode_uri_component(version)
+            pi_js_compat::string::encode_uri_component(version)
+                .unwrap_or_else(|error| throw_uncaught("URIError", error.to_string()))
         );
         let user_agent = crate::utils::pi_user_agent::get_pi_user_agent(&version.into());
         tokio::task::spawn_local(async move {
@@ -8735,7 +8736,7 @@ impl InteractiveMode {
             return;
         };
         match crate::utils::clipboard::copy_to_clipboard(
-            &encode_node_utf8(&text),
+            &text,
             &crate::utils::clipboard_image::ClipboardEnvironment::from_process(),
             None,
         )

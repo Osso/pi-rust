@@ -28,3 +28,47 @@ fn search_tokens_and_regex_keep_unpaired_units() {
     let regex = parse_search_query(&(JsString::from("re:") + JsString::from_utf16(vec![0xd800])));
     assert!(regex.regex.unwrap().is_match(JsString::from_utf16(vec![0xd800])));
 }
+
+#[test]
+fn session_selector_renders_raw_name_and_returns_original_path() {
+    use pi_coding_agent::core::{keybindings::KeybindingsManager, session_manager::SessionInfo};
+    use pi_coding_agent::modes::interactive::components::{
+        session_selector::SessionList,
+        session_selector_search::{NameFilter, SortMode},
+    };
+    use pi_tui::Component;
+    let name = JsString::from_utf16(vec![0x6e, 0xd800, 0x6d, 0xdc00]);
+    let path = JsString::from_utf16(vec![0x2f, 0xd801, 0x2e, 0x6a]);
+    let info = SessionInfo {
+        path: path.clone(),
+        id: "raw-session".into(),
+        cwd: "/work".into(),
+        name: Some(name.clone()),
+        is_archived: Some(false),
+        parent_session_path: None,
+        created: 0,
+        modified: 0,
+        message_count: 1,
+        first_message: "body".into(),
+    };
+    let mut list = SessionList::new(
+        vec![info],
+        false,
+        SortMode::Recent,
+        NameFilter::All,
+        KeybindingsManager::new(Default::default(), None),
+        None,
+    );
+    assert_eq!(list.get_selected_session_path(), Some(&path));
+    assert!(list.render(120).iter().any(|line| line.contains(&name)));
+}
+
+#[test]
+fn tree_label_editor_keeps_units_through_input_and_render() {
+    use pi_coding_agent::modes::interactive::components::tree_selector::LabelInput;
+    use pi_tui::Component;
+    let label = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
+    let mut input = LabelInput::new(&"entry".into(), Some(&label));
+    assert_eq!(input.input().get_value(), &label);
+    assert!(input.render(80).iter().any(|line| line.contains(&label)));
+}
