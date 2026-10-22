@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/providers/amazon-bedrock.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -42,21 +43,21 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
         .prompt(AuthPrompt {
             signal: None,
             kind: AuthPromptKind::Select {
-                message: "Select Amazon Bedrock authentication method:".to_owned(),
+                message: "Select Amazon Bedrock authentication method:".into(),
                 options: vec![
                     AuthSelectOption {
-                        id: "bearer-token".to_owned(),
-                        label: "Bearer token".to_owned(),
+                        id: "bearer-token".into(),
+                        label: "Bearer token".into(),
                         description: None,
                     },
                     AuthSelectOption {
-                        id: "aws-profile".to_owned(),
-                        label: "AWS profile".to_owned(),
+                        id: "aws-profile".into(),
+                        label: "AWS profile".into(),
                         description: None,
                     },
                     AuthSelectOption {
-                        id: "credential-chain".to_owned(),
-                        label: "Existing AWS credential chain".to_owned(),
+                        id: "credential-chain".into(),
+                        label: "Existing AWS credential chain".into(),
                         description: None,
                     },
                 ],
@@ -71,7 +72,7 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
             .prompt(AuthPrompt {
                 signal: None,
                 kind: AuthPromptKind::Secret {
-                    message: "Enter Amazon Bedrock bearer token".to_owned(),
+                    message: "Enter Amazon Bedrock bearer token".into(),
                     placeholder: None,
                 },
             })
@@ -84,10 +85,10 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
     }
 
     interaction.notify(AuthEvent::Info {
-        message: "Amazon Bedrock supports AWS profiles, IAM credentials, and role-based credentials.".to_owned(),
+        message: "Amazon Bedrock supports AWS profiles, IAM credentials, and role-based credentials.".into(),
         links: Some(vec![AuthInfoLink {
-            url: "https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html".to_owned(),
-            label: Some("AWS credential provider chain".to_owned()),
+            url: "https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html".into(),
+            label: Some("AWS credential provider chain".into()),
         }]),
     });
 
@@ -96,7 +97,7 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
             .prompt(AuthPrompt {
                 signal: None,
                 kind: AuthPromptKind::Text {
-                    message: "Enter AWS profile name".to_owned(),
+                    message: "Enter AWS profile name".into(),
                     placeholder: None,
                 },
             })
@@ -104,13 +105,14 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
             .map_err(AuthError::Failed)?;
         return Ok(ApiKeyCredential {
             key: None,
-            env: Some([("AWS_PROFILE".to_owned(), profile)].into_iter().collect()),
+            env: Some([("AWS_PROFILE".into(), profile)].into_iter().collect()),
         });
     }
 
     if method != "credential-chain" {
-        return Err(AuthError::failed(format!(
-            "Unknown Amazon Bedrock auth method: {method}"
+        return Err(AuthError::failed(js_format!(
+            "Unknown Amazon Bedrock auth method: {}",
+            method
         )));
     }
 
@@ -118,7 +120,7 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
         .prompt(AuthPrompt {
             signal: None,
             kind: AuthPromptKind::Text {
-                message: "Configure AWS credentials, then press Enter to continue".to_owned(),
+                message: "Configure AWS credentials, then press Enter to continue".into(),
                 placeholder: None,
             },
         })
@@ -153,7 +155,7 @@ fn stored_key_result(input: &ApiKeyResolveInput) -> Option<AuthResult> {
     Some(AuthResult {
         auth: ModelAuth::default(),
         env: credential.env.clone(),
-        source: Some("stored credential".to_owned()),
+        source: Some("stored credential".into()),
     })
 }
 
@@ -161,7 +163,7 @@ fn ambient_result(source: &str) -> AuthResult {
     AuthResult {
         auth: ModelAuth::default(),
         env: None,
-        source: Some(source.to_owned()),
+        source: Some(source.into()),
     }
 }
 
@@ -182,7 +184,7 @@ async fn profile_result(input: &ApiKeyResolveInput) -> Result<Option<AuthResult>
     Ok(Some(AuthResult {
         auth: ModelAuth::default(),
         env: credential_env.cloned(),
-        source: Some(source.to_owned()),
+        source: Some(source.into()),
     }))
 }
 
@@ -216,9 +218,9 @@ async fn env_value(
     ctx: &Arc<dyn AuthContext>,
     name: &str,
     signal: &CancellationToken,
-) -> Result<Option<String>, AuthError> {
+) -> Result<Option<JsString>, AuthError> {
     check_aborted(signal)?;
-    let value = ctx.env(name).await;
+    let value = ctx.env(name).await.map(JsString::from);
     check_aborted(signal)?;
     Ok(value.filter(|value| !value.is_empty()))
 }
