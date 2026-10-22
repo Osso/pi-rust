@@ -24,10 +24,24 @@ The VM oracle loads immutable `fs-worker.cjs`, removes only its final `main()` i
 - Level-two preprocessing implements semantic pattern/file transformations; redundant pattern-set elimination is not needed to determine Boolean matches and remains absent. No general optimization-level-two corpus is claimed beyond the frozen-worker matrix.
 - Parent coding-agent library and pi-ai validation integration remain compiler-blocked by independent slices; standalone harness compiles the actual worker module, not a replica.
 
-Proof logs: `/tmp/pi-rust-repin-lossless-worker-matching/`. Shared regex factoring retains the former pi-ai constructor/matcher behavior; pi-ai integration is not yet compiled because parent library is blocked by other slices.
+Proof logs: `/tmp/pi-rust-repin-lossless-worker-matching/`. Shared regex factoring retains the former pi-ai constructor/matcher API; the documented native legacy-fold engine defect is corrected at the dependency root; pi-ai integration is not yet compiled because parent library is blocked by other slices.
 
 ## Native legacy canonicalization dependency fix
 
 Strengthened case-fold fixtures disproved upstream regress 0.12.0 parity: literal `s`, classes `[s]`/`[a-z]`, and backreferences accepted U+017F in legacy `/i`; `[k]` accepted U+212A, and literal/backreference `i` accepted U+0131. Actual Node rejects those in legacy mode. These are engine defects, not scalar/surrogate conversion defects. Bounded exact vendoring is authorized by main; provenance and retirement live in [dependencies](../../dependencies.md).
 
 `legacy_and_unicode_canonicalization_matches_node_for_literals_classes_ranges_and_backrefs` records the behavioral RED across literals, classes, ranges, and backreferences. Native uppercase canonicalization now prevents non-ASCII→ASCII folds; legacy class parsing and literal expansion share that same rule. Unicode mode retains the prior full-fold implementation and is compared separately with actual Node (`iu`). No complete V8 regex parity claim follows from this corpus.
+
+## Focused proof at final code
+
+- `492a17fd`: `cargo test -p pi-js-compat --test worker_matching -j4 -- --nocapture` — four passed; 5,544 raw minimatch, 616 frozen-worker matcher, and then-384 canonicalization comparisons.
+- `066b9b5b`: focused canonicalization test — passed after extending to 512 cases (word classes and a negated class); existing other matcher cases unchanged.
+- `066b9b5b`: `cargo test -p pi-js-compat --test differential_minimatch -j4 -- --nocapture` — three scalar regression tests passed.
+- `418cd576`: actual native worker standalone harness — eight passed within a command whose later raw-class tests failed. The subsequent dependency fix only adds missing canonical representatives to `/i` classes; those eight worker tests do not execute that affected branch, so their proof remains valid. The failure and subsequent focused GREEN are retained, not erased from the ledger.
+- Format checks: workspace and the two modified vendor files passed before the final code commit. No broad check/clippy/type gate run in this bounded slice.
+
+## Readability audit
+
+Manual changed-line audit performed; metrics executable absent. New raw syntax constants replace opaque numeric grammar units; shared regex stays 45 lines; worker tests were moved out of the production worker; structural error scanning is shared rather than duplicated. No new lint suppressions. Vendor audit covers only the two documented upstream deltas, not the unchanged imported engine.
+
+Retained violations in the existing full matcher algorithms (not extra refactor scope): `[LENGTH/COMPLEXITY]` `ast::parse_glob`, `class::parse_class`, `Minimatch::match_globstar`, brace sequence/expansion routines; `[LENGTH]` worker `run_operation_json`. AST file remains over 750 lines after raw text formatting. Source algorithm decomposition is deferred; no claim of a clean whole-module readability score.

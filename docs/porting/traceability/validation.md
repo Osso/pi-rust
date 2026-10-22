@@ -8,7 +8,7 @@ Spec: [shared validation](../../specs/validation.md).
 
 Rust authority: `crates/pi-ai/src/utils/validation.rs`; helper modules
 `validation_regex.rs`, `validation_formats.rs`, `validation_idna.rs`, and
-`validation_hash.rs` implement frozen dependent-engine semantics.
+`validation_hash.rs` implement frozen dependent-engine semantics. `validation_regex.rs` now re-exports the [shared native UTF-16 adapter](js-regex.md); parent-library integration proof remains separate from its focused matching corpus.
 
 On production revision `679e73d9`, sandboxed `cargo test -p pi-ai --test validation
 --test differential_validation` passes 28 units and six differential tests.

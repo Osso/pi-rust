@@ -27,10 +27,10 @@ bundled Pyrun extension for sandboxed runner invocations.
 - The full-access bash override creates the local bash definition with default
   options; detached-job/background-job wiring is owned by the bash tool port and
   is not re-applied here.
-- `find`/`grep` glob matching uses `pi_js_compat::minimatch` for Node
-  `path.matchesGlob`; grep regex matching uses `fancy-regex` so JS lookaround
-  and backreferences match. Invalid patterns fail the worker like the Node
-  `RegExp` constructor; fancy-regex's backtrack limit is a Rust-only guard.
+- `find`/`grep` matching now uses raw UTF-16 minimatch AST and the shared native
+  ECMAScript regex adapter. Actual frozen worker/Node options, exact tested
+  failure branches, engine provenance, and remaining unapproved limits are in
+  [worker matching](worker-matching.md); no scalar-only matcher is retained.
 - `fs-worker.cjs` reads files as UTF-8 for grep; the Rust worker uses
   `read_to_string` and skips the same expected read-error codes.
 - Session-start status: the source reads `ctx.ui.theme`, which throws when no
