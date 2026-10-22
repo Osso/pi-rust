@@ -90,20 +90,16 @@ impl OAuthAuth for OpenAICodexOAuth {
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
-            refresh_openai_codex(
-                &runtime,
-                &crate::auth::oauth::support::to_form_usv_string(&credential.refresh),
-                signal,
-            )
-            .await
-            .map_err(|error| AuthError::failed(error.message))
+            refresh_openai_codex(&runtime, &credential.refresh, signal)
+                .await
+                .map_err(|error| AuthError::failed(error.message))
         })
     }
 
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some((credential.access_utf8()?).into()),
+                api_key: Some(credential.access.clone()),
                 ..ModelAuth::default()
             })
         })
@@ -202,13 +198,16 @@ async fn exchange_authorization_code(
 
 async fn refresh_access_token(
     runtime: &OAuthRuntime,
-    refresh_token: &str,
+    refresh_token: &pi_js_compat::js_json::JsString,
     signal: CancellationToken,
     now: f64,
 ) -> Result<OAuthToken, CallbackError> {
     let body = crate::auth::oauth::support::form_encode(&[
         ("grant_type", "refresh_token"),
-        ("refresh_token", refresh_token),
+        (
+            "refresh_token",
+            &crate::auth::oauth::support::to_form_usv_string(refresh_token),
+        ),
         ("client_id", CLIENT_ID),
     ]);
     let request = form_request(TOKEN_URL, body, false);
@@ -407,7 +406,7 @@ async fn login_device_code(
         .map_err(|error| AuthError::failed(error.message))?;
     exchange_authorization_code(
         runtime,
-        &code.authorization_code,
+        &code.authorization_code.clone().into(),
         &code.code_verifier,
         DEVICE_REDIRECT_URI,
         interaction.signal(),
@@ -581,7 +580,7 @@ fn close_server(server: Option<CallbackServer>) {
 
 fn resolve_manual_code(input: &JsString, expected_state: &str) -> Result<Option<JsString>, &'static str> {
     let AuthorizationInput { code, state } = parse_authorization_input(input);
-    if state.as_deref().is_some_and(|state| state != expected_state) {
+    if state.as_ref().is_some_and(|state| state != expected_state) {
         return Err("State mismatch");
     }
     Ok(code)
@@ -628,7 +627,7 @@ async fn login_openai_codex(
 
 async fn refresh_openai_codex(
     runtime: &OAuthRuntime,
-    refresh_token: &str,
+    refresh_token: &pi_js_compat::js_json::JsString,
     signal: CancellationToken,
 ) -> Result<OAuthCredential, CallbackError> {
     let token = refresh_access_token(runtime, refresh_token, signal, runtime.now()).await?;

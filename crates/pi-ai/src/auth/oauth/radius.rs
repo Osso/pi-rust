@@ -103,7 +103,7 @@ impl OAuthAuth for RadiusOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some((credential.access_utf8()?).into()),
+                api_key: Some(credential.access.clone()),
                 ..ModelAuth::default()
             })
         })

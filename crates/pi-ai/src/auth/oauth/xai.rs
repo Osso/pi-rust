@@ -65,20 +65,16 @@ impl OAuthAuth for XaiOAuth {
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
-            refresh_xai_token(
-                &runtime,
-                &crate::auth::oauth::support::to_form_usv_string(&credential.refresh),
-                signal,
-            )
-            .await
-            .map_err(|error| AuthError::failed(error.message))
+            refresh_xai_token(&runtime, &credential.refresh, signal)
+                .await
+                .map_err(|error| AuthError::failed(error.message))
         })
     }
 
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some((credential.access_utf8()?).into()),
+                api_key: Some(credential.access.clone()),
                 ..ModelAuth::default()
             })
         })
@@ -315,7 +311,7 @@ async fn login_xai(
 
 async fn refresh_xai_token(
     runtime: &OAuthRuntime,
-    refresh_token: &str,
+    refresh_token: &pi_js_compat::js_json::JsString,
     signal: CancellationToken,
 ) -> Result<OAuthCredential, CallbackError> {
     let response = post_form(
@@ -324,7 +320,10 @@ async fn refresh_xai_token(
         &[
             ("grant_type", "refresh_token"),
             ("client_id", XAI_CLIENT_ID),
-            ("refresh_token", refresh_token),
+            (
+                "refresh_token",
+                &crate::auth::oauth::support::to_form_usv_string(refresh_token),
+            ),
         ],
         signal,
     )

@@ -1,10 +1,9 @@
 //! Port of `packages/ai/src/auth/oauth/anthropic.ts` (Claude Pro/Max).
 
-use pi_js_compat::{js_format, js_json::JsString};
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde_json::json;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -98,7 +97,7 @@ impl OAuthAuth for AnthropicOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some((credential.access_utf8()?).into()),
+                api_key: Some(credential.access.clone()),
                 ..ModelAuth::default()
             })
         })
@@ -366,10 +365,10 @@ async fn login_anthropic(
 
 fn resolve_manual_input(input: &JsString, verifier: &str) -> Result<(Option<JsString>, Option<JsString>), AuthError> {
     let AuthorizationInput { code, state } = parse_authorization_input(input);
-    if state.as_deref().is_some_and(|state| state != verifier) {
+    if state.as_ref().is_some_and(|state| state != verifier) {
         return Err(AuthError::failed("OAuth state mismatch"));
     }
-    Ok((code, Some(state.unwrap_or_else(|| verifier.to_owned()))))
+    Ok((code, Some(state.unwrap_or_else(|| verifier.into()))))
 }
 
 async fn refresh_anthropic(

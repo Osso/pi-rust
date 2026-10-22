@@ -104,7 +104,7 @@ pub fn random_hex(random: &dyn RandomSource, length: usize) -> String {
 /// `URLSearchParams` / `application/x-www-form-urlencoded` encoding in pair order.
 /// Node URLSearchParams converts values to USVString at form encoding, not in stored credentials.
 pub fn to_form_usv_string(value: &pi_js_compat::js_json::JsString) -> String {
-    value.to_utf8_lossy()
+    pi_js_compat::js_json::encode_node_utf8(value)
 }
 
 pub fn form_encode(pairs: &[(&str, &str)]) -> String {
