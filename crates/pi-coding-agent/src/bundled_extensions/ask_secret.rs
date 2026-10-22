@@ -91,7 +91,7 @@ pub fn create_ask_secret_tool_definition(options: AskSecretToolOptions) -> ToolD
         prepare_execution: None,
         execution_mode: Some(pi_agent_core::harness::types::ToolExecutionMode::Sequential),
         execute: Arc::new(
-            move |_tool_call_id: JsString,
+            move |_tool_call_id: String,
                   params: JsValue,
                   signal: Option<CancellationToken>,
                   _on_update: Option<AgentToolUpdateCallback>,

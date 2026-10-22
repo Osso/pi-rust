@@ -791,7 +791,7 @@ fn render_result(
 /// `createPyrunToolDefinition`.
 pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
     let execute = Arc::new(
-        move |_tool_call_id: JsString, params: Value, signal, on_update, ctx: ExtensionContext| {
+        move |_tool_call_id: String, params: Value, signal, on_update, ctx: ExtensionContext| {
             let evaluate = Arc::clone(&evaluate);
             Box::pin(async move {
                 let params = PyrunEvalParams {

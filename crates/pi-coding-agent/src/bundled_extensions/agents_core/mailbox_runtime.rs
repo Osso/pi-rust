@@ -934,7 +934,7 @@ pub fn register_mailbox_tools(
         prepare_execution: None,
         execution_mode: None,
         execute: Arc::new(
-            move |_tool_call_id: JsString,
+            move |_tool_call_id: String,
                   params: Value,
                   _signal: Option<CancellationToken>,
                   _on_update: Option<AgentToolUpdateCallback>,
@@ -967,7 +967,7 @@ pub fn register_mailbox_tools(
         prepare_execution: None,
         execution_mode: None,
         execute: Arc::new(
-            move |_tool_call_id: JsString,
+            move |_tool_call_id: String,
                   params: Value,
                   _signal: Option<CancellationToken>,
                   _on_update: Option<AgentToolUpdateCallback>,

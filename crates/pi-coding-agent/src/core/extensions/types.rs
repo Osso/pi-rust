@@ -1478,7 +1478,7 @@ pub type PrepareExecution = Arc<
 
 pub type ToolExecute = Arc<
     dyn Fn(
-            JsString,
+            String,
             JsValue,
             Option<CancellationToken>,
             Option<AgentToolUpdateCallback>,
