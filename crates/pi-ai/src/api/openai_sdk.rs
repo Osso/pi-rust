@@ -316,7 +316,10 @@ async fn read_http_error(response: HttpResponse, signal: Option<CancellationToke
     }
     let text = String::from_utf8_lossy(&bytes).into_owned();
     let parsed = pi_js_compat::js_json::parse_lossless(text.as_str());
-    let inner_error = parsed.as_ref().ok().and_then(|value| value.get("error")).cloned();
+    let inner_error = match &parsed {
+        Ok(value) => value.get("error").cloned(),
+        Err(_) => None,
+    };
     let message = error_message(response.status, inner_error.as_ref(), &text, parsed.is_ok());
     let body = inner_error
         .as_ref()
@@ -630,7 +633,10 @@ pub fn sdk_error_inner(error: &SdkError) -> Option<&JsValue> {
 /// Parse a raw JSON object body into an SDK-shaped error (used for tests).
 pub fn provider_error_from_body(status: u16, body: &str) -> ProviderError {
     let parsed = pi_js_compat::js_json::parse_lossless(body);
-    let inner = parsed.as_ref().ok().and_then(|value| value.get("error")).cloned();
+    let inner = match &parsed {
+        Ok(value) => value.get("error").cloned(),
+        Err(_) => None,
+    };
     ProviderError {
         message: error_message(status, inner.as_ref(), body, parsed.is_ok()),
         status: Some(f64::from(status)),

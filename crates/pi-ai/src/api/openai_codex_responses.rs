@@ -1170,7 +1170,7 @@ async fn fetch_sse_with_retries(
             continue;
         }
 
-        let info = parse_error_response(response.status, &response.status_text, &error_text);
+        let info = parse_error_response(response.status, &response.status_text, &error_text)?;
         return Err(CodexStreamError::Transport(
             info.friendly_message.unwrap_or(info.message).into(),
         ));
@@ -1279,11 +1279,11 @@ async fn read_all_text(body: &mut dyn HttpBody) -> Result<String, CodexStreamErr
 }
 
 struct ParsedErrorResponse {
-    message: String,
-    friendly_message: Option<String>,
+    message: JsString,
+    friendly_message: Option<JsString>,
 }
 
-fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ParsedErrorResponse {
+fn parse_error_response(status: u16, status_text: &str, raw: &str) -> Result<ParsedErrorResponse, CodexStreamError> {
     let mut message = if raw.is_empty() {
         if status_text.is_empty() {
             "Request failed".to_owned()
@@ -1292,27 +1292,30 @@ fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ParsedErro
         }
     } else {
         raw.to_owned()
-    };
-    let mut friendly_message = None;
+    }
+    .into();
+    let mut friendly_message: Option<JsString> = None;
 
-    if let Ok(parsed) = serde_json::from_str::<Value>(raw)
+    if let Ok(parsed) = pi_js_compat::js_json::parse_lossless(raw)
         && let Some(error) = parsed.get("error").filter(|error| !error.is_null())
     {
+        crate::api::openai_sdk::validate_metadata_fields(error, &["code", "type", "plan_type"])
+            .map_err(|error| CodexStreamError::Transport(error.into()))?;
         let code = error
             .get("code")
-            .and_then(Value::as_str)
-            .or_else(|| error.get("type").and_then(Value::as_str))
-            .unwrap_or("");
+            .and_then(ingress_metadata_text)
+            .or_else(|| error.get("type").and_then(ingress_metadata_text))
+            .unwrap_or_default();
         if regex::Regex::new("(?i)usage_limit_reached|usage_not_included|rate_limit_exceeded")
-            .is_ok_and(|pattern| pattern.is_match(code))
+            .is_ok_and(|pattern| pattern.is_match(&code))
             || status == 429
         {
             let plan = error
                 .get("plan_type")
-                .and_then(Value::as_str)
+                .and_then(ingress_metadata_text)
                 .map(|plan| format!(" ({} plan)", plan.to_lowercase()))
                 .unwrap_or_default();
-            let when = error.get("resets_at").and_then(Value::as_f64).map(|resets_at| {
+            let when = error.get("resets_at").and_then(JsValue::as_f64).map(|resets_at| {
                 let minutes = (((resets_at * 1000.0) - now_millis() as f64) / 60_000.0)
                     .round()
                     .max(0.0);
@@ -1322,12 +1325,13 @@ fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ParsedErro
             friendly_message = Some(
                 format!("You have hit your ChatGPT usage limit{plan}.{when}")
                     .trim()
-                    .to_owned(),
+                    .to_owned()
+                    .into(),
             );
         }
         if let Some(error_message) = error
             .get("message")
-            .and_then(Value::as_str)
+            .and_then(JsValue::as_string)
             .filter(|text| !text.is_empty())
         {
             message = error_message.to_owned();
@@ -1336,10 +1340,10 @@ fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ParsedErro
         }
     }
 
-    ParsedErrorResponse {
+    Ok(ParsedErrorResponse {
         message,
         friendly_message,
-    }
+    })
 }
 
 enum SseStep {
@@ -1394,7 +1398,7 @@ impl SseEventSource {
         pi_js_compat::js_json::parse_lossless(data)
             .map(SseStep::Event)
             .map_err(|error| CodexStreamError::Protocol {
-                message: format!("Invalid Codex SSE JSON: {error}").into(),
+                message: JsString::join(["Invalid Codex SSE JSON: ".into(), error.into_message()], ""),
                 payload: Some(JsValue::String(data.into())),
             })
     }
@@ -2612,7 +2616,7 @@ impl WsEventSource {
             Ok(parsed) => parsed,
             Err(error) => {
                 self.fail(CodexStreamError::Protocol {
-                    message: format!("Invalid Codex WebSocket JSON: {error}").into(),
+                    message: JsString::join(["Invalid Codex WebSocket JSON: ".into(), error.into_message()], ""),
                     payload: Some(JsValue::String(text.into())),
                 });
                 return;

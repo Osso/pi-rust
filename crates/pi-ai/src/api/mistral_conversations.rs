@@ -363,7 +363,7 @@ enum MistralError {
     Http {
         status: u16,
         status_text: String,
-        body: String,
+        body: JsString,
     },
 }
 
@@ -389,34 +389,20 @@ fn format_mistral_error(error: &MistralError) -> JsString {
                 };
                 return format!("Mistral API error ({status}): {message}").into();
             }
-            format!(
-                "Mistral API error ({status}): {}",
-                truncate_error_text(body_text, MAX_MISTRAL_ERROR_BODY_CHARS)
+            JsString::join(
+                [
+                    format!("Mistral API error ({status}): ").into(),
+                    truncate_error_text(&body_text, MAX_MISTRAL_ERROR_BODY_CHARS),
+                ],
+                "",
             )
-            .into()
         }
         MistralError::Message(message) => message.clone(),
     }
 }
 
-/// JavaScript `text.length` counts UTF-16 code units; truncation therefore
-/// stops at the last whole character that fits the code-unit budget.
-fn truncate_error_text(text: &str, max_chars: usize) -> String {
-    let length: usize = text.encode_utf16().count();
-    if length <= max_chars {
-        return text.to_owned();
-    }
-    let mut used = 0;
-    let mut truncated = String::new();
-    for character in text.chars() {
-        let width = character.len_utf16();
-        if used + width > max_chars {
-            break;
-        }
-        used += width;
-        truncated.push(character);
-    }
-    format!("{truncated}... [truncated {} chars]", length - max_chars)
+fn truncate_error_text(text: &JsString, max_chars: usize) -> JsString {
+    crate::utils::error_body::truncate_error_text(text, max_chars)
 }
 
 struct MistralResponse {
@@ -477,7 +463,7 @@ async fn request_mistral_stream(
         return Err(MistralError::Http {
             status: response.status,
             status_text: response.status_text,
-            body,
+            body: body.into(),
         });
     }
 
