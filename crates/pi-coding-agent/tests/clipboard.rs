@@ -3,6 +3,7 @@ mod harness;
 
 use pi_coding_agent::utils::clipboard::{copy_to_clipboard, is_remote_session, read_clipboard_text};
 use pi_coding_agent::utils::clipboard_native::{ClipboardError, ClipboardModule};
+use pi_js_compat::js_json::JsString;
 
 use harness::{Scenario, assert_child_passed, child_environment, osc52_sequences, run_scenario};
 
@@ -170,7 +171,7 @@ async fn local_native_copy_skips_osc52_and_shell_tools() {
 
     let mut clipboard = StaticClipboard::with_text("");
     clipboard.set_result = Ok(());
-    copy_to_clipboard("hello", &child.environment, Some(&clipboard))
+    copy_to_clipboard(&JsString::from("hello"), &child.environment, Some(&clipboard))
         .await
         .expect("copy");
 }
@@ -193,9 +194,62 @@ async fn remote_native_copy_emits_osc52_after_the_native_write() {
     };
 
     let clipboard = StaticClipboard::with_text("");
-    copy_to_clipboard("hello", &child.environment, Some(&clipboard))
+    copy_to_clipboard(&JsString::from("hello"), &child.environment, Some(&clipboard))
         .await
         .expect("copy");
+}
+
+/// Records the text the native addon receives.
+struct RecordingClipboard {
+    received: std::sync::Mutex<Vec<String>>,
+}
+
+impl ClipboardModule for RecordingClipboard {
+    fn get_text(&self) -> Result<String, ClipboardError> {
+        Ok(String::new())
+    }
+
+    fn set_text(&self, text: &str) -> Result<(), ClipboardError> {
+        self.received.lock().unwrap().push(text.to_owned());
+        Ok(())
+    }
+
+    fn has_image(&self) -> Result<bool, ClipboardError> {
+        Ok(false)
+    }
+
+    fn get_image_binary(&self) -> Result<Vec<u8>, ClipboardError> {
+        Err(ClipboardError::new("no image"))
+    }
+}
+
+#[tokio::test]
+async fn unpaired_surrogates_reach_native_and_osc52_as_replacement_characters() {
+    let scenario_name = "unpaired_surrogates_reach_native_and_osc52_as_replacement_characters";
+    let Some(child) = child_environment(scenario_name) else {
+        let scenario = Scenario::new(&[]);
+        let output = run_scenario(
+            scenario_name,
+            &scenario,
+            "darwin",
+            &[("SSH_CONNECTION", "client server")],
+        );
+        assert_child_passed(&output);
+        assert_eq!(
+            osc52_sequences(&output.stdout),
+            vec![harness::osc52_sequence("a\u{FFFD}b")]
+        );
+        return;
+    };
+
+    let clipboard = RecordingClipboard {
+        received: std::sync::Mutex::new(Vec::new()),
+    };
+    let text = JsString::from_utf16(vec![u16::from(b'a'), 0xD800, u16::from(b'b')]);
+    copy_to_clipboard(&text, &child.environment, Some(&clipboard))
+        .await
+        .expect("copy");
+    assert_eq!(*clipboard.received.lock().unwrap(), vec!["a\u{FFFD}b".to_owned()]);
 }
 
 #[tokio::test]
@@ -214,9 +268,13 @@ async fn local_shell_fallback_success_skips_osc52() {
         return;
     };
 
-    copy_to_clipboard("hello", &child.environment, Some(&StaticClipboard::failing()))
-        .await
-        .expect("copy");
+    copy_to_clipboard(
+        &JsString::from("hello"),
+        &child.environment,
+        Some(&StaticClipboard::failing()),
+    )
+    .await
+    .expect("copy");
 }
 
 #[tokio::test]
@@ -231,9 +289,13 @@ async fn osc52_fallback_is_used_when_native_and_shell_tools_fail() {
         return;
     };
 
-    copy_to_clipboard("hello", &child.environment, Some(&StaticClipboard::failing()))
-        .await
-        .expect("copy");
+    copy_to_clipboard(
+        &JsString::from("hello"),
+        &child.environment,
+        Some(&StaticClipboard::failing()),
+    )
+    .await
+    .expect("copy");
 }
 
 #[tokio::test]
@@ -249,7 +311,7 @@ async fn oversized_osc52_payloads_fail_instead_of_writing() {
     };
 
     let error = copy_to_clipboard(
-        &"x".repeat(80_000),
+        &JsString::from("x".repeat(80_000)),
         &child.environment,
         Some(&StaticClipboard::failing()),
     )
@@ -282,9 +344,13 @@ async fn linux_wayland_copy_uses_wl_copy() {
         return;
     };
 
-    copy_to_clipboard("hello", &child.environment, Some(&StaticClipboard::failing()))
-        .await
-        .expect("copy");
+    copy_to_clipboard(
+        &JsString::from("hello"),
+        &child.environment,
+        Some(&StaticClipboard::failing()),
+    )
+    .await
+    .expect("copy");
 }
 
 #[tokio::test]
@@ -316,9 +382,13 @@ async fn failed_wl_copy_falls_back_to_xclip_when_x11_is_available() {
         return;
     };
 
-    copy_to_clipboard("hello", &child.environment, Some(&StaticClipboard::failing()))
-        .await
-        .expect("copy");
+    copy_to_clipboard(
+        &JsString::from("hello"),
+        &child.environment,
+        Some(&StaticClipboard::failing()),
+    )
+    .await
+    .expect("copy");
 }
 
 #[tokio::test]
@@ -340,9 +410,13 @@ async fn linux_x11_copy_falls_back_from_xclip_to_xsel() {
         return;
     };
 
-    copy_to_clipboard("hello", &child.environment, Some(&StaticClipboard::failing()))
-        .await
-        .expect("copy");
+    copy_to_clipboard(
+        &JsString::from("hello"),
+        &child.environment,
+        Some(&StaticClipboard::failing()),
+    )
+    .await
+    .expect("copy");
 }
 
 #[tokio::test]
@@ -360,7 +434,11 @@ async fn linux_termux_copy_uses_termux_clipboard_set() {
         return;
     };
 
-    copy_to_clipboard("hello", &child.environment, Some(&StaticClipboard::failing()))
-        .await
-        .expect("copy");
+    copy_to_clipboard(
+        &JsString::from("hello"),
+        &child.environment,
+        Some(&StaticClipboard::failing()),
+    )
+    .await
+    .expect("copy");
 }

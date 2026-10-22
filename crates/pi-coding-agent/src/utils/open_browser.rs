@@ -1,5 +1,7 @@
 use std::process::{Command, Stdio};
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
+
 use crate::utils::pi_user_agent::node_platform_name;
 
 /// Select the platform browser launcher without invoking a shell.
@@ -16,9 +18,11 @@ pub fn browser_command(platform: &str, target: &str) -> (String, Vec<String>) {
 
 /// Open a URL or file in the platform browser/default handler.
 ///
-/// Browser launch is best effort: launcher failures are ignored.
-pub fn open_browser(target: &str) {
-    let (program, arguments) = browser_command(node_platform_name(std::env::consts::OS), target);
+/// Browser launch is best effort: launcher failures are ignored. The target is
+/// Node UTF-8 encoded at the spawn argv boundary.
+pub fn open_browser(target: &JsString) {
+    let target = encode_node_utf8(target);
+    let (program, arguments) = browser_command(node_platform_name(std::env::consts::OS), &target);
     launch_browser_command(&program, &arguments);
 }
 

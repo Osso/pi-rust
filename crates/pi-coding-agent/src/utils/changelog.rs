@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use pi_js_compat::js_json::JsString;
 use regex::Regex;
 
 pub use crate::config::get_changelog_path;
@@ -315,10 +316,19 @@ pub fn compare_versions(left: &ChangelogEntry, right: &ChangelogEntry) -> i64 {
 }
 
 /// Entries newer than `last_version` (`x.y.z`, missing parts are zero).
-pub fn get_new_entries(entries: &[ChangelogEntry], last_version: &str) -> Vec<ChangelogEntry> {
+///
+/// Version parts are an ASCII-digit grammar: a part holding an unpaired
+/// surrogate is not a number (`Number` yields NaN, `|| 0`), so a failed
+/// `to_utf8` is zero here.
+pub fn get_new_entries(entries: &[ChangelogEntry], last_version: &JsString) -> Vec<ChangelogEntry> {
     let parts: Vec<u64> = last_version
         .split('.')
-        .map(|part| part.parse::<u64>().unwrap_or(0))
+        .map(|part| {
+            part.to_utf8()
+                .ok()
+                .and_then(|part| part.parse::<u64>().ok())
+                .unwrap_or(0)
+        })
         .collect();
     let last = ChangelogEntry {
         major: parts.first().copied().unwrap_or(0),

@@ -13,6 +13,8 @@ use pi_ai::request::{
     HttpRequest, HttpResponse, SimpleStreamOptions, StreamOptions,
 };
 use pi_ai::types::{Context, DeferredHandle, Model, ProviderHeaders};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::string::encode_uri_component;
 use serde_json::Value;
 
 use crate::config::package_config;
@@ -103,7 +105,7 @@ pub fn with_remote_catalog(
 
 impl RemoteCatalogProvider {
     fn catalog_url(&self, provider_id: &str) -> String {
-        let encoded = crate::utils::url_encoding::encode_uri_component(provider_id);
+        let encoded = encode_uri_component(&JsString::from(provider_id)).expect("&str has no unpaired surrogates");
         format!(
             "{}/api/models/providers/{encoded}",
             self.catalog_base_url.trim_end_matches('/')

@@ -10,6 +10,7 @@ use std::time::SystemTime;
 use pi_coding_agent::utils::changelog::{
     ChangelogEntry, compare_versions, get_new_entries, normalize_changelog_links, parse_changelog,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use oracle::TsOracle;
@@ -130,7 +131,10 @@ fn changelog_links_parse_and_compare_match_the_pinned_typescript_module() {
             "entries": all.iter().map(entry_json).collect::<Vec<_>>(),
             "lastVersion": last_version,
         }));
-        let actual: Vec<Value> = get_new_entries(&all, last_version).iter().map(entry_json).collect();
+        let actual: Vec<Value> = get_new_entries(&all, &JsString::from(*last_version))
+            .iter()
+            .map(entry_json)
+            .collect();
         assert_eq!(
             json!(actual),
             response["output"]["entries"],
@@ -152,5 +156,18 @@ fn parse_changelog_reads_sections_and_ignores_unversioned_headers() {
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0], entry(1, 2, 3, "## [1.2.3] - date\nline one\nline two"));
     assert_eq!(entries[1], entry(1, 2, 2, "## 1.2.2\nlast"));
-    assert_eq!(get_new_entries(&entries, "1.2.2").len(), 1);
+    assert_eq!(get_new_entries(&entries, &JsString::from("1.2.2")).len(), 1);
+}
+
+/// `Number("1\uD800")` is NaN, so `|| 0` makes that part zero; the other
+/// parts still compare.
+#[test]
+fn unpaired_surrogate_version_parts_count_as_zero() {
+    let all = vec![entry(0, 79, 0, "new"), entry(0, 78, 5, "mid")];
+    let last_version = JsString::from("0.78.") + JsString::from_utf16(vec![u16::from(b'5'), 0xD800]);
+    let contents: Vec<String> = get_new_entries(&all, &last_version)
+        .into_iter()
+        .map(|entry| entry.content)
+        .collect();
+    assert_eq!(contents, vec!["new".to_owned(), "mid".to_owned()]);
 }

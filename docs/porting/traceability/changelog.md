@@ -22,7 +22,7 @@ one parse fixture plus a missing file, 3 comparisons, and 4 `lastVersion` values
 | `changelog.ts:105-114` | Rewrite every inline Markdown link | `normalize_changelog_links`; differential 24 requests |
 | `changelog.ts:116-176` | `## x.y.z` section parsing, unversioned headers reset, missing file → empty, read error warning | `parse_changelog`; differential parse + focused test |
 | `changelog.ts:178-185` | Lexicographic major/minor/patch comparison | `compare_versions`; differential 3 cases |
-| `changelog.ts:187-199` | Entries newer than `lastVersion`; missing/invalid parts become zero | `get_new_entries`; differential `0.78.5`, `0.79.0`, `0.77`, `garbage` |
+| `changelog.ts:187-199` | Entries newer than `lastVersion`; missing/invalid parts become zero | `get_new_entries(&JsString)`; differential `0.78.5`, `0.79.0`, `0.77`, `garbage`; `unpaired_surrogate_version_parts_count_as_zero` (unexecuted: coding lib does not compile) |
 | `changelog.ts:201` | Re-export `getChangelogPath` | `pub use crate::config::get_changelog_path` |
 
 ## Gaps
@@ -34,7 +34,9 @@ one parse fixture plus a missing file, 3 comparisons, and 4 `lastVersion` values
 
 ## Discrepancies
 
-- None observed.
+- DRIFT (RED-first after the coding lib compiles): `getNewEntries` uses `Number(part)`; Rust
+  parses `u64`, so whitespace (`" 2"`), exponent (`"1e1"`), hex (`"0x2"`), negative and
+  fractional parts diverge from `changelog.ts:189-195`.
 
 ## Proof inventory
 

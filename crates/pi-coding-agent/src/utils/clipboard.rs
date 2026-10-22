@@ -10,6 +10,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use pi_js_compat::base64::buffer_to_base64;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
@@ -64,11 +65,16 @@ pub async fn read_clipboard_text(
 }
 
 /// Copies text to the clipboard, throwing when no mechanism succeeds.
+///
+/// Every sink (native addon, child stdin, OSC 52 `Buffer.from`) receives the
+/// Node UTF-8 encoding, so unpaired surrogates become U+FFFD once here.
 pub async fn copy_to_clipboard(
-    text: &str,
+    text: &JsString,
     environment: &ClipboardEnvironment,
     native: Option<&dyn ClipboardModule>,
 ) -> Result<(), ClipboardError> {
+    let text = encode_node_utf8(text);
+    let text = text.as_str();
     let platform = environment.platform();
     let mut copied = false;
 
