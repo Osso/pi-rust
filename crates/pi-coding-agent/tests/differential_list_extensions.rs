@@ -78,8 +78,8 @@ async fn build_extension(spec: &ExtensionSpec) -> Extension {
 fn tool_definition(name: &str) -> ToolDefinition {
     ToolDefinition {
         name: name.to_owned(),
-        label: name.to_owned(),
-        description: name.to_owned(),
+        label: name.into(),
+        description: name.into(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,

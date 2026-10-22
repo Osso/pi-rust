@@ -45,8 +45,8 @@ impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
         "end_turn"
     }
 
-    fn description(&self) -> &str {
-        "End the current model turn. Provide a concise reason explaining why the turn is finished."
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "End the current model turn. Provide a concise reason explaining why the turn is finished.".into()
     }
 
     fn parameters(&self) -> &Value {
@@ -54,8 +54,8 @@ impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
         PARAMETERS.get_or_init(end_turn_parameters)
     }
 
-    fn label(&self) -> &str {
-        "end_turn"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "end_turn".into()
     }
 
     fn execute(

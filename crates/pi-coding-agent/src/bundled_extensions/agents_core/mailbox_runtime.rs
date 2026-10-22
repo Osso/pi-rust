@@ -921,8 +921,8 @@ pub fn register_mailbox_tools(
     let send_callback = on_session_message_sent.clone();
     pi.register_tool(ToolDefinition {
         name: "send_agent_message".to_owned(),
-        label: "Send Agent Message".to_owned(),
-        description: "Send the required body verbatim across a direct parent-child edge, or to another session via toSessionId (with toAgentId 'main'). For another host, also pass toHost; the message queues locally until relay delivery. Unknown local sessions are rejected. Supply the complete message in body; assistant narration and reasoning are never read.".to_owned(),
+        label: "Send Agent Message".into(),
+        description: "Send the required body verbatim across a direct parent-child edge, or to another session via toSessionId (with toAgentId 'main'). For another host, also pass toHost; the message queues locally until relay delivery. Unknown local sessions are rejected. Supply the complete message in body; assistant narration and reasoning are never read.".into(),
         prompt_snippet: None,
         prompt_guidelines: Some(vec!["For send_agent_message and contact_parent, put the complete outgoing message in the required body argument. It is sent verbatim; assistant narration and reasoning are never read. No assistant text is required, and multiple calls in one turn can send distinct bodies.".into(), "For a cross-host reply, use the sender's hostname as toHost plus its session ID as toSessionId. Never infer host ownership from a session ID.".into()]), 
         approval_required: Some(false),
@@ -954,8 +954,8 @@ pub fn register_mailbox_tools(
 
     pi.register_tool(ToolDefinition {
         name: "contact_parent".to_owned(),
-        label: "Contact Parent".to_owned(),
-        description: "Send the required body verbatim as a child-agent mailbox request to its direct parent. Supply the complete message in body; assistant narration and reasoning are never read.".to_owned(),
+        label: "Contact Parent".into(),
+        description: "Send the required body verbatim as a child-agent mailbox request to its direct parent. Supply the complete message in body; assistant narration and reasoning are never read.".into(),
         prompt_snippet: None,
         prompt_guidelines: Some(vec!["For send_agent_message and contact_parent, put the complete outgoing message in the required body argument. It is sent verbatim; assistant narration and reasoning are never read. No assistant text is required, and multiple calls in one turn can send distinct bodies.".into()]), 
         approval_required: Some(false),

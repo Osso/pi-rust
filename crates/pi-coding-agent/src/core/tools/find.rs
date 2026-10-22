@@ -130,16 +130,16 @@ impl AgentTool for FindTool {
         "find"
     }
 
-    fn description(&self) -> &str {
-        DESCRIPTION.as_str()
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.as_str().into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        "find"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "find".into()
     }
 
     fn execute(

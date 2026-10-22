@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 fn tool(name: &str, description: &str, source: &str, path: &str) -> ToolInfo {
     ToolInfo {
         name: name.to_owned(),
-        description: description.to_owned(),
+        description: description.into(),
         parameters: json!({"type": "object"}),
         prompt_guidelines: None,
         source_info: SourceInfo {

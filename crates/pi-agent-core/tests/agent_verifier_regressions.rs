@@ -13,11 +13,11 @@ mod steering {
         fn name(&self) -> &str {
             "end_turn"
         }
-        fn label(&self) -> &str {
-            "End"
+        fn label(&self) -> pi_js_compat::js_json::JsString {
+            "End".into()
         }
-        fn description(&self) -> &str {
-            "End"
+        fn description(&self) -> pi_js_compat::js_json::JsString {
+            "End".into()
         }
         fn parameters(&self) -> &Value {
             &self.0
@@ -127,11 +127,11 @@ mod lifetime {
         fn name(&self) -> &str {
             "echo"
         }
-        fn label(&self) -> &str {
-            "Echo"
+        fn label(&self) -> pi_js_compat::js_json::JsString {
+            "Echo".into()
         }
-        fn description(&self) -> &str {
-            "Echo"
+        fn description(&self) -> pi_js_compat::js_json::JsString {
+            "Echo".into()
         }
         fn parameters(&self) -> &Value {
             &self.schema

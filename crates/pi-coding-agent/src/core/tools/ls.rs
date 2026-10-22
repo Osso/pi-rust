@@ -142,16 +142,16 @@ impl AgentTool for LsTool {
         "ls"
     }
 
-    fn description(&self) -> &str {
-        DESCRIPTION.as_str()
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.as_str().into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        "ls"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "ls".into()
     }
 
     fn execute(

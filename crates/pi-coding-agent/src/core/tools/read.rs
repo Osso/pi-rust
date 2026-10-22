@@ -210,16 +210,16 @@ impl AgentTool for ReadTool {
         "read"
     }
 
-    fn description(&self) -> &str {
-        DESCRIPTION
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        "read"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "read".into()
     }
 
     fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {

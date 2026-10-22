@@ -97,8 +97,8 @@ async fn export_session_probe() {
             "fixture"
         }
 
-        fn description(&self) -> &str {
-            "Fixture tool"
+        fn description(&self) -> pi_js_compat::js_json::JsString {
+            "Fixture tool".into()
         }
 
         fn parameters(&self) -> &serde_json::Value {
@@ -106,8 +106,8 @@ async fn export_session_probe() {
             PARAMETERS.get_or_init(|| serde_json::json!({ "type": "object", "properties": {} }))
         }
 
-        fn label(&self) -> &str {
-            "Fixture"
+        fn label(&self) -> pi_js_compat::js_json::JsString {
+            "Fixture".into()
         }
 
         fn execute(

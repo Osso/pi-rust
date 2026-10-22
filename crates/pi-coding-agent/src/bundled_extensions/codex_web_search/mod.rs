@@ -279,9 +279,9 @@ pub fn create_web_search_tool_definition(options: &WebSearchToolOptions) -> Tool
     let timeout_ms = options.timeout_ms.unwrap_or(DEFAULT_WEB_SEARCH_TIMEOUT_MS);
     ToolDefinition {
         name: "web_search".to_owned(),
-        label: "Web Search".to_owned(),
+        label: "Web Search".into(),
         description: "Search the web using OpenAI Responses hosted web search and return a concise result summary."
-            .to_owned(),
+            .into(),
         prompt_snippet: Some("Search the web for current or external information.".into()),
         prompt_guidelines: Some(vec![
             "Use web_search when the user asks for current, external, or source-backed information that is not available in the repo or local context.".into(),
