@@ -376,7 +376,7 @@ pub fn build_title_context(exchange: &FirstExchange) -> Context {
             content: UserContent::Text(content.into()),
             input_source: None,
             provider_native: None,
-            timestamp: now_millis(),
+            timestamp: pi_js_compat::date::js_now_millis(),
         })],
         tools: None,
     }

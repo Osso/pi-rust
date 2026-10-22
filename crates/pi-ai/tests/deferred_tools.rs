@@ -58,7 +58,12 @@ fn tool_result(timestamp: f64, added: Option<Vec<&str>>) -> Message {
 fn context(tools: Vec<Tool>, added: Option<Vec<&str>>) -> Context {
     Context {
         system_prompt: None,
-        messages: vec![user(1), assistant_call(2, "base_tool"), tool_result(3, added), user(4)],
+        messages: vec![
+            user(1.0),
+            assistant_call(2.0, "base_tool"),
+            tool_result(3.0, added),
+            user(4.0),
+        ],
         tools: Some(tools),
     }
 }

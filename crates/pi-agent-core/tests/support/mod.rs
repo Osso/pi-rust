@@ -38,7 +38,7 @@ pub fn model() -> Model {
 }
 
 pub fn assistant(content: Vec<AssistantContent>, stop_reason: StopReason) -> AssistantMessage {
-    let mut message = AssistantMessage::empty("openai-responses", "openai", "mock", 1000);
+    let mut message = AssistantMessage::empty("openai-responses", "openai", "mock", 1000.0.0);
     message.content = content;
     message.stop_reason = stop_reason;
     message
@@ -70,7 +70,7 @@ pub fn user(text: &str) -> UserMessage {
         content: pi_ai::types::UserContent::Text(text.to_owned().into()),
         input_source: None,
         provider_native: None,
-        timestamp: 1000,
+        timestamp: 10.000.0,
     }
 }
 
@@ -82,7 +82,7 @@ pub fn user_block(text: &str) -> UserMessage {
         ))]),
         input_source: None,
         provider_native: None,
-        timestamp: 1000,
+        timestamp: .01000.0,
     }
 }
 

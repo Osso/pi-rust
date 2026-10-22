@@ -1203,7 +1203,7 @@ fn runtime_mailbox_user_message(
         content: UserContent::Blocks(content),
         input_source: source,
         provider_native: None,
-        timestamp: now_millis(),
+        timestamp: pi_js_compat::date::js_now_millis(),
     })
 }
 
@@ -3358,7 +3358,7 @@ impl AgentSession {
             ))]),
             input_source: Some(InputSource::Extension),
             provider_native: None,
-            timestamp: now_millis(),
+            timestamp: pi_js_compat::date::js_now_millis(),
         });
         self.steer_agent(guard);
     }
@@ -4469,7 +4469,7 @@ impl AgentSession {
             content: UserContent::Blocks(content),
             input_source: options.source,
             provider_native: None,
-            timestamp: now_millis(),
+            timestamp: pi_js_compat::date::js_now_millis(),
         });
         if let Some(callback) = &options.on_user_message_prepared {
             callback(&user_message);
@@ -4631,7 +4631,7 @@ impl AgentSession {
             content: UserContent::Blocks(content),
             input_source: source,
             provider_native: None,
-            timestamp: now_millis(),
+            timestamp: pi_js_compat::date::js_now_millis(),
         }));
         self.emit(AgentSessionEvent::SteeringMessageQueued(SteeringMessageQueuedEvent {
             event_type: "steering_message_queued",
@@ -4652,7 +4652,7 @@ impl AgentSession {
             content: UserContent::Blocks(content),
             input_source: source,
             provider_native: None,
-            timestamp: now_millis(),
+            timestamp: pi_js_compat::date::js_now_millis(),
         }));
     }
 
@@ -6186,7 +6186,7 @@ impl AgentSession {
         let compaction_entry = get_latest_compaction_entry(&branch).cloned();
         let assistant_is_before_compaction = compaction_entry.as_ref().is_some_and(|entry| {
             let compaction_timestamp = entry.timestamp().and_then(parse_timestamp_millis);
-            compaction_timestamp.is_some_and(|timestamp| assistant_message.timestamp <= timestamp)
+            compaction_timestamp.is_some_and(|timestamp| assistant_message.timestamp <= timestamp as f64)
         });
         if assistant_is_before_compaction {
             return Ok(false);
@@ -6239,7 +6239,7 @@ impl AgentSession {
             if let Some(compaction_entry) = &compaction_entry
                 && let Some(AgentMessage::Assistant(usage_message)) = messages.get(index)
                 && let Some(timestamp) = compaction_entry.timestamp().and_then(parse_timestamp_millis)
-                && usage_message.timestamp <= timestamp
+                && usage_message.timestamp <= timestamp as f64
             {
                 return Ok(false);
             }
@@ -6504,7 +6504,7 @@ impl AgentSession {
             cancelled: result.cancelled,
             truncated: result.truncated,
             full_output_path: result.full_output_path.clone().map(JsString::from),
-            timestamp: now_millis() as f64,
+            timestamp: pi_js_compat::date::js_now_millis() as f64,
             exclude_from_context,
         };
         if self.is_streaming() {
@@ -7538,7 +7538,7 @@ impl AgentSession {
             AgentEvent::TurnStart => {
                 let mut extension_event = ExtensionEvent::TurnStart(TurnStartEvent {
                     turn_index: self.inner.turn_index.load(Ordering::SeqCst) as f64,
-                    timestamp: now_millis() as f64,
+                    timestamp: pi_js_compat::date::js_now_millis() as f64,
                 });
                 runner.emit(&mut extension_event).await;
                 None
@@ -8448,10 +8448,10 @@ impl AgentSession {
 }
 
 fn synthetic_tool_call_assistant_message(model: &Model, tool_call: &AgentToolCall) -> AssistantMessage {
-    let mut message = AssistantMessage::empty(model.api.clone(), model.provider.clone(), model.id.clone(), 0);
+    let mut message = AssistantMessage::empty(model.api.clone(), model.provider.clone(), model.id.clone(), 0.0);
     message.content = vec![AssistantContent::ToolCall(tool_call.clone())];
     message.stop_reason = StopReason::ToolUse;
-    message.timestamp = now_millis();
+    message.timestamp = pi_js_compat::date::js_now_millis();
     message
 }
 

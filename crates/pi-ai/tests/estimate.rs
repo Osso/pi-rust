@@ -41,9 +41,9 @@ fn latest_assistant_usage_ignores_timestamp_order() {
     let context = Context {
         system_prompt: Some(("system".to_owned()).into()),
         messages: vec![
-            user(200, "summary"),
-            assistant(100, 9_500.0),
-            user(300, &"x".repeat(4_000)),
+            user(200.0, "summary"),
+            assistant(100.0, 9_500.0),
+            user(300.0, &"x".repeat(4_000)),
         ],
         tools: None,
     };
@@ -60,11 +60,11 @@ fn uses_assistant_usage_again_after_a_response_to_the_inserted_context() {
     let context = Context {
         system_prompt: None,
         messages: vec![
-            user(200, "summary"),
-            assistant(100, 9_500.0),
-            user(300, "new prompt"),
-            assistant(400, 2_000.0),
-            user(500, "tail"),
+            user(200.0, "summary"),
+            assistant(100.0, 9_500.0),
+            user(300.0, "new prompt"),
+            assistant(400.0, 2_000.0),
+            user(500.0, "tail"),
         ],
         tools: None,
     };
@@ -150,7 +150,7 @@ fn context_prefix_adds_system_prompt_and_tool_definitions() {
     };
     let context = Context {
         system_prompt: Some(("abcd".to_owned()).into()),
-        messages: vec![user(1, "abcd")],
+        messages: vec![user(1.0, "abcd")],
         tools: Some(vec![tool.clone()]),
     };
     let estimate = estimate_context_tokens(&context);
@@ -172,8 +172,8 @@ fn tool_definitions_are_ignored_when_assistant_usage_exists() {
     let context = Context {
         system_prompt: Some(("ignored after usage".to_owned()).into()),
         messages: vec![
-            user(1, "hello"),
-            assistant(2, 100.0),
+            user(1.0, "hello"),
+            assistant(2.0, 100.0),
             Message::ToolResult(ToolResultMessage {
                 role: pi_ai::types::ToolResultRole::Tag,
                 tool_call_id: "call_1".to_owned(),

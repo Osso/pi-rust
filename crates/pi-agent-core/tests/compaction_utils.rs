@@ -19,12 +19,12 @@ fn user(text: &str) -> Message {
         content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
 fn assistant(content: Vec<AssistantContent>) -> Message {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1.0);
     message.content = content;
     message.stop_reason = StopReason::Stop;
     Message::Assistant(Box::new(message))
@@ -40,12 +40,12 @@ fn tool_result(text: &str, details: Option<Value>) -> Message {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
 fn tool_call(name: &str, arguments: Value) -> AgentMessage {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1.0);
     message.content = vec![AssistantContent::ToolCall(ToolCall::new(
         "call-1",
         name,
@@ -98,7 +98,7 @@ fn ignores_non_matching_tool_calls_and_messages() {
 
 #[test]
 fn accumulates_multiple_tool_calls_in_one_message() {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1.0);
     message.content = vec![
         AssistantContent::ToolCall(ToolCall::new(
             "call-1",
@@ -258,7 +258,7 @@ fn ignores_image_blocks_in_user_content() {
         ]),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })];
 
     assert_eq!(serialize_conversation(&messages), "[User]: caption");

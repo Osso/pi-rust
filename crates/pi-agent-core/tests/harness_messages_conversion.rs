@@ -208,7 +208,7 @@ fn convert_to_llm_passes_typed_messages_through_unchanged() {
         content: UserContent::Text(JsString::from("hello")),
         input_source: None,
         provider_native: None,
-        timestamp: 21,
+        timestamp: 21.0,
     });
     let converted = convert_to_llm(std::slice::from_ref(&user)).expect("convert fixture messages");
     assert_eq!(

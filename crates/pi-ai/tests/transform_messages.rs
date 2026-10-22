@@ -108,7 +108,7 @@ fn assistant_content(message: &Message) -> &[AssistantContent] {
 #[test]
 fn converts_thinking_blocks_to_text_when_the_source_model_differs() {
     let messages = vec![
-        user(1, "hello"),
+        user(1.0, "hello"),
         assistant(
             vec![
                 AssistantContent::Thinking(ThinkingContent {
@@ -151,14 +151,14 @@ fn removes_thought_signatures_when_migrating_between_models() {
     );
     call.thought_signature = Some("encrypted".to_owned());
     let messages = vec![
-        user(1, "run a command"),
+        user(1.0, "run a command"),
         assistant(
             vec![AssistantContent::ToolCall(call)],
             "github-copilot",
             "openai-responses",
             "gpt-5",
         ),
-        tool_result("call_123", "bash", 3),
+        tool_result("call_123", "bash", 3.0),
     ];
     let result = transform_messages(&messages, &anthropic_model(), NOW);
     let AssistantContent::ToolCall(call) = &assistant_content(&result[1])[0] else {
@@ -170,14 +170,14 @@ fn removes_thought_signatures_when_migrating_between_models() {
 #[test]
 fn normalizes_invalid_tool_ids_even_when_replaying_the_same_model() {
     let messages = vec![
-        user(1, "read the file"),
+        user(1.0, "read the file"),
         assistant(
             vec![tool_call("call_123|fc_123", "read")],
             "github-copilot",
             "anthropic-messages",
             "claude-sonnet-4.6",
         ),
-        tool_result("call_123|fc_123", "read", 3),
+        tool_result("call_123|fc_123", "read", 3.0),
     ];
     let result = transform_messages_with(&messages, &anthropic_model(), Some(&anthropic_normalize), NOW);
     let AssistantContent::ToolCall(call) = &assistant_content(&result[1])[0] else {
@@ -193,7 +193,7 @@ fn normalizes_invalid_tool_ids_even_when_replaying_the_same_model() {
 #[test]
 fn adds_synthetic_tool_results_for_trailing_orphaned_tool_calls() {
     let messages = vec![
-        user(1, "read the file"),
+        user(1.0, "read the file"),
         assistant(
             vec![tool_call("call_123|fc_123", "read")],
             "github-copilot",
@@ -218,14 +218,14 @@ fn adds_synthetic_tool_results_for_trailing_orphaned_tool_calls() {
 #[test]
 fn adds_synthetic_results_only_for_trailing_calls_still_missing_results() {
     let messages = vec![
-        user(1, "run commands"),
+        user(1.0, "run commands"),
         assistant(
             vec![tool_call("call_1|fc_1", "read"), tool_call("call_2|fc_2", "bash")],
             "github-copilot",
             "openai-responses",
             "gpt-5",
         ),
-        tool_result("call_1|fc_1", "read", 3),
+        tool_result("call_1|fc_1", "read", 3.0),
     ];
     let result = transform_messages_with(&messages, &anthropic_model(), Some(&anthropic_normalize), NOW);
     let synthetic: Vec<&ToolResultMessage> = result
@@ -364,7 +364,7 @@ fn skips_errored_and_aborted_assistant_messages_after_flushing_pending_calls() {
     let mut errored = AssistantMessage::empty("openai-responses", "github-copilot", "gpt-5", 3.0);
     errored.stop_reason = StopReason::Error;
     let messages = vec![
-        user(1, "run"),
+        user(1.0, "run"),
         assistant(
             vec![tool_call("call_1", "bash")],
             "github-copilot",
@@ -372,7 +372,7 @@ fn skips_errored_and_aborted_assistant_messages_after_flushing_pending_calls() {
             "gpt-5",
         ),
         Message::Assistant(Box::new(errored)),
-        user(4, "next"),
+        user(4.0, "next"),
     ];
     let result = transform_messages(&messages, &anthropic_model(), NOW);
     assert_eq!(result.len(), 4);
@@ -391,7 +391,7 @@ fn user_messages_interrupt_tool_flow_with_synthetic_results() {
             "openai-responses",
             "gpt-5",
         ),
-        user(3, "never mind"),
+        user(3.0, "never mind"),
     ];
     let result = transform_messages(&messages, &anthropic_model(), NOW);
     assert!(matches!(&result[0], Message::Assistant(_)));
