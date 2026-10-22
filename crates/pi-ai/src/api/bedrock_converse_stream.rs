@@ -31,7 +31,6 @@ use crate::types::{
     JsonObject, Message, Model, ProviderEnv, StopReason, ThinkingBudgets, ThinkingContent, ThinkingLevel, Tool,
     ToolCall, ToolResultContent, ToolResultMessage, Usage,
 };
-use crate::utils::diagnostics::{AssistantMessageDiagnostic, append_assistant_message_diagnostic};
 use crate::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
 };
@@ -275,9 +274,6 @@ async fn run_stream(
         StopReason::Error
     };
     output.error_message = Some(format_bedrock_error(&error));
-    if output.stop_reason == StopReason::Error {
-        append_bedrock_failure_diagnostic(&mut output, &error);
-    }
     let reason = if output.stop_reason == StopReason::Aborted {
         ErrorReason::Aborted
     } else {
@@ -1795,49 +1791,6 @@ fn bedrock_error_prefix(name: &str) -> String {
         "ServiceUnavailableException" => "Service unavailable".to_owned(),
         other => other.to_owned(),
     }
-}
-
-fn normalize_diagnostic_value(value: Option<&str>) -> Option<String> {
-    let trimmed = value?.trim();
-    if trimmed.is_empty() || trimmed.len() > MAX_BEDROCK_DIAGNOSTIC_VALUE_CHARS {
-        return None;
-    }
-    Some(trimmed.to_owned())
-}
-
-fn extract_bedrock_error_code(error: &BedrockError) -> Option<String> {
-    let name = error.name.as_deref()?;
-    if !name.ends_with("Exception") {
-        return None;
-    }
-    normalize_diagnostic_value(Some(name))
-}
-
-fn append_bedrock_failure_diagnostic(output: &mut AssistantMessage, error: &BedrockError) {
-    let mut details = Map::new();
-    if let Some(status) = error.status
-        && status.fract() == 0.0
-    {
-        details.insert("status".to_owned(), js_number_value(status));
-    }
-    if let Some(code) = extract_bedrock_error_code(error) {
-        details.insert("errorCode".to_owned(), json!(code));
-    }
-    if let Some(request_id) = normalize_diagnostic_value(error.request_id.as_deref()) {
-        details.insert("requestId".to_owned(), json!(request_id));
-    }
-    if details.is_empty() {
-        return;
-    }
-    append_assistant_message_diagnostic(
-        &mut output.diagnostics,
-        AssistantMessageDiagnostic {
-            r#type: "bedrock_response_failure".to_owned(),
-            timestamp: now_millis(),
-            error: None,
-            details: Some(details),
-        },
-    );
 }
 
 #[cfg(test)]

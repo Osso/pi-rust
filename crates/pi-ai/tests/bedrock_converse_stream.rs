@@ -87,7 +87,7 @@ async fn streams_text_usage_and_stop_reason() {
         vec![AssistantContent::Text(pi_ai::types::TextContent::new("Hello world"))]
     );
     assert_eq!(message.stop_reason, StopReason::Stop);
-    assert_eq!(message.raw_stop_reason.as_deref(), Some("end_turn"));
+    assert!(message.raw_stop_reason.is_none());
     assert_eq!(message.usage.input, 10.0);
     assert_eq!(message.usage.output, 2.0);
     assert_eq!(message.usage.cache_read, 3.0);
@@ -273,7 +273,7 @@ async fn builds_adaptive_and_budget_thinking_payloads() {
 }
 
 #[tokio::test]
-async fn retries_throttling_then_reports_validation_diagnostic() {
+async fn retries_throttling_then_reports_validation_without_extra_diagnostics() {
     let fetch = ScriptedFetch::new(vec![
         ScriptedResponse::http(
             429,
@@ -323,21 +323,7 @@ async fn retries_throttling_then_reports_validation_diagnostic() {
             "Validation error: The provided model identifier is invalid."
         ))
     );
-    let diagnostic = message
-        .diagnostics
-        .as_ref()
-        .and_then(|diagnostics| diagnostics.first())
-        .expect("diagnostic");
-    assert_eq!(diagnostic.r#type, "bedrock_response_failure");
-    assert_eq!(
-        diagnostic.details,
-        Some(
-            json!({"status": 400, "errorCode": "ValidationException", "requestId": "req-final"})
-                .as_object()
-                .unwrap()
-                .clone()
-        )
-    );
+    assert!(message.diagnostics.is_none());
     let requests = fetch.requests();
     assert_eq!(requests.len(), 3);
     let attempts: Vec<&str> = requests
@@ -373,14 +359,7 @@ async fn reports_crc_checksum_failures() {
     let error_message = message.error_message.expect("error message");
     assert!(error_message.starts_with("The message checksum ("), "{error_message:?}");
     assert!(error_message.contains("did not match the expected value of"));
-    assert_eq!(
-        message
-            .diagnostics
-            .as_ref()
-            .and_then(|diagnostics| diagnostics.first())
-            .and_then(|diagnostic| diagnostic.details.clone()),
-        Some(json!({"requestId": "req-1"}).as_object().unwrap().clone())
-    );
+    assert!(message.diagnostics.is_none());
 }
 
 #[tokio::test]
@@ -406,7 +385,9 @@ async fn uses_bearer_token_and_skip_auth_credentials() {
     let body = [message_start(), message_stop("end_turn")].concat();
     let bearer_fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body.clone(), &[])]);
     let mut stream_options = options(bearer_fetch.clone(), env());
-    stream_options.request.api_key = Some(("bedrock-api-key".to_owned()).into());
+    stream_options
+        .extra
+        .insert("bearerToken".to_owned(), json!("bedrock-api-key"));
     drain(stream(model(), context(), stream_options)).await;
     let headers = &bearer_fetch.requests()[0].headers;
     assert!(
@@ -557,12 +538,10 @@ async fn surfaces_gateway_bodies_and_stop_reason_errors() {
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
     let (_, message) = drain(stream(model(), context(), options(fetch, env()))).await;
     assert_eq!(message.stop_reason, StopReason::Error);
-    assert_eq!(message.raw_stop_reason.as_deref(), Some("guardrail_intervened"));
+    assert!(message.raw_stop_reason.is_none());
     assert_eq!(
         message.error_message.as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from(
-            "Provider stopped with: guardrail_intervened"
-        ))
+        Some(&pi_js_compat::js_json::JsString::from("An unknown error occurred"))
     );
 }
 
