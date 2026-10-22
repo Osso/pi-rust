@@ -6,6 +6,7 @@ mod ast;
 mod brace;
 mod class;
 mod escape;
+mod optimize;
 
 use crate::js_regex::JsRegex as Regex;
 
@@ -319,7 +320,9 @@ impl Minimatch {
                 }
             }
         }
-        if self.options.optimization_level >= 1 {
+        if self.options.optimization_level >= 2 {
+            optimize::pattern_parts(glob_parts, self.options.preserve_multiple_slashes)
+        } else if self.options.optimization_level >= 1 {
             level_one_optimize(glob_parts)
         } else {
             adjacent_globstar_optimize(glob_parts)
@@ -380,6 +383,13 @@ impl Minimatch {
     }
 
     fn match_one(&self, file: &[JsString], pattern: &[Part], partial: bool) -> bool {
+        let optimized;
+        let file = if self.options.optimization_level >= 2 {
+            optimized = optimize::file_parts(file.to_vec(), self.options.preserve_multiple_slashes);
+            optimized.as_slice()
+        } else {
+            file
+        };
         if pattern.iter().any(|part| matches!(part, Part::GlobStar)) {
             self.match_globstar(file, pattern, partial, 0)
         } else {
@@ -687,7 +697,6 @@ impl FromIterator<JsString> for JsString {
 }
 
 mod units {
-    pub(super) const NUL: u16 = 0;
     pub(super) const BANG: u16 = b'!' as u16;
     pub(super) const HASH: u16 = b'#' as u16;
     pub(super) const DOLLAR: u16 = b'$' as u16;
