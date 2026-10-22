@@ -64,11 +64,10 @@ pub fn create_supervisor_response_tool() -> ToolDefinition {
         name: SUPERVISOR_RESPONSE_TOOL_NAME.to_owned(),
         label: "Supervisor response".to_owned(),
         description: "Submit exactly one structured Supervisor decision and end the current request.".to_owned(),
-        prompt_snippet: Some("Submit the final structured Supervisor decision".to_owned()),
+        prompt_snippet: Some("Submit the final structured Supervisor decision".into()),
         prompt_guidelines: Some(vec![
-            "Call supervisor_response exactly once as the final action for every request.".to_owned(),
-            "Do not emit assistant text, JSON, markdown, or call end_turn before or after supervisor_response."
-                .to_owned(),
+            "Call supervisor_response exactly once as the final action for every request.".into(),
+            "Do not emit assistant text, JSON, markdown, or call end_turn before or after supervisor_response.".into(),
         ]),
         approval_required: None,
         approval_kind: None,

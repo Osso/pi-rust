@@ -96,7 +96,12 @@ impl PackageConfig {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Self::defaults());
             }
-            Err(error) => return Err(ConfigError::new(node_read_error(&error, &path.display().to_string()))),
+            Err(error) => {
+                return Err(ConfigError::new(node_read_error(
+                    &error,
+                    &JsString::from(path.display().to_string()),
+                )));
+            }
         };
         Self::parse(&content)
     }

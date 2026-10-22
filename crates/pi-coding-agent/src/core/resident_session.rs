@@ -62,7 +62,7 @@ impl ResidentSessionError {
     pub fn message(&self) -> JsString {
         match self {
             Self::PathArgument(error) => error.message.clone(),
-            Self::Filesystem(error) => JsString::from(error.message.as_str()),
+            Self::Filesystem(error) => error.message.clone(),
             Self::ControlDb(error) => error.message().clone(),
             Self::Path(error) => error.message().clone(),
         }
@@ -106,7 +106,7 @@ pub fn prepare_resident_session_file(
     control_db_path: &JsString,
 ) -> Result<PreparedResidentSessionFile, ResidentSessionError> {
     let session_dir = node_join(agent_dir.clone(), js_format!("{}-sessions", role.as_str()));
-    if let Some(error) = node_path_argument_error(&encode_node_utf8(&session_dir)) {
+    if let Some(error) = node_path_argument_error(&session_dir) {
         return Err(ResidentSessionError::PathArgument(error));
     }
     fs::create_dir_all(encode_node_utf8(&session_dir))
@@ -214,7 +214,7 @@ fn is_resident_session_for_role(session: &SessionMetadata, role: ResidentRole) -
 
 #[cfg(unix)]
 fn filesystem_error(error: std::io::Error, syscall: &str, path: &JsString) -> ResidentSessionError {
-    ResidentSessionError::Filesystem(node_fs_error_record(&error, syscall, &encode_node_utf8(path)))
+    ResidentSessionError::Filesystem(node_fs_error_record(&error, syscall, path))
 }
 
 /// `path.resolve`; a failing `process.cwd()` propagates.

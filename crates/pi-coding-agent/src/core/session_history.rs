@@ -82,6 +82,8 @@ fn parse_entry(line: &[u8]) -> Option<SessionEntry> {
     match super::session_manager::parse_session_file_entry(String::from_utf8_lossy(line).as_ref()).ok()? {
         super::session_manager::FileEntry::Header(_) => None,
         super::session_manager::FileEntry::Entry(entry) => Some(entry),
+        // TS yields the raw non-record value, but its only consumer skips it: it has no `id`.
+        super::session_manager::FileEntry::Json(_) => None,
     }
 }
 

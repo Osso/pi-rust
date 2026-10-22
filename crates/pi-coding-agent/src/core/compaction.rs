@@ -659,7 +659,7 @@ pub async fn complete_summarization<C: RetryCallbacks + ?Sized>(
     // Summaries are standalone requests, so isolate routing and avoid cache writes that cannot be reused.
     let mut request_options = options;
     request_options.stream.cache_retention = Some(CacheRetention::None);
-    request_options.stream.session_id = Some(uuidv7());
+    request_options.stream.session_id = Some(uuidv7().into());
     let signal = request_options.stream.request.signal.clone();
 
     let model = model.clone();

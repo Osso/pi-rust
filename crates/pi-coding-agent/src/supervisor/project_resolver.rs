@@ -158,7 +158,7 @@ pub fn read_supervisor_project_config(path: &JsString) -> Result<SupervisorProje
     if !Path::new(&encoded_path).exists() {
         return Ok(SupervisorProjectConfig::new());
     }
-    let bytes = std::fs::read(&encoded_path).map_err(|error| JsString::from(node_read_error(&error, &encoded_path)))?;
+    let bytes = std::fs::read(&encoded_path).map_err(|error| node_read_error(&error, path))?;
     let parsed =
         js_json::parse_lossless(String::from_utf8_lossy(&bytes).as_ref()).map_err(|error| error.into_message())?;
     let Some(object) = record(&parsed) else {
