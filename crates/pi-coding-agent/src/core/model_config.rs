@@ -7,15 +7,15 @@
 use std::path::Path;
 
 use pi_ai::utils::validation::schema_error_lines;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::utils::paths::normalize_path;
-use pi_js_compat::js_json::{self, JsString, encode_node_utf8};
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
 
 /// One immutable load of `models.json`.
 #[derive(Debug, Clone, Default)]
 pub struct ModelConfig {
-    providers: Map<String, Value>,
+    providers: JsObject,
     error: Option<JsString>,
 }
 
@@ -31,26 +31,26 @@ impl ModelConfig {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Self::default(),
             Err(error) => {
                 return Self {
-                    providers: Map::new(),
+                    providers: JsObject::new(),
                     error: Some(JsString::from(format!("Failed to load models.json: {error}\n\nFile: ")) + &path),
                 };
             }
         };
 
-        let parsed = match js_json::parse(&crate::utils::json::strip_json_comments(&content)) {
+        let parsed = match js_json::parse_lossless(&crate::utils::json::strip_json_comments(&content)) {
             Ok(parsed) => parsed,
             Err(error) => {
                 return Self {
-                    providers: Map::new(),
+                    providers: JsObject::new(),
                     error: Some(JsString::from(format!("Failed to parse models.json: {error}\n\nFile: ")) + &path),
                 };
             }
         };
 
-        let errors = schema_error_lines(&models_config_schema().into(), &parsed.clone().into());
+        let errors = schema_error_lines(&models_config_schema().into(), &parsed);
         if !errors.is_empty() {
             return Self {
-                providers: Map::new(),
+                providers: JsObject::new(),
                 error: Some(
                     JsString::from("Invalid models.json schema:\n")
                         + JsString::join(errors, "\n")
@@ -62,20 +62,26 @@ impl ModelConfig {
 
         let providers = parsed
             .get("providers")
-            .and_then(Value::as_object)
+            .and_then(JsValue::as_object)
             .cloned()
             .unwrap_or_default();
+        if providers.keys().any(|name| name.to_utf8().is_err()) {
+            return Self {
+                providers: JsObject::new(),
+                error: Some("models.json provider ID contains an unpaired UTF-16 unit".into()),
+            };
+        }
         Self { providers, error: None }
     }
 
-    pub fn get_provider(&self, provider_id: &str) -> Option<&Value> {
-        self.providers.get(provider_id)
+    pub fn get_provider(&self, provider_id: &str) -> Option<&JsValue> {
+        self.providers.get(&provider_id.into())
     }
 
     pub fn get_provider_ids(&self) -> Vec<String> {
-        js_json::object_entries(&self.providers)
+        js_json::object_entries_js(&self.providers)
             .into_iter()
-            .map(|(name, _)| name.clone())
+            .map(|(name, _)| name.to_utf8().expect("provider IDs checked at models.json load"))
             .collect()
     }
 
@@ -84,7 +90,7 @@ impl ModelConfig {
     }
 
     /// Provider map (insertion ordered), for consumers that need all entries.
-    pub fn providers(&self) -> &Map<String, Value> {
+    pub fn providers(&self) -> &JsObject {
         &self.providers
     }
 }

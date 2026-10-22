@@ -4,6 +4,10 @@
 //! overlays, and an extension registration. Composition never reads credentials;
 //! it only resolves configured values and wraps auth methods.
 
+use pi_js_compat::{
+    js_format,
+    js_json::{self, JsString, encode_node_utf8},
+};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
@@ -42,21 +46,21 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// Composition failure carrying the TypeScript error message.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderCompositionError(String);
+pub struct ProviderCompositionError(JsString);
 
 impl ProviderCompositionError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self(message.into())
     }
 
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         &self.0
     }
 }
 
 impl std::fmt::Display for ProviderCompositionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str(&encode_node_utf8(&self.0))
     }
 }
 
@@ -64,7 +68,7 @@ impl std::error::Error for ProviderCompositionError {}
 
 impl From<crate::core::ConfigValueError> for ProviderCompositionError {
     fn from(error: crate::core::ConfigValueError) -> Self {
-        Self::new(error.to_string())
+        Self::new(error.message().clone())
     }
 }
 
@@ -78,7 +82,7 @@ pub struct ModelsJsonModel {
     #[serde(default)]
     pub api: Option<String>,
     #[serde(default)]
-    pub base_url: Option<String>,
+    pub base_url: Option<JsString>,
     #[serde(default)]
     pub reasoning: Option<bool>,
     #[serde(default)]
@@ -94,7 +98,7 @@ pub struct ModelsJsonModel {
     #[serde(default)]
     pub sampling_params: Option<JsonObject>,
     #[serde(default)]
-    pub headers: Option<HashMap<String, String>>,
+    pub headers: Option<HashMap<String, JsString>>,
     #[serde(default)]
     pub compat: Option<Value>,
 }
@@ -136,7 +140,7 @@ pub struct ModelsJsonModelOverride {
     #[serde(default)]
     pub sampling_params: Option<JsonObject>,
     #[serde(default)]
-    pub headers: Option<HashMap<String, String>>,
+    pub headers: Option<HashMap<String, JsString>>,
     #[serde(default)]
     pub compat: Option<Value>,
 }
@@ -148,15 +152,15 @@ pub struct ModelsJsonProvider {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
-    pub base_url: Option<String>,
+    pub base_url: Option<JsString>,
     #[serde(default)]
-    pub api_key: Option<String>,
+    pub api_key: Option<JsString>,
     #[serde(default)]
     pub api: Option<String>,
     #[serde(default)]
     pub oauth: Option<String>,
     #[serde(default)]
-    pub headers: Option<HashMap<String, String>>,
+    pub headers: Option<HashMap<String, JsString>>,
     #[serde(default)]
     pub compat: Option<Value>,
     #[serde(default)]
@@ -174,7 +178,7 @@ fn parse_provider_config(
     let Some(value) = config.get_provider(provider_id) else {
         return Ok(None);
     };
-    serde_json::from_value(value.clone())
+    js_json::from_value(value)
         .map(Some)
         .map_err(|error| ProviderCompositionError::new(error.to_string()))
 }
@@ -187,7 +191,7 @@ pub struct ExtensionOAuthConfig {
     pub uses_callback_server: Option<bool>,
     pub login: ExtensionOAuthLoginFn,
     pub refresh_token: ExtensionOAuthRefreshFn,
-    pub get_api_key: Arc<dyn Fn(&OAuthCredential) -> String + Send + Sync>,
+    pub get_api_key: Arc<dyn Fn(&OAuthCredential) -> JsString + Send + Sync>,
     pub modify_models: Option<ModifyModelsFn>,
 }
 
@@ -218,11 +222,11 @@ type CancelDeferredFn = Arc<
 #[derive(Clone, Default)]
 pub struct ProviderConfigInput {
     pub name: Option<String>,
-    pub base_url: Option<String>,
-    pub api_key: Option<String>,
+    pub base_url: Option<JsString>,
+    pub api_key: Option<JsString>,
     pub api: Option<String>,
     pub stream_simple: Option<StreamSimpleFn>,
-    pub headers: Option<HashMap<String, String>>,
+    pub headers: Option<HashMap<String, JsString>>,
     pub auth_header: Option<bool>,
     pub oauth: Option<ExtensionOAuthConfig>,
     /// Rust models carry their full shape; composition overrides provider/baseUrl.
@@ -270,7 +274,7 @@ pub fn clear_api_key_cache() {
     clear_config_value_cache();
 }
 
-fn provider_headers_from_map(headers: impl IntoIterator<Item = (String, String)>) -> ProviderHeaders {
+fn provider_headers_from_map(headers: impl IntoIterator<Item = (String, JsString)>) -> ProviderHeaders {
     headers.into_iter().map(|(name, value)| (name, Some(value))).collect()
 }
 
@@ -562,7 +566,10 @@ fn apply_extension(
         .collect()
 }
 
-fn configured_api_key(config: Option<&ModelsJsonProvider>, extension: Option<&ProviderConfigInput>) -> Option<String> {
+fn configured_api_key(
+    config: Option<&ModelsJsonProvider>,
+    extension: Option<&ProviderConfigInput>,
+) -> Option<JsString> {
     extension
         .and_then(|extension| extension.api_key.clone())
         .or_else(|| config.and_then(|config| config.api_key.clone()))
@@ -571,7 +578,7 @@ fn configured_api_key(config: Option<&ModelsJsonProvider>, extension: Option<&Pr
 fn configured_headers(
     config: Option<&ModelsJsonProvider>,
     extension: Option<&ProviderConfigInput>,
-) -> Option<HashMap<String, String>> {
+) -> Option<HashMap<String, JsString>> {
     let config_headers = config.and_then(|config| config.headers.clone());
     let extension_headers = extension.and_then(|extension| extension.headers.clone());
     if config_headers.is_none() && extension_headers.is_none() {
@@ -583,11 +590,11 @@ fn configured_headers(
 }
 
 async fn config_context_env(
-    values: &[String],
+    values: &[JsString],
     ctx: &dyn AuthContext,
     explicit: Option<&ProviderEnv>,
-) -> Option<HashMap<String, String>> {
-    let mut env: HashMap<String, String> = explicit
+) -> Option<HashMap<String, JsString>> {
+    let mut env: HashMap<String, JsString> = explicit
         .map(|explicit| {
             explicit
                 .iter()
@@ -616,7 +623,7 @@ async fn config_context_env(
 
 fn with_configured_auth(
     auth: ModelAuth,
-    headers: Option<HashMap<String, String>>,
+    headers: Option<HashMap<String, JsString>>,
     auth_header: bool,
 ) -> Result<ModelAuth, AuthError> {
     let mut merged: Option<ProviderHeaders> = if auth.headers.is_some() || headers.is_some() {
@@ -634,7 +641,7 @@ fn with_configured_auth(
         };
         merged
             .get_or_insert_with(ProviderHeaders::default)
-            .insert("Authorization".to_owned(), Some(format!("Bearer {api_key}")));
+            .insert("Authorization".to_owned(), Some(js_format!("Bearer {}", api_key)));
     }
     Ok(ModelAuth {
         headers: merged,
@@ -646,7 +653,7 @@ fn raw_model_headers(
     model: &Model,
     config: Option<&ModelsJsonProvider>,
     extension: Option<&ProviderConfigInput>,
-) -> Option<HashMap<String, String>> {
+) -> Option<HashMap<String, JsString>> {
     let mut headers = HashMap::new();
     if let Some(config) = config {
         if let Some(overrides) = &config.model_overrides
@@ -704,8 +711,8 @@ pub fn validate_extension_provider(
 struct ComposedApiKeyAuth {
     provider_id: String,
     inherited: Option<Arc<dyn ApiKeyAuth>>,
-    raw_key: Option<String>,
-    raw_headers: Option<HashMap<String, String>>,
+    raw_key: Option<JsString>,
+    raw_headers: Option<HashMap<String, JsString>>,
     auth_header: bool,
 }
 
@@ -755,7 +762,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                 {
                     return check.await;
                 }
-                if credential.key.as_deref().is_some_and(|key| !key.is_empty()) {
+                if credential.key.as_ref().is_some_and(|key| !key.is_empty()) {
                     return Ok(Some(AuthCheck {
                         source: Some("stored credential".to_owned()),
                         auth_type: AuthType::ApiKey,
@@ -861,7 +868,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                     &format!("API key for provider \"{provider_id}\""),
                     env.as_ref(),
                 )
-                .map_err(|error| AuthError::failed(error.to_string()))?;
+                .map_err(|error| AuthError::failed(error.message().clone()))?;
                 match &inherited {
                     Some(inherited) => {
                         inherited
@@ -906,7 +913,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                     .get_or_insert_with(ProviderEnv::default)
                     .extend(result_env.clone());
             }
-            let header_values: Vec<String> = raw_headers
+            let header_values: Vec<JsString> = raw_headers
                 .as_ref()
                 .map(|headers| headers.values().cloned().collect())
                 .unwrap_or_default();
@@ -916,7 +923,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                 &format!("provider \"{provider_id}\""),
                 header_env.as_ref(),
             )
-            .map_err(|error| AuthError::failed(error.to_string()))?;
+            .map_err(|error| AuthError::failed(error.message().clone()))?;
             result.auth = with_configured_auth(result.auth, headers, auth_header)?;
             Ok(Some(result))
         })
@@ -1007,7 +1014,7 @@ impl OAuthLoginCallbacks for InteractionOAuthCallbacks {
         });
     }
 
-    fn on_prompt(&self, prompt: OAuthPrompt) -> BoxFuture<'_, String> {
+    fn on_prompt(&self, prompt: OAuthPrompt) -> BoxFuture<'_, JsString> {
         Box::pin(async move {
             self.interaction
                 .prompt(AuthPrompt {
@@ -1022,13 +1029,13 @@ impl OAuthLoginCallbacks for InteractionOAuthCallbacks {
         })
     }
 
-    fn on_progress(&self, message: &str) {
+    fn on_progress(&self, message: &JsString) {
         self.interaction.notify(AuthEvent::Progress {
             message: message.to_owned(),
         });
     }
 
-    fn on_manual_code_input(&self) -> Option<BoxFuture<'_, String>> {
+    fn on_manual_code_input(&self) -> Option<BoxFuture<'_, JsString>> {
         Some(Box::pin(async move {
             self.interaction
                 .prompt(AuthPrompt {
@@ -1043,7 +1050,7 @@ impl OAuthLoginCallbacks for InteractionOAuthCallbacks {
         }))
     }
 
-    fn on_select(&self, prompt: OAuthSelectPrompt) -> BoxFuture<'_, Option<String>> {
+    fn on_select(&self, prompt: OAuthSelectPrompt) -> BoxFuture<'_, Option<JsString>> {
         Box::pin(async move {
             self.interaction
                 .prompt(AuthPrompt {
@@ -1074,7 +1081,7 @@ impl OAuthLoginCallbacks for InteractionOAuthCallbacks {
 struct ComposedOAuthAuth {
     oauth: Arc<dyn OAuthAuth>,
     provider_id: String,
-    raw_headers: Option<HashMap<String, String>>,
+    raw_headers: Option<HashMap<String, JsString>>,
     auth_header: bool,
 }
 
@@ -1116,16 +1123,16 @@ impl OAuthAuth for ComposedOAuthAuth {
                 .map(|value| {
                     value
                         .to_serde()
-                        .and_then(serde_json::from_value::<HashMap<String, String>>)
+                        .and_then(serde_json::from_value::<HashMap<String, JsString>>)
                 })
                 .transpose()
-                .map_err(|error| AuthError::failed(error.to_string()))?;
+                .map_err(|error| AuthError::failed(error.message().clone()))?;
             let headers = resolve_headers_or_throw(
                 raw_headers.as_ref(),
                 &format!("provider \"{provider_id}\""),
                 env.as_ref(),
             )
-            .map_err(|error| AuthError::failed(error.to_string()))?;
+            .map_err(|error| AuthError::failed(error.message().clone()))?;
             with_configured_auth(auth, headers, auth_header)
         })
     }
@@ -1205,7 +1212,7 @@ fn api_provider(api: &str) -> Option<Arc<dyn ProviderStreams>> {
 struct ComposedProvider {
     id: String,
     name: String,
-    base_url: Option<String>,
+    base_url: Option<JsString>,
     headers: Option<ProviderHeaders>,
     auth: ProviderAuth,
     get_models: Arc<dyn Fn() -> Vec<Model> + Send + Sync>,
@@ -1226,8 +1233,8 @@ impl Provider for ComposedProvider {
         &self.name
     }
 
-    fn base_url(&self) -> Option<&str> {
-        self.base_url.as_deref()
+    fn base_url(&self) -> Option<&JsString> {
+        self.base_url.as_ref()
     }
 
     fn headers(&self) -> Option<&ProviderHeaders> {
@@ -1356,7 +1363,7 @@ pub fn compose_model_provider(
     let base_url = extension
         .and_then(|extension| extension.base_url.clone())
         .or_else(|| config.as_ref().and_then(|config| config.base_url.clone()))
-        .or_else(|| base.as_ref().and_then(|base| base.base_url().map(str::to_owned)));
+        .or_else(|| base.as_ref().and_then(|base| base.base_url().cloned()));
     let headers = base.as_ref().and_then(|base| base.headers().cloned());
 
     let supports_base_api = {
@@ -1581,8 +1588,8 @@ pub fn resolve_configured_model_headers(
     model: &Model,
     config: Option<&ModelsJsonProvider>,
     extension: Option<&ProviderConfigInput>,
-    env: Option<&HashMap<String, String>>,
-) -> Result<Option<HashMap<String, String>>, ProviderCompositionError> {
+    env: Option<&HashMap<String, JsString>>,
+) -> Result<Option<HashMap<String, JsString>>, ProviderCompositionError> {
     let mut headers = configured_headers(config, extension).unwrap_or_default();
     if let Some(model_headers) = raw_model_headers(model, config, extension) {
         headers.extend(model_headers);
@@ -1683,7 +1690,7 @@ pub fn models_json_provider(
 }
 
 /// Converts a string map into [`ProviderHeaders`].
-pub fn provider_headers(headers: HashMap<String, String>) -> ProviderHeaders {
+pub fn provider_headers(headers: HashMap<String, JsString>) -> ProviderHeaders {
     provider_headers_from_map(headers)
 }
 
@@ -1712,7 +1719,7 @@ pub fn thinking_level_key(value: &str) -> Option<ModelThinkingLevel> {
 }
 
 /// Builds an empty string-keyed header map, used by callers composing overrides.
-pub fn empty_headers() -> HashMap<String, String> {
+pub fn empty_headers() -> HashMap<String, JsString> {
     HashMap::new()
 }
 
