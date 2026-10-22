@@ -33,15 +33,15 @@ async fn model_registry() -> Arc<ModelRegistry> {
 #[derive(Default)]
 pub struct Calls {
     pub shutdown: usize,
-    pub confirms: Vec<(String, String)>,
-    pub notify: Vec<(String, Option<NotifyType>)>,
-    pub set_status: Vec<(String, Option<String>)>,
-    pub set_editor_text: Vec<String>,
+    pub confirms: Vec<(JsString, JsString)>,
+    pub notify: Vec<(JsString, Option<NotifyType>)>,
+    pub set_status: Vec<(JsString, Option<JsString>)>,
+    pub set_editor_text: Vec<JsString>,
     pub send_user_message: Vec<(
         UserMessageContent,
         Option<pi_coding_agent::core::extensions::types::SendUserMessageOptions>,
     )>,
-    pub append_entry: Vec<(JsString, Option<Value>)>,
+    pub append_entry: Vec<(JsJsString, Option<Value>)>,
     pub restart: Vec<Option<pi_coding_agent::core::extensions::types::RestartOptions>>,
     pub sandbox_profile: Vec<(
         Option<pi_coding_agent::core::permissions::presets::SandboxProfileName>,
@@ -49,17 +49,17 @@ pub struct Calls {
     )>,
     pub show_sandbox_selector: usize,
     pub show_approval_selector: usize,
-    pub inputs: Vec<(String, Option<String>, Option<ExtensionUiDialogOptions>)>,
-    pub provision: Vec<(Value, String, String)>,
-    pub run_command: Vec<(String, Vec<String>, bool)>,
-    pub debug: Vec<(String, Option<String>)>,
+    pub inputs: Vec<(JsString, Option<JsString>, Option<ExtensionUiDialogOptions>)>,
+    pub provision: Vec<(Value, JsString, JsString)>,
+    pub run_command: Vec<(JsString, Vec<JsString>, bool)>,
+    pub debug: Vec<(JsString, Option<JsString>)>,
 }
 
 #[derive(Default)]
 pub struct RecordingUi {
     pub confirmed: Mutex<bool>,
     pub calls: Arc<Mutex<Calls>>,
-    pub inputs: Mutex<VecDeque<Option<String>>>,
+    pub inputs: Mutex<VecDeque<Option<JsString>>>,
 }
 
 impl RecordingUi {
@@ -71,10 +71,10 @@ impl RecordingUi {
 impl ExtensionUiContext for RecordingUi {
     fn confirm<'a>(
         &'a self,
-        title: &str,
-        message: &str,
+        title: &JsString,
+        message: &JsString,
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> pi_coding_agent::core::extensions::types::BoxFuture<'a, Result<bool, String>> {
+    ) -> pi_coding_agent::core::extensions::types::BoxFuture<'a, Result<bool, JsString>> {
         self.calls
             .lock()
             .unwrap()
@@ -86,12 +86,12 @@ impl ExtensionUiContext for RecordingUi {
 
     fn input<'a>(
         &'a self,
-        title: &str,
-        placeholder: Option<&str>,
+        title: &JsString,
+        placeholder: Option<&JsString>,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> pi_coding_agent::core::extensions::types::BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> pi_coding_agent::core::extensions::types::BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let title = title.to_owned();
-        let placeholder = placeholder.map(str::to_owned);
+        let placeholder = placeholder.map(Clone::clone);
         let opts = opts.cloned();
         Box::pin(async move {
             self.calls.lock().unwrap().inputs.push((title, placeholder, opts));
@@ -99,7 +99,7 @@ impl ExtensionUiContext for RecordingUi {
         })
     }
 
-    fn notify(&self, message: &str, notify_type: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
         self.calls
             .lock()
             .unwrap()
@@ -107,15 +107,15 @@ impl ExtensionUiContext for RecordingUi {
             .push((message.to_owned(), notify_type));
     }
 
-    fn set_status(&self, key: &str, text: Option<&str>) {
+    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
         self.calls
             .lock()
             .unwrap()
             .set_status
-            .push((key.to_owned(), text.map(str::to_owned)));
+            .push((key.to_owned(), text.map(Clone::clone)));
     }
 
-    fn set_editor_text(&self, text: &str) {
+    fn set_editor_text(&self, text: &JsString) {
         self.calls.lock().unwrap().set_editor_text.push(text.to_owned());
     }
 }
