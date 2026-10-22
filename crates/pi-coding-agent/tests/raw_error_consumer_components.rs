@@ -376,7 +376,7 @@ async fn login_dialog_keeps_raw_prompt_answer_and_display() {
 }
 
 #[test]
-fn oauth_selector_native_query_matches_raw_method_name() {
+fn oauth_selector_raw_query_does_not_search_method_metadata() {
     use pi_coding_agent::modes::interactive::components::oauth_selector::*;
     init_theme();
     let raw = JsString::from_utf16(vec![0xd800]);
@@ -384,13 +384,16 @@ fn oauth_selector_native_query_matches_raw_method_name() {
     provider.method_name = Some(raw.clone());
     let mut selector = OAuthSelectorComponent::new(
         AuthSelectorMode::Login,
+        Rc::new(|_| None),
         vec![provider],
-        Rc::new(|_, _| {}),
+        Rc::new(|_| {}),
         Rc::new(|| {}),
         None,
     );
     selector.handle_input(&raw);
-    assert!(!JsString::join(selector.render(120), "\n").contains("No matching providers"));
+    let output = JsString::join(selector.render(120), "\n");
+    assert!(output.contains("No matching providers"));
+    assert!(output.contains(&raw), "query lost units: {output:?}");
 }
 
 #[test]

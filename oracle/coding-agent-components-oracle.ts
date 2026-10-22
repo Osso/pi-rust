@@ -185,7 +185,10 @@ function instantiate(
 				handleInput(data: string): void;
 			})(
 				props.mode,
-				{ get: () => undefined },
+				{ get: (id: string) => {
+					const provider = (props.providers as Array<Record<string, unknown>>).find((provider) => provider.id === id);
+					return provider?.storedType ? { type: provider.storedType } : undefined;
+				} },
 				providers,
 				(id: string) => push(`select:${id}`),
 				() => push("cancel"),

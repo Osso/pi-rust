@@ -2815,6 +2815,30 @@ fn is_interruptible_lifecycle(lifecycle: AgentLifecycle) -> bool {
     )
 }
 
+fn stored_auth_type_callback(
+    providers: Vec<AuthSelectorProvider>,
+) -> super::components::oauth_selector::StoredCredentialType {
+    Rc::new(move |id| {
+        providers
+            .iter()
+            .find(|provider| provider.id == id)
+            .map(|provider| provider.auth_type)
+    })
+}
+
+fn runtime_auth_status_callback(
+    runtime: crate::core::model_runtime::ModelRuntime,
+) -> super::components::oauth_selector::GetAuthStatus {
+    Rc::new(move |id| {
+        let status = runtime.get_provider_auth_status(id);
+        crate::core::auth_storage::AuthStatus {
+            configured: status.configured,
+            source: status.source.map(|source| source.as_str().to_owned()),
+            label: status.label,
+        }
+    })
+}
+
 impl InteractiveMode {
     /// Builds the interactive mode. Must run inside a tokio runtime context
     /// because [`FooterDataProvider`] captures the current runtime handle.
@@ -9101,7 +9125,7 @@ impl InteractiveMode {
                 return;
             }
         }
-        self.show_login_provider_selector(None, Some(provider_ref.to_owned()));
+        self.show_login_provider_selector(None).await;
     }
 
     fn find_login_provider_options(&self, provider_ref: &JsString) -> Vec<AuthSelectorProvider> {
@@ -9175,7 +9199,11 @@ impl InteractiveMode {
                     AuthType::ApiKey
                 };
                 match &options_for_select {
-                    None => mode.show_login_provider_selector(Some(auth_type), None),
+                    None => {
+                        tokio::task::spawn_local(async move {
+                            mode.show_login_provider_selector(Some(auth_type)).await;
+                        });
+                    }
                     Some(providers) => {
                         if let Some(provider_option) = providers
                             .iter()
@@ -9205,7 +9233,7 @@ impl InteractiveMode {
         )));
     }
 
-    fn show_login_provider_selector(&self, auth_type: Option<AuthType>, initial_search: Option<JsString>) {
+    async fn show_login_provider_selector(&self, auth_type: Option<AuthType>) {
         let provider_options = get_login_provider_options(self.session().model_runtime(), auth_type);
         if provider_options.is_empty() {
             let message = match auth_type {
@@ -9218,21 +9246,20 @@ impl InteractiveMode {
         }
         let mode_id = self.ui_id.get();
         let options_for_select = provider_options.clone();
-        let on_select: Rc<dyn Fn(String, AuthType)> =
-            Rc::new(move |provider_id: String, selected_auth_type: AuthType| {
-                with_mode(mode_id, |mode| {
-                    mode.restore_editor();
-                    if let Some(provider_option) = options_for_select
-                        .iter()
-                        .find(|provider| provider.id == provider_id && provider.auth_type == selected_auth_type)
-                        .cloned()
-                    {
-                        tokio::task::spawn_local(async move {
-                            mode.start_provider_login(provider_option).await;
-                        });
-                    }
-                });
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |provider_id: String| {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                if let Some(provider_option) = options_for_select
+                    .iter()
+                    .find(|provider| provider.id == provider_id)
+                    .cloned()
+                {
+                    tokio::task::spawn_local(async move {
+                        mode.start_provider_login(provider_option).await;
+                    });
+                }
             });
+        });
         let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
             with_mode(mode_id, |mode| {
                 mode.restore_editor();
@@ -9243,12 +9270,21 @@ impl InteractiveMode {
                 }
             });
         });
+        let runtime = self.session().model_runtime().clone();
+        let stored = match get_logout_provider_options(&runtime).await {
+            Ok(stored) => stored,
+            Err(error) => {
+                self.show_error(&error);
+                return;
+            }
+        };
         self.show_selector(component(OAuthSelectorComponent::new(
             AuthSelectorMode::Login,
+            stored_auth_type_callback(stored),
             provider_options,
             on_select,
             on_cancel,
-            initial_search.as_ref(),
+            Some(runtime_auth_status_callback(runtime)),
         )));
     }
 
@@ -9272,7 +9308,7 @@ impl InteractiveMode {
         }
         let mode_id = self.ui_id.get();
         let options_for_select = provider_options.clone();
-        let on_select: Rc<dyn Fn(String, AuthType)> = Rc::new(move |provider_id: String, _auth_type: AuthType| {
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |provider_id: String| {
             with_mode(mode_id, |mode| {
                 mode.restore_editor();
                 let Some(provider_option) = options_for_select
@@ -9328,10 +9364,11 @@ impl InteractiveMode {
         });
         self.show_selector(component(OAuthSelectorComponent::new(
             AuthSelectorMode::Logout,
+            stored_auth_type_callback(provider_options.clone()),
             provider_options,
             on_select,
             on_cancel,
-            None,
+            Some(runtime_auth_status_callback(self.session().model_runtime().clone())),
         )));
     }
 
