@@ -3,6 +3,7 @@ mod components;
 #[path = "support/virtual_terminal.rs"]
 mod virtual_terminal;
 
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -25,7 +26,7 @@ fn kitty_caps() -> TerminalCapabilities {
     }
 }
 
-fn kitty(columns: u32, rows: u32, image_id: Option<u32>) -> String {
+fn kitty(columns: u32, rows: u32, image_id: Option<u32>) -> JsString {
     encode_kitty(
         "AAAA",
         &KittyEncodeOptions {
@@ -248,8 +249,8 @@ fn renders_keyboard_input_without_waiting_for_a_throttled_frame() {
 
     state.borrow_mut().on_input = Some(Rc::new({
         let state = Rc::clone(&state);
-        move |data: &str| {
-            state.borrow_mut().lines = vec![data.to_string()];
+        move |data: &JsString| {
+            state.borrow_mut().lines = vec![data.clone()];
         }
     }));
     tui.request_render(false);
@@ -277,7 +278,7 @@ fn renders_chat_growth_before_the_editor_without_clearing_scrollback() {
     terminal.borrow_mut().clear_writes();
 
     let mut lines = chat_state.borrow().lines.clone();
-    lines.push("incoming update".to_string());
+    lines.push("incoming update".into());
     chat_state.borrow_mut().lines = lines;
     tui.request_render(false);
     wait(&tui, &terminal);
@@ -306,17 +307,17 @@ fn clears_reserved_kitty_image_rows_before_drawing_appended_placements() {
         terminal.borrow_mut().clear_writes();
 
         let image = kitty(2, 2, None);
-        set_lines_owned(&state, vec!["before".to_string(), image.clone(), String::new()]);
+        set_lines_owned(&state, vec![JsString::from("before"), image.clone(), String::new()]);
         tui.request_render(false);
         wait(&tui, &terminal);
 
         let writes = terminal.borrow().writes();
         assert!(
-            writes.contains(&format!("\x1b[2K\r\n\x1b[2K\x1b[1A{image}\x1b[1B")),
+            writes.contains(&(JsString::from("\x1b[2K\r\n\x1b[2K\x1b[1A") + &image + "\x1b[1B")),
             "reserved rows should be cleared before the image placement is drawn: {writes:?}"
         );
         assert!(
-            !writes.contains(&format!("{image}\r\n\x1b[2K")),
+            !writes.contains(&(image.clone() + "\r\n\x1b[2K")),
             "reserved row clears must not run after the image placement is drawn"
         );
         tui.stop();
@@ -339,11 +340,11 @@ fn falls_back_to_full_redraw_when_kitty_image_pre_clear_would_scroll() {
         set_lines_owned(
             &state,
             vec![
-                "before".to_string(),
+                JsString::from("before"),
                 image,
                 String::new(),
                 String::new(),
-                "after".to_string(),
+                JsString::from("after"),
             ],
         );
         tui.request_render(false);
@@ -371,15 +372,15 @@ fn reserves_kitty_image_rows_before_drawing_during_full_redraw_fallbacks() {
         set_lines_owned(
             &state,
             vec![
-                "l0".to_string(),
-                "l1".to_string(),
-                "l2".to_string(),
-                "l3".to_string(),
-                "l4".to_string(),
+                JsString::from("l0"),
+                JsString::from("l1"),
+                JsString::from("l2"),
+                JsString::from("l3"),
+                JsString::from("l4"),
                 image.clone(),
                 String::new(),
                 String::new(),
-                "after".to_string(),
+                JsString::from("after"),
             ],
         );
         tui.request_render(false);
@@ -388,10 +389,10 @@ fn reserves_kitty_image_rows_before_drawing_during_full_redraw_fallbacks() {
         let writes = terminal.borrow().writes();
         assert!(tui.full_redraws() > redraws_before);
         assert!(
-            writes.contains(&format!("\r\n\r\n\x1b[2A{image}\x1b[2B")),
+            writes.contains(&(JsString::from("\r\n\r\n\x1b[2A") + &image + "\x1b[2B")),
             "full redraw should reserve visible image rows: {writes:?}"
         );
-        assert!(!writes.contains(&format!("{image}\r\n\x1b[0m")));
+        assert!(!writes.contains(&(image.clone() + "\r\n\x1b[0m")));
         tui.stop();
     });
 }
@@ -408,16 +409,16 @@ fn does_not_use_cursor_up_placement_for_kitty_images_taller_than_the_viewport() 
         terminal.borrow_mut().clear_writes();
 
         let image = kitty(6, 6, None);
-        let mut lines = vec!["before".to_string(), image.clone()];
+        let mut lines = vec![JsString::from("before"), image.clone()];
         lines.extend(std::iter::repeat_n(String::new(), 5));
-        lines.push("after".to_string());
+        lines.push(JsString::from("after"));
         set_lines_owned(&state, lines);
         tui.request_render(true);
         wait(&tui, &terminal);
 
         let writes = terminal.borrow().writes();
         assert!(writes.contains(&image));
-        assert!(!writes.contains(&format!("\x1b[5A{image}")));
+        assert!(!writes.contains(&(JsString::from("\x1b[5A") + &image)));
         tui.stop();
     });
 }
@@ -429,7 +430,7 @@ fn deletes_changed_image_ids_before_drawing_moved_placements() {
     let (child, state) = test_component(&["top"]);
     tui.add_child(child);
     let old_image = kitty(2, 2, Some(42));
-    set_lines_owned(&state, vec!["top".to_string(), old_image]);
+    set_lines_owned(&state, vec![JsString::from("top"), old_image]);
     tui.start().unwrap();
     wait(&tui, &terminal);
     terminal.borrow_mut().clear_writes();
@@ -459,7 +460,7 @@ fn redraws_image_lines_when_an_earlier_reserved_image_row_changes() {
     wait(&tui, &terminal);
     terminal.borrow_mut().clear_writes();
 
-    set_lines_owned(&state, vec!["covered".to_string(), image.clone()]);
+    set_lines_owned(&state, vec![JsString::from("covered"), image.clone()]);
     tui.request_render(false);
     wait(&tui, &terminal);
 

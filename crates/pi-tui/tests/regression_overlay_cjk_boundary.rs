@@ -23,7 +23,7 @@ fn keeps_ascii_before_segment_behavior_at_the_same_boundary() {
 
 #[test]
 fn composites_an_overlay_at_the_requested_column_when_it_starts_inside_a_wide_grapheme() {
-    let out = composite_tui_line("abcd让EFGH", "│XX│", 5, 4, 20);
+    let out = composite_tui_line(&"abcd让EFGH".into(), &"│XX│".into(), 5, 4, 20);
     let prefix = slice_by_column(&out, 0, 5, true);
     let overlay = slice_by_column(&out, 5, 4, true);
 
@@ -36,7 +36,7 @@ fn composites_an_overlay_at_the_requested_column_when_it_starts_inside_a_wide_gr
 
 #[test]
 fn composites_an_overlay_when_it_starts_at_a_wide_grapheme_boundary() {
-    let out = composite_tui_line("abcd让EFGH", "│XX│", 4, 4, 20);
+    let out = composite_tui_line(&"abcd让EFGH".into(), &"│XX│".into(), 4, 4, 20);
     let overlay = slice_by_column(&out, 4, 4, true);
 
     assert!(!out.contains("让"));
