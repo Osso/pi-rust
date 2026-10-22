@@ -111,13 +111,11 @@ fn verify_source_head(source_lock: &SourceLock) {
     );
 }
 
-const SOURCE_MODULES: [&str; 6] = [
-    "packages/agent/src/harness/events.ts",
+const SOURCE_MODULES: [&str; 4] = [
     "packages/agent-core/src/harness/messages.ts",
     "packages/agent-core/src/harness/skills.ts",
     "packages/agent-core/src/harness/prompt-templates.ts",
     "packages/agent-core/src/harness/env/nodejs.ts",
-    "packages/agent/src/harness/reducer.ts",
 ];
 
 pub(crate) fn spawn_oracle() -> TsOracle {
