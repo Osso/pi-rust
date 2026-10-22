@@ -1,5 +1,4 @@
-//! RED-intent source-drift fixture. Unexecuted until the coding library compiles.
-//! Local Operations must validate Node paths before OS encoding or syscall entry.
+//! Local Operations validate Node paths before OS encoding or syscall entry.
 #[path = "../../pi-ai/tests/support/oracle.rs"]
 mod oracle;
 

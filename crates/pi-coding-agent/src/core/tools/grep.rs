@@ -64,6 +64,7 @@ pub struct LocalGrepOperations;
 impl GrepOperations for LocalGrepOperations {
     fn is_directory<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async move {
+            super::node_fs::validate_node_path(absolute_path)?;
             tokio::fs::metadata(encode_node_utf8(absolute_path))
                 .await
                 .map(|metadata| metadata.is_dir())
@@ -72,6 +73,7 @@ impl GrepOperations for LocalGrepOperations {
 
     fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<JsString>> {
         Box::pin(async move {
+            super::node_fs::validate_node_path(absolute_path)?;
             tokio::fs::read(encode_node_utf8(absolute_path))
                 .await
                 .map(|bytes| String::from_utf8_lossy(&bytes).into_owned().into())

@@ -66,6 +66,7 @@ impl LsOperations for LocalLsOperations {
 
     fn is_directory<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async move {
+            super::node_fs::validate_node_path(absolute_path)?;
             tokio::fs::metadata(&encode_node_utf8(absolute_path))
                 .await
                 .map(|metadata| metadata.is_dir())
@@ -77,6 +78,7 @@ impl LsOperations for LocalLsOperations {
 
     fn readdir<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
         Box::pin(async move {
+            super::node_fs::validate_node_path(absolute_path)?;
             let mut entries = tokio::fs::read_dir(encode_node_utf8(absolute_path)).await?;
             let mut names = Vec::new();
             while let Some(entry) = entries.next_entry().await? {
