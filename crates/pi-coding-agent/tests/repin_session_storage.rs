@@ -44,8 +44,8 @@ fn frozen_archive_stale_path_never_allocates_identity_or_masks_history() {
     let archived = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
     assert!(!std::path::Path::new(path).exists());
     assert_eq!(
-        read_session_header(&JsString::from(path)).map(|h| h.id),
-        Some(created["id"].as_str().unwrap().to_owned())
+        read_session_header(&JsString::from(path)).map(|h| h.id().clone()),
+        Some(JsString::from(created["id"].as_str().unwrap()))
     );
     assert!(!load_entries_from_file(&JsString::from(path)).unwrap().is_empty());
     assert!(SessionManager::open(&JsString::from(path), None, None).is_err());
@@ -195,7 +195,7 @@ async fn persisted_history_tool_recovers_source_compacted_ancestor() {
         )
         .await
         .unwrap();
-    assert_eq!(result.details.unwrap()["totalMatches"], 1);
+    assert_eq!(result.details.unwrap()["totalMatches"], JsValue::Number(1.0));
 }
 
 #[test]
@@ -890,7 +890,7 @@ fn frozen_storage_suffix_noops_missing_and_metadata_surviving_plain_branches() {
     let expected = call(&mut ts, json!({"op":"predicates","paths":paths}));
     for (index, path) in paths.iter().enumerate() {
         assert_eq!(
-            json!({"transcript":is_session_transcript_file(*path),"archive":is_archived_session_file(&*JsString::from(path)),"resolved":read_session_transcript_path(*path)}),
+            json!({"transcript":is_session_transcript_file(*path),"archive":is_archived_session_file(&JsString::from(*path)),"resolved":read_session_transcript_path(*path)}),
             expected[index]
         );
     }
@@ -1074,7 +1074,7 @@ fn source_legacy_v1_read_only_migrates_context_without_mutating_original() {
         expected["context"]
     );
     assert_eq!(std::fs::read(path).unwrap(), bytes);
-    assert_eq!(manager.get_header().unwrap().version, Some(3.0));
+    assert_eq!(manager.get_header().unwrap().version(), Some(3.0));
 }
 
 #[tokio::test]

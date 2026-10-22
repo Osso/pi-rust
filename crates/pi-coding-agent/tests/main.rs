@@ -563,7 +563,7 @@ fn first_party_factory_list_partitions_the_source_names() {
         std::sync::Arc::new(Vec::new),
         None,
     );
-    let registered: Vec<String> = factories
+    let registered: Vec<JsString> = factories
         .iter()
         .map(|factory| match factory {
             InlineExtension::Factory {
@@ -571,9 +571,8 @@ fn first_party_factory_list_partitions_the_source_names() {
                 ..
             } => path
                 .strip_prefix("<first-party:")
-                .and_then(|path| path.strip_suffix('>'))
-                .expect("first-party path")
-                .to_owned(),
+                .and_then(|path| path.strip_suffix(">"))
+                .expect("first-party path"),
             _ => panic!("first-party factories carry an extension path"),
         })
         .collect();
@@ -615,14 +614,14 @@ async fn first_party_factories_load_and_register_agent_tools() {
     loader.reload_with_options(None).await.expect("reload");
     let result = loader.get_extensions();
     assert!(result.errors.is_empty(), "{:?}", result.errors);
-    let paths: Vec<String> = result
+    let paths: Vec<JsString> = result
         .extensions
         .iter()
         .map(|extension| extension.read().path.clone())
         .collect();
-    let expected: Vec<String> = FIRST_PARTY_EXTENSION_NAMES
+    let expected: Vec<JsString> = FIRST_PARTY_EXTENSION_NAMES
         .iter()
-        .map(|name| format!("<first-party:{name}>"))
+        .map(|name| JsString::from(format!("<first-party:{name}>")))
         .collect();
     assert_eq!(paths, expected);
     let core = result
@@ -661,7 +660,7 @@ async fn runtime_factory_creates_services_and_reports_missing_models() {
 
     let parsed = parse_args(&args(&["--no-session"]));
     let session_manager = SessionManager::in_memory(Some(&JsString::from(&cwd_string)), None).expect("session manager");
-    let trust_store = Arc::new(ProjectTrustStore::new(&JsString::from(&agent_dir_string)));
+    let trust_store = Arc::new(ProjectTrustStore::new(&JsString::from(&agent_dir_string)).expect("trust store"));
     let project_trust_by_cwd = Arc::new(Mutex::new(HashMap::new()));
     let factory = create_runtime_factory(RuntimeFactoryOptions {
         parsed,

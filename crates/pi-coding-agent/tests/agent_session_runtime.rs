@@ -394,10 +394,10 @@ async fn new_session_invalidates_the_outgoing_extension_context() {
 async fn new_session_cleans_up_the_outgoing_session_resources() {
     let mut harness = build_harness(false, false).await;
     let outgoing_session_id = harness.runtime.session().session_id();
-    let cleaned: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let cleaned: Arc<Mutex<Vec<Option<JsString>>>> = Arc::new(Mutex::new(Vec::new()));
     let cleanup_log = Arc::clone(&cleaned);
     let registration = pi_ai::session_resources::register_session_resource_cleanup(Box::new(move |session_id| {
-        cleanup_log.lock().unwrap().push(session_id.map(str::to_owned));
+        cleanup_log.lock().unwrap().push(session_id.cloned());
         Ok(())
     }));
 
@@ -411,7 +411,8 @@ async fn new_session_cleans_up_the_outgoing_session_resources() {
     let cleaned = cleaned.lock().unwrap().clone();
     assert!(
         cleaned.contains(&Some(outgoing_session_id.clone())),
-        "outgoing {outgoing_session_id} not cleaned: {cleaned:?}"
+        "outgoing {} not cleaned: {cleaned:?}",
+        encode_node_utf8(&outgoing_session_id)
     );
 }
 
@@ -616,7 +617,7 @@ async fn fork_does_not_inherit_the_parent_session_name() {
         .expect("fork");
     assert!(!result.cancelled);
     let forked_session_file = harness.runtime.session().session_file().expect("forked file");
-    assert_ne!(Some(forked_session_file.as_str()), previous_session_file.as_ref());
+    assert_ne!(Some(&forked_session_file), previous_session_file.as_ref());
     let forked = harness.runtime.session();
     assert_eq!(forked.session_name(), None);
     assert!(!lock_session_manager(&forked.session_manager_handle()).has_session_name_state());

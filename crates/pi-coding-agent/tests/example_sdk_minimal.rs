@@ -46,7 +46,7 @@ impl Output {
 struct Fixture {
     _home: tempfile::TempDir,
     options: CreateAgentSessionOptions,
-    session_file: String,
+    session_file: JsString,
     cleaned: Arc<Mutex<bool>>,
     cleanup: SessionResourceCleanupRegistration,
 }
@@ -130,7 +130,7 @@ async fn fixture(authenticated: bool) -> Fixture {
     let cleaned = Arc::new(Mutex::new(false));
     let cleaned_resource = Arc::clone(&cleaned);
     let cleanup = register_session_resource_cleanup(Box::new(move |id| {
-        if id == Some(session_id.as_str()) {
+        if id == Some(&session_id) {
             *cleaned_resource.lock().unwrap() = true;
         }
         Ok(())
@@ -274,7 +274,7 @@ fn entrypoint_error_keeps_name_message_and_failure_status_without_debug_quotes()
     let message = "prompt failed: \"quoted\"\nnext line";
     if let Ok(case) = std::env::var("PI_SDK_MINIMAL_DIAGNOSTIC_FIXTURE") {
         let result = if case == "failure" {
-            Err(minimal::ExampleError(JsString::from(message.to_owned())))
+            Err(minimal::ExampleError(JsString::from(message)))
         } else {
             Ok(())
         };

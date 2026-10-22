@@ -5,6 +5,7 @@
 //! unknown codes to `EIO`. The errors are produced at the real OS boundary:
 //! `execve` returns `ETXTBSY`/`EACCES`/`ENOENT`/`ENOTDIR` for these fixtures.
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};

@@ -140,52 +140,44 @@ impl EntryBuilder {
     }
 }
 
-fn entry_id(entry: &SessionEntry) -> &str {
+fn entry_id(entry: &SessionEntry) -> &JsString {
     entry.id().expect("fixture entry must have an id")
 }
 
-fn message_text(messages: &[AgentMessage]) -> String {
-    messages
-        .iter()
-        .map(|message| match message {
-            AgentMessage::User(user) => match &user.content {
-                UserContent::Text(text) => text.clone(),
-                UserContent::Blocks(blocks) => blocks
-                    .iter()
-                    .filter_map(|block| match block {
-                        pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
-                        pi_ai::types::TextOrImageContent::Image(_) => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            },
-            AgentMessage::Assistant(assistant) => assistant
-                .content
-                .iter()
-                .filter_map(|block| match block {
-                    AssistantContent::Text(text) => Some(text.text.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join(" "),
-            AgentMessage::ToolResult(result) => result
-                .content
-                .iter()
-                .filter_map(|block| match block {
-                    pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
+fn message_text(messages: &[AgentMessage]) -> JsString {
+    let texts = messages.iter().map(|message| match message {
+        AgentMessage::User(user) => match &user.content {
+            UserContent::Text(text) => text.clone(),
+            UserContent::Blocks(blocks) => JsString::join(
+                blocks.iter().filter_map(|block| match block {
+                    pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
                     pi_ai::types::TextOrImageContent::Image(_) => None,
-                })
-                .collect::<Vec<_>>()
-                .join(" "),
-            AgentMessage::Custom(object) => object
-                .get("summary")
-                .or_else(|| object.get("content"))
-                .and_then(JsValue::as_string)
-                .unwrap_or_default()
-                .to_owned(),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+                }),
+                " ",
+            ),
+        },
+        AgentMessage::Assistant(assistant) => JsString::join(
+            assistant.content.iter().filter_map(|block| match block {
+                AssistantContent::Text(text) => Some(&text.text),
+                _ => None,
+            }),
+            " ",
+        ),
+        AgentMessage::ToolResult(result) => JsString::join(
+            result.content.iter().filter_map(|block| match block {
+                pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
+                pi_ai::types::TextOrImageContent::Image(_) => None,
+            }),
+            " ",
+        ),
+        AgentMessage::Custom(object) => object
+            .get("summary")
+            .or_else(|| object.get("content"))
+            .and_then(JsValue::as_string)
+            .cloned()
+            .unwrap_or_default(),
+    });
+    JsString::join(texts, "\n")
 }
 
 #[test]
@@ -669,7 +661,8 @@ fn finds_cut_point_in_large_session_fixture() {
         .into_iter()
         .filter_map(|entry| match entry {
             pi_coding_agent::core::session_manager::FileEntry::Entry(entry) => Some(entry),
-            pi_coding_agent::core::session_manager::FileEntry::Header(_) => None,
+            pi_coding_agent::core::session_manager::FileEntry::Header(_)
+            | pi_coding_agent::core::session_manager::FileEntry::Json(_) => None,
         })
         .collect();
     assert!(entries.len() > 100);

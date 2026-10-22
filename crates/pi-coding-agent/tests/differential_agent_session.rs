@@ -6,6 +6,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::encode_node_utf8;
@@ -60,7 +61,7 @@ impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<tokio_util::sync::CancellationToken>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -71,11 +72,11 @@ impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
         Box::pin(async move {
             let reason = params
                 .get("reason")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned();
-            let mut result = pi_agent_core::agent::types::AgentToolResult::text(format!("Turn ended: {reason}"));
-            result.details = Some(JsValue::from(json!({"reason": reason})));
+                .and_then(JsValue::as_string)
+                .cloned()
+                .unwrap_or_default();
+            let mut result = pi_agent_core::agent::types::AgentToolResult::text(js_format!("Turn ended: {}", reason));
+            result.details = Some(pi_js_compat::js_json!({"reason": reason}));
             result.terminate = Some(true);
             Ok(result)
         })
@@ -161,12 +162,9 @@ async fn run_rust(dir: &str) -> Value {
     let session_dir = std::path::Path::new(dir).join("sessions").display().to_string();
     let session_manager = SessionManager::create(&JsString::from(dir), Some(&JsString::from(&session_dir)), None)
         .expect("session manager");
-    let settings_manager = SettingsManager::create(
-        &JsString::from(dir),
-        Some(std::path::Path::new(dir)),
-        Default::default(),
-    )
-    .expect("settings");
+    let settings_manager =
+        SettingsManager::create(&JsString::from(dir), Some(&JsString::from(dir)), Default::default())
+            .expect("settings");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(dir.to_owned())),
         agent_dir: Some(JsString::from(dir.to_owned())),
@@ -256,7 +254,7 @@ async fn run_rust(dir: &str) -> Value {
                 )
             })
         })
-        .and_then(|entry| entry.id().map(str::to_owned))
+        .and_then(|entry| entry.id().cloned())
         .expect("first user entry");
     let navigation = session
         .navigate_tree(

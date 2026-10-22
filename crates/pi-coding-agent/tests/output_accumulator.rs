@@ -111,7 +111,7 @@ fn persists_truncated_output_to_the_configured_temp_file() {
             max_bytes: 1_024,
             ..OutputAccumulatorOptions::default()
         },
-        path.clone(),
+        JsString::from(path.to_str().unwrap()),
     );
     output.append(b"a\nb\nc\n");
     output.finish();
@@ -131,7 +131,10 @@ fn persists_truncated_output_to_the_configured_temp_file() {
 fn does_not_create_a_temp_file_when_the_snapshot_is_not_truncated() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("full.log");
-    let mut output = OutputAccumulator::new_with_temp_file_path(OutputAccumulatorOptions::default(), path.clone());
+    let mut output = OutputAccumulator::new_with_temp_file_path(
+        OutputAccumulatorOptions::default(),
+        JsString::from(path.to_str().unwrap()),
+    );
     output.append(b"a\n");
     output.finish();
 
@@ -153,7 +156,7 @@ fn persists_all_raw_chunks_once_the_output_exceeds_the_limits() {
             max_bytes: 1_024,
             ..OutputAccumulatorOptions::default()
         },
-        path.clone(),
+        JsString::from(path.to_str().unwrap()),
     );
     output.append(b"a\n");
     output.append(b"b\n");

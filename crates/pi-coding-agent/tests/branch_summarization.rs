@@ -175,25 +175,25 @@ fn model(context_window: f64) -> Model {
 
 #[derive(Debug, Clone, PartialEq)]
 struct CapturedCall {
-    system_prompt: Option<String>,
-    prompt: String,
+    system_prompt: Option<JsString>,
+    prompt: JsString,
     max_tokens: Option<f64>,
     cache_retention: Option<pi_ai::types::CacheRetention>,
 }
 
-fn first_user_text(context: &Context) -> String {
+fn first_user_text(context: &Context) -> JsString {
     match context.messages.first() {
         Some(pi_ai::types::Message::User(user)) => match &user.content {
             UserContent::Text(text) => text.clone(),
-            UserContent::Blocks(blocks) => blocks
-                .iter()
-                .filter_map(|block| match block {
-                    pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.as_str()),
+            UserContent::Blocks(blocks) => JsString::join(
+                blocks.iter().filter_map(|block| match block {
+                    pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
                     pi_ai::types::TextOrImageContent::Image(_) => None,
-                })
-                .collect(),
+                }),
+                "",
+            ),
         },
-        _ => String::new(),
+        _ => JsString::default(),
     }
 }
 
@@ -476,7 +476,8 @@ async fn appends_custom_instructions_to_the_default_prompt() {
     let model = model(128_000.0);
     let stream_fn = stream_fn(Arc::clone(&log), response("summary"));
     let mut options = options(&model, Some(&stream_fn));
-    options.custom_instructions = Some(&JsString::from("focus on files"));
+    let instructions = JsString::from("focus on files");
+    options.custom_instructions = Some(&instructions);
 
     let _ = generate_branch_summary(
         &entries,
@@ -496,7 +497,8 @@ async fn replaces_the_default_prompt_when_requested() {
     let model = model(128_000.0);
     let stream_fn = stream_fn(Arc::clone(&log), response("summary"));
     let mut options = options(&model, Some(&stream_fn));
-    options.custom_instructions = Some(&JsString::from("only this"));
+    let instructions = JsString::from("only this");
+    options.custom_instructions = Some(&instructions);
     options.replace_instructions = true;
 
     let _ = generate_branch_summary(

@@ -67,33 +67,33 @@ fn response(stop_reason: StopReason, text: &str, error_message: Option<&str>) ->
 
 #[derive(Debug, Clone, PartialEq)]
 struct CapturedCall {
-    system_prompt: Option<String>,
-    prompt: String,
+    system_prompt: Option<JsString>,
+    prompt: JsString,
     max_tokens: Option<f64>,
     cache_retention: Option<pi_ai::types::CacheRetention>,
     session_id_is_set: bool,
-    api_key: Option<String>,
+    api_key: Option<JsString>,
 }
 
-fn first_user_text(context: &Context) -> String {
-    context
+fn first_user_text(context: &Context) -> JsString {
+    let texts = context
         .messages
         .iter()
         .filter_map(|message| match message {
             Message::User(user) => Some(match &user.content {
                 UserContent::Text(text) => text.clone(),
-                UserContent::Blocks(blocks) => blocks
-                    .iter()
-                    .filter_map(|block| match block {
-                        pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.as_str()),
+                UserContent::Blocks(blocks) => JsString::join(
+                    blocks.iter().filter_map(|block| match block {
+                        pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
                         pi_ai::types::TextOrImageContent::Image(_) => None,
-                    })
-                    .collect(),
+                    }),
+                    "",
+                ),
             }),
             _ => None,
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect::<Vec<_>>();
+    JsString::join(texts, "\n")
 }
 
 fn scripted_stream(log: Arc<Mutex<Vec<CapturedCall>>>, responses: Vec<AssistantMessage>) -> StreamFn {
@@ -138,7 +138,7 @@ fn compaction_entry(provider_native: Option<ProviderNativeContext>) -> Compactio
         extra: Default::default(),
         duration_ms: None,
         details: Some(Box::new(JsValue::from(json!({"type": "openai-remote-compaction"})))),
-        provider_native: provider_native.map(Box::new),
+        provider_native: provider_native.map(|value| Box::new(JsValue::from(value))),
         from_hook: None,
         first_kept_entry_index: None,
     }

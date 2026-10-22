@@ -102,7 +102,7 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
         &control_db,
         &session_path,
         message_id,
-        &json!({
+        &pi_js_compat::js_json!({
             "body": "Need parent review",
             "fromAgentId": "agent_1",
             "id": message_id,
@@ -140,27 +140,24 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     let texts = user_texts(&session);
-    assert_eq!(texts.len(), 1, "signal wake delivered a prompt: {texts:?}");
+    assert_eq!(texts.len(), 1, "signal wake delivered {} prompts", texts.len());
     assert!(texts[0].contains("Need parent review"));
 }
 
-fn user_texts(session: &pi_coding_agent::core::agent_session::AgentSession) -> Vec<String> {
+fn user_texts(session: &pi_coding_agent::core::agent_session::AgentSession) -> Vec<JsString> {
     session
         .messages()
         .iter()
         .filter_map(|message| match message {
             AgentMessage::User(user) => match &user.content {
                 pi_ai::types::UserContent::Text(text) => Some(text.clone()),
-                pi_ai::types::UserContent::Blocks(blocks) => Some(
-                    blocks
-                        .iter()
-                        .filter_map(|block| match block {
-                            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
-                            pi_ai::types::TextOrImageContent::Image(_) => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                ),
+                pi_ai::types::UserContent::Blocks(blocks) => Some(JsString::join(
+                    blocks.iter().filter_map(|block| match block {
+                        pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
+                        pi_ai::types::TextOrImageContent::Image(_) => None,
+                    }),
+                    "\n",
+                )),
             },
             _ => None,
         })

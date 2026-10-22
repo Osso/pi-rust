@@ -65,7 +65,7 @@ fn entries_from_values(values: &[Value]) -> Vec<SessionEntry> {
         .iter()
         .filter_map(|value| match serde_json::from_value::<FileEntry>(value.clone()).ok()? {
             FileEntry::Entry(entry) => Some(entry),
-            FileEntry::Header(_) => None,
+            FileEntry::Header(_) | FileEntry::Json(_) => None,
         })
         .collect()
 }
@@ -239,11 +239,14 @@ fn parses_and_builds_context_identically() {
             None | Some("") => LeafSelection::Last,
             Some(id) => LeafSelection::Id(&JsString::from(id)),
         };
-        let rust_ids: Vec<String> = build_context_entries(&entries, rust_leaf)
+        let rust_ids: Vec<JsString> = build_context_entries(&entries, rust_leaf)
             .iter()
-            .map(|entry| entry.id().unwrap_or_default().to_owned())
+            .map(|entry| entry.id().cloned().unwrap_or_default())
             .collect();
-        assert_eq!(json!(rust_ids), response["output"]["contextEntries"]);
+        assert_eq!(
+            JsValue::from(json!(response["output"]["contextEntries"])),
+            pi_js_compat::js_json::to_value(&rust_ids).unwrap()
+        );
         assert_eq!(
             context_value(&entries, rust_leaf),
             response["output"]["context"],
@@ -475,7 +478,7 @@ fn truncates_tool_results_identically() {
             oracle.request(&json!({"id": REQUEST_BASE + 40, "operation": "truncate_tool_result", "entry": fixture}));
         let entry: SessionEntry = match serde_json::from_value::<FileEntry>(fixture.clone()).unwrap() {
             FileEntry::Entry(entry) => entry,
-            FileEntry::Header(_) => unreachable!(),
+            FileEntry::Header(_) | FileEntry::Json(_) => unreachable!(),
         };
         let (truncated, _) = truncate_tool_result_for_persistence(&entry);
         assert_eq!(serde_json::to_value(&truncated).unwrap(), response["output"]["entry"]);
@@ -553,7 +556,7 @@ fn cross_implementation_appends_round_trip() {
     .unwrap();
     assert_eq!(reopened.get_entries().len(), 6);
     let context = reopened.build_session_context();
-    let roles: Vec<&str> = context.messages.iter().map(AgentMessage::role).collect();
+    let roles: Vec<JsString> = context.messages.iter().map(AgentMessage::role).collect();
     // The TypeScript-appended user message became a sibling of the leaf chain, so the
     // active slice excludes it; both implementations report the same five entries.
     assert_eq!(roles, ["user", "assistant", "user", "assistant", "assistant"]);

@@ -1,6 +1,7 @@
 use pi_agent_core::agent::AgentMessage;
 use pi_coding_agent::core::session_manager::{FileEntry, SessionEntry, parse_session_entries};
 use pi_coding_agent::core::session_tool_output::serialize_session_entry;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
@@ -107,7 +108,7 @@ async fn custom_find_operation_receives_original_pattern_units() {
             "raw-pattern".into(),
             parse_lossless(r#"{"pattern":"*\ud800\udfff\ud800"}"#).unwrap(),
             None,
-            None,
+            std::sync::Arc::new(|_| {}),
             None,
         )
         .await
@@ -164,7 +165,7 @@ async fn custom_write_operation_error_keeps_raw_units() {
             "raw-error".into(),
             parse_lossless(r#"{"path":"raw.txt","content":"x"}"#).unwrap(),
             None,
-            None,
+            std::sync::Arc::new(|_| {}),
             None,
         )
         .await;

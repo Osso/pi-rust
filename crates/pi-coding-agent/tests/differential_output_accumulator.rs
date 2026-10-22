@@ -6,6 +6,7 @@ mod oracle;
 use corpus::Corpus;
 use pi_coding_agent::core::tools::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions, SnapshotOptions};
 use pi_coding_agent::core::tools::truncate::{TruncatedBy, TruncationResult};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 struct Case {
@@ -62,7 +63,7 @@ fn actual_case(case: &Case, temp_dir: &std::path::Path) -> Value {
             max_bytes: case.max_bytes,
             ..OutputAccumulatorOptions::default()
         },
-        &path,
+        JsString::from(path.to_str().expect("UTF-8 temp path")),
     );
     let mut last_line_bytes = Vec::new();
     for chunk in &case.chunks {

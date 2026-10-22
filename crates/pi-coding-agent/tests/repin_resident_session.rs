@@ -9,6 +9,7 @@ mod frozen_delta;
 mod oracle;
 
 use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 
@@ -86,7 +87,9 @@ fn fixture(root: &str, role: &str, case: &str) -> Value {
         }
         "relative" => {
             let cwd = std::env::current_dir().unwrap();
-            let relative = pi_coding_agent::utils::paths::relative_path(&cwd.display().to_string(), root);
+            let relative = encode_node_utf8(
+                &pi_coding_agent::utils::paths::relative_path(cwd.display().to_string(), root).expect("relative path"),
+            );
             f["agentDir"] = json!(format!("{relative}/absent/../agent/./"));
         }
         "self-existing"
@@ -113,9 +116,12 @@ fn fixture(root: &str, role: &str, case: &str) -> Value {
                 "self-live-symlink" => format!("{dir}/zz_{role}.jsonl"),
                 "self-relative" => {
                     let cwd = std::env::current_dir().unwrap();
-                    pi_coding_agent::utils::paths::relative_path(
-                        &cwd.display().to_string(),
-                        &format!("{dir}/./sub/../100_{role}.jsonl"),
+                    encode_node_utf8(
+                        &pi_coding_agent::utils::paths::relative_path(
+                            cwd.display().to_string(),
+                            format!("{dir}/./sub/../100_{role}.jsonl"),
+                        )
+                        .expect("relative path"),
                     )
                 }
                 "self-outside" => format!("{dir}/child/nested.jsonl"),

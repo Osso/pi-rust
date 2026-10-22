@@ -23,7 +23,7 @@ impl GrepOperations for Fault {
         Box::pin(async { self.result("directory", true) })
     }
     fn read_file<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<JsString>> {
-        Box::pin(async { self.result("readFile", String::new()) })
+        Box::pin(async { self.result("readFile", JsString::default()) })
     }
 }
 impl FindOperations for Fault {
@@ -91,14 +91,14 @@ impl WriteOperations for Fault {
     }
 }
 impl EditOperations for Fault {
-    fn access<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
-        ReadOperations::access(self, &JsString::from(""))
+    fn access<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
+        ReadOperations::access(self, path)
     }
-    fn read_file<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
-        ReadOperations::read_file(self, &JsString::from(""))
+    fn read_file<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+        ReadOperations::read_file(self, path)
     }
-    fn write_file<'a>(&'a self, _: &'a JsString, _: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
-        WriteOperations::write_file(self, &JsString::from(""), &JsString::from(""))
+    fn write_file<'a>(&'a self, path: &'a JsString, content: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
+        WriteOperations::write_file(self, path, content)
     }
 }
 impl LsOperations for Fault {
@@ -112,7 +112,7 @@ impl LsOperations for Fault {
         Box::pin(async { self.result("readdir", Vec::new()) })
     }
 }
-async fn error(tool: &dyn AgentTool, params: Value) -> String {
+async fn error(tool: &dyn AgentTool, params: Value) -> JsString {
     tool.execute("fault".into(), JsValue::from(params), None, Arc::new(|_| {}), None)
         .await
         .err()

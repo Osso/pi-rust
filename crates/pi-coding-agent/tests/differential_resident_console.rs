@@ -29,7 +29,7 @@ fn snapshot() -> ResidentConsoleSnapshot<Value> {
 
 struct CrossHost {
     snapshot: ResidentConsoleSnapshot<Value>,
-    prompts: Mutex<Vec<(String, String)>>,
+    prompts: Mutex<Vec<(JsString, JsString)>>,
     listeners: Listeners,
     next_listener: Mutex<u64>,
 }
@@ -50,7 +50,7 @@ impl CrossHost {
         }
     }
 
-    fn prompts(&self) -> Vec<(String, String)> {
+    fn prompts(&self) -> Vec<(JsString, JsString)> {
         self.prompts.lock().unwrap().clone()
     }
 }
@@ -129,7 +129,10 @@ async fn typescript_client_attaches_prompts_and_receives_rust_server_events() {
         ])
     );
     assert_eq!(output["promptError"], Value::Null);
-    assert_eq!(host.prompts(), vec![("prompt-1".to_owned(), "inspect this".to_owned())]);
+    assert_eq!(
+        host.prompts(),
+        vec![(JsString::from("prompt-1"), JsString::from("inspect this"))]
+    );
     server.close().await.unwrap();
 }
 

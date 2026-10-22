@@ -63,7 +63,7 @@ fn converts_extension_custom_messages_to_user_text() {
         .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
         .collect::<pi_js_compat::js_json::JsObject>(),
     );
-    let messages = convert_to_llm(&[custom]);
+    let messages = convert_to_llm(&[custom]).expect("convert custom message");
     assert_eq!(messages.len(), 1);
     match &messages[0] {
         pi_ai::types::Message::User(user) => {

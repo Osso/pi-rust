@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::time::Duration;
 
 use pi_ai::request::{Fetch, HttpRequest};
@@ -136,7 +137,7 @@ async fn disabled_timeout_keeps_waiting_for_the_body() {
     drop(server);
 }
 
-async fn body_text(fetch: &dyn Fetch, request: HttpRequest) -> Result<String, String> {
+async fn body_text(fetch: &dyn Fetch, request: HttpRequest) -> Result<String, JsString> {
     let mut response = fetch.fetch(request, None).await.map_err(|error| error.message)?;
     let mut bytes = Vec::new();
     while let Some(chunk) = response.body.next_chunk().await {

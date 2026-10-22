@@ -136,7 +136,10 @@ async fn dispatch(temp_dir: &str) -> Value {
         api.on_before_agent_start(h!(BeforeAgentStartEvent, [l5], |_e, ctx| {
             support::log(
                 &l5,
-                js_format!("e1:before_agent_start:{}", ctx.get_system_prompt().unwrap()),
+                encode_node_utf8(&js_format!(
+                    "e1:before_agent_start:{}",
+                    ctx.get_system_prompt().unwrap()
+                )),
             );
             Ok(Some(BeforeAgentStartEventResult {
                 system_prompt: Some(js_format!("{}|e1", ctx.get_system_prompt().unwrap())),
@@ -174,7 +177,7 @@ async fn dispatch(temp_dir: &str) -> Value {
         .unwrap();
         let l6 = Arc::clone(&l1);
         api.on_user_bash(h!(UserBashEvent, [l6], |e, _c| {
-            support::log(&l6, js_format!("e1:user_bash:{}", e.command));
+            support::log(&l6, encode_node_utf8(&js_format!("e1:user_bash:{}", e.command)));
             Ok(Some(UserBashEventResult {
                 operations: None,
                 result: Some(JsValue::from(
@@ -185,7 +188,10 @@ async fn dispatch(temp_dir: &str) -> Value {
         .unwrap();
         let l7 = Arc::clone(&l1);
         api.on_message_end(h!(MessageEndEvent, [l7], |e, _c| {
-            support::log(&l7, js_format!("e1:message_end:{}", e.message.role()));
+            support::log(
+                &l7,
+                encode_node_utf8(&js_format!("e1:message_end:{}", e.message.role())),
+            );
             Ok(Some(MessageEndEventResult {
                 message: Some(e.message.clone()),
             }))
