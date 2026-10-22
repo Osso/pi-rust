@@ -587,7 +587,7 @@ pub trait ExtensionUiContext: Send + Sync {
         Box::pin(async { Ok(None) })
     }
 
-    fn notify(&self, _message: &str, _notify_type: Option<NotifyType>) {}
+    fn notify(&self, _message: &JsString, _notify_type: Option<NotifyType>) {}
 
     fn request_render(&self) {}
 
@@ -1655,7 +1655,7 @@ pub struct SessionStartEvent {
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfoChangedEvent {
     /// `None` when the name is cleared.
-    pub name: Option<String>,
+    pub name: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

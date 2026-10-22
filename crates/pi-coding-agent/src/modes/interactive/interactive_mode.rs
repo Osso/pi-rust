@@ -2064,7 +2064,7 @@ enum UiRequest {
         respond: tokio::sync::oneshot::Sender<Option<String>>,
     },
     Notify {
-        message: String,
+        message: JsString,
         notify_type: Option<NotifyType>,
     },
     RequestRender,
@@ -2303,7 +2303,7 @@ impl ExtensionUiContext for InteractiveUiContext {
         Box::pin(async move { receiver.await.map_err(|error| error.to_string()) })
     }
 
-    fn notify(&self, message: &str, notify_type: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
         self.send(UiRequest::Notify {
             message: message.to_owned(),
             notify_type,

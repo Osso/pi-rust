@@ -488,7 +488,7 @@ pub enum RpcExtensionUiRequestPayload {
         prefill: Option<String>,
     },
     Notify {
-        message: String,
+        message: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         notify_type: Option<NotifyType>,
     },

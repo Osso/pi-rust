@@ -1023,7 +1023,7 @@ impl ExtensionUiContext for RpcUiContext {
         })
     }
 
-    fn notify(&self, message: &str, notify_type: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
         let Some(state) = self.state() else {
             return;
         };

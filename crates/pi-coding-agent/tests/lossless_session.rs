@@ -4,6 +4,34 @@ use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
+fn extension_notification_callback_receives_original_units() {
+    use pi_coding_agent::core::extensions::types::{ExtensionUiContext, NotifyType};
+    use pi_js_compat::js_json::JsString;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct Notifications(Mutex<Vec<JsString>>);
+    impl ExtensionUiContext for Notifications {
+        fn notify(&self, message: &JsString, _kind: Option<NotifyType>) {
+            self.0.lock().unwrap().push(message.clone());
+        }
+    }
+    let ui = Notifications::default();
+    let message = JsString::from_utf16(vec![0xd800, 0x78, 0xdfff]);
+    ui.notify(&message, Some(NotifyType::Error));
+    assert_eq!(*ui.0.lock().unwrap(), vec![message]);
+}
+
+#[test]
+fn extension_session_info_event_keeps_raw_name() {
+    use pi_coding_agent::core::extensions::types::SessionInfoChangedEvent;
+    let wire = r#"{"name":"\ud800\udfff\ud800"}"#;
+    let event: SessionInfoChangedEvent = serde_json::from_str(wire).unwrap();
+    let output = serde_json::to_string(&event).unwrap();
+    assert_eq!(parse_lossless(&output).unwrap(), parse_lossless(wire).unwrap());
+}
+
+#[test]
 fn detached_outcome_tagged_decode_keeps_summary_reason_and_error() {
     use pi_coding_agent::core::detached_job_runner::DetachedJobOutcome;
 

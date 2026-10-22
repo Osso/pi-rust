@@ -252,7 +252,7 @@ fn default_supervisor_decision_requester() -> SupervisorDecisionRequester {
         Box::pin(async move {
             crate::supervisor::client::request_supervisor_decision(&input)
                 .await
-                .map_err(|error| JsString::from(error.message))
+                .map_err(|error| error.message().clone())
         })
     })
 }
@@ -1104,7 +1104,7 @@ pub struct DetachedToolCallCompletionEntryData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub error: Option<JsString>,
 }
 
 /// `buildDetachedToolCallCompletionEntry`.
@@ -2097,7 +2097,7 @@ impl AgentSession {
                     None => Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                         block: Some(true),
                         input: None,
-                        reason: Some(reason.unwrap_or_else(|| "Approval required".to_owned()).into()),
+                        reason: Some(reason.unwrap_or_else(|| "Approval required".into())),
                         terminate: None,
                     })),
                 }
@@ -2646,10 +2646,11 @@ impl AgentSession {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
             return;
         };
-        let Some(sender_id) = message.sender.agent_id.as_deref() else {
+        let Some(sender_id) = message.sender.agent_id.as_ref().and_then(|id| id.to_utf8().ok()) else {
+            // Store IDs are generated scalar strings; unmatched units cannot identify one.
             return;
         };
-        let Some(data) = build_detached_tool_call_completion_entry(store.get_agent(sender_id).as_ref()) else {
+        let Some(data) = build_detached_tool_call_completion_entry(store.get_agent(&sender_id).as_ref()) else {
             return;
         };
         let already_recorded = lock(&self.inner.session_manager).get_entries().iter().any(|entry| {
@@ -2729,7 +2730,7 @@ impl AgentSession {
         };
         let Some(persistence) = store
             .get_persistence_target()
-            .filter(|target| target.session_path == message.store_ref.session_path)
+            .filter(|target| message.store_ref.session_path == target.session_path)
         else {
             return Ok(());
         };
@@ -2748,7 +2749,7 @@ impl AgentSession {
         message: &RuntimeMailboxMessage,
         persistence: &crate::core::multi_agent_store::PersistenceTarget,
     ) -> Result<(), AgentSessionError> {
-        let Some(agent_id) = message.recipient.agent_id.as_deref() else {
+        let Some(agent_id) = message.recipient.agent_id.as_ref() else {
             return Ok(());
         };
         let Some(store) = &self.inner.multi_agent_store else {
@@ -2767,8 +2768,8 @@ impl AgentSession {
             .publish_lifecycle_coordinator_snapshot(&agent)
             .map_err(|cause| error(cause.message))?;
         let mut steering = lock(&self.inner.runtime_mailbox_steering_agent_ids);
-        if !steering.iter().any(|tracked| tracked == agent_id) {
-            steering.push(agent_id.to_owned());
+        if !steering.iter().any(|tracked| tracked == &agent.id) {
+            steering.push(agent.id.clone());
         }
         Ok(())
     }
@@ -2829,7 +2830,7 @@ impl AgentSession {
             tool_call_id: None,
         });
         let error = (lifecycle == AgentLifecycle::Failed).then(|| crate::core::multi_agent_store::AgentError {
-            message: "Runtime mailbox steering turn failed".to_owned(),
+            message: "Runtime mailbox steering turn failed".into(),
             code: None,
         });
         self.finalize_reserved_multi_agent(&current, lifecycle_name(lifecycle), error.as_ref(), result.as_ref())
