@@ -21,14 +21,16 @@ use pi_coding_agent::core::extensions::{
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager, SharedSessionManager};
-use serde_json::{Map, Value};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 
-pub fn in_memory_session(cwd: &str, id: &str) -> SharedSessionManager {
+pub fn in_memory_session(cwd: impl Into<JsString>, id: impl Into<JsString>) -> SharedSessionManager {
+    let cwd = cwd.into();
+    let id = id.into();
     Arc::new(Mutex::new(
         SessionManager::in_memory(
-            Some(cwd),
+            Some(&cwd),
             Some(NewSessionOptions {
-                id: Some(id.to_owned()),
+                id: Some(id),
                 ..Default::default()
             }),
         )
@@ -36,13 +38,20 @@ pub fn in_memory_session(cwd: &str, id: &str) -> SharedSessionManager {
     ))
 }
 
-pub fn persisted_session(cwd: &str, session_dir: &str, id: &str) -> SharedSessionManager {
+pub fn persisted_session(
+    cwd: impl Into<JsString>,
+    session_dir: impl Into<JsString>,
+    id: impl Into<JsString>,
+) -> SharedSessionManager {
+    let cwd = cwd.into();
+    let session_dir = session_dir.into();
+    let id = id.into();
     Arc::new(Mutex::new(
         SessionManager::create(
-            cwd,
-            Some(session_dir),
+            &cwd,
+            Some(&session_dir),
             Some(NewSessionOptions {
-                id: Some(id.to_owned()),
+                id: Some(id),
                 ..Default::default()
             }),
         )
@@ -69,8 +78,8 @@ pub fn command_context_actions(switch_session: SwitchSessionCallback) -> Extensi
 pub fn recording_switch_session(
     context: ExtensionContext,
     cancelled: bool,
-    path: Arc<Mutex<Option<String>>>,
-    starter_prompt: Arc<Mutex<Option<String>>>,
+    path: Arc<Mutex<Option<JsString>>>,
+    starter_prompt: Arc<Mutex<Option<JsString>>>,
 ) -> SwitchSessionCallback {
     Arc::new(move |session_path, options| {
         *path.lock().expect("path lock") = Some(session_path);
@@ -97,21 +106,21 @@ pub fn recording_switch_session(
 }
 
 pub struct TestContextBuilder {
-    cwd: String,
+    cwd: JsString,
     session: SharedSessionManager,
-    control_db_path: Option<String>,
+    control_db_path: Option<JsString>,
     mode: ExtensionMode,
     ui: Option<Arc<dyn ExtensionUiContext>>,
-    agent_id: Option<String>,
+    agent_id: Option<JsString>,
     requires_agent_id: bool,
     model_registry: Option<Arc<ModelRegistry>>,
     provider_actions: Option<ProviderActions>,
 }
 
 impl TestContextBuilder {
-    pub fn new(cwd: &str, session: SharedSessionManager) -> Self {
+    pub fn new(cwd: impl Into<JsString>, session: SharedSessionManager) -> Self {
         Self {
-            cwd: cwd.to_owned(),
+            cwd: cwd.into(),
             session,
             control_db_path: None,
             mode: ExtensionMode::Print,
@@ -123,8 +132,8 @@ impl TestContextBuilder {
         }
     }
 
-    pub fn control_db_path(mut self, path: &str) -> Self {
-        self.control_db_path = Some(path.to_owned());
+    pub fn control_db_path(mut self, path: impl Into<JsString>) -> Self {
+        self.control_db_path = Some(path.into());
         self
     }
 
@@ -138,8 +147,8 @@ impl TestContextBuilder {
         self
     }
 
-    pub fn agent_id(mut self, agent_id: &str) -> Self {
-        self.agent_id = Some(agent_id.to_owned());
+    pub fn agent_id(mut self, agent_id: impl Into<JsString>) -> Self {
+        self.agent_id = Some(agent_id.into());
         self
     }
 
@@ -190,7 +199,7 @@ impl TestContextBuilder {
 }
 
 async fn model_registry() -> Arc<ModelRegistry> {
-    let storage = Arc::new(AuthStorage::in_memory(Map::new()));
+    let storage = Arc::new(AuthStorage::in_memory(JsObject::new()));
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage as Arc<dyn CredentialStore>),
         models_path: None,
@@ -233,8 +242,8 @@ fn actions() -> ExtensionActions {
 }
 
 fn context_actions(
-    control_db_path: Option<String>,
-    agent_id: Option<String>,
+    control_db_path: Option<JsString>,
+    agent_id: Option<JsString>,
     requires_agent_id: bool,
 ) -> ExtensionContextActions {
     ExtensionContextActions {
@@ -259,7 +268,7 @@ fn context_actions(
         get_multi_agent_store: None,
         get_tool_detach_registry: None,
         compact: Arc::new(|_| {}),
-        get_system_prompt: Arc::new(String::new),
+        get_system_prompt: Arc::new(JsString::default),
         get_system_prompt_options: None,
     }
 }
