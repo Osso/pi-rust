@@ -1821,8 +1821,8 @@ async fn prompt_for_missing_session_cwd(
     let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
     let terminal = Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new()));
     let options = vec![
-        ("Continue".to_owned(), Some(issue.fallback_cwd.clone())),
-        ("Cancel".to_owned(), None),
+        (JsString::from("Continue"), Some(issue.fallback_cwd.clone())),
+        (JsString::from("Cancel"), None),
     ];
     crate::cli::startup_ui::show_startup_selector(
         settings_manager,
