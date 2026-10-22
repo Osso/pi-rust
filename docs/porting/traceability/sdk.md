@@ -57,3 +57,10 @@ Q18: convert-to-LLM callback propagates native AgentError from core conversion b
 - `multiAgentStore`, `onSharedChannelMessageDelivered`, and `sessionStartEvent` are
   forwarded to `AgentSession`; mutation-target resolver binding remains in `main`
   (gap).
+
+## Q18 native settings ID adapter (2026-10-22)
+
+Default provider/model IDs read native Settings and reject unpaired units
+explicitly before the approved scalar metadata contract. Provider attribution
+receives native stream session IDs without an intermediate encoded copy.
+Coding-library compilation still blocks runtime fixtures; no PASS claimed.

@@ -1534,8 +1534,8 @@ pub struct ToolDefinition {
     pub name: String,
     pub label: String,
     pub description: String,
-    pub prompt_snippet: Option<String>,
-    pub prompt_guidelines: Option<Vec<String>>,
+    pub prompt_snippet: Option<JsString>,
+    pub prompt_guidelines: Option<Vec<JsString>>,
     pub approval_required: Option<bool>,
     pub approval_kind: Option<ApprovalKind>,
     /// JSON Schema for the tool parameters.
@@ -1634,11 +1634,11 @@ pub enum ResourcesDiscoverReason {
 #[serde(rename_all = "camelCase")]
 pub struct ResourcesDiscoverResult {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub skill_paths: Option<Vec<String>>,
+    pub skill_paths: Option<Vec<JsString>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_paths: Option<Vec<String>>,
+    pub prompt_paths: Option<Vec<JsString>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub theme_paths: Option<Vec<String>>,
+    pub theme_paths: Option<Vec<JsString>>,
 }
 
 // ============================================================================
@@ -2623,7 +2623,7 @@ pub struct ToolInfo {
     pub description: String,
     pub parameters: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_guidelines: Option<Vec<String>>,
+    pub prompt_guidelines: Option<Vec<JsString>>,
     pub source_info: SourceInfo,
 }
 

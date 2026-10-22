@@ -114,3 +114,11 @@ commands, flags, shortcuts, renderers, transformers, handlers, gates, and review
 `handlers_appended_during_dispatch_run_in_the_same_event` covers live appends.
 [Dynamic-tools proof](extension-example-dynamic-tools.md) covers the actual pinned
 example and real AgentSession refresh/execution/deactivation timing.
+
+## Q18 discovered resource contract (2026-10-22)
+
+ResourcesDiscoverResult path arrays and DiscoveredPath path/extension_path use
+JsString. The producer passes original callback values and native extension
+identity to AgentSession; source labels/baseDir are composed with native path
+operations. Keybinding/shortcut runner methods are untouched by this slice.
+Runtime proof remains library-blocked.

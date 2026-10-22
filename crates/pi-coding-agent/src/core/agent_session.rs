@@ -167,8 +167,8 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub parameters: Value,
-    pub prompt_snippet: Option<String>,
-    pub prompt_guidelines: Vec<String>,
+    pub prompt_snippet: Option<JsString>,
+    pub prompt_guidelines: Vec<JsString>,
     pub approval_required: bool,
     pub approval_kind: Option<crate::core::extensions::types::ApprovalKind>,
     pub tool: Arc<dyn AgentTool>,
@@ -237,7 +237,7 @@ pub struct ToolInfo {
     pub name: String,
     pub description: String,
     pub parameters: Value,
-    pub prompt_guidelines: Vec<String>,
+    pub prompt_guidelines: Vec<JsString>,
     pub source_info: crate::core::source_info::SourceInfo,
 }
 
@@ -915,8 +915,8 @@ struct Inner {
     base_tool_definitions: Mutex<Vec<(String, crate::core::extensions::types::ToolDefinition)>>,
     tool_detach_registry: Arc<ToolDetachRegistry>,
     tool_definitions: Mutex<Vec<(String, ToolDefinitionEntry)>>,
-    tool_prompt_snippets: Mutex<HashMap<String, String>>,
-    tool_prompt_guidelines: Mutex<HashMap<String, Vec<String>>>,
+    tool_prompt_snippets: Mutex<HashMap<String, JsString>>,
+    tool_prompt_guidelines: Mutex<HashMap<String, Vec<JsString>>>,
     tool_registry: Mutex<HashMap<String, Arc<dyn AgentTool>>>,
     initial_active_tool_names: Option<Vec<String>>,
     permission_prompt_tool: Option<String>,
@@ -1270,14 +1270,19 @@ impl AgentSession {
             path
         };
 
-        let permission_prompt_tool = config.permission_prompt_tool.clone().or_else(|| {
-            lock(&config.settings_manager)
+        let permission_prompt_tool = match config.permission_prompt_tool.clone() {
+            Some(name) => Some(name),
+            None => lock(&config.settings_manager)
                 .get_permission_prompt_tool()
-                .map(str::to_owned)
-        });
+                .map(|name| {
+                    name.to_utf8()
+                        .map_err(|_| error("Permission prompt tool name contains unpaired UTF-16 units"))
+                })
+                .transpose()?,
+        };
 
         let permission_rule_store = {
-            let settings = Value::Object(lock(&config.settings_manager).get_merged_settings());
+            let settings = JsValue::Object(lock(&config.settings_manager).get_merged_settings());
             let mut store = crate::core::rule_store::PermissionRuleStore::from_settings(Some(&settings));
             store.set_locations(Some(config.cwd.clone()), Some(agent_dir.clone()));
             store
@@ -1587,7 +1592,7 @@ impl AgentSession {
             let settings = lock(&self.inner.settings_manager);
             (
                 settings.get_image_auto_resize(),
-                settings.get_shell_command_prefix().map(str::to_owned),
+                settings.get_shell_command_prefix().cloned(),
                 settings.get_shell_path(),
             )
         };
@@ -1787,7 +1792,7 @@ impl AgentSession {
         let mut snippets = HashMap::new();
         let mut guidelines = HashMap::new();
         for (_, entry) in &definition_registry {
-            if let Some(snippet) = normalize_prompt_snippet(entry.definition.prompt_snippet.as_deref()) {
+            if let Some(snippet) = normalize_prompt_snippet(entry.definition.prompt_snippet.as_ref()) {
                 snippets.insert(entry.definition.name.clone(), snippet);
             }
             let normalized = normalize_prompt_guidelines(&entry.definition.prompt_guidelines);
@@ -1882,7 +1887,7 @@ impl AgentSession {
 
         let loader_system_prompt = self.inner.resource_loader.get_system_prompt();
         let append = self.inner.resource_loader.get_append_system_prompt();
-        let append_system_prompt = (!append.is_empty()).then(|| append.join("\n\n"));
+        let append_system_prompt = (!append.is_empty()).then(|| JsString::join(append, "\n\n"));
         let skills = self.inner.resource_loader.get_skills().skills;
         let context_files = self.inner.resource_loader.get_agents_files().agents_files;
         let rules_content = self.inner.resource_loader.get_rules_content();
@@ -2217,56 +2222,60 @@ impl AgentSession {
             let event = event.clone();
             let current_user_request = current_user_request.clone();
             Box::pin(async move {
-                let control_db_path = session.inner.control_db_path.clone().unwrap_or_default();
-                let kb_dir = JsString::from(
-                    pi_js_compat::process_env::get("PI_KB_DIR")
-                        .unwrap_or_else(|| crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR.to_owned()),
-                );
-                let project_id = crate::supervisor::project_resolver::resolve_supervisor_project_for_cwd(
-                    &session.inner.cwd,
-                    &kb_dir,
-                )
-                .unwrap_or_default();
-                let active_goal = match lock(&session.inner.session_manager).get_session_goal_json() {
-                    Ok(goal) => goal,
-                    Err(error) => {
-                        // The source throws here, aborting the tool call.
-                        return Err(crate::core::extensions::types::HandlerError::new(error.message()));
-                    }
-                };
-                let mut payload = JsObject::new();
-                payload.insert(
-                    "activeGoal".into(),
-                    active_goal
-                        .map(|goal| JsValue::String(goal.into()))
-                        .unwrap_or(JsValue::Null),
-                );
-                payload.insert(
-                    "currentUserRequest".into(),
-                    current_user_request.map(JsValue::String).unwrap_or(JsValue::Null),
-                );
-                payload.insert("input".into(), JsValue::Object(event.input.clone()));
-                payload.insert("preset".into(), JsValue::String(approval_preset.as_str().into()));
-                payload.insert("toolCallId".into(), JsValue::String(event.tool_call_id.clone().into()));
-                payload.insert("toolName".into(), JsValue::String(event.tool_name.as_str().into()));
-                let request = crate::supervisor::client::RequestSupervisorDecisionInput {
-                    control_db_path,
-                    kind: crate::core::session_control_db::SupervisorRequestKind::ApprovalReview,
-                    payload,
-                    project_id,
-                    sender_session_id: session.session_id(),
-                    timeout_ms: 30_000,
-                    max_attempts: None,
-                    poll_interval_ms: None,
-                    retry_delay_ms: None,
-                    retry_jitter_ratio: None,
-                };
-                let requester = Arc::clone(&session.inner.supervisor_decision_requester);
+                let decision_session = session.clone();
+                let decision_event = event.clone();
                 let request_decision: crate::supervisor::approval_reviewer::SupervisorApprovalCall =
                     Arc::new(move || {
-                        let requester = Arc::clone(&requester);
-                        let request = request.clone();
-                        Box::pin(async move { requester(request).await })
+                        let session = decision_session.clone();
+                        let event = decision_event.clone();
+                        let current_user_request = current_user_request.clone();
+                        Box::pin(async move {
+                            let control_db_path = session.inner.control_db_path.clone().unwrap_or_default();
+                            let kb_dir =
+                                JsString::from(pi_js_compat::process_env::get("PI_KB_DIR").unwrap_or_else(|| {
+                                    crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR.to_owned()
+                                }));
+                            let project_id = crate::supervisor::project_resolver::resolve_supervisor_project_for_cwd(
+                                &session.inner.cwd,
+                                &kb_dir,
+                            )?;
+                            let active_goal = match lock(&session.inner.session_manager).get_session_goal_json() {
+                                Ok(goal) => goal,
+                                Err(error) => {
+                                    // The source throws here, aborting the tool call.
+                                    return Err(error.message().clone());
+                                }
+                            };
+                            let mut payload = JsObject::new();
+                            payload.insert(
+                                "activeGoal".into(),
+                                active_goal
+                                    .map(|goal| JsValue::String(goal.into()))
+                                    .unwrap_or(JsValue::Null),
+                            );
+                            payload.insert(
+                                "currentUserRequest".into(),
+                                current_user_request.map(JsValue::String).unwrap_or(JsValue::Null),
+                            );
+                            payload.insert("input".into(), JsValue::Object(event.input.clone()));
+                            payload.insert("preset".into(), JsValue::String(approval_preset.as_str().into()));
+                            payload.insert("toolCallId".into(), JsValue::String(event.tool_call_id.clone().into()));
+                            payload.insert("toolName".into(), JsValue::String(event.tool_name.as_str().into()));
+                            let request = crate::supervisor::client::RequestSupervisorDecisionInput {
+                                control_db_path,
+                                kind: crate::core::session_control_db::SupervisorRequestKind::ApprovalReview,
+                                payload,
+                                project_id,
+                                sender_session_id: session.session_id(),
+                                timeout_ms: 30_000,
+                                max_attempts: None,
+                                poll_interval_ms: None,
+                                retry_delay_ms: None,
+                                retry_jitter_ratio: None,
+                            };
+                            let requester = Arc::clone(&session.inner.supervisor_decision_requester);
+                            requester(request).await
+                        })
                     });
                 let human_session = session.clone();
                 let human_event = event.clone();
@@ -5341,27 +5350,31 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn normalize_prompt_snippet(text: Option<&str>) -> Option<String> {
-    let text = text?;
-    let one_line = text
-        .split(['\r', '\n'])
-        .collect::<Vec<_>>()
-        .join(" ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+fn normalize_prompt_snippet(text: Option<&JsString>) -> Option<JsString> {
+    let text = text?.trim();
+    let mut one_line = JsString::default();
+    let mut pending_space = false;
+    for unit in text.units() {
+        if pi_js_compat::string::is_js_whitespace_unit(*unit) {
+            pending_space = true;
+            continue;
+        }
+        if pending_space && !one_line.is_empty() {
+            one_line.push_unit(b' ' as u16);
+        }
+        pending_space = false;
+        one_line.push_unit(*unit);
+    }
     (!one_line.is_empty()).then_some(one_line)
 }
 
-fn normalize_prompt_guidelines(guidelines: &[String]) -> Vec<String> {
-    let mut unique = Vec::new();
-    for guideline in guidelines {
-        let normalized = guideline.trim();
-        if !normalized.is_empty() && !unique.iter().any(|item| item == normalized) {
-            unique.push(normalized.to_owned());
-        }
-    }
-    unique
+fn normalize_prompt_guidelines(guidelines: &[JsString]) -> Vec<JsString> {
+    let mut seen = std::collections::HashSet::new();
+    guidelines
+        .iter()
+        .map(JsString::trim)
+        .filter(|text| !text.is_empty() && seen.insert(text.clone()))
+        .collect()
 }
 
 fn split_at_first_space(text: &JsString) -> (JsString, JsString) {
@@ -6387,10 +6400,7 @@ impl AgentSession {
         lock(&self.inner.bash_abort_controllers).push(abort.clone());
         let (prefix, shell_path) = {
             let settings = lock(&self.inner.settings_manager);
-            (
-                settings.get_shell_command_prefix().map(str::to_owned),
-                settings.get_shell_path(),
-            )
+            (settings.get_shell_command_prefix().cloned(), settings.get_shell_path())
         };
         let resolved_command = match prefix {
             Some(prefix) => JsString::from(prefix) + "\n" + command,
@@ -6398,7 +6408,7 @@ impl AgentSession {
         };
         let operations = options.operations.clone().unwrap_or_else(|| {
             Arc::new(crate::core::tools::bash::create_local_bash_operations(
-                shell_path.as_deref(),
+                shell_path.as_ref(),
             ))
         });
         let event_id = options.id.clone();
@@ -7073,7 +7083,7 @@ impl AgentSession {
         };
         use crate::modes::interactive::theme::{current_theme_if_initialized, get_theme_by_name};
 
-        let configured_theme_name = lock(&self.inner.settings_manager).get_theme().map(str::to_owned);
+        let configured_theme_name = lock(&self.inner.settings_manager).get_theme().cloned();
         let theme_name = configured_theme_name.filter(|name| get_theme_by_name(name).is_some());
         let Some(theme) = current_theme_if_initialized() else {
             return Err(error("Theme not initialized. Call initTheme() first."));
@@ -7392,12 +7402,7 @@ impl AgentSession {
                         scope: crate::core::package_manager::SourceScope::Temporary,
                         origin: crate::core::package_manager::MetadataOrigin::TopLevel,
                         base_dir: (!entry.extension_path.starts_with('<'))
-                            .then(|| {
-                                std::path::Path::new(&entry.extension_path)
-                                    .parent()
-                                    .map(|path| path.display().to_string())
-                            })
-                            .flatten(),
+                            .then(|| crate::utils::paths::node_dirname(&entry.extension_path)),
                     },
                 })
                 .collect::<Vec<_>>()
@@ -7703,19 +7708,16 @@ fn tool_call_result_to_before(result: crate::core::extensions::types::ToolCallEv
     }
 }
 
-fn extension_source_label(extension_path: &str) -> String {
+fn extension_source_label(extension_path: &JsString) -> JsString {
     if extension_path.starts_with('<') {
-        return format!("extension:{}", extension_path.replace(['<', '>'], ""));
+        return JsString::from("extension:") + extension_path.replace('<', "").replace('>', "");
     }
-    let base = std::path::Path::new(extension_path)
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let base = crate::utils::paths::node_basename(extension_path);
     let name = base
         .strip_suffix(".ts")
         .or_else(|| base.strip_suffix(".js"))
-        .unwrap_or(&base);
-    format!("extension:{name}")
+        .unwrap_or(base);
+    JsString::from("extension:") + name
 }
 
 fn extension_tool_info(entry: &ToolDefinitionEntry) -> ExtensionToolInfo {
@@ -8407,4 +8409,117 @@ fn synthetic_tool_call_assistant_message(model: &Model, tool_call: &AgentToolCal
 fn parse_timestamp_millis(text: &JsString) -> Option<i64> {
     let millis = pi_js_compat::date::date_parse_utf16(text.units());
     millis.is_finite().then_some(millis as i64)
+}
+
+#[cfg(test)]
+mod supervisor_project_failure_tests {
+    use super::*;
+
+    #[test]
+    fn human_tool_prompt_and_resource_labels_keep_native_units() {
+        let raw = JsString::from_utf16(vec![0xd800]);
+        let snippet = JsString::from(" \n") + &raw + "\u{feff}  text\n";
+        assert_eq!(normalize_prompt_snippet(Some(&snippet)), Some(raw.clone() + " text"));
+        assert_eq!(
+            normalize_prompt_guidelines(&[raw.clone(), raw.clone() + " "]),
+            vec![raw.clone()]
+        );
+        assert_eq!(
+            extension_source_label(&(JsString::from("/extensions/") + &raw + ".ts")),
+            JsString::from("extension:") + raw
+        );
+    }
+
+    #[test]
+    fn project_resolution_error_propagates_before_supervisor_request() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = temp.path().join("memory/supervisor");
+        std::fs::create_dir_all(&config).unwrap();
+        std::fs::write(config.join("projects.json"), r#"{"\ud800":0}"#).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "core::agent_session::supervisor_project_failure_tests::project_resolution_error_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("PI_KB_DIR", temp.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    #[tokio::test]
+    #[ignore = "isolated process environment fixture"]
+    async fn project_resolution_error_child() {
+        use crate::core::sdk::{CreateAgentSessionOptions, NoTools, create_agent_session};
+        use pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions, faux_provider};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let directory = tempfile::tempdir().unwrap();
+        let cwd = JsString::from(directory.path().to_str().unwrap());
+        let runtime =
+            crate::core::model_runtime::ModelRuntime::create(crate::core::model_runtime::CreateModelRuntimeOptions {
+                models_path: Some(None),
+                refresh_on_create: Some(false),
+                allow_model_network: false,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let faux = faux_provider(RegisterFauxProviderOptions {
+            provider: Some("supervisor-project-test".to_owned()),
+            models: Some(vec![FauxModelDefinition {
+                id: "test".to_owned(),
+                name: None,
+                reasoning: None,
+                input: None,
+                cost: None,
+                context_window: None,
+                max_tokens: None,
+            }]),
+            ..Default::default()
+        });
+        runtime.register_native_provider(Arc::clone(&faux.provider));
+        let mut settings =
+            crate::core::settings_manager::SettingsManager::in_memory(Default::default(), Default::default());
+        settings.set_approval_preset(ApprovalPresetName::LlmApprovedDeny);
+        let called = Arc::new(AtomicBool::new(false));
+        let request_called = Arc::clone(&called);
+        let session = create_agent_session(CreateAgentSessionOptions {
+            cwd: Some(cwd.clone()),
+            agent_dir: Some(cwd.clone()),
+            model: Some(faux.get_model(None).unwrap()),
+            model_runtime: Some(runtime),
+            no_tools: Some(NoTools::All),
+            resource_loader: Some(crate::core::resource_loader::StaticResourceLoader::new()),
+            session_manager: Some(crate::core::session_manager::SessionManager::in_memory(Some(&cwd), None).unwrap()),
+            settings_manager: Some(Arc::new(Mutex::new(settings))),
+            supervisor_decision_requester: Some(Arc::new(move |_| {
+                request_called.store(true, Ordering::SeqCst);
+                Box::pin(async {
+                    Ok(crate::core::session_control_db::SupervisorResponse::Approve {
+                        reason: "unexpected".into(),
+                    })
+                })
+            })),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .session;
+        let event = ToolCallEvent {
+            tool_name: crate::core::extensions::types::ToolName::Custom("fixture-write".to_owned()),
+            tool_call_id: "call".to_owned(),
+            bypass_permissions: false,
+            input: JsObject::new(),
+        };
+        let reviewer = session.create_tool_approval_llm_reviewer(&event, None).unwrap();
+        let error = reviewer().await.unwrap_err();
+        assert_eq!(
+            error.message,
+            JsString::from("Supervisor project mapping must be an object: ") + JsString::from_utf16(vec![0xd800])
+        );
+        assert!(!called.load(Ordering::SeqCst));
+        session.dispose();
+    }
 }
