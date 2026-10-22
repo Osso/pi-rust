@@ -597,27 +597,29 @@ async fn extend_resources_loads_skills_and_prompts_with_metadata() {
 
     let resource_loader = loader(&cwd, &agent_dir, true);
     resource_loader.reload().await.unwrap();
-    resource_loader.extend_resources(ResourceExtensionPaths {
-        skill_paths: vec![ExtendedResourcePath {
-            path: extra_skill.to_string_lossy().into_owned().into(),
-            metadata: pi_coding_agent::core::package_manager::PathMetadata {
-                source: "extension:extra".to_owned().into(),
-                scope: pi_coding_agent::core::package_manager::SourceScope::Temporary,
-                origin: pi_coding_agent::core::package_manager::MetadataOrigin::TopLevel,
-                base_dir: Some(extra_skill.to_string_lossy().into_owned().into()),
-            },
-        }],
-        prompt_paths: vec![ExtendedResourcePath {
-            path: JsString::from(extra_prompts.join("extra.md").to_str().unwrap()),
-            metadata: pi_coding_agent::core::package_manager::PathMetadata {
-                source: "extension:extra".to_owned().into(),
-                scope: pi_coding_agent::core::package_manager::SourceScope::Temporary,
-                origin: pi_coding_agent::core::package_manager::MetadataOrigin::TopLevel,
-                base_dir: Some(extra_prompts.to_string_lossy().into_owned().into()),
-            },
-        }],
-        theme_paths: Vec::new(),
-    });
+    resource_loader
+        .extend_resources(ResourceExtensionPaths {
+            skill_paths: vec![ExtendedResourcePath {
+                path: extra_skill.to_string_lossy().into_owned().into(),
+                metadata: pi_coding_agent::core::package_manager::PathMetadata {
+                    source: "extension:extra".to_owned().into(),
+                    scope: pi_coding_agent::core::package_manager::SourceScope::Temporary,
+                    origin: pi_coding_agent::core::package_manager::MetadataOrigin::TopLevel,
+                    base_dir: Some(extra_skill.to_string_lossy().into_owned().into()),
+                },
+            }],
+            prompt_paths: vec![ExtendedResourcePath {
+                path: JsString::from(extra_prompts.join("extra.md").to_str().unwrap()),
+                metadata: pi_coding_agent::core::package_manager::PathMetadata {
+                    source: "extension:extra".to_owned().into(),
+                    scope: pi_coding_agent::core::package_manager::SourceScope::Temporary,
+                    origin: pi_coding_agent::core::package_manager::MetadataOrigin::TopLevel,
+                    base_dir: Some(extra_prompts.to_string_lossy().into_owned().into()),
+                },
+            }],
+            theme_paths: Vec::new(),
+        })
+        .unwrap();
 
     let skill = resource_loader
         .get_skills()
