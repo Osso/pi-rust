@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/extensions/goal/src/goal-presentation.ts`.
 
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 
 use super::goal_types::Goal;
@@ -47,7 +48,7 @@ pub fn goal_system_block(goal: &Goal) -> JsString {
         [
             JsString::from("<goal>"),
             JsString::from("Long-running objective: ") + &goal.objective,
-            format!("(set on {} at {})", goal.branch, goal.created_at).into(),
+            js_format!("(set on {} at {})", goal.branch, goal.created_at),
             JsString::from("Continuation turns used: ") + format_continuation_turns(goal),
             JsString::default(),
             "Keep working toward this objective across turns until it is achieved.".into(),

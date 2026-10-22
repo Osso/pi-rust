@@ -1,10 +1,11 @@
 //! Port of `packages/coding-agent/extensions/goal/src/wait-countdown.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pi_js_compat::date::date_parse_millis;
+use pi_js_compat::date::date_parse_utf16;
 use tokio::task::JoinHandle;
 
 use crate::core::extensions::types::ExtensionContext;
@@ -13,7 +14,7 @@ use crate::core::session_manager::lock_session_manager;
 /// Countdown redraw scheduler for persisted Supervisor review deadlines.
 #[derive(Clone, Default)]
 pub struct WaitCountdownRefresher {
-    timers: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
+    timers: Arc<Mutex<HashMap<JsString, JoinHandle<()>>>>,
 }
 
 impl WaitCountdownRefresher {
@@ -24,7 +25,7 @@ impl WaitCountdownRefresher {
         }
     }
 
-    pub fn clear_session(&self, session_id: &str) {
+    pub fn clear_session(&self, session_id: &JsString) {
         let timer = self
             .timers
             .lock()
@@ -35,13 +36,13 @@ impl WaitCountdownRefresher {
         }
     }
 
-    pub fn start(&self, ctx: ExtensionContext, review_at: &str) {
+    pub fn start(&self, ctx: ExtensionContext, review_at: &JsString) {
         let Ok(session) = ctx.session_manager() else {
             return;
         };
-        let session_id = lock_session_manager(&session).get_session_id().to_owned();
+        let session_id = lock_session_manager(&session).get_session_id().clone();
         self.clear_session(&session_id);
-        let Some(deadline_ms) = date_parse_millis(review_at) else {
+        let Some(deadline_ms) = parse_review_deadline(review_at) else {
             return;
         };
         if deadline_ms <= now_millis() {
@@ -50,7 +51,7 @@ impl WaitCountdownRefresher {
         self.schedule_next_render(ctx, session_id, deadline_ms);
     }
 
-    fn schedule_next_render(&self, ctx: ExtensionContext, session_id: String, deadline_ms: i64) {
+    fn schedule_next_render(&self, ctx: ExtensionContext, session_id: JsString, deadline_ms: i64) {
         let now = now_millis();
         let remaining_ms = deadline_ms - now;
         if remaining_ms <= 0 {
@@ -80,6 +81,12 @@ impl WaitCountdownRefresher {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(session_id, handle);
     }
+}
+
+/// `Date.parse(reviewAt)` as epoch milliseconds; `None` where JavaScript returns `NaN`.
+pub(super) fn parse_review_deadline(review_at: &JsString) -> Option<i64> {
+    let millis = date_parse_utf16(review_at.units());
+    (!millis.is_nan()).then_some(millis as i64)
 }
 
 /// `createWaitCountdownRefresher`.

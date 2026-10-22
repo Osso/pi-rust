@@ -3,11 +3,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use pi_js_compat::date::date_parse_millis;
-use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, encode_node_utf8};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 use pi_tui::components::r#box::BoxComponent;
 use pi_tui::components::spacer::Spacer;
-use pi_tui::components::text::Text;
+use pi_tui::components::text::{StyleFn, Text};
 use pi_tui::tui::{Component, ComponentRef};
 
 use crate::core::extensions::types::{
@@ -17,40 +16,44 @@ use crate::core::extensions::types::{
 use crate::core::session_manager::{CustomEntry, lock_session_manager};
 use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor};
 
-use super::wait_countdown::WaitCountdownRefresher;
+use super::wait_countdown::{WaitCountdownRefresher, parse_review_deadline};
 
 const SUPERVISOR_INSTRUCTION_OPEN: &str = "<supervisor-instruction>";
 const SUPERVISOR_INSTRUCTION_CLOSE: &str = "</supervisor-instruction>";
 pub const SUPERVISOR_STATUS_TYPE: &str = "supervisor-status";
 const REVIEW_DUE_TEXT: &str = "Review due…";
 
-type TextStyle = Rc<dyn Fn(&str) -> String>;
-
 struct SupervisorStatusStyles {
-    background: TextStyle,
-    countdown: TextStyle,
-    label: TextStyle,
-    message: TextStyle,
+    background: StyleFn,
+    countdown: StyleFn,
+    label: StyleFn,
+    message: StyleFn,
 }
 
 struct SupervisorStatusComponent {
-    message: String,
+    message: JsString,
     deadline_ms: Option<i64>,
     styles: SupervisorStatusStyles,
 }
 
 impl Component for SupervisorStatusComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut container = BoxComponent::new(1, 1, Some(Rc::clone(&self.styles.background)));
-        container
-            .add_child(Rc::new(RefCell::new(Text::new((self.styles.label)("[Supervisor]"), 0, 0))) as ComponentRef);
+        container.add_child(Rc::new(RefCell::new(Text::new(
+            (self.styles.label)(&"[Supervisor]".into()),
+            0,
+            0,
+        ))) as ComponentRef);
         container.add_child(Rc::new(RefCell::new(Spacer::new(1))) as ComponentRef);
         container
             .add_child(Rc::new(RefCell::new(Text::new((self.styles.message)(&self.message), 0, 0))) as ComponentRef);
         if let Some(deadline_ms) = self.deadline_ms {
             let countdown = format_review_countdown(deadline_ms, now_millis());
-            container
-                .add_child(Rc::new(RefCell::new(Text::new((self.styles.countdown)(&countdown), 0, 0))) as ComponentRef);
+            container.add_child(Rc::new(RefCell::new(Text::new(
+                (self.styles.countdown)(&countdown.into()),
+                0,
+                0,
+            ))) as ComponentRef);
         }
         container.render(width)
     }
@@ -73,7 +76,7 @@ impl SupervisorStatusController {
         review_at: Option<&str>,
     ) -> Result<(), HandlerError> {
         let session = ctx.session_manager()?;
-        let session_id = lock_session_manager(&session).get_session_id().to_owned();
+        let session_id = lock_session_manager(&session).get_session_id().clone();
         self.refresher.clear_session(&session_id);
         let data = match review_at {
             Some(review_at) => {
@@ -89,10 +92,10 @@ impl SupervisorStatusController {
             }
         };
         self.pi
-            .append_entry(SUPERVISOR_STATUS_TYPE, data)
+            .append_entry(&SUPERVISOR_STATUS_TYPE.into(), data)
             .map_err(|error| HandlerError::new(error.to_string()))?;
         if let Some(review_at) = review_at {
-            self.refresher.start(ctx, review_at);
+            self.refresher.start(ctx, &review_at.into());
         }
         Ok(())
     }
@@ -101,14 +104,14 @@ impl SupervisorStatusController {
         self.refresher.clear_all();
     }
 
-    pub fn clear_session(&self, session_id: &str) {
+    pub fn clear_session(&self, session_id: &JsString) {
         self.refresher.clear_session(session_id);
     }
 
     /// `restore`.
     pub fn restore(&self, ctx: ExtensionContext) -> Result<(), HandlerError> {
         let session = ctx.session_manager()?;
-        let session_id = lock_session_manager(&session).get_session_id().to_owned();
+        let session_id = lock_session_manager(&session).get_session_id().clone();
         self.refresher.clear_session(&session_id);
         if let Some(review_at) = latest_future_review_at(&ctx)? {
             self.refresher.start(ctx, &review_at);
@@ -129,7 +132,7 @@ pub fn supervisor_instruction_content(instructions: impl Into<JsString>) -> JsSt
 
 fn supervisor_message(content: &JsString) -> CustomMessagePayload {
     CustomMessagePayload {
-        custom_type: "supervisor".to_owned(),
+        custom_type: "supervisor".into(),
         content: CustomMessageContent::Text(supervisor_instruction_content(content).into()),
         display: true,
         details: None,
@@ -169,7 +172,7 @@ fn supervisor_instruction_body(content: &JsString) -> JsString {
     body
 }
 
-fn status_details(data: Option<&Value>) -> (JsString, Option<String>) {
+fn status_details(data: Option<&Value>) -> (JsString, Option<JsString>) {
     let Some(Value::Object(details)) = data else {
         return ("Supervisor status unavailable".into(), None);
     };
@@ -178,10 +181,7 @@ fn status_details(data: Option<&Value>) -> (JsString, Option<String>) {
         .and_then(Value::as_string)
         .cloned()
         .unwrap_or_else(|| "Supervisor status unavailable".into());
-    let review_at = details
-        .get("reviewAt")
-        .and_then(Value::as_string)
-        .and_then(|value| value.to_utf8().ok());
+    let review_at = details.get("reviewAt").and_then(Value::as_string).cloned();
     (message, review_at)
 }
 
@@ -196,7 +196,7 @@ fn format_review_countdown(deadline_ms: i64, now_ms: i64) -> String {
     format!("Next review in {minutes}:{seconds}")
 }
 
-fn latest_future_review_at(ctx: &ExtensionContext) -> Result<Option<String>, HandlerError> {
+fn latest_future_review_at(ctx: &ExtensionContext) -> Result<Option<JsString>, HandlerError> {
     let session = ctx.session_manager()?;
     let entries = lock_session_manager(&session).get_entries();
     for entry in entries.iter().rev() {
@@ -213,7 +213,7 @@ fn latest_future_review_at(ctx: &ExtensionContext) -> Result<Option<String>, Han
         let Some(review_at) = review_at else {
             return Ok(None);
         };
-        let deadline_ms = date_parse_millis(&review_at);
+        let deadline_ms = parse_review_deadline(&review_at);
         return Ok(deadline_ms
             .filter(|deadline| *deadline > now_millis())
             .map(|_| review_at));
@@ -239,19 +239,21 @@ pub fn render_supervisor_status_entry(
     theme: &Theme,
 ) -> Option<ComponentRef> {
     let (message, review_at) = status_details(entry.data.as_ref());
-    let deadline_ms = review_at.as_deref().and_then(date_parse_millis);
+    let deadline_ms = review_at.as_ref().and_then(parse_review_deadline);
     let background_theme = theme.clone();
     let countdown_theme = theme.clone();
     let label_theme = theme.clone();
     let message_theme = theme.clone();
     Some(Rc::new(RefCell::new(SupervisorStatusComponent {
-        message: encode_node_utf8(&message),
+        message,
         deadline_ms,
         styles: SupervisorStatusStyles {
-            background: Rc::new(move |text| background_theme.bg(ThemeBg::CustomMessageBg, text)),
-            countdown: Rc::new(move |text| countdown_theme.fg(ThemeColor::Dim, text)),
-            label: Rc::new(move |text| label_theme.fg(ThemeColor::CustomMessageLabel, &label_theme.bold(text))),
-            message: Rc::new(move |text| message_theme.fg(ThemeColor::CustomMessageText, text)),
+            background: Rc::new(move |text: &JsString| background_theme.bg(ThemeBg::CustomMessageBg, text.clone())),
+            countdown: Rc::new(move |text: &JsString| countdown_theme.fg(ThemeColor::Dim, text.clone())),
+            label: Rc::new(move |text: &JsString| {
+                label_theme.fg(ThemeColor::CustomMessageLabel, label_theme.bold(text.clone()))
+            }),
+            message: Rc::new(move |text: &JsString| message_theme.fg(ThemeColor::CustomMessageText, text.clone())),
         },
     })) as ComponentRef)
 }
@@ -264,7 +266,7 @@ pub fn render_supervisor_message(
 ) -> Option<ComponentRef> {
     let content = match &message.content {
         CustomMessageContent::Text(text) => text.clone(),
-        CustomMessageContent::Blocks(_) => String::new().into(),
+        CustomMessageContent::Blocks(_) => JsString::default(),
     };
     let background_theme = theme.clone();
     let label_theme = theme.clone();
@@ -272,19 +274,18 @@ pub fn render_supervisor_message(
     let mut container = BoxComponent::new(
         1,
         1,
-        Some(Rc::new(move |text| background_theme.bg(ThemeBg::CustomMessageBg, text))),
+        Some(Rc::new(move |text: &JsString| {
+            background_theme.bg(ThemeBg::CustomMessageBg, text.clone())
+        })),
     );
     container.add_child(Rc::new(RefCell::new(Text::new(
-        label_theme.fg(ThemeColor::CustomMessageLabel, &label_theme.bold("[Supervisor]")),
+        label_theme.fg(ThemeColor::CustomMessageLabel, label_theme.bold("[Supervisor]")),
         0,
         0,
     ))) as ComponentRef);
     container.add_child(Rc::new(RefCell::new(Spacer::new(1))) as ComponentRef);
     container.add_child(Rc::new(RefCell::new(Text::new(
-        message_theme.fg(
-            ThemeColor::CustomMessageText,
-            &encode_node_utf8(&supervisor_instruction_body(&content)),
-        ),
+        message_theme.fg(ThemeColor::CustomMessageText, supervisor_instruction_body(&content)),
         0,
         0,
     ))) as ComponentRef);

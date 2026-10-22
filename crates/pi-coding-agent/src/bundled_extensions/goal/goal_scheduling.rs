@@ -49,10 +49,10 @@ pub struct GoalSchedulingOptions<TGoal, TDecision> {
 
 struct GoalSchedulerInner<TGoal, TDecision> {
     options: GoalSchedulingOptions<TGoal, TDecision>,
-    pending_decision_timers: Mutex<HashMap<String, JoinHandle<()>>>,
-    cancellation_epochs: Mutex<HashMap<String, i64>>,
-    wait_controllers: Mutex<HashMap<String, CancellationToken>>,
-    wait_review_timers: Mutex<HashMap<String, JoinHandle<()>>>,
+    pending_decision_timers: Mutex<HashMap<JsString, JoinHandle<()>>>,
+    cancellation_epochs: Mutex<HashMap<JsString, i64>>,
+    wait_controllers: Mutex<HashMap<JsString, CancellationToken>>,
+    wait_review_timers: Mutex<HashMap<JsString, JoinHandle<()>>>,
 }
 
 #[derive(Clone)]
@@ -106,9 +106,9 @@ fn wait_wake_evidence(result: &AgentToolResult) -> Value {
     Value::Object(evidence)
 }
 
-fn session_id(ctx: &ExtensionContext) -> Result<String, HandlerError> {
+fn session_id(ctx: &ExtensionContext) -> Result<JsString, HandlerError> {
     let session = ctx.session_manager()?;
-    Ok(lock_session_manager(&session).get_session_id().to_owned())
+    Ok(lock_session_manager(&session).get_session_id().clone())
 }
 
 fn report<TGoal, TDecision>(
@@ -144,7 +144,7 @@ where
         Ok(epochs.get(&session_id).copied().unwrap_or(0) == epoch)
     }
 
-    pub fn clear_session(&self, session_id: &str) {
+    pub fn clear_session(&self, session_id: &JsString) {
         {
             let mut epochs = self
                 .inner
@@ -263,7 +263,7 @@ where
         (callbacks.on_agent_wait)();
     }
 
-    fn epoch_matches(&self, session_id: &str, epoch: i64) -> bool {
+    fn epoch_matches(&self, session_id: &JsString, epoch: i64) -> bool {
         let epochs = self
             .inner
             .cancellation_epochs
@@ -272,7 +272,7 @@ where
         epochs.get(session_id).copied().unwrap_or(0) == epoch
     }
 
-    fn clear_wait(&self, session_id: &str) {
+    fn clear_wait(&self, session_id: &JsString) {
         let controller = self
             .inner
             .wait_controllers
@@ -522,7 +522,7 @@ where
     }
 }
 
-fn clear_timer(timers: &Mutex<HashMap<String, JoinHandle<()>>>, session_id: &str) {
+fn clear_timer(timers: &Mutex<HashMap<JsString, JoinHandle<()>>>, session_id: &JsString) {
     let timer = timers
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -532,7 +532,7 @@ fn clear_timer(timers: &Mutex<HashMap<String, JoinHandle<()>>>, session_id: &str
     }
 }
 
-fn clear_timers(timers: &Mutex<HashMap<String, JoinHandle<()>>>) {
+fn clear_timers(timers: &Mutex<HashMap<JsString, JoinHandle<()>>>) {
     let mut timers = timers.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     for (_, timer) in timers.drain() {
         timer.abort();

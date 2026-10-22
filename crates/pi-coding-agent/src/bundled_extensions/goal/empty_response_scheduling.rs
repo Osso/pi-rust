@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/extensions/goal/src/empty-response-scheduling.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -23,14 +24,14 @@ pub struct EmptyResponseSchedulingOptions<TGoal> {
 #[derive(Clone)]
 pub struct EmptyResponseScheduler<TGoal> {
     options: Arc<EmptyResponseSchedulingOptions<TGoal>>,
-    timers: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
+    timers: Arc<Mutex<HashMap<JsString, JoinHandle<()>>>>,
 }
 
 impl<TGoal> EmptyResponseScheduler<TGoal>
 where
     TGoal: Clone + Send + Sync + 'static,
 {
-    pub fn clear_session(&self, session_id: &str) {
+    pub fn clear_session(&self, session_id: &JsString) {
         let timer = self
             .timers
             .lock()

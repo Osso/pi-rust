@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/extensions/goal/src/error-status-scheduling.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -14,7 +15,7 @@ use super::stale_context::is_stale_context_error;
 const ERROR_STATUS_SETTLEMENT_MS: u64 = 10;
 
 pub type OnStatus =
-    Arc<dyn Fn(ExtensionContext, &str) -> Result<(), crate::core::extensions::types::HandlerError> + Send + Sync>;
+    Arc<dyn Fn(ExtensionContext, &JsString) -> Result<(), crate::core::extensions::types::HandlerError> + Send + Sync>;
 
 pub struct ErrorStatusSchedulingOptions {
     pub on_status: OnStatus,
@@ -23,11 +24,11 @@ pub struct ErrorStatusSchedulingOptions {
 #[derive(Clone)]
 pub struct ErrorStatusScheduler {
     options: Arc<ErrorStatusSchedulingOptions>,
-    timers: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
+    timers: Arc<Mutex<HashMap<JsString, JoinHandle<()>>>>,
 }
 
 impl ErrorStatusScheduler {
-    pub fn clear_session(&self, session_id: &str) {
+    pub fn clear_session(&self, session_id: &JsString) {
         let timer = self
             .timers
             .lock()
@@ -45,7 +46,7 @@ impl ErrorStatusScheduler {
         }
     }
 
-    fn schedule_status_check(&self, ctx: ExtensionContext, message: String, session_id: String, delay_ms: u64) {
+    fn schedule_status_check(&self, ctx: ExtensionContext, message: JsString, session_id: JsString, delay_ms: u64) {
         let scheduler = self.clone();
         let task_session_id = session_id.clone();
         let handle = tokio::spawn(async move {
@@ -58,7 +59,7 @@ impl ErrorStatusScheduler {
             .insert(session_id, handle);
     }
 
-    fn check_status(&self, ctx: ExtensionContext, message: String, session_id: String) {
+    fn check_status(&self, ctx: ExtensionContext, message: JsString, session_id: JsString) {
         if ctx.has_pending_messages().unwrap_or(false) {
             self.timers
                 .lock()
@@ -81,9 +82,9 @@ impl ErrorStatusScheduler {
         }
     }
 
-    pub fn schedule(&self, ctx: ExtensionContext, message: &str) -> Result<(), HandlerError> {
+    pub fn schedule(&self, ctx: ExtensionContext, message: &JsString) -> Result<(), HandlerError> {
         let session = ctx.session_manager()?;
-        let session_id = lock_session_manager(&session).get_session_id().to_owned();
+        let session_id = lock_session_manager(&session).get_session_id().clone();
         self.clear_session(&session_id);
         let settings = ctx.settings_manager()?;
         let retry_delay_ms = match settings {
@@ -99,7 +100,7 @@ impl ErrorStatusScheduler {
         };
         self.schedule_status_check(
             ctx,
-            message.to_owned(),
+            message.clone(),
             session_id,
             retry_delay_ms + ERROR_STATUS_SETTLEMENT_MS,
         );

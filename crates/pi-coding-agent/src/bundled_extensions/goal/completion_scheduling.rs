@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/extensions/goal/src/completion-scheduling.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, ExtensionContext, HandlerError};
@@ -41,7 +42,7 @@ impl CompletionWaitScheduler {
         self.scheduler.clear_all();
     }
 
-    pub fn clear_session(&self, session_id: &str) {
+    pub fn clear_session(&self, session_id: &JsString) {
         self.scheduler.clear_session(session_id);
     }
 

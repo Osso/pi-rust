@@ -14,7 +14,7 @@ use crate::core::extensions::types::{
     ExtensionCommandContext, ExtensionContext, HandlerError, InputEvent, NotifyType, SessionStartEvent,
     SessionStartReason, ToolResultEvent, UserMessageContent,
 };
-use crate::core::session_manager::lock_session_manager;
+use crate::core::session_manager::{lock_session_manager, read_session_header};
 
 use super::completion_scheduling::{
     CompletionSchedulingOptions, CompletionWaitScheduler, create_completion_wait_scheduler,
@@ -25,7 +25,7 @@ use super::goal_agent_end_scheduling::{ApplyIdleDecision, ScheduledGoalAgentEndO
 use super::goal_args::{ParseGoalArgsResult, ParsedGoalArgs, parse_goal_args};
 use super::goal_idle_selection::{GoalIdleSelection, select_goal_for_idle_review};
 use super::goal_objective::deduplicate_current_goal_scope;
-use super::goal_parsing::{is_record, optional_string, parse_goal_json};
+use super::goal_parsing::parse_goal_json;
 use super::goal_presentation::{goal_footer_status, goal_startup_message, goal_system_block, goal_view_message};
 use super::goal_review_evidence::{GoalReviewEvidenceController, create_goal_review_evidence_controller};
 use super::goal_scheduling::{GoalScheduler, GoalSchedulingOptions, create_goal_scheduler};
@@ -68,47 +68,39 @@ fn update_goal_footer_status(ctx: &ExtensionContext) -> Result<(), HandlerError>
     let session = ctx.session_manager()?;
     let goal = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?;
     let ui = ctx.ui()?;
-    ui.set_status(
-        "goal",
-        goal.as_ref()
-            .map(goal_footer_status)
-            .map(|text| encode_node_utf8(&text))
-            .as_deref(),
-    );
+    ui.set_status(&"goal".into(), goal.as_ref().map(goal_footer_status).as_ref());
     Ok(())
 }
 
-fn read_current_branch(cwd: &str) -> String {
+/// TS `execFileSync` throws on spawn failure or non-zero exit; both map to `(no branch)`.
+fn read_current_branch(cwd: &JsString) -> JsString {
     let output = Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .current_dir(cwd)
+        .current_dir(encode_node_utf8(cwd))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .output();
     match output {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).trim().to_owned(),
-        _ => "(no branch)".to_owned(),
+        Ok(output) if output.status.success() => {
+            JsString::from(String::from_utf8_lossy(&output.stdout).as_ref()).trim()
+        }
+        _ => "(no branch)".into(),
     }
 }
 
-fn session_id_from_session_file(session_file: &str) -> Option<String> {
-    let content = std::fs::read_to_string(session_file).ok()?;
-    let first_line = content.split('\n').next().unwrap_or_default();
-    let entry = js_json::parse_lossless(first_line).ok()?;
-    if !is_record(&entry) {
-        return None;
-    }
-    optional_string(entry.get("id")).and_then(|id| id.to_utf8().ok())
+fn session_id_from_session_file(session_file: &JsString) -> Option<JsString> {
+    let header = read_session_header(session_file)?;
+    header.fields.get("id").and_then(Value::as_string).cloned()
 }
 
-fn is_goal_inheritance_event(event: &SessionStartEvent) -> Option<&str> {
+fn is_goal_inheritance_event(event: &SessionStartEvent) -> Option<&JsString> {
     if event.reason != SessionStartReason::Fork {
         return None;
     }
     event
         .previous_session_file
-        .as_deref()
+        .as_ref()
         .filter(|previous| !previous.is_empty())
 }
 
@@ -124,13 +116,13 @@ fn inherit_previous_session_goal(event: &SessionStartEvent, ctx: &ExtensionConte
     if load_or_migrate_goal(&cwd, &mut lock_session_manager(&session))?.is_some() {
         return Ok(());
     }
-    let previous_goal = match lock_session_manager(&session)
+    let previous_goal_json = lock_session_manager(&session)
         .get_session_goal_json_for_session(previous_session_file)
-        .map_err(|error| HandlerError::new(error.to_string()))?
-    {
+        .map_err(|error| HandlerError::new(error.message().clone()))?
+        .filter(|json| !json.is_empty());
+    let previous_goal = match previous_goal_json {
         Some(previous_goal_json) => parse_goal_json(&previous_goal_json),
-        None => session_id_from_session_file(previous_session_file)
-            .and_then(|session_id| load_previous_goal_file(&cwd, &session_id)),
+        None => load_legacy_previous_goal(previous_session_file, &cwd)?,
     };
     if let Some(previous_goal) = previous_goal
         && previous_goal.completed_at.is_none()
@@ -138,6 +130,13 @@ fn inherit_previous_session_goal(event: &SessionStartEvent, ctx: &ExtensionConte
         save_goal(&mut lock_session_manager(&session), &previous_goal)?;
     }
     Ok(())
+}
+
+fn load_legacy_previous_goal(previous_session_file: &JsString, cwd: &JsString) -> Result<Option<Goal>, HandlerError> {
+    match session_id_from_session_file(previous_session_file).filter(|id| !id.is_empty()) {
+        Some(previous_session_id) => load_previous_goal_file(cwd, &previous_session_id),
+        None => Ok(None),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -171,7 +170,7 @@ fn validate_goal_objective(objective: &JsString) -> Option<SetGoalResult> {
     None
 }
 
-fn create_goal(objective: JsString, branch: String, created_at: String) -> Goal {
+fn create_goal(objective: JsString, branch: JsString, created_at: JsString) -> Goal {
     Goal {
         objective,
         branch,
@@ -203,7 +202,7 @@ fn set_goal(params: SetGoalParams<'_>) -> Result<SetGoalResult, HandlerError> {
     let goal = create_goal(
         params.objective,
         read_current_branch(&cwd),
-        crate::utils::iso_time::now_iso_string(),
+        crate::utils::iso_time::now_iso_string().into(),
     );
     let session = params.ctx.session_manager()?;
     save_goal(&mut lock_session_manager(&session), &goal)?;
@@ -601,7 +600,7 @@ fn run_goal_status_action(ctx: &ExtensionContext) -> Result<AgentToolResult, Han
 
 type ConsumeReviewEvidence = Arc<dyn Fn(&ExtensionContext, &Goal, usize) -> Result<(), HandlerError> + Send + Sync>;
 
-type ClearSessionSchedules = Arc<dyn Fn(&str) + Send + Sync>;
+type ClearSessionSchedules = Arc<dyn Fn(&JsString) + Send + Sync>;
 
 struct ManageGoalContext {
     ctx: ExtensionContext,
@@ -729,7 +728,7 @@ struct GoalExtensionRuntime {
     completion_scheduler: CompletionWaitScheduler,
     status: Arc<SupervisorStatusController>,
     apply_decision: ApplyIdleDecision,
-    clear_goal_schedules: Arc<dyn Fn(&str) + Send + Sync>,
+    clear_goal_schedules: Arc<dyn Fn(&JsString) + Send + Sync>,
     clear_all_goal_schedules: Arc<dyn Fn() + Send + Sync>,
 }
 
@@ -839,7 +838,7 @@ fn create_idle_goal_scheduler(
     review_goal: &GoalEvidenceReview,
     evidence: &GoalReviewEvidenceController,
     append_status: &AppendSupervisorStatus,
-    clear_schedules: Arc<dyn Fn(&str) + Send + Sync>,
+    clear_schedules: Arc<dyn Fn(&JsString) + Send + Sync>,
 ) -> (GoalScheduler<Goal, ReviewedGoalResponse>, ApplyIdleDecision) {
     let scheduler_slot: Arc<OnceLock<GoalScheduler<Goal, ReviewedGoalResponse>>> = Arc::new(OnceLock::new());
     let apply_slot = Arc::clone(&scheduler_slot);
@@ -1182,7 +1181,7 @@ fn register_agent_goal_handlers(
                             }
                         },
                         schedule_retry: |goal| empty_for_retry.schedule(ctx.clone(), goal),
-                        schedule_error_status: |message: &str| error_for_status.schedule(ctx.clone(), message),
+                        schedule_error_status: |message: &str| error_for_status.schedule(ctx.clone(), &message.into()),
                         report_skipped: |message: &str| {
                             let _ = status_for_report.append(ctx_for_report.clone(), message, None);
                         },
@@ -1240,7 +1239,7 @@ fn handle_goal_command(
     args: &JsString,
     ctx: &ExtensionCommandContext,
     pi: &ExtensionApi,
-    clear_retry: &(dyn Fn(&str) + Send + Sync),
+    clear_retry: &(dyn Fn(&JsString) + Send + Sync),
 ) {
     let parsed_args = parse_goal_args(args);
     let action = match parsed_args {
@@ -1324,7 +1323,7 @@ fn handle_goal_command(
                 .session_manager()
                 .ok()
                 .map(|session| lock_session_manager(&session).get_session_id().to_owned());
-            let before_save = |clear_retry: &(dyn Fn(&str) + Send + Sync)| {
+            let before_save = |clear_retry: &(dyn Fn(&JsString) + Send + Sync)| {
                 if let Some(session_id) = &session_id {
                     clear_retry(session_id);
                 }
