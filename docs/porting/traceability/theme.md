@@ -15,7 +15,7 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 | `class Theme` | `struct Theme` | `theme.rs` probes, `differential_theme.rs` |
 | `Theme.fg/bg/bold/italic/underline/inverse/strikethrough` | same methods | `theme_global_probe`, differential fg/bg |
 | `Theme.getFgAnsi/getBgAnsi/getColorMode` | same methods | `theme_global_probe`, differential |
-| `Theme.getThinkingBorderColor(level)` | `get_thinking_border_color(ThinkingLevel) -> StyleFn` | traceability-only (callback shape); colors covered by `get_fg_ansi` differential |
+| `Theme.getThinkingBorderColor(level)` | `get_thinking_border_color(ThinkingLevel) -> StyleFn` | exact styled border outputs for xhigh/max/ultra in `differential_theme` |
 | `Theme.getBashModeBorderColor()` | `get_bash_mode_border_color() -> StyleFn` | traceability-only |
 | `getAvailableThemes()` | `get_available_themes() -> Result<Vec<String>, ThemeError>` | `theme_picker_probe` |
 | `getAvailableThemesWithPaths()` | `get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError>` | `theme_picker_probe` |
@@ -53,7 +53,6 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 | `rgbTo256` cube/gray distance, `spread < 10` | `rgb_to_256` | differential `dark256`/`full-vars-256` |
 | `fgAnsi`/`bgAnsi`: empty, number, `#`, invalid | same match arms | differential full-vars (empty/0/15/231/232/255) |
 | `resolveVarRefs`: literal, circular, missing, recursion | same | differential `circular`, `missing-var`, `full-vars` alias chain |
-| `withThemeColorFallbacks` (`??` per optional token) | `with_theme_color_fallbacks` | differential `fallbacks` (thinkingMax only) |
 | `createTheme` bg key partition | `create_theme` | differential all cases |
 | TypeBox validation (required + union errors, 8-error iterator cap) | `validate_theme_json` + `MAX_VALIDATION_ERRORS` | differential `missing`, `bad-types`, `many-bad`, `required-truncated`, `no-name*` |
 | `assertThemeNameIsValid` (only on parsed files/registration) | `assert_theme_name_is_valid` | differential `slash` |
@@ -85,6 +84,12 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 ## Common-pin token reconciliation (2026-10-22)
 
 Removed old-only `scrollbarThumb`, `searchMatchBg`, `searchMatchText` enums, schema keys, built-in asset entries and default-color mappings. Frozen `theme.ts` foreground/background token unions and assets contain none. Read-only trace across every `crates/**/src/**/*.rs` found no production consumer outside theme token conversion/default tables; no component rendering path required deletion or replacement. Removed the two old-only fullscreen-color tests and only those token requests from the differential. Other foreground/background assertions remain exact. Pre-removal differential RED was frozen `Unknown theme background color: scrollbarThumb` versus successful Rust rendering (`test-differential_theme-6183.log`).
+
+### thinkingMax caller mapping
+
+Common-pin `theme.ts:399–419` maps xhigh/max/ultra to `thinkingXhigh`. Rust's sole production `ThinkingMax` consumer was `Theme::get_thinking_border_color`; it now preserves that frozen mapping rather than dropping max/ultra rendering. Removed old-only token/schema/assets and the entire `with_theme_color_fallbacks` injection from creation/export. Built-in resolved colors now contain 51 entries, matching frozen.
+
+Extended existing differential snapshots with complete styled borders for xhigh/max/ultra. RED `test-thinking-max-border-red.log` reproduced different max/ultra colors on dark built-in before implementation; existing missing-token case independently reproduced the injected token. No module-level exception or fallback added. The fixture still explicitly omits `thinkingMax` in its historical fallback-named case; it no longer requests an API absent from frozen.
 
 ## Gaps / exclusions
 

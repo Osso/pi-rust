@@ -4,18 +4,18 @@ import {join} from 'node:path';
 async function main(){
  const source=process.argv[2],packages=source.slice(0,source.indexOf('/packages/')+10);
  const load=(name:string)=>import(pathToFileURL(join(packages,'coding-agent/src',name)).href);
- const [{default:factory},loader,runners,sessions,events,auth,utils,fauxModule,themeModule]=await Promise.all([import(pathToFileURL(source).href),load('core/extensions/loader.ts'),load('core/extensions/runner.ts'),load('core/session-manager.ts'),load('core/event-bus.ts'),load('core/auth-storage.ts'),import(pathToFileURL(join(packages,'coding-agent/test/model-runtime-test-utils.ts')).href),import(pathToFileURL(join(packages,'ai/src/providers/faux.ts')).href),load('modes/interactive/theme/theme.ts')]);
+ const [{default:factory},loader,runners,sessions,events,auth,utils,fauxModule,themeModule,compat]=await Promise.all([import(pathToFileURL(source).href),load('core/extensions/loader.ts'),load('core/extensions/runner.ts'),load('core/session-manager.ts'),load('core/event-bus.ts'),load('core/auth-storage.ts'),import(pathToFileURL(join(packages,'coding-agent/src/core/model-registry.ts')).href),import(pathToFileURL(join(packages,'ai/src/providers/faux.ts')).href),load('modes/interactive/theme/theme.ts'),import(pathToFileURL(join(packages,'ai/src/compat.ts')).href)]);
  async function run(request:any){
   const runtime=loader.createExtensionRuntime(),extension=await loader.loadExtensionFromFactory(factory,'/fixture',events.createEventBus(),runtime,'<example:session>');
   const metadata={commands:[...extension.commands.values()].map((c:any)=>[c.name,c.description,!!c.getArgumentCompletions]),tools:[...extension.tools.keys()]};
-  const faux=fauxModule.fauxProvider({provider:'openai',models:[{id:request.missingModel?'other':'gpt-5.2',name:'Fixture',reasoning:true,contextWindow:128000,maxTokens:4096}]});
+  const faux=compat.registerFauxProvider({api:compat.getModel('openai','gpt-5.2').api,provider:'openai',models:[{id:request.missingModel?'other':'gpt-5.2',name:'Fixture',reasoning:true,contextWindow:128000,maxTokens:4096}]});
   const credentials=auth.AuthStorage.inMemory(request.noAuth?{}:{openai:{type:'api_key',key:'fixture-key'}});
-  const registry=await utils.createInMemoryModelRegistry(credentials);utils.getModelRuntime(registry).registerNativeProvider(faux.provider);
+  const registry=utils.ModelRegistry.inMemory(credentials);
   const calls:any[]=[],trace:any[]=[],errors:any[]=[];
   faux.setResponses([async(context:any,options:any,_state:any,model:any)=>{
-   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-7/.test(options.sessionId))throw new Error('invalid uuidv7');
+   if(options.sessionId!==undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-7/.test(options.sessionId))throw new Error('invalid uuidv7');
    const captured=JSON.parse(JSON.stringify(context));captured.messages[0].timestamp='<clock>';
-   calls.push({model:[model.provider,model.id],context:captured,options:{cacheRetention:options.cacheRetention,sessionId:'<uuidv7>',reasoningEffort:options.reasoningEffort??null}});
+   calls.push({model:[model.provider,model.id],context:captured,options:{cacheRetention:options.cacheRetention??null,sessionId:options.sessionId===undefined?null:'<uuidv7>',reasoningEffort:options.reasoningEffort??null}});
    if(request.error)throw new Error(request.error);
    return fauxModule.fauxAssistantMessage(request.response??[{type:'text',text:'## Summary\n\nDone **one**.'},{type:'thinking',thinking:'hidden'},{type:'text',text:'Next: `two`.'}],{timestamp:0,stopReason:request.aborted?'aborted':'stop'});
   }]);
@@ -38,6 +38,7 @@ async function main(){
   runner.bindCommandContext({newSession:async(options:any)=>{transitions.push(['newSession',options.parentSession??null,!!options.setup,!!options.withSession]);if(!request.cancelSession){runner.invalidate();await options.withSession?.(replacement.createCommandContext());}return {cancelled:!!request.cancelSession};}});
   runner.setUIContext(request.hasUI===false?undefined:ui,request.mode??'tui');runner.onError((e:any)=>errors.push([e.event,e.error]));
   let result:any=null;try{await runner.getCommand(source.includes('handoff.ts')?'handoff':'summarize').handler(request.args??'',runner.createCommandContext());}catch(e:any){result=e.message;}
+  faux.unregister();
   return {metadata,trace,calls,errors,result,transitions,replacementUi};
  }
  let pending='';process.stdin.setEncoding('utf8');for await(const chunk of process.stdin){pending+=chunk;let end;while((end=pending.indexOf('\n'))!==-1){const line=pending.slice(0,end);pending=pending.slice(end+1);console.log(JSON.stringify(await run(JSON.parse(line))));}}

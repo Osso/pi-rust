@@ -7,7 +7,7 @@ async function main() {
  const base=source.endsWith("index.ts")?resolve(dirname(source),"../../../src"):resolve(dirname(source),"../../src");
  const load=(p:string)=>import(pathToFileURL(resolve(base,p)).href);
  const [{default:factory},loader,runnerModule,session,events,auth,utils,themeModule]=await Promise.all([
-  import(pathToFileURL(source).href),load("core/extensions/loader.ts"),load("core/extensions/runner.ts"),load("core/session-manager.ts"),load("core/event-bus.ts"),load("core/auth-storage.ts"),load("../test/model-runtime-test-utils.ts"),load("modes/interactive/theme/theme.ts")]);
+  import(pathToFileURL(source).href),load("core/extensions/loader.ts"),load("core/extensions/runner.ts"),load("core/session-manager.ts"),load("core/event-bus.ts"),load("core/auth-storage.ts"),load("core/model-registry.ts"),load("modes/interactive/theme/theme.ts")]);
  themeModule.initTheme("dark");
  async function run(request:any) {
   const cwd=request.cwd??"/fixture",trace:any[]=[];
@@ -15,7 +15,7 @@ async function main() {
   const runtime=loader.createExtensionRuntime();
   const extension=await loader.loadExtensionFromFactory(factory,cwd,events.createEventBus(),runtime,"<example:g>");
   const manager=session.SessionManager.inMemory(cwd);
-  const registry=await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
+  const registry=utils.ModelRegistry.inMemory(auth.AuthStorage.inMemory());
   if(request.models)registry.registerProvider("fixture",{name:"fixture",api:"openai-completions",baseUrl:"https://fixture.invalid/v1",apiKey:"fixture-key",models:request.models});
   let tools=request.tools??["read","bash","edit","write","custom"],thinking=request.thinking??"off",model:any=request.initialModel;
   const runner=new runnerModule.ExtensionRunner([extension],runtime,cwd,manager,registry);

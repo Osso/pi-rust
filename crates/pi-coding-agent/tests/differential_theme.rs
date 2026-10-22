@@ -65,7 +65,6 @@ const THEME_COLORS: &[(&str, ThemeColor)] = &[
     ("thinkingMedium", ThemeColor::ThinkingMedium),
     ("thinkingHigh", ThemeColor::ThinkingHigh),
     ("thinkingXhigh", ThemeColor::ThinkingXhigh),
-    ("thinkingMax", ThemeColor::ThinkingMax),
     ("bashMode", ThemeColor::BashMode),
 ];
 
@@ -154,7 +153,6 @@ fn load_cases(package_dir: &Path) -> Vec<Value> {
     full["colors"]["text"] = json!("empty");
     full["colors"]["mdHeading"] = json!("upper");
     full["colors"]["selectedBg"] = json!(0);
-    full["colors"]["thinkingMax"] = json!(255);
     full["export"] = json!({"pageBg": "#112233", "cardBg": 24, "infoBg": ""});
 
     let mut fallbacks = json!({"name": "fallbacks", "colors": required_colors()});
@@ -162,7 +160,7 @@ fn load_cases(package_dir: &Path) -> Vec<Value> {
     fallbacks["colors"].as_object_mut().unwrap().remove("thinkingMax");
 
     let mut missing = json!({"name": "missing", "colors": required_colors()});
-    for key in ["accent", "bashMode", "thinkingMax"] {
+    for key in ["accent", "bashMode"] {
         missing["colors"].as_object_mut().unwrap().remove(key);
     }
 
@@ -292,6 +290,14 @@ fn rust_load_theme(directory: &Path, case: &Value) -> Value {
                     ColorMode::Truecolor => "truecolor",
                     ColorMode::Color256 => "256color",
                 },
+                "thinkingBorders": ([
+                    ("xhigh", pi_agent_core::ThinkingLevel::XHigh),
+                    ("max", pi_agent_core::ThinkingLevel::Max),
+                    ("ultra", pi_agent_core::ThinkingLevel::Ultra),
+                ].into_iter().map(|(level, value)| {
+                    let style = std::sync::Arc::new(theme.clone()).get_thinking_border_color(value);
+                    json!([level, style(&JsString::from("border"))])
+                }).collect::<Vec<_>>()),
                 "fg": THEME_COLORS
                     .iter()
                     .map(|(key, color)| json!([key, theme.get_fg_ansi(*color)]))

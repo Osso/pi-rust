@@ -67,11 +67,9 @@ async function run(request: any) {
  let wrapper: any;
  let provider: any = {
   getSuggestions: async (lines:string[], line:number, col:number, options:{force:boolean;signal:AbortSignal}) => {
-   // Rust's UI provider contract uses UTF-8 byte columns, not UTF-16 offsets.
-   const byteColumn=Buffer.byteLength((lines[line]??'').slice(0,col));
    return {
     items:[{value:"base",label:"Base",description:"delegate"}],
-    prefix:JSON.stringify({lines,line,col:byteColumn,force:options.force,aborted:options.signal.aborted}),
+    prefix:JSON.stringify({lines,line,col,force:options.force,aborted:options.signal.aborted}),
    };
   },
   applyCompletion(lines: string[], line: number, col: number, item: any, prefix: string) { const updated=[...lines]; updated[line]=lines[line].slice(0,col-prefix.length)+item.value; return {lines:updated,cursorLine:line,cursorCol:col-prefix.length+item.value.length}; },
