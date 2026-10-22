@@ -10,7 +10,7 @@ The optional default root is `getAgentDir()`, a JS string: the configuration's O
 
 ## Source drift (authorized corrections pending)
 
-1. Frozen source accepts artifactRoot and dirname(sessionPath), in that order, and canonicalizes the selected owning root. Real Cargo/frozen differential RED (`cleanup-roots-incrate-red-2.log`, fixture `9338c949`) deleted two source directories/16 bytes but only one native directory/8 bytes. Native now selects and canonicalizes that same first matching root; GREEN pending.
-2. Rust wrapper currently performs expired-first selection and only checks all records over a global size cap. Frozen source directly invokes cleanup once.
+1. Frozen source accepts artifactRoot and dirname(sessionPath), in that order, and canonicalizes the selected owning root. Real Cargo/frozen differential RED (`cleanup-roots-incrate-red-2.log`, fixture `9338c949`) deleted two source directories/16 bytes but only one native directory/8 bytes. Native now selects and canonicalizes that same first matching root; actual Cargo cleanup target GREEN9 at `a4b5ed62` (`cleanup-roots-incrate-green.log`).
+2. Separate Cargo/frozen RED at `160a9625` (`cleanup-wrapper-incrate-red.log`) proves the old expired-first/global-root-byte prefilter retains a recent session-root artifact that frozen cleanup removes under byte pressure. Wrapper now calls the common cleanup once, matching source `detached-job-cleanup.ts:53–65`; old prefilter helpers and uncapped alternate selection are deleted. GREEN pending.
 
-Parent authorized correcting these separately after native migration, each with frozen behavioral RED first. This checkpoint does not claim frozen parity for either branch.
+Both corrections have separate real in-crate/frozen REDs. Tests use actual persisted agents, sparse filesystem artifacts and frozen cleanup calls, not a copied DB implementation. Proof is bounded to these branches, not whole-module acceptance.
