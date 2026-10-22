@@ -1,6 +1,8 @@
 [
   "client/",
   "coding-agent/src/client/",
+  "coding-agent/src/extensions/index.ts",
+  "coding-agent/src/extensions/llama/",
   "evals/",
   "protocol/",
   "server/",

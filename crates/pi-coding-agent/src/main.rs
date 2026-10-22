@@ -150,22 +150,6 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "session-id",
 ];
 
-/// `builtInExtensions` from `extensions/index.ts` (the hidden llama.cpp
-/// extension, registered for package/config commands only).
-pub fn built_in_extensions() -> Vec<InlineExtension> {
-    let mut registry = ExtensionRegistry::new();
-    crate::bundled_extensions::register_builtin_extensions(&mut registry);
-    registry
-        .get(&JsString::from("<inline:llama.cpp>"))
-        .map(|factory| InlineExtension::Named {
-            name: "llama.cpp".into(),
-            factory: Arc::clone(factory),
-            hidden: Some(true),
-        })
-        .into_iter()
-        .collect()
-}
-
 /// `firstPartyExtensionFactory`.
 pub fn first_party_extension_factory(name: &str, factory: ExtensionFactory) -> InlineExtension {
     InlineExtension::Factory {
@@ -1945,8 +1929,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     }
 
     reset_timings(TimingLabel::Main);
-    let mut package_command_extension_factories = built_in_extensions();
-    package_command_extension_factories.extend(options.extension_factories.clone());
+    let package_command_extension_factories = options.extension_factories.clone();
     let offline_mode = offline_mode_from_env(args);
     if offline_mode {
         pi_js_compat::process_env::set("PI_OFFLINE", "1");

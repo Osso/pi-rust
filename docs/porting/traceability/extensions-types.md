@@ -14,7 +14,7 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
 ## Native custom-component checkpoint
 
-`ExtensionUiComponent::render` returns `Vec<JsString>` and `handle_input` takes `&JsString`. Both synchronous and asynchronous `ExtensionUiCustomResult` error carriers are `JsString`. The question panel uses this single native interface. Mechanical signature updates cover the 19 extension-example implementers and LlamaViewComponent; native propagation inside their existing bodies is not claimed complete. Interactive implementers remain owned by the interactive lane. No scalar component adapter is introduced; actual coding-library proof remains pending compilation.
+`ExtensionUiComponent::render` returns `Vec<JsString>` and `handle_input` takes `&JsString`. Both synchronous and asynchronous `ExtensionUiCustomResult` error carriers are `JsString`. The question panel uses this single native interface. Mechanical signature updates cover the 19 extension-example implementers; native propagation inside their existing bodies is not claimed complete. Interactive implementers remain owned by the interactive lane. No scalar component adapter is introduced; actual coding-library proof remains pending compilation.
 
 ## Contract adaptations
 

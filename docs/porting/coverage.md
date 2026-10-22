@@ -846,12 +846,12 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/core/remote-catalog-provider.ts` | done | `crates/pi-coding-agent/src/core/remote_catalog_provider.rs` |
 | `coding-agent/src/core/runtime-credentials.ts` | done | `crates/pi-coding-agent/src/core/runtime_credentials.rs` |
 | `coding-agent/src/core/usage-totals.ts` | done | `crates/pi-coding-agent/src/core/usage_totals.rs` |
-| `coding-agent/src/extensions/index.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/mod.rs` |
-| `coding-agent/src/extensions/llama/client.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/llama/client.rs` |
-| `coding-agent/src/extensions/llama/huggingface.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/llama/huggingface.rs` |
-| `coding-agent/src/extensions/llama/index.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/llama/index.rs` |
-| `coding-agent/src/extensions/llama/provider.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/llama/provider.rs` |
-| `coding-agent/src/extensions/llama/ui.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/llama/ui.rs` |
+| `coding-agent/src/extensions/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `coding-agent/src/extensions/llama/client.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `coding-agent/src/extensions/llama/huggingface.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `coding-agent/src/extensions/llama/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `coding-agent/src/extensions/llama/provider.ts` | done | Removed: no frozen counterpart (2026-10-21) |
+| `coding-agent/src/extensions/llama/ui.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `coding-agent/src/modes/interactive/components/markdown-transform.ts` | done | `crates/pi-coding-agent/src/modes/interactive/components/markdown_transform.rs` |
 | `coding-agent/src/modes/interactive/components/mermaid.ts` | gap |  |
 | `coding-agent/src/modes/interactive/external-editor.ts` | done | `crates/pi-coding-agent/src/modes/interactive/external_editor.rs` |

@@ -29,7 +29,6 @@ pub mod default_footer;
 pub mod docs_tree_context;
 pub mod effort;
 pub mod goal;
-pub mod llama;
 #[path = "loop/mod.rs"]
 pub mod r#loop;
 pub mod openai_remote_compact;
@@ -43,11 +42,6 @@ pub mod session_id;
 pub mod spec_validation;
 
 use debug::DebugReplControllerProvider;
-
-/// Registers the inline built-in extensions (`extensions/index.ts`).
-pub fn register_builtin_extensions(registry: &mut ExtensionRegistry) {
-    llama::index::register_builtin_extensions(registry);
-}
 
 /// Options for the small first-party extensions.
 pub struct SmallExtensionsOptions {

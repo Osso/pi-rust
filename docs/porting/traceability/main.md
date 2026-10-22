@@ -95,8 +95,9 @@ registration are wired.
   (source order), `register_agents_extensions`, and `register_bundled_extensions`
   provide the factories; `pyrun` is re-registered with the multi-agent Pi request
   handler. `SmallExtensionsOptions` carries the shared fast-mode authority, the
-  startup HTTP client, and the multi-agent store. `builtInExtensions` (hidden
-  `llama.cpp`) feeds only the package/config command factories.
+  startup HTTP client, and the multi-agent store. Package/config commands receive
+  only `options.extensionFactories`, as in frozen `main.ts`; the old-only hidden
+  `llama.cpp` built-in was removed with `extensions/index.ts`.
 - `--resume` builds `SessionManager::{list,list_all,list_archived}` loaders,
   validates the selection with `assert_main_session_runtime_available`, and maps
   cancel/exit to `No session selected`/exit 0.

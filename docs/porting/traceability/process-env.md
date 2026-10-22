@@ -23,7 +23,7 @@ inherited-environment capture uses the same `vars_os`/lossy mapping internally.
 
 Wiring: `utils::shell::get_shell_env`, `core::exec`, detached payload env, `find`,
 `grep`, `ls`, `code_index`, `utils::child_process`, `utils::chalk`, `main`,
-`config::InstallContext`, `pyrun`, `llama::huggingface`, `clipboard_image`,
+`config::InstallContext`, `pyrun`, `clipboard_image`,
 `startup_ui`, the interactive theme loaders, and `core::self_restart` build their
 process-environment snapshots from `vars()`. `pi_agent_core`'s harness Node env
 applies the same lossy value / dropped-key rule when it inherits the environment.
@@ -41,7 +41,7 @@ Migrated readers: `pi-ai` (`env_api_keys`, `provider_env`, `node_http_proxy`,
 home expansion), `pi-coding-agent` (config and `PI_PACKAGE_DIR`, config value
 references, settings/theme/telemetry/timings flags, trust manager, package
 manager, paths/footer/session selectors, clipboard and terminal detection, the
-bwrap/llama/pyrun/claude-hook/goal extensions, detached runners, supervisor, and
+bwrap/pyrun/claude-hook/goal extensions, detached runners, supervisor, and
 architect), and `pi-js-compat::collator` locale resolution.
 
 Behavioral proof: `tests/process_env_reads.rs` in `pi-ai`, `pi-tui`,
