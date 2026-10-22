@@ -1,13 +1,14 @@
 //! Opt-in native `git-checkpoint.ts`; keeps stash refs only for the current run.
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::string::js_trim;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 struct Checkpoints {
-    refs: HashMap<String, String>,
-    current_entry_id: Option<String>,
+    refs: HashMap<JsString, String>,
+    current_entry_id: Option<JsString>,
 }
 
 pub fn git_checkpoint_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
@@ -25,7 +26,7 @@ pub fn git_checkpoint_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     state
                         .lock()
                         .map_err(|e| HandlerError::new(e.to_string()))?
-                        .current_entry_id = leaf.id().map(str::to_owned);
+                        .current_entry_id = leaf.id().cloned();
                 }
                 Ok(None)
             })
@@ -74,16 +75,17 @@ pub fn git_checkpoint_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 let choice = ctx
                     .ui()?
                     .select(
-                        "Restore code state?",
+                        &JsString::from("Restore code state?"),
                         &["Yes, restore code to that point".into(), "No, keep current code".into()],
                         None,
                     )
                     .await?;
-                if choice.as_deref().is_some_and(|choice| choice.starts_with("Yes")) {
+                if choice.as_ref().is_some_and(|choice| choice.starts_with("Yes")) {
                     // Source notifies even when git returns a nonzero status.
                     api.exec("git".into(), vec!["stash".into(), "apply".into(), reference], None)
                         .await?;
-                    ctx.ui()?.notify("Code restored to checkpoint", Some(NotifyType::Info));
+                    ctx.ui()?
+                        .notify(&JsString::from("Code restored to checkpoint"), Some(NotifyType::Info));
                 }
                 Ok(None)
             })

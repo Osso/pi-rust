@@ -1,7 +1,7 @@
 //! Opt-in native `working-indicator.ts`; embed and register explicitly.
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::ThemeColor;
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy)]
@@ -59,7 +59,7 @@ impl Mode {
 fn apply_indicator(mode: Mode, ui: &dyn ExtensionUiContext) {
     ui.set_working_indicator(mode.indicator().as_ref());
     ui.set_status(
-        "working-indicator",
+        &JsString::from("working-indicator"),
         Some(
             &ui.theme()
                 .fg(ThemeColor::Dim, &format!("Indicator: {}", mode.description())),
@@ -84,23 +84,23 @@ pub fn working_indicator_extension(pi: &ExtensionApi) -> Result<(), HandlerError
             let current = mode.clone();
             Box::pin(async move {
                 let ui = ctx.ui()?;
-                let next = js_trim(&args).to_lowercase();
+                let next = (&args).trim().to_lowercase();
                 if next.is_empty() {
                     ui.notify(
-                        &format!("Working indicator: {}", current.lock().unwrap().description()),
+                        &JsString::from(format!("Working indicator: {}", current.lock().unwrap().description())),
                         Some(NotifyType::Info),
                     );
                     return Ok(());
                 }
-                let mode = match next.as_str() {
-                    "dot" => Mode::Dot,
-                    "none" => Mode::None,
-                    "pulse" => Mode::Pulse,
-                    "spinner" => Mode::Spinner,
-                    "reset" => Mode::Default,
+                let mode = match &next {
+                    mode if mode == "dot" => Mode::Dot,
+                    mode if mode == "none" => Mode::None,
+                    mode if mode == "pulse" => Mode::Pulse,
+                    mode if mode == "spinner" => Mode::Spinner,
+                    mode if mode == "reset" => Mode::Default,
                     _ => {
                         ui.notify(
-                            "Usage: /working-indicator [dot|pulse|none|spinner|reset]",
+                            &JsString::from("Usage: /working-indicator [dot|pulse|none|spinner|reset]"),
                             Some(NotifyType::Error),
                         );
                         return Ok(());
@@ -109,7 +109,7 @@ pub fn working_indicator_extension(pi: &ExtensionApi) -> Result<(), HandlerError
                 *current.lock().unwrap() = mode;
                 apply_indicator(mode, ui.as_ref());
                 ui.notify(
-                    &format!("Working indicator set to: {}", mode.description()),
+                    &JsString::from(format!("Working indicator set to: {}", mode.description())),
                     Some(NotifyType::Info),
                 );
                 Ok(())

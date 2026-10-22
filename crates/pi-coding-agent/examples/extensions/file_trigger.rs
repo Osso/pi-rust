@@ -1,6 +1,7 @@
 //! Opt-in native `file-trigger.ts`; embed and register explicitly.
 use notify::{RecursiveMode, Watcher};
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::{node_fs::node_fs_error, string::js_trim};
 use std::{
     path::PathBuf,
@@ -53,8 +54,10 @@ pub fn file_trigger_with_path(pi: &ExtensionApi, path: PathBuf) -> Result<(), Ha
                 .map_err(|error| HandlerError::new(error.to_string()))?
                 .push(watcher);
             if ctx.has_ui()? {
-                ctx.ui()?
-                    .notify(&format!("Watching {TRIGGER_FILE}"), Some(NotifyType::Info));
+                ctx.ui()?.notify(
+                    &JsString::from(format!("Watching {TRIGGER_FILE}")),
+                    Some(NotifyType::Info),
+                );
             }
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
@@ -67,7 +70,11 @@ fn watch_error(error: notify::Error, path: &std::path::Path) -> HandlerError {
         notify::ErrorKind::PathNotFound => std::io::Error::from(std::io::ErrorKind::NotFound),
         _ => return HandlerError::new(error.to_string()),
     };
-    HandlerError::new(node_fs_error(&error, "watch", &path.to_string_lossy()))
+    HandlerError::new(node_fs_error(
+        &error,
+        "watch",
+        &JsString::from(path.to_str().expect("filesystem path must be UTF-8")),
+    ))
 }
 fn inject_and_clear(pi: &ExtensionApi, path: &std::path::Path) -> Result<(), HandlerError> {
     let bytes = std::fs::read(path).map_err(|error| HandlerError::new(error.to_string()))?;
@@ -79,7 +86,7 @@ fn inject_and_clear(pi: &ExtensionApi, path: &std::path::Path) -> Result<(), Han
     pi.send_message(
         CustomMessagePayload {
             custom_type: "file-trigger".into(),
-            content: CustomMessageContent::Text(format!("External trigger: {content}")),
+            content: CustomMessageContent::Text(JsString::from(format!("External trigger: {content}"))),
             display: true,
             details: None,
         },

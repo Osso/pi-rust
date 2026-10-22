@@ -1,12 +1,12 @@
 //! Opt-in native port of `coding-agent/examples/extensions/commands.ts`.
 //! Embed this file and register its factory explicitly; it is not autoloaded.
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::{ExtensionApi, ExtensionCommandContext, HandlerError, NotifyType};
 use pi_coding_agent::core::slash_commands::SlashCommandInfo;
-use pi_js_compat::string::js_trim;
-use serde_json::json;
 
 pub fn commands_extension(api: &ExtensionApi) -> Result<(), HandlerError> {
     let commands_api = api.clone();
@@ -29,21 +29,21 @@ pub fn commands_extension(api: &ExtensionApi) -> Result<(), HandlerError> {
     Ok(())
 }
 
-async fn list_commands(api: &ExtensionApi, args: &str, ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
+async fn list_commands(api: &ExtensionApi, args: &JsString, ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
     let commands = api.get_commands()?;
-    let source_filter = js_trim(args);
+    let source_filter = args.trim();
     let filtered: Vec<_> = commands
         .iter()
-        .filter(|command| source_filter.is_empty() || command.source.as_str() == source_filter)
+        .filter(|command| source_filter.is_empty() || source_filter == command.source.as_str())
         .collect();
     let ui = ctx.ui()?;
     if filtered.is_empty() {
         let message = if source_filter.is_empty() {
-            "No commands found".to_owned()
+            JsString::from("No commands found")
         } else {
-            format!("No {source_filter} commands found")
+            js_format!("No {} commands found", source_filter)
         };
-        ui.notify(&message, Some(NotifyType::Info));
+        ui.notify(&JsString::from(&message), Some(NotifyType::Info));
         return Ok(());
     }
 
@@ -54,11 +54,18 @@ async fn list_commands(api: &ExtensionApi, args: &str, ctx: ExtensionCommandCont
             .filter(|command| command.source.as_str() == source)
             .collect();
         if !group.is_empty() {
-            items.push(format!("--- {label} ---"));
+            items.push(js_format!("--- {} ---", label));
             items.extend(group.into_iter().map(|command| format_command(command)));
         }
     }
-    let Some(selected) = ui.select("Available Commands", &items, None).await? else {
+    let Some(selected) = ui
+        .select(
+            &JsString::from("Available Commands"),
+            &items.iter().map(JsString::from).collect::<Vec<_>>(),
+            None,
+        )
+        .await?
+    else {
         return Ok(());
     };
     if selected.is_empty() || selected.starts_with("---") {
@@ -66,24 +73,16 @@ async fn list_commands(api: &ExtensionApi, args: &str, ctx: ExtensionCommandCont
     }
     // JS removes one UTF-16 code unit, not one scalar. An unmatched surrogate
     // cannot match any name in the native String input domain.
-    let name_units: Vec<_> = selected
-        .split(" - ")
-        .next()
-        .unwrap_or_default()
-        .encode_utf16()
-        .skip(1)
-        .collect();
-    let Ok(name) = String::from_utf16(&name_units) else {
-        return Ok(());
-    };
-    let Some(command) = commands.iter().find(|command| command.name == name) else {
+    let end = selected.find(" - ").unwrap_or(selected.len());
+    let name = selected.slice(1, end);
+    let Some(command) = commands.iter().find(|command| name == command.name) else {
         return Ok(());
     };
     if !command.source_info.path.is_empty()
         && ui
             .confirm(
                 &command.name,
-                &format!("View source path?\n{}", command.source_info.path),
+                &js_format!("View source path?\n{}", command.source_info.path),
                 None,
             )
             .await?
@@ -93,8 +92,8 @@ async fn list_commands(api: &ExtensionApi, args: &str, ctx: ExtensionCommandCont
     Ok(())
 }
 
-fn format_command(command: &SlashCommandInfo) -> String {
-    let mut formatted = format!("/{}", command.name);
+fn format_command(command: &SlashCommandInfo) -> JsString {
+    let mut formatted = js_format!("/{}", command.name);
     if let Some(description) = command
         .description
         .as_ref()

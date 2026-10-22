@@ -1,7 +1,8 @@
 //! Opt-in native port of `input-transform-streaming.ts`; register explicitly.
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_format;
+use pi_js_compat::js_regex::JsRegex as Regex;
 use pi_js_compat::string::js_trim;
-use regex::Regex;
 use std::sync::Arc;
 
 pub fn input_transform_streaming_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
@@ -25,7 +26,7 @@ pub fn input_transform_streaming_extension(pi: &ExtensionApi) -> Result<(), Hand
                     return Ok(Some(InputEventResult::Continue));
                 }
                 Ok(Some(InputEventResult::Transform {
-                    text: format!("{}\n\nCurrent uncommitted changes:\n```\n{stat}\n```", event.text),
+                    text: js_format!("{}\n\nCurrent uncommitted changes:\n```\n{}\n```", event.text, stat),
                     images: None,
                 }))
             })

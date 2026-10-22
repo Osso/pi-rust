@@ -1,4 +1,7 @@
 //! Opt-in native `with-deps/index.ts`: embed this file and register its factory explicitly.
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;
@@ -22,11 +25,11 @@ pub fn with_deps_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         prepare_execution: None,
         execution_mode: None,
         execute: Arc::new(|_id, params, _signal, _on_update, _ctx| Box::pin(async move {
-            let duration = params["duration"].as_str().ok_or_else(|| HandlerError::new("duration must be a string"))?;
+            let duration = params["duration"].as_string().ok_or_else(|| HandlerError::new("duration must be a string"))?;
             let value = parse_duration(duration)?;
             Ok(AgentToolResult {
-                content: vec![TextOrImageContent::Text(TextContent::new(format!("{duration} = {} milliseconds", pi_js_compat::number::js_number_to_string(value))))],
-                details: Some(json!({})),
+                content: vec![TextOrImageContent::Text(TextContent::new(js_format!("{} = {} milliseconds", duration, pi_js_compat::number::js_number_to_string(value))))],
+                details: Some(JsValue::from(json!({}))),
                 is_error: None,
                 terminate: None,
             })
@@ -37,22 +40,28 @@ pub fn with_deps_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 }
 
 // Only ms's string overload is exercised by the Type.String tool schema.
-fn parse_duration(text: &str) -> Result<f64, HandlerError> {
+fn parse_duration(text: &JsString) -> Result<f64, HandlerError> {
     if text.is_empty() {
         return Err(HandlerError::new(
             "val is not a non-empty string or a valid number. val=\"\"",
         ));
     }
-    let invalid = || HandlerError::new(format!("Invalid duration: \"{text}\""));
+    let invalid = || HandlerError::new(js_format!("Invalid duration: \"{}\"", text));
     if text.encode_utf16().count() > 100 {
         return Err(invalid());
     }
-    let pattern = regex::Regex::new(r"(?i-u)^(-?(?:[0-9]+)?\.?[0-9]+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)?$").expect("constant ms pattern");
+    let pattern = pi_js_compat::js_regex::JsRegex::with_flags(r"^(-?(?:[0-9]+)?\.?[0-9]+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)?$", "i").expect("constant ms pattern");
     let found = pattern.captures(text).ok_or_else(invalid)?;
-    let n: f64 = found[1].parse().map_err(|_| invalid())?;
+    let digits = found
+        .get(1)
+        .expect("duration number capture")
+        .text()
+        .to_utf8()
+        .expect("duration pattern captures ASCII digits only");
+    let n: f64 = digits.parse().map_err(|_| invalid())?;
     let factor = match found
         .get(2)
-        .map(|m| m.as_str().to_ascii_lowercase())
+        .map(|m| m.text().to_utf8().expect("duration unit is ASCII").to_ascii_lowercase())
         .as_deref()
         .unwrap_or("ms")
     {

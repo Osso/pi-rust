@@ -44,10 +44,10 @@ impl DoomOverlayComponent {
         })
     }
 
-    fn send_input(&self, data: &str) -> Result<bool, String> {
+    fn send_input(&self, data: &JsString) -> Result<bool, String> {
         let released = pi_tui::keys::is_key_release(data);
         let mut engine = self.engine.lock().unwrap();
-        if !released && matches!(data, "q" | "Q") {
+        if !released && (data == "q" || data == "Q") {
             pause(&mut engine)?;
             return Ok(true);
         }
@@ -129,7 +129,7 @@ impl ExtensionUiComponent for DoomOverlayComponent {
         let rgba = rgba.unwrap_or_else(|error| throw_uncaught(ERROR, error));
         let mut lines = render_half_block(&rgba, source_width, source_height, width, height);
         lines.push(format!("\x1b[2m{}\x1b[0m", &FOOTER[..width.min(FOOTER.len())]));
-        lines
+        lines.into_iter().map(JsString::from).collect::<Vec<_>>()
     }
 
     fn invalidate(&self) {}

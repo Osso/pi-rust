@@ -3,6 +3,8 @@ use super::editor_composition::{ComposedEditor, EditorBehavior};
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::components::custom_editor::{CustomEditor, CustomEditorOptions};
 use pi_coding_agent::modes::interactive::theme::ThemeColor;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::number::{js_number_to_string, to_fixed};
 use pi_tui::components::editor::EditorOptions;
 use pi_tui::utils::truncate_to_width_with;
@@ -32,12 +34,12 @@ impl State {
         }
     }
 }
-fn fit_border(left: &str, right: &str, width: usize, border: &dyn Fn(&str) -> String) -> String {
+fn fit_border(left: &JsString, right: &JsString, width: usize, border: &dyn Fn(&JsString) -> JsString) -> JsString {
     if width == 0 {
-        return String::new();
+        return JsString::default();
     }
     if width == 1 {
-        return border("─");
+        return border(&JsString::from("─"));
     }
     let (mut left, mut right) = (left.to_owned(), right.to_owned());
     while 2 + visible_width(&left) + visible_width(&right) + 3 > width && visible_width(&right) > 0 {
@@ -47,11 +49,13 @@ fn fit_border(left: &str, right: &str, width: usize, border: &dyn Fn(&str) -> St
         left = truncate_to_width_with(&left, visible_width(&left) - 1, "", false);
     }
     let gap = width.saturating_sub(2 + visible_width(&left) + visible_width(&right));
-    format!(
-        "{}{left}{}{right}{}",
-        border("─"),
-        border(&"─".repeat(gap)),
-        border("─")
+    js_format!(
+        "{}{}{}{}{}",
+        border(&JsString::from("─")),
+        left,
+        border(&JsString::from(&"─".repeat(gap))),
+        right,
+        border(&JsString::from("─"))
     )
 }
 fn format_context(ctx: &ExtensionContext) -> String {
@@ -76,7 +80,7 @@ struct BorderStatus {
     branch: Arc<Mutex<Option<String>>>,
 }
 impl EditorBehavior for BorderStatus {
-    fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<String> {
+    fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<JsString> {
         let mut lines = editor.render(width);
         if lines.len() < 2 {
             return lines;
@@ -94,7 +98,7 @@ impl EditorBehavior for BorderStatus {
         let top = if state.working {
             theme.fg(ThemeColor::Accent, &format!(" {} ", FRAMES[state.index]))
         } else {
-            String::new()
+            JsString::default()
         };
         let bottom_left = theme.fg(
             ThemeColor::Muted,
@@ -102,19 +106,21 @@ impl EditorBehavior for BorderStatus {
         );
         let cwd = self.ctx.cwd().expect("live cwd");
         let cwd = match std::env::var("HOME") {
-            Ok(home) if !home.is_empty() && cwd.starts_with(&home) => format!("~{}", &cwd[home.len()..]),
+            Ok(home) if !home.is_empty() && cwd.starts_with(&home) => {
+                js_format!("~{}", cwd.slice(home.len(), cwd.len()))
+            }
             _ => cwd,
         };
         let branch = self.branch.lock().expect("branch state");
         let branch = branch.as_ref().map(|b| format!(" ({b})")).unwrap_or_default();
         let bottom_right = theme.fg(
             ThemeColor::Muted,
-            &format!(" {} · {cwd}{branch} ", format_context(&self.ctx)),
+            &js_format!(" {} · {}{} ", format_context(&self.ctx), cwd, branch),
         );
         let border = editor.get_border_color();
-        lines[0] = fit_border(&top, "", width, border.as_ref());
+        lines[0] = JsString::from(fit_border(&top, &JsString::from(""), width, border.as_ref()));
         let last = lines.len() - 1;
-        lines[last] = fit_border(&bottom_left, &bottom_right, width, border.as_ref());
+        lines[last] = JsString::from(fit_border(&bottom_left, &bottom_right, width, border.as_ref()));
         lines
     }
 }
