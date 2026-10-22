@@ -26,7 +26,7 @@ fn user(text: &str) -> AgentMessage {
         content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
-        timestamp: 0,
+        timestamp: 0.0,
     })
 }
 
@@ -51,7 +51,7 @@ fn model() -> Model {
 }
 
 fn response(stop_reason: StopReason, text: &str, error_message: Option<&str>) -> AssistantMessage {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 0);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 0.0);
     message.content = vec![AssistantContent::Text(TextContent::new(text))];
     message.usage = Usage {
         input: 10.0,

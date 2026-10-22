@@ -60,7 +60,7 @@ fn assistant(options: Options) -> AgentMessage {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp: options.timestamp,
+        timestamp: options.timestamp as f64,
     }))
 }
 

@@ -22,12 +22,12 @@ fn user(text: &str) -> AgentMessage {
         content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
-        timestamp: 0,
+        timestamp: 0.0,
     })
 }
 
 fn assistant_with(content: Vec<AssistantContent>) -> AgentMessage {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 0);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 0.0);
     message.content = content;
     message.usage = Usage {
         cost: UsageCost::default(),
@@ -65,7 +65,7 @@ fn tool_result_message(tool_call_id: &str, text: &str) -> AgentMessage {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 0,
+        timestamp: 0.0,
     })
 }
 
@@ -223,7 +223,7 @@ fn stream_fn(log: Arc<Mutex<Vec<CapturedCall>>>, message: AssistantMessage) -> S
 }
 
 fn response(text: &str) -> AssistantMessage {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 0);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 0.0);
     message.content = vec![AssistantContent::Text(TextContent::new(text))];
     message.usage = Usage {
         input: 3.0,
@@ -237,7 +237,7 @@ fn response(text: &str) -> AssistantMessage {
 }
 
 fn failure(stop_reason: StopReason, error_message: &str) -> AssistantMessage {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 0);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 0.0);
     message.stop_reason = stop_reason;
     message.error_message = Some(error_message.into());
     message

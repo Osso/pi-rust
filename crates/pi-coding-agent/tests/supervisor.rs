@@ -59,7 +59,7 @@ fn assistant(content: Vec<AssistantContent>, stop_reason: StopReason) -> AgentMe
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp: 1,
+        timestamp: 1.0,
     }))
 }
 

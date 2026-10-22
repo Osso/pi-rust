@@ -41,7 +41,7 @@ Format the summary as structured markdown with clear sections.
 <conversation>
 {}
 </conversation>"#, previous_context, conversation_text);
-            let user=Message::User(UserMessage{role:UserRole::Tag,content:UserContent::Blocks(vec![UserContentBlock::Text(TextContent::new(prompt))]),input_source:None,provider_native:None,timestamp:pi_js_compat::date::js_now_millis() as i64});
+            let user=Message::User(UserMessage{role:UserRole::Tag,content:UserContent::Blocks(vec![UserContentBlock::Text(TextContent::new(prompt))]),input_source:None,provider_native:None,timestamp:pi_js_compat::date::js_now_millis()});
             let signal=event.signal;
             let mut options=StreamOptions {max_tokens:Some(8192.0),cache_retention:Some(CacheRetention::None),session_id:Some(JsString::from(uuidv7())),..Default::default()};
             options.request.signal=signal.clone();

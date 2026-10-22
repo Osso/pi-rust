@@ -272,7 +272,7 @@ fn frames_branch_and_compaction_summaries_as_user_messages() {
         user_text(&converted[1]),
         pi_js_compat::js_format!("{}compact text{}", COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX)
     );
-    assert_eq!(message_timestamp(&converted[1]), 4);
+    assert_eq!(message_timestamp(&converted[1]), 4.0);
 }
 
 #[test]

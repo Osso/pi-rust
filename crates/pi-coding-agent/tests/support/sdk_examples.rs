@@ -89,7 +89,7 @@ pub async fn fixture() -> Fixture {
                     ),
                 ],
                 FauxAssistantMessageOptions {
-                    timestamp: Some(42),
+                    timestamp: Some(42.0),
                     ..Default::default()
                 },
             ))

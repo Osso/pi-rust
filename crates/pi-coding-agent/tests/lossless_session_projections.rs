@@ -16,7 +16,7 @@ fn user_message(text: &str, timestamp: i64) -> AgentMessage {
         content: UserContent::Text(JsString::from(text)),
         input_source: None,
         provider_native: None,
-        timestamp,
+        timestamp: timestamp as f64,
     })
 }
 
@@ -36,7 +36,7 @@ fn assistant_message(text: &str, timestamp: i64, usage: Usage) -> AgentMessage {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp,
+        timestamp: timestamp as f64,
     }))
 }
 

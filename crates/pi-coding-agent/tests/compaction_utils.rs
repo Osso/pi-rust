@@ -20,7 +20,7 @@ fn tool_result(text: &str, details: Option<Value>) -> Message {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 0,
+        timestamp: 0.0,
     })
 }
 
@@ -40,7 +40,7 @@ fn assistant(content: Vec<AssistantContent>) -> Message {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp: 0,
+        timestamp: 0.0,
     }))
 }
 
@@ -128,7 +128,7 @@ fn does_not_truncate_assistant_or_user_messages() {
             content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(long_text.clone()))]),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         }),
         assistant(vec![AssistantContent::Text(TextContent::new(long_text.clone()))]),
     ];
@@ -149,7 +149,7 @@ fn joins_text_blocks_and_tool_calls_in_source_order() {
             ]),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         }),
         assistant(vec![
             AssistantContent::Text(TextContent::new("line one")),

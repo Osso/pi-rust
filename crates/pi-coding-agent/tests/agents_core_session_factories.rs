@@ -135,7 +135,7 @@ fn append_user(session_manager: &SharedSessionManager, text: impl Into<JsString>
 }
 
 fn assistant_message(text: &str) -> pi_ai::types::AssistantMessage {
-    let mut message = pi_ai::types::AssistantMessage::empty("faux", "faux-1", "faux", 2);
+    let mut message = pi_ai::types::AssistantMessage::empty("faux", "faux-1", "faux", 2.0);
     message
         .content
         .push(pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
@@ -714,7 +714,7 @@ async fn child_agent_tools_append_control_tools_in_order() {
 }
 
 fn assistant_with_tool_call(name: &str, id: &str) -> AgentMessage {
-    let mut message = pi_ai::types::AssistantMessage::empty("faux", "faux-1", "faux", 2);
+    let mut message = pi_ai::types::AssistantMessage::empty("faux", "faux-1", "faux", 2.0);
     message
         .content
         .push(pi_ai::types::AssistantContent::ToolCall(pi_ai::types::ToolCall::new(

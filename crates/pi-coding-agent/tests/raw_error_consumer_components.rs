@@ -201,7 +201,7 @@ fn assistant_message_keeps_raw_thinking_label_text_and_error() {
     use pi_coding_agent::modes::interactive::components::assistant_message::AssistantMessageComponent;
     init_theme();
     let raw = JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]);
-    let mut message = AssistantMessage::empty("faux", "faux", "fixture", 0);
+    let mut message = AssistantMessage::empty("faux", "faux", "fixture", 0.0);
     message.content = vec![
         AssistantContent::Thinking(ThinkingContent::new(raw.clone())),
         AssistantContent::Text(TextContent::new(raw.clone())),
