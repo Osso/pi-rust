@@ -75,11 +75,11 @@ pub fn inline_bash_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 }
                 if ctx.has_ui()? {
                     ctx.ui()?.notify(
-                        &JsString::from(format!(
+                        &pi_js_compat::js_format!(
                             "Expanded {} inline command(s):\n{}",
                             summaries.len(),
                             JsString::join(summaries, "\n")
-                        )),
+                        ),
                         Some(NotifyType::Info),
                     );
                 }

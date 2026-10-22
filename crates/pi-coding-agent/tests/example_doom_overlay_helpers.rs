@@ -208,7 +208,7 @@ fn engine_wrapper_matches_pinned_memory_frame_and_input_lifecycle() {
         let error = engine
             .init_with_module(Box::new(module))
             .err()
-            .map(|error| error.to_string());
+            .map(|error| error.message());
         engine.tick().unwrap();
         engine.push_key(true, 173).unwrap();
         engine.push_key(false, 173).unwrap();
@@ -250,7 +250,7 @@ fn wad_read_failures_match_node_error_messages_before_any_module_calls() {
                 fail: false,
             }))
             .unwrap_err();
-        assert_eq!(error.to_string(), expected["error"]["message"].as_str().unwrap());
+        assert_eq!(error.message(), expected["error"]["message"].as_str().unwrap());
         let doom_engine::DoomInitError::Wad(identity) = error else {
             panic!("WAD read must retain Node error identity")
         };

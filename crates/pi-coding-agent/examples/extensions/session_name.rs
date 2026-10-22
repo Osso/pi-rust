@@ -4,7 +4,6 @@ use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::{ExtensionApi, HandlerError, NotifyType};
-use pi_js_compat::string::js_trim;
 
 pub fn session_name_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     let api = pi.clone();
@@ -17,7 +16,7 @@ pub fn session_name_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Box::pin(async move {
                 let name = (&args).trim();
                 let message = if !name.is_empty() {
-                    api.set_session_name(&JsString::from(name))?;
+                    api.set_session_name(&name)?;
                     js_format!("Session named: {}", name)
                 } else {
                     match api.get_session_name()?.filter(|name| !name.is_empty()) {

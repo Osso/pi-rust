@@ -488,7 +488,7 @@ fn fixture_theme() -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
         .enumerate()
         .map(|(i, role)| {
             (
-                role.to_owned(),
+                JsString::from(role),
                 ColorValue::Text(JsString::from(format!("#{:02x}2020", 50 + i))),
             )
         })

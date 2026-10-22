@@ -4,7 +4,6 @@ use pi_coding_agent::{core::extensions::*, modes::interactive::theme::ThemeColor
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
-use pi_js_compat::string::js_trim;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use utils::{TodoItem, extract_todo_items, is_safe_command, mark_completed_steps};
@@ -95,8 +94,8 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         let enabled=shared.lock().unwrap().enabled;
         Box::pin(async move {
             if !enabled || event.tool_name != ToolName::Bash { return Ok(None); }
-            let command=event.input["command"].as_string().unwrap_or(&JsString::from(""));
-            Ok((enabled&&event.tool_name==ToolName::Bash&&!is_safe_command(command)).then(||ToolCallEventResult{block:Some(true),reason:Some(js_format!("Plan mode: command blocked (not allowlisted). Use /plan to disable plan mode first.\nCommand: {}", command)),..Default::default()}))
+            let command=event.input["command"].as_string().cloned().unwrap_or_default();
+            Ok((enabled&&event.tool_name==ToolName::Bash&&!is_safe_command(&command)).then(||ToolCallEventResult{block:Some(true),reason:Some(js_format!("Plan mode: command blocked (not allowlisted). Use /plan to disable plan mode first.\nCommand: {}", command)),..Default::default()}))
         })
     })?;
     let shared = state.clone();

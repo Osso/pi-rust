@@ -75,7 +75,7 @@ fn conversation_text(entries: &[pi_coding_agent::core::session_manager::SessionE
     Ok(sections.join("\n\n"))
 }
 struct Summary {
-    text: String,
+    text: JsString,
     context: ExtensionUiFactoryContext,
     done: ExtensionUiDone,
 }
@@ -168,7 +168,7 @@ async fn complete_summary(
     registry: &pi_coding_agent::core::model_registry::ModelRegistry,
     model: pi_ai::types::Model,
     conversation: String,
-) -> Result<String, HandlerError> {
+) -> Result<JsString, HandlerError> {
     let prompt = format!(
         "Summarize this conversation so I can resume it later.\nInclude goals, key decisions, progress, open questions, and next steps.\nKeep it concise and structured with headings.\n\n<conversation>\n{conversation}\n</conversation>"
     );
