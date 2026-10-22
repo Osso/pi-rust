@@ -43,7 +43,7 @@ async fn streamed_thinking_text_tool_and_usage_survive_each_interruption() {
             Box::pin(async { Ok(()) })
         }));
         let mut initial = text_assistant("");
-        initial.timestamp = 1234;
+        initial.timestamp = 1234.0;
         initial.usage.output = 7.0;
         initial.usage.total_tokens = 7.0;
         initial.content.clear();

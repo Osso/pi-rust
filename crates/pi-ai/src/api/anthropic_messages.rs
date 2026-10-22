@@ -724,7 +724,12 @@ fn build_params(
     let cache_control =
         get_cache_control(model, options.cache_retention, options.request.env.as_ref()).map(JsValue::from);
     let compat = anthropic_compat(model);
-    let transformed = transform_messages_with(&context.messages, model, Some(&normalize_tool_call_id), now_millis());
+    let transformed = transform_messages_with(
+        &context.messages,
+        model,
+        Some(&normalize_tool_call_id),
+        now_millis() as f64,
+    );
 
     let mut params = JsObject::new();
     params.insert("model".into(), JsValue::String(model.id.clone().into()));
@@ -1538,7 +1543,7 @@ pub fn stream(model: Model, context: Context, options: StreamOptions) -> Assista
 }
 
 async fn run_stream(sender: AssistantMessageEventSender, model: Model, context: Context, options: StreamOptions) {
-    let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
+    let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis() as f64);
     let result = drive_stream(&sender, &model, &context, &options, &mut output).await;
     if let Err(message) = result {
         for block in &mut output.content {

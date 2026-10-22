@@ -16,12 +16,12 @@ fn user_message(text: &str) -> AgentMessage {
         content: UserContent::Blocks(vec![pi_ai::types::TextOrImageContent::Text(TextContent::new(text))]),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
 fn assistant_message(content: Vec<AssistantContent>, stop_reason: StopReason) -> AgentMessage {
-    let mut message = AssistantMessage::empty("faux", "faux", "faux-1", 1);
+    let mut message = AssistantMessage::empty("faux", "faux", "faux-1", 1.0);
     message.content = content;
     message.usage = Usage::default();
     message.stop_reason = stop_reason;
@@ -55,7 +55,7 @@ fn end_turn_result(is_error: bool) -> AgentMessage {
         ))],
         details: None,
         is_error,
-        timestamp: 2,
+        timestamp: 2.0,
         usage: None,
         added_tool_names: None,
     })

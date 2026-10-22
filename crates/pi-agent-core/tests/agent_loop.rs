@@ -749,9 +749,9 @@ async fn injects_queued_messages_after_all_tool_calls_complete() {
         Box::pin(async move {
             let poll = polls.fetch_add(1, Ordering::SeqCst);
             if poll == 1 {
-                vec![agent_message(user("interrupt"))]
+                Ok(vec![agent_message(user("interrupt"))])
             } else {
-                Vec::new()
+                Ok(Vec::new())
             }
         })
     }));
@@ -1149,7 +1149,7 @@ async fn stops_after_current_turn_when_should_stop_after_turn_returns_true() {
             let steering_polls = Arc::clone(&steering_polls);
             Box::pin(async move {
                 steering_polls.fetch_add(1, Ordering::SeqCst);
-                Vec::new()
+                Ok(Vec::new())
             })
         }))
     };
@@ -1159,7 +1159,7 @@ async fn stops_after_current_turn_when_should_stop_after_turn_returns_true() {
             let follow_up_polls = Arc::clone(&follow_up_polls);
             Box::pin(async move {
                 follow_up_polls.fetch_add(1, Ordering::SeqCst);
-                vec![agent_message(user("follow up should stay queued"))]
+                Ok(vec![agent_message(user("follow up should stay queued"))])
             })
         }))
     };
@@ -1725,7 +1725,7 @@ async fn restarts_only_unfinished_tool_calls_when_earlier_result_exists() {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1000,
+        timestamp: 1000.0,
     };
     let stream = agent_loop_continue(
         context(
@@ -1797,7 +1797,7 @@ async fn allows_custom_message_types_as_last_message() {
                         ),
                         input_source: None,
                         provider_native: None,
-                        timestamp: 1000,
+                        timestamp: 1000.0,
                     }),
                     AgentMessage::User(message) => pi_ai::types::Message::User(message),
                     AgentMessage::Assistant(message) => pi_ai::types::Message::Assistant(message),
@@ -1931,4 +1931,46 @@ async fn leaves_small_tool_results_unchanged() {
     let result = tool_result_for("small".to_owned(), Some(json!({"ok": true}))).await;
     assert_eq!(tool_result_text(&result), "small");
     assert_eq!(result.details, Some(json!({"ok": true})));
+}
+
+#[tokio::test]
+async fn rejects_steering_and_follow_up_queue_failures_at_the_poll_boundary() {
+    for steering in [true, false] {
+        let failure = JsString::from_utf16(vec![0xd800, 0x21, 0xdfff]);
+        let hook: pi_agent_core::agent::MessageQueueHook = Arc::new({
+            let failure = failure.clone();
+            move || {
+                let failure = failure.clone();
+                Box::pin(async move { Err(pi_agent_core::agent::AgentError::new(failure)) })
+            }
+        });
+        let mut config = config();
+        if steering {
+            config.get_steering_messages = Some(hook);
+        } else {
+            config.get_follow_up_messages = Some(hook);
+        }
+        let stream = agent_loop(
+            vec![agent_message(user("prompt"))],
+            context(Vec::new(), Vec::new()),
+            config,
+            None,
+            Some(scripted_stream_fn(vec![Script::message(text_assistant("answer"))])),
+        );
+        let (events, error) = collect_events_allowing_failure(stream).await;
+        assert_eq!(error, Some(failure));
+        assert!(!event_types(&events).contains(&"agent_end"));
+        let assistant_ends = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    AgentEvent::MessageEnd {
+                        message: AgentMessage::Assistant(_)
+                    }
+                )
+            })
+            .count();
+        assert_eq!(assistant_ends, usize::from(!steering));
+    }
 }

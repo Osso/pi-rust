@@ -53,7 +53,7 @@ fn fail_stream(
     model: &Model,
     message: impl Into<pi_js_compat::js_json::JsString>,
 ) {
-    let mut error = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
+    let mut error = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis() as f64);
     error.stop_reason = StopReason::Error;
     error.error_message = Some(message.into());
     sender.push(AssistantMessageEvent::Error {

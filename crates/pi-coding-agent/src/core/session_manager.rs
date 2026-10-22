@@ -1961,7 +1961,7 @@ fn load_session_file_entries(file_path: &JsString) -> Result<LoadedCurrentVersio
 struct SessionInfoAccumulator {
     message_count: usize,
     first_message: JsString,
-    last_activity_time: Option<i64>,
+    last_activity_time: Option<f64>,
 }
 
 fn message_input_source(message: &AgentMessage) -> Option<JsString> {
@@ -2024,7 +2024,7 @@ fn message_has_content(message: &AgentMessage) -> bool {
     }
 }
 
-fn message_activity_time(entry: &SessionMessageEntry) -> Option<i64> {
+fn message_activity_time(entry: &SessionMessageEntry) -> Option<f64> {
     if !message_has_content(&entry.message) {
         return None;
     }
@@ -2038,9 +2038,9 @@ fn message_activity_time(entry: &SessionMessageEntry) -> Option<i64> {
     if let AgentMessage::Custom(object) = entry.message.as_ref()
         && let Some(timestamp) = object.get("timestamp").and_then(JsValue::as_f64)
     {
-        return Some(timestamp as i64);
+        return Some(timestamp);
     }
-    record_timestamp_millis(&entry.timestamp)
+    record_timestamp_millis(&entry.timestamp).map(|millis| millis as f64)
 }
 
 /// `affectsSessionInfo`: entries whose append refreshes control-db metadata.
@@ -2055,7 +2055,12 @@ fn apply_session_info_entry(accumulator: &mut SessionInfoAccumulator, entry: &Se
     accumulator.message_count += 1;
 
     if let Some(activity_time) = message_activity_time(&message_entry) {
-        accumulator.last_activity_time = Some(accumulator.last_activity_time.unwrap_or(0).max(activity_time));
+        let previous = accumulator.last_activity_time.unwrap_or(0.0);
+        accumulator.last_activity_time = Some(if previous.is_nan() || activity_time.is_nan() {
+            f64::NAN
+        } else {
+            previous.max(activity_time)
+        });
     }
 
     let role = message_entry.message.role();
@@ -2077,14 +2082,24 @@ fn finish_session_info(
     header: &SessionHeader,
     accumulator: SessionInfoAccumulator,
     fallback_modified: i64,
-) -> SessionInfo {
+) -> Result<SessionInfo, SessionManagerError> {
     let cwd = header.cwd().cloned().unwrap_or_default();
     let header_time = record_timestamp_millis(header.timestamp());
+    // Temporary boundary until SessionInfo represents Invalid Date (owned by the Date migration).
+    // Keep message/accumulator numbers intact; TimeClip only at frozen new Date(number).
     let modified = match accumulator.last_activity_time {
-        Some(time) if time > 0 => time,
-        _ => header_time.unwrap_or(fallback_modified),
+        Some(time) => {
+            let clipped = pi_js_compat::date::time_clip_millis(time)
+                .ok_or_else(|| SessionManagerError::new("SessionInfo Date migration pending: Invalid time value"))?;
+            if time > 0.0 {
+                clipped
+            } else {
+                header_time.unwrap_or(fallback_modified)
+            }
+        }
+        None => header_time.unwrap_or(fallback_modified),
     };
-    SessionInfo {
+    Ok(SessionInfo {
         path: file_path.to_owned(),
         id: header.id().clone(),
         cwd,
@@ -2099,7 +2114,7 @@ fn finish_session_info(
         } else {
             accumulator.first_message
         },
-    }
+    })
 }
 
 pub fn build_session_info(file_path: &JsString) -> Option<SessionInfo> {
@@ -2135,7 +2150,7 @@ pub fn build_session_info(file_path: &JsString) -> Option<SessionInfo> {
         }
     }
     let header = header?;
-    Some(finish_session_info(file_path, &header, accumulator, fallback_modified))
+    finish_session_info(file_path, &header, accumulator, fallback_modified).ok()
 }
 
 fn list_sessions_from_dir(
@@ -3132,7 +3147,7 @@ impl SessionManager {
                 apply_session_info_entry(&mut accumulator, entry);
             }
         }
-        let info = finish_session_info(session_file, header, accumulator, pi_ai::request::now_millis());
+        let info = finish_session_info(session_file, header, accumulator, pi_ai::request::now_millis())?;
         let metadata = WritableSessionMetadata {
             session_path: info.path.clone(),
             id: info.id.clone(),

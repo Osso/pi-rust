@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use pi_agent_core::AgentHarnessTool;
+use pi_coding_agent::core::extensions::types::ContextTool;
 use pi_coding_agent::core::extensions::{ExtensionContext, SwitchSessionCallback};
 use pi_coding_agent::core::session_control_db::{WritableSessionMetadata, get_control_db_path, write_session_metadata};
 use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager};
@@ -19,7 +19,7 @@ fn seed_message(text: &str, timestamp: i64) -> pi_agent_core::AgentMessage {
 }
 
 fn seed_assistant(text: &str, timestamp: i64) -> pi_agent_core::AgentMessage {
-    let mut message = pi_ai::types::AssistantMessage::empty("openai-responses", "openai", "gpt-5.5", timestamp);
+    let mut message = pi_ai::types::AssistantMessage::empty("openai-responses", "openai", "gpt-5.5", timestamp as f64);
     message
         .content
         .push(pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(

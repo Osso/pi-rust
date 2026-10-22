@@ -15,7 +15,7 @@ fn tool(name: &str, description: &str) -> Tool {
     }
 }
 
-fn user(timestamp: i64) -> Message {
+fn user(timestamp: f64) -> Message {
     Message::User(UserMessage {
         role: pi_ai::types::UserRole::Tag,
         content: UserContent::Text(("hello".to_owned()).into()),
@@ -25,7 +25,7 @@ fn user(timestamp: i64) -> Message {
     })
 }
 
-fn assistant_call(timestamp: i64, name: &str) -> Message {
+fn assistant_call(timestamp: f64, name: &str) -> Message {
     Message::Assistant(Box::new(AssistantMessage {
         content: vec![AssistantContent::ToolCall(ToolCall::new(
             "call_1",
@@ -41,7 +41,7 @@ fn assistant_call(timestamp: i64, name: &str) -> Message {
     }))
 }
 
-fn tool_result(timestamp: i64, added: Option<Vec<&str>>) -> Message {
+fn tool_result(timestamp: f64, added: Option<Vec<&str>>) -> Message {
     Message::ToolResult(ToolResultMessage {
         role: pi_ai::types::ToolResultRole::Tag,
         tool_call_id: "call_1".to_owned(),
@@ -58,7 +58,12 @@ fn tool_result(timestamp: i64, added: Option<Vec<&str>>) -> Message {
 fn context(tools: Vec<Tool>, added: Option<Vec<&str>>) -> Context {
     Context {
         system_prompt: None,
-        messages: vec![user(1), assistant_call(2, "base_tool"), tool_result(3, added), user(4)],
+        messages: vec![
+            user(1.0),
+            assistant_call(2.0, "base_tool"),
+            tool_result(3.0, added),
+            user(4.0),
+        ],
         tools: Some(tools),
     }
 }

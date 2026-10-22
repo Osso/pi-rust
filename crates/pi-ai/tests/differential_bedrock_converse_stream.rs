@@ -255,7 +255,7 @@ fn context() -> Context {
             content: UserContent::Text(("hi".to_owned()).into()),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         })],
         tools: None,
     }
@@ -439,7 +439,7 @@ fn scenarios() -> Vec<Scenario> {
             ]),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         }),
         Message::Assistant(Box::new(AssistantMessage {
             role: pi_ai::types::AssistantRole::Tag,
@@ -475,7 +475,7 @@ fn scenarios() -> Vec<Scenario> {
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,
-            timestamp: 0,
+            timestamp: 0.0,
         })),
         Message::ToolResult(ToolResultMessage {
             role: ToolResultRole::Tag,
@@ -490,14 +490,14 @@ fn scenarios() -> Vec<Scenario> {
             usage: None,
             added_tool_names: None,
             is_error: false,
-            timestamp: 0,
+            timestamp: 0.0,
         }),
         Message::User(UserMessage {
             role: UserRole::Tag,
             content: UserContent::Text(("   ".to_owned()).into()),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         }),
     ];
     rich_context.tools = Some(vec![Tool::new(

@@ -91,7 +91,7 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                                 ))]),
                                 input_source: None,
                                 provider_native: None,
-                                timestamp: pi_js_compat::date::js_now_millis() as i64,
+                                timestamp: pi_js_compat::date::js_now_millis(),
                             };
                             tokio::task::spawn_local(async move {
                                 let mut options = StreamOptions::default();

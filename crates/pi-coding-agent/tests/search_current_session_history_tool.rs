@@ -5,8 +5,9 @@ mod tool_context;
 
 use std::sync::{Arc, Mutex};
 
-use pi_agent_core::{AgentHarnessTool, AgentMessage};
+use pi_agent_core::AgentMessage;
 use pi_ai::types::{AssistantContent, AssistantMessage, TextContent};
+use pi_coding_agent::core::extensions::types::ContextTool;
 use pi_coding_agent::core::session_manager::{CompactionAppendOptions, SessionManager, SharedSessionManager};
 use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
@@ -36,7 +37,7 @@ fn user_message(text: &str, timestamp: i64) -> AgentMessage {
 }
 
 fn assistant_message(text: &str, timestamp: i64) -> AgentMessage {
-    let mut message = AssistantMessage::empty("openai-responses", "openai", "gpt-5.5", timestamp);
+    let mut message = AssistantMessage::empty("openai-responses", "openai", "gpt-5.5", timestamp as f64);
     message.content.push(AssistantContent::Text(TextContent::new(text)));
     AgentMessage::Assistant(Box::new(message))
 }
@@ -128,7 +129,7 @@ async fn searches_full_active_branch_entries_hidden_by_compaction_and_includes_n
 async fn context_tool_arguments_use_javascript_json_in_visible_text() {
     let (_temp_dir, mut manager) = manager_fixture();
     manager.append_message(user_message("needle", 1)).unwrap();
-    let mut message = AssistantMessage::empty("openai-responses", "openai", "gpt", 2);
+    let mut message = AssistantMessage::empty("openai-responses", "openai", "gpt", 2.0);
     message
         .content
         .push(AssistantContent::ToolCall(pi_ai::types::ToolCall::new(

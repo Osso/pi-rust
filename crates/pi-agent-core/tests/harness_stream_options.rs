@@ -1,17 +1,10 @@
 //! Behavioral port of the harness orchestration value types in `packages/agent/src/harness/types.ts`.
 
 use indexmap::IndexMap;
-use pi_js_compat::js_json::JsValue;
-use std::sync::Arc;
 
-use pi_agent_core::agent::{AgentToolResult, ToolError};
-use pi_agent_core::harness::types::{
-    AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, AgentHarnessTool, AgentHarnessToolContextSource,
-    OptionalPatch,
-};
-use pi_ai::request::BoxFuture;
+use pi_agent_core::harness::types::{AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, OptionalPatch};
 use pi_ai::types::{CacheRetention, Transport};
-use serde_json::{Value, json};
+use serde_json::json;
 
 #[test]
 fn stream_options_keep_absent_and_explicit_values_distinct() {
@@ -85,88 +78,6 @@ fn stream_option_patch_distinguishes_unchanged_clear_and_set() {
     };
     assert_eq!(headers["delete"], None);
     assert_eq!(set.timeout_ms, Some(100.0));
-}
-
-struct EchoTool;
-
-impl AgentHarnessTool<Value> for EchoTool {
-    fn name(&self) -> &str {
-        "echo"
-    }
-
-    fn description(&self) -> &str {
-        "Echo the context"
-    }
-
-    fn parameters(&self) -> &Value {
-        static PARAMETERS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
-        PARAMETERS.get_or_init(|| json!({"type": "object", "properties": {}}))
-    }
-
-    fn label(&self) -> &str {
-        "Echo"
-    }
-
-    fn execute(
-        &self,
-        _tool_call_id: String,
-        _params: pi_js_compat::js_json::JsValue,
-        _signal: Option<tokio_util::sync::CancellationToken>,
-        _on_update: Option<pi_agent_core::agent::AgentToolUpdateCallback>,
-        context: Value,
-        _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
-    ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
-        Box::pin(async move {
-            Ok(AgentToolResult {
-                content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
-                    context["label"].as_str().unwrap_or_default(),
-                ))],
-                details: None,
-                is_error: None,
-                terminate: None,
-            })
-        })
-    }
-}
-
-#[tokio::test]
-async fn harness_tool_executes_with_the_resolved_context() {
-    let tool = EchoTool;
-    assert_eq!(tool.name(), "echo");
-    assert_eq!(tool.label(), "Echo");
-    assert_eq!(tool.parameters()["type"], "object");
-    let result = tool
-        .execute(
-            "call-1".to_owned(),
-            JsValue::from(json!({})),
-            None,
-            None,
-            json!({"label": "turn-context"}),
-            None,
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        serde_json::to_value(result).unwrap(),
-        json!({"content": [{"type": "text", "text": "turn-context"}]})
-    );
-}
-
-#[tokio::test]
-async fn tool_context_source_resolves_static_and_provider_values() {
-    let static_source = AgentHarnessToolContextSource::Static(json!({"kind": "static"}));
-    let AgentHarnessToolContextSource::Static(value) = static_source else {
-        panic!("expected static context");
-    };
-    assert_eq!(value, json!({"kind": "static"}));
-
-    let provider: Arc<dyn Fn() -> BoxFuture<'static, Value> + Send + Sync> =
-        Arc::new(|| Box::pin(async { json!({"kind": "provider"}) }));
-    let provider_source = AgentHarnessToolContextSource::Provider(provider);
-    let AgentHarnessToolContextSource::Provider(provider) = provider_source else {
-        panic!("expected provider context");
-    };
-    assert_eq!(provider().await, json!({"kind": "provider"}));
 }
 
 #[test]

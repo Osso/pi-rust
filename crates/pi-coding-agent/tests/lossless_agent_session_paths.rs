@@ -220,7 +220,7 @@ fn agent_message_event_serialization_retains_raw_text() {
                 content: pi_ai::types::UserContent::Text(raw.clone()),
                 input_source: None,
                 provider_native: None,
-                timestamp: 1,
+                timestamp: 1.0,
             }),
         },
         runtime_message_marker: None,

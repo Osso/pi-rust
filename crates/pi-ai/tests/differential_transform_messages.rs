@@ -330,7 +330,7 @@ fn scenarios() -> Vec<(Value, Value, &'static str)> {
 fn observe(request: &Value) -> Value {
     let messages: Vec<Message> = serde_json::from_value(request["messages"].clone()).expect("messages");
     let model: Model = serde_json::from_value(request["model"].clone()).expect("model");
-    let now = request["now"].as_i64().expect("now");
+    let now = request["now"].as_f64().expect("now");
     let transformed = if request["normalize"] == "anthropic" {
         transform_messages_with(&messages, &model, Some(&anthropic_normalize), now)
     } else {

@@ -117,7 +117,7 @@ fn seed_compactable_session(manager: &mut SessionManager) {
                 content: pi_ai::types::UserContent::Text(JsString::from("older message to compact")),
                 input_source: None,
                 provider_native: None,
-                timestamp: 0,
+                timestamp: 0.0,
             },
         ))
         .expect("older user message");

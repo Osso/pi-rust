@@ -5,6 +5,12 @@ Initial implementation revision: `f6ff6d9f`; callback-setter assertions strength
 
 Module-by-module comparison: [loop](agent-loop.md), [Agent](agent.md), [types](agent-types.md), [proxy](agent-proxy.md), [node](agent-node.md), [index](agent-index.md). Requirements: [core API spec](../../specs/agent-core-api.md).
 
+## Rejectable queue callbacks (2026-10-22)
+
+`MessageQueueHook` now returns `Result<Vec<AgentMessage>, AgentError>`; each low-level steering/follow-up poll propagates rejection without changing the error. Required by frozen harness queue drain rollback. API RED: `queue-rejection-red.log`; native-unit rejection and exact event-boundary GREEN: `queue-rejection-green.log`; 31 Agent +42 loop +4 verifier tests GREEN in `queue-rejection-callers.log`. Frozen differential: 35 retained scenarios +2 queue-rejection scenarios GREEN in `queue-rejection-differential.log`. Artifacts: `/tmp/pi-rust-repin-delta-agent-core/`.
+
+The first differential run exposed a stale oracle-only `assistant([], "pending")` fixture in abort_stream, not frozen runtime behavior. Corrected to `"stop"` per frozen `ai/src/types.ts:407` and faux.ts:89; assertions were not normalized or weakened. Harness rollback itself remains part of the working-harness slice.
+
 ## Current evidence
 
 All Cargo invocations use the mandatory `.cargo/config.toml` runner, `CARGO_BUILD_JOBS=4`, and `CARGO_TARGET_DIR=/home/osso/.worktrees/pi-rust-repin-agent-core-api/target`. Initial proof below predates the verifier corrections; no package-wide/workspace test suite, push, or delegation was run. The final targeted clippy and branch-local master merge are recorded below.

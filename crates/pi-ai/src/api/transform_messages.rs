@@ -11,7 +11,7 @@ const NON_VISION_TOOL_IMAGE_PLACEHOLDER: &str = "(tool image omitted: model does
 /// Normalize tool call IDs for cross-provider compatibility.
 ///
 /// `now` supplies the timestamp for synthetic tool results (`Date.now()` in TypeScript).
-pub fn transform_messages(messages: &[Message], model: &Model, now: i64) -> Vec<Message> {
+pub fn transform_messages(messages: &[Message], model: &Model, now: f64) -> Vec<Message> {
     transform_messages_with(
         messages,
         model,
@@ -25,7 +25,7 @@ pub fn transform_messages_with<N>(
     messages: &[Message],
     model: &Model,
     normalize_tool_call_id: Option<&N>,
-    now: i64,
+    now: f64,
 ) -> Vec<Message>
 where
     N: Fn(&str, &Model, &AssistantMessage) -> String,
@@ -222,7 +222,7 @@ struct PendingToolCalls {
 }
 
 impl PendingToolCalls {
-    fn insert_synthetic(&mut self, result: &mut Vec<Message>, now: i64) {
+    fn insert_synthetic(&mut self, result: &mut Vec<Message>, now: f64) {
         for tool_call in std::mem::take(&mut self.calls) {
             if !self.existing_result_ids.contains(&tool_call.id) {
                 result.push(Message::ToolResult(ToolResultMessage {
@@ -249,7 +249,7 @@ impl PendingToolCalls {
     }
 }
 
-fn insert_synthetic_tool_results(transformed: Vec<Message>, now: i64) -> Vec<Message> {
+fn insert_synthetic_tool_results(transformed: Vec<Message>, now: f64) -> Vec<Message> {
     let mut result = Vec::new();
     let mut pending = PendingToolCalls::default();
     for message in transformed {

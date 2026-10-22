@@ -35,7 +35,7 @@ fn assistant(provider: &str, model: &str, usage: Usage) -> AgentMessage {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp: 0,
+        timestamp: 0.0,
     }))
 }
 
@@ -92,7 +92,7 @@ fn groups_usage_by_model_and_tool_bucket() {
             usage: Some(usage(7.0, 3.0, 0.25)),
             added_tool_names: None,
             is_error: false,
-            timestamp: 0,
+            timestamp: 0.0,
         })),
         message_entry(assistant("anthropic", "free", usage(0.0, 0.0, 0.0))),
     ];

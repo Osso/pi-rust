@@ -258,7 +258,7 @@ async fn run_stream(
     context: Context,
     stream_options: StreamOptions,
 ) {
-    let timestamp = now_millis();
+    let timestamp = now_millis() as f64;
     let mut output = AssistantMessage::empty("bedrock-converse-stream", &model.provider, &model.id, timestamp);
     let mut blocks: Vec<BlockState> = Vec::new();
     let signal = stream_options.request.signal.clone();
@@ -422,7 +422,7 @@ fn build_command_input(
     cache_retention: CacheRetention,
     supports_strict_mode: bool,
     inference_max_tokens: Option<f64>,
-    now: i64,
+    now: f64,
 ) -> Result<JsValue, BedrockError> {
     let env = options.stream.request.env.as_ref();
     let mut inference_config = JsObject::new();
@@ -464,7 +464,7 @@ fn convert_messages(
     model: &Model,
     cache_retention: CacheRetention,
     env: Option<&ProviderEnv>,
-    now: i64,
+    now: f64,
 ) -> Vec<JsValue> {
     let normalize = |id: &str, _model: &Model, _source: &AssistantMessage| normalize_tool_call_id(id);
     let transformed = transform_messages_with(&context.messages, model, Some(&normalize), now);

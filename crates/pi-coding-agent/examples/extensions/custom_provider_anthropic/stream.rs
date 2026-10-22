@@ -27,7 +27,7 @@ pub(super) fn start(
             model.api.clone(),
             model.provider.clone(),
             model.id.clone(),
-            runtime.now() as i64,
+            runtime.now(),
         ))
         .expect("empty assistant");
         let result = drive(&sender, &runtime, &model, &context, &options, &mut output).await;

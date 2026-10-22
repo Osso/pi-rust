@@ -12741,7 +12741,7 @@ mod ui_tests {
                             content: pi_ai::types::UserContent::Text("resume target prompt".into()),
                             input_source: None,
                             provider_native: None,
-                            timestamp: 1,
+                            timestamp: 1.0,
                         },
                     ))
                     .expect("append message");
@@ -13514,7 +13514,7 @@ mod ui_tests {
                     content: pi_ai::types::UserContent::Text((*text).into()),
                     input_source: None,
                     provider_native: None,
-                    timestamp: 0,
+                    timestamp: 0.0,
                 }))
                 .expect("child message");
         }
@@ -14094,7 +14094,7 @@ mod ui_tests {
                         content: pi_ai::types::UserContent::Text("second child message".into()),
                         input_source: None,
                         provider_native: None,
-                        timestamp: 0,
+                        timestamp: 0.0,
                     }))
                     .expect("append child message");
                 manager.persist_for_recovery().expect("persist child");
@@ -15252,7 +15252,7 @@ mod ui_tests {
                         content: pi_ai::types::UserContent::Text(text.into()),
                         input_source,
                         provider_native: None,
-                        timestamp: 1,
+                        timestamp: 1.0,
                     })
                 };
                 {
@@ -15305,7 +15305,7 @@ mod ui_tests {
                 let previous = faux_assistant_message(
                     "previous",
                     pi_ai::providers::faux::FauxAssistantMessageOptions {
-                        timestamp: Some(0),
+                        timestamp: Some(0.0),
                         ..Default::default()
                     },
                 );
@@ -15323,7 +15323,7 @@ mod ui_tests {
                 let mut current = faux_assistant_message(
                     "current",
                     pi_ai::providers::faux::FauxAssistantMessageOptions {
-                        timestamp: Some(600_000),
+                        timestamp: Some(600_000.0),
                         ..Default::default()
                     },
                 );
@@ -15368,7 +15368,7 @@ mod ui_tests {
                     usage: None,
                     added_tool_names: None,
                     is_error: false,
-                    timestamp: 0,
+                    timestamp: 0.0,
                 };
                 let entries = vec![
                     SessionEntry::Known(KnownSessionEntry::Message(
@@ -15668,7 +15668,7 @@ mod ui_tests {
                     content: pi_ai::types::UserContent::Text("prepared-bubble-marker".into()),
                     input_source: None,
                     provider_native: None,
-                    timestamp: 1,
+                    timestamp: 1.0,
                 });
 
                 prepared_user_message_callback()(&message);

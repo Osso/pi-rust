@@ -288,7 +288,7 @@ async fn run_stream(
     options: OpenAICodexResponsesOptions,
     sender: AssistantMessageEventSender,
 ) {
-    let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
+    let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis() as f64);
     let result = execute_stream(&model, &context, &options, &mut output, &sender).await;
     match result {
         Ok(()) => match done_reason(output.stop_reason) {
@@ -2359,13 +2359,7 @@ async fn process_websocket_stream(
     let mut failure = None;
     match result {
         Ok(()) => {
-            if output.raw_stop_reason.as_deref() == Some("incomplete.max_output_tokens") {
-                failure = Some(CodexStreamError::Transport(
-                    "Incomplete response returned, reason: max_output_tokens"
-                        .to_owned()
-                        .into(),
-                ));
-            } else if is_aborted(execution.options.stream.request.signal.as_ref()) {
+            if is_aborted(execution.options.stream.request.signal.as_ref()) {
                 keep_connection = false;
             } else if use_cached_context
                 && let Some(entry) = &entry

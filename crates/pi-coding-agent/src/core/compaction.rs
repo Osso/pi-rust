@@ -620,7 +620,7 @@ fn stream_failure_message(model: &Model, failure: pi_ai::utils::event_stream::St
         model.api.clone(),
         model.provider.clone(),
         model.id.clone(),
-        now_millis(),
+        pi_js_compat::date::js_now_millis(),
     );
     message.stop_reason = StopReason::Error;
     message.error_message = Some(failure.message().to_owned());
@@ -742,7 +742,7 @@ fn build_compaction_materialization_messages(
         ))]),
         input_source: None,
         provider_native: None,
-        timestamp: now_millis(),
+        timestamp: pi_js_compat::date::js_now_millis(),
     });
     convert_to_llm(&[checkpoint, request]).map_err(|error| CompactionError::new(error.message()))
 }
@@ -849,7 +849,7 @@ fn build_summary_request(
         )?))]),
         input_source: None,
         provider_native: None,
-        timestamp: now_millis(),
+        timestamp: pi_js_compat::date::js_now_millis(),
     });
     let context = Context {
         system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
@@ -1108,7 +1108,7 @@ fn build_turn_prefix_summary_request(
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt_text))]),
         input_source: None,
         provider_native: None,
-        timestamp: now_millis(),
+        timestamp: pi_js_compat::date::js_now_millis(),
     });
     Ok((
         Context {

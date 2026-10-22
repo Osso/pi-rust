@@ -105,7 +105,7 @@ async fn openai_reasoning_signature_keeps_unsanitized_utf16_in_http_json() {
     options.request.max_retries = Some(0.0);
     let mut thinking = ThinkingContent::new(JsString::from_utf16(vec![0xd800]));
     thinking.thinking_signature = Some("reasoning_content".into());
-    let mut assistant = AssistantMessage::empty("openai-completions", "openai", "probe", 1);
+    let mut assistant = AssistantMessage::empty("openai-completions", "openai", "probe", 1.0);
     assistant.content.push(AssistantContent::Thinking(thinking));
     assistant
         .content
@@ -168,7 +168,7 @@ async fn five_provider_argument_bodies_keep_utf16_and_match_node_json() {
         let call: pi_ai::types::ToolCall =
             serde_json::from_str(r#"{"type":"toolCall","id":"call","name":"probe","arguments":{"\ud800":"\udfff"}}"#)
                 .unwrap();
-        let mut assistant = AssistantMessage::empty(api, provider, "probe", 1);
+        let mut assistant = AssistantMessage::empty(api, provider, "probe", 1.0);
         assistant.content.push(AssistantContent::ToolCall(call));
         assistant.stop_reason = StopReason::ToolUse;
         let fetch = std::sync::Arc::new(CaptureRequest::default());
@@ -379,7 +379,7 @@ async fn native_context_items_reach_http_json_without_scalar_projection() {
         content: UserContent::Text("fallback".into()),
         input_source: None,
         provider_native: Some(native),
-        timestamp: 1,
+        timestamp: 1.0,
     };
     let fetch = std::sync::Arc::new(CaptureRequest::default());
     let mut options = pi_ai::request::StreamOptions::default();

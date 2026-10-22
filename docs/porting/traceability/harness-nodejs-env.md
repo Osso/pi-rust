@@ -1,5 +1,9 @@
 # Node execution environment traceability
 
+## Common-pin repository ordering regression
+
+Against `4f9e6f8a4` `agent-core/src/harness/env/nodejs.ts:486–504`, `differential_tree_repository` reproduces equal-timestamp JSONL listing order. RED: Rust returned raw directory enumeration order, unlike Node/libuv's native-name sorted `readdir`; `tree-repository-red2.log`. Fix: sort native directory entries before decoding/lstat, not repository metadata after enumeration. GREEN: whole memory/JSONL repository matrix and 23 `harness_env` tests (`tree-repository-green.log`). This is bounded current-pin evidence, not an upgrade of every old row below.
+
 Pinned source: `packages/agent/src/harness/env/nodejs.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Rust: `crates/pi-agent-core/src/harness/env/nodejs.rs` (`NodeExecutionEnv`). Behavioral proof: `crates/pi-agent-core/tests/harness_env.rs` (23 tests). Differential proof: the 7 bash fixtures in `crates/pi-agent-core/tests/differential_harness_tools/` execute through the real TS `NodeExecutionEnv`.

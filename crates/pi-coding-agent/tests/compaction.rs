@@ -38,7 +38,7 @@ fn user(text: &str) -> AgentMessage {
         content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
-        timestamp: 0,
+        timestamp: 0.0,
     })
 }
 
@@ -66,7 +66,7 @@ fn assistant(text: &str, usage: Usage) -> AgentMessage {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp: 0,
+        timestamp: 0.0,
     }))
 }
 
@@ -350,7 +350,7 @@ fn retains_latest_user_when_active_tool_suffix_exceeds_token_cap() {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 0,
+        timestamp: 0.0,
     }));
     let entries = vec![old_user, old_assistant, latest_user.clone(), tool_call, tool_result];
 

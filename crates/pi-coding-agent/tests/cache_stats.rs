@@ -60,7 +60,7 @@ fn assistant(options: Options) -> AgentMessage {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp: options.timestamp,
+        timestamp: options.timestamp as f64,
     }))
 }
 
@@ -110,6 +110,32 @@ fn miss_turn(timestamp: i64) -> AgentMessage {
         timestamp,
         ..Options::default()
     })
+}
+
+#[test]
+fn message_clock_keeps_fractional_and_nonfinite_idle_values() {
+    for (previous_timestamp, timestamp, expected) in [
+        (12.25, 12.75, 0.5),
+        (12.75, 12.25, 0.0),
+        (f64::NAN, 12.75, f64::NAN),
+        (12.25, f64::NAN, f64::NAN),
+        (12.25, f64::INFINITY, f64::INFINITY),
+    ] {
+        let AgentMessage::Assistant(mut previous) = turn1() else {
+            panic!("assistant")
+        };
+        previous.timestamp = previous_timestamp;
+        let AgentMessage::Assistant(mut current) = miss_turn(1) else {
+            panic!("assistant")
+        };
+        current.timestamp = timestamp;
+        let miss = detect_cache_miss(&[entry(AgentMessage::Assistant(previous))], &current, &Models).unwrap();
+        if expected.is_nan() {
+            assert!(miss.idle_ms.is_nan());
+        } else {
+            assert_eq!(miss.idle_ms, expected);
+        }
+    }
 }
 
 #[test]

@@ -6,7 +6,7 @@ Tests: `crates/pi-ai/tests/transform_messages.rs` (10 behavioral), `crates/pi-ai
 
 ## Representation
 - `Message`/`AssistantContent`/`Model` reuse `types.rs`. `model.input` is `Vec<Modality>`.
-- The injected clock is an explicit `now: i64` parameter because TypeScript uses `Date.now()` for synthetic results. The differential oracle rewrites only synthetic-result timestamps to the request clock.
+- The injected clock is an explicit `now: f64` parameter because TypeScript uses `Date.now()` for synthetic results. The differential oracle rewrites only synthetic-result timestamps to the request clock.
 - `normalizeToolCallId` is `Option<&N>` with `N: Fn(&str, &Model, &AssistantMessage) -> String`.
 
 ## Symbols → proof

@@ -5,8 +5,8 @@ mod oracle;
 #[path = "support/tool_context.rs"]
 mod tool_context;
 
-use pi_agent_core::AgentHarnessTool;
 use pi_coding_agent::core::extensions::ExtensionContext;
+use pi_coding_agent::core::extensions::types::ContextTool;
 use pi_coding_agent::core::tools::end_turn::{EndTurnTool, parameters};
 use pi_js_compat::js_json;
 use serde_json::json;

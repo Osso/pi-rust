@@ -9,7 +9,7 @@ fn message(stop_reason: StopReason, error_message: Option<&str>) -> AssistantMes
     AssistantMessage {
         stop_reason,
         error_message: error_message.map(Into::into),
-        ..AssistantMessage::empty("openai-completions", "test", "model", 1)
+        ..AssistantMessage::empty("openai-completions", "test", "model", 1.0)
     }
 }
 

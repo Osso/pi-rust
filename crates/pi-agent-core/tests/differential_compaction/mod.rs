@@ -63,12 +63,12 @@ fn user_message(text: &str) -> AgentMessage {
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(text))]),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
 fn assistant_blocks(blocks: Vec<AssistantContent>, usage: Usage) -> AgentMessage {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1.0);
     message.content = blocks;
     message.usage = usage;
     message.stop_reason = StopReason::Stop;
@@ -106,7 +106,7 @@ fn tool_result_message(text: &str, details: Option<Value>) -> AgentMessage {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
@@ -402,7 +402,7 @@ fn compare_estimate_tokens(oracle: &mut TsOracle) {
                 ]),
                 input_source: None,
                 provider_native: None,
-                timestamp: 1,
+                timestamp: 1.0,
             }),
         ),
         (

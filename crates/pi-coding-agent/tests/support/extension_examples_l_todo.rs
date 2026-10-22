@@ -583,7 +583,7 @@ fn configure_faux(
             FauxContent::Blocks(content.clone()),
             FauxAssistantMessageOptions {
                 stop_reason: Some(stop),
-                timestamp: Some(0),
+                timestamp: Some(0.0),
                 ..Default::default()
             },
         );

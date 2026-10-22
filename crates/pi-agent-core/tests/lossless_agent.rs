@@ -57,10 +57,10 @@ async fn agent_loop_keeps_tool_text_details_and_arguments_through_message_wire_r
     let call: ToolCall =
         serde_json::from_str(r#"{"type":"toolCall","id":"call","name":"probe","arguments":{"name":"\ud800"}}"#)
             .unwrap();
-    let mut tool_use = AssistantMessage::empty("openai-responses", "openai", "probe", 1);
+    let mut tool_use = AssistantMessage::empty("openai-responses", "openai", "probe", 1.0);
     tool_use.content.push(AssistantContent::ToolCall(call));
     tool_use.stop_reason = StopReason::ToolUse;
-    let mut done = AssistantMessage::empty("openai-responses", "openai", "probe", 2);
+    let mut done = AssistantMessage::empty("openai-responses", "openai", "probe", 2.0);
     done.content.push(AssistantContent::Text(TextContent::new("done")));
     done.stop_reason = StopReason::Stop;
     let scripted = Arc::new(Mutex::new(VecDeque::from([tool_use, done])));
@@ -106,7 +106,7 @@ async fn agent_loop_keeps_tool_text_details_and_arguments_through_message_wire_r
         content: UserContent::Text("start".into()),
         input_source: None,
         provider_native: None,
-        timestamp: 0,
+        timestamp: 0.0,
     });
     let mut stream = agent_loop(
         vec![user],

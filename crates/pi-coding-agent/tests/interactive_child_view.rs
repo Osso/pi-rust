@@ -14,7 +14,7 @@ fn user(text: &str) -> AgentMessage {
         content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
-        timestamp: 0,
+        timestamp: 0.0,
     })
 }
 

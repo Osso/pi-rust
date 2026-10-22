@@ -44,7 +44,7 @@ pub trait ModelPriceSource {
 struct PreviousRequest {
     prompt_tokens: f64,
     model_key: String,
-    timestamp: i64,
+    timestamp: f64,
     reported_cache: bool,
 }
 
@@ -81,10 +81,11 @@ fn detect_miss(
             / 1_000_000.0
     };
 
+    let elapsed_ms = message.timestamp - previous.timestamp;
     Some(CacheMiss {
         missed_tokens,
         missed_cost: missed_tokens * (paid_per_token - read_per_token).max(0.0),
-        idle_ms: (message.timestamp - previous.timestamp).max(0) as f64,
+        idle_ms: if elapsed_ms <= 0.0 { 0.0 } else { elapsed_ms },
         model_changed: format!("{}/{}", message.provider, message.model) != previous.model_key,
     })
 }

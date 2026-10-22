@@ -414,7 +414,7 @@ async fn callbacks_and_sdk_http_errors_match_frozen_provider_errors() {
 
 #[test]
 fn retry_overflow_and_diagnostics_use_native_error_authority() {
-    let mut message = pi_ai::types::AssistantMessage::empty("openai-completions", "openai", "probe", 0);
+    let mut message = pi_ai::types::AssistantMessage::empty("openai-completions", "openai", "probe", 0.0);
     message.stop_reason = StopReason::Error;
     message.error_message = Some(JsString::join(
         ["rate".into(), JsString::from_utf16(vec![0xd800]), "limit".into()],

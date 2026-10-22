@@ -206,16 +206,12 @@ impl AgentMessage {
     }
 
     /// Message timestamp when the standard roles carry one.
-    pub fn timestamp(&self) -> Option<i64> {
+    pub fn timestamp(&self) -> Option<f64> {
         match self {
             Self::User(message) => Some(message.timestamp),
             Self::Assistant(message) => Some(message.timestamp),
             Self::ToolResult(message) => Some(message.timestamp),
-            Self::Custom(object) => object
-                .get("timestamp")
-                .and_then(JsValue::as_f64)
-                .filter(|n| n.is_finite() && n.fract() == 0.0 && *n >= i64::MIN as f64 && *n < 9223372036854775808.0)
-                .map(|n| n as i64),
+            Self::Custom(object) => object.get("timestamp").and_then(JsValue::as_f64),
         }
     }
 }
@@ -519,7 +515,7 @@ pub type PrepareNextTurnHook = Arc<
     dyn Fn(PrepareNextTurnContext) -> BoxFuture<'static, Result<Option<AgentLoopTurnUpdate>, AgentError>> + Send + Sync,
 >;
 /// Queue poll hook (`getSteeringMessages`, `getFollowUpMessages`).
-pub type MessageQueueHook = Arc<dyn Fn() -> BoxFuture<'static, Vec<AgentMessage>> + Send + Sync>;
+pub type MessageQueueHook = Arc<dyn Fn() -> BoxFuture<'static, Result<Vec<AgentMessage>, AgentError>> + Send + Sync>;
 
 /// Configuration for the low-level agent loop.
 #[derive(Clone)]

@@ -3,8 +3,9 @@
 use pi_js_compat::js_json::{JsString, JsValue};
 use std::sync::{Arc, OnceLock};
 
+use crate::core::extensions::types::ContextTool;
 use pi_agent_core::{
-    AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
+    AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use pi_tui::tui::ComponentRef;
@@ -73,7 +74,7 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-impl AgentHarnessTool<ExtensionContext> for AskSupervisorTool {
+impl ContextTool<ExtensionContext> for AskSupervisorTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -192,7 +193,7 @@ pub fn render_result(
 
 /// `create_ask_supervisor_tool_definition()`.
 pub fn create_ask_supervisor_tool_definition() -> ToolDefinition {
-    let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(AskSupervisorTool::new()));
+    let mut definition = crate::core::extensions::wrapper::context_tool_definition(Arc::new(AskSupervisorTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.render_call = Some(infallible_render_call(render_call));
