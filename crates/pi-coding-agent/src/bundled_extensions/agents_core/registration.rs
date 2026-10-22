@@ -660,7 +660,7 @@ async fn prepare_background_runtime(
         .prepare_child(&crate::core::lifecycle_coordinator::PrepareChildCommandInput {
             spawn: crate::core::multi_agent_store::SpawnAgent {
                 parent_id: None,
-                display_name: "Background Job".to_owned(),
+                display_name: "Background Job".into(),
                 agent_type: "background".to_owned(),
                 origin: None,
                 cwd: ctx.cwd()?,

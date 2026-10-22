@@ -173,17 +173,17 @@ pub fn send_agent_message(
         && let Some(reason) = session_message_route_error(db.as_deref(), params)?
     {
         let mut result = tool_result(
-            format!(
-                "Could not send agent message to {}: {reason}",
-                format_sent_message_target(
+            JsString::from("Could not send agent message to ")
+                + format_sent_message_target(
                     &empty_direct_message(
                         sender.as_deref().unwrap_or("unknown_subagent"),
                         &params.to_agent_id,
-                        &params.message
+                        &params.message,
                     ),
-                    params.to_session_id.as_ref()
+                    params.to_session_id.as_ref(),
                 )
-            ),
+                + ": "
+                + reason,
             json!({"agent":current_message_sender_agent(store, ctx)?,"message":empty_direct_message(sender.as_deref().unwrap_or("unknown_subagent"),&params.to_agent_id,&params.message)}),
         );
         result.is_error = Some(true);
@@ -833,7 +833,7 @@ fn resolve_runtime_recipient(
     let session_id = read_parent_runtime_session_id(ctx)?.unwrap_or(current_session_id);
     Ok(Some(RuntimeMailboxAddress {
         agent_id: None,
-        session_id,
+        session_id: session_id.into(),
     }))
 }
 

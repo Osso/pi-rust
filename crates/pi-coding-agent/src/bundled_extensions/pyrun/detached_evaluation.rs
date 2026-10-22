@@ -709,7 +709,7 @@ async fn settle_cancelling_pyrun_job(
         &manifest.data.artifacts,
         &identity,
         crate::core::detached_job_runner::DetachedJobOutcome::Aborted {
-            reason: Some("Cancelled before session resume".to_owned()),
+            reason: Some("Cancelled before session resume".into()),
         },
         &terminal_at_iso,
         Some((terminal_at - manifest.data.started_at as i64).max(0)),

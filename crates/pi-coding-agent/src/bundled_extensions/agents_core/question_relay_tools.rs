@@ -414,7 +414,7 @@ fn answer_question(
     let session = ctx.session_manager()?;
     let sender_session_id = lock_session_manager(&session).get_session_id().to_owned();
     enqueue_stored_runtime_mailbox_message(&persistence.control_db_path, &EnqueueStoredRuntimeMailboxMessageInput {
-        recipient_host:None, recipient:RuntimeMailboxAddress { agent_id:Some(params.agent_id.clone().into()), session_id }, sender:RuntimeMailboxAddress { agent_id:ctx.multi_agent_agent_id()?.map(JsString::from), session_id:sender_session_id.into() }, kind:RuntimeMailboxMessageKind::Reply,
+        recipient_host:None, recipient:RuntimeMailboxAddress { agent_id:Some(params.agent_id.clone().into()), session_id: session_id.into() }, sender:RuntimeMailboxAddress { agent_id:ctx.multi_agent_agent_id()?.map(JsString::from), session_id:sender_session_id.into() }, kind:RuntimeMailboxMessageKind::Reply,
         message:raw_json!({"body":js_json::stringify_lossless(&answer),"id":message_id,"kind":"reply","status":"pending","fromAgentId":caller_id.unwrap(),"toAgentId":params.agent_id}), store_ref:RuntimeMailboxStoreRef { message_id, session_path:persistence.session_path.into() }, updated_at:None
     }).map_err(handler)?;
     Ok(tool_result(

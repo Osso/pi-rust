@@ -623,7 +623,7 @@ pub async fn attach_session_agent(input: &AttachSessionAgentRuntimeInput) -> Res
         .as_ref()
         .map(JsString::trim)
         .filter(|value| !value.is_empty());
-    if let Some(prompt) = prompt
+    if let Some(prompt) = prompt.as_ref()
         && input.create_attached_session.is_none()
     {
         let message = format!(
