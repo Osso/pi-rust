@@ -4,6 +4,7 @@ mod oracle;
 use pi_coding_agent::cli::list_tools::{format_tool_inventory, list_tools};
 use pi_coding_agent::core::extensions::types::ToolInfo;
 use pi_coding_agent::core::source_info::{SourceInfo, SourceOrigin, SourceScope};
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use serde_json::{Value, json};
 
 fn tool(name: &str, description: &str, source: &str, path: &str) -> ToolInfo {
@@ -13,8 +14,8 @@ fn tool(name: &str, description: &str, source: &str, path: &str) -> ToolInfo {
         parameters: json!({"type": "object"}),
         prompt_guidelines: None,
         source_info: SourceInfo {
-            path: path.to_owned(),
-            source: source.to_owned(),
+            path: path.into(),
+            source: source.into(),
             scope: SourceScope::User,
             origin: SourceOrigin::TopLevel,
             base_dir: None,
@@ -103,24 +104,27 @@ fn list_tools_matches_the_pinned_typescript_source() {
         let actual = json!({
             "id": case.id,
             "ok": true,
-            "output": format_tool_inventory(&case.tools, &active),
+            "output": encode_node_utf8(&format_tool_inventory(&case.tools, &active)),
         });
         assert_eq!(expected, actual, "list tools mismatch: {}", case.name);
     }
 }
 
 #[test]
-fn astral_truncation_replaces_a_split_surrogate_like_node_output() {
+fn astral_truncation_keeps_the_split_surrogate_until_stdout() {
     // JavaScript `slice(0, 51)` leaves a lone high surrogate; Node encodes it as
-    // U+FFFD when the value is written. Rust strings cannot hold lone surrogates.
+    // U+FFFD only when the value is written.
     let tools = vec![tool(
         "astral",
         &format!("{}\u{1F600}tail", "d".repeat(50)),
         "builtin",
         "<builtin:astral>",
     )];
-    let output = format_tool_inventory(&tools, &[]);
-    assert!(output.contains(&format!("{}\u{fffd}...", "d".repeat(50))), "{output}");
+    let mut truncated = JsString::from("d".repeat(50));
+    truncated.push_unit(0xD83D);
+    truncated.push_str("...");
+    assert!(format_tool_inventory(&tools, &[]).contains(truncated));
+    assert!(encode_node_utf8(&list_tools(&tools, &[])).contains(&format!("{}\u{fffd}...", "d".repeat(50))));
 }
 
 #[test]
@@ -128,6 +132,6 @@ fn list_tools_appends_the_console_log_newline() {
     let tools = vec![tool("read", "Read file contents", "builtin", "<builtin:read>")];
     assert_eq!(
         list_tools(&tools, &["read".to_owned()]),
-        format!("{}\n", format_tool_inventory(&tools, &["read".to_owned()]))
+        format_tool_inventory(&tools, &["read".to_owned()]) + "\n"
     );
 }
