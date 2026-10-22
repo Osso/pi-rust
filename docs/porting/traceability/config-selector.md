@@ -11,7 +11,7 @@ Status: done. The TUI is driven through a scripted `Terminal` in a child probe b
 
 | TS symbol | Rust | Tests |
 | --- | --- | --- |
-| `ConfigSelectorOptions` | `ConfigSelectorOptions` | adapter test |
+| `ConfigSelectorOptions` (flat resolved paths/settings/cwd/agentDir) | `ConfigSelectorOptions` | adapter test |
 | `selectConfig` | `select_config` | `escape_closes_the_selector`, `ctrl_c_closes_through_the_default_cancel_binding`, `ctrl_c_exits_when_the_cancel_binding_excludes_it` |
 | — (command-path adapter) | `TuiConfigSelector` (`package_manager_cli::ConfigSelector`) | `package_command_adapter_returns_ok_after_the_tui_closes` |
 
@@ -20,7 +20,7 @@ Status: done. The TUI is driven through a scripted `Terminal` in a child probe b
 | # | Branch | Test |
 | --- | --- | --- |
 | 1 | `initTheme(getTheme(), true)` before the TUI | exercised by every probe (theme watcher started/stopped) |
-| 2 | `new TuiMainScreen(new ProcessTerminal(), undefined, agentDir)` | probe (fake terminal + agent dir) |
+| 2 | `new TUI(new ProcessTerminal())`; native terminal injection | probe (fake terminal + agent dir) |
 | 3 | `onClose` → stop, `stopThemeWatcher`, resolve | `escape_closes_the_selector` |
 | 4 | `onExit` → stop, `stopThemeWatcher`, `process.exit(0)` | `ctrl_c_exits_when_the_cancel_binding_excludes_it` |
 | 5 | ctrl+c with the default `tui.select.cancel` binding (`escape`, `ctrl+c`) takes the cancel branch first | `ctrl_c_closes_through_the_default_cancel_binding` |
@@ -29,7 +29,7 @@ Status: done. The TUI is driven through a scripted `Terminal` in a child probe b
 
 ## Deviations
 
-- **Event loop** — the TypeScript TUI owns its loop; Rust's `TuiMainScreen` is driven by the
+- **Event loop** — the TypeScript TUI owns its loop; Rust's `TUI` is driven by the
   caller. `select_config` polls `process_events`/`flush_pending` every 5 ms until a close/exit
   callback fires.
 - **Focus target** — TypeScript focuses `selector.getResourceList()`; the Rust
@@ -38,6 +38,7 @@ Status: done. The TUI is driven through a scripted `Terminal` in a child probe b
 - **Settings manager identity** — `TuiConfigSelector` reloads an equivalent `SettingsManager` for
   the TUI because the command-path store owns its manager behind a mutex. Toggles write through
   to the same settings files, and the command exits right after the TUI closes.
+  Trust comes from the command's settings manager, not an old-only selector availability field.
 - **`process.exit(0)`** — returned as `SelectConfigOutcome::Exit`; the adapter treats both
   outcomes as normal completion because the command's exit status is 0 either way.
 

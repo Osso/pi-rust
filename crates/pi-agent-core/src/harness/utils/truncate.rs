@@ -1,3 +1,5 @@
+//! Frozen agent-core truncation: UTF-16 text, Node UTF-8 byte accounting.
+
 use serde::{Deserialize, Serialize};
 
 /// Default maximum number of output lines.
@@ -7,22 +9,21 @@ pub const DEFAULT_MAX_BYTES: usize = 10 * 1024;
 /// Default maximum number of Unicode scalar values in one grep match line.
 pub const GREP_MAX_LINE_LENGTH: usize = 500;
 
-const TRUNCATION_MARKER: &str = "... [truncated]";
 const KIBIBYTE: usize = 1024;
 const MEBIBYTE: usize = KIBIBYTE * KIBIBYTE;
 
 /// Line and byte limits applied by head and tail truncation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TruncationOptions {
-    pub max_lines: usize,
-    pub max_bytes: usize,
+    pub max_lines: f64,
+    pub max_bytes: f64,
 }
 
 impl Default for TruncationOptions {
     fn default() -> Self {
         Self {
-            max_lines: DEFAULT_MAX_LINES,
-            max_bytes: DEFAULT_MAX_BYTES,
+            max_lines: DEFAULT_MAX_LINES as f64,
+            max_bytes: DEFAULT_MAX_BYTES as f64,
         }
     }
 }
@@ -35,11 +36,14 @@ pub enum TruncatedBy {
     Bytes,
 }
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
+const TRUNCATION_MARKER: &str = "... [truncated]";
+
 /// Truncated output and source-compatible metadata.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TruncationResult {
-    pub content: String,
+    pub content: JsString,
     pub truncated: bool,
     pub truncated_by: Option<TruncatedBy>,
     pub total_lines: usize,
@@ -48,60 +52,69 @@ pub struct TruncationResult {
     pub output_bytes: usize,
     pub last_line_partial: bool,
     pub first_line_exceeds_limit: bool,
-    pub max_lines: usize,
-    pub max_bytes: usize,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
+    pub max_lines: f64,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
+    pub max_bytes: f64,
 }
 
 /// Single-line truncation result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TruncatedLine {
-    pub text: String,
+    pub text: JsString,
     pub was_truncated: bool,
 }
 
-/// Formats a non-negative byte count with the source B, KB, or MB suffix.
-pub fn format_size(bytes: usize) -> String {
-    if bytes < KIBIBYTE {
-        return format!("{bytes}B");
+/// Formats the full frozen JavaScript number domain.
+pub fn format_size(bytes: f64) -> String {
+    use pi_js_compat::number::{js_number_to_string, to_fixed};
+    if bytes < KIBIBYTE as f64 {
+        return format!("{}B", js_number_to_string(bytes));
     }
-    if bytes < MEBIBYTE {
-        return format_decimal_size(bytes, KIBIBYTE, "KB");
+    if bytes < MEBIBYTE as f64 {
+        return format!("{}KB", to_fixed(bytes / KIBIBYTE as f64, 1));
     }
-    format_decimal_size(bytes, MEBIBYTE, "MB")
+    format!("{}MB", to_fixed(bytes / MEBIBYTE as f64, 1))
 }
 
 /// Keeps complete lines from the start of the content.
-pub fn truncate_head(content: &str, options: TruncationOptions) -> TruncationResult {
-    let lines = split_lines_for_counting(content);
+pub fn truncate_head(content: impl Into<JsString>, options: TruncationOptions) -> TruncationResult {
+    let content = content.into();
+    let content = &content;
+    let lines = content.split('\n').collect::<Vec<_>>();
     let totals = Totals::new(content, &lines);
     if totals.fit(options) {
         return untruncated_result(content, totals, options);
     }
 
-    let first_line_bytes = lines.first().map_or(0, |line| line.len());
-    if first_line_bytes > options.max_bytes {
+    let first_line_bytes = lines.first().map_or(0, |line| encode_node_utf8(line).len());
+    if first_line_bytes as f64 > options.max_bytes {
         return empty_head_byte_result(totals, options);
     }
 
     let mut output = Vec::new();
     let mut output_bytes = 0;
     let mut truncated_by = TruncatedBy::Lines;
-    for (index, line) in lines.iter().take(options.max_lines).enumerate() {
-        let line_bytes = line.len() + usize::from(index > 0);
-        if output_bytes + line_bytes > options.max_bytes {
+    for (index, line) in lines.iter().enumerate() {
+        let within_limit = (index as f64) < options.max_lines;
+        if !within_limit {
+            break;
+        }
+        let line_bytes = encode_node_utf8(line).len() + usize::from(index > 0);
+        if (output_bytes + line_bytes) as f64 > options.max_bytes {
             truncated_by = TruncatedBy::Bytes;
             break;
         }
-        output.push(*line);
+        output.push(line.clone());
         output_bytes += line_bytes;
     }
 
-    if output.len() >= options.max_lines && output_bytes <= options.max_bytes {
+    if output.len() as f64 >= options.max_lines && output_bytes as f64 <= options.max_bytes {
         truncated_by = TruncatedBy::Lines;
     }
     let output_lines = output.len();
     truncated_result(
-        output.join("\n"),
+        JsString::join(output, "\n"),
         output_lines,
         truncated_by,
         totals,
@@ -112,7 +125,9 @@ pub fn truncate_head(content: &str, options: TruncationOptions) -> TruncationRes
 }
 
 /// Keeps complete lines from the end of the content, or a byte-safe suffix of the final line.
-pub fn truncate_tail(content: &str, options: TruncationOptions) -> TruncationResult {
+pub fn truncate_tail(content: impl Into<JsString>, options: TruncationOptions) -> TruncationResult {
+    let content = content.into();
+    let content = &content;
     let lines = split_lines_for_counting(content);
     let totals = Totals::new(content, &lines);
     if totals.fit(options) {
@@ -121,7 +136,7 @@ pub fn truncate_tail(content: &str, options: TruncationOptions) -> TruncationRes
 
     let selection = collect_tail_lines(&lines, options);
     truncated_result(
-        selection.lines.join("\n"),
+        JsString::join(&selection.lines, "\n"),
         selection.lines.len(),
         selection.truncated_by,
         totals,
@@ -132,19 +147,17 @@ pub fn truncate_tail(content: &str, options: TruncationOptions) -> TruncationRes
 }
 
 /// Truncates one line by Unicode scalar count and appends the exact source marker.
-pub fn truncate_line(line: &str, max_chars: Option<usize>) -> TruncatedLine {
-    let max_chars = max_chars.unwrap_or(GREP_MAX_LINE_LENGTH);
-    if line.chars().count() <= max_chars {
+pub fn truncate_line(line: impl Into<JsString>, max_chars: Option<f64>) -> TruncatedLine {
+    let line = line.into();
+    let max_chars = max_chars.unwrap_or(GREP_MAX_LINE_LENGTH as f64);
+    if line.len() as f64 <= max_chars {
         return TruncatedLine {
-            text: line.to_owned(),
+            text: line,
             was_truncated: false,
         };
     }
-
-    let mut text = line.chars().take(max_chars).collect::<String>();
-    text.push_str(TRUNCATION_MARKER);
     TruncatedLine {
-        text,
+        text: line.slice(0, slice_end(line.len(), max_chars)) + TRUNCATION_MARKER,
         was_truncated: true,
     }
 }
@@ -156,36 +169,40 @@ struct Totals {
 }
 
 impl Totals {
-    fn new(content: &str, lines: &[&str]) -> Self {
+    fn new(content: &JsString, lines: &[JsString]) -> Self {
         Self {
             lines: lines.len(),
-            bytes: content.len(),
+            bytes: encode_node_utf8(content).len(),
         }
     }
 
     fn fit(self, options: TruncationOptions) -> bool {
-        self.lines <= options.max_lines && self.bytes <= options.max_bytes
+        self.lines as f64 <= options.max_lines && self.bytes as f64 <= options.max_bytes
     }
 }
 
 struct TailSelection {
-    lines: Vec<String>,
+    lines: Vec<JsString>,
     truncated_by: TruncatedBy,
     last_line_partial: bool,
 }
 
-fn collect_tail_lines(lines: &[&str], options: TruncationOptions) -> TailSelection {
+fn collect_tail_lines(lines: &[JsString], options: TruncationOptions) -> TailSelection {
     let mut output = Vec::new();
     let mut output_bytes = 0;
     let mut truncated_by = TruncatedBy::Lines;
     let mut last_line_partial = false;
-    for line in lines.iter().rev().take(options.max_lines) {
-        let line_bytes = line.len() + usize::from(!output.is_empty());
-        if output_bytes + line_bytes > options.max_bytes {
+    for line in lines.iter().rev() {
+        let within_limit = (output.len() as f64) < options.max_lines;
+        if !within_limit {
+            break;
+        }
+        let line_bytes = encode_node_utf8(line).len() + usize::from(!output.is_empty());
+        if (output_bytes + line_bytes) as f64 > options.max_bytes {
             truncated_by = TruncatedBy::Bytes;
             if output.is_empty() {
                 let partial = truncate_string_to_bytes_from_end(line, options.max_bytes);
-                output_bytes = partial.len();
+                output_bytes = encode_node_utf8(&partial).len();
                 output.push(partial);
                 last_line_partial = true;
             }
@@ -195,7 +212,7 @@ fn collect_tail_lines(lines: &[&str], options: TruncationOptions) -> TailSelecti
         output_bytes += line_bytes;
     }
 
-    if output.len() >= options.max_lines && output_bytes <= options.max_bytes {
+    if output.len() as f64 >= options.max_lines && output_bytes as f64 <= options.max_bytes {
         truncated_by = TruncatedBy::Lines;
     }
     output.reverse();
@@ -206,24 +223,15 @@ fn collect_tail_lines(lines: &[&str], options: TruncationOptions) -> TailSelecti
     }
 }
 
-fn format_decimal_size(bytes: usize, divisor: usize, suffix: &str) -> String {
-    let rounded_tenths = ((bytes as u128) * 10 + (divisor as u128 / 2)) / divisor as u128;
-    format!("{}.{}{suffix}", rounded_tenths / 10, rounded_tenths % 10)
-}
-
-fn split_lines_for_counting(content: &str) -> Vec<&str> {
-    if content.is_empty() {
-        return Vec::new();
-    }
-
+fn split_lines_for_counting(content: &JsString) -> Vec<JsString> {
     let mut lines = content.split('\n').collect::<Vec<_>>();
-    if content.ends_with('\n') {
+    if lines.len() > 1 && lines.last().is_some_and(JsString::is_empty) {
         lines.pop();
     }
     lines
 }
 
-fn untruncated_result(content: &str, totals: Totals, options: TruncationOptions) -> TruncationResult {
+fn untruncated_result(content: &JsString, totals: Totals, options: TruncationOptions) -> TruncationResult {
     TruncationResult {
         content: content.to_owned(),
         truncated: false,
@@ -241,7 +249,7 @@ fn untruncated_result(content: &str, totals: Totals, options: TruncationOptions)
 
 fn empty_head_byte_result(totals: Totals, options: TruncationOptions) -> TruncationResult {
     TruncationResult {
-        content: String::new(),
+        content: JsString::default(),
         truncated: true,
         truncated_by: Some(TruncatedBy::Bytes),
         total_lines: totals.lines,
@@ -256,7 +264,7 @@ fn empty_head_byte_result(totals: Totals, options: TruncationOptions) -> Truncat
 }
 
 fn truncated_result(
-    content: String,
+    content: JsString,
     output_lines: usize,
     truncated_by: TruncatedBy,
     totals: Totals,
@@ -264,7 +272,7 @@ fn truncated_result(
     last_line_partial: bool,
     first_line_exceeds_limit: bool,
 ) -> TruncationResult {
-    let output_bytes = content.len();
+    let output_bytes = encode_node_utf8(&content).len();
     TruncationResult {
         content,
         truncated: true,
@@ -280,16 +288,27 @@ fn truncated_result(
     }
 }
 
-fn truncate_string_to_bytes_from_end(value: &str, max_bytes: usize) -> String {
-    let mut start = value.len();
-    let mut output_bytes = 0;
-    for (index, character) in value.char_indices().rev() {
-        let character_bytes = character.len_utf8();
-        if output_bytes + character_bytes > max_bytes {
-            break;
-        }
-        output_bytes += character_bytes;
-        start = index;
+fn slice_end(length: usize, end: f64) -> usize {
+    let integer = end.trunc();
+    if integer < 0.0 {
+        length.saturating_sub((-integer) as usize)
+    } else {
+        (integer as usize).min(length)
     }
-    value[start..].to_owned()
+}
+
+fn truncate_string_to_bytes_from_end(value: &JsString, max_bytes: f64) -> JsString {
+    if max_bytes <= 0.0 {
+        return JsString::default();
+    }
+    let max_bytes = max_bytes as usize;
+    let encoded = encode_node_utf8(value);
+    if encoded.len() <= max_bytes {
+        return value.clone();
+    }
+    let mut start = encoded.len() - max_bytes;
+    while start < encoded.len() && !encoded.is_char_boundary(start) {
+        start += 1;
+    }
+    encoded[start..].into()
 }

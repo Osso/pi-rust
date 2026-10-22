@@ -1,31 +1,23 @@
 # components/user-message.ts
 
-Source: `coding-agent/src/modes/interactive/components/user-message.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/user_message.rs`
+Frozen `4f9e6f8a4`, `coding-agent/src/modes/interactive/components/user-message.ts:1–68` fully compared with `crates/pi-coding-agent/src/modes/interactive/components/user_message.rs`.
 
-Tests: `crates/pi-coding-agent/tests/interactive_components_c.rs` (user_message_*),
-differential `userMessage` cases.
-
-| Symbol / branch | Rust item | Proof |
+| Source branch | Native | Proof |
 |---|---|---|
-| `UserMessageComponent` | `UserMessageComponent` | behavioral + differential |
-| `constructor(text, markdownTheme, outputPad, transformers)` | `new(text, Option<Rc<dyn MarkdownTheme>>, usize, Vec<MarkdownTransformer>)` | differential |
-| `setOutputPad` rebuild | `set_output_pad` | `user_message_uses_configured_output_padding` |
-| background box (`userMessageBg`, padY=outputPad, padX=1) | `BoxComponent` | differential |
-| Markdown color (`userMessageText`) | `DefaultTextStyle::color` | differential |
-| options `preserveOrderedListMarkers`, `preserveBackslashEscapes` | `MarkdownOptions` | differential ordered-list case |
-| transformer context `user`, `isStreaming=false` | `create_markdown_transform` | `user_message_chains_transformers_with_user_context` |
-| OSC 133 A/B/C markers and stable height | `Component::render` | `user_message_keeps_height_and_zone_markers` |
-| `invalidate` rebuild | `Component::invalidate` | `user_message_reapplies_transformers_when_invalidated` |
+| constructor :17–24 (text, theme, padding) | `new` with exactly those inputs | five userMessage differential cases; removed old-only ignored transformer argument and callers |
+| `setOutputPad` :26–29 | `set_output_pad` | configured-padding native test; padding differential cases |
+| `setInTransit` :31–36 no-op on unchanged state, rebuild on change | `set_in_transit` | same-instance true/true/false/true/false exact frozen frames |
+| `rebuild` :38–57 box padding/background and Markdown options | native Box/Markdown | heading/list/narrow and normal differential frames |
+| :47 dim in transit, userMessageText otherwise | native color captured at rebuild | transition differential frames |
+| :52–54 muted ⧗ sending… row only while in transit | native Text row | RED absent pending row before port, complete frozen frame comparison |
+| `render` :60–67 OSC133 A/B/C on nonempty frame | `render` | stable-height/zone native test and complete differential frames |
 
-## Gaps
+## Proof ledger
 
-- Transformer exception continuation is not representable (same typed exclusion as assistant-message).
+Artifacts `/tmp/pi-rust-repin-lossless-interactive/`:
+- `q13-user-transit-red.log`: actual frozen comparison fails (missing dim and sending row).
+- Post-commit 437ed5c9 GREEN: `q13-user-differential_interactive_components-green.log`1/1 (five transitions + five variants), `q13-user-raw_error_consumer_components-green.log`21/21, `q13-user-interactive_components_c-green.log`2/2. The unused transformer-context import was then removed; it does not change covered behavior.
 
-## Discrepancies
+No Markdown transformer surface exists in this frozen module. The native ignored compatibility argument and obsolete oracle transformer construction are removed, not retained as a fallback. Text, styles, OSC composition and output stay `JsString`; raw test now crosses normal/in-transit/normal and padding/invalidation transitions. No scalar projection.
 
-None found.
-
-## Q18 native UTF-16
-
-Markdown text, style callbacks, OSC composition and render lines retain `JsString`. `raw_error_consumer_components::user_message_keeps_raw_units_across_padding_and_invalidation` is written, **unexecuted** (coding-agent compiler-blocked). Re-pin gaps: frozen `user-message.ts:29-33,45-51` has in-transit dim styling and sending indicator absent in Rust; Rust retains an old-only ignored transformer argument, while frozen constructor at lines 17-24 has no transformer argument. These are not new-pin parity evidence.
+Native invalidate rebuilds its owned Markdown/Box to refresh theme state; the inherited frozen Container invalidates its children. Current frame equivalence is asserted by the raw/native tests; no callback or additional external state is involved.

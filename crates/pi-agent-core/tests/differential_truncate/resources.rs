@@ -180,8 +180,8 @@ fn build_skills(array: &SkillArray) -> Option<Vec<Skill>> {
 fn build_skill(fixture: &SkillFixture) -> Skill {
     Skill {
         name: JsString::from(fixture.name.to_owned()),
-        description: fixture.description.to_owned(),
-        content: fixture.content.to_owned(),
+        description: fixture.description.into(),
+        content: fixture.content.into(),
         file_path: JsString::from(fixture.file_path.to_owned()),
         disable_model_invocation: fixture.disable_model_invocation.rust_value(),
     }

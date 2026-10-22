@@ -17,7 +17,6 @@ use std::sync::Mutex;
 
 use pi_coding_agent::cli::config_selector::{ConfigSelectorOptions, SelectConfigOutcome, select_config};
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
-use pi_coding_agent::modes::interactive::components::config_selector::{ConfigWriteScope, ScopedResolvedPaths};
 use pi_tui::terminal::{Terminal, TerminalEvent, TerminalRawModeError};
 use serde_json::json;
 
@@ -125,15 +124,10 @@ fn run_selector(key: &str, rebind_cancel: bool) -> SelectConfigOutcome {
     let agent_dir = temp_dir("agent").display().to_string();
     select_config(
         ConfigSelectorOptions {
-            resolved_paths: ScopedResolvedPaths {
-                global: Default::default(),
-                project: Default::default(),
-            },
+            resolved_paths: Default::default(),
             settings_manager: in_memory_settings(),
             cwd: JsString::from("/work"),
             agent_dir: JsString::from(agent_dir),
-            write_scope: ConfigWriteScope::Global,
-            project_mode_available: true,
         },
         terminal,
     )
@@ -205,8 +199,7 @@ fn config_selector_probe_child() {
         let terminal = Rc::new(RefCell::new(ScriptedTerminal::new(vec![key.clone()])));
         let selector = pi_coding_agent::cli::config_selector::TuiConfigSelector { terminal };
         let request = pi_coding_agent::package_manager_cli::SelectConfigRequest {
-            global: Default::default(),
-            project: Default::default(),
+            resolved_paths: Default::default(),
             settings: std::sync::Arc::new(pi_coding_agent::core::package_manager::SettingsManagerStore::new(
                 pi_coding_agent::core::settings_manager::SettingsManager::in_memory(
                     serde_json::Map::new()
@@ -220,8 +213,6 @@ fn config_selector_probe_child() {
             )),
             cwd: JsString::from(dir.join("project").display().to_string()),
             agent_dir: JsString::from(dir.join("agent").display().to_string()),
-            write_scope: pi_coding_agent::package_manager_cli::ConfigWriteScope::Project,
-            project_mode_available: false,
         };
         let outcome = tokio::runtime::Builder::new_current_thread()
             .enable_all()

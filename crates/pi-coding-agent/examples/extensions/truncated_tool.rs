@@ -20,7 +20,7 @@ use std::sync::Arc;
 pub fn truncated_tool_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_tool(ToolDefinition {
         name:"rg".into(),label:"ripgrep".into(),
-        description:js_format!("Search file contents using ripgrep. Output is truncated to {} lines or {} (whichever is hit first). If truncated, full output is saved to a temp file.", DEFAULT_MAX_LINES, format_size(DEFAULT_MAX_BYTES)).to_utf8().expect("fixed ASCII ripgrep description"),
+        description:js_format!("Search file contents using ripgrep. Output is truncated to {} lines or {} (whichever is hit first). If truncated, full output is saved to a temp file.", DEFAULT_MAX_LINES, format_size(DEFAULT_MAX_BYTES as f64)).to_utf8().expect("fixed ASCII ripgrep description"),
         parameters:serde_json::json!({"type":"object","properties":{"pattern":{"type":"string","description":"Search pattern (regex)"},"path":{"type":"string","description":"Directory to search (default: current directory)"},"glob":{"type":"string","description":"File glob pattern, e.g. '*.ts'"}},"required":["pattern"]}),
         prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,constrained_sampling:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,
         execute:Arc::new(|_,params,_,_,ctx|Box::pin(async move {execute(&params,&ctx.cwd()?).await})),
@@ -79,8 +79,8 @@ async fn execute(params: &Value, cwd: &JsString) -> Result<AgentToolResult, Hand
     let truncation = truncate_head(
         &JsString::from(output.as_ref()),
         TruncationOptions {
-            max_lines: DEFAULT_MAX_LINES,
-            max_bytes: DEFAULT_MAX_BYTES,
+            max_lines: DEFAULT_MAX_LINES as f64,
+            max_bytes: DEFAULT_MAX_BYTES as f64,
         },
     );
     details["matchCount"] = json!(
@@ -106,7 +106,7 @@ async fn execute(params: &Value, cwd: &JsString) -> Result<AgentToolResult, Hand
         details["truncation"] =
             JsValue::from(serde_json::to_value(&truncation).map_err(|e| HandlerError::new(e.to_string()))?);
         details["fullOutputPath"] = json!(path);
-        text.push_str(&js_format!("\n\n[Output truncated: showing {} of {} lines ({} of {}). {} lines ({}) omitted. Full output saved to: {}]", truncation.output_lines, truncation.total_lines, format_size(truncation.output_bytes), format_size(truncation.total_bytes), truncation.total_lines - truncation.output_lines, format_size(truncation.total_bytes - truncation.output_bytes), path));
+        text.push_str(&js_format!("\n\n[Output truncated: showing {} of {} lines ({} of {}). {} lines ({}) omitted. Full output saved to: {}]", truncation.output_lines, truncation.total_lines, format_size(truncation.output_bytes as f64), format_size(truncation.total_bytes as f64), truncation.total_lines - truncation.output_lines, format_size((truncation.total_bytes - truncation.output_bytes) as f64), path));
     }
     Ok(result(text, details))
 }

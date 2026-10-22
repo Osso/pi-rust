@@ -34,7 +34,7 @@ impl Default for OutputAccumulatorOptions {
 }
 
 /// One display snapshot of the accumulated output.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OutputSnapshot {
     pub content: JsString,
     pub truncation: TruncationResult,
@@ -141,8 +141,8 @@ impl OutputAccumulator {
         let tail_truncation = truncate_tail(
             &self.snapshot_text(),
             TruncationOptions {
-                max_lines: self.max_lines,
-                max_bytes: self.max_bytes,
+                max_lines: self.max_lines as f64,
+                max_bytes: self.max_bytes as f64,
             },
         );
         let truncated = self.total_lines > self.max_lines || self.total_decoded_bytes > self.max_bytes;
@@ -160,8 +160,8 @@ impl OutputAccumulator {
             truncated_by,
             total_lines: self.total_lines,
             total_bytes: self.total_decoded_bytes,
-            max_lines: self.max_lines,
-            max_bytes: self.max_bytes,
+            max_lines: self.max_lines as f64,
+            max_bytes: self.max_bytes as f64,
             ..tail_truncation
         };
 

@@ -33,8 +33,8 @@ fn write(root: &Path, path: &str, content: &str) {
 fn skill(name: &str, description: &str, content: &str, file_path: PathBuf, disable_model_invocation: bool) -> Skill {
     Skill {
         name: JsString::from(name.to_owned()),
-        description: description.to_owned(),
-        content: content.to_owned(),
+        description: description.into(),
+        content: content.into(),
         file_path: JsString::from(file_path.to_str().expect("utf-8 test path").to_owned()),
         disable_model_invocation: Some(disable_model_invocation),
     }

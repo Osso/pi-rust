@@ -3,13 +3,11 @@
 use pi_js_compat::{js_format, js_json::JsString};
 use std::rc::Rc;
 
+use crate::modes::interactive::theme::{ThemeBg, ThemeColor, get_markdown_theme, with_theme};
 use pi_tui::components::r#box::BoxComponent;
 use pi_tui::components::text::StyleFn;
 use pi_tui::tui::component;
-use pi_tui::{Component, Container, Markdown, MarkdownOptions, MarkdownTheme};
-
-use crate::core::extensions::types::MarkdownTransformer;
-use crate::modes::interactive::theme::{ThemeBg, ThemeColor, get_markdown_theme, with_theme};
+use pi_tui::{Component, Container, Markdown, MarkdownOptions, MarkdownTheme, Text};
 
 const OSC133_ZONE_START: &str = "\u{1b}]133;A\u{7}";
 const OSC133_ZONE_END: &str = "\u{1b}]133;B\u{7}";
@@ -20,20 +18,17 @@ pub struct UserMessageComponent {
     text: JsString,
     markdown_theme: Rc<dyn MarkdownTheme>,
     output_pad: usize,
+    in_transit: bool,
     container: Container,
 }
 
 impl UserMessageComponent {
-    pub fn new(
-        text: impl Into<JsString>,
-        markdown_theme: Option<Rc<dyn MarkdownTheme>>,
-        output_pad: usize,
-        _markdown_transformers: Vec<MarkdownTransformer>,
-    ) -> Self {
+    pub fn new(text: impl Into<JsString>, markdown_theme: Option<Rc<dyn MarkdownTheme>>, output_pad: usize) -> Self {
         let mut component = Self {
             text: text.into(),
             markdown_theme: markdown_theme.unwrap_or_else(|| Rc::from(get_markdown_theme())),
             output_pad,
+            in_transit: false,
             container: Container::new(),
         };
         component.rebuild();
@@ -42,6 +37,14 @@ impl UserMessageComponent {
 
     pub fn set_output_pad(&mut self, padding: usize) {
         self.output_pad = padding;
+        self.rebuild();
+    }
+
+    pub fn set_in_transit(&mut self, in_transit: bool) {
+        if self.in_transit == in_transit {
+            return;
+        }
+        self.in_transit = in_transit;
         self.rebuild();
     }
 
@@ -54,8 +57,12 @@ impl UserMessageComponent {
                 with_theme(|theme| theme.bg(ThemeBg::UserMessageBg, content))
             })),
         );
-        let color: StyleFn =
-            Rc::new(|content: &JsString| with_theme(|theme| theme.fg(ThemeColor::UserMessageText, content)));
+        let color_key = if self.in_transit {
+            ThemeColor::Dim
+        } else {
+            ThemeColor::UserMessageText
+        };
+        let color: StyleFn = Rc::new(move |content: &JsString| with_theme(|theme| theme.fg(color_key, content)));
         content_box.add_child(component(Markdown::with_shared_theme(
             self.text.clone(),
             0,
@@ -72,6 +79,10 @@ impl UserMessageComponent {
                 ..Default::default()
             },
         )));
+        if self.in_transit {
+            let label = with_theme(|theme| theme.fg(ThemeColor::Muted, "⧗ sending…"));
+            content_box.add_child(component(Text::new(label, 0, 0)));
+        }
         self.container.add_child(component(content_box));
     }
 }

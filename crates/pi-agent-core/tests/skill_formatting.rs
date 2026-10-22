@@ -6,8 +6,8 @@ use pi_js_compat::js_json::JsString;
 fn skill(name: &str, description: &str, content: &str, file_path: &str) -> Skill {
     Skill {
         name: JsString::from(name.to_owned()),
-        description: description.to_owned(),
-        content: content.to_owned(),
+        description: description.into(),
+        content: content.into(),
         file_path: JsString::from(file_path.to_owned()),
         disable_model_invocation: None,
     }
@@ -136,7 +136,7 @@ fn dirname_uses_lexical_posix_and_separator_rules() {
     assert_eq!(relative_directory("/"), "References are relative to /.");
     assert_eq!(relative_directory("///"), "References are relative to /.");
     assert_eq!(relative_directory("SKILL.md"), "References are relative to /.");
-    assert_eq!(relative_directory("a\\b"), "References are relative to a.");
+    assert_eq!(relative_directory("a\\b"), "References are relative to /.");
     assert_eq!(relative_directory("/a/b"), "References are relative to /a.");
     assert_eq!(relative_directory("/a/b///"), "References are relative to /a.");
     assert_eq!(
@@ -150,17 +150,17 @@ fn dirname_uses_lexical_posix_and_separator_rules() {
 }
 
 #[test]
-fn dirname_preserves_drive_and_utf16_prefix_behavior() {
+fn dirname_uses_only_frozen_forward_slashes_without_drive_special_cases() {
     assert_eq!(relative_directory("C:/"), "References are relative to /.");
     assert_eq!(relative_directory("C:\\"), "References are relative to /.");
-    assert_eq!(relative_directory("C:/a"), "References are relative to C:/.");
-    assert_eq!(relative_directory("C:\\a"), "References are relative to C:\\.");
+    assert_eq!(relative_directory("C:/a"), "References are relative to C:.");
+    assert_eq!(relative_directory("C:\\a"), "References are relative to /.");
     assert_eq!(relative_directory("C:/a/b"), "References are relative to C:/a.");
-    assert_eq!(relative_directory("C:\\a\\b\\"), "References are relative to C:\\a.");
+    assert_eq!(relative_directory("C:\\a\\b\\"), "References are relative to /.");
     assert_eq!(
         relative_directory("C:/a\\b/SKILL.md"),
         "References are relative to C:/a\\b."
     );
-    assert_eq!(relative_directory("é:/x"), "References are relative to é:/.");
+    assert_eq!(relative_directory("é:/x"), "References are relative to é:.");
     assert_eq!(relative_directory("😀:/x"), "References are relative to 😀:.");
 }

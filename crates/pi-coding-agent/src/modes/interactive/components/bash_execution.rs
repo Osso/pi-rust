@@ -216,8 +216,8 @@ impl BashExecutionComponent {
         let context_truncation = truncate_tail(
             &full_output,
             TruncationOptions {
-                max_lines: DEFAULT_MAX_LINES,
-                max_bytes: DEFAULT_MAX_BYTES,
+                max_lines: DEFAULT_MAX_LINES as f64,
+                max_bytes: DEFAULT_MAX_BYTES as f64,
             },
         );
         let available_lines: Vec<JsString> = if context_truncation.content.is_empty() {

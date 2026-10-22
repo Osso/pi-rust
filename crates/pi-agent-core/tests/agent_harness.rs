@@ -60,8 +60,8 @@ fn operation_started(id: &str) -> RecordBody {
 fn skill(name: &str, file_path: &str) -> Skill {
     Skill {
         name: JsString::from(name.to_owned()),
-        description: "desc".to_owned(),
-        content: "body".to_owned(),
+        description: "desc".into(),
+        content: "body".into(),
         file_path: JsString::from(file_path.to_owned()),
         disable_model_invocation: None,
     }

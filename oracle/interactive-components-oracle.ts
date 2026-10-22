@@ -54,12 +54,8 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		return component.render(request.width);
 	},
 	userMessage: (api, request) => {
-		const transformers = request.transformers.map((kind: any) => {
-			if (kind.kind === "upper") return (markdown: string) => markdown.toUpperCase();
-			if (kind.kind === "append") return (markdown: string) => `${markdown}${kind.text}`;
-			throw new Error(`unknown transformer ${kind.kind}`);
-		});
-		const component = new api.UserMessageComponent(request.text, undefined, request.outputPad, transformers);
+		const component = new api.UserMessageComponent(request.text, undefined, request.outputPad);
+		if (request.inTransit !== undefined) component.setInTransit(request.inTransit);
 		return component.render(request.width);
 	},
 	borderedLoader: async (_api, request, sourceRoot) => {
@@ -424,44 +420,42 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return footer.render(request.width);
 	},
+	coordinationVisibility: (api, request) => ({
+		previews: request.previews.map((preview: any) => api.isCoordinationPreview(preview)),
+		messages: request.messages.map((message: any) => api.isCoordinationMessage(message)),
+	}),
 	configSelector: async (_api, request, sourceRoot) => {
 		const settingsModule = (await import(pathToFileURL(`${sourceRoot}/core/settings-manager.ts`).href)) as Api;
 		const selectorModule = (await import(
 			pathToFileURL(`${sourceRoot}/modes/interactive/components/config-selector.ts`).href
 		)) as Api;
 		const storage = new settingsModule.InMemorySettingsStorage();
-		storage.withLock("global", () => JSON.stringify({ packages: request.globalPackages }));
+		storage.withLock("global", () => JSON.stringify(request.globalSettings));
+		storage.withLock("project", () => JSON.stringify(request.projectSettings));
 		const settingsManager = settingsModule.SettingsManager.fromStorage(storage, { projectTrusted: true });
-		const metadata = {
-			source: "npm:pi-tools",
-			scope: "user",
-			origin: "package",
-			baseDir: request.packageRoot,
-		};
-		const resolved = {
-			extensions: [
-				{ path: `${request.packageRoot}/extensions/bar.ts`, enabled: true, metadata },
-			],
-			skills: [],
-			prompts: [],
-			themes: [],
-		};
+		const resolved = request.resolved;
+		const events: string[] = [];
 		const selector = new selectorModule.ConfigSelectorComponent(
 			resolved,
 			settingsManager,
 			request.cwd,
 			request.agentDir,
-			() => {},
-			() => {},
-			() => {},
-			24,
+			() => events.push("close"),
+			() => events.push("exit"),
+			() => events.push("render"),
+			request.height,
 		);
-		const renders: string[][] = [];
+		const renders: string[][] = [selector.render(request.width)];
 		for (const input of request.inputs) {
 			selector.getResourceList().handleInput(input);
 			renders.push(selector.render(request.width));
 		}
-		return { projectPackages: settingsManager.getProjectSettings().packages ?? [], renders };
+		return {
+			globalSettings: settingsManager.getGlobalSettings(),
+			projectSettings: settingsManager.getProjectSettings(),
+			events,
+			renders,
+		};
 	},
 };
 

@@ -17,7 +17,7 @@ host, the real settings manager, and the real trust store.
 | --- | --- | --- |
 | `PackageCommand` | `PackageCommand` | parser tests |
 | `PackageCommandRuntimeOptions` | `PackageCommandEffects` (host seam) | execution tests |
-| `handleConfigCommand` | `handle_config_command` (validation) + `execute_config_command` | differential `handle_config`, `config_command_reports_the_requested_scope`, `config_local_requires_trust` |
+| `handleConfigCommand` | `handle_config_command` (validation) + `execute_config_command` | differential `handle_config`, `config_command_passes_one_resolved_resource_set_and_ignores_old_local_flag`, `config_old_local_flag_does_not_require_project_trust` |
 | `handlePackageCommand` | `handle_package_command` (validation) + `execute_package_command` | differential `handle_package_command`, 25 execution tests |
 | private `parsePackageCommand` | `parse_package_command` | parser matrix, differential |
 | private `getPackageCommandUsage` | `package_command_usage` | differential |
@@ -62,9 +62,9 @@ host, the real settings manager, and the real trust store.
 | 18 | `--extension <source>` → `Updated <source>` | `extension_updates_print_the_updated_line` |
 | 19 | `--all` → extensions then self | `all_updates_extensions_then_self` |
 | 20 | `update` uses the saved trust decision (`useSavedProjectTrustOnly`) | `saved_project_trust_is_used_for_updates` |
-| 21 | config: global/project scope request, `exitCode = 0` | `config_command_reports_the_requested_scope` |
-| 22 | config `-l` without trust → red message + exit 1 | `config_local_requires_trust` |
-| 23 | config non-`config` argv → not handled | `config_command_reports_the_requested_scope` |
+| 21 | config: one `DefaultPackageManager.resolve()` result from command settings, `exitCode = 0` | `config_command_passes_one_resolved_resource_set_and_ignores_old_local_flag` |
+| 22 | old `-l` flag does not select a view or require trust; untrusted project resources remain excluded | `config_old_local_flag_does_not_require_project_trust` |
+| 23 | config non-`config` argv → not handled | `config_command_passes_one_resolved_resource_set_and_ignores_old_local_flag` |
 | 24 | self-update plan: newer/equal/force/renamed package/note | `self_update_plan_decides_between_running_and_up_to_date` |
 | 25 | note renderer: blank note, Markdown block with blank lines | `self_update_note_renders_markdown_between_blank_lines` |
 | 26 | `runSelfUpdate`: success, non-zero exit, spawn failure | `run_self_update_reports_exit_codes_and_signals` |
@@ -78,8 +78,9 @@ host, the real settings manager, and the real trust store.
   wiring must pass the real loader when it lands. Until then, callers that pass a
   loader returning `None` lose extension-provided `project_trust` decisions.
 - **`ConfigSelector`** — `execute_config_command` builds the exact
-  `SelectConfigRequest` (global/project `ResolvedPaths`, settings store, cwd, agent
-  dir, write scope, project-mode availability). The concrete adapter is
+  `SelectConfigRequest` (flat `ResolvedPaths`, settings store, cwd, agent dir), matching
+  frozen `package-manager-cli.ts:566–574`. No alternate global/project resolution,
+  write scope, project-mode availability or missing-source skip handler remains. The concrete adapter is
   `cli::config_selector::TuiConfigSelector`, which runs the ported config TUI; see
   `config-selector.md`. `PackageCommandEffects` and `ConfigSelector` are not
   `Send`/`Sync` because the TUI is `Rc`-based (the command path is single-threaded).

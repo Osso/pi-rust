@@ -5,7 +5,7 @@ mod oracle;
 
 use corpus::Corpus;
 use pi_coding_agent::core::tools::truncate::{
-    TruncatedBy, TruncationOptions, TruncationResult, truncate_head, truncate_line, truncate_tail,
+    TruncationOptions, TruncationResult, truncate_head, truncate_line, truncate_tail,
 };
 use serde_json::{Value, json};
 
@@ -56,8 +56,8 @@ fn cases() -> Vec<Case> {
         let length = corpus.below(40);
         let content = text(&mut corpus, ALPHABET, length);
         let limits = TruncationOptions {
-            max_lines: corpus.below(8),
-            max_bytes: corpus.below(48),
+            max_lines: corpus.below(8) as f64,
+            max_bytes: corpus.below(48) as f64,
         };
         if corpus.below(2) == 0 {
             cases.push(Case::Head(content, Some(limits)));
@@ -87,22 +87,22 @@ fn targeted_cases() -> Vec<Case> {
         Case::Tail(
             "first\nxé😀".to_owned(),
             Some(TruncationOptions {
-                max_lines: 10,
-                max_bytes: 5,
+                max_lines: 10 as f64,
+                max_bytes: 5 as f64,
             }),
         ),
         Case::Tail(
             "😀".to_owned(),
             Some(TruncationOptions {
-                max_lines: 1,
-                max_bytes: 0,
+                max_lines: 1 as f64,
+                max_bytes: 0 as f64,
             }),
         ),
         Case::Head(
             "\n\n\n".to_owned(),
             Some(TruncationOptions {
-                max_lines: 0,
-                max_bytes: 0,
+                max_lines: 0 as f64,
+                max_bytes: 0 as f64,
             }),
         ),
         Case::Line("x".repeat(501), None),
@@ -141,21 +141,5 @@ fn actual_case(case: &Case) -> Value {
 }
 
 fn result_json(result: TruncationResult) -> Value {
-    let truncated_by = result.truncated_by.map(|value| match value {
-        TruncatedBy::Lines => "lines",
-        TruncatedBy::Bytes => "bytes",
-    });
-    json!({
-        "content": result.content,
-        "truncated": result.truncated,
-        "truncatedBy": truncated_by,
-        "totalLines": result.total_lines,
-        "totalBytes": result.total_bytes,
-        "outputLines": result.output_lines,
-        "outputBytes": result.output_bytes,
-        "lastLinePartial": result.last_line_partial,
-        "firstLineExceedsLimit": result.first_line_exceeds_limit,
-        "maxLines": result.max_lines,
-        "maxBytes": result.max_bytes,
-    })
+    serde_json::to_value(result).expect("serialize the public result contract without rebuilding it")
 }

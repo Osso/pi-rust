@@ -1,6 +1,7 @@
 //! Ported from `packages/coding-agent/src/modes/interactive/`.
 
 pub mod components;
+pub mod coordination_visibility;
 pub mod external_editor;
 pub mod interactive_mode;
 pub mod interactive_root_compositor;
