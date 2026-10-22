@@ -278,12 +278,6 @@ pub fn build_params(
                 JsValue::object(vec![("effort", JsValue::String(effort.into()))]),
             );
         }
-        if model.provider == "xai" {
-            params.insert(
-                "include".into(),
-                JsValue::Array(vec![JsValue::String("reasoning.encrypted_content".into())]),
-            );
-        }
     }
 
     if let Some(sampling_params) = &stream_options.sampling_params {
