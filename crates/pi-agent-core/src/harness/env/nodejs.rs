@@ -955,7 +955,7 @@ fn resolve_path(cwd: &JsString, path: &JsString) -> JsString {
         cwd.clone()
     } else {
         let current = std::env::current_dir().expect("process working directory");
-        JsString::from(current.to_string_lossy().into_owned()) + "/" + cwd
+        pi_js_compat::node_fs::decode_node_path(current.as_os_str()) + "/" + cwd
     };
     let normalized = node_normalize(&(base + "/" + path));
     if normalized != "/" {
