@@ -161,11 +161,8 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, JsString> {
             to_value(read_last_message(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?)
         }
         "enqueueIncomingMessage" => to_value(
-            enqueue_incoming_message(
-                arg_str(args, 0)?,
-                &arg_str(args, 1)?.to_utf8().expect("ASCII fixture incoming message"),
-            )
-            .map_err(|error| error.message().to_owned())?,
+            enqueue_incoming_message(arg_str(args, 0)?, arg_str(args, 1)?)
+                .map_err(|error| error.message().to_owned())?,
         ),
         "claimLatestIncomingMessage" => {
             to_value(claim_latest_incoming_message(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?)

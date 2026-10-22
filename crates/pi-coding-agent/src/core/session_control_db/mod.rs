@@ -122,7 +122,7 @@ const RUNTIME_MAILBOX_REGISTRATION_MAX_ATTEMPTS: usize = 3;
 #[serde(rename_all = "camelCase")]
 pub struct IncomingControlMessage {
     pub id: i64,
-    pub content: String,
+    pub content: JsString,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
