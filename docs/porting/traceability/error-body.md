@@ -36,3 +36,5 @@ Source runtime unknown values, lone-surrogate input/output strings, toJSON/cycle
 Three one-at-a-time native mutations were killed by actual-source tests: rejecting arrays changed `["parsed"]` into `response`; replacing JS trim with Rust trim retained BOM; swapping status/statusCode returned 402 instead of 0. Each patch and failing output was saved, then the native file restored byte-for-byte to its committed content. Value fixtures run once in their dedicated source test, not again in the baseline group.
 
 Development evidence, exact revisions and mutation results are recorded in `/tmp/pi-rust-repin-ai-error-body/{REPORT.md,ledger.md}`; no broad discovery/test run, check/clippy/readability/final gate, delegation, push, deploy or live-state action is part of this slice.
+
+Q18 exact-boundary proof at 80ea6e39: `cargo test -j4 -p pi-ai --test differential_error_body source_surrogate_split_matches_exact_native_utf16_units` passed 1/1 in mandatory sandbox, zero warnings (`error-body-native-green.log`). Numeric-unit comparisons cover explicit split truncation and normalized 4000-unit body cap.
