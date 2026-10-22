@@ -39,3 +39,9 @@ Tests: covered indirectly by `crates/pi-ai/tests/differential_openai_responses.r
 ## Discrepancies
 - Azure `AzureOpenAI.buildRequest` only prefixes `/deployments/{model}` for a fixed endpoint set that does **not** include `/responses`; the port reproduces that behavior (deployment name is sent as `body.model` only).
 - TypeScript stream events hold live `partial` references that mutate after `push`; Rust emits value snapshots. Differential oracles snapshot at `push` time, which is the observable value for a consumer reading each event.
+
+## Q18 provider request integration (2026-10-22)
+
+`SdkClientConfig` keeps API key, base URL, Azure API version and default-header values as `JsString`. `send_raw` converts URL/header values through shared `request_url`/`header_value` while constructing `HttpRequest`, returning their `CallbackError` through `ProviderRequestError::Other`.
+
+Compiler checkpoint `pi-ai-slice-final.log` at `0c71c960` reached seven errors, including two owned sites fixed by `7780fac1`; remaining auth-owner errors block library acceptance. `lossless_sdk_boundaries` exercises public-provider header rejection and URL conversion; authored, not yet executed at this checkpoint.

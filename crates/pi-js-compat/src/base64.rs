@@ -28,7 +28,6 @@ pub fn atob(input: &JsString) -> Result<Vec<u8>, Base64Error> {
                 symbols.push(byte);
             }
             b'=' => padding += 1,
-            b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' => {}
             _ => return Err(Base64Error::InvalidCharacter),
         }
     }

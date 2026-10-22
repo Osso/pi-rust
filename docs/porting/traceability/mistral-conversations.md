@@ -102,3 +102,9 @@ sides without filtering at delayed consumption; scratch deletion is not the dive
 - `MistralReasoningEffort` is a two-value enum (`none`, `high`); a `thinkingLevelMap` value other
   than `none` maps to `high` (TypeScript casts arbitrary mapped strings).
 - `ToolCall.arguments` is a JSON object in Rust; a non-object parsed streaming value becomes `{}`.
+
+## Q18 provider request integration (2026-10-22)
+
+Mistral bearer/auth/session-affinity and model/options header assembly retain native units; HttpRequest construction applies ByteString conversion. Endpoint parsing uses shared request_url at the URL boundary.
+
+Compiler checkpoint `pi-ai-slice-final.log` at `0c71c960` reached seven errors, including two owned sites fixed by `7780fac1`; remaining auth-owner errors block library acceptance. `lossless_sdk_boundaries` exercises public-provider header rejection and URL conversion; authored, not yet executed at this checkpoint.

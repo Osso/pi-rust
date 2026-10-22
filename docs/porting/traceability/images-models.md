@@ -46,3 +46,9 @@ Tests: `crates/pi-ai/tests/images_models.rs` (8 behavioral, ports the TS suite),
 
 ## Discrepancies
 - None.
+
+## Q18 provider request integration (2026-10-22)
+
+Image auth resolution keeps native model endpoint, API key and environment values through request dispatch; environment merge has one ProviderEnv authority.
+
+Compiler checkpoint `pi-ai-slice-final.log` at `0c71c960` reached seven errors, including two owned sites fixed by `7780fac1`; remaining auth-owner errors block library acceptance. `lossless_sdk_boundaries` exercises public-provider header rejection and URL conversion; authored, not yet executed at this checkpoint.
