@@ -84,3 +84,14 @@ No clippy/check/workspace suites. Plan-mode remains blocked, not done.
 ## Accepted review regression (2026-10-20)
 
 F1: `example_minimal_mode` uses float-backed offset 2.0, limit 3.0 and timeout 2.0 in full seven-tool call/result comparisons. Number arithmetic/formatting uses JS f64 semantics, including read range :2-4.
+
+## Q18 plan-mode utility native text (2026-10-22)
+
+`examples/extensions/plan_mode/utils.rs` now uses the shared UTF-16 `JsRegex` engine instead of scalar `fancy_regex` plus ASCII/whitespace expansion shims. Public helper inputs become native before matching; cleaning, first-unit uppercase and 47-unit truncation retain raw units. Existing source aliasing gap above remains unchanged.
+
+| Frozen utility branches | Native helper | Proof target |
+|---|---|---|
+| destructive/safe patterns, JavaScript case/word/whitespace semantics | `is_safe_command`, native constant regexes | `example_plan_mode_utils` pinned differential |
+| formatting removal, prefix removal, uppercase first unit, truncation | `clean_step_text` | `example_plan_mode_utils` pinned differential |
+| plan header/numbered steps, short/prefix exclusions | `extract_todo_items` | `example_plan_mode_utils` pinned differential |
+| numeric DONE tags, finite filtering, completion updates | `extract_done_steps`, `mark_completed_steps` | `example_plan_mode_utils` pinned differential |
