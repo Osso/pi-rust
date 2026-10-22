@@ -37,18 +37,43 @@ pub fn js_trim_end(value: &str) -> &str {
     value.trim_end_matches(is_js_whitespace_char)
 }
 
-/// JavaScript `encodeURIComponent` for valid UTF-8 input.
-pub fn encode_uri_component(value: &str) -> String {
+/// `URIError: URI malformed`, thrown by `encodeURIComponent` for an unpaired surrogate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UriMalformedError;
+
+impl std::fmt::Display for UriMalformedError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("URIError: URI malformed")
+    }
+}
+
+impl std::error::Error for UriMalformedError {}
+
+/// JavaScript `encodeURIComponent`.
+pub fn encode_uri_component(value: &crate::js_json::JsString) -> Result<String, UriMalformedError> {
     let mut encoded = String::new();
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => {
-                encoded.push(char::from(byte))
+    for character in char::decode_utf16(value.units().iter().copied()) {
+        let character = character.map_err(|_| UriMalformedError)?;
+        let mut buffer = [0; 4];
+        for byte in character.encode_utf8(&mut buffer).bytes() {
+            match byte {
+                b'A'..=b'Z'
+                | b'a'..=b'z'
+                | b'0'..=b'9'
+                | b'-'
+                | b'_'
+                | b'.'
+                | b'!'
+                | b'~'
+                | b'*'
+                | b'\''
+                | b'('
+                | b')' => encoded.push(char::from(byte)),
+                _ => encoded.push_str(&format!("%{byte:02X}")),
             }
-            _ => encoded.push_str(&format!("%{byte:02X}")),
         }
     }
-    encoded
+    Ok(encoded)
 }
 
 /// JavaScript `String.prototype.length` for valid UTF-8 input.
