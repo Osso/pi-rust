@@ -16,10 +16,129 @@ fn display_helpers_keep_distinct_surrogates() {
     let raw = JsString::from_utf16(vec![0xd800, 9, 0xdfff, 13, 0xd83d, 0xde00]);
     let value = JsValue::String(raw.clone());
     assert_eq!(str_value(Some(&value)), Some(raw.clone()));
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-tool-paths-oracle.ts",
+        "packages/coding-agent/src/core/tools/render-utils.ts",
+    );
+    let expected = source.request(&serde_json::json!({"kind":"display", "units":raw.units()}));
+    assert_eq!(
+        serde_json::json!(normalize_display_text(&replace_tabs(&raw)).units()),
+        expected["units"]
+    );
     assert_eq!(
         normalize_display_text(&replace_tabs(&raw)).units(),
         &[0xd800, 32, 32, 32, 0xdfff, 0xd83d, 0xde00]
     );
+}
+
+#[tokio::test]
+async fn local_write_error_matches_node_original_path_units() {
+    use pi_coding_agent::core::tools::node_fs::operation_error_message;
+    use pi_coding_agent::core::tools::write::LocalWriteOperations;
+    let directory = tempfile::tempdir().unwrap();
+    let path =
+        JsString::from(directory.path().to_str().unwrap()) + "/missing/file-" + JsString::from_utf16(vec![0xd800]);
+    let error = LocalWriteOperations
+        .write_file(&path, &JsString::from("x"))
+        .await
+        .unwrap_err();
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-tool-paths-oracle.ts",
+        "packages/coding-agent/src/core/tools/write.ts",
+    );
+    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"localWriteError", "path":path}));
+    assert_eq!(
+        operation_error_message(&error),
+        expected["error"].as_string().unwrap().clone()
+    );
+}
+
+struct RecordingLs {
+    calls: Mutex<Vec<JsValue>>,
+    entries: Vec<JsString>,
+    exists: bool,
+}
+
+impl pi_coding_agent::core::tools::ls::LsOperations for RecordingLs {
+    fn exists<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(pi_js_compat::js_json!(["exists", path]));
+            Ok(self.exists)
+        })
+    }
+    fn is_directory<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(pi_js_compat::js_json!(["isDirectory", path]));
+            Ok(!path.ends_with(JsString::from("file-") + JsString::from_utf16(vec![0xdfff])))
+        })
+    }
+    fn readdir<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(pi_js_compat::js_json!(["readdir", path]));
+            Ok(self.entries.clone())
+        })
+    }
+}
+
+#[tokio::test]
+async fn custom_ls_retains_paths_entries_and_missing_path_error() {
+    use pi_coding_agent::core::tools::ls::{LsTool, LsToolOptions};
+    let cwd = JsString::from("/work-") + JsString::from_utf16(vec![0xd800]);
+    let entries = vec![
+        JsString::from("file-") + JsString::from_utf16(vec![0xdfff]),
+        JsString::from("dir-") + JsString::from_utf16(vec![0xd801]),
+    ];
+    let params = parse_lossless(r#"{"path":"sub-\ud802"}"#).unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-tool-paths-oracle.ts",
+        "packages/coding-agent/src/core/tools/ls.ts",
+    );
+    for exists in [true, false] {
+        let operations = Arc::new(RecordingLs {
+            calls: Mutex::new(Vec::new()),
+            entries: entries.clone(),
+            exists,
+        });
+        let tool = LsTool::with_options(
+            &cwd,
+            LsToolOptions {
+                operations: Some(operations.clone()),
+            },
+        );
+        let actual = tool
+            .execute("ls".into(), params.clone(), None, Arc::new(|_| {}), None)
+            .await;
+        let expected = source.request_lossless(
+            &pi_js_compat::js_json!({"kind":"ls", "cwd":cwd, "params":params, "entries":entries, "exists":exists}),
+        );
+        assert_eq!(
+            JsValue::Array(operations.calls.lock().unwrap().clone()),
+            expected["calls"]
+        );
+        match actual {
+            Ok(result) => {
+                let TextOrImageContent::Text(text) = &result.content[0] else {
+                    panic!("text")
+                };
+                assert_eq!(
+                    &text.text,
+                    expected["result"]["content"].as_array().unwrap()[0]["text"]
+                        .as_string()
+                        .unwrap()
+                );
+            }
+            Err(error) => assert_eq!(&error.message, expected["error"].as_string().unwrap()),
+        }
+    }
 }
 
 #[derive(Default)]
