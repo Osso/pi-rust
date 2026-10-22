@@ -1,7 +1,6 @@
 //! Ported from `packages/coding-agent/src/modes/interactive/components/oauth-selector.ts`.
 
 use pi_js_compat::{js_format, js_json::JsString};
-use std::collections::HashSet;
 use std::rc::Rc;
 
 use pi_ai::auth::types::{ApiKeyAuth, AuthCheck, AuthType, OAuthAuth};
@@ -68,45 +67,44 @@ fn auth_type_query_value(auth_type: AuthType) -> &'static str {
     }
 }
 
-fn format_status_indicator(provider: &AuthSelectorProvider) -> JsString {
-    let Some(status) = &provider.status else {
-        return with_theme(|theme| theme.fg(ThemeColor::Muted, " • unconfigured"));
-    };
-    if status.auth_type != provider.auth_type {
-        let label = match status.auth_type {
-            AuthType::Oauth => "subscription configured",
-            AuthType::ApiKey => "API key configured",
+pub type StoredCredentialType = Rc<dyn Fn(&str) -> Option<AuthType>>;
+pub type GetAuthStatus = Rc<dyn Fn(&str) -> crate::core::auth_storage::AuthStatus>;
+
+fn format_status_indicator(
+    provider: &AuthSelectorProvider,
+    get_stored_type: &StoredCredentialType,
+    get_auth_status: Option<&GetAuthStatus>,
+) -> JsString {
+    if let Some(credential_type) = get_stored_type(&provider.id) {
+        if credential_type == provider.auth_type {
+            return with_theme(|theme| theme.fg(ThemeColor::Success, " ✓ configured"));
+        }
+        let label = if credential_type == AuthType::Oauth {
+            "subscription configured"
+        } else {
+            "API key configured"
         };
         return with_theme(|theme| theme.fg(ThemeColor::Muted, " • "))
             + &with_theme(|theme| theme.fg(ThemeColor::Warning, label));
     }
-    let source = status.source.as_ref();
-    if source.is_none_or(|source| source == "OAuth" || source == "stored credential") {
-        return with_theme(|theme| theme.fg(ThemeColor::Success, " ✓ configured"));
-    }
-    let source = source.cloned().unwrap_or_default();
-    let label = if is_env_source_list(&source) {
-        js_format!("env: {}", source)
-    } else {
-        source.clone()
-    };
-    with_theme(|theme| theme.fg(ThemeColor::Success, &js_format!(" ✓ {}", label)))
-}
-
-/// `/^[A-Z][A-Z0-9_]*(?:, [A-Z][A-Z0-9_]*)*$/`
-fn is_env_source_list(source: &JsString) -> bool {
-    let is_upper = |unit: u16| (u16::from(b'A')..=u16::from(b'Z')).contains(&unit);
-    let mut parts = source.units().split(|unit| *unit == u16::from(b','));
-    let is_name = |units: &[u16]| {
-        units.first().is_some_and(|unit| is_upper(*unit))
-            && units.iter().all(|unit| {
-                is_upper(*unit) || (u16::from(b'0')..=u16::from(b'9')).contains(unit) || *unit == u16::from(b'_')
+    let label = if provider.auth_type == AuthType::ApiKey {
+        get_auth_status
+            .map(|get_status| get_status(&provider.id))
+            .and_then(|status| match status.source.as_deref() {
+                Some("environment") => Some(js_format!("env: {}", status.label.unwrap_or_else(|| "API key".into()))),
+                Some("runtime") => Some("runtime API key".into()),
+                Some("fallback") => Some("custom API key".into()),
+                Some("models_json_key") => Some("key in models.json".into()),
+                Some("models_json_command") => Some("command in models.json".into()),
+                _ => None,
             })
+    } else {
+        None
     };
-    let Some(first) = parts.next() else {
-        return false;
-    };
-    is_name(first) && parts.all(|part| part.first() == Some(&u16::from(b' ')) && is_name(&part[1..]))
+    match label {
+        Some(label) => with_theme(|theme| theme.fg(ThemeColor::Success, &js_format!(" ✓ {}", label))),
+        None => with_theme(|theme| theme.fg(ThemeColor::Muted, " • unconfigured")),
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,9 +121,10 @@ pub struct OAuthSelectorComponent {
     filtered_providers: Vec<AuthSelectorProvider>,
     selected_index: usize,
     mode: AuthSelectorMode,
-    on_select: Rc<dyn Fn(String, AuthType)>,
+    on_select: Rc<dyn Fn(String)>,
     on_cancel: Rc<dyn Fn()>,
-    show_auth_type_labels: bool,
+    get_stored_type: StoredCredentialType,
+    get_auth_status: Option<GetAuthStatus>,
     search_value: JsString,
     focused: bool,
     prefix_children: Vec<ComponentRef>,
@@ -135,18 +134,12 @@ pub struct OAuthSelectorComponent {
 impl OAuthSelectorComponent {
     pub fn new(
         mode: AuthSelectorMode,
+        get_stored_type: StoredCredentialType,
         providers: Vec<AuthSelectorProvider>,
-        on_select: Rc<dyn Fn(String, AuthType)>,
+        on_select: Rc<dyn Fn(String)>,
         on_cancel: Rc<dyn Fn()>,
-        initial_search_input: Option<&JsString>,
+        get_auth_status: Option<GetAuthStatus>,
     ) -> Self {
-        let show_auth_type_labels = providers
-            .iter()
-            .map(|provider| auth_type_query_value(provider.auth_type))
-            .collect::<HashSet<_>>()
-            .len()
-            > 1;
-
         let title = match mode {
             AuthSelectorMode::Login => "Select provider to configure:",
             AuthSelectorMode::Logout => "Select provider to logout:",
@@ -163,11 +156,7 @@ impl OAuthSelectorComponent {
         ];
         let suffix_children = vec![component(Spacer::new(1)), component(dynamic_border())];
 
-        let mut input = Input::new(InputOptions::default());
-        if let Some(initial) = initial_search_input {
-            input.set_value(initial);
-        }
-        let search_input = component(input);
+        let search_input = component(Input::new(InputOptions::default()));
 
         let mut selector = Self {
             search_input,
@@ -178,13 +167,14 @@ impl OAuthSelectorComponent {
             mode,
             on_select,
             on_cancel,
-            show_auth_type_labels,
-            search_value: initial_search_input.cloned().unwrap_or_default(),
+            get_stored_type,
+            get_auth_status,
+            search_value: JsString::default(),
             focused: false,
             prefix_children,
             suffix_children,
         };
-        selector.filter_providers(&initial_search_input.cloned().unwrap_or_default());
+        selector.filter_providers(&JsString::default());
         selector
     }
 
@@ -194,11 +184,10 @@ impl OAuthSelectorComponent {
         } else {
             fuzzy_filter(&self.all_providers, query, |provider| {
                 vec![js_format!(
-                    "{} {} {} {}",
+                    "{} {} {}",
                     provider.name,
                     provider.id,
-                    auth_type_query_value(provider.auth_type),
-                    provider.method_name.clone().unwrap_or_default()
+                    auth_type_query_value(provider.auth_type)
                 )]
             })
         };
@@ -220,26 +209,14 @@ impl OAuthSelectorComponent {
         for index in start_index..end_index {
             let provider = &self.filtered_providers[index];
             let is_selected = index == self.selected_index;
-            let status_indicator = format_status_indicator(provider);
-            let auth_type_label = if self.show_auth_type_labels {
-                with_theme(|theme| {
-                    theme.fg(
-                        ThemeColor::Muted,
-                        &js_format!(" [{}]", format_auth_selector_provider_type(provider.auth_type)),
-                    )
-                })
-            } else {
-                JsString::default()
-            };
+            let status_indicator =
+                format_status_indicator(provider, &self.get_stored_type, self.get_auth_status.as_ref());
             let line = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
                     + &with_theme(|theme| theme.fg(ThemeColor::Accent, &provider.name))
-                    + &auth_type_label
                     + &status_indicator
             } else {
-                js_format!("  {}", with_theme(|theme| theme.fg(ThemeColor::Text, &provider.name)))
-                    + &auth_type_label
-                    + &status_indicator
+                js_format!("  {}", with_theme(|theme| theme.fg(ThemeColor::Text, &provider.name))) + &status_indicator
             };
             self.list_container.add_child(component(TruncatedText::new(line, 1, 0)));
         }
@@ -318,7 +295,7 @@ impl Component for OAuthSelectorComponent {
             self.update_list();
         } else if keybindings.matches(key_data, "tui.select.confirm") {
             if let Some(provider) = self.filtered_providers.get(self.selected_index) {
-                (self.on_select)(provider.id.clone(), provider.auth_type);
+                (self.on_select)(provider.id.clone());
             }
         } else if keybindings.matches(key_data, "tui.select.cancel") {
             (self.on_cancel)();
