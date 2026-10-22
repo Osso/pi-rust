@@ -41,17 +41,35 @@ impl EditorFixedCell for Cell {
 impl Host {
     fn record_event(&self, event: &'static str) {
         self.events.borrow_mut().push(event);
-        if let Some(path) = std::env::var_os("PI_EXTENSION_EDITOR_FAILURE_TRACE") {
-            std::fs::write(path, serde_json::to_vec(&*self.events.borrow()).unwrap()).unwrap();
-        }
+        flush_failure_trace(&self.events);
     }
 }
+fn flush_failure_trace(events: &RefCell<Vec<&'static str>>) {
+    if let Some(path) = std::env::var_os("PI_EXTENSION_EDITOR_FAILURE_TRACE") {
+        std::fs::write(path, serde_json::to_vec(&*events.borrow()).unwrap()).unwrap();
+    }
+}
+
+fn failure_request() -> Option<Value> {
+    match std::env::var("PI_EXTENSION_EDITOR_FAILURE_COMMAND") {
+        Ok(request) => Some(serde_json::from_str(&request).unwrap()),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(error) => panic!("invalid fixture request: {error}"),
+    }
+}
+
 impl ExtensionEditorHost for Host {
     fn suspend(&self) {
         self.record_event("stop");
+        if failure_request().is_some_and(|request| request["stopError"] == true) {
+            pi_coding_agent::utils::uncaught::throw_uncaught("Error", "stop fixture");
+        }
     }
     fn resume(&self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
         self.record_event("start");
+        if failure_request().is_some_and(|request| request["resumeError"] == true) {
+            return Err(pi_tui::terminal::TerminalRawModeError::new(true, "resume fixture"));
+        }
         Ok(())
     }
     fn request_forced_render(&self) {
@@ -98,9 +116,12 @@ async fn native_case(command: &str, next: Option<&str>, report: &std::path::Path
     }
     editor.handle_input(&"\x07".into());
     events.borrow_mut().push("input-returned");
+    flush_failure_trace(&events);
     tokio::time::timeout(std::time::Duration::from_secs(3), finished.notified())
         .await
         .expect("external editor finished");
+    // A pre-await failure can finish synchronously, but its rejection runs later.
+    tokio::task::yield_now().await;
     editor.handle_input(&"\r".into());
     let mut report: Value = serde_json::from_slice(&std::fs::read(report).unwrap()).unwrap();
     let path = report.as_object_mut().unwrap().remove("path").unwrap();
@@ -114,12 +135,13 @@ async fn native_case(command: &str, next: Option<&str>, report: &std::path::Path
 #[tokio::test(flavor = "current_thread")]
 async fn extension_editor_finally_restores_before_uncaught_read_failure_like_frozen_process() {
     const COMMAND: &str = "PI_EXTENSION_EDITOR_FAILURE_COMMAND";
-    if let Ok(command) = std::env::var(COMMAND) {
+    if let Some(request) = failure_request() {
+        let command = request["command"].as_str().unwrap();
         pi_coding_agent::utils::uncaught::install_uncaught_handler();
         install_theme();
         tokio::task::LocalSet::new()
             .run_until(async {
-                native_case(&command, None, std::path::Path::new("unused-after-failed-read"), true).await;
+                native_case(command, None, std::path::Path::new("unused-after-failed-read"), true).await;
             })
             .await;
         panic!("read failure must reach uncaught process boundary");
@@ -132,17 +154,18 @@ async fn extension_editor_finally_restores_before_uncaught_read_failure_like_fro
     )
     .unwrap();
     let command = format!("python3 {}", script.display());
-    let native_trace = directory.path().join("native.json");
-    let native = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "extension_editor_finally_restores_before_uncaught_read_failure_like_frozen_process",
-            "--nocapture",
-        ])
-        .env(COMMAND, &command)
-        .env("PI_EXTENSION_EDITOR_FAILURE_TRACE", &native_trace)
-        .output()
-        .unwrap();
+    let cases = [
+        ("read", json!({"command":command})),
+        ("stop", json!({"command":command,"stopError":true})),
+        ("resume", json!({"command":command,"resumeError":true})),
+        (
+            "write",
+            json!({"command":command,"tmpdir":directory.path().join("missing")}),
+        ),
+        ("empty-file", json!({"command":"  "})),
+        ("nul-file", json!({"command":"bad\0name"})),
+        ("nul-arg", json!({"command":"python3 a\0b"})),
+    ];
     let lock: Value = serde_json::from_str(include_str!("../../../docs/porting/source-lock.json")).unwrap();
     let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
     let head = std::process::Command::new("git")
@@ -154,33 +177,66 @@ async fn extension_editor_finally_restores_before_uncaught_read_failure_like_fro
         String::from_utf8(head.stdout).unwrap().trim(),
         lock["commit"].as_str().unwrap()
     );
-    let oracle_trace = directory.path().join("oracle.json");
-    let frozen = std::process::Command::new(source.join("node_modules/.bin/tsx"))
-        .arg("--tsconfig")
-        .arg(source.join("tsconfig.json"))
-        .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../oracle/extension-editor-failure-oracle.ts"))
-        .arg(source.join("packages/coding-agent/src"))
-        .arg(&command)
-        .arg(&oracle_trace)
-        .output()
-        .unwrap();
-    assert_eq!(
-        frozen.status.code(),
-        Some(1),
-        "{}",
-        String::from_utf8_lossy(&frozen.stderr)
-    );
-    assert_eq!(
-        native.status.code(),
-        Some(1),
-        "{}",
-        String::from_utf8_lossy(&native.stderr)
-    );
-    let expected: Value = serde_json::from_slice(&std::fs::read(oracle_trace).unwrap()).unwrap();
-    let actual: Value = serde_json::from_slice(&std::fs::read(native_trace).unwrap()).unwrap();
-    assert_eq!(actual, expected, "finally must restart/render before uncaught error");
-    assert!(String::from_utf8_lossy(&frozen.stderr).contains("ENOENT: no such file or directory, open"));
-    assert!(String::from_utf8_lossy(&native.stderr).contains("ENOENT: no such file or directory, open"));
+    let mut mismatches = Vec::new();
+    for (name, request) in cases {
+        let native_trace = directory.path().join(format!("native-{name}.json"));
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child
+            .args([
+                "--exact",
+                "extension_editor_finally_restores_before_uncaught_read_failure_like_frozen_process",
+                "--nocapture",
+            ])
+            .env(COMMAND, request.to_string())
+            .env("PI_EXTENSION_EDITOR_FAILURE_TRACE", &native_trace);
+        if let Some(tmpdir) = request["tmpdir"].as_str() {
+            child.env("TMPDIR", tmpdir);
+        }
+        let native = child.output().unwrap();
+        let oracle_trace = directory.path().join(format!("oracle-{name}.json"));
+        let frozen = std::process::Command::new(source.join("node_modules/.bin/tsx"))
+            .arg("--tsconfig")
+            .arg(source.join("tsconfig.json"))
+            .arg(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../oracle/extension-editor-failure-oracle.ts"),
+            )
+            .arg(source.join("packages/coding-agent/src"))
+            .arg(request.to_string())
+            .arg(&oracle_trace)
+            .output()
+            .unwrap();
+        assert_eq!(
+            frozen.status.code(),
+            Some(1),
+            "{name}: {}",
+            String::from_utf8_lossy(&frozen.stderr)
+        );
+        assert_eq!(
+            native.status.code(),
+            Some(1),
+            "{name}: {}",
+            String::from_utf8_lossy(&native.stderr)
+        );
+        let expected: Value = serde_json::from_slice(&std::fs::read(oracle_trace).unwrap()).unwrap();
+        let actual: Value = serde_json::from_slice(&std::fs::read(native_trace).unwrap()).unwrap();
+        let error_line = |stderr: &[u8]| {
+            let text = String::from_utf8_lossy(stderr);
+            let line = text
+                .lines()
+                .find(|line| line.starts_with("Error:") || line.starts_with("TypeError"))
+                .expect("uncaught error diagnostic");
+            pi_js_compat::js_regex::JsRegex::with_flags(r"pi-extension-editor-[0-9]+\.md", "g")
+                .unwrap()
+                .replace_all(line, "<temporary-file>")
+        };
+        let native_error = error_line(&native.stderr);
+        let frozen_error = error_line(&frozen.stderr);
+        if actual != expected || native_error != frozen_error {
+            mismatches.push(json!({"case":name,"actual":actual,"expected":expected,"nativeError":native_error,"frozenError":frozen_error}));
+        }
+    }
+    assert!(mismatches.is_empty(), "{mismatches:#?}");
 }
 
 #[tokio::test(flavor = "current_thread")]

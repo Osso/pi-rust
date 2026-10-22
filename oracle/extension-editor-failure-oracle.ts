@@ -2,7 +2,13 @@ import { writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 async function main(): Promise<void> {
-	const [source, command, trace] = process.argv.slice(2);
+	const [source, requestJson, trace] = process.argv.slice(2);
+	const request: {
+		command: string;
+		stopError?: boolean;
+		resumeError?: boolean;
+		tmpdir?: string;
+	} = JSON.parse(requestJson!);
 	const { ExtensionEditorComponent } = await import(
 		pathToFileURL(`${source}/modes/interactive/components/extension-editor.ts`)
 			.href
@@ -41,9 +47,12 @@ async function main(): Promise<void> {
 		},
 		stop() {
 			record("stop");
+			if (request.stopError) throw new Error("stop fixture");
 		},
 		start() {
 			record("start");
+			if (request.resumeError)
+				throw new Error("Failed to enable terminal raw mode: resume fixture");
 		},
 	};
 	const editor = new ExtensionEditorComponent(
@@ -54,8 +63,9 @@ async function main(): Promise<void> {
 		() => {},
 		() => {},
 		undefined,
-		command,
+		request.command,
 	);
+	if (request.tmpdir !== undefined) process.env.TMPDIR = request.tmpdir;
 	editor.handleInput("\x07");
 	record("input-returned");
 	setTimeout(() => {
