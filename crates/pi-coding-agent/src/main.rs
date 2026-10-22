@@ -346,7 +346,7 @@ pub struct RuntimeFactoryOptions {
     pub trust_store: Arc<ProjectTrustStore>,
     pub trust_prompt_mode: AppMode,
     pub app_mode: AppMode,
-    pub project_trust_by_cwd: Arc<Mutex<HashMap<String, bool>>>,
+    pub project_trust_by_cwd: Arc<Mutex<HashMap<JsString, bool>>>,
     pub additional_extension_paths: Vec<JsString>,
     pub additional_skill_paths: Vec<JsString>,
     pub additional_prompt_template_paths: Vec<JsString>,
@@ -356,14 +356,17 @@ pub struct RuntimeFactoryOptions {
     pub multi_agent_runtime_handles: crate::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
 }
 
-fn trust_decision_is_trusted(store: &ProjectTrustStore, cwd: &str) -> bool {
-    store.get(cwd) == Ok(ProjectTrustDecision::Trusted)
+fn trust_decision_is_trusted(store: &ProjectTrustStore, cwd: &JsString) -> Result<bool, JsString> {
+    store
+        .get(cwd)
+        .map(|decision| decision == ProjectTrustDecision::Trusted)
+        .map_err(|error| error.message().clone())
 }
 
 /// Runtime reason strings mapped to `session_start` metadata.
 fn session_start_event(
     reason: &str,
-    previous_session_file: Option<String>,
+    previous_session_file: Option<JsString>,
 ) -> crate::core::extensions::types::SessionStartEvent {
     use crate::core::extensions::types::{SessionStartEvent, SessionStartReason};
     let reason = match reason {
@@ -381,12 +384,12 @@ fn session_start_event(
 }
 
 fn project_trust_context(
-    cwd: &str,
+    cwd: &JsString,
     mode: AppMode,
     has_ui: bool,
 ) -> crate::core::extensions::types::ProjectTrustContext {
     create_project_trust_context(CreateProjectTrustContextOptions {
-        cwd: cwd.to_owned(),
+        cwd: cwd.clone(),
         mode,
         has_ui,
         startup_ui: None,
@@ -401,7 +404,7 @@ async fn create_runtime(
     let parsed = &options.parsed;
     session_manager
         .set_metadata_control_db_path(
-            Some(&get_control_db_path(&get_user_state_root())),
+            Some(&JsString::from(get_control_db_path(&get_user_state_root()))),
             crate::core::session_manager::SetMetadataControlDbPathOptions {
                 index_message_text: None,
                 cwd_override: None,
@@ -422,20 +425,22 @@ async fn create_runtime(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .get(&cwd)
         .copied();
-    let has_trust_requiring_resources = has_trust_requiring_project_resources(&cwd);
+    let has_trust_requiring_resources =
+        has_trust_requiring_project_resources(&cwd).map_err(|error| error.message().clone())?;
     let should_resolve_project_trust =
         parsed.project_trust_override.is_none() && cached_project_trust.is_none() && has_trust_requiring_resources;
-    let project_trusted = if should_resolve_project_trust {
-        false
-    } else {
-        cached_project_trust
-            .or(parsed.project_trust_override)
-            .unwrap_or(!has_trust_requiring_resources || trust_decision_is_trusted(&options.trust_store, &cwd))
+    let project_trusted = match (
+        should_resolve_project_trust,
+        cached_project_trust.or(parsed.project_trust_override),
+    ) {
+        (true, _) => false,
+        (false, Some(trusted)) => trusted,
+        (false, None) => !has_trust_requiring_resources || trust_decision_is_trusted(&options.trust_store, &cwd)?,
     };
 
     let runtime_settings_manager = SettingsManager::create(
         &cwd,
-        Some(Path::new(&options.agent_dir)),
+        Some(&options.agent_dir),
         SettingsManagerCreateOptions {
             project_trusted: Some(project_trusted),
         },
@@ -469,7 +474,7 @@ async fn create_runtime(
                         mode,
                         is_initial_runtime && trust_prompt_mode == AppMode::Interactive,
                     );
-                    let on_extension_error = |message: String| {
+                    let on_extension_error = |message: JsString| {
                         diagnostics
                             .lock()
                             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -488,7 +493,7 @@ async fn create_runtime(
                         on_extension_error: Some(&on_extension_error),
                     })
                     .await
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| error.message().clone())?;
                     project_trust_by_cwd
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -512,8 +517,11 @@ async fn create_runtime(
         no_prompt_templates: parsed.no_prompt_templates.is_some_and(|value| value),
         no_themes: parsed.no_themes.is_some_and(|value| value),
         no_context_files: parsed.no_context_files.is_some_and(|value| value),
-        system_prompt: parsed.system_prompt.clone(),
-        append_system_prompt: parsed.append_system_prompt.clone(),
+        system_prompt: parsed.system_prompt.as_deref().map(JsString::from),
+        append_system_prompt: parsed
+            .append_system_prompt
+            .as_ref()
+            .map(|prompts| prompts.iter().map(|prompt| JsString::from(prompt.as_str())).collect()),
         ..Default::default()
     };
 
@@ -545,20 +553,20 @@ async fn create_runtime(
     diagnostics.extend(resource_loader.get_extensions().errors.into_iter().map(|error| {
         AgentSessionRuntimeDiagnostic {
             diagnostic_type: "error".to_owned(),
-            message: format!(
-                "Failed to load extension \"{}\": {}",
-                error.path,
-                pi_js_compat::js_json::encode_node_utf8(&error.error)
-            ),
+            message: js_format!("Failed to load extension \"{}\": {}", error.path, error.error),
         }
     }));
 
-    let model_patterns = parsed.models.clone().or_else(|| {
-        settings_manager
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get_enabled_models()
-    });
+    let model_patterns = parsed
+        .models
+        .as_ref()
+        .map(|models| models.iter().map(|model| JsString::from(model.as_str())).collect())
+        .or_else(|| {
+            settings_manager
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .get_enabled_models()
+        });
     let scoped_models = match model_patterns.filter(|patterns| !patterns.is_empty()) {
         Some(patterns) => {
             resolve_model_scope(
@@ -590,7 +598,7 @@ async fn create_runtime(
             None => diagnostics.push(AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "error".to_owned(),
                 message: "--api-key requires a model to be specified via --model, --provider/--model, or --models"
-                    .to_owned(),
+                    .into(),
             }),
             Some(model) => {
                 let provider = model.provider.clone();
@@ -775,7 +783,7 @@ pub fn collect_settings_diagnostics(
         .into_iter()
         .map(|error| AgentSessionRuntimeDiagnostic {
             diagnostic_type: "warning".to_owned(),
-            message: format!("({context}, {} settings) {}", error.scope.as_str(), error.message),
+            message: js_format!("({}, {} settings) {}", context, error.scope.as_str(), error.message),
         })
         .collect()
 }
@@ -785,9 +793,9 @@ pub fn report_diagnostics(diagnostics: &[AgentSessionRuntimeDiagnostic]) {
     let chalk = Chalk::stderr();
     for diagnostic in diagnostics {
         let message = match diagnostic.diagnostic_type.as_str() {
-            "error" => chalk.red(&format!("Error: {}", diagnostic.message)),
-            "warning" => chalk.yellow(&format!("Warning: {}", diagnostic.message)),
-            _ => chalk.dim(&diagnostic.message),
+            "error" => chalk.red(js_format!("Error: {}", diagnostic.message)),
+            "warning" => chalk.yellow(js_format!("Warning: {}", diagnostic.message)),
+            _ => chalk.dim(diagnostic.message.clone()),
         };
         console_error(&message);
     }
@@ -1614,7 +1622,7 @@ pub fn build_session_options(
         let resolved = resolve_cli_model(
             &ResolveCliModelOptions {
                 cli_provider: parsed.provider.clone(),
-                cli_model: Some(cli_model.to_owned()),
+                cli_model: Some(cli_model.into()),
                 cli_thinking: parsed.thinking,
             },
             model_runtime,
@@ -1622,13 +1630,13 @@ pub fn build_session_options(
         if let Some(warning) = resolved.warning {
             diagnostics.push(AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "warning".to_owned(),
-                message: warning,
+                message: warning.into(),
             });
         }
         if let Some(error) = resolved.error {
             diagnostics.push(AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "error".to_owned(),
-                message: error,
+                message: error.into(),
             });
         }
         if let Some(model) = resolved.model {
@@ -1764,11 +1772,11 @@ struct CliSessionsDependencies;
 impl SessionsCommandDependencies for CliSessionsDependencies {}
 
 struct CliDebugDependencies {
-    agent_dir: String,
+    agent_dir: JsString,
 }
 
 impl DebugCommandDependencies for CliDebugDependencies {
-    fn agent_dir(&self) -> String {
+    fn agent_dir(&self) -> JsString {
         self.agent_dir.clone()
     }
 }
@@ -1804,18 +1812,21 @@ fn extension_flags_from_loader(resource_loader: &Arc<dyn ResourceLoader>) -> Vec
         .collect()
 }
 
-async fn read_piped_stdin() -> Option<String> {
+/// `readPipedStdin`: `setEncoding("utf8")` decodes with replacement, so the text is well-formed.
+/// A stream error is uncaught in TS and terminates the process; it propagates here.
+async fn read_piped_stdin() -> Result<Option<String>, JsString> {
     if std::io::stdin().is_terminal() {
-        return None;
+        return Ok(None);
     }
     use tokio::io::AsyncReadExt;
-    let mut data = String::new();
-    let mut stdin = tokio::io::stdin();
-    if stdin.read_to_string(&mut data).await.is_err() {
-        return None;
-    }
-    let trimmed = data.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    let mut data = Vec::new();
+    tokio::io::stdin()
+        .read_to_end(&mut data)
+        .await
+        .map_err(|error| JsString::from(error.to_string()))?;
+    let data = String::from_utf8_lossy(&data);
+    let trimmed = pi_js_compat::string::js_trim(&data);
+    Ok((!trimmed.is_empty()).then(|| trimmed.to_owned()))
 }
 
 async fn prompt_for_missing_session_cwd(
@@ -1893,7 +1904,7 @@ fn reject_invalid_standalone_worker_startup(args: &[String]) -> bool {
         .into_iter()
         .map(|diagnostic| AgentSessionRuntimeDiagnostic {
             diagnostic_type: diagnostic.kind.as_str().into(),
-            message: diagnostic.message,
+            message: diagnostic.message.into(),
         })
         .collect();
     report_diagnostics(&diagnostics);
@@ -1965,7 +1976,9 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         cwd: cwd.clone(),
         agent_dir: agent_dir.clone(),
         install_context: InstallContext::for_process(),
-        entrypoint: std::env::current_exe().ok().map(|path| path.display().to_string()),
+        entrypoint: std::env::current_exe()
+            .ok()
+            .map(|path| JsString::from(path.display().to_string())),
         extensions_loader: Arc::new(DefaultProjectTrustExtensionsLoader::default()),
         config_selector: Rc::new(TuiConfigSelector {
             terminal: Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new())),
@@ -1974,12 +1987,13 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         extension_factories: package_command_extension_factories.clone(),
     };
 
-    if let Some(outcome) = execute_package_command(args, &package_effects).await? {
+    let command_args: Vec<JsString> = args.iter().map(|arg| JsString::from(arg.as_str())).collect();
+    if let Some(outcome) = execute_package_command(&command_args, &package_effects).await? {
         print_command_outcome(&outcome);
         let code = outcome.exit_code.unwrap_or(0);
         return Ok(Some(code));
     }
-    if let Some(outcome) = execute_config_command(args, &package_effects).await? {
+    if let Some(outcome) = execute_config_command(&command_args, &package_effects).await? {
         print_command_outcome(&outcome);
         return Ok(None);
     }
@@ -2013,7 +2027,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
             agent_dir: agent_dir.clone(),
         },
     )
-    .await;
+    .await?;
     if debug.handled {
         return Ok(Some(debug.exit_code.unwrap_or(0)));
     }
@@ -2208,7 +2222,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         None
     };
 
-    let trust_store = Arc::new(ProjectTrustStore::new(&agent_dir));
+    let trust_store = Arc::new(ProjectTrustStore::new(&agent_dir).map_err(|error| error.message().clone())?);
     let trust_prompt_mode = if parsed.help == Some(true)
         || parsed.list_models.is_some()
         || parsed.list_tools == Some(true)
@@ -2256,7 +2270,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         (
             runtime.services().clone(),
             runtime.session().clone(),
-            runtime.model_fallback_message().map(str::to_owned),
+            runtime.model_fallback_message().cloned(),
             runtime.diagnostics().to_vec(),
         )
     };
@@ -2267,8 +2281,10 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         let settings = settings_manager.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         (
             settings.get_image_auto_resize(),
-            settings.get_theme().map(str::to_owned),
-            settings.get_http_idle_timeout_ms().map_err(|error| error.to_string())?,
+            settings.get_theme().cloned(),
+            settings
+                .get_http_idle_timeout_ms()
+                .map_err(|error| error.message().clone())?,
         )
     };
     let _ = configure_http_dispatcher(http_idle_timeout_ms as f64)?;
@@ -2310,7 +2326,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     }
 
     let stdin_content = if app_mode != AppMode::Rpc {
-        let content = read_piped_stdin().await;
+        let content = read_piped_stdin().await?;
         if content.is_some() && app_mode == AppMode::Interactive {
             app_mode = AppMode::Print;
         }
@@ -2322,7 +2338,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
 
     let initial = prepare_initial_message(&mut parsed, image_auto_resize, stdin_content.as_deref()).await?;
     time(&"prepareInitialMessage".into(), TimingLabel::Main);
-    init_theme(theme.as_deref(), app_mode == AppMode::Interactive).map_err(|error| error.to_string())?;
+    init_theme(theme.as_ref(), app_mode == AppMode::Interactive).map_err(|error| error.message().clone())?;
     time(&"initTheme".into(), TimingLabel::Main);
 
     if app_mode == AppMode::Interactive && !migrations.deprecation_warnings.is_empty() {
@@ -2345,7 +2361,11 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     time(&"createAgentSession".into(), TimingLabel::Main);
 
     let no_models_message = format_no_models_available_message();
-    if app_mode != AppMode::Interactive && model_fallback_message.as_deref() == Some(no_models_message.as_str()) {
+    if app_mode != AppMode::Interactive
+        && model_fallback_message
+            .as_ref()
+            .is_some_and(|message| *message == *no_models_message.as_str())
+    {
         console_error(&Chalk::stderr().red(&no_models_message));
         return Ok(Some(1));
     }
@@ -2379,17 +2399,18 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         return Ok(None);
     }
     if app_mode == AppMode::Interactive {
-        let auto_trust_on_reload_cwd =
-            if parsed.project_trust_override.is_none() && !has_trust_requiring_project_resources(&session_cwd) {
-                Some(session_cwd.clone())
-            } else {
-                None
-            };
+        let auto_trust_on_reload_cwd = if parsed.project_trust_override.is_none()
+            && !has_trust_requiring_project_resources(&session_cwd).map_err(|error| error.message().clone())?
+        {
+            Some(session_cwd.clone())
+        } else {
+            None
+        };
         let options = InteractiveModeOptions {
             migrated_providers: migrations.migrated_auth_providers.clone(),
             model_fallback_message: model_fallback_message.clone(),
             auto_trust_on_reload_cwd,
-            initial_message: initial.initial_message.clone().map(JsString::from),
+            initial_message: initial.initial_message.clone(),
             initial_images: initial.initial_images.clone().unwrap_or_default(),
             initial_messages: parsed.messages.iter().map(JsString::from).collect(),
             control_message,
@@ -2407,7 +2428,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
                 let store = Arc::clone(&multi_agent_store);
                 let handles = multi_agent_runtime_handles.clone();
                 let control_db_path = control_db_path.clone();
-                move |agent_id: String, message: JsString, session_id: String| {
+                move |agent_id: JsString, message: JsString, session_id: JsString| {
                     let store = Arc::clone(&store);
                     let handles = handles.clone();
                     let control_db_path = control_db_path.clone();
@@ -2432,7 +2453,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
             cancel_multi_agent: Some(Arc::new({
                 let store = Arc::clone(&multi_agent_store);
                 let handles = multi_agent_runtime_handles.clone();
-                move |agent_id: String| {
+                move |agent_id: JsString| {
                     let store = Arc::clone(&store);
                     let handles = handles.clone();
                     Box::pin(async move {
@@ -2490,7 +2511,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         PrintModeOptions {
             mode: print_mode,
             messages: parsed.messages.iter().map(JsString::from).collect(),
-            initial_message: initial.initial_message.map(JsString::from),
+            initial_message: initial.initial_message,
             initial_images: initial.initial_images.unwrap_or_default(),
         },
     )
