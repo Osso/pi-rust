@@ -25,7 +25,7 @@ fn frontmatter_body_keeps_raw_units_after_native_extraction() {
     );
     assert_eq!(parsed.body, *source["output"]["body"].as_string().unwrap());
     // Native YAML is pending a user decision: fail explicitly, never discard the scalar.
-    assert!(parse_frontmatter(&"---\ndescription: \"\\uD800\"\n---\nbody".into()).is_err());
+    assert!(parse_frontmatter("---\ndescription: \"\\uD800\"\n---\nbody").is_err());
 }
 
 #[test]
