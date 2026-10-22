@@ -294,6 +294,47 @@ fn text_script() -> Vec<ResponseSpec> {
 fn scenarios() -> Vec<Scenario> {
     let mut scenarios = Vec::new();
     scenarios.push(Scenario {
+        name: "fractional-interleaved-scratch",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        capture_payload: false,
+        simple: None,
+        script: vec![ResponseSpec::eventstream(vec![
+            FrameSpec::event("messageStart", json!({"role":"assistant"})),
+            FrameSpec::event(
+                "contentBlockDelta",
+                json!({"contentBlockIndex":0.25,"delta":{"text":"a"}}),
+            ),
+            FrameSpec::event(
+                "contentBlockDelta",
+                json!({"contentBlockIndex":0.5,"delta":{"text":"b"}}),
+            ),
+            FrameSpec::event(
+                "contentBlockDelta",
+                json!({"contentBlockIndex":0.25,"delta":{"text":"c"}}),
+            ),
+            FrameSpec::event(
+                "contentBlockStart",
+                json!({"contentBlockIndex":0.75,"start":{"toolUse":{"toolUseId":"call_frac","name":"lookup"}}}),
+            ),
+            FrameSpec::event(
+                "contentBlockDelta",
+                json!({"contentBlockIndex":0.75,"delta":{"toolUse":{"input":"{\"n\":1"}}}),
+            ),
+            FrameSpec::event(
+                "contentBlockDelta",
+                json!({"contentBlockIndex":0.875,"delta":{"reasoningContent":{"text":"why","signature":"sig"}}}),
+            ),
+            FrameSpec::event("contentBlockStop", json!({"contentBlockIndex":0.75})),
+            FrameSpec::event("contentBlockStop", json!({"contentBlockIndex":0.5})),
+            FrameSpec::event("contentBlockStop", json!({"contentBlockIndex":0.25})),
+            FrameSpec::event("contentBlockStop", json!({"contentBlockIndex":0.875})),
+            FrameSpec::event("messageStop", json!({"stopReason":"end_turn"})),
+        ])],
+    });
+    scenarios.push(Scenario {
         name: "text",
         model: model(),
         context: context(),
@@ -535,10 +576,25 @@ fn scenarios() -> Vec<Scenario> {
     let mut bearer_options = options();
     bearer_options.request.api_key = Some(("bedrock-api-key".to_owned()).into());
     scenarios.push(Scenario {
-        name: "bearer",
+        name: "source-ignores-api-key",
         model: model(),
         context: context(),
         options: bearer_options,
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: false,
+        simple: None,
+    });
+
+    let mut explicit_bearer = options();
+    explicit_bearer
+        .extra
+        .insert("bearerToken".to_owned(), json!("bedrock-api-key"));
+    scenarios.push(Scenario {
+        name: "explicit-bearer",
+        model: model(),
+        context: context(),
+        options: explicit_bearer,
         process_env: BTreeMap::new(),
         script: text_script(),
         capture_payload: false,
@@ -671,6 +727,21 @@ fn scenarios() -> Vec<Scenario> {
         ],
         capture_payload: false,
         simple: None,
+    });
+
+    scenarios.push(Scenario {
+        name: "gateway-plain-error",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        capture_payload: false,
+        simple: None,
+        script: vec![ResponseSpec::http(
+            403,
+            vec![("content-type", "text/plain")],
+            "blocked by gateway WAF",
+        )],
     });
 
     scenarios.push(Scenario {
@@ -930,7 +1001,36 @@ fn split_chunks(body: Vec<u8>, sizes: &[usize]) -> Vec<Vec<u8>> {
     chunks
 }
 
-fn normalize_request_headers(headers: &Map<String, Value>) -> Map<String, Value> {
+#[test]
+fn host_version_masking_keeps_sdk_build_language_and_feature_identity() {
+    let value = "aws-sdk-js/9 ua/2.1 os/linux#7 lang/rust md/nodejs#26 md/tsc#9 api/bedrock-runtime#9 m/E,e";
+    assert_eq!(
+        normalize_sdk_host_versions(value),
+        "aws-sdk-js/9 ua/2.1 os/linux#<host-version> lang/rust md/nodejs#<host-version> md/tsc#9 api/bedrock-runtime#9 m/E,e"
+    );
+    let headers = json!({"user-agent":value}).as_object().unwrap().clone();
+    assert_eq!(normalize_request_headers(&headers, false), headers);
+}
+
+fn normalize_sdk_host_versions(value: &str) -> String {
+    value
+        .split(' ')
+        .map(|component| {
+            if component.starts_with("os/") {
+                if let Some((platform, _version)) = component.split_once('#') {
+                    return format!("{platform}#<host-version>");
+                }
+            }
+            if component.starts_with("md/nodejs#") {
+                return "md/nodejs#<host-version>".to_owned();
+            }
+            component.to_owned()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn normalize_request_headers(headers: &Map<String, Value>, default_user_agent: bool) -> Map<String, Value> {
     headers
         .iter()
         .map(|(name, value)| {
@@ -938,6 +1038,10 @@ fn normalize_request_headers(headers: &Map<String, Value>) -> Map<String, Value>
             let value = match name.as_str() {
                 "x-amz-date" => json!("<clock>"),
                 "amz-sdk-invocation-id" => json!("<generated>"),
+                "user-agent" if default_user_agent => value
+                    .as_str()
+                    .map(|value| json!(normalize_sdk_host_versions(value)))
+                    .unwrap_or_else(|| value.clone()),
                 "authorization" => {
                     match value
                         .as_str()
@@ -984,7 +1088,7 @@ fn parse_amz_date(value: &str) -> i64 {
 }
 
 fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
-    if let Some(api_key) = &scenario.options.request.api_key {
+    if let Some(api_key) = scenario.options.extra.get("bearerToken").and_then(Value::as_str) {
         assert_eq!(
             oracle_request["headers"]["Authorization"].as_str(),
             Some(pi_js_compat::js_json::encode_node_utf8(&pi_js_compat::js_format!("Bearer {}", api_key)).as_str()),
@@ -1081,7 +1185,7 @@ async fn bedrock_converse_stream_matches_the_pinned_typescript_module() {
         assert_eq!(
             requests.len(),
             oracle_requests.len(),
-            "request count mismatch for {}",
+            "request count mismatch for {}; oracle={response}",
             scenario.name
         );
         for (rust_request, oracle_request) in requests.iter().zip(oracle_requests) {
@@ -1101,9 +1205,15 @@ async fn bedrock_converse_stream_matches_the_pinned_typescript_module() {
                 scenario.name
             );
             let oracle_headers = oracle_request["headers"].as_object().expect("headers");
+            let default_user_agent = !scenario
+                .options
+                .request
+                .headers
+                .as_ref()
+                .is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case("user-agent")));
             assert_eq!(
-                normalize_request_headers(&headers_map(&rust_request.headers)),
-                normalize_request_headers(oracle_headers),
+                normalize_request_headers(&headers_map(&rust_request.headers), default_user_agent),
+                normalize_request_headers(oracle_headers, default_user_agent),
                 "headers mismatch for {}",
                 scenario.name
             );
