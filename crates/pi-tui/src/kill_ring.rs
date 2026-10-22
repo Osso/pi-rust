@@ -3,10 +3,12 @@
 //! Tracks killed (deleted) text entries. Consecutive kills can accumulate into
 //! a single entry. Supports yank (paste most recent) and yank-pop (cycle).
 
+use pi_js_compat::js_json::JsString;
+
 /// Ring buffer of killed text.
 #[derive(Debug, Default)]
 pub struct KillRing {
-    ring: Vec<String>,
+    ring: Vec<JsString>,
 }
 
 impl KillRing {
@@ -19,26 +21,22 @@ impl KillRing {
     /// When `accumulate` is set and the ring is non-empty, the text is merged
     /// into the most recent entry: prepended for backward deletion, appended
     /// for forward deletion.
-    pub fn push(&mut self, text: &str, prepend: bool, accumulate: bool) {
+    pub fn push(&mut self, text: &JsString, prepend: bool, accumulate: bool) {
         if text.is_empty() {
             return;
         }
 
         if accumulate && !self.ring.is_empty() {
             let last = self.ring.pop().expect("ring is non-empty");
-            self.ring.push(if prepend {
-                format!("{text}{last}")
-            } else {
-                format!("{last}{text}")
-            });
+            self.ring.push(if prepend { text.clone() + &last } else { last + text });
         } else {
-            self.ring.push(text.to_string());
+            self.ring.push(text.clone());
         }
     }
 
     /// Most recent entry without modifying the ring.
-    pub fn peek(&self) -> Option<&str> {
-        self.ring.last().map(String::as_str)
+    pub fn peek(&self) -> Option<&JsString> {
+        self.ring.last()
     }
 
     /// Move the last entry to the front (for yank-pop cycling).

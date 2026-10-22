@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 
 use pi_tui::components::dynamic_border::DynamicBorder;
@@ -11,7 +12,7 @@ fn renders_a_full_width_border() {
 
 #[test]
 fn applies_a_custom_formatter() {
-    let mut border = DynamicBorder::new(Rc::new(|line: &str| format!("[{line}]")));
+    let mut border = DynamicBorder::new(Rc::new(|line: &JsString| JsString::from("[") + line + "]"));
     assert_eq!(border.render(3), vec!["[───]"]);
 }
 

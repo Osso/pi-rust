@@ -5,6 +5,8 @@
 //! are `Rc<RefCell<dyn Component>>` handles, which preserves the object identity
 //! the source relies on for focus, overlays, fixed cells, and render regions.
 
+use pi_js_compat::js_json::JsString;
+
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -47,9 +49,9 @@ fn same_component(left: &ComponentRef, right: &ComponentRef) -> bool {
 
 /// Component interface: render to lines and optionally handle input.
 pub trait Component {
-    fn render(&mut self, width: usize) -> Vec<String>;
+    fn render(&mut self, width: usize) -> Vec<JsString>;
 
-    fn handle_input(&mut self, _data: &str) {}
+    fn handle_input(&mut self, _data: &JsString) {}
 
     /// Whether the component implements input handling. Containers override this
     /// to `false`, matching the source's `handleInput?` presence check.
@@ -186,7 +188,7 @@ impl Container {
         &self.children
     }
 
-    pub fn render_children(&mut self, width: usize) -> Vec<String> {
+    pub fn render_children(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         for child in &self.children {
             lines.extend(child.borrow_mut().render(width));
@@ -202,7 +204,7 @@ impl Container {
 }
 
 impl Component for Container {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.render_children(width)
     }
 
@@ -224,14 +226,14 @@ impl Component for Container {
 }
 
 /// Raw terminal input listener (`TuiInputListener`).
-pub type TuiInputListener = Rc<dyn Fn(&str) -> TuiInputListenerResult>;
+pub type TuiInputListener = Rc<dyn Fn(&JsString) -> TuiInputListenerResult>;
 type ColorSchemeListener = Rc<dyn Fn(TerminalColorScheme)>;
 
 /// Input listener result: optional consumption and optional data rewrite.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TuiInputListenerResult {
     pub consume: bool,
-    pub data: Option<String>,
+    pub data: Option<JsString>,
 }
 
 /// Overlay anchor positions.
@@ -407,7 +409,7 @@ enum OverlayFocusRestorePolicy {
 pub(crate) struct FixedCellState {
     pub(crate) row: Option<i64>,
     pub(crate) col: Option<i64>,
-    pub(crate) value: String,
+    pub(crate) value: JsString,
     pub(crate) disposed: bool,
 }
 
@@ -439,13 +441,14 @@ impl FixedCell {
         state.col = None;
     }
 
-    pub fn update(&self, value: &str) -> bool {
+    pub fn update(&self, value: impl Into<JsString>) -> bool {
+        let value = value.into();
         {
             let mut state = self.state.borrow_mut();
             if state.disposed {
                 return false;
             }
-            state.value = value.to_string();
+            state.value = value.clone();
         }
         match &self.writer {
             FixedCellWriter::Immediate(renderer) => match renderer.upgrade() {
@@ -646,8 +649,8 @@ pub trait RendererApi {
     fn before_terminal_stop(&self, options: &TuiStopOptions);
     fn after_terminal_stop(&self, _options: &TuiStopOptions) {}
     /// Stop output around `Terminal::stop`, published for cross-thread crashes.
-    fn terminal_stop_output(&self) -> (String, String) {
-        (String::new(), String::new())
+    fn terminal_stop_output(&self) -> (JsString, JsString) {
+        (JsString::default(), JsString::default())
     }
     fn mode(&self) -> TuiMode {
         TuiMode::Regular
@@ -662,7 +665,7 @@ struct TuiBaseInner {
     focused_component: RefCell<Option<ComponentRef>>,
     deferred_focus_updates: RefCell<Vec<(ComponentRef, bool)>>,
     input_listeners: RefCell<Vec<(usize, TuiInputListener)>>,
-    input_listener_handles: ListenerHandles<dyn Fn(&str) -> TuiInputListenerResult>,
+    input_listener_handles: ListenerHandles<dyn Fn(&JsString) -> TuiInputListenerResult>,
     next_listener_id: Cell<usize>,
     on_debug: RefCell<Option<Rc<dyn Fn()>>>,
     render_requested: Cell<bool>,
@@ -864,12 +867,15 @@ impl TuiBase {
             .is_some_and(|renderer| renderer.mode() == TuiMode::Regular)
             && !self.inner.focus_reporting_enabled.get()
         {
-            self.inner.terminal.borrow_mut().write(ENABLE_TERMINAL_FOCUS_REPORTING);
+            self.inner
+                .terminal
+                .borrow_mut()
+                .write(&JsString::from(ENABLE_TERMINAL_FOCUS_REPORTING));
             self.inner.focus_reporting_enabled.set(true);
         }
         self.inner.terminal.borrow_mut().hide_cursor();
         if self.inner.terminal_color_scheme_notifications_enabled.get() {
-            self.inner.terminal.borrow_mut().write("\x1b[?2031h");
+            self.inner.terminal.borrow_mut().write(&JsString::from("\x1b[?2031h"));
         }
         self.query_cell_size();
         self.publish_terminal_restore();
@@ -881,7 +887,7 @@ impl TuiBase {
         let Some(restore) = self.inner.terminal.borrow().crash_restore() else {
             return;
         };
-        let mut before = String::new();
+        let mut before = JsString::default();
         if self.inner.focus_reporting_enabled.get() {
             before.push_str(DISABLE_TERMINAL_FOCUS_REPORTING);
         }
@@ -907,11 +913,14 @@ impl TuiBase {
             .is_some_and(|renderer| renderer.mode() == TuiMode::Regular)
             && self.inner.focus_reporting_enabled.get()
         {
-            self.inner.terminal.borrow_mut().write(DISABLE_TERMINAL_FOCUS_REPORTING);
+            self.inner
+                .terminal
+                .borrow_mut()
+                .write(&JsString::from(DISABLE_TERMINAL_FOCUS_REPORTING));
             self.inner.focus_reporting_enabled.set(false);
         }
         if self.inner.terminal_color_scheme_notifications_enabled.get() {
-            self.inner.terminal.borrow_mut().write("\x1b[?2031l");
+            self.inner.terminal.borrow_mut().write(&JsString::from("\x1b[?2031l"));
         }
         if let Some(renderer) = self.renderer() {
             renderer.before_terminal_stop(&options);
@@ -959,10 +968,11 @@ impl TuiBase {
         }
         self.inner.terminal_color_scheme_notifications_enabled.set(enabled);
         if !self.inner.stopped.get() {
-            self.inner
-                .terminal
-                .borrow_mut()
-                .write(if enabled { "\x1b[?2031h" } else { "\x1b[?2031l" });
+            self.inner.terminal.borrow_mut().write(&JsString::from(if enabled {
+                "\x1b[?2031h"
+            } else {
+                "\x1b[?2031l"
+            }));
         }
         self.publish_terminal_restore();
     }
@@ -971,7 +981,7 @@ impl TuiBase {
         if get_capabilities().images.is_none() {
             return;
         }
-        self.inner.terminal.borrow_mut().write("\x1b[16t");
+        self.inner.terminal.borrow_mut().write(&JsString::from("\x1b[16t"));
     }
 
     pub fn query_terminal_background_color(&self, timeout: Duration) -> TerminalBackgroundQuery {
@@ -987,7 +997,7 @@ impl TuiBase {
         self.inner
             .pending_osc11_replies
             .set(self.inner.pending_osc11_replies.get() + 1);
-        self.inner.terminal.borrow_mut().write("\x1b]11;?\x07");
+        self.inner.terminal.borrow_mut().write(&JsString::from("\x1b]11;?\x07"));
         TerminalBackgroundQuery { state }
     }
 
@@ -1012,7 +1022,7 @@ impl TuiBase {
             .pending_color_scheme_queries
             .borrow_mut()
             .push(Rc::clone(&state));
-        self.inner.terminal.borrow_mut().write("\x1b[?996n");
+        self.inner.terminal.borrow_mut().write(&JsString::from("\x1b[?996n"));
         TerminalColorSchemeQuery { state }
     }
 
@@ -1183,7 +1193,7 @@ impl TuiBase {
         }
     }
 
-    fn consume_terminal_focus_report(&self, data: &str) -> bool {
+    fn consume_terminal_focus_report(&self, data: &JsString) -> bool {
         if self.renderer().map(|renderer| renderer.mode()) != Some(TuiMode::Regular) {
             return false;
         }
@@ -1206,7 +1216,7 @@ impl TuiBase {
         true
     }
 
-    fn consume_osc11_background_response(&self, data: &str) -> bool {
+    fn consume_osc11_background_response(&self, data: &JsString) -> bool {
         if self.inner.pending_osc11_replies.get() == 0 {
             return false;
         }
@@ -1228,7 +1238,7 @@ impl TuiBase {
         true
     }
 
-    fn consume_terminal_color_scheme_report(&self, data: &str) -> bool {
+    fn consume_terminal_color_scheme_report(&self, data: &JsString) -> bool {
         let Some(scheme) = parse_terminal_color_scheme_report(data) else {
             return false;
         };
@@ -1241,7 +1251,7 @@ impl TuiBase {
         true
     }
 
-    fn consume_cell_size_response(&self, data: &str) -> bool {
+    fn consume_cell_size_response(&self, data: &JsString) -> bool {
         let Some(body) = data.strip_prefix("\x1b[6;").and_then(|rest| rest.strip_suffix('t')) else {
             return false;
         };
@@ -1249,11 +1259,13 @@ impl TuiBase {
         let (Some(height), Some(width), None) = (parts.next(), parts.next(), parts.next()) else {
             return false;
         };
-        let valid_digits = |value: &str| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit());
-        if !valid_digits(height) || !valid_digits(width) {
-            return false;
-        }
-        let (Ok(height_px), Ok(width_px)) = (height.parse::<u32>(), width.parse::<u32>()) else {
+        let parse_digits = |value: &JsString| {
+            if value.is_empty() || !value.units().iter().all(|unit| (48..=57).contains(unit)) {
+                return None;
+            }
+            crate::text_units::ascii_protocol(value)?.parse::<u32>().ok()
+        };
+        let (Some(height_px), Some(width_px)) = (parse_digits(&height), parse_digits(&width)) else {
             return false;
         };
         if height_px == 0 || width_px == 0 {
@@ -1265,7 +1277,7 @@ impl TuiBase {
         true
     }
 
-    fn handle_terminal_input(&self, data: &str) {
+    fn handle_terminal_input(&self, data: &JsString) {
         if self.consume_terminal_focus_report(data) {
             return;
         }
@@ -1276,7 +1288,7 @@ impl TuiBase {
             return;
         }
 
-        let mut current = data.to_string();
+        let mut current = data.clone();
         let mut previous_id = None;
         while let Some((id, listener)) = next_listener(&self.inner.input_listeners, previous_id) {
             previous_id = Some(id);
@@ -1291,7 +1303,7 @@ impl TuiBase {
         if previous_id.is_some() && current.is_empty() {
             return;
         }
-        let data = current.as_str();
+        let data = &current;
 
         if self.consume_cell_size_response(data) {
             return;
@@ -1863,7 +1875,7 @@ impl TuiBase {
         }
     }
 
-    pub(crate) fn render_children(&self, width: usize) -> Vec<String> {
+    pub(crate) fn render_children(&self, width: usize) -> Vec<JsString> {
         let children = self.children();
         let mut lines = Vec::new();
         for child in children {
@@ -1964,12 +1976,17 @@ impl TuiBase {
         states
     }
 
-    pub(crate) fn composite_overlays(&self, lines: Vec<String>, term_width: usize, term_height: usize) -> Vec<String> {
+    pub(crate) fn composite_overlays(
+        &self,
+        lines: Vec<JsString>,
+        term_width: usize,
+        term_height: usize,
+    ) -> Vec<JsString> {
         if self.inner.overlay_stack.borrow().is_empty() {
             return lines;
         }
         let mut result = lines;
-        let mut rendered: Vec<(Vec<String>, i64, i64, usize)> = Vec::new();
+        let mut rendered: Vec<(Vec<JsString>, i64, i64, usize)> = Vec::new();
         let mut min_lines_needed = result.len();
         let mut visible_entries: Vec<OverlayEntryRef> = self
             .inner
@@ -1998,7 +2015,7 @@ impl TuiBase {
         }
         let working_height = result.len().max(term_height).max(min_lines_needed);
         while result.len() < working_height {
-            result.push(String::new());
+            result.push(JsString::default());
         }
         let viewport_start = working_height.saturating_sub(term_height);
         for (overlay_lines, row, col, width) in rendered {
@@ -2094,30 +2111,30 @@ impl TuiBase {
         }
     }
 
-    pub(crate) fn apply_line_resets(&self, lines: &mut [String]) {
+    pub(crate) fn apply_line_resets(&self, lines: &mut [JsString]) {
         for line in lines.iter_mut() {
-            if !is_image_line(line) {
-                *line = format!("{}{}", normalize_terminal_output(line), SEGMENT_RESET);
+            if !is_image_line(&*line) {
+                *line = normalize_terminal_output(&*line) + SEGMENT_RESET;
             }
         }
     }
 
-    pub(crate) fn extract_cursor_position(&self, lines: &mut [String], height: usize) -> Option<CursorPosition> {
+    pub(crate) fn extract_cursor_position(&self, lines: &mut [JsString], height: usize) -> Option<CursorPosition> {
         let viewport_top = lines.len().saturating_sub(height);
         for row in (viewport_top..lines.len()).rev() {
             let line = &lines[row];
             let Some(marker_index) = line.find(CURSOR_MARKER) else {
                 continue;
             };
-            let before_marker = &line[..marker_index];
-            let col = visible_width(before_marker);
-            lines[row] = format!("{}{}", before_marker, &line[marker_index + CURSOR_MARKER.len()..]);
+            let before_marker = line.slice(0, marker_index);
+            let col = visible_width(&before_marker);
+            lines[row] = before_marker + line.slice(marker_index + CURSOR_MARKER.len(), line.len());
             return Some(CursorPosition { row, col });
         }
         None
     }
 
-    fn apply_fixed_cells(&self, lines: &[String]) -> Vec<String> {
+    fn apply_fixed_cells(&self, lines: &[JsString]) -> Vec<JsString> {
         let cells = self.fixed_cells();
         if cells.is_empty() {
             return lines.to_vec();
@@ -2222,14 +2239,14 @@ impl OverlayHandle {
 
 /// Composite overlay content into a terminal line at a fixed column.
 pub fn composite_tui_line(
-    base_line: &str,
-    overlay_line: &str,
+    base_line: &JsString,
+    overlay_line: &JsString,
     start_col: usize,
     overlay_width: usize,
     total_width: usize,
-) -> String {
+) -> JsString {
     if is_image_line(base_line) {
-        return base_line.to_string();
+        return base_line.clone();
     }
     let after_start = start_col + overlay_width;
     let base = extract_segments(
@@ -2248,17 +2265,14 @@ pub fn composite_tui_line(
         .saturating_sub(actual_before_width)
         .saturating_sub(actual_overlay_width);
     let after_pad = after_target.saturating_sub(base.after_width);
-    let result = format!(
-        "{}{}{}{}{}{}{}{}",
-        base.before,
-        " ".repeat(before_pad),
-        SEGMENT_RESET,
-        overlay.text,
-        " ".repeat(overlay_pad),
-        SEGMENT_RESET,
-        base.after,
-        " ".repeat(after_pad)
-    );
+    let result = base.before
+        + " ".repeat(before_pad)
+        + SEGMENT_RESET
+        + overlay.text
+        + " ".repeat(overlay_pad)
+        + SEGMENT_RESET
+        + base.after
+        + " ".repeat(after_pad);
     if visible_width(&result) <= total_width {
         result
     } else {
@@ -2308,43 +2322,46 @@ struct KittyImageHeader {
     rows: usize,
 }
 
-fn parse_kitty_image_header(line: &str) -> Option<KittyImageHeader> {
+fn parse_kitty_image_header(line: &JsString) -> Option<KittyImageHeader> {
     let sequence_start = line.find(KITTY_SEQUENCE_PREFIX)?;
     let params_start = sequence_start + KITTY_SEQUENCE_PREFIX.len();
-    let params_end = line[params_start..].find(';')? + params_start;
+    let params_end = line.find_from(";", params_start)?;
     let mut ids = Vec::new();
     let mut rows = 1;
-    for parameter in line[params_start..params_end].split(',') {
-        let mut parts = parameter.splitn(2, '=');
-        let key = parts.next().unwrap_or("");
-        let Some(value) = parts.next() else {
+    for parameter in line.slice(params_start, params_end).split(',') {
+        let Some(equal) = parameter.find("=") else {
             continue;
         };
-        let number = pi_js_compat::number::parse_number(value);
+        let key = parameter.slice(0, equal);
+        let value = parameter.slice(equal + 1, parameter.len());
+        let number = value
+            .to_utf8()
+            .map_or(f64::NAN, |value| pi_js_compat::number::parse_number(&value));
         if number.fract() != 0.0 || number <= 0.0 || number > f64::from(u32::MAX) {
             continue;
         }
         let number = number as u32;
-        match key {
-            "i" => ids.push(number),
-            "r" => rows = number as usize,
-            _ => {}
+        if key == "i" {
+            ids.push(number);
+        }
+        if key == "r" {
+            rows = number as usize;
         }
     }
     Some(KittyImageHeader { ids, rows })
 }
 
-fn extract_kitty_image_ids(line: &str) -> Vec<u32> {
+fn extract_kitty_image_ids(line: &JsString) -> Vec<u32> {
     parse_kitty_image_header(line)
         .map(|header| header.ids)
         .unwrap_or_default()
 }
 
-fn extract_kitty_image_rows(line: &str) -> usize {
+fn extract_kitty_image_rows(line: &JsString) -> usize {
     parse_kitty_image_header(line).map(|header| header.rows).unwrap_or(1)
 }
 
-fn collect_kitty_image_ids(lines: &[String]) -> Vec<u32> {
+fn collect_kitty_image_ids(lines: &[JsString]) -> Vec<u32> {
     let mut ids = Vec::new();
     for line in lines {
         for id in extract_kitty_image_ids(line) {
@@ -2356,11 +2373,11 @@ fn collect_kitty_image_ids(lines: &[String]) -> Vec<u32> {
     ids
 }
 
-fn delete_kitty_images(ids: &[u32]) -> String {
-    ids.iter().map(|id| delete_kitty_image(*id)).collect::<String>()
+fn delete_kitty_images(ids: &[u32]) -> JsString {
+    JsString::join(ids.iter().map(|id| delete_kitty_image(*id)), "")
 }
 
-fn get_kitty_image_reserved_rows(lines: &[String], index: usize, max_index: usize) -> usize {
+fn get_kitty_image_reserved_rows(lines: &[JsString], index: usize, max_index: usize) -> usize {
     let rows = lines.get(index).map(|line| extract_kitty_image_rows(line)).unwrap_or(1);
     if rows <= 1 {
         return 1;
@@ -2370,8 +2387,8 @@ fn get_kitty_image_reserved_rows(lines: &[String], index: usize, max_index: usiz
         .min(lines.len().saturating_sub(index));
     let mut reserved_rows = 1;
     while reserved_rows < max_rows {
-        let line = lines.get(index + reserved_rows).map(String::as_str).unwrap_or("");
-        if is_image_line(line) || visible_width(line) > 0 {
+        let line = lines.get(index + reserved_rows).cloned().unwrap_or_default();
+        if is_image_line(&line) || visible_width(&line) > 0 {
             break;
         }
         reserved_rows += 1;
@@ -2382,8 +2399,8 @@ fn get_kitty_image_reserved_rows(lines: &[String], index: usize, max_index: usiz
 fn expand_changed_range_for_kitty_images(
     first_changed: usize,
     last_changed: usize,
-    previous_lines: &[String],
-    new_lines: &[String],
+    previous_lines: &[JsString],
+    new_lines: &[JsString],
 ) -> (usize, usize) {
     let mut expanded_first = first_changed;
     let mut expanded_last = last_changed;
@@ -2402,9 +2419,9 @@ fn expand_changed_range_for_kitty_images(
     (expanded_first, expanded_last)
 }
 
-fn delete_changed_kitty_images(first_changed: usize, last_changed: usize, previous_lines: &[String]) -> String {
+fn delete_changed_kitty_images(first_changed: usize, last_changed: usize, previous_lines: &[JsString]) -> JsString {
     if last_changed < first_changed {
-        return String::new();
+        return JsString::default();
     }
     let mut ids = Vec::new();
     let max_line = last_changed.min(previous_lines.len().saturating_sub(1));
@@ -2418,16 +2435,16 @@ fn delete_changed_kitty_images(first_changed: usize, last_changed: usize, previo
     delete_kitty_images(&ids)
 }
 
-fn patch_fixed_cell_line(line: &str, col: i64, value: &str, has_line_reset: bool) -> Option<String> {
+fn patch_fixed_cell_line(line: &JsString, col: i64, value: &JsString, has_line_reset: bool) -> Option<JsString> {
     if is_image_line(line) {
         return None;
     }
     let raw_line = if has_line_reset && line.ends_with(SEGMENT_RESET) {
-        &line[..line.len() - SEGMENT_RESET.len()]
+        line.slice(0, line.len() - SEGMENT_RESET.len())
     } else {
-        line
+        line.clone()
     };
-    let line_width = visible_width(raw_line) as i64;
+    let line_width = visible_width(&raw_line) as i64;
     if col < 0 || col >= line_width {
         return None;
     }
@@ -2436,16 +2453,13 @@ fn patch_fixed_cell_line(line: &str, col: i64, value: &str, has_line_reset: bool
         return None;
     }
     let after_length = (line_width - col - 1) as usize;
-    let base = extract_segments(raw_line, col as usize, col as usize + 1, after_length, true);
+    let base = extract_segments(&raw_line, col as usize, col as usize + 1, after_length, true);
     if base.before_width as i64 != col || base.after_width != after_length {
         return None;
     }
-    let patched = format!(
-        "{}{}{}{}{}",
-        base.before, SEGMENT_RESET, cell.text, SEGMENT_RESET, base.after
-    );
+    let patched = base.before + SEGMENT_RESET + cell.text + SEGMENT_RESET + base.after;
     Some(if has_line_reset {
-        format!("{patched}{SEGMENT_RESET}")
+        patched + SEGMENT_RESET
     } else {
         patched
     })
@@ -2454,7 +2468,7 @@ fn patch_fixed_cell_line(line: &str, col: i64, value: &str, has_line_reset: bool
 /// Render-frame state shared by both renderer variants.
 #[derive(Debug, Default)]
 pub(crate) struct RenderFrameState {
-    pub(crate) previous_lines: Vec<String>,
+    pub(crate) previous_lines: Vec<JsString>,
     pub(crate) previous_kitty_image_ids: Vec<u32>,
     pub(crate) previous_width: i64,
     pub(crate) previous_height: i64,
@@ -2503,21 +2517,21 @@ fn log_redraw(base: &TuiBase, reason: &str, previous: usize, new: usize, height:
     file.write_all(message.as_bytes()).expect("append TUI redraw log");
 }
 
-fn write_crash_log(base: &TuiBase, width: usize, line_index: usize, new_lines: &[String]) -> PathBuf {
+fn write_crash_log(base: &TuiBase, width: usize, line_index: usize, new_lines: &[JsString]) -> PathBuf {
     let path = base.log_directory().join("pi-crash.log");
     let timestamp = log_timestamp();
-    let mut data = format!(
+    let mut data = JsString::from(format!(
         "Crash at {timestamp}\nTerminal width: {width}\nLine {line_index} visible width: {}\n\n=== All rendered lines ===\n",
         visible_width(&new_lines[line_index])
-    );
+    ));
     for (index, line) in new_lines.iter().enumerate() {
-        data.push_str(&format!("[{index}] (w={}) {line}\n", visible_width(line)));
+        data.push_str(JsString::from(format!("[{index}] (w={}) ", visible_width(line))) + line + "\n");
     }
-    data.push('\n');
+    data.push_str("\n");
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).expect("create TUI crash log directory");
     }
-    std::fs::write(&path, data).expect("write TUI crash log");
+    std::fs::write(&path, pi_js_compat::js_json::encode_node_utf8(&data)).expect("write TUI crash log");
     path
 }
 
@@ -2550,7 +2564,12 @@ fn random_debug_suffix() -> String {
     suffix.into_iter().rev().collect()
 }
 
-fn format_render_debug(state: &RenderFrameState, frame: &CommitFrame<'_>, diff: RenderDebug, buffer: &str) -> String {
+fn format_render_debug(
+    state: &RenderFrameState,
+    frame: &CommitFrame<'_>,
+    diff: RenderDebug,
+    buffer: &JsString,
+) -> String {
     let cursor = serde_json::to_string(&frame.cursor_pos).expect("serialize cursor position");
     let next = serde_json::to_string_pretty(frame.new_lines).expect("serialize next debug lines");
     let previous = serde_json::to_string_pretty(&state.previous_lines).expect("serialize previous debug lines");
@@ -2571,7 +2590,7 @@ fn format_render_debug(state: &RenderFrameState, frame: &CommitFrame<'_>, diff: 
     format!("{header}\n\n=== newLines ===\n{next}\n\n=== previousLines ===\n{previous}\n\n=== buffer ===\n{output}")
 }
 
-fn write_render_debug(state: &RenderFrameState, frame: &CommitFrame<'_>, diff: RenderDebug, buffer: &str) {
+fn write_render_debug(state: &RenderFrameState, frame: &CommitFrame<'_>, diff: RenderDebug, buffer: &JsString) {
     if !environment_flag("PI_TUI_DEBUG") {
         return;
     }
@@ -2587,14 +2606,14 @@ fn write_render_debug(state: &RenderFrameState, frame: &CommitFrame<'_>, diff: R
 fn full_render(
     base: &TuiBase,
     state: &mut RenderFrameState,
-    new_lines: &[String],
+    new_lines: &[JsString],
     cursor_pos: Option<CursorPosition>,
     width: usize,
     height: usize,
     clear: bool,
 ) {
     base.increment_full_redraws();
-    let mut buffer = String::from("\x1b[?2026h");
+    let mut buffer = JsString::from("\x1b[?2026h");
     if clear {
         buffer.push_str(&delete_kitty_images(&state.previous_kitty_image_ids));
         buffer.push_str("\x1b[2J\x1b[H\x1b[3J");
@@ -2645,14 +2664,9 @@ fn full_render(
 fn repaint_visible_window(base: &TuiBase, state: &mut RenderFrameState, frame: &CommitFrame<'_>, top: i64) {
     let end = (top as usize + frame.height).min(frame.new_lines.len());
     let visible = &frame.new_lines[top as usize..end];
-    let lines = visible
-        .iter()
-        .map(|line| format!("\x1b[2K{line}"))
-        .collect::<Vec<_>>()
-        .join("\r\n");
-    base.terminal()
-        .borrow_mut()
-        .write(&format!("\x1b[?2026h\x1b[H{lines}\x1b[J\x1b[?2026l"));
+    let lines = JsString::join(visible.iter().map(|line| JsString::from("\x1b[2K") + line), "\r\n");
+    let buffer = JsString::from("\x1b[?2026h\x1b[H") + lines + "\x1b[J\x1b[?2026l";
+    base.terminal().borrow_mut().write(&buffer);
     state.cursor_row = (frame.new_lines.len() as i64 - 1).max(0);
     state.hardware_cursor_row = top + (visible.len() as i64 - 1).max(0);
     state.max_lines_rendered = frame.new_lines.len();
@@ -2666,7 +2680,7 @@ fn repaint_visible_window(base: &TuiBase, state: &mut RenderFrameState, frame: &
 
 pub(crate) struct CommitFrame<'a> {
     pub(crate) variant: CommitVariant,
-    pub(crate) new_lines: &'a [String],
+    pub(crate) new_lines: &'a [JsString],
     pub(crate) cursor_pos: Option<CursorPosition>,
     pub(crate) width: usize,
     pub(crate) height: usize,
@@ -2791,8 +2805,8 @@ pub(crate) fn commit_rendered_frame(
     let mut last_changed: i64 = -1;
     let max_lines = new_lines.len().max(state.previous_lines.len());
     for index in 0..max_lines {
-        let old_line = state.previous_lines.get(index).map(String::as_str).unwrap_or("");
-        let new_line = new_lines.get(index).map(String::as_str).unwrap_or("");
+        let old_line = state.previous_lines.get(index).cloned().unwrap_or_default();
+        let new_line = new_lines.get(index).cloned().unwrap_or_default();
         if old_line != new_line {
             if first_changed == -1 {
                 first_changed = index as i64;
@@ -2843,7 +2857,7 @@ pub(crate) fn commit_rendered_frame(
                 full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
                 return true;
             }
-            let mut buffer = String::from("\x1b[?2026h");
+            let mut buffer = JsString::from("\x1b[?2026h");
             buffer.push_str(&delete_changed_kitty_images(
                 first_changed as usize,
                 last_changed as usize,
@@ -2855,7 +2869,7 @@ pub(crate) fn commit_rendered_frame(
             } else if line_diff < 0 {
                 buffer.push_str(&format!("\x1b[{}A", -line_diff));
             }
-            buffer.push('\r');
+            buffer.push_str("\r");
             let extra_lines = state.previous_lines.len() - new_lines.len();
             if extra_lines > height {
                 if !allow_full_render {
@@ -2914,7 +2928,7 @@ pub(crate) fn commit_rendered_frame(
         return true;
     }
 
-    let mut buffer = String::from("\x1b[?2026h");
+    let mut buffer = JsString::from("\x1b[?2026h");
     buffer.push_str(&delete_changed_kitty_images(
         first_changed as usize,
         last_changed as usize,
@@ -3052,7 +3066,7 @@ fn position_hardware_cursor(
     let target_row = cursor_pos.row.min(total_lines - 1) as i64;
     let target_col = cursor_pos.col;
     let row_delta = target_row - state.hardware_cursor_row;
-    let mut buffer = String::new();
+    let mut buffer = JsString::default();
     if row_delta > 0 {
         buffer.push_str(&format!("\x1b[{row_delta}B"));
     } else if row_delta < 0 {
@@ -3411,15 +3425,12 @@ impl TuiRenderer {
         true
     }
 
-    fn write_fixed_cell_to_terminal(&self, row: i64, col: i64, value: &str) {
+    fn write_fixed_cell_to_terminal(&self, row: i64, col: i64, value: &JsString) {
         let screen_row = row - self.frame.borrow().previous_viewport_top;
-        let buffer = format!(
-            "\x1b[?2026h\x1b7\x1b[{};{}H{}{}\x1b8\x1b[?2026l",
-            screen_row + 1,
-            col + 1,
-            value,
-            SEGMENT_RESET
-        );
+        let buffer = JsString::from(format!("\x1b[?2026h\x1b7\x1b[{};{}H", screen_row + 1, col + 1))
+            + value
+            + SEGMENT_RESET
+            + "\x1b8\x1b[?2026l";
         self.base.terminal().borrow_mut().write(&buffer);
     }
 
@@ -3496,10 +3507,10 @@ impl TuiRenderer {
     fn splice_flow_render_frame_lines(
         &self,
         layout: FlowRenderRegionLayout,
-        tail_lines: &[String],
+        tail_lines: &[JsString],
         flow_end_row: i64,
         bottom_row: i64,
-    ) -> Vec<String> {
+    ) -> Vec<JsString> {
         let rect = layout.rect;
         let frame = self.frame.borrow();
         let start = rect.row.max(0) as usize;
@@ -3512,7 +3523,7 @@ impl TuiRenderer {
         result.extend_from_slice(
             &frame.previous_lines[tail_end.min(frame.previous_lines.len())..flow_end.min(frame.previous_lines.len())],
         );
-        let mut gap_lines: Vec<String> = vec![String::new(); (bottom_row - flow_end_row).max(0) as usize];
+        let mut gap_lines: Vec<JsString> = vec![JsString::default(); (bottom_row - flow_end_row).max(0) as usize];
         self.base.apply_line_resets(&mut gap_lines);
         result.extend(gap_lines);
         result.extend_from_slice(&frame.previous_lines[bottom_start.min(frame.previous_lines.len())..]);
@@ -3720,7 +3731,7 @@ impl TuiRenderer {
         has_valid_rows.then_some(layout)
     }
 
-    fn prepare_flow_render_region_lines(&self, lines: &[String], width: usize) -> Option<Vec<String>> {
+    fn prepare_flow_render_region_lines(&self, lines: &[JsString], width: usize) -> Option<Vec<JsString>> {
         if lines
             .iter()
             .any(|line| line.contains(CURSOR_MARKER) || is_image_line(line) || visible_width(line) > width)
@@ -3736,7 +3747,7 @@ impl TuiRenderer {
         let Some(rect) = self.get_writable_render_region_rect(state) else {
             return false;
         };
-        let previous_lines: Vec<String> = {
+        let previous_lines: Vec<JsString> = {
             let frame = self.frame.borrow();
             let start = rect.row as usize;
             let end = (rect.row as usize + rect.height).min(frame.previous_lines.len());
@@ -3811,7 +3822,7 @@ impl TuiRenderer {
         Some(rect)
     }
 
-    fn prepare_render_region_lines(&self, lines: &[String], rect: RenderRegionRect) -> Option<Vec<String>> {
+    fn prepare_render_region_lines(&self, lines: &[JsString], rect: RenderRegionRect) -> Option<Vec<JsString>> {
         if lines
             .iter()
             .any(|line| line.contains(CURSOR_MARKER) || is_image_line(line) || visible_width(line) > rect.width)
@@ -3823,7 +3834,7 @@ impl TuiRenderer {
         Some(lines)
     }
 
-    fn apply_fixed_cells_to_region(&self, lines: &[String], start_row: i64) -> Vec<String> {
+    fn apply_fixed_cells_to_region(&self, lines: &[JsString], start_row: i64) -> Vec<JsString> {
         let mut result = lines.to_vec();
         let cells = self.base.fixed_cells();
         if cells.is_empty() {
@@ -3849,8 +3860,8 @@ impl TuiRenderer {
         result
     }
 
-    fn write_render_region_lines(&self, start_row: i64, previous_lines: &[String], next_lines: &[String]) {
-        let mut buffer = String::from("\x1b[?2026h\x1b7");
+    fn write_render_region_lines(&self, start_row: i64, previous_lines: &[JsString], next_lines: &[JsString]) {
+        let mut buffer = JsString::from("\x1b[?2026h\x1b7");
         let mut changed = false;
         let previous_viewport_top = self.frame.borrow().previous_viewport_top;
         for (index, next_line) in next_lines.iter().enumerate() {
@@ -3858,7 +3869,7 @@ impl TuiRenderer {
                 continue;
             }
             let screen_row = start_row + index as i64 - previous_viewport_top;
-            buffer.push_str(&format!("\x1b[{};1H\x1b[2K{next_line}", screen_row + 1));
+            buffer.push_str(JsString::from(format!("\x1b[{};1H\x1b[2K", screen_row + 1)) + next_line);
             changed = true;
         }
         if !changed {
@@ -3915,10 +3926,10 @@ impl RendererApi for TuiRenderer {
         self.base.terminal().borrow_mut().write(&sequence);
     }
 
-    fn terminal_stop_output(&self) -> (String, String) {
+    fn terminal_stop_output(&self) -> (JsString, JsString) {
         (
             frame_stop_sequence(&self.frame.borrow(), &TuiStopOptions::default(), false),
-            String::new(),
+            JsString::default(),
         )
     }
 }
@@ -3929,11 +3940,15 @@ impl TuiExt for TuiRenderer {
     }
 }
 
-pub(crate) fn frame_stop_sequence(frame: &RenderFrameState, options: &TuiStopOptions, leading_space: bool) -> String {
+pub(crate) fn frame_stop_sequence(frame: &RenderFrameState, options: &TuiStopOptions, leading_space: bool) -> JsString {
     if options.preserve_screen || frame.previous_lines.is_empty() {
-        return String::new();
+        return JsString::default();
     }
-    let mut sequence = if leading_space { " ".to_owned() } else { String::new() };
+    let mut sequence = if leading_space {
+        JsString::from(" ")
+    } else {
+        JsString::default()
+    };
     let line_diff = frame.previous_lines.len() as i64 - frame.hardware_cursor_row;
     if line_diff > 0 {
         sequence.push_str(&format!("\x1b[{line_diff}B"));
@@ -3945,7 +3960,7 @@ pub(crate) fn frame_stop_sequence(frame: &RenderFrameState, options: &TuiStopOpt
 }
 
 struct FlowRenderFrame {
-    lines: Vec<String>,
+    lines: Vec<JsString>,
     rect: RenderRegionRect,
     bottom_row: i64,
     height_delta: i64,
@@ -3970,7 +3985,7 @@ struct FixedCellPlacementUpdate {
 }
 
 impl Component for TuiRenderer {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.base.render_children(width)
     }
 

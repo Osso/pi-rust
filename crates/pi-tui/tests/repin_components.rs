@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 
 use pi_tui::terminal_image::{ImageDimensions, TerminalCapabilities, set_capabilities};
@@ -27,7 +28,7 @@ fn image_fallback_is_not_truncated_or_hyperlinked_by_the_component() {
         "AAAA",
         "image/png",
         Rc::new(ImageTheme {
-            fallback_color: Rc::new(|text| format!("<{text}>")),
+            fallback_color: Rc::new(|text| JsString::from("<") + text + ">"),
         }),
         ImageOptions {
             filename: Some("/tmp/image.png".into()),
@@ -43,52 +44,52 @@ fn image_fallback_is_not_truncated_or_hyperlinked_by_the_component() {
 
 struct HighlightTheme(std::cell::Cell<usize>);
 impl pi_tui::MarkdownTheme for HighlightTheme {
-    fn heading(&self, text: &str) -> String {
-        text.to_string()
+    fn heading(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn link(&self, text: &str) -> String {
-        text.to_string()
+    fn link(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn link_url(&self, text: &str) -> String {
-        text.to_string()
+    fn link_url(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn code(&self, text: &str) -> String {
-        text.to_string()
+    fn code(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn code_block(&self, text: &str) -> String {
-        text.to_string()
+    fn code_block(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn code_block_border(&self, text: &str) -> String {
-        text.to_string()
+    fn code_block_border(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn quote(&self, text: &str) -> String {
-        text.to_string()
+    fn quote(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn quote_border(&self, text: &str) -> String {
-        text.to_string()
+    fn quote_border(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn hr(&self, text: &str) -> String {
-        text.to_string()
+    fn hr(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn list_bullet(&self, text: &str) -> String {
-        text.to_string()
+    fn list_bullet(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn bold(&self, text: &str) -> String {
-        text.to_string()
+    fn bold(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn italic(&self, text: &str) -> String {
-        text.to_string()
+    fn italic(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn strikethrough(&self, text: &str) -> String {
-        text.to_string()
+    fn strikethrough(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn underline(&self, text: &str) -> String {
-        text.to_string()
+    fn underline(&self, text: &JsString) -> JsString {
+        text.clone()
     }
 
-    fn highlight_code(&self, code: &str, _: Option<&str>) -> Option<Vec<String>> {
+    fn highlight_code(&self, code: &JsString, _: Option<&JsString>) -> Option<Vec<JsString>> {
         self.0.set(self.0.get() + 1);
-        Some(vec![format!("highlight {}: {code}", self.0.get())])
+        Some(vec![JsString::from(format!("highlight {}: ", self.0.get())) + code])
     }
 }
 
@@ -143,7 +144,7 @@ fn heading_context_does_not_call_default_foreground_style() {
         Some(pi_tui::DefaultTextStyle {
             color: Some(Box::new(move |text| {
                 counter.set(counter.get() + 1);
-                text.to_string()
+                text.clone()
             })),
             ..Default::default()
         }),
@@ -204,7 +205,7 @@ fn component_lifetimes_match_the_frozen_modules() {
         Some(pi_tui::DefaultTextStyle {
             color: Some(Box::new(move |text| {
                 counter.set(counter.get() + 1);
-                text.to_string()
+                text.clone()
             })),
             ..Default::default()
         }),
@@ -258,7 +259,7 @@ fn select_list_passes_signed_internal_widths_to_custom_callbacks() {
         pi_tui::SelectListLayoutOptions {
             truncate_primary: Some(Rc::new(move |context| {
                 sink.borrow_mut().push((context.max_width, context.column_width));
-                context.text.to_string()
+                context.text.clone()
             })),
             ..Default::default()
         },

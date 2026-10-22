@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -20,7 +21,7 @@ pub struct FakeHostState {
 pub struct FixedCellWrite {
     pub row: i64,
     pub col: i64,
-    pub value: String,
+    pub value: JsString,
 }
 
 pub struct FakeHost {
@@ -46,7 +47,7 @@ impl EditorFixedCell for FakeFixedCell {
         self.state.borrow_mut().position = None;
     }
 
-    fn update(&self, value: &str) -> bool {
+    fn update(&self, value: &JsString) -> bool {
         let mut state = self.state.borrow_mut();
         let Some((row, col)) = state.position else {
             return false;
@@ -54,7 +55,7 @@ impl EditorFixedCell for FakeFixedCell {
         state.writes.push(FixedCellWrite {
             row,
             col,
-            value: value.to_string(),
+            value: value.clone(),
         });
         true
     }
@@ -103,15 +104,15 @@ pub fn editor() -> (Editor, Rc<RefCell<FakeHostState>>) {
     editor_with_rows(24)
 }
 
-pub fn send(editor: &mut Editor, input: &str) {
-    editor.handle_input(input);
+pub fn send(editor: &mut Editor, input: impl Into<JsString>) {
+    editor.handle_input(&input.into());
 }
 
 pub fn cursor(editor: &Editor) -> (usize, usize) {
     editor.get_cursor()
 }
 
-pub fn render_plain(editor: &mut Editor, width: usize) -> Vec<String> {
+pub fn render_plain(editor: &mut Editor, width: usize) -> Vec<JsString> {
     editor
         .render(width)
         .into_iter()

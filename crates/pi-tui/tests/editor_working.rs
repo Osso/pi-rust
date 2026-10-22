@@ -7,6 +7,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use editor_host::{fake_host, plain_theme};
+use pi_js_compat::js_json::JsString;
 use pi_tui::components::editor::{Editor, EditorOptions, EditorTheme};
 use pi_tui::components::loader::LoaderIndicatorOptions;
 use pi_tui::tui::Component;
@@ -14,7 +15,7 @@ use pi_tui::tui::Component;
 fn working_editor() -> (Editor, std::rc::Rc<std::cell::RefCell<editor_host::FakeHostState>>) {
     let (host, state) = fake_host(24);
     let mut theme: EditorTheme = plain_theme();
-    theme.prompt_prefix = Some(Rc::new(|text| text.to_string()));
+    theme.prompt_prefix = Some(Rc::new(|text| text.clone()));
     (Editor::new(host, theme, EditorOptions::default()), state)
 }
 
@@ -52,7 +53,7 @@ fn supports_static_hidden_and_custom_indicators_and_restores_the_idle_prompt() {
     editor.set_screen_origin(0, 0);
     editor
         .set_working_indicator(Some(LoaderIndicatorOptions {
-            frames: Some(vec!["●".to_string()]),
+            frames: Some(vec![JsString::from("●")]),
             interval_ms: None,
         }))
         .unwrap();
@@ -65,7 +66,7 @@ fn supports_static_hidden_and_custom_indicators_and_restores_the_idle_prompt() {
 
     editor
         .set_working_indicator(Some(LoaderIndicatorOptions {
-            frames: Some(vec!["a".to_string(), "b".to_string()]),
+            frames: Some(vec![JsString::from("a"), JsString::from("b")]),
             interval_ms: Some(100),
         }))
         .unwrap();
@@ -92,7 +93,7 @@ fn rejects_working_frames_wider_than_one_terminal_cell() {
     let (mut editor, _) = working_editor();
     let error = editor
         .set_working_indicator(Some(LoaderIndicatorOptions {
-            frames: Some(vec!["XX".to_string()]),
+            frames: Some(vec![JsString::from("XX")]),
             interval_ms: None,
         }))
         .unwrap_err();

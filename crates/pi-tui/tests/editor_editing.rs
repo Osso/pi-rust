@@ -1,6 +1,7 @@
 //! Ported from `packages/tui/test/editor.test.ts` (`public state accessors`,
 //! `Backslash+Enter`, `Kitty CSI-u`, `Unicode text editing`, `Kill ring`,
 //! `Undo`, `Character jump`).
+use pi_js_compat::js_json::JsString;
 use pi_tui::tui::Component;
 
 #[path = "support/editor_host.rs"]
@@ -41,7 +42,7 @@ fn returns_lines_as_a_defensive_copy() {
     editor.set_text("a\nb");
     let mut lines = editor.get_lines();
     assert_eq!(lines, vec!["a", "b"]);
-    lines[0] = "mutated".to_string();
+    lines[0] = JsString::from("mutated");
     assert_eq!(editor.get_lines(), vec!["a", "b"]);
 }
 
@@ -279,18 +280,18 @@ fn stops_at_fullwidth_chinese_punctuation() {
     editor.set_text("你好，世界");
 
     send(&mut editor, "\x1b[1;5D");
-    assert_eq!(cursor(&editor), (0, 9));
+    assert_eq!(cursor(&editor), (0, 3));
     send(&mut editor, "\x1b[1;5D");
-    assert_eq!(cursor(&editor), (0, 6));
+    assert_eq!(cursor(&editor), (0, 2));
     send(&mut editor, "\x1b[1;5D");
     assert_eq!(cursor(&editor), (0, 0));
 
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 6));
+    assert_eq!(cursor(&editor), (0, 2));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 9));
+    assert_eq!(cursor(&editor), (0, 3));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 15));
+    assert_eq!(cursor(&editor), (0, 5));
 }
 
 #[test]
@@ -299,11 +300,11 @@ fn handles_mixed_cjk_and_ascii_word_movement() {
     editor.set_text("hello你好，world世界");
 
     send(&mut editor, "\x1b[1;5D");
-    assert_eq!(cursor(&editor), (0, 19));
+    assert_eq!(cursor(&editor), (0, 13));
     send(&mut editor, "\x1b[1;5D");
-    assert_eq!(cursor(&editor), (0, 14));
+    assert_eq!(cursor(&editor), (0, 8));
     send(&mut editor, "\x1b[1;5D");
-    assert_eq!(cursor(&editor), (0, 11));
+    assert_eq!(cursor(&editor), (0, 7));
     send(&mut editor, "\x1b[1;5D");
     assert_eq!(cursor(&editor), (0, 5));
     send(&mut editor, "\x1b[1;5D");
@@ -312,13 +313,13 @@ fn handles_mixed_cjk_and_ascii_word_movement() {
     send(&mut editor, "\x1b[1;5C");
     assert_eq!(cursor(&editor), (0, 5));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 11));
+    assert_eq!(cursor(&editor), (0, 7));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 14));
+    assert_eq!(cursor(&editor), (0, 8));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 19));
+    assert_eq!(cursor(&editor), (0, 13));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 25));
+    assert_eq!(cursor(&editor), (0, 15));
 }
 
 #[test]
@@ -822,10 +823,10 @@ fn undoes_set_text_to_empty_string() {
 #[test]
 fn clears_undo_stack_on_submit() {
     let (mut editor, _) = typed("hello");
-    let submitted = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
+    let submitted = std::rc::Rc::new(std::cell::RefCell::new(JsString::default()));
     let value = std::rc::Rc::clone(&submitted);
     editor.on_submit = Some(std::rc::Rc::new(move |text| {
-        *value.borrow_mut() = text.to_string();
+        *value.borrow_mut() = text.clone();
     }));
     send(&mut editor, "\r");
     assert_eq!(*submitted.borrow(), "hello");
@@ -1066,7 +1067,7 @@ fn focusable_trait_tracks_focus() {
 fn custom_theme_border_color_is_used() {
     let (host, _) = editor_host::fake_host(24);
     let mut theme = EditorTheme::plain();
-    theme.border_color = std::rc::Rc::new(|text| format!("\x1b[35m{text}\x1b[39m"));
+    theme.border_color = std::rc::Rc::new(|text| JsString::from("\x1b[35m") + text + "\x1b[39m");
     let mut editor =
         pi_tui::components::editor::Editor::new(host, theme, pi_tui::components::editor::EditorOptions::default());
     let lines = editor.render(10);

@@ -20,3 +20,7 @@ Frozen defaults exclude later historyPrevious/historyNext/altScreen actions and 
 `KeybindingsManager::clone` is a shared handle, not a snapshot. Mutations through one holder affect all holders and the originally installed manager. Replacing the registry leaves old holders attached to the old manager. Direct frozen comparison covers shared mutation, reset and replacement; RED `/tmp/q1-global-red.log`, GREEN `/tmp/q1-global-green.log`.
 
 Typed representation: string-or-array key unions become Vec; configuration objects become ordered pairs; resolved values are key lists even for a single key. Rust callers extend definitions explicitly rather than TypeScript declaration merging. Invalid JS runtime input types are excluded by the typed API. No shared-global clone discrepancy remains.
+
+## Native registry authority
+
+Registry IDs, default/user keys, descriptions, resolved bindings and conflict claimants use `JsString`; get/match lookups accept native strings. `raw_keybindings` compares frozen source snapshots for high/low/pair/mixed IDs and keys, duplicate normalization, descriptions, conflicts, resolved/user bindings and matching. `keybindings` retains the legacy default/override/conflict/lifetime behavior corpus with native typed fixtures.

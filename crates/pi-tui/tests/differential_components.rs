@@ -3,6 +3,7 @@ mod components;
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -33,7 +34,7 @@ fn run(oracle: &mut TsOracle, operation: &str, cases: Value) -> Value {
 }
 
 fn identity() -> StyleFn {
-    Rc::new(|text: &str| text.to_string())
+    Rc::new(|text: &JsString| text.clone())
 }
 
 #[test]
@@ -84,11 +85,16 @@ fn text_render_matches_typescript() {
         ),
     );
 
-    let expected: Vec<Vec<String>> = cases
+    let expected: Vec<Vec<JsString>> = cases
         .iter()
         .map(|(text, padding_x, padding_y, background, width)| {
             let mut component = if *background {
-                Text::with_background(*text, *padding_x, *padding_y, Rc::new(|text: &str| format!("[{text}]")))
+                Text::with_background(
+                    *text,
+                    *padding_x,
+                    *padding_y,
+                    Rc::new(|text: &JsString| JsString::from("[") + text + "]"),
+                )
             } else {
                 Text::new(*text, *padding_x, *padding_y)
             };
@@ -146,12 +152,12 @@ fn loader_render_matches_typescript() {
         let counter = Rc::clone(&renders);
         let styled = case["styled"].as_bool().unwrap();
         let spinner: StyleFn = if styled {
-            Rc::new(|text: &str| format!("<{text}>"))
+            Rc::new(|text: &JsString| JsString::from("<") + text + ">")
         } else {
             identity()
         };
         let message_style: StyleFn = if styled {
-            Rc::new(|text: &str| format!("{{{text}}}"))
+            Rc::new(|text: &JsString| JsString::from("{") + text + "}")
         } else {
             identity()
         };
@@ -159,9 +165,12 @@ fn loader_render_matches_typescript() {
             None
         } else {
             Some(LoaderIndicatorOptions {
-                frames: case["frames"]
-                    .as_array()
-                    .map(|frames| frames.iter().map(|frame| frame.as_str().unwrap().to_string()).collect()),
+                frames: case["frames"].as_array().map(|frames| {
+                    frames
+                        .iter()
+                        .map(|frame| JsString::from(frame.as_str().unwrap()))
+                        .collect()
+                }),
                 interval_ms: case["intervalMs"].as_u64(),
             })
         };
@@ -178,9 +187,12 @@ fn loader_render_matches_typescript() {
                 "render" => snapshots.push(loader.render(step["width"].as_u64().unwrap() as usize)),
                 "setMessage" => loader.set_message(step["message"].as_str().unwrap()),
                 "setIndicator" => loader.set_indicator(Some(LoaderIndicatorOptions {
-                    frames: step["frames"]
-                        .as_array()
-                        .map(|frames| frames.iter().map(|frame| frame.as_str().unwrap().to_string()).collect()),
+                    frames: step["frames"].as_array().map(|frames| {
+                        frames
+                            .iter()
+                            .map(|frame| JsString::from(frame.as_str().unwrap()))
+                            .collect()
+                    }),
                     interval_ms: step["intervalMs"].as_u64(),
                 })),
                 "stop" => loader.stop(),
@@ -200,7 +212,7 @@ fn select_theme(markers: bool) -> SelectListTheme {
     if !markers {
         return SelectListTheme::plain();
     }
-    let style: StyleFn = Rc::new(|text: &str| format!("«{text}»"));
+    let style: StyleFn = Rc::new(|text: &JsString| JsString::from("«") + text + "»");
     SelectListTheme {
         selected_prefix: Rc::clone(&style),
         selected_text: Rc::clone(&style),
@@ -309,11 +321,11 @@ fn select_list_render_and_callbacks_match_typescript() {
             truncate_primary: case["layout"]["truncatePrimary"].as_bool().unwrap().then(|| {
                 Rc::new(|context: &SelectListTruncatePrimaryContext<'_>| {
                     if (context.text.len() as i64) <= context.max_width {
-                        return context.text.to_string();
+                        return context.text.clone();
                     }
                     let keep = context.max_width.saturating_sub(1).max(0) as usize;
-                    format!("{}…", &context.text[..keep.min(context.text.len())])
-                }) as Rc<dyn Fn(&SelectListTruncatePrimaryContext<'_>) -> String>
+                    context.text.slice(0, keep.min(context.text.len())) + "…"
+                }) as Rc<dyn Fn(&SelectListTruncatePrimaryContext<'_>) -> JsString>
             }),
         };
         let mut list = SelectList::new(
@@ -325,13 +337,13 @@ fn select_list_render_and_callbacks_match_typescript() {
         let log = Rc::new(RefCell::new(Vec::new()));
         let select_log = Rc::clone(&log);
         list.on_select = Some(Rc::new(move |item: &SelectItem| {
-            select_log.borrow_mut().push(format!("select:{}", item.value));
+            select_log.borrow_mut().push(JsString::from("select:") + &item.value);
         }));
         let cancel_log = Rc::clone(&log);
-        list.on_cancel = Some(Rc::new(move || cancel_log.borrow_mut().push("cancel".to_string())));
+        list.on_cancel = Some(Rc::new(move || cancel_log.borrow_mut().push(JsString::from("cancel"))));
         let change_log = Rc::clone(&log);
         list.on_selection_change = Some(Rc::new(move |item: &SelectItem| {
-            change_log.borrow_mut().push(format!("change:{}", item.value));
+            change_log.borrow_mut().push(JsString::from("change:") + &item.value);
         }));
 
         let mut snapshots = Vec::new();
@@ -339,7 +351,7 @@ fn select_list_render_and_callbacks_match_typescript() {
             match step["kind"].as_str().unwrap() {
                 "filter" => list.set_filter(step["filter"].as_str().unwrap()),
                 "index" => list.set_selected_index(step["index"].as_i64().unwrap() as isize),
-                "key" => list.handle_input(step["data"].as_str().unwrap()),
+                "key" => list.handle_input(&pi_js_compat::js_json::JsString::from(step["data"].as_str().unwrap())),
                 "render" => snapshots.push(list.render(step["width"].as_u64().unwrap() as usize)),
                 other => panic!("unsupported select-list step: {other}"),
             }
@@ -369,7 +381,7 @@ fn box_render_matches_typescript() {
         let background: Option<StyleFn> = case["background"]
             .as_bool()
             .unwrap()
-            .then(|| Rc::new(|text: &str| format!("[{text}]")) as StyleFn);
+            .then(|| Rc::new(|text: &JsString| JsString::from("[") + text + "]") as StyleFn);
         let mut box_component = BoxComponent::new(
             case["paddingX"].as_u64().unwrap() as usize,
             case["paddingY"].as_u64().unwrap() as usize,
@@ -386,7 +398,7 @@ fn box_render_matches_typescript() {
         let width = case["width"].as_u64().unwrap() as usize;
         let mut snapshots = vec![box_component.render(width)];
         if case["setBackgroundAfterFirstRender"].as_bool().unwrap() {
-            box_component.set_bg_fn(Some(Rc::new(|text: &str| format!("<{text}>"))));
+            box_component.set_bg_fn(Some(Rc::new(|text: &JsString| JsString::from("<") + text + ">")));
             snapshots.push(box_component.render(width));
         }
         expected.push(json!({"snapshots": snapshots}));
@@ -422,13 +434,13 @@ fn spacer_dynamic_border_and_truncated_text_match_typescript() {
         {"width": 0, "markers": false}
     ]);
     let border_output = run(&mut oracle, "dynamic_border", border_cases.clone());
-    let border_expected: Vec<Vec<String>> = border_cases
+    let border_expected: Vec<Vec<JsString>> = border_cases
         .as_array()
         .unwrap()
         .iter()
         .map(|case| {
             let mut border = if case["markers"].as_bool().unwrap() {
-                DynamicBorder::new(Rc::new(|line: &str| format!("[{line}]")))
+                DynamicBorder::new(Rc::new(|line: &JsString| JsString::from("[") + line + "]"))
             } else {
                 DynamicBorder::default()
             };
@@ -445,7 +457,7 @@ fn spacer_dynamic_border_and_truncated_text_match_typescript() {
         {"text": "", "paddingX": 1, "paddingY": 0, "width": 30}
     ]);
     let truncated_output = run(&mut oracle, "truncated_text", truncated_cases.clone());
-    let truncated_expected: Vec<Vec<String>> = truncated_cases
+    let truncated_expected: Vec<Vec<JsString>> = truncated_cases
         .as_array()
         .unwrap()
         .iter()
@@ -489,7 +501,12 @@ fn cancellable_loader_matches_typescript() {
         let renders = Rc::new(RefCell::new(0usize));
         let counter = Rc::clone(&renders);
         let indicator = case["frames"].as_array().map(|frames| LoaderIndicatorOptions {
-            frames: Some(frames.iter().map(|frame| frame.as_str().unwrap().to_string()).collect()),
+            frames: Some(
+                frames
+                    .iter()
+                    .map(|frame| JsString::from(frame.as_str().unwrap()))
+                    .collect(),
+            ),
             interval_ms: Some(250),
         });
         let mut loader = CancellableLoader::new(
@@ -505,7 +522,7 @@ fn cancellable_loader_matches_typescript() {
         let mut snapshots = Vec::new();
         for step in case["steps"].as_array().unwrap() {
             match step["kind"].as_str().unwrap() {
-                "key" => loader.handle_input(step["data"].as_str().unwrap()),
+                "key" => loader.handle_input(&pi_js_compat::js_json::JsString::from(step["data"].as_str().unwrap())),
                 "render" => snapshots.push(loader.render(step["width"].as_u64().unwrap() as usize)),
                 "setMessage" => loader.set_message(step["message"].as_str().unwrap()),
                 other => panic!("unsupported cancellable-loader step: {other}"),
@@ -593,7 +610,7 @@ fn image_render_matches_typescript() {
             case["base64Data"].as_str().unwrap(),
             case["mimeType"].as_str().unwrap(),
             Rc::new(ImageTheme {
-                fallback_color: Rc::new(|text: &str| format!("<{text}>")),
+                fallback_color: Rc::new(|text: &JsString| JsString::from("<") + text + ">"),
             }),
             ImageOptions {
                 max_width_cells: case["options"]["maxWidthCells"].as_u64().map(|value| value as usize),

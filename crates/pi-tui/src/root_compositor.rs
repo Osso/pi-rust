@@ -2,6 +2,8 @@
 
 use std::rc::Rc;
 
+use pi_js_compat::js_json::JsString;
+
 use crate::tui::{Component, ComponentRef, FlowRenderRegionLayout, RenderRegionRect};
 
 /// One flow or bottom layout entry.
@@ -41,7 +43,7 @@ pub struct RootCompositorOptions {
 
 struct RenderedEntry {
     entry: RootLayoutEntry,
-    lines: Vec<String>,
+    lines: Vec<JsString>,
 }
 
 fn render_entries(entries: &[RootLayoutEntry], width: usize) -> Vec<RenderedEntry> {
@@ -123,7 +125,7 @@ impl RootCompositor {
 }
 
 impl Component for RootCompositor {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let flow = render_entries(&self.flow, width);
         let bottom = render_entries(&self.bottom, width);
         let flow_height = total_height(&flow);
@@ -139,7 +141,7 @@ impl Component for RootCompositor {
         for entry in &flow {
             lines.extend(entry.lines.iter().cloned());
         }
-        lines.extend(std::iter::repeat_n(String::new(), gap_height as usize));
+        lines.extend(std::iter::repeat_n(JsString::default(), gap_height as usize));
         for entry in &bottom {
             lines.extend(entry.lines.iter().cloned());
         }

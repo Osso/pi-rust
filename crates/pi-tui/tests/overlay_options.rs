@@ -82,9 +82,9 @@ fn handles_overlay_composited_on_styled_base_content() {
     let tui = TUI::new(handle);
     let (base, base_state) = test_component(&[]);
     base_state.borrow_mut().lines = vec![
-        format!("\x1b[1m\x1b[38;2;255;0;0m{}\x1b[0m", "X".repeat(80)),
-        format!("\x1b[1m\x1b[38;2;255;0;0m{}\x1b[0m", "X".repeat(80)),
-        format!("\x1b[1m\x1b[38;2;255;0;0m{}\x1b[0m", "X".repeat(80)),
+        format!("\x1b[1m\x1b[38;2;255;0;0m{}\x1b[0m", "X".repeat(80)).into(),
+        format!("\x1b[1m\x1b[38;2;255;0;0m{}\x1b[0m", "X".repeat(80)).into(),
+        format!("\x1b[1m\x1b[38;2;255;0;0m{}\x1b[0m", "X".repeat(80)).into(),
     ];
     tui.add_child(base);
     let (content, _overlay_state) = overlay(&["OVERLAY"]);
@@ -154,9 +154,9 @@ fn handles_overlay_on_base_content_with_osc_sequences() {
     let (base, base_state) = test_component(&[]);
     let link = "\x1b]8;;file:///path/to/file.ts\x07file.ts\x1b]8;;\x07";
     base_state.borrow_mut().lines = vec![
-        format!("See {link} for details {}", "X".repeat(50)),
-        format!("See {link} for details {}", "X".repeat(50)),
-        format!("See {link} for details {}", "X".repeat(50)),
+        format!("See {link} for details {}", "X".repeat(50)).into(),
+        format!("See {link} for details {}", "X".repeat(50)).into(),
+        format!("See {link} for details {}", "X".repeat(50)).into(),
     ];
     tui.add_child(base);
     let (content, _overlay_state) = overlay(&["OVERLAY-TEXT"]);

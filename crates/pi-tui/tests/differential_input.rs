@@ -296,7 +296,7 @@ fn input_editing_and_rendering_match_typescript() {
         for step in case.steps {
             match step {
                 Step::SetValue(value) => input.set_value(*value),
-                Step::Key(data) => input.handle_input(data),
+                Step::Key(data) => input.handle_input(&pi_js_compat::js_json::JsString::from(data)),
                 Step::Render(width) => lines.push(input.render(*width)),
                 Step::Value => values.push(input.get_value().to_string()),
             }

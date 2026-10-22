@@ -1,5 +1,7 @@
 //! Ported from `packages/tui/src/components/spacer.ts`.
 
+use pi_js_compat::js_json::JsString;
+
 use crate::tui::Component;
 
 pub struct Spacer {
@@ -27,8 +29,8 @@ impl Spacer {
 }
 
 impl Component for Spacer {
-    fn render(&mut self, _width: usize) -> Vec<String> {
-        vec![String::new(); self.lines]
+    fn render(&mut self, _width: usize) -> Vec<JsString> {
+        vec![JsString::default(); self.lines]
     }
 
     fn wants_input(&self) -> bool {

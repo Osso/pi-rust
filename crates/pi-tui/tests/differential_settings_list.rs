@@ -1,6 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -18,22 +19,22 @@ fn theme(markers: bool) -> SettingsListTheme {
         return SettingsListTheme::plain("> ");
     }
     SettingsListTheme {
-        label: Rc::new(|text: &str, selected: bool| format!("L{}{text}", if selected { "+" } else { "-" })),
-        value: Rc::new(|text: &str, selected: bool| format!("V{}{text}", if selected { "+" } else { "-" })),
-        description: Rc::new(|text: &str| format!("«{text}»")),
-        cursor: "> ".to_string(),
-        hint: Rc::new(|text: &str| format!("«{text}»")),
+        label: Rc::new(|text: &JsString, selected: bool| JsString::from(if selected { "L+" } else { "L-" }) + text),
+        value: Rc::new(|text: &JsString, selected: bool| JsString::from(if selected { "V+" } else { "V-" }) + text),
+        description: Rc::new(|text: &JsString| JsString::from("«") + text + "»"),
+        cursor: "> ".into(),
+        hint: Rc::new(|text: &JsString| JsString::from("«") + text + "»"),
     }
 }
 
 fn build_item(value: &Value) -> SettingItem {
-    let id = value["id"].as_str().unwrap().to_string();
+    let id = JsString::from(value["id"].as_str().unwrap());
     let submenu = value.get("submenu").map(|submenu| {
-        let option = submenu["options"][0].as_str().unwrap().to_string();
+        let option = JsString::from(submenu["options"][0].as_str().unwrap());
         let handle: Rc<pi_tui::components::settings_list::SubmenuFactory> =
-            Rc::new(move |current_value: &str, done: SubmenuDone| {
+            Rc::new(move |current_value: &JsString, done: SubmenuDone| {
                 component(SubmenuWithDone {
-                    label: current_value.to_string(),
+                    label: current_value.clone(),
                     option: option.clone(),
                     done: Rc::clone(&done),
                 })
@@ -42,28 +43,28 @@ fn build_item(value: &Value) -> SettingItem {
     });
     SettingItem {
         id,
-        label: value["label"].as_str().unwrap().to_string(),
-        description: value["description"].as_str().map(str::to_string),
-        current_value: value["currentValue"].as_str().unwrap().to_string(),
+        label: value["label"].as_str().unwrap().into(),
+        description: value["description"].as_str().map(JsString::from),
+        current_value: value["currentValue"].as_str().unwrap().into(),
         values: value["values"]
             .as_array()
-            .map(|values| values.iter().map(|value| value.as_str().unwrap().to_string()).collect()),
+            .map(|values| values.iter().map(|value| value.as_str().unwrap().into()).collect()),
         submenu,
     }
 }
 
 struct SubmenuWithDone {
-    label: String,
-    option: String,
+    label: JsString,
+    option: JsString,
     done: SubmenuDone,
 }
 
 impl Component for SubmenuWithDone {
-    fn render(&mut self, _width: usize) -> Vec<String> {
-        vec![format!("submenu:{}", self.label)]
+    fn render(&mut self, _width: usize) -> Vec<JsString> {
+        vec![JsString::from("submenu:") + &self.label]
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         if data == "\r" {
             let done = Rc::clone(&self.done);
             let option = self.option.clone();
@@ -85,8 +86,8 @@ fn execute_case(case: &Value) -> Value {
         items,
         case["maxVisible"].as_u64().unwrap() as usize,
         theme(case["markers"].as_bool().unwrap()),
-        Rc::new(move |id: &str, value: &str| {
-            change_sink.borrow_mut().push(format!("{id}={value}"));
+        Rc::new(move |id: &JsString, value: &JsString| {
+            change_sink.borrow_mut().push(id.clone() + "=" + value);
         }),
         Rc::new(move || *cancel_sink.borrow_mut() += 1),
         SettingsListOptions {
@@ -97,7 +98,7 @@ fn execute_case(case: &Value) -> Value {
     let mut snapshots = Vec::new();
     for step in case["steps"].as_array().unwrap() {
         match step["kind"].as_str().unwrap() {
-            "key" => list.handle_input(step["data"].as_str().unwrap()),
+            "key" => list.handle_input(&pi_js_compat::js_json::JsString::from(step["data"].as_str().unwrap())),
             "render" => snapshots.push(list.render(step["width"].as_u64().unwrap() as usize)),
             "updateValue" => list.update_value(step["id"].as_str().unwrap(), step["value"].as_str().unwrap()),
             other => panic!("unsupported settings step: {other}"),

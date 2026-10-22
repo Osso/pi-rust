@@ -222,13 +222,13 @@ impl ReadOperations for SandboxReadOperations {
             let value = run_sandbox_operation(&self.params, "readFile", path_payload(absolute_path), None)
                 .await
                 .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
-            Ok(pi_js_compat::base64::buffer_from_base64(&encode_node_utf8(
-                &value
+            Ok(pi_js_compat::base64::buffer_from_base64(
+                value
                     .get("data")
                     .and_then(Value::as_string)
                     .cloned()
                     .unwrap_or_default(),
-            )))
+            ))
         })
     }
 
@@ -250,13 +250,13 @@ impl ReadOperations for SandboxReadOperations {
             let value = run_sandbox_operation(&self.params, "readRange", payload, None)
                 .await
                 .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
-            Ok(pi_js_compat::base64::buffer_from_base64(&encode_node_utf8(
-                &value
+            Ok(pi_js_compat::base64::buffer_from_base64(
+                value
                     .get("data")
                     .and_then(Value::as_string)
                     .cloned()
                     .unwrap_or_default(),
-            )))
+            ))
         })
     }
 

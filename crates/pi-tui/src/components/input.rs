@@ -2,12 +2,12 @@
 //!
 //! Single-line text input with horizontal scrolling, bracketed paste, a kill
 //! ring, and undo. The TypeScript cursor is a UTF-16 code-unit index; the Rust
-//! cursor is a byte index. Both advance by whole grapheme clusters, so rendering
-//! and edit boundaries are identical.
+//! cursor likewise counts UTF-16 units, including positions inside a pair.
 
 use std::rc::Rc;
 
-use unicode_segmentation::UnicodeSegmentation;
+use crate::text_units::{clear, grapheme_indices, graphemes, insert, remove_first, truncate};
+use pi_js_compat::js_json::JsString;
 
 use crate::keybindings::get_keybindings;
 use crate::keys::decode_kitty_printable;
@@ -29,7 +29,7 @@ enum LastAction {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct InputState {
-    value: String,
+    value: JsString,
     cursor: usize,
 }
 
@@ -38,17 +38,17 @@ pub struct InputOptions {
     pub mask: bool,
 }
 
-pub type InputSubmitFn = Rc<dyn Fn(&str)>;
+pub type InputSubmitFn = Rc<dyn Fn(&JsString)>;
 pub type InputEscapeFn = Rc<dyn Fn()>;
 
 pub struct Input {
-    value: String,
+    value: JsString,
     cursor: usize,
     mask: bool,
     pub on_submit: Option<InputSubmitFn>,
     pub on_escape: Option<InputEscapeFn>,
     focused: bool,
-    paste_buffer: String,
+    paste_buffer: JsString,
     is_in_paste: bool,
     kill_ring: KillRing,
     last_action: Option<LastAction>,
@@ -58,13 +58,13 @@ pub struct Input {
 impl Input {
     pub fn new(options: InputOptions) -> Self {
         Self {
-            value: String::new(),
+            value: JsString::default(),
             cursor: 0,
             mask: options.mask,
             on_submit: None,
             on_escape: None,
             focused: false,
-            paste_buffer: String::new(),
+            paste_buffer: JsString::default(),
             is_in_paste: false,
             kill_ring: KillRing::new(),
             last_action: None,
@@ -72,11 +72,11 @@ impl Input {
         }
     }
 
-    pub fn get_value(&self) -> &str {
+    pub fn get_value(&self) -> &JsString {
         &self.value
     }
 
-    pub fn set_value(&mut self, value: impl Into<String>) {
+    pub fn set_value(&mut self, value: impl Into<JsString>) {
         self.value = value.into();
         self.cursor = self.cursor.min(self.value.len());
     }
@@ -100,12 +100,12 @@ impl Input {
         });
     }
 
-    fn insert_character(&mut self, character: &str) {
+    fn insert_character(&mut self, character: &JsString) {
         if is_whitespace_char(character) || self.last_action != Some(LastAction::TypeWord) {
             self.push_undo();
         }
         self.last_action = Some(LastAction::TypeWord);
-        self.value.insert_str(self.cursor, character);
+        insert(&mut self.value, self.cursor, character);
         self.cursor += character.len();
     }
 
@@ -114,7 +114,7 @@ impl Input {
             return None;
         }
         let mut start = 0;
-        for (index, _) in self.value[..self.cursor].grapheme_indices(true) {
+        for (index, _) in grapheme_indices(&self.value.slice(0, self.cursor)) {
             start = index;
         }
         Some(start)
@@ -124,7 +124,7 @@ impl Input {
         if self.cursor >= self.value.len() {
             return None;
         }
-        let grapheme = self.value[self.cursor..].graphemes(true).next()?;
+        let grapheme = graphemes(&self.value.slice(self.cursor, self.value.len())).next()?;
         Some(self.cursor + grapheme.len())
     }
 
@@ -150,11 +150,11 @@ impl Input {
             return;
         }
         self.push_undo();
-        let deleted_text = self.value[..self.cursor].to_string();
+        let deleted_text = self.value.slice(0, self.cursor);
         self.kill_ring
             .push(&deleted_text, true, self.last_action == Some(LastAction::Kill));
         self.last_action = Some(LastAction::Kill);
-        self.value.replace_range(..self.cursor, "");
+        self.value.replace_range(0..self.cursor, "");
         self.cursor = 0;
     }
 
@@ -163,11 +163,11 @@ impl Input {
             return;
         }
         self.push_undo();
-        let deleted_text = self.value[self.cursor..].to_string();
+        let deleted_text = self.value.slice(self.cursor, self.value.len());
         self.kill_ring
             .push(&deleted_text, false, self.last_action == Some(LastAction::Kill));
         self.last_action = Some(LastAction::Kill);
-        self.value.truncate(self.cursor);
+        truncate(&mut self.value, self.cursor);
     }
 
     fn delete_word_backwards(&mut self) {
@@ -178,7 +178,7 @@ impl Input {
         self.push_undo();
         let old_cursor = self.cursor;
         let delete_from = find_word_backward(&self.value, self.cursor, None);
-        let deleted_text = self.value[delete_from..old_cursor].to_string();
+        let deleted_text = self.value.slice(delete_from, old_cursor);
         self.kill_ring.push(&deleted_text, true, was_kill);
         self.last_action = Some(LastAction::Kill);
         self.value.replace_range(delete_from..old_cursor, "");
@@ -192,18 +192,18 @@ impl Input {
         let was_kill = self.last_action == Some(LastAction::Kill);
         self.push_undo();
         let delete_to = find_word_forward(&self.value, self.cursor, None);
-        let deleted_text = self.value[self.cursor..delete_to].to_string();
+        let deleted_text = self.value.slice(self.cursor, delete_to);
         self.kill_ring.push(&deleted_text, false, was_kill);
         self.last_action = Some(LastAction::Kill);
         self.value.replace_range(self.cursor..delete_to, "");
     }
 
     fn yank(&mut self) {
-        let Some(text) = self.kill_ring.peek().map(str::to_owned) else {
+        let Some(text) = self.kill_ring.peek().cloned() else {
             return;
         };
         self.push_undo();
-        self.value.insert_str(self.cursor, &text);
+        insert(&mut self.value, self.cursor, &text);
         self.cursor += text.len();
         self.last_action = Some(LastAction::Yank);
     }
@@ -213,14 +213,14 @@ impl Input {
             return;
         }
         self.push_undo();
-        let previous_text = self.kill_ring.peek().unwrap_or_default().to_string();
+        let previous_text = self.kill_ring.peek().cloned().unwrap_or_default();
         let previous_start = self.cursor.saturating_sub(previous_text.len());
         self.value.replace_range(previous_start..self.cursor, "");
         self.cursor = previous_start;
 
         self.kill_ring.rotate();
-        let text = self.kill_ring.peek().unwrap_or_default().to_string();
-        self.value.insert_str(self.cursor, &text);
+        let text = self.kill_ring.peek().cloned().unwrap_or_default();
+        insert(&mut self.value, self.cursor, &text);
         self.cursor += text.len();
         self.last_action = Some(LastAction::Yank);
     }
@@ -250,28 +250,28 @@ impl Input {
         self.cursor = find_word_forward(&self.value, self.cursor, None);
     }
 
-    fn handle_paste(&mut self, pasted_text: &str) {
+    fn handle_paste(&mut self, pasted_text: &JsString) {
         self.last_action = None;
         self.push_undo();
         let clean_text = clean_pasted_text(pasted_text);
-        self.value.insert_str(self.cursor, &clean_text);
+        insert(&mut self.value, self.cursor, &clean_text);
         self.cursor += clean_text.len();
     }
 
-    fn get_masked_value(&self) -> String {
-        self.value.graphemes(true).map(|_| "•").collect()
+    fn get_masked_value(&self) -> JsString {
+        JsString::from("•".repeat(graphemes(&self.value).count()))
     }
 
     fn get_masked_cursor(&self) -> usize {
-        self.value[..self.cursor].graphemes(true).count()
+        graphemes(&self.value.slice(0, self.cursor)).count()
     }
 
-    fn handle_paste_chunk(&mut self, data: &str) {
+    fn handle_paste_chunk(&mut self, data: &JsString) {
         if data.contains(PASTE_START) {
             self.is_in_paste = true;
-            self.paste_buffer.clear();
+            clear(&mut self.paste_buffer);
         }
-        let data = data.replacen(PASTE_START, "", 1);
+        let data = remove_first(data, PASTE_START);
         if !self.is_in_paste {
             return;
         }
@@ -280,40 +280,142 @@ impl Input {
         let Some(end_index) = self.paste_buffer.find(PASTE_END) else {
             return;
         };
-        let paste_content = self.paste_buffer[..end_index].to_string();
+        let paste_content = self.paste_buffer.slice(0, end_index);
         self.handle_paste(&paste_content);
         self.is_in_paste = false;
-        let remaining = self.paste_buffer[end_index + PASTE_END.len()..].to_string();
-        self.paste_buffer.clear();
+        let remaining = self
+            .paste_buffer
+            .slice(end_index + PASTE_END.len(), self.paste_buffer.len());
+        clear(&mut self.paste_buffer);
         if !remaining.is_empty() {
             self.handle_input(&remaining);
         }
     }
 }
 
-fn clean_pasted_text(pasted_text: &str) -> String {
-    let mut cleaned = String::with_capacity(pasted_text.len());
-    let mut characters = pasted_text.chars().peekable();
-    while let Some(character) = characters.next() {
-        match character {
-            '\r' => {
-                if characters.peek() == Some(&'\n') {
-                    characters.next();
-                }
+impl Input {
+    pub fn handle_input(&mut self, data: impl Into<JsString>) {
+        let data = &data.into();
+        if data.contains(PASTE_START) {
+            self.handle_paste_chunk(data);
+            return;
+        }
+        if self.is_in_paste {
+            self.handle_paste_chunk(data);
+            return;
+        }
+
+        let keybindings = get_keybindings();
+        let matches = |command| keybindings.matches(data, command);
+        if matches("tui.select.cancel") {
+            if let Some(on_escape) = &self.on_escape {
+                on_escape();
             }
-            '\n' => {}
-            '\t' => cleaned.push_str("    "),
-            other => cleaned.push(other),
+            return;
+        }
+        if matches("tui.editor.undo") {
+            self.undo();
+            return;
+        }
+        if matches("tui.input.submit") || data == "\n" {
+            if let Some(on_submit) = &self.on_submit {
+                on_submit(&self.value);
+            }
+            return;
+        }
+        if matches("tui.editor.deleteCharBackward") {
+            self.handle_backspace();
+            return;
+        }
+        if matches("tui.editor.deleteCharForward") {
+            self.handle_forward_delete();
+            return;
+        }
+        if matches("tui.editor.deleteWordBackward") {
+            self.delete_word_backwards();
+            return;
+        }
+        if matches("tui.editor.deleteWordForward") {
+            self.delete_word_forward();
+            return;
+        }
+        if matches("tui.editor.deleteToLineStart") {
+            self.delete_to_line_start();
+            return;
+        }
+        if matches("tui.editor.deleteToLineEnd") {
+            self.delete_to_line_end();
+            return;
+        }
+        if matches("tui.editor.yank") {
+            self.yank();
+            return;
+        }
+        if matches("tui.editor.yankPop") {
+            self.yank_pop();
+            return;
+        }
+        if matches("tui.editor.cursorLeft") {
+            self.last_action = None;
+            if let Some(start) = self.previous_grapheme_start() {
+                self.cursor = start;
+            }
+            return;
+        }
+        if matches("tui.editor.cursorRight") {
+            self.last_action = None;
+            if let Some(end) = self.next_grapheme_end() {
+                self.cursor = end;
+            }
+            return;
+        }
+        if matches("tui.editor.cursorLineStart") {
+            self.last_action = None;
+            self.cursor = 0;
+            return;
+        }
+        if matches("tui.editor.cursorLineEnd") {
+            self.last_action = None;
+            self.cursor = self.value.len();
+            return;
+        }
+        if matches("tui.editor.cursorWordLeft") {
+            self.move_word_backwards();
+            return;
+        }
+        if matches("tui.editor.cursorWordRight") {
+            self.move_word_forwards();
+            return;
+        }
+
+        if let Some(printable) = decode_kitty_printable(data) {
+            self.insert_character(&printable);
+            return;
+        }
+
+        let has_control_characters = data
+            .units()
+            .iter()
+            .any(|unit| *unit < 32 || *unit == 0x7f || (0x80..=0x9f).contains(unit));
+        if !has_control_characters {
+            self.insert_character(data);
         }
     }
-    cleaned
+}
+
+fn clean_pasted_text(pasted_text: &JsString) -> JsString {
+    pasted_text
+        .replace("\r\n", "")
+        .replace("\r", "")
+        .replace("\n", "")
+        .replace("\t", "    ")
 }
 
 impl Component for Input {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         const PROMPT: &str = "> ";
         let Some(available_width) = width.checked_sub(PROMPT.len()).filter(|width| *width > 0) else {
-            return vec![PROMPT.to_string()];
+            return vec![JsString::from(PROMPT)];
         };
 
         let display_value = if self.mask {
@@ -321,22 +423,22 @@ impl Component for Input {
         } else {
             self.value.clone()
         };
-        let cursor_col = if self.mask {
+        let initial_cursor = if self.mask {
             self.get_masked_cursor()
         } else {
-            visible_width(&self.value[..self.cursor])
+            self.cursor
         };
         let total_width = visible_width(&display_value);
 
         let (visible_text, cursor_display) = if total_width < available_width {
-            let cursor_display = slice_by_column(&display_value, 0, cursor_col, true).len();
-            (display_value.clone(), cursor_display)
+            (display_value.clone(), initial_cursor)
         } else {
             let scroll_width = if self.cursor == self.value.len() {
                 available_width.saturating_sub(1)
             } else {
                 available_width
             };
+            let cursor_col = visible_width(display_value.slice(0, initial_cursor));
             if scroll_width > 0 {
                 let half_width = scroll_width / 2;
                 let start_col = if cursor_col < half_width {
@@ -351,126 +453,24 @@ impl Component for Input {
                 let visible_text = slice_by_column(&display_value, start_col, scroll_width, true);
                 (visible_text, before_cursor.len())
             } else {
-                (String::new(), 0)
+                (JsString::default(), 0)
             }
         };
 
-        let after_cursor = visible_text.get(cursor_display..).unwrap_or_default();
-        let at_cursor = after_cursor.graphemes(true).next().unwrap_or(" ").to_string();
-        let before_cursor = visible_text.get(..cursor_display).unwrap_or_default();
-        let after_cursor = visible_text.get(cursor_display + at_cursor.len()..).unwrap_or_default();
+        let cursor_tail = visible_text.slice(cursor_display, visible_text.len());
+        let at_cursor = graphemes(&cursor_tail).next().unwrap_or_else(|| JsString::from(" "));
+        let before_cursor = visible_text.slice(0, cursor_display);
+        let after_cursor = visible_text.slice(cursor_display + at_cursor.len(), visible_text.len());
         let marker = if self.focused { CURSOR_MARKER } else { "" };
-        let cursor_character = format!("\x1b[7m{at_cursor}\x1b[27m");
-        let text_with_cursor = format!("{before_cursor}{marker}{cursor_character}{after_cursor}");
+        let cursor_character = JsString::from("\x1b[7m") + &at_cursor + "\x1b[27m";
+        let text_with_cursor = before_cursor + marker + cursor_character + after_cursor;
         let visual_length = visible_width(&text_with_cursor);
         let padding = " ".repeat(available_width.saturating_sub(visual_length));
-        vec![format!("{PROMPT}{text_with_cursor}{padding}")]
+        vec![JsString::from(PROMPT) + text_with_cursor + padding]
     }
 
-    fn handle_input(&mut self, data: &str) {
-        if data.contains(PASTE_START) {
-            self.handle_paste_chunk(data);
-            return;
-        }
-        if self.is_in_paste {
-            self.handle_paste_chunk(data);
-            return;
-        }
-
-        let keybindings = get_keybindings();
-        if keybindings.matches(data, "tui.select.cancel") {
-            if let Some(on_escape) = &self.on_escape {
-                on_escape();
-            }
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.undo") {
-            self.undo();
-            return;
-        }
-        if keybindings.matches(data, "tui.input.submit") || data == "\n" {
-            if let Some(on_submit) = &self.on_submit {
-                on_submit(&self.value);
-            }
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.deleteCharBackward") {
-            self.handle_backspace();
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.deleteCharForward") {
-            self.handle_forward_delete();
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.deleteWordBackward") {
-            self.delete_word_backwards();
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.deleteWordForward") {
-            self.delete_word_forward();
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.deleteToLineStart") {
-            self.delete_to_line_start();
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.deleteToLineEnd") {
-            self.delete_to_line_end();
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.yank") {
-            self.yank();
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.yankPop") {
-            self.yank_pop();
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.cursorLeft") {
-            self.last_action = None;
-            if let Some(start) = self.previous_grapheme_start() {
-                self.cursor = start;
-            }
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.cursorRight") {
-            self.last_action = None;
-            if let Some(end) = self.next_grapheme_end() {
-                self.cursor = end;
-            }
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.cursorLineStart") {
-            self.last_action = None;
-            self.cursor = 0;
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.cursorLineEnd") {
-            self.last_action = None;
-            self.cursor = self.value.len();
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.cursorWordLeft") {
-            self.move_word_backwards();
-            return;
-        }
-        if keybindings.matches(data, "tui.editor.cursorWordRight") {
-            self.move_word_forwards();
-            return;
-        }
-
-        if let Some(printable) = decode_kitty_printable(data) {
-            self.insert_character(&printable);
-            return;
-        }
-
-        let has_control_characters = data.chars().any(|character| {
-            let code = character as u32;
-            code < 32 || code == 0x7f || (0x80..=0x9f).contains(&code)
-        });
-        if !has_control_characters {
-            self.insert_character(data);
-        }
+    fn handle_input(&mut self, data: &JsString) {
+        Input::handle_input(self, data);
     }
 
     fn invalidate(&mut self) {}

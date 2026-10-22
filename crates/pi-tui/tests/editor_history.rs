@@ -1,5 +1,6 @@
 //! Ported from `packages/tui/test/editor.test.ts` (`Prompt history navigation`)
 //! and `editor-history-keybindings.test.ts`.
+use pi_js_compat::js_json::JsString;
 use pi_tui::tui::Component;
 
 #[path = "support/editor_host.rs"]
@@ -136,10 +137,10 @@ fn allows_non_consecutive_duplicates_in_history() {
 fn sets_prompt_history_from_persisted_newest_first_entries() {
     let (mut editor, _) = editor();
     editor.set_history(vec![
-        "newest".to_string(),
-        "older".to_string(),
-        String::new(),
-        "   ".to_string(),
+        JsString::from("newest"),
+        JsString::from("older"),
+        JsString::default(),
+        JsString::from("   "),
     ]);
     assert_eq!(editor.get_history(), vec!["newest", "older"]);
     send(&mut editor, "\x1b[A");
@@ -219,8 +220,8 @@ fn allows_opposite_direction_cursor_movement_within_multiline_history_entry() {
 fn shows_reverse_history_search_on_ctrl_r() {
     let (mut editor, _) = editor();
     send(&mut editor, "\x12");
-    let rendered = render_plain(&mut editor, 40).join("\n");
-    assert!(rendered.contains("0/0"), "{rendered}");
+    let rendered = JsString::join(render_plain(&mut editor, 40), "\n");
+    assert!(rendered.contains("0/0"), "{rendered:?}");
 }
 
 #[test]
@@ -233,9 +234,9 @@ fn keeps_the_search_query_in_the_editor_while_previewing_the_selected_match() {
     send(&mut editor, "c");
     send(&mut editor, "o");
     assert_eq!(editor.get_text(), "co");
-    let rendered = render_plain(&mut editor, 60).join("\n");
-    assert!(rendered.contains("> open config docs"), "{rendered}");
-    assert!(rendered.contains("1/1"), "{rendered}");
+    let rendered = JsString::join(render_plain(&mut editor, 60), "\n");
+    assert!(rendered.contains("> open config docs"), "{rendered:?}");
+    assert!(rendered.contains("1/1"), "{rendered:?}");
 }
 
 #[test]
@@ -246,9 +247,9 @@ fn steps_through_older_reverse_search_matches_on_repeated_ctrl_r() {
     send(&mut editor, "\x12");
     send(&mut editor, "c");
     send(&mut editor, "o");
-    assert!(render_plain(&mut editor, 60).join("\n").contains("> newer config fix"));
+    assert!(JsString::join(render_plain(&mut editor, 60), "\n").contains("> newer config fix"));
     send(&mut editor, "\x12");
-    assert!(render_plain(&mut editor, 60).join("\n").contains("> older config note"));
+    assert!(JsString::join(render_plain(&mut editor, 60), "\n").contains("> older config note"));
     assert_eq!(editor.get_text(), "co");
 }
 
@@ -262,7 +263,7 @@ fn shows_each_reverse_search_match_as_a_single_first_line_row() {
     send(&mut editor, "\x12");
     send(&mut editor, "c");
     send(&mut editor, "o");
-    let raw = editor.render(60).join("\n");
+    let raw = JsString::join(editor.render(60), "\n");
     let rendered = pi_tui::utils::strip_terminal_sequences(&raw);
     assert!(rendered.contains("> newer config fix"));
     assert!(rendered.contains("  wrapped config prompt"));
@@ -281,8 +282,8 @@ fn previews_the_matching_line_from_multiline_reverse_search_results() {
     send(&mut editor, "\x12");
     send(&mut editor, "h");
     send(&mut editor, "e");
-    let rendered = render_plain(&mut editor, 60).join("\n");
-    assert!(rendered.contains("> say hello twice"), "{rendered}");
+    let rendered = JsString::join(render_plain(&mut editor, 60), "\n");
+    assert!(rendered.contains("> say hello twice"), "{rendered:?}");
     assert!(!rendered.contains("Goal set - starting work"));
 }
 
@@ -295,20 +296,20 @@ fn limits_reverse_search_rendering_to_20_rows_while_keeping_all_matches_navigabl
     send(&mut editor, "\x12");
     send(&mut editor, "m");
     send(&mut editor, "a");
-    let rendered = render_plain(&mut editor, 60).join("\n");
+    let rendered = JsString::join(render_plain(&mut editor, 60), "\n");
     let visible = rendered
-        .lines()
-        .filter(|line| line.as_bytes().get(1) == Some(&b' ') && line[2..].starts_with("match "))
+        .split('\n')
+        .filter(|line| line.units().get(1) == Some(&32) && line.slice(2, line.len()).starts_with("match "))
         .count();
-    assert_eq!(visible, 20, "{rendered}");
+    assert_eq!(visible, 20, "{rendered:?}");
     assert!(rendered.contains("1/25"));
     assert!(!rendered.contains("match 5"));
 
     for _ in 0..20 {
         send(&mut editor, "\x12");
     }
-    let stepped = render_plain(&mut editor, 60).join("\n");
-    assert!(stepped.contains("> match 5"), "{stepped}");
+    let stepped = JsString::join(render_plain(&mut editor, 60), "\n");
+    assert!(stepped.contains("> match 5"), "{stepped:?}");
     assert!(stepped.contains("21/25"));
 }
 

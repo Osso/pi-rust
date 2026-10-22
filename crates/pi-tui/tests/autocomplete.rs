@@ -6,6 +6,7 @@ fn unusable_fd_fails_instead_of_skipping() {
     required_fd::assert_unusable_fd_fails("fuzzy_empty_query_returns_files_and_folders");
 }
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::Path;
 
@@ -47,7 +48,7 @@ fn command(name: &str) -> SlashCommand {
 }
 
 fn provider(commands: Vec<CommandEntry>, base_path: &str, fd_path: Option<String>) -> CombinedAutocompleteProvider {
-    CombinedAutocompleteProvider::new(commands, base_path, fd_path)
+    CombinedAutocompleteProvider::new(commands, base_path, fd_path.map(Into::into))
 }
 
 async fn suggestions(
@@ -57,7 +58,7 @@ async fn suggestions(
     cursor_col: usize,
     force: bool,
 ) -> Option<pi_tui::autocomplete::AutocompleteSuggestions> {
-    let lines: Vec<String> = lines.iter().map(|line| (*line).to_string()).collect();
+    let lines: Vec<JsString> = lines.iter().map(|line| JsString::from(*line)).collect();
     provider
         .get_suggestions(
             &lines,
@@ -133,8 +134,8 @@ async fn fuzzy_empty_query_returns_files_and_folders() {
     let result = suggestions(&provider, &["@"], 0, 1, false)
         .await
         .expect("@ suggestions");
-    let mut values: Vec<&str> = result.items.iter().map(|item| item.value.as_str()).collect();
-    values.sort();
+    let mut values: Vec<JsString> = result.items.iter().map(|item| item.value.clone()).collect();
+    values.sort_by(|a, b| a.units().cmp(b.units()));
     assert_eq!(values, vec!["@README.md", "@src/"]);
 }
 
@@ -153,7 +154,7 @@ async fn fuzzy_matches_extension_case_insensitively() {
         .await
         .expect("case-insensitive suggestions");
     assert_eq!(
-        result.items.iter().map(|item| item.value.as_str()).collect::<Vec<_>>(),
+        result.items.iter().map(|item| item.value.clone()).collect::<Vec<_>>(),
         vec!["@README.md"]
     );
 }
@@ -200,16 +201,16 @@ async fn fuzzy_returns_nested_paths_and_full_path_matches() {
     let result = suggestions(&provider, &["@tui/src/auto"], 0, 13, false)
         .await
         .expect("deep path");
-    let values: Vec<&str> = result.items.iter().map(|item| item.value.as_str()).collect();
-    assert!(values.contains(&"@packages/tui/src/autocomplete.ts"));
-    assert!(!values.contains(&"@packages/ai/src/autocomplete.ts"));
+    let values: Vec<JsString> = result.items.iter().map(|item| item.value.clone()).collect();
+    assert!(values.contains(&JsString::from("@packages/tui/src/autocomplete.ts")));
+    assert!(!values.contains(&JsString::from("@packages/ai/src/autocomplete.ts")));
 
     let result = suggestions(&provider, &["@components/"], 0, 12, false)
         .await
         .expect("full path match");
-    let values: Vec<&str> = result.items.iter().map(|item| item.value.as_str()).collect();
-    assert!(values.contains(&"@src/components/Button.tsx"));
-    assert!(!values.contains(&"@src/utils/helpers.ts"));
+    let values: Vec<JsString> = result.items.iter().map(|item| item.value.clone()).collect();
+    assert!(values.contains(&JsString::from("@src/components/Button.tsx")));
+    assert!(!values.contains(&JsString::from("@src/utils/helpers.ts")));
 }
 
 #[tokio::test]
@@ -232,10 +233,10 @@ async fn fuzzy_scopes_relative_directories_recursively() {
     let result = suggestions(&provider, &["@../outside/a"], 0, 13, false)
         .await
         .expect("scoped suggestions");
-    let values: Vec<&str> = result.items.iter().map(|item| item.value.as_str()).collect();
-    assert!(values.contains(&"@../outside/nested/alpha.ts"));
-    assert!(values.contains(&"@../outside/nested/deeper/also-alpha.ts"));
-    assert!(!values.contains(&"@../outside/nested/deeper/zzz.ts"));
+    let values: Vec<JsString> = result.items.iter().map(|item| item.value.clone()).collect();
+    assert!(values.contains(&JsString::from("@../outside/nested/alpha.ts")));
+    assert!(values.contains(&JsString::from("@../outside/nested/deeper/also-alpha.ts")));
+    assert!(!values.contains(&JsString::from("@../outside/nested/deeper/zzz.ts")));
 }
 
 #[tokio::test]
@@ -258,9 +259,9 @@ async fn fuzzy_quotes_paths_with_spaces_and_continues_quoted_paths() {
     let result = suggestions(&provider, &[line], 0, line.len() - 1, false)
         .await
         .expect("quoted continuation");
-    let values: Vec<&str> = result.items.iter().map(|item| item.value.as_str()).collect();
-    assert!(values.contains(&"@\"my folder/test.txt\""));
-    assert!(values.contains(&"@\"my folder/other.txt\""));
+    let values: Vec<JsString> = result.items.iter().map(|item| item.value.clone()).collect();
+    assert!(values.contains(&JsString::from("@\"my folder/test.txt\"")));
+    assert!(values.contains(&JsString::from("@\"my folder/other.txt\"")));
 
     let line = "@\"my folder/te\"";
     let cursor = line.len() - 1;
@@ -272,7 +273,7 @@ async fn fuzzy_quotes_paths_with_spaces_and_continues_quoted_paths() {
         .iter()
         .find(|item| item.value == "@\"my folder/test.txt\"")
         .expect("quoted item");
-    let applied = provider.apply_completion(&[line.to_string()], 0, cursor, selected, &result.prefix);
+    let applied = provider.apply_completion(&[line.into()], 0, cursor, selected, &result.prefix);
     assert_eq!(applied.lines[0], "@\"my folder/test.txt\" ");
 }
 
@@ -293,9 +294,9 @@ async fn fuzzy_includes_hidden_paths_but_excludes_git() {
     let result = suggestions(&provider, &["@"], 0, 1, false)
         .await
         .expect("hidden suggestions");
-    let values: Vec<&str> = result.items.iter().map(|item| item.value.as_str()).collect();
-    assert!(values.contains(&"@.pi/"));
-    assert!(values.contains(&"@.github/"));
+    let values: Vec<JsString> = result.items.iter().map(|item| item.value.clone()).collect();
+    assert!(values.contains(&JsString::from("@.pi/")));
+    assert!(values.contains(&JsString::from("@.github/")));
     assert!(
         !values
             .iter()
@@ -326,9 +327,9 @@ async fn fuzzy_follows_symlinked_directories_and_files() {
     let result = suggestions(&provider, &["@some"], 0, 5, false)
         .await
         .expect("symlink suggestions");
-    let values: Vec<&str> = result.items.iter().map(|item| item.value.as_str()).collect();
-    assert!(values.contains(&"@dir/some_file.txt"));
-    assert!(values.contains(&"@symlinked_dir/some_file.txt"));
+    let values: Vec<JsString> = result.items.iter().map(|item| item.value.clone()).collect();
+    assert!(values.contains(&JsString::from("@dir/some_file.txt")));
+    assert!(values.contains(&JsString::from("@symlinked_dir/some_file.txt")));
 
     let result = suggestions(&provider, &["@symlinked"], 0, 10, false)
         .await
@@ -375,17 +376,19 @@ async fn fuzzy_results_ignore_query_text_in_the_base_path() {
         .expect("containing result");
 
     let normalize = |items: &[AutocompleteItem]| {
-        let mut rows: Vec<String> = items
+        let mut rows: Vec<JsString> = items
             .iter()
-            .map(|item| format!("{} :: {}", item.label, item.description.as_deref().unwrap_or("")))
+            .map(|item| item.label.clone() + " :: " + item.description.clone().unwrap_or_default())
             .collect();
-        rows.sort();
+        rows.sort_by(|a, b| a.units().cmp(b.units()));
         rows
     };
     assert_eq!(normalize(&containing_result.items), normalize(&normal_result.items));
     let rows = normalize(&normal_result.items);
-    assert!(rows.contains(&"plan-mode/ :: packages/coding-agent/examples/extensions/plan-mode".to_string()));
-    assert!(rows.contains(&"plan.md :: packages/tui/docs/plan.md".to_string()));
+    assert!(rows.contains(&JsString::from(
+        "plan-mode/ :: packages/coding-agent/examples/extensions/plan-mode"
+    )));
+    assert!(rows.contains(&JsString::from("plan.md :: packages/tui/docs/plan.md")));
 }
 
 #[tokio::test]
@@ -432,9 +435,9 @@ async fn quoted_completion_quotes_paths_with_spaces() {
     let result = suggestions(&provider, &[line], 0, line.len() - 1, true)
         .await
         .expect("quoted continuation");
-    let values: Vec<&str> = result.items.iter().map(|item| item.value.as_str()).collect();
-    assert!(values.contains(&"\"my folder/test.txt\""));
-    assert!(values.contains(&"\"my folder/other.txt\""));
+    let values: Vec<JsString> = result.items.iter().map(|item| item.value.clone()).collect();
+    assert!(values.contains(&JsString::from("\"my folder/test.txt\"")));
+    assert!(values.contains(&JsString::from("\"my folder/other.txt\"")));
 
     let line = "\"my folder/te\"";
     let cursor = line.len() - 1;
@@ -446,14 +449,14 @@ async fn quoted_completion_quotes_paths_with_spaces() {
         .iter()
         .find(|item| item.value == "\"my folder/test.txt\"")
         .expect("quoted item");
-    let applied = provider.apply_completion(&[line.to_string()], 0, cursor, selected, &result.prefix);
+    let applied = provider.apply_completion(&[line.into()], 0, cursor, selected, &result.prefix);
     assert_eq!(applied.lines[0], "\"my folder/test.txt\"");
 }
 
 #[test]
 fn apply_completion_for_slash_commands() {
     let provider = provider(Vec::new(), "/tmp", None);
-    let applied = provider.apply_completion(&["/mod".to_string()], 0, 4, &item("model"), "/mod");
+    let applied = provider.apply_completion(&[JsString::from("/mod")], 0, 4, &item("model"), &"/mod".into());
     assert_eq!(applied.lines[0], "/model ");
     assert_eq!(applied.cursor_col, 7);
 }
@@ -462,21 +465,21 @@ fn apply_completion_for_slash_commands() {
 fn apply_completion_adds_space_after_files_but_not_directories() {
     let provider = provider(Vec::new(), "/tmp", None);
     let applied = provider.apply_completion(
-        &["@src".to_string()],
+        &[JsString::from("@src")],
         0,
         4,
         &AutocompleteItem::new("@src/", "src/"),
-        "@src",
+        &"@src".into(),
     );
     assert_eq!(applied.lines[0], "@src/");
     assert_eq!(applied.cursor_col, 5);
 
     let applied = provider.apply_completion(
-        &["@src".to_string()],
+        &[JsString::from("@src")],
         0,
         4,
         &AutocompleteItem::new("@src.txt", "src.txt"),
-        "@src",
+        &"@src".into(),
     );
     assert_eq!(applied.lines[0], "@src.txt ");
     assert_eq!(applied.cursor_col, 9);
@@ -485,9 +488,9 @@ fn apply_completion_adds_space_after_files_but_not_directories() {
 #[test]
 fn should_trigger_file_completion_rejects_slash_command_names() {
     let provider = provider(Vec::new(), "/tmp", None);
-    assert!(!provider.should_trigger_file_completion(&["/model".to_string()], 0, 6));
-    assert!(provider.should_trigger_file_completion(&["/model arg".to_string()], 0, 10));
-    assert!(provider.should_trigger_file_completion(&["hello".to_string()], 0, 5));
+    assert!(!provider.should_trigger_file_completion(&[JsString::from("/model")], 0, 6));
+    assert!(provider.should_trigger_file_completion(&[JsString::from("/model arg")], 0, 10));
+    assert!(provider.should_trigger_file_completion(&[JsString::from("hello")], 0, 5));
 }
 
 #[test]
@@ -500,7 +503,7 @@ fn home_directory_expansion_is_used_for_tilde_prefixes() {
     let expected = format!("~/{}", entry.path().file_name().unwrap().to_string_lossy());
     let provider = provider(Vec::new(), "/tmp", None);
     let suggestions = futures_lite_block_on(provider.get_suggestions(
-        &["~/".to_string()],
+        &[JsString::from("~/")],
         0,
         2,
         SuggestionsOptions {
@@ -510,12 +513,12 @@ fn home_directory_expansion_is_used_for_tilde_prefixes() {
     ));
     let suggestions = suggestions.expect("home suggestions");
     assert_eq!(suggestions.prefix, "~/");
-    assert!(
-        suggestions
-            .items
-            .iter()
-            .all(|item| item.value.trim_start_matches('"').starts_with("~/"))
-    );
+    assert!(suggestions.items.iter().all(|item| {
+        item.value
+            .strip_prefix('"')
+            .unwrap_or_else(|| item.value.clone())
+            .starts_with("~/")
+    }));
     assert!(suggestions.items.iter().any(|item| item.value == expected));
 }
 

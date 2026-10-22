@@ -4,13 +4,14 @@
 //! 18.0.5 token stream: absent JavaScript `undefined` values stay absent,
 //! while `null` values (link titles, table alignment) serialize as `null`.
 
+use pi_js_compat::js_json::JsString;
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum ListStart {
     Number(u64),
-    Empty(String),
+    Empty(JsString),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -24,19 +25,19 @@ pub enum Align {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableCell {
-    pub text: String,
+    pub text: JsString,
     pub tokens: Vec<Token>,
     pub header: bool,
     pub align: Option<Align>,
     #[serde(skip)]
-    pub inline_source: Option<String>,
+    pub inline_source: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkDefinition {
-    pub href: String,
-    pub title: Option<String>,
+    pub href: JsString,
+    pub title: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -54,45 +55,45 @@ pub enum ListItemType {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Token {
     Space {
-        raw: String,
+        raw: JsString,
     },
     Code {
-        raw: String,
+        raw: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
-        lang: Option<String>,
+        lang: Option<JsString>,
         #[serde(rename = "codeBlockStyle", skip_serializing_if = "Option::is_none")]
-        code_block_style: Option<String>,
-        text: String,
+        code_block_style: Option<JsString>,
+        text: JsString,
     },
     Heading {
-        raw: String,
+        raw: JsString,
         depth: u8,
-        text: String,
+        text: JsString,
         tokens: Vec<Token>,
         #[serde(skip)]
-        inline_source: Option<String>,
+        inline_source: Option<JsString>,
     },
     Hr {
-        raw: String,
+        raw: JsString,
     },
     Blockquote {
-        raw: String,
-        text: String,
+        raw: JsString,
+        text: JsString,
         tokens: Vec<Token>,
     },
     List {
-        raw: String,
+        raw: JsString,
         ordered: bool,
         start: ListStart,
         loose: bool,
         items: Vec<ListItem>,
     },
     Checkbox {
-        raw: String,
+        raw: JsString,
         checked: bool,
     },
     Html {
-        raw: String,
+        raw: JsString,
         block: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         pre: Option<bool>,
@@ -100,78 +101,78 @@ pub enum Token {
         in_link: Option<bool>,
         #[serde(rename = "inRawBlock", skip_serializing_if = "Option::is_none")]
         in_raw_block: Option<bool>,
-        text: String,
+        text: JsString,
     },
     Def {
-        raw: String,
-        tag: String,
-        href: String,
+        raw: JsString,
+        tag: JsString,
+        href: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
-        title: Option<String>,
+        title: Option<JsString>,
     },
     Table {
-        raw: String,
+        raw: JsString,
         header: Vec<TableCell>,
         align: Vec<Option<Align>>,
         rows: Vec<Vec<TableCell>>,
     },
     Paragraph {
-        raw: String,
-        text: String,
+        raw: JsString,
+        text: JsString,
         tokens: Vec<Token>,
         #[serde(skip)]
-        inline_source: Option<String>,
+        inline_source: Option<JsString>,
     },
     Text {
-        raw: String,
-        text: String,
+        raw: JsString,
+        text: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
         escaped: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         tokens: Option<Vec<Token>>,
         #[serde(skip)]
-        inline_source: Option<String>,
+        inline_source: Option<JsString>,
     },
     Escape {
-        raw: String,
-        text: String,
+        raw: JsString,
+        text: JsString,
     },
     Br {
-        raw: String,
+        raw: JsString,
     },
     Codespan {
-        raw: String,
-        text: String,
+        raw: JsString,
+        text: JsString,
     },
     Em {
-        raw: String,
-        text: String,
+        raw: JsString,
+        text: JsString,
         tokens: Vec<Token>,
     },
     Strong {
-        raw: String,
-        text: String,
+        raw: JsString,
+        text: JsString,
         tokens: Vec<Token>,
     },
     Del {
-        raw: String,
-        text: String,
+        raw: JsString,
+        text: JsString,
         tokens: Vec<Token>,
     },
     Link {
-        raw: String,
-        href: String,
+        raw: JsString,
+        href: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
-        title: Option<Option<String>>,
-        text: String,
+        title: Option<Option<JsString>>,
+        text: JsString,
         tokens: Vec<Token>,
     },
     Image {
-        raw: String,
-        href: String,
+        raw: JsString,
+        href: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
-        title: Option<Option<String>>,
-        text: String,
+        title: Option<Option<JsString>>,
+        text: JsString,
         tokens: Vec<Token>,
     },
 }
@@ -181,17 +182,17 @@ pub enum Token {
 pub struct ListItem {
     #[serde(rename = "type")]
     pub token_type: ListItemType,
-    pub raw: String,
+    pub raw: JsString,
     pub task: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checked: Option<bool>,
     pub loose: bool,
-    pub text: String,
+    pub text: JsString,
     pub tokens: Vec<Token>,
 }
 
 impl Token {
-    pub fn has_text(&self) -> Option<&str> {
+    pub fn has_text(&self) -> Option<&JsString> {
         match self {
             Token::Code { text, .. }
             | Token::Heading { text, .. }

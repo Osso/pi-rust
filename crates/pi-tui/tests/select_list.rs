@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -20,9 +21,9 @@ fn item(value: &str) -> SelectItem {
     SelectItem::new(value, value)
 }
 
-fn visible_index(line: &str, text: &str) -> usize {
+fn visible_index(line: &JsString, text: &str) -> usize {
     let index = line.find(text).expect("line must contain text");
-    visible_width(&line[..index])
+    visible_width(line.slice(0, index))
 }
 
 #[test]
@@ -102,10 +103,10 @@ fn allows_overriding_primary_truncation_while_preserving_alignment() {
         max_primary_column_width: Some(12),
         truncate_primary: Some(Rc::new(|context: &SelectListTruncatePrimaryContext<'_>| {
             if (context.text.len() as i64) <= context.max_width {
-                return context.text.to_string();
+                return context.text.clone();
             }
             let keep = context.max_width.saturating_sub(1).max(0) as usize;
-            format!("{}…", &context.text[..keep.min(context.text.len())])
+            context.text.slice(0, keep.min(context.text.len())) + "…"
         })),
     };
     let mut list = SelectList::new(items, 5, SelectListTheme::plain(), layout);
@@ -127,11 +128,11 @@ fn up_and_down_wrap_and_notify_selection_change() {
         sink.borrow_mut().push(item.value.clone());
     }));
 
-    list.handle_input("\x1b[A");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x1b[A"));
     assert_eq!(list.selected_index(), 2);
-    list.handle_input("\x1b[B");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x1b[B"));
     assert_eq!(list.selected_index(), 0);
-    list.handle_input("\x1b[B");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x1b[B"));
     assert_eq!(list.selected_index(), 1);
 
     assert_eq!(*changes.borrow(), vec!["three", "one", "two"]);
@@ -143,16 +144,16 @@ fn confirm_and_cancel_invoke_callbacks() {
     let events = Rc::new(RefCell::new(Vec::new()));
     let select_events = Rc::clone(&events);
     list.on_select = Some(Rc::new(move |item: &SelectItem| {
-        select_events.borrow_mut().push(format!("select:{}", item.value));
+        select_events.borrow_mut().push(JsString::from("select:") + &item.value);
     }));
     let cancel_events = Rc::clone(&events);
     list.on_cancel = Some(Rc::new(move || {
-        cancel_events.borrow_mut().push("cancel".to_string());
+        cancel_events.borrow_mut().push(JsString::from("cancel"));
     }));
 
-    list.handle_input("\r");
-    list.handle_input("\x1b");
-    list.handle_input("\x03");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\r"));
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x1b"));
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x03"));
 
     assert_eq!(*events.borrow(), vec!["select:one", "cancel", "cancel"]);
 }
@@ -164,7 +165,7 @@ fn filtering_resets_selection_and_reports_no_match() {
     assert_eq!(list.get_selected_item().unwrap().value, "alpha");
 
     list.set_selected_index(1);
-    list.handle_input("\x1b[A");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x1b[A"));
     assert_eq!(list.selected_index(), 0);
 
     list.set_filter("zzz");
@@ -193,8 +194,8 @@ fn uses_label_fallback_value_and_selected_theme() {
         items,
         5,
         SelectListTheme {
-            selected_prefix: Rc::new(|text: &str| format!("«{text}»")),
-            selected_text: Rc::new(|text: &str| format!("{{{text}}}")),
+            selected_prefix: Rc::new(|text: &JsString| JsString::from("«") + text + "»"),
+            selected_text: Rc::new(|text: &JsString| JsString::from("{") + text + "}"),
             ..SelectListTheme::plain()
         },
         SelectListLayoutOptions::default(),

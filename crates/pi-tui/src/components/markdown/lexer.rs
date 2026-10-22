@@ -1,70 +1,38 @@
 //! Port of the pinned `marked` 18.0.5 lexer subset used by `markdown.ts`.
 //!
-//! The JavaScript grammar in `node_modules/marked/src/rules.ts` is translated
-//! literally and compiled with `fancy-regex` because several rules use
-//! lookaround and backreferences. `translate` maps JavaScript character-class
-//! shorthands (`\s`, `\d`, `\w`, `\b`) to their JavaScript semantics.
+//! The JavaScript grammar runs on the shared ECMAScript engine over native
+//! UTF-16. Token text, masks, captures and offsets never pass through UTF-8.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use fancy_regex::{Captures, Regex};
-use pi_js_compat::string::{js_trim, js_trim_end};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_regex::{JsCaptures as Captures, JsRegex as Regex};
 
 use super::tokens::{Align, LinkDefinition, ListItem, ListItemType, ListStart, TableCell, Token};
 
-const JS_SPACE_CLASS: &str =
-    r"[ \t\n\x0B\x0C\r\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]";
-
 const TAG_NAMES: &str = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
-
-fn translate(pattern: &str) -> String {
-    const ANY_CHAR: &str = "\u{1}MARKED_ANY\u{1}";
-    const JS_DOT: &str = r"[^\n\r\u{2028}\u{2029}]";
-    let pattern = pattern.replace(r"[\s\S]", ANY_CHAR);
-    let mut out = String::with_capacity(pattern.len() * 2);
-    let mut in_class = false;
-    let mut chars = pattern.chars();
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            match chars.next() {
-                Some('s') => out.push_str(JS_SPACE_CLASS),
-                Some('S') => {
-                    out.push_str("[^");
-                    out.push_str(JS_SPACE_CLASS);
-                    out.push(']');
-                }
-                Some('d') => out.push_str("[0-9]"),
-                Some('w') => out.push_str("[A-Za-z0-9_]"),
-                Some('b') => out.push_str(r"(?:(?<=[A-Za-z0-9_])(?![A-Za-z0-9_])|(?<![A-Za-z0-9_])(?=[A-Za-z0-9_]))"),
-                Some(other) => {
-                    out.push('\\');
-                    out.push(other);
-                }
-                None => out.push('\\'),
-            }
-            continue;
-        }
-        if ch == '[' {
-            in_class = true;
-        } else if ch == ']' {
-            in_class = false;
-        }
-        if ch == '.' && !in_class {
-            out.push_str(JS_DOT);
-        } else {
-            out.push(ch);
-        }
-    }
-    out.replace(ANY_CHAR, "(?s:.)")
-}
-
 fn rx(pattern: &str) -> Regex {
-    Regex::new(&translate(pattern)).unwrap_or_else(|error| panic!("marked rule {pattern}: {error}"))
+    let mut flags = "";
+    let pattern = if let Some(pattern) = pattern.strip_prefix("(?i)") {
+        flags = "i";
+        pattern
+    } else if let Some(pattern) = pattern.strip_prefix("(?m)") {
+        flags = "m";
+        pattern
+    } else {
+        pattern
+    };
+    // marked's property escapes are Unicode rules; its other rules use legacy units.
+    let flags = if pattern.contains("\\p{") {
+        if flags == "i" { "iu" } else { "u" }
+    } else {
+        flags
+    };
+    Regex::with_flags(pattern, flags).unwrap_or_else(|error| panic!("marked rule {pattern}: {error}"))
 }
-
-fn is_match(regex: &Regex, text: &str) -> bool {
-    regex.is_match(text).unwrap_or(false)
+fn is_match(regex: &Regex, text: impl Into<JsString>) -> bool {
+    regex.is_match(text)
 }
 
 struct Rules {
@@ -289,103 +257,94 @@ fn build_rules() -> Rules {
     }
 }
 
-fn utf16_len(value: &str) -> usize {
-    value.chars().map(char::len_utf16).sum()
+fn utf16_len(value: impl Into<JsString>) -> usize {
+    value.into().len()
 }
-
-fn byte_at_utf16(value: &str, index: usize) -> usize {
-    if index == 0 {
-        return 0;
-    }
-    let mut units = 0;
-    for (byte, ch) in value.char_indices() {
-        if units >= index {
-            return byte;
-        }
-        units += ch.len_utf16();
-    }
-    value.len()
+fn slice_utf16(value: impl Into<JsString>, start: isize, end: Option<isize>) -> JsString {
+    let value = value.into();
+    let len = value.len() as isize;
+    let normalize=|index:isize| if index<0 {(len+index).clamp(0,len)}else{index.clamp(0,len)} as usize;
+    value.slice(normalize(start), normalize(end.unwrap_or(len)))
 }
-
-fn slice_utf16(value: &str, start: isize, end: Option<isize>) -> &str {
-    let len = utf16_len(value) as isize;
-    let normalize = |index: isize| -> usize {
-        let index = if index < 0 { len + index } else { index };
-        index.clamp(0, len) as usize
-    };
-    let start = byte_at_utf16(value, normalize(start));
-    let end = byte_at_utf16(value, normalize(end.unwrap_or(len)));
-    &value[start..end]
+fn trim(value: impl Into<JsString>) -> JsString {
+    value.into().trim()
 }
-
-fn rtrim(value: &str, character: char) -> &str {
-    value.trim_end_matches(character)
+fn trim_end(value: impl Into<JsString>) -> JsString {
+    value.into().trim_end()
 }
-
-fn trim_trailing_blank_lines(value: &str) -> &str {
-    let rules = rules();
-    let lines: Vec<&str> = value.split('\n').collect();
+fn rtrim(value: impl Into<JsString>, character: char) -> JsString {
+    let value = value.into();
+    let end = value
+        .units()
+        .iter()
+        .rposition(|unit| *unit != character as u16)
+        .map_or(0, |index| index + 1);
+    value.slice(0, end)
+}
+fn trim_trailing_blank_lines(value: impl Into<JsString>) -> JsString {
+    let value = value.into();
+    let lines: Vec<_> = value.split('\n').collect();
     let mut end = lines.len() as isize - 1;
-    while end >= 0 && is_match(&rules.blank_line, lines[end as usize]) {
+    while end >= 0 && rules().blank_line.is_match(&lines[end as usize]) {
         end -= 1;
     }
     if lines.len() as isize - end <= 2 {
-        return value;
+        value
+    } else {
+        JsString::join(lines[..(end + 1) as usize].iter(), "\n")
     }
-    let end = (end + 1) as usize;
-    let byte_end = lines[..end].iter().map(|line| line.len() + 1).sum::<usize>() - 1;
-    &value[..byte_end.min(value.len())]
 }
-
-fn indent_code_compensation(raw: &str, text: &str) -> String {
+fn indent_code_compensation(raw: impl Into<JsString>, text: impl Into<JsString>) -> JsString {
+    let raw = raw.into();
+    let text = text.into();
     let rules = rules();
-    let Some(caps) = rules.indent_code_compensation.captures(raw).ok().flatten() else {
-        return text.to_string();
+    let Some(caps) = rules.indent_code_compensation.captures(&raw) else {
+        return text.clone();
     };
-    let indent_to_code = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-    text.split('\n')
-        .map(|node| {
-            let Some(caps) = rules.beginning_space.captures(node).ok().flatten() else {
-                return node.to_string();
+    let indent_to_code = caps.get(1).map(|m| m.text()).unwrap_or_default();
+    JsString::join(
+        text.split('\n').map(|node| {
+            let Some(caps) = rules.beginning_space.captures(&node) else {
+                return node;
             };
-            let indent = caps.get(0).map(|m| m.as_str()).unwrap_or("");
-            if utf16_len(indent) >= utf16_len(indent_to_code) {
-                slice_utf16(node, utf16_len(indent_to_code) as isize, None).to_string()
+            let indent = caps.get(0).map(|m| m.text()).unwrap_or_default();
+            if indent.len() >= indent_to_code.len() {
+                node.slice(indent_to_code.len(), node.len())
             } else {
-                node.to_string()
+                node
             }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }),
+        "\n",
+    )
 }
 
-fn expand_tabs(line: &str, indent: usize) -> String {
+fn expand_tabs(line: JsString, indent: usize) -> JsString {
     let mut column = indent;
-    let mut expanded = String::new();
-    for ch in line.chars() {
-        if ch == '\t' {
+    let mut expanded = JsString::default();
+    for ch in line.units().iter().copied() {
+        if ch == 9 {
             let added = 4 - (column % 4);
             expanded.push_str(&" ".repeat(added));
             column += added;
         } else {
-            expanded.push(ch);
+            expanded.push_unit(ch);
             column += 1;
         }
     }
     expanded
 }
 
-fn find_closing_bracket(value: &str, brackets: &str) -> isize {
-    let open = brackets.as_bytes()[0];
-    let close = brackets.as_bytes()[1];
-    let bytes = value.as_bytes();
+fn find_closing_bracket(value: &JsString, brackets: &str) -> isize {
+    let open = u16::from(brackets.as_bytes()[0]);
+    let close = u16::from(brackets.as_bytes()[1]);
+    let bytes = value.units();
     if !bytes.contains(&close) {
         return -1;
     }
     let mut level = 0isize;
     let mut index = 0usize;
     while index < bytes.len() {
-        if bytes[index] == b'\\' {
+        if bytes[index] == 92 {
             index += 2;
             continue;
         }
@@ -394,7 +353,7 @@ fn find_closing_bracket(value: &str, brackets: &str) -> isize {
         } else if bytes[index] == close {
             level -= 1;
             if level < 0 {
-                return utf16_len(&value[..index]) as isize;
+                return index as isize;
             }
         }
         index += 1;
@@ -402,35 +361,42 @@ fn find_closing_bracket(value: &str, brackets: &str) -> isize {
     if level > 0 { -2 } else { -1 }
 }
 
-fn split_cells(table_row: &str, count: Option<usize>) -> Vec<String> {
+fn split_cells(table_row: impl Into<JsString>, count: Option<usize>) -> Vec<JsString> {
+    let table_row = table_row.into();
     let rules = rules();
-    let mut spaced = String::with_capacity(table_row.len() + 8);
-    for (offset, ch) in table_row.char_indices() {
-        if ch != '|' {
-            spaced.push(ch);
+    let mut spaced = JsString::default();
+    for (offset, ch) in table_row.units().iter().copied().enumerate() {
+        if ch != 124 {
+            spaced.push_unit(ch);
             continue;
         }
         let mut escaped = false;
         let mut cursor = offset;
         while cursor > 0 {
             cursor -= 1;
-            if table_row.as_bytes()[cursor] != b'\\' {
+            if table_row.units()[cursor] != 92 {
                 break;
             }
             escaped = !escaped;
         }
         if escaped {
-            spaced.push('|');
+            spaced.push_str("|");
         } else {
             spaced.push_str(" |");
         }
     }
 
-    let mut cells: Vec<String> = spaced.split(" |").map(str::to_string).collect();
-    if cells.first().is_none_or(|cell| js_trim(cell).is_empty()) {
+    let mut cells = Vec::new();
+    let mut start = 0;
+    while let Some(end) = spaced.find_from(" |", start) {
+        cells.push(spaced.slice(start, end));
+        start = end + 2;
+    }
+    cells.push(spaced.slice(start, spaced.len()));
+    if cells.first().is_none_or(|cell| trim(cell).is_empty()) {
         cells.remove(0);
     }
-    if cells.last().is_some_and(|cell| js_trim(cell).is_empty()) {
+    if cells.last().is_some_and(|cell| trim(cell).is_empty()) {
         cells.pop();
     }
 
@@ -439,14 +405,14 @@ fn split_cells(table_row: &str, count: Option<usize>) -> Vec<String> {
             cells.truncate(count);
         } else {
             while cells.len() < count {
-                cells.push(String::new());
+                cells.push(JsString::default());
             }
         }
     }
 
     cells
         .into_iter()
-        .map(|cell| rules.slash_pipe.replace_all(js_trim(&cell), "|").into_owned())
+        .map(|cell| rules.slash_pipe.replace_all(trim(&cell), "|"))
         .collect()
 }
 
@@ -476,9 +442,9 @@ pub(super) fn type_name(token: &Token) -> &'static str {
 }
 
 /// Lex markdown into the token stream produced by the pinned marked parser.
-pub fn lex(source: &str) -> Vec<Token> {
+pub fn lex(source: &JsString) -> Vec<Token> {
     let rules = rules();
-    let normalized = rules.carriage_return.replace_all(source, "\n").into_owned();
+    let normalized = rules.carriage_return.replace_all(source, "\n");
     let mut lexer = Lexer::new();
     let mut tokens = Vec::new();
     lexer.block_tokens(&normalized, &mut tokens, false);
@@ -488,7 +454,7 @@ pub fn lex(source: &str) -> Vec<Token> {
 
 struct Lexer {
     rules: &'static Rules,
-    links: HashMap<String, LinkDefinition>,
+    links: HashMap<JsString, LinkDefinition>,
     in_link: bool,
     in_raw_block: bool,
     top: bool,
@@ -550,8 +516,8 @@ impl Lexer {
         }
     }
 
-    fn block_tokens(&mut self, source: &str, tokens: &mut Vec<Token>, last_paragraph_clipped: bool) {
-        let mut source = source.to_string();
+    fn block_tokens(&mut self, source: &JsString, tokens: &mut Vec<Token>, last_paragraph_clipped: bool) {
+        let mut source = source.clone();
         let mut last_paragraph_clipped = last_paragraph_clipped;
         let mut source_length = usize::MAX;
 
@@ -559,16 +525,16 @@ impl Lexer {
             if source.len() < source_length {
                 source_length = source.len();
             } else {
-                panic!("Infinite loop on byte: {}", source.as_bytes()[0]);
+                panic!("Infinite loop on byte: {}", source.units()[0]);
             }
 
             if let Some(token) = self.space(&source) {
                 let raw_length = token.raw().len();
-                source = source[raw_length..].to_string();
+                source = source.slice(raw_length, source.len()).clone();
                 if raw_length == 1
                     && let Some(last) = tokens.last_mut()
                 {
-                    last.append_raw("\n");
+                    last.append_raw(&"\n".into());
                 } else {
                     tokens.push(token);
                 }
@@ -576,14 +542,14 @@ impl Lexer {
             }
 
             if let Some(token) = self.code(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 let merge = tokens
                     .last()
                     .is_some_and(|last| matches!(last, Token::Paragraph { .. } | Token::Text { .. }));
                 if merge {
                     let last = tokens.last_mut().expect("checked above");
-                    let raw = token.raw().to_string();
-                    let text = token.text().to_string();
+                    let raw = token.raw().clone();
+                    let text = token.text();
                     last.merge_block(&raw, &text);
                 } else {
                     tokens.push(token);
@@ -592,49 +558,49 @@ impl Lexer {
             }
 
             if let Some(token) = self.fences(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.heading(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.hr(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.blockquote(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.list(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.html(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.def(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 let merge = tokens
                     .last()
                     .is_some_and(|last| matches!(last, Token::Paragraph { .. } | Token::Text { .. }));
                 if merge {
                     let last = tokens.last_mut().expect("checked above");
-                    let raw = token.raw().to_string();
+                    let raw = token.raw().clone();
                     last.merge_definition(&raw);
                 } else {
                     use std::collections::hash_map::Entry;
@@ -655,13 +621,13 @@ impl Lexer {
             }
 
             if let Some(token) = self.table(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.lheading(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
@@ -677,24 +643,24 @@ impl Lexer {
                         .is_some_and(|last| matches!(last, Token::Paragraph { .. }));
                 if merge {
                     let last = tokens.last_mut().expect("checked above");
-                    let raw = token.raw().to_string();
-                    let text = token.text().to_string();
+                    let raw = token.raw().clone();
+                    let text = token.text();
                     last.merge_paragraph(&raw, &text);
                 } else {
                     tokens.push(token);
                 }
                 last_paragraph_clipped = cut_source.len() != source.len();
-                source = source[raw_length..].to_string();
+                source = source.slice(raw_length, source.len()).clone();
                 continue;
             }
 
             if let Some(token) = self.text(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 let merge = tokens.last().is_some_and(|last| matches!(last, Token::Text { .. }));
                 if merge {
                     let last = tokens.last_mut().expect("checked above");
-                    let raw = token.raw().to_string();
-                    let text = token.text().to_string();
+                    let raw = token.raw().clone();
+                    let text = token.text();
                     last.merge_text(&raw, &text);
                 } else {
                     tokens.push(token);
@@ -702,40 +668,37 @@ impl Lexer {
                 continue;
             }
 
-            panic!("Infinite loop on byte: {}", source.as_bytes()[0]);
+            panic!("Infinite loop on byte: {}", source.units()[0]);
         }
 
         self.top = true;
     }
 
-    fn space(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.newline.captures(source).ok().flatten()?;
-        let raw = caps.get(0)?.as_str();
-        (!raw.is_empty()).then(|| Token::Space { raw: raw.to_string() })
+    fn space(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.newline.captures(source)?;
+        let raw = caps.get(0)?.text();
+        (!raw.is_empty()).then(|| Token::Space { raw: raw.clone() })
     }
 
-    fn code(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.block_code.captures(source).ok().flatten()?;
-        let raw = trim_trailing_blank_lines(caps.get(0)?.as_str()).to_string();
-        let text = self.rules.code_remove_indent.replace_all(&raw, "").into_owned();
+    fn code(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.block_code.captures(source)?;
+        let raw = trim_trailing_blank_lines(caps.get(0)?.text()).clone();
+        let text = self.rules.code_remove_indent.replace_all(&raw, "");
         Some(Token::Code {
             raw,
             lang: None,
-            code_block_style: Some("indented".to_string()),
+            code_block_style: Some(JsString::from("indented")),
             text,
         })
     }
 
-    fn fences(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.fences.captures(source).ok().flatten()?;
-        let raw = caps.get(0)?.as_str().to_string();
-        let text = indent_code_compensation(&raw, caps.get(3).map(|m| m.as_str()).unwrap_or(""));
-        let lang = caps.get(2).map(|m| {
-            self.rules
-                .any_punctuation
-                .replace_all(js_trim(m.as_str()), "$1")
-                .into_owned()
-        });
+    fn fences(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.fences.captures(source)?;
+        let raw = caps.get(0)?.text();
+        let text = indent_code_compensation(&raw, caps.get(3).map(|m| m.text()).unwrap_or_default());
+        let lang = caps
+            .get(2)
+            .map(|m| self.rules.any_punctuation.replace_all(trim(m.text()), "$1"));
         Some(Token::Code {
             raw,
             lang,
@@ -744,17 +707,17 @@ impl Lexer {
         })
     }
 
-    fn heading(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.heading.captures(source).ok().flatten()?;
-        let mut text = js_trim(caps.get(2)?.as_str()).to_string();
+    fn heading(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.heading.captures(source)?;
+        let mut text = trim(caps.get(2)?.text()).clone();
         if is_match(&self.rules.ending_hash, &text) {
             let trimmed = rtrim(&text, '#');
-            if trimmed.is_empty() || is_match(&self.rules.ending_space_char, trimmed) {
-                text = js_trim(trimmed).to_string();
+            if trimmed.is_empty() || is_match(&self.rules.ending_space_char, &trimmed) {
+                text = trim(trimmed).clone();
             }
         }
-        let raw = rtrim(caps.get(0)?.as_str(), '\n').to_string();
-        let depth = caps.get(1)?.as_str().chars().count() as u8;
+        let raw = rtrim(caps.get(0)?.text(), '\n').clone();
+        let depth = caps.get(1)?.text().len() as u8;
         Some(Token::Heading {
             raw,
             depth,
@@ -764,26 +727,23 @@ impl Lexer {
         })
     }
 
-    fn hr(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.hr.captures(source).ok().flatten()?;
+    fn hr(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.hr.captures(source)?;
         Some(Token::Hr {
-            raw: rtrim(caps.get(0)?.as_str(), '\n').to_string(),
+            raw: rtrim(caps.get(0)?.text(), '\n').clone(),
         })
     }
 
-    fn blockquote(&mut self, source: &str) -> Option<Token> {
-        let caps = self.rules.blockquote.captures(source).ok().flatten()?;
-        let mut lines: Vec<String> = rtrim(caps.get(0)?.as_str(), '\n')
-            .split('\n')
-            .map(str::to_string)
-            .collect();
-        let mut raw = String::new();
-        let mut text = String::new();
+    fn blockquote(&mut self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.blockquote.captures(source)?;
+        let mut lines: Vec<JsString> = rtrim(caps.get(0)?.text(), '\n').split('\n').collect();
+        let mut raw = JsString::default();
+        let mut text = JsString::default();
         let mut tokens: Vec<Token> = Vec::new();
 
         while !lines.is_empty() {
             let mut in_blockquote = false;
-            let mut current_lines: Vec<String> = Vec::new();
+            let mut current_lines: Vec<JsString> = Vec::new();
             let mut consumed = 0;
             for line in &lines {
                 if is_match(&self.rules.blockquote_start, line) {
@@ -798,27 +758,23 @@ impl Lexer {
             }
             lines.drain(..consumed);
 
-            let current_raw = current_lines.join("\n");
-            let current_text = self
-                .rules
-                .blockquote_setext_replace2
-                .replace_all(
-                    &self
-                        .rules
-                        .blockquote_setext_replace
-                        .replace_all(&current_raw, "\n    $1"),
-                    "",
-                )
-                .into_owned();
+            let current_raw = JsString::join(current_lines, "\n");
+            let current_text = self.rules.blockquote_setext_replace2.replace_all(
+                &self
+                    .rules
+                    .blockquote_setext_replace
+                    .replace_all(&current_raw, "\n    $1"),
+                "",
+            );
             raw = if raw.is_empty() {
                 current_raw.clone()
             } else {
-                format!("{raw}\n{current_raw}")
+                JsString::from(raw) + JsString::from("\n") + JsString::from(current_raw)
             };
             text = if text.is_empty() {
                 current_text.clone()
             } else {
-                format!("{text}\n{current_text}")
+                JsString::from(text) + JsString::from("\n") + JsString::from(current_text.clone())
             };
 
             let top = self.top;
@@ -837,13 +793,15 @@ impl Lexer {
                         Some(Token::Blockquote { raw, text, .. }) => (raw.clone(), text.clone()),
                         _ => unreachable!(),
                     };
-                    let new_text = format!("{old_raw}\n{}", lines.join("\n"));
+                    let new_text = JsString::from(old_raw.clone())
+                        + JsString::from("\n")
+                        + JsString::from(JsString::join(lines, "\n"));
                     let new_token = self.blockquote(&new_text).expect("blockquote must re-lex");
-                    let new_raw = new_token.raw().to_string();
-                    let new_text = new_token.text().to_string();
-                    raw.truncate(raw.len() - old_raw.len());
+                    let new_raw = new_token.raw().clone();
+                    let new_text = new_token.text();
+                    raw = raw.slice(0, raw.len() - old_raw.len());
                     raw.push_str(&new_raw);
-                    text.truncate(text.len() - old_text.len());
+                    text = text.slice(0, text.len() - old_text.len());
                     text.push_str(&new_text);
                     *tokens.last_mut().expect("checked above") = new_token;
                     break;
@@ -853,16 +811,18 @@ impl Lexer {
                         Some(Token::List { raw, .. }) => raw.clone(),
                         _ => unreachable!(),
                     };
-                    let new_text = format!("{old_raw}\n{}", lines.join("\n"));
+                    let new_text = JsString::from(old_raw.clone())
+                        + JsString::from("\n")
+                        + JsString::from(JsString::join(lines, "\n"));
                     let new_token = self.list(&new_text).expect("list must re-lex");
-                    let new_raw = new_token.raw().to_string();
-                    raw.truncate(raw.len() - old_raw.len());
+                    let new_raw = new_token.raw().clone();
+                    raw = raw.slice(0, raw.len() - old_raw.len());
                     raw.push_str(&new_raw);
-                    text.truncate(text.len() - old_raw.len());
+                    text = text.slice(0, text.len() - old_raw.len());
                     text.push_str(&new_raw);
-                    let remaining = new_text[new_raw.len()..].to_string();
+                    let remaining = new_text.slice(new_raw.len(), new_text.len()).clone();
                     *tokens.last_mut().expect("checked above") = new_token;
-                    lines = remaining.split('\n').map(str::to_string).collect();
+                    lines = remaining.split('\n').collect();
                     continue;
                 }
                 _ => {}
@@ -872,66 +832,75 @@ impl Lexer {
         Some(Token::Blockquote { raw, text, tokens })
     }
 
-    fn list(&mut self, source: &str) -> Option<Token> {
-        let caps = self.rules.list.captures(source).ok().flatten()?;
-        let bull_raw = js_trim(caps.get(1)?.as_str());
-        let is_ordered = bull_raw.chars().count() > 1;
+    fn list(&mut self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.list.captures(source)?;
+        let bull_raw = trim(caps.get(1)?.text());
+        let is_ordered = bull_raw.len() > 1;
         let start = if is_ordered {
-            ListStart::Number(bull_raw[..bull_raw.len() - 1].parse().ok()?)
+            ListStart::Number(
+                bull_raw.units()[..bull_raw.len() - 1]
+                    .iter()
+                    .fold(0u64, |n, u| n * 10 + u64::from(*u - 48)),
+            )
         } else {
-            ListStart::Empty(String::new())
+            ListStart::Empty(JsString::default())
         };
         let bull = if is_ordered {
-            format!(r"\d{{1,9}}\{}", bull_raw.chars().last()?)
+            format!(r"\d{{1,9}}\{}", char::from_u32(u32::from(*bull_raw.units().last()?))?)
         } else {
-            format!(r"\{}", bull_raw)
+            format!(r"\{}", char::from_u32(u32::from(bull_raw.units()[0]))?)
         };
         let item_pattern = "^( {0,3}{bull})((?:[\\t ][^\\n]*)?(?:\\n|$))".replace("{bull}", &bull);
         let item_regex = rx(&item_pattern);
 
-        let mut source = source.to_string();
-        let mut list_raw = String::new();
+        let mut source = source.clone();
+        let mut list_raw = JsString::default();
         let mut loose = false;
         let mut ends_with_blank_line = false;
         let mut items: Vec<ListItem> = Vec::new();
-        let mut cap = item_regex.captures(&source).ok().flatten()?;
+        let mut cap = item_regex.captures(&source)?;
 
         while !source.is_empty() {
             let mut end_early = false;
-            let mut raw = String::new();
-            let mut item_contents = String::new();
+            let mut raw = JsString::default();
+            let mut item_contents = JsString::default();
 
             if is_match(&self.rules.hr, &source) {
                 break;
             }
 
-            let cap_raw = cap.get(0)?.as_str().to_string();
-            let cap1 = cap.get(1)?.as_str().to_string();
-            let cap2 = cap.get(2)?.as_str().to_string();
+            let cap_raw = cap.get(0)?.text();
+            let cap1 = cap.get(1)?.text();
+            let cap2 = cap.get(2)?.text();
             raw.push_str(&cap_raw);
-            source = source[cap_raw.len()..].to_string();
+            source = source.slice(cap_raw.len(), source.len()).clone();
 
-            let first_line = cap2.split('\n').next().unwrap_or("");
+            let first_line = cap2.split('\n').next().unwrap_or_default();
             let mut line = expand_tabs(first_line, cap1.len());
-            let next_line = source.split('\n').next().unwrap_or("").to_string();
-            let mut blank_line = js_trim(&line).is_empty();
+            let next_line = source.split('\n').next().unwrap_or_default().clone();
+            let mut blank_line = trim(&line).is_empty();
 
             let mut indent: isize;
             if blank_line {
                 indent = cap1.len() as isize + 1;
             } else {
-                let search = line.find(|ch| ch != ' ').map(|i| i as isize).unwrap_or(-1);
+                let search = line
+                    .units()
+                    .iter()
+                    .position(|ch| *ch != 32)
+                    .map(|i| i as isize)
+                    .unwrap_or(-1);
                 indent = if search > 4 { 1 } else { search };
                 let content_start = usize::try_from(indent).unwrap_or(0);
-                item_contents = slice_utf16(&line, content_start as isize, None).to_string();
+                item_contents = slice_utf16(&line, content_start as isize, None).clone();
                 indent += cap1.len() as isize;
             }
 
             if blank_line && is_match(&self.rules.blank_line, &next_line) {
                 raw.push_str(&next_line);
-                raw.push('\n');
+                raw.push_str("\n");
                 let consumed = (next_line.len() + 1).min(source.len());
-                source = source[consumed..].to_string();
+                source = source.slice(consumed, source.len()).clone();
                 end_early = true;
             }
 
@@ -949,9 +918,9 @@ impl Lexer {
                 let blockquote_begin = rx(&"^ {0,{indent}}>".replace("{indent}", &indent_regex.to_string()));
 
                 while !source.is_empty() {
-                    let raw_line = source.split('\n').next().unwrap_or("").to_string();
+                    let raw_line = source.split('\n').next().unwrap_or_default().clone();
                     let mut next = raw_line.clone();
-                    let next_without_tabs = self.rules.tab_char_global.replace_all(&next, "    ").into_owned();
+                    let next_without_tabs = self.rules.tab_char_global.replace_all(&next, "    ");
                     next = raw_line.clone();
 
                     if is_match(&fences_begin, &next)
@@ -964,16 +933,26 @@ impl Lexer {
                         break;
                     }
 
-                    let search = next_without_tabs.find(|ch| ch != ' ').map(|i| i as isize).unwrap_or(-1);
-                    if search >= indent || js_trim(&next).is_empty() {
-                        item_contents.push('\n');
+                    let search = next_without_tabs
+                        .units()
+                        .iter()
+                        .position(|ch| *ch != 32)
+                        .map(|i| i as isize)
+                        .unwrap_or(-1);
+                    if search >= indent || trim(&next).is_empty() {
+                        item_contents.push_str("\n");
                         item_contents.push_str(slice_utf16(&next_without_tabs, indent, None));
                     } else {
                         if blank_line {
                             break;
                         }
                         let line_with_tabs = self.rules.tab_char_global.replace_all(&line, "    ");
-                        let line_search = line_with_tabs.find(|ch| ch != ' ').map(|i| i as isize).unwrap_or(-1);
+                        let line_search = line_with_tabs
+                            .units()
+                            .iter()
+                            .position(|ch| *ch != 32)
+                            .map(|i| i as isize)
+                            .unwrap_or(-1);
                         if line_search >= 4
                             || is_match(&fences_begin, &line)
                             || is_match(&heading_begin, &line)
@@ -981,16 +960,16 @@ impl Lexer {
                         {
                             break;
                         }
-                        item_contents.push('\n');
+                        item_contents.push_str("\n");
                         item_contents.push_str(&next);
                     }
 
-                    blank_line = js_trim(&next).is_empty();
+                    blank_line = trim(&next).is_empty();
                     raw.push_str(&raw_line);
-                    raw.push('\n');
+                    raw.push_str("\n");
                     let consumed = (raw_line.len() + 1).min(source.len());
-                    source = source[consumed..].to_string();
-                    line = slice_utf16(&next_without_tabs, indent, None).to_string();
+                    source = source.slice(consumed, source.len()).clone();
+                    line = slice_utf16(&next_without_tabs, indent, None).clone();
                 }
             }
 
@@ -1013,16 +992,16 @@ impl Lexer {
             });
             list_raw.push_str(&raw);
 
-            cap = match item_regex.captures(&source).ok().flatten() {
+            cap = match item_regex.captures(&source) {
                 Some(cap) => cap,
                 None => break,
             };
         }
 
         let last = items.last_mut()?;
-        last.raw = js_trim_end(&last.raw).to_string();
-        last.text = js_trim_end(&last.text).to_string();
-        list_raw = js_trim_end(&list_raw).to_string();
+        last.raw = trim_end(&last.raw).clone();
+        last.text = trim_end(&last.text).clone();
+        list_raw = trim_end(&list_raw).clone();
 
         for item in &mut items {
             self.top = false;
@@ -1036,14 +1015,14 @@ impl Lexer {
                     .first()
                     .is_some_and(|token| matches!(token, Token::Text { .. } | Token::Paragraph { .. }))
             {
-                item.text = self.rules.list_replace_task.replace_all(&item.text, "").into_owned();
+                item.text = self.rules.list_replace_task.replace_all(&item.text, "");
                 let first = item.tokens.first_mut().expect("checked above");
                 first.replace_raw_and_text(&self.rules.list_replace_task);
                 replace_last_inline_task(&mut item.tokens, &self.rules.list_replace_task);
 
-                if let Some(task_raw) = self.rules.list_task_checkbox.find(&item.raw).ok().flatten() {
-                    let checkbox_raw = format!("{} ", task_raw.as_str());
-                    let checked = task_raw.as_str() != "[ ]";
+                if let Some(task_raw) = self.rules.list_task_checkbox.find(&item.raw) {
+                    let checkbox_raw = JsString::from(task_raw.text()) + JsString::from(" ");
+                    let checked = task_raw.text() != "[ ]";
                     item.checked = Some(checked);
                     let checkbox = Token::Checkbox {
                         raw: checkbox_raw.clone(),
@@ -1059,8 +1038,8 @@ impl Lexer {
                                 tokens: Some(tokens),
                                 ..
                             } => {
-                                raw.insert_str(0, &checkbox_raw);
-                                text.insert_str(0, &checkbox_raw);
+                                *raw = checkbox_raw.clone() + &*raw;
+                                *text = checkbox_raw.clone() + &*text;
                                 tokens.insert(0, checkbox);
                             }
                             _ => {
@@ -1098,7 +1077,12 @@ impl Lexer {
                 item.loose = true;
                 for token in &mut item.tokens {
                     if matches!(token, Token::Text { .. }) {
-                        let replacement = match std::mem::replace(token, Token::Space { raw: String::new() }) {
+                        let replacement = match std::mem::replace(
+                            token,
+                            Token::Space {
+                                raw: JsString::default(),
+                            },
+                        ) {
                             Token::Text {
                                 raw,
                                 text,
@@ -1128,10 +1112,10 @@ impl Lexer {
         })
     }
 
-    fn html(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.html_block.captures(source).ok().flatten()?;
-        let raw = trim_trailing_blank_lines(caps.get(0)?.as_str()).to_string();
-        let group = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+    fn html(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.html_block.captures(source)?;
+        let raw = trim_trailing_blank_lines(caps.get(0)?.text()).clone();
+        let group = caps.get(1).map(|m| m.text()).unwrap_or_default();
         let pre = group == "pre" || group == "script" || group == "style";
         Some(Token::Html {
             raw: raw.clone(),
@@ -1143,50 +1127,47 @@ impl Lexer {
         })
     }
 
-    fn def(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.def.captures(source).ok().flatten()?;
+    fn def(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.def.captures(source)?;
         let tag = self
             .rules
             .multiple_space_global
-            .replace_all(&caps.get(1)?.as_str().to_lowercase(), " ")
-            .into_owned();
+            .replace_all(&caps.get(1)?.text().to_lowercase(), " ");
         let href = caps
             .get(2)
             .map(|m| {
                 self.rules
                     .any_punctuation
-                    .replace_all(&self.rules.href_brackets.replace_all(m.as_str(), "$1"), "$1")
-                    .into_owned()
+                    .replace_all(&self.rules.href_brackets.replace_all(m.text(), "$1"), "$1")
             })
             .unwrap_or_default();
         let title = caps.get(3).map(|m| {
-            let value = m.as_str();
+            let value = m.text();
             self.rules
                 .any_punctuation
-                .replace_all(&value[1..value.len() - 1], "$1")
-                .into_owned()
+                .replace_all(value.slice(1, value.len() - 1), "$1")
         });
         Some(Token::Def {
-            raw: rtrim(caps.get(0)?.as_str(), '\n').to_string(),
+            raw: rtrim(caps.get(0)?.text(), '\n').clone(),
             tag,
             href,
             title,
         })
     }
 
-    fn table(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.table.captures(source).ok().flatten()?;
-        let align_source = caps.get(2)?.as_str();
-        if !is_match(&self.rules.table_delimiter, align_source) {
+    fn table(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.table.captures(source)?;
+        let align_source = caps.get(2)?.text();
+        if !is_match(&self.rules.table_delimiter, &align_source) {
             return None;
         }
 
-        let headers = split_cells(caps.get(1)?.as_str(), None);
+        let headers = split_cells(caps.get(1)?.text(), None);
         let align_source_stripped = self.rules.table_align_chars.replace_all(align_source, "");
-        let aligns: Vec<&str> = align_source_stripped.split('|').collect();
-        let rows_source = caps.get(3).map(|m| m.as_str()).unwrap_or("");
-        let rows_stripped = self.rules.table_row_blank_line.replace_all(rows_source, "");
-        let rows: Vec<&str> = if js_trim(rows_source).is_empty() {
+        let aligns: Vec<JsString> = align_source_stripped.split('|').collect();
+        let rows_source = caps.get(3).map(|m| m.text()).unwrap_or_default();
+        let rows_stripped = self.rules.table_row_blank_line.replace_all(&rows_source, "");
+        let rows: Vec<JsString> = if trim(rows_source).is_empty() {
             Vec::new()
         } else {
             rows_stripped.split('\n').collect()
@@ -1239,19 +1220,19 @@ impl Lexer {
             .collect();
 
         Some(Token::Table {
-            raw: rtrim(caps.get(0)?.as_str(), '\n').to_string(),
+            raw: rtrim(caps.get(0)?.text(), '\n').clone(),
             header,
             align,
             rows: table_rows,
         })
     }
 
-    fn lheading(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.lheading.captures(source).ok().flatten()?;
-        let text = js_trim(caps.get(1)?.as_str()).to_string();
-        let marker = caps.get(2)?.as_str();
+    fn lheading(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.lheading.captures(source)?;
+        let text = trim(caps.get(1)?.text()).clone();
+        let marker = caps.get(2)?.text();
         Some(Token::Heading {
-            raw: rtrim(caps.get(0)?.as_str(), '\n').to_string(),
+            raw: rtrim(caps.get(0)?.text(), '\n').clone(),
             depth: if marker.starts_with('=') { 1 } else { 2 },
             text: text.clone(),
             tokens: Vec::new(),
@@ -1259,21 +1240,21 @@ impl Lexer {
         })
     }
 
-    fn paragraph(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.paragraph.captures(source).ok().flatten()?;
-        let value = caps.get(1)?.as_str();
-        let text = value.strip_suffix('\n').unwrap_or(value).to_string();
+    fn paragraph(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.paragraph.captures(source)?;
+        let value = caps.get(1)?.text();
+        let text = value.strip_suffix('\n').unwrap_or(value).clone();
         Some(Token::Paragraph {
-            raw: caps.get(0)?.as_str().to_string(),
+            raw: caps.get(0)?.text(),
             text: text.clone(),
             tokens: Vec::new(),
             inline_source: Some(text),
         })
     }
 
-    fn text(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.block_text.captures(source).ok().flatten()?;
-        let raw = caps.get(0)?.as_str().to_string();
+    fn text(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.block_text.captures(source)?;
+        let raw = caps.get(0)?.text();
         Some(Token::Text {
             raw: raw.clone(),
             text: raw.clone(),
@@ -1283,56 +1264,56 @@ impl Lexer {
         })
     }
 
-    fn inline_tokens(&mut self, source: &str) -> Vec<Token> {
-        let mut masked = source.to_string();
+    fn inline_tokens(&mut self, source: &JsString) -> Vec<Token> {
+        let mut masked = source.clone();
         if !self.links.is_empty() {
             masked = mask_reflinks(masked, &self.rules.reflink_search, &self.links);
         }
-        masked = mask_global(masked, &self.rules.any_punctuation, |_| Some("++".to_string()));
+        masked = mask_global(masked, &self.rules.any_punctuation, |_| Some(JsString::from("++")));
         masked = mask_global(masked, &self.rules.block_skip, |caps| {
-            let length = caps.get(0).map(|m| utf16_len(m.as_str())).unwrap_or(0);
-            let offset = caps.get(2).map(|m| utf16_len(m.as_str())).unwrap_or(0);
+            let length = caps.get(0).map(|m| utf16_len(m.text())).unwrap_or(0);
+            let offset = caps.get(2).map(|m| utf16_len(m.text())).unwrap_or(0);
             let repeated = length.saturating_sub(offset + 2);
-            Some(format!("[{}]", "a".repeat(repeated)))
+            Some(JsString::from("[") + JsString::from("a".repeat(repeated)) + JsString::from("]"))
         });
 
-        let mut source = source.to_string();
+        let mut source = source.clone();
         let mut tokens: Vec<Token> = Vec::new();
-        let mut prev_char = String::new();
+        let mut prev_char = JsString::default();
         let mut keep_prev_char = false;
 
         while !source.is_empty() {
             if !keep_prev_char {
-                prev_char.clear();
+                prev_char = JsString::default();
             }
             keep_prev_char = false;
 
             if let Some(token) = self.escape(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.tag(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.link(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.reflink(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 let merge = matches!(token, Token::Text { .. })
                     && tokens.last().is_some_and(|last| matches!(last, Token::Text { .. }));
                 if merge {
                     let last = tokens.last_mut().expect("checked above");
-                    let raw = token.raw().to_string();
-                    let text = token.text().to_string();
+                    let raw = token.raw().clone();
+                    let text = token.text();
                     last.merge_inline_text(&raw, &text);
                 } else {
                     tokens.push(token);
@@ -1341,31 +1322,31 @@ impl Lexer {
             }
 
             if let Some(token) = self.em_strong(&source, &masked, &prev_char) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.codespan(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.br(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.del(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             if let Some(token) = self.autolink(&source) {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
@@ -1373,25 +1354,25 @@ impl Lexer {
             if !self.in_link
                 && let Some(token) = self.url(&source)
             {
-                source = source[token.raw().len()..].to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
                 tokens.push(token);
                 continue;
             }
 
             let cut_source = clip_inline_text(&source);
             if let Some(token) = self.inline_text(&cut_source) {
-                source = source[token.raw().len()..].to_string();
-                let raw = token.raw().to_string();
+                source = source.slice(token.raw().len(), source.len()).clone();
+                let raw = token.raw().clone();
                 if !raw.ends_with('_')
-                    && let Some(last) = raw.chars().last()
+                    && let Some(last) = raw.units().last().copied()
                 {
-                    prev_char = last.to_string();
+                    prev_char = JsString::from_utf16(vec![last]);
                 }
                 keep_prev_char = true;
                 let merge = tokens.last().is_some_and(|last| matches!(last, Token::Text { .. }));
                 if merge {
                     let last = tokens.last_mut().expect("checked above");
-                    let text = token.text().to_string();
+                    let text = token.text();
                     last.merge_inline_text(&raw, &text);
                 } else {
                     tokens.push(token);
@@ -1399,23 +1380,23 @@ impl Lexer {
                 continue;
             }
 
-            panic!("Infinite loop on byte: {}", source.as_bytes()[0]);
+            panic!("Infinite loop on byte: {}", source.units()[0]);
         }
 
         tokens
     }
 
-    fn escape(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.escape.captures(source).ok().flatten()?;
+    fn escape(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.escape.captures(source)?;
         Some(Token::Escape {
-            raw: caps.get(0)?.as_str().to_string(),
-            text: caps.get(1)?.as_str().to_string(),
+            raw: caps.get(0)?.text(),
+            text: caps.get(1)?.text(),
         })
     }
 
-    fn tag(&mut self, source: &str) -> Option<Token> {
-        let caps = self.rules.tag.captures(source).ok().flatten()?;
-        let raw = caps.get(0)?.as_str().to_string();
+    fn tag(&mut self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.tag.captures(source)?;
+        let raw = caps.get(0)?.text();
         if !self.in_link && is_match(&self.rules.start_a_tag, &raw) {
             self.in_link = true;
         } else if self.in_link && is_match(&self.rules.end_a_tag, &raw) {
@@ -1436,14 +1417,14 @@ impl Lexer {
         })
     }
 
-    fn link(&mut self, source: &str) -> Option<Token> {
-        let caps = self.rules.link.captures(source).ok().flatten()?;
-        let mut raw = caps.get(0)?.as_str().to_string();
-        let label = caps.get(1)?.as_str().to_string();
-        let mut href = caps.get(2)?.as_str().to_string();
-        let mut title = caps.get(3).map(|m| m.as_str().to_string());
+    fn link(&mut self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.link.captures(source)?;
+        let mut raw = caps.get(0)?.text();
+        let label = caps.get(1)?.text();
+        let mut href = caps.get(2)?.text();
+        let mut title = caps.get(3).map(|m| m.text());
 
-        let trimmed_url = js_trim(&href).to_string();
+        let trimmed_url = trim(&href).clone();
         if is_match(&self.rules.start_angle_bracket, &trimmed_url) {
             if !is_match(&self.rules.end_angle_bracket, &trimmed_url) {
                 return None;
@@ -1461,35 +1442,38 @@ impl Lexer {
             if last_paren > -1 {
                 let start = if raw.starts_with('!') { 5 } else { 4 };
                 let link_len = start + utf16_len(&label) + last_paren as usize;
-                href = slice_utf16(&href, 0, Some(last_paren)).to_string();
-                raw = js_trim(slice_utf16(&raw, 0, Some(link_len as isize))).to_string();
+                href = slice_utf16(&href, 0, Some(last_paren)).clone();
+                raw = trim(slice_utf16(&raw, 0, Some(link_len as isize))).clone();
                 title = None;
             }
         }
 
-        let mut href = js_trim(&href).to_string();
+        let mut href = trim(&href).clone();
         if is_match(&self.rules.start_angle_bracket, &href) {
-            href = slice_utf16(&href, 1, Some(-1)).to_string();
+            href = slice_utf16(&href, 1, Some(-1)).clone();
         }
-        let title = title.map(|value| slice_utf16(&value, 1, Some(-1)).to_string());
+        let title = title.map(|value| slice_utf16(&value, 1, Some(-1)).clone());
         Some(self.output_link(&raw, &label, href, title))
     }
 
-    fn reflink(&mut self, source: &str) -> Option<Token> {
-        let caps = match self.rules.reflink.captures(source).ok().flatten() {
+    fn reflink(&mut self, source: &JsString) -> Option<Token> {
+        let caps = match self.rules.reflink.captures(source) {
             Some(caps) => caps,
-            None => self.rules.nolink.captures(source).ok().flatten()?,
+            None => self.rules.nolink.captures(source)?,
         };
         let link_string = self
             .rules
             .multiple_space_global
             .replace_all(
-                caps.get(2).or_else(|| caps.get(1)).map(|m| m.as_str()).unwrap_or(""),
+                caps.get(2)
+                    .or_else(|| caps.get(1))
+                    .map(|m| m.text())
+                    .unwrap_or_default(),
                 " ",
             )
             .to_lowercase();
         let Some(link) = self.links.get(&link_string).cloned() else {
-            let raw = caps.get(0)?.as_str().chars().next()?.to_string();
+            let raw = caps.get(0)?.text().slice(0, 1);
             return Some(Token::Text {
                 raw: raw.clone(),
                 text: raw,
@@ -1498,25 +1482,25 @@ impl Lexer {
                 inline_source: None,
             });
         };
-        Some(self.output_link(caps.get(0)?.as_str(), caps.get(1)?.as_str(), link.href, link.title))
+        Some(self.output_link(&caps.get(0)?.text(), &caps.get(1)?.text(), link.href, link.title))
     }
 
-    fn output_link(&mut self, raw: &str, label: &str, href: String, title: Option<String>) -> Token {
-        let text = self.rules.output_link_replace.replace_all(label, "$1").into_owned();
+    fn output_link(&mut self, raw: &JsString, label: &JsString, href: JsString, title: Option<JsString>) -> Token {
+        let text = self.rules.output_link_replace.replace_all(label, "$1");
         let href = if href.is_empty() {
             href
         } else {
-            self.rules.any_punctuation.replace_all(&href, "$1").into_owned()
+            self.rules.any_punctuation.replace_all(&href, "$1")
         };
         let title = title
             .filter(|value| !value.is_empty())
-            .map(|value| self.rules.any_punctuation.replace_all(&value, "$1").into_owned());
+            .map(|value| self.rules.any_punctuation.replace_all(&value, "$1"));
         self.in_link = true;
         let tokens = self.inline_tokens(&text);
         self.in_link = false;
         if raw.starts_with('!') {
             Token::Image {
-                raw: raw.to_string(),
+                raw: raw.clone(),
                 href,
                 title: Some(title),
                 text,
@@ -1524,7 +1508,7 @@ impl Lexer {
             }
         } else {
             Token::Link {
-                raw: raw.to_string(),
+                raw: raw.clone(),
                 href,
                 title: Some(title),
                 text,
@@ -1533,8 +1517,8 @@ impl Lexer {
         }
     }
 
-    fn em_strong(&mut self, source: &str, masked: &str, prev_char: &str) -> Option<Token> {
-        let caps = self.rules.em_strong_l_delim.captures(source).ok().flatten()?;
+    fn em_strong(&mut self, source: &JsString, masked: &JsString, prev_char: &JsString) -> Option<Token> {
+        let caps = self.rules.em_strong_l_delim.captures(source)?;
         if caps.get(1).is_none() && caps.get(2).is_none() && caps.get(3).is_none() && caps.get(4).is_none() {
             return None;
         }
@@ -1542,13 +1526,17 @@ impl Lexer {
             return None;
         }
 
-        let next_char = caps.get(1).or_else(|| caps.get(3)).map(|m| m.as_str()).unwrap_or("");
+        let next_char = caps
+            .get(1)
+            .or_else(|| caps.get(3))
+            .map(|m| m.text())
+            .unwrap_or_default();
         if !next_char.is_empty() && !prev_char.is_empty() && !is_match(&self.rules.punctuation, prev_char) {
             return None;
         }
 
-        let matched = caps.get(0)?.as_str();
-        let l_length = matched.chars().count() - 1;
+        let matched = caps.get(0)?.text();
+        let l_length = char::decode_utf16(matched.units().iter().copied()).count() - 1;
         let mut delim_total = l_length as isize;
         let mut mid_delim_total = 0isize;
         let end_regex = if matched.starts_with('*') {
@@ -1560,19 +1548,17 @@ impl Lexer {
         let sliced = slice_utf16(masked, -(utf16_len(source) as isize) + l_length as isize, None);
         let mut cursor = 0usize;
         loop {
-            let start_byte = byte_at_utf16(sliced, cursor);
-            let caps = end_regex.captures_from_pos(sliced, start_byte).ok().flatten()?;
+            let start_unit = cursor;
+            let caps = end_regex.captures_from(&sliced, start_unit)?;
             let matched = caps.get(0)?;
-            let match_index = utf16_len(&sliced[..matched.start()]);
-            let match_end = match_index + utf16_len(matched.as_str());
-            let r_delim = (1..=6)
-                .find_map(|index| caps.get(index).map(|m| m.as_str()))
-                .map(str::to_string);
+            let match_index = matched.start();
+            let match_end = match_index + utf16_len(matched.text());
+            let r_delim = (1..=6).find_map(|index| caps.get(index).map(|m| m.text()));
             let Some(r_delim) = r_delim else {
                 cursor = match_end;
                 continue;
             };
-            let mut r_length = r_delim.chars().count();
+            let mut r_length = r_delim.len();
 
             if caps.get(3).is_some() || caps.get(4).is_some() {
                 delim_total += r_length as isize;
@@ -1594,68 +1580,67 @@ impl Lexer {
             }
 
             r_length = (r_length as isize).min(r_length as isize + delim_total + mid_delim_total) as usize;
-            let last_char_length = matched.as_str().chars().next()?.len_utf16();
+            let matched_text = matched.text();
+            let last_char_length = char::decode_utf16(matched_text.units().iter().copied())
+                .next()?
+                .map_or(1, char::len_utf16);
             let raw_end = l_length as isize + match_index as isize + last_char_length as isize + r_length as isize;
-            let raw = slice_utf16(source, 0, Some(raw_end)).to_string();
+            let raw = slice_utf16(source, 0, Some(raw_end)).clone();
 
             if l_length.min(r_length) % 2 == 1 {
-                let text = slice_utf16(&raw, 1, Some(-1)).to_string();
+                let text = slice_utf16(&raw, 1, Some(-1)).clone();
                 let tokens = self.inline_tokens(&text);
                 return Some(Token::Em { raw, text, tokens });
             }
-            let text = slice_utf16(&raw, 2, Some(-2)).to_string();
+            let text = slice_utf16(&raw, 2, Some(-2)).clone();
             let tokens = self.inline_tokens(&text);
             return Some(Token::Strong { raw, text, tokens });
         }
     }
 
-    fn codespan(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.inline_code.captures(source).ok().flatten()?;
-        let mut text = self
-            .rules
-            .new_line_char_global
-            .replace_all(caps.get(2)?.as_str(), " ")
-            .into_owned();
+    fn codespan(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.inline_code.captures(source)?;
+        let mut text = self.rules.new_line_char_global.replace_all(caps.get(2)?.text(), " ");
         let has_non_space = is_match(&self.rules.non_space_char, &text);
         let both_ends =
             is_match(&self.rules.starting_space_char, &text) && is_match(&self.rules.ending_space_char, &text);
         if has_non_space && both_ends {
-            text = slice_utf16(&text, 1, Some(-1)).to_string();
+            text = slice_utf16(&text, 1, Some(-1)).clone();
         }
         Some(Token::Codespan {
-            raw: caps.get(0)?.as_str().to_string(),
+            raw: caps.get(0)?.text(),
             text,
         })
     }
 
-    fn br(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.br.captures(source).ok().flatten()?;
+    fn br(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.br.captures(source)?;
         Some(Token::Br {
-            raw: caps.get(0)?.as_str().to_string(),
+            raw: caps.get(0)?.text(),
         })
     }
 
-    fn del(&mut self, source: &str) -> Option<Token> {
-        let caps = self.rules.strict_del.captures(source).ok().flatten()?;
-        let text = caps.get(2)?.as_str().to_string();
+    fn del(&mut self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.strict_del.captures(source)?;
+        let text = caps.get(2)?.text();
         let tokens = self.inline_tokens(&text);
         Some(Token::Del {
-            raw: caps.get(0)?.as_str().to_string(),
+            raw: caps.get(0)?.text(),
             text,
             tokens,
         })
     }
 
-    fn autolink(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.autolink.captures(source).ok().flatten()?;
-        let value = caps.get(1)?.as_str().to_string();
-        let (text, href) = if caps.get(2).map(|m| m.as_str()) == Some("@") {
-            (value.clone(), format!("mailto:{value}"))
+    fn autolink(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.autolink.captures(source)?;
+        let value = caps.get(1)?.text();
+        let (text, href) = if caps.get(2).map(|m| m.text()) == Some(JsString::from("@")) {
+            (value.clone(), (JsString::from("mailto:") + &value))
         } else {
             (value.clone(), value.clone())
         };
         Some(Token::Link {
-            raw: caps.get(0)?.as_str().to_string(),
+            raw: caps.get(0)?.text(),
             href,
             title: None,
             text: text.clone(),
@@ -1669,11 +1654,11 @@ impl Lexer {
         })
     }
 
-    fn url(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.url.captures(source).ok().flatten()?;
-        let mut value = caps.get(0)?.as_str().to_string();
-        let (text, href) = if caps.get(2).map(|m| m.as_str()) == Some("@") {
-            (value.clone(), format!("mailto:{value}"))
+    fn url(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.url.captures(source)?;
+        let mut value = caps.get(0)?.text();
+        let (text, href) = if caps.get(2).map(|m| m.text()) == Some(JsString::from("@")) {
+            (value.clone(), (JsString::from("mailto:") + &value))
         } else {
             loop {
                 let previous = value.clone();
@@ -1681,17 +1666,15 @@ impl Lexer {
                     .rules
                     .backpedal
                     .captures(&value)
-                    .ok()
-                    .flatten()
-                    .and_then(|caps| caps.get(0).map(|m| m.as_str().to_string()))
+                    .and_then(|caps| caps.get(0).map(|m| m.text()))
                     .unwrap_or_default();
                 if previous == value {
                     break;
                 }
             }
-            let prefix = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let prefix = caps.get(1).map(|m| m.text()).unwrap_or_default();
             let href = if prefix == "www." {
-                format!("http://{value}")
+                JsString::from("http://") + &value
             } else {
                 value.clone()
             };
@@ -1712,9 +1695,9 @@ impl Lexer {
         })
     }
 
-    fn inline_text(&self, source: &str) -> Option<Token> {
-        let caps = self.rules.inline_text.captures(source).ok().flatten()?;
-        let raw = caps.get(0)?.as_str().to_string();
+    fn inline_text(&self, source: &JsString) -> Option<Token> {
+        let caps = self.rules.inline_text.captures(source)?;
+        let raw = caps.get(0)?.text();
         Some(Token::Text {
             raw: raw.clone(),
             text: raw,
@@ -1725,36 +1708,42 @@ impl Lexer {
     }
 }
 
-fn clip_inline_text(source: &str) -> String {
+fn clip_inline_text(source: &JsString) -> JsString {
     let temp = slice_utf16(source, 1, None);
     let mut start: Option<usize> = None;
     for needle in ["$", "\\(", "\\["] {
         if let Some(byte) = temp.find(needle) {
-            let index = utf16_len(&temp[..byte]);
+            let index = byte;
             start = Some(start.map_or(index, |current: usize| current.min(index)));
         }
     }
     match start {
-        Some(start) => slice_utf16(source, 0, Some(start as isize + 1)).to_string(),
-        None => source.to_string(),
+        Some(start) => slice_utf16(source, 0, Some(start as isize + 1)).clone(),
+        None => source.clone(),
     }
 }
 
-fn mask_global(mut text: String, regex: &Regex, mut replacement: impl FnMut(&Captures) -> Option<String>) -> String {
+fn mask_global(
+    mut text: JsString,
+    regex: &Regex,
+    mut replacement: impl FnMut(&Captures) -> Option<JsString>,
+) -> JsString {
     let mut cursor = 0usize;
     loop {
-        let start_byte = byte_at_utf16(&text, cursor);
-        let Some(caps) = regex.captures_from_pos(&text, start_byte).ok().flatten() else {
+        let start_unit = cursor;
+        let Some(caps) = regex.captures_from(&text, start_unit) else {
             break;
         };
         let Some(matched) = caps.get(0) else {
             break;
         };
-        let match_start = utf16_len(&text[..matched.start()]);
-        let match_end = match_start + utf16_len(matched.as_str());
+        let match_start = matched.start();
+        let match_end = match_start + utf16_len(matched.text());
         match replacement(&caps) {
             Some(value) => {
-                let next = format!("{}{}{}", &text[..matched.start()], value, &text[matched.end()..]);
+                let next = JsString::from(text.slice(0, matched.start()))
+                    + JsString::from(&value)
+                    + JsString::from(text.slice(matched.end(), text.len()));
                 text = next;
                 cursor = match_start + utf16_len(&value);
             }
@@ -1772,16 +1761,16 @@ fn mask_global(mut text: String, regex: &Regex, mut replacement: impl FnMut(&Cap
     text
 }
 
-fn mask_reflinks(text: String, regex: &Regex, links: &HashMap<String, LinkDefinition>) -> String {
+fn mask_reflinks(text: JsString, regex: &Regex, links: &HashMap<JsString, LinkDefinition>) -> JsString {
     mask_global(text, regex, |caps| {
-        let raw = caps.get(0)?.as_str();
-        let open = raw.rfind('[')?;
-        let open_utf16 = utf16_len(&raw[..open]);
-        let label = slice_utf16(raw, open_utf16 as isize + 1, Some(-1));
-        if !links.contains_key(label) {
+        let raw = caps.get(0)?.text();
+        let open = raw.units().iter().rposition(|unit| *unit == 91)?;
+        let open_utf16 = open;
+        let label = slice_utf16(&raw, open_utf16 as isize + 1, Some(-1));
+        if !links.contains_key(&label) {
             return None;
         }
-        Some(format!("[{}]", "a".repeat(utf16_len(raw).saturating_sub(2))))
+        Some(JsString::from("[") + JsString::from("a".repeat(utf16_len(raw).saturating_sub(2))) + JsString::from("]"))
     })
 }
 
@@ -1804,16 +1793,16 @@ fn replace_last_inline_task(tokens: &mut [Token], task_regex: &Regex) {
             _ => continue,
         };
         if let Some(source) = inline_source
-            && is_match(task_regex, source)
+            && is_match(task_regex, &*source)
         {
-            *inline_source = Some(task_regex.replace_all(source, "").into_owned());
+            *inline_source = Some(task_regex.replace_all(&*source, ""));
             return;
         }
     }
 }
 
 impl Token {
-    fn raw(&self) -> &str {
+    fn raw(&self) -> &JsString {
         match self {
             Token::Space { raw }
             | Token::Code { raw, .. }
@@ -1838,11 +1827,11 @@ impl Token {
         }
     }
 
-    fn text(&self) -> &str {
-        self.has_text().unwrap_or("")
+    fn text(&self) -> JsString {
+        self.has_text().cloned().unwrap_or_default()
     }
 
-    fn append_raw(&mut self, suffix: &str) {
+    fn append_raw(&mut self, suffix: &JsString) {
         match self {
             Token::Space { raw }
             | Token::Code { raw, .. }
@@ -1867,9 +1856,9 @@ impl Token {
         }
     }
 
-    fn merge_block(&mut self, raw: &str, text: &str) {
+    fn merge_block(&mut self, raw: &JsString, text: &JsString) {
         let separator = if self.raw().ends_with('\n') { "" } else { "\n" };
-        let appended = format!("{separator}{raw}");
+        let appended = JsString::from(separator) + JsString::from(raw);
         self.append_raw(&appended);
         match self {
             Token::Paragraph {
@@ -1877,7 +1866,7 @@ impl Token {
                 inline_source,
                 ..
             } => {
-                current.push('\n');
+                current.push_str("\n");
                 current.push_str(text);
                 *inline_source = Some(current.clone());
             }
@@ -1886,7 +1875,7 @@ impl Token {
                 inline_source,
                 ..
             } => {
-                current.push('\n');
+                current.push_str("\n");
                 current.push_str(text);
                 *inline_source = Some(current.clone());
             }
@@ -1894,9 +1883,9 @@ impl Token {
         }
     }
 
-    fn merge_definition(&mut self, raw: &str) {
+    fn merge_definition(&mut self, raw: &JsString) {
         let separator = if self.raw().ends_with('\n') { "" } else { "\n" };
-        let appended = format!("{separator}{raw}");
+        let appended = JsString::from(separator) + JsString::from(raw);
         self.append_raw(&appended);
         match self {
             Token::Paragraph {
@@ -1905,7 +1894,7 @@ impl Token {
             | Token::Text {
                 text, inline_source, ..
             } => {
-                text.push('\n');
+                text.push_str("\n");
                 text.push_str(raw);
                 *inline_source = Some(text.clone());
             }
@@ -1913,9 +1902,9 @@ impl Token {
         }
     }
 
-    fn merge_paragraph(&mut self, raw: &str, text: &str) {
+    fn merge_paragraph(&mut self, raw: &JsString, text: &JsString) {
         let separator = if self.raw().ends_with('\n') { "" } else { "\n" };
-        let appended = format!("{separator}{raw}");
+        let appended = JsString::from(separator) + JsString::from(raw);
         self.append_raw(&appended);
         if let Token::Paragraph {
             text: current,
@@ -1923,15 +1912,15 @@ impl Token {
             ..
         } = self
         {
-            current.push('\n');
+            current.push_str("\n");
             current.push_str(text);
             *inline_source = Some(current.clone());
         }
     }
 
-    fn merge_text(&mut self, raw: &str, text: &str) {
+    fn merge_text(&mut self, raw: &JsString, text: &JsString) {
         let separator = if self.raw().ends_with('\n') { "" } else { "\n" };
-        let appended = format!("{separator}{raw}");
+        let appended = JsString::from(separator) + JsString::from(raw);
         self.append_raw(&appended);
         if let Token::Text {
             text: current,
@@ -1939,13 +1928,13 @@ impl Token {
             ..
         } = self
         {
-            current.push('\n');
+            current.push_str("\n");
             current.push_str(text);
             *inline_source = Some(current.clone());
         }
     }
 
-    fn merge_inline_text(&mut self, raw: &str, text: &str) {
+    fn merge_inline_text(&mut self, raw: &JsString, text: &JsString) {
         self.append_raw(raw);
         if let Token::Text { text: current, .. } = self {
             current.push_str(text);
@@ -1955,8 +1944,8 @@ impl Token {
     fn replace_raw_and_text(&mut self, regex: &Regex) {
         match self {
             Token::Paragraph { raw, text, .. } | Token::Text { raw, text, .. } => {
-                *raw = regex.replace_all(raw, "").into_owned();
-                *text = regex.replace_all(text, "").into_owned();
+                *raw = regex.replace_all(&*raw, "");
+                *text = regex.replace_all(&*text, "");
             }
             _ => {}
         }

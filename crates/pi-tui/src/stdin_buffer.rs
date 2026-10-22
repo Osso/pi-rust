@@ -7,7 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use pi_js_compat::string::utf16_len;
+use pi_js_compat::js_json::JsString;
 
 const ESC: &str = "\x1b";
 const BRACKETED_PASTE_START: &str = "\x1b[200~";
@@ -16,8 +16,8 @@ const BRACKETED_PASTE_END: &str = "\x1b[201~";
 /// Buffered stdin event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StdinBufferEvent {
-    Data(String),
-    Paste(String),
+    Data(JsString),
+    Paste(JsString),
 }
 
 /// Timeouts for incomplete sequences.
@@ -38,11 +38,11 @@ impl Default for StdinBufferOptions {
 /// Buffers stdin input and emits complete sequences.
 #[derive(Debug)]
 pub struct StdinBuffer {
-    buffer: String,
+    buffer: JsString,
     deadline: Option<Instant>,
     timeout: Duration,
     paste_mode: bool,
-    paste_buffer: String,
+    paste_buffer: JsString,
     pending_kitty_printable_codepoint: Option<u32>,
 }
 
@@ -60,24 +60,25 @@ impl StdinBuffer {
 
     pub fn with_options(options: StdinBufferOptions) -> Self {
         Self {
-            buffer: String::new(),
+            buffer: JsString::default(),
             deadline: None,
             timeout: options.timeout,
             paste_mode: false,
-            paste_buffer: String::new(),
+            paste_buffer: JsString::default(),
             pending_kitty_printable_codepoint: None,
         }
     }
 
-    /// Feed a UTF-8 string chunk and return the events it completes.
-    pub fn process(&mut self, data: &str) -> Vec<StdinBufferEvent> {
+    /// Feed a native UTF-16 string chunk and return the events it completes.
+    pub fn process(&mut self, data: impl Into<JsString>) -> Vec<StdinBufferEvent> {
+        let data = data.into();
         self.deadline = None;
 
         if data.is_empty() && self.buffer.is_empty() {
-            return self.emit_data_sequence("");
+            return self.emit_data_sequence(&JsString::default());
         }
 
-        self.buffer.push_str(data);
+        self.buffer.push_str(&data);
 
         if self.paste_mode {
             return self.process_paste_chunk();
@@ -112,14 +113,16 @@ impl StdinBuffer {
 
     fn process_paste_chunk(&mut self) -> Vec<StdinBufferEvent> {
         self.paste_buffer.push_str(&self.buffer);
-        self.buffer.clear();
+        self.buffer = JsString::default();
         let Some(end) = self.paste_buffer.find(BRACKETED_PASTE_END) else {
             return Vec::new();
         };
-        let content = self.paste_buffer[..end].to_string();
-        let remaining = self.paste_buffer[end + BRACKETED_PASTE_END.len()..].to_string();
+        let content = self.paste_buffer.slice(0, end);
+        let remaining = self
+            .paste_buffer
+            .slice(end + BRACKETED_PASTE_END.len(), self.paste_buffer.len());
         self.paste_mode = false;
-        self.paste_buffer.clear();
+        self.paste_buffer = JsString::default();
         self.pending_kitty_printable_codepoint = None;
 
         let mut events = vec![StdinBufferEvent::Paste(content)];
@@ -132,23 +135,27 @@ impl StdinBuffer {
     fn begin_paste(&mut self, start: usize) -> Vec<StdinBufferEvent> {
         let mut events = Vec::new();
         if start > 0 {
-            let before_paste = &self.buffer[..start];
-            let (sequences, _) = extract_complete_sequences(before_paste);
+            let before_paste = self.buffer.slice(0, start);
+            let (sequences, _) = extract_complete_sequences(&before_paste);
             for sequence in sequences {
                 events.extend(self.emit_data_sequence(&sequence));
             }
         }
 
         self.pending_kitty_printable_codepoint = None;
-        self.buffer = self.buffer[start + BRACKETED_PASTE_START.len()..].to_string();
+        self.buffer = self
+            .buffer
+            .slice(start + BRACKETED_PASTE_START.len(), self.buffer.len());
         self.paste_mode = true;
         self.paste_buffer = std::mem::take(&mut self.buffer);
 
         if let Some(end) = self.paste_buffer.find(BRACKETED_PASTE_END) {
-            let content = self.paste_buffer[..end].to_string();
-            let remaining = self.paste_buffer[end + BRACKETED_PASTE_END.len()..].to_string();
+            let content = self.paste_buffer.slice(0, end);
+            let remaining = self
+                .paste_buffer
+                .slice(end + BRACKETED_PASTE_END.len(), self.paste_buffer.len());
             self.paste_mode = false;
-            self.paste_buffer.clear();
+            self.paste_buffer = JsString::default();
             self.pending_kitty_printable_codepoint = None;
             events.push(StdinBufferEvent::Paste(content));
             if !remaining.is_empty() {
@@ -158,9 +165,9 @@ impl StdinBuffer {
         events
     }
 
-    fn emit_data_sequence(&mut self, sequence: &str) -> Vec<StdinBufferEvent> {
-        let raw_codepoint = if utf16_len(sequence) == 1 {
-            sequence.chars().next().map(|character| character as u32)
+    fn emit_data_sequence(&mut self, sequence: &JsString) -> Vec<StdinBufferEvent> {
+        let raw_codepoint = if sequence.len() == 1 {
+            sequence.units().first().map(|unit| u32::from(*unit))
         } else {
             None
         };
@@ -170,11 +177,11 @@ impl StdinBuffer {
         }
 
         self.pending_kitty_printable_codepoint = parse_unmodified_kitty_printable_codepoint(sequence);
-        vec![StdinBufferEvent::Data(sequence.to_string())]
+        vec![StdinBufferEvent::Data(sequence.clone())]
     }
 
     /// Flush and return any buffered sequence.
-    pub fn flush(&mut self) -> Vec<String> {
+    pub fn flush(&mut self) -> Vec<JsString> {
         self.deadline = None;
         if self.buffer.is_empty() {
             return Vec::new();
@@ -208,13 +215,13 @@ impl StdinBuffer {
     /// Clear all buffered state without emitting.
     pub fn clear(&mut self) {
         self.deadline = None;
-        self.buffer.clear();
+        self.buffer = JsString::default();
         self.paste_mode = false;
-        self.paste_buffer.clear();
+        self.paste_buffer = JsString::default();
         self.pending_kitty_printable_codepoint = None;
     }
 
-    pub fn buffer(&self) -> &str {
+    pub fn buffer(&self) -> &JsString {
         &self.buffer
     }
 
@@ -229,27 +236,29 @@ impl Default for StdinBuffer {
     }
 }
 
-fn parse_unmodified_kitty_printable_codepoint(sequence: &str) -> Option<u32> {
+fn parse_unmodified_kitty_printable_codepoint(sequence: &JsString) -> Option<u32> {
     let body = sequence.strip_prefix("\x1b[")?.strip_suffix('u')?;
-    let bytes = body.as_bytes();
+    let bytes = body.units();
     let mut index = 0;
-    while index < bytes.len() && bytes[index].is_ascii_digit() {
+    while index < bytes.len() && (48..=57).contains(&bytes[index]) {
         index += 1;
     }
     if index == 0 {
         return None;
     }
-    let codepoint: u32 = body[..index].parse().ok()?;
+    let codepoint = bytes[..index].iter().try_fold(0u32, |number, unit| {
+        number.checked_mul(10)?.checked_add(u32::from(*unit - 48))
+    })?;
 
-    if bytes.get(index) == Some(&b':') {
+    if bytes.get(index) == Some(&58) {
         index += 1;
-        while index < bytes.len() && bytes[index].is_ascii_digit() {
+        while index < bytes.len() && (48..=57).contains(&bytes[index]) {
             index += 1;
         }
-        if bytes.get(index) == Some(&b':') {
+        if bytes.get(index) == Some(&58) {
             index += 1;
             let start = index;
-            while index < bytes.len() && bytes[index].is_ascii_digit() {
+            while index < bytes.len() && (48..=57).contains(&bytes[index]) {
                 index += 1;
             }
             if index == start {
@@ -264,22 +273,18 @@ fn parse_unmodified_kitty_printable_codepoint(sequence: &str) -> Option<u32> {
     (codepoint >= 32).then_some(codepoint)
 }
 
-fn next_char_len(value: &str, index: usize) -> usize {
-    value[index..].chars().next().map_or(1, char::len_utf8)
-}
-
-fn is_complete_sequence(data: &str) -> SequenceStatus {
+fn is_complete_sequence(data: &JsString) -> SequenceStatus {
     if !data.starts_with(ESC) {
         return SequenceStatus::NotEscape;
     }
-    if utf16_len(data) == 1 {
+    if data.len() == 1 {
         return SequenceStatus::Incomplete;
     }
 
-    let after_escape = &data[1..];
+    let after_escape = data.slice(1, data.len());
     if after_escape.starts_with('[') {
         if after_escape.starts_with("[M") {
-            return if utf16_len(data) >= 6 {
+            return if data.len() >= 6 {
                 SequenceStatus::Complete
             } else {
                 SequenceStatus::Incomplete
@@ -297,19 +302,19 @@ fn is_complete_sequence(data: &str) -> SequenceStatus {
         return is_complete_terminated_sequence(data, "\x1b_", "\x1b\\", false);
     }
     if after_escape.starts_with('O') {
-        return if utf16_len(after_escape) >= 2 {
+        return if after_escape.len() >= 2 {
             SequenceStatus::Complete
         } else {
             SequenceStatus::Incomplete
         };
     }
-    if utf16_len(after_escape) == 1 {
+    if after_escape.len() == 1 {
         return SequenceStatus::Complete;
     }
     SequenceStatus::Complete
 }
 
-fn is_complete_terminated_sequence(data: &str, prefix: &str, terminator: &str, allow_bel: bool) -> SequenceStatus {
+fn is_complete_terminated_sequence(data: &JsString, prefix: &str, terminator: &str, allow_bel: bool) -> SequenceStatus {
     if !data.starts_with(prefix) {
         return SequenceStatus::Complete;
     }
@@ -320,16 +325,16 @@ fn is_complete_terminated_sequence(data: &str, prefix: &str, terminator: &str, a
     }
 }
 
-fn is_complete_csi_sequence(data: &str) -> SequenceStatus {
+fn is_complete_csi_sequence(data: &JsString) -> SequenceStatus {
     if !data.starts_with("\x1b[") {
         return SequenceStatus::Complete;
     }
-    if utf16_len(data) < 3 {
+    if data.len() < 3 {
         return SequenceStatus::Incomplete;
     }
 
-    let payload = &data[2..];
-    let Some(last) = payload.chars().last() else {
+    let payload = data.slice(2, data.len());
+    let Some(last) = payload.units().last().copied() else {
         return SequenceStatus::Incomplete;
     };
     let last_code = last as u32;
@@ -341,16 +346,16 @@ fn is_complete_csi_sequence(data: &str) -> SequenceStatus {
         return SequenceStatus::Complete;
     }
 
-    if is_sgr_mouse_payload(payload) {
+    if is_sgr_mouse_payload(&payload) {
         return SequenceStatus::Complete;
     }
-    if last == 'M' || last == 'm' {
-        let inner = &payload[1..payload.len() - 1];
-        let parts: Vec<&str> = inner.split(';').collect();
+    if last == 77 || last == 109 {
+        let inner = payload.slice(1, payload.len() - 1);
+        let parts: Vec<JsString> = inner.split(';').collect();
         if parts.len() == 3
             && parts
                 .iter()
-                .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+                .all(|part| !part.is_empty() && part.units().iter().all(|unit| (48..=57).contains(unit)))
         {
             return SequenceStatus::Complete;
         }
@@ -358,42 +363,42 @@ fn is_complete_csi_sequence(data: &str) -> SequenceStatus {
     SequenceStatus::Incomplete
 }
 
-fn is_sgr_mouse_payload(payload: &str) -> bool {
+fn is_sgr_mouse_payload(payload: &JsString) -> bool {
     if !payload.starts_with('<') || !(payload.ends_with('M') || payload.ends_with('m')) {
         return false;
     }
-    let inner = &payload[1..payload.len() - 1];
-    let parts: Vec<&str> = inner.split(';').collect();
+    let inner = payload.slice(1, payload.len() - 1);
+    let parts: Vec<JsString> = inner.split(';').collect();
     parts.len() == 3
         && parts
             .iter()
-            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+            .all(|part| !part.is_empty() && part.units().iter().all(|unit| (48..=57).contains(unit)))
 }
 
-fn extract_complete_sequences(buffer: &str) -> (Vec<String>, String) {
+fn extract_complete_sequences(buffer: &JsString) -> (Vec<JsString>, JsString) {
     let mut sequences = Vec::new();
     let mut pos = 0;
 
     while pos < buffer.len() {
-        let remaining = &buffer[pos..];
+        let remaining = buffer.slice(pos, buffer.len());
         if remaining.starts_with(ESC) {
             let mut seq_end = 1;
             let mut emitted = false;
 
             while seq_end <= remaining.len() {
-                let candidate = &remaining[..seq_end];
-                match is_complete_sequence(candidate) {
+                let candidate = remaining.slice(0, seq_end);
+                match is_complete_sequence(&candidate) {
                     SequenceStatus::Complete => {
                         if candidate == "\x1b\x1b" {
-                            let next = remaining[seq_end..].chars().next();
-                            if matches!(next, Some('[' | ']' | 'O' | 'P' | '_')) {
-                                sequences.push(ESC.to_string());
+                            let next = remaining.units().get(seq_end).copied();
+                            if matches!(next, Some(91 | 93 | 79 | 80 | 95)) {
+                                sequences.push(JsString::from(ESC));
                                 pos += 1;
                                 emitted = true;
                                 break;
                             }
                         }
-                        sequences.push(candidate.to_string());
+                        sequences.push(candidate.clone());
                         pos += seq_end;
                         emitted = true;
                         break;
@@ -402,10 +407,10 @@ fn extract_complete_sequences(buffer: &str) -> (Vec<String>, String) {
                         if seq_end == remaining.len() {
                             break;
                         }
-                        seq_end += next_char_len(remaining, seq_end);
+                        seq_end += 1;
                     }
                     SequenceStatus::NotEscape => {
-                        sequences.push(candidate.to_string());
+                        sequences.push(candidate.clone());
                         pos += seq_end;
                         emitted = true;
                         break;
@@ -414,14 +419,14 @@ fn extract_complete_sequences(buffer: &str) -> (Vec<String>, String) {
             }
 
             if !emitted {
-                return (sequences, remaining.to_string());
+                return (sequences, remaining.clone());
             }
         } else {
-            let length = next_char_len(remaining, 0);
-            sequences.push(remaining[..length].to_string());
+            let length = 1;
+            sequences.push(remaining.slice(0, length));
             pos += length;
         }
     }
 
-    (sequences, String::new())
+    (sequences, JsString::default())
 }

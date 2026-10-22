@@ -1,5 +1,6 @@
 //! Ported from `packages/tui/src/components/image.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 
 use super::text::StyleFn;
@@ -19,26 +20,26 @@ pub struct ImageTheme {
 pub struct ImageOptions {
     pub max_width_cells: Option<usize>,
     pub max_height_cells: Option<usize>,
-    pub filename: Option<String>,
+    pub filename: Option<JsString>,
     /// Kitty image ID. If provided, reuses this ID (for animations/updates).
     pub image_id: Option<u32>,
 }
 
 pub struct Image {
-    base64_data: String,
-    mime_type: String,
+    base64_data: JsString,
+    mime_type: JsString,
     dimensions: ImageDimensions,
     theme: Rc<ImageTheme>,
     options: ImageOptions,
     image_id: Option<u32>,
-    cached_lines: Option<Vec<String>>,
+    cached_lines: Option<Vec<JsString>>,
     cached_width: Option<usize>,
 }
 
 impl Image {
     pub fn new(
-        base64_data: impl Into<String>,
-        mime_type: impl Into<String>,
+        base64_data: impl Into<JsString>,
+        mime_type: impl Into<JsString>,
         theme: Rc<ImageTheme>,
         options: ImageOptions,
         dimensions: Option<ImageDimensions>,
@@ -67,14 +68,14 @@ impl Image {
         self.image_id
     }
 
-    fn fallback_line(&self) -> String {
-        let fallback = image_fallback(&self.mime_type, Some(self.dimensions), self.options.filename.as_deref());
+    fn fallback_line(&self) -> JsString {
+        let fallback = image_fallback(&self.mime_type, Some(self.dimensions), self.options.filename.as_ref());
         (self.theme.fallback_color)(&fallback)
     }
 }
 
 impl Component for Image {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         if let (Some(lines), Some(cached_width)) = (&self.cached_lines, self.cached_width)
             && cached_width == width
         {
@@ -117,21 +118,21 @@ impl Component for Image {
                         if protocol == crate::terminal_image::ImageProtocol::Kitty {
                             let mut lines = vec![result.sequence];
                             for _ in 0..result.rows.saturating_sub(1) {
-                                lines.push(String::new());
+                                lines.push(JsString::default());
                             }
                             lines
                         } else {
                             let mut lines = Vec::new();
                             for _ in 0..result.rows.saturating_sub(1) {
-                                lines.push(String::new());
+                                lines.push(JsString::default());
                             }
                             let row_offset = result.rows.saturating_sub(1);
                             let move_up = if row_offset > 0 {
-                                format!("\x1b[{row_offset}A")
+                                JsString::from(format!("\x1b[{row_offset}A"))
                             } else {
-                                String::new()
+                                JsString::default()
                             };
-                            lines.push(format!("{move_up}{}", result.sequence));
+                            lines.push(move_up + result.sequence);
                             lines
                         }
                     }

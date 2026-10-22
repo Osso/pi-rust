@@ -4,6 +4,7 @@
 //! mutates items in place; Rust keeps the mutable list plus submenu state behind
 //! a shared `RefCell` so submenu `done` callbacks can update the item later.
 
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -11,46 +12,46 @@ use super::input::{Input, InputOptions};
 use crate::fuzzy::fuzzy_filter;
 use crate::keybindings::get_keybindings;
 use crate::tui::{Component, ComponentRef};
-use crate::utils::{truncate_to_width, truncate_to_width_with, visible_width, wrap_text_with_ansi};
+use crate::utils::{truncate_to_width, truncate_to_width_with, visible_width, wrap_text_with_ansi_signed};
 
-pub type SubmenuDone = Rc<dyn Fn(Option<String>)>;
-pub type SubmenuFactory = dyn Fn(&str, SubmenuDone) -> ComponentRef;
+pub type SubmenuDone = Rc<dyn Fn(Option<JsString>)>;
+pub type SubmenuFactory = dyn Fn(&JsString, SubmenuDone) -> ComponentRef;
 
 pub struct SettingItem {
     /// Unique identifier for this setting.
-    pub id: String,
+    pub id: JsString,
     /// Display label (left side).
-    pub label: String,
+    pub label: JsString,
     /// Optional description shown when selected.
-    pub description: Option<String>,
+    pub description: Option<JsString>,
     /// Current value to display (right side).
-    pub current_value: String,
+    pub current_value: JsString,
     /// If provided, Enter/Space cycles through these values.
-    pub values: Option<Vec<String>>,
+    pub values: Option<Vec<JsString>>,
     /// If provided, Enter opens this submenu.
     pub submenu: Option<Rc<SubmenuFactory>>,
 }
 
-pub type SettingsLabelFn = Rc<dyn Fn(&str, bool) -> String>;
-pub type SettingsTextFn = Rc<dyn Fn(&str) -> String>;
-pub type SettingsChangeFn = Rc<dyn Fn(&str, &str)>;
+pub type SettingsLabelFn = Rc<dyn Fn(&JsString, bool) -> JsString>;
+pub type SettingsTextFn = Rc<dyn Fn(&JsString) -> JsString>;
+pub type SettingsChangeFn = Rc<dyn Fn(&JsString, &JsString)>;
 
 pub struct SettingsListTheme {
     pub label: SettingsLabelFn,
     pub value: SettingsLabelFn,
     pub description: SettingsTextFn,
-    pub cursor: String,
+    pub cursor: JsString,
     pub hint: SettingsTextFn,
 }
 
 impl SettingsListTheme {
-    pub fn plain(cursor: impl Into<String>) -> Self {
+    pub fn plain(cursor: impl Into<JsString>) -> Self {
         Self {
-            label: Rc::new(|text: &str, _| text.to_string()),
-            value: Rc::new(|text: &str, _| text.to_string()),
-            description: Rc::new(|text: &str| text.to_string()),
+            label: Rc::new(|text: &JsString, _| text.clone()),
+            value: Rc::new(|text: &JsString, _| text.clone()),
+            description: Rc::new(|text: &JsString| text.clone()),
             cursor: cursor.into(),
-            hint: Rc::new(|text: &str| text.to_string()),
+            hint: Rc::new(|text: &JsString| text.clone()),
         }
     }
 }
@@ -106,7 +107,8 @@ impl SettingsList {
     }
 
     /// Update an item's `current_value`.
-    pub fn update_value(&mut self, id: &str, new_value: impl Into<String>) {
+    pub fn update_value(&mut self, id: impl Into<JsString>, new_value: impl Into<JsString>) {
+        let id = id.into();
         let mut state = self.state.borrow_mut();
         if let Some(item) = state.items.iter_mut().find(|item| item.id == id) {
             item.current_value = new_value.into();
@@ -129,19 +131,19 @@ impl SettingsList {
         }
     }
 
-    fn render_main_list(&mut self, width: usize) -> Vec<String> {
+    fn render_main_list(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
 
         if self.search_enabled
             && let Some(search_input) = &mut self.search_input
         {
             lines.extend(search_input.render(width));
-            lines.push(String::new());
+            lines.push(JsString::default());
         }
 
         let state = self.state.borrow();
         if state.items.is_empty() {
-            lines.push((self.theme.hint)("  No settings available"));
+            lines.push((self.theme.hint)(&JsString::from("  No settings available")));
             drop(state);
             if self.search_enabled {
                 self.add_hint_line(&mut lines, width);
@@ -151,7 +153,10 @@ impl SettingsList {
 
         let display_indices = self.display_indices(&state);
         if display_indices.is_empty() {
-            lines.push(truncate_to_width(&(self.theme.hint)("  No matching settings"), width));
+            lines.push(truncate_to_width(
+                &(self.theme.hint)(&JsString::from("  No matching settings")),
+                width,
+            ));
             drop(state);
             self.add_hint_line(&mut lines, width);
             return lines;
@@ -177,24 +182,24 @@ impl SettingsList {
             let prefix = if is_selected {
                 self.theme.cursor.clone()
             } else {
-                "  ".to_string()
+                JsString::from("  ")
             };
             let prefix_width = visible_width(&prefix);
             let label_padding = " ".repeat(max_label_width.saturating_sub(visible_width(&item.label)));
-            let label_padded = format!("{}{label_padding}", item.label);
+            let label_padded = item.label.clone() + &label_padding;
             let label_text = (self.theme.label)(&label_padded, is_selected);
 
             const SEPARATOR: &str = "  ";
             let used_width = prefix_width + max_label_width + visible_width(SEPARATOR);
             let value_max_width = width as i64 - used_width as i64 - 2;
             let truncated_value = if value_max_width <= 0 {
-                String::new()
+                JsString::default()
             } else {
                 truncate_to_width_with(&item.current_value, value_max_width as usize, "", false)
             };
             let value_text = (self.theme.value)(&truncated_value, is_selected);
             lines.push(truncate_to_width(
-                &format!("{prefix}{label_text}{SEPARATOR}{value_text}"),
+                &(prefix + label_text + SEPARATOR + value_text),
                 width,
             ));
         }
@@ -214,9 +219,9 @@ impl SettingsList {
             .map(|index| &state.items[*index])
             && let Some(description) = selected_item.description.as_ref().filter(|text| !text.is_empty())
         {
-            lines.push(String::new());
-            for line in wrap_text_with_ansi(description, width.saturating_sub(4)) {
-                lines.push((self.theme.description)(&format!("  {line}")));
+            lines.push(JsString::default());
+            for line in wrap_text_with_ansi_signed(description, width as i128 - 4) {
+                lines.push((self.theme.description)(&(JsString::from("  ") + line)));
             }
         }
         drop(state);
@@ -225,7 +230,7 @@ impl SettingsList {
         lines
     }
 
-    fn handle_key_input(&mut self, data: &str) {
+    fn handle_key_input(&mut self, data: &JsString) {
         let submenu = self.state.borrow().submenu.clone();
         if let Some(submenu) = submenu {
             submenu.borrow_mut().handle_input(data);
@@ -261,12 +266,12 @@ impl SettingsList {
         } else if self.search_enabled
             && let Some(search_input) = &mut self.search_input
         {
-            let sanitized = data.replace(' ', "");
+            let sanitized = data.replace(" ", "");
             if sanitized.is_empty() {
                 return;
             }
             search_input.handle_input(&sanitized);
-            let query = search_input.get_value().to_string();
+            let query = search_input.get_value().clone();
             self.apply_filter(&query);
         }
     }
@@ -327,7 +332,7 @@ impl SettingsList {
         }
     }
 
-    fn apply_filter(&mut self, query: &str) {
+    fn apply_filter(&mut self, query: &JsString) {
         let filtered_indices = {
             let state = self.state.borrow();
             let items = &state.items;
@@ -339,14 +344,14 @@ impl SettingsList {
         state.selected_index = 0;
     }
 
-    fn add_hint_line(&self, lines: &mut Vec<String>, width: usize) {
-        lines.push(String::new());
+    fn add_hint_line(&self, lines: &mut Vec<JsString>, width: usize) {
+        lines.push(JsString::default());
         let text = if self.search_enabled {
             "  Type to search · Enter/Space to change · Esc to cancel"
         } else {
             "  Enter/Space to change · Esc to cancel"
         };
-        lines.push(truncate_to_width(&(self.theme.hint)(text), width));
+        lines.push(truncate_to_width(&(self.theme.hint)(&JsString::from(text)), width));
     }
 }
 
@@ -359,7 +364,7 @@ fn close_submenu(state: &Rc<RefCell<SettingsListState>>) {
 }
 
 impl Component for SettingsList {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let submenu = self.state.borrow().submenu.clone();
         if let Some(submenu) = submenu {
             return submenu.borrow_mut().render(width);
@@ -367,7 +372,7 @@ impl Component for SettingsList {
         self.render_main_list(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.handle_key_input(data);
     }
 

@@ -11,6 +11,8 @@ use tokio_util::sync::CancellationToken;
 use super::loader::{Loader, LoaderIndicatorOptions};
 use super::text::StyleFn;
 use crate::keybindings::get_keybindings;
+use pi_js_compat::js_json::JsString;
+
 use crate::tui::Component;
 
 pub struct CancellableLoader {
@@ -24,7 +26,7 @@ impl CancellableLoader {
         request_render: Rc<dyn Fn()>,
         spinner_color_fn: StyleFn,
         message_color_fn: StyleFn,
-        message: impl Into<String>,
+        message: impl Into<JsString>,
         indicator: Option<LoaderIndicatorOptions>,
     ) -> Self {
         Self {
@@ -51,7 +53,7 @@ impl CancellableLoader {
         self.loader.stop();
     }
 
-    pub fn set_message(&mut self, message: impl Into<String>) {
+    pub fn set_message(&mut self, message: impl Into<JsString>) {
         self.loader.set_message(message);
     }
 
@@ -70,11 +72,11 @@ impl CancellableLoader {
 }
 
 impl Component for CancellableLoader {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.loader.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(data, "tui.select.cancel") {
             self.abort_controller.cancel();

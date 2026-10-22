@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use pi_tui::utils::{
     AnsiCode, GraphemeCellRange, Segments, apply_background_to_line, extract_ansi_code, extract_segments,
     get_grapheme_cell_range, get_osc8_link_at_column, is_punctuation_char, is_whitespace_char,
@@ -138,7 +139,7 @@ fn extract_ansi_code_recognizes_csi_sequences() {
     assert_eq!(
         extract_ansi_code("\x1b[31mred", 0),
         Some(AnsiCode {
-            code: "\x1b[31m",
+            code: "\x1b[31m".into(),
             length: 5
         })
     );
@@ -223,8 +224,8 @@ fn grapheme_cell_range_reports_the_covering_grapheme() {
 #[test]
 fn osc8_link_at_column_tracks_open_and_close() {
     let line = "\x1b]8;;https://a.test\x07link\x1b]8;;\x07 after";
-    assert_eq!(get_osc8_link_at_column(line, 0), Some("https://a.test"));
-    assert_eq!(get_osc8_link_at_column(line, 3), Some("https://a.test"));
+    assert_eq!(get_osc8_link_at_column(line, 0), Some(JsString::from("https://a.test")));
+    assert_eq!(get_osc8_link_at_column(line, 3), Some(JsString::from("https://a.test")));
     assert_eq!(get_osc8_link_at_column(line, 4), None);
     assert_eq!(get_osc8_link_at_column(line, 6), None);
     assert_eq!(get_osc8_link_at_column("plain", 0), None);
@@ -280,15 +281,15 @@ fn extract_segments_inherits_styling_from_before_the_overlay() {
 #[test]
 fn apply_background_pads_to_full_width() {
     assert_eq!(
-        apply_background_to_line("abc", 5, |text| format!("[{text}]")),
+        apply_background_to_line("abc", 5, |text| JsString::from("[") + text + "]"),
         "[abc  ]"
     );
     assert_eq!(
-        apply_background_to_line("abcde", 3, |text| format!("[{text}]")),
+        apply_background_to_line("abcde", 3, |text| JsString::from("[") + text + "]"),
         "[abcde]"
     );
     assert_eq!(
-        apply_background_to_line("\x1b[31mab\x1b[0m", 4, |text| format!("[{text}]")),
+        apply_background_to_line("\x1b[31mab\x1b[0m", 4, |text| JsString::from("[") + text + "]"),
         "[\x1b[31mab\x1b[0m  ]"
     );
 }
@@ -478,8 +479,22 @@ fn wrapping_does_not_emit_osc8_outside_the_link() {
     let input = format!("before \x1b]8;;{url}\x1b\\link\x1b]8;;\x1b\\ after");
     let lines = wrap_text_with_ansi(&input, 80);
     assert_eq!(lines.len(), 1);
-    assert_eq!(lines[0].matches(&format!("\x1b]8;;{url}\x1b\\")).count(), 1);
-    assert_eq!(lines[0].matches("\x1b]8;;\x1b\\").count(), 1);
+    assert_eq!(
+        lines[0]
+            .units()
+            .windows(format!("\x1b]8;;{url}\x1b\\").len())
+            .filter(|window| window.iter().copied().eq(format!("\x1b]8;;{url}\x1b\\").encode_utf16()))
+            .count(),
+        1
+    );
+    assert_eq!(
+        lines[0]
+            .units()
+            .windows(7)
+            .filter(|window| window.iter().copied().eq("\x1b]8;;\x1b\\".encode_utf16()))
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -579,9 +594,9 @@ fn truncation_empty_text_pads_when_requested() {
 #[test]
 fn segments_struct_exposes_before_and_after() {
     let segments = Segments {
-        before: "a".to_string(),
+        before: "a".into(),
         before_width: 1,
-        after: "b".to_string(),
+        after: "b".into(),
         after_width: 1,
     };
     assert_eq!(segments.before_width + segments.after_width, 2);

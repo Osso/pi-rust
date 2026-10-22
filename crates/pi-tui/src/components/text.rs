@@ -4,22 +4,23 @@
 //! The TypeScript cache is keyed by text and width; the Rust port keeps the same
 //! three-field cache so repeated renders return the previously built lines.
 
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 
 use crate::tui::Component;
 use crate::utils::{apply_background_to_line, visible_width, wrap_text_with_ansi};
 
 /// Terminal styling callback (`(text) => text`).
-pub type StyleFn = Rc<dyn Fn(&str) -> String>;
+pub type StyleFn = Rc<dyn Fn(&JsString) -> JsString>;
 
 pub struct Text {
-    text: String,
+    text: JsString,
     padding_x: usize,
     padding_y: usize,
     custom_bg_fn: Option<StyleFn>,
-    cached_text: Option<String>,
+    cached_text: Option<JsString>,
     cached_width: Option<usize>,
-    cached_lines: Option<Vec<String>>,
+    cached_lines: Option<Vec<JsString>>,
 }
 
 impl Default for Text {
@@ -29,7 +30,7 @@ impl Default for Text {
 }
 
 impl Text {
-    pub fn new(text: impl Into<String>, padding_x: usize, padding_y: usize) -> Self {
+    pub fn new(text: impl Into<JsString>, padding_x: usize, padding_y: usize) -> Self {
         Self {
             text: text.into(),
             padding_x,
@@ -41,18 +42,23 @@ impl Text {
         }
     }
 
-    pub fn with_background(text: impl Into<String>, padding_x: usize, padding_y: usize, custom_bg_fn: StyleFn) -> Self {
+    pub fn with_background(
+        text: impl Into<JsString>,
+        padding_x: usize,
+        padding_y: usize,
+        custom_bg_fn: StyleFn,
+    ) -> Self {
         Self {
             custom_bg_fn: Some(custom_bg_fn),
             ..Self::new(text, padding_x, padding_y)
         }
     }
 
-    pub fn text(&self) -> &str {
+    pub fn text(&self) -> &JsString {
         &self.text
     }
 
-    pub fn set_text(&mut self, text: impl Into<String>) {
+    pub fn set_text(&mut self, text: impl Into<JsString>) {
         self.text = text.into();
         self.invalidate();
     }
@@ -71,30 +77,30 @@ impl Text {
         self.invalidate();
     }
 
-    fn pad_to_width(&self, line: &str, width: usize) -> String {
+    fn pad_to_width(&self, line: &JsString, width: usize) -> JsString {
         match &self.custom_bg_fn {
             Some(bg_fn) => apply_background_to_line(line, width, |text| bg_fn(text)),
             None => {
                 let padding_needed = width.saturating_sub(visible_width(line));
-                format!("{line}{}", " ".repeat(padding_needed))
+                line.clone() + " ".repeat(padding_needed)
             }
         }
     }
 
-    fn build_lines(&self, width: usize) -> Vec<String> {
-        let normalized_text = self.text.replace('\t', "   ");
+    fn build_lines(&self, width: usize) -> Vec<JsString> {
+        let normalized_text = self.text.replace("\t", "   ");
         let content_width = width.saturating_sub(self.padding_x * 2).max(1);
         let wrapped_lines = wrap_text_with_ansi(&normalized_text, content_width);
 
         let margin = " ".repeat(self.padding_x);
-        let content_lines: Vec<String> = wrapped_lines
+        let content_lines: Vec<JsString> = wrapped_lines
             .into_iter()
-            .map(|line| self.pad_to_width(&format!("{margin}{line}{margin}"), width))
+            .map(|line| self.pad_to_width(&(JsString::from(&margin) + &line + &margin), width))
             .collect();
 
         let empty_line = " ".repeat(width);
-        let empty_lines: Vec<String> = (0..self.padding_y)
-            .map(|_| self.pad_to_width(&empty_line, width))
+        let empty_lines: Vec<JsString> = (0..self.padding_y)
+            .map(|_| self.pad_to_width(&JsString::from(&empty_line), width))
             .collect();
 
         let mut result = Vec::with_capacity(empty_lines.len() * 2 + content_lines.len());
@@ -106,7 +112,7 @@ impl Text {
 }
 
 impl Component for Text {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         if let (Some(lines), Some(cached_width), Some(cached_text)) =
             (&self.cached_lines, self.cached_width, &self.cached_text)
             && cached_width == width
@@ -115,7 +121,7 @@ impl Component for Text {
             return lines.clone();
         }
 
-        if pi_js_compat::string::js_trim(&self.text).is_empty() {
+        if self.text.trim().is_empty() {
             self.cached_text = Some(self.text.clone());
             self.cached_width = Some(width);
             self.cached_lines = Some(Vec::new());
@@ -126,7 +132,11 @@ impl Component for Text {
         self.cached_text = Some(self.text.clone());
         self.cached_width = Some(width);
         self.cached_lines = Some(result.clone());
-        if result.is_empty() { vec![String::new()] } else { result }
+        if result.is_empty() {
+            vec![JsString::default()]
+        } else {
+            result
+        }
     }
 
     fn invalidate(&mut self) {

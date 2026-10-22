@@ -1,6 +1,6 @@
 //! Terminal image protocols, capabilities, and Kitty image metadata.
 
-use std::fmt;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::hash::{BuildHasher, Hasher};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -65,14 +65,14 @@ pub struct KittyEncodeOptions {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Iterm2Size {
     Number(f64),
-    Text(String),
+    Text(JsString),
 }
 
-impl fmt::Display for Iterm2Size {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Iterm2Size {
+    pub fn to_js_string(&self) -> JsString {
         match self {
-            Self::Number(value) => formatter.write_str(&pi_js_compat::number::js_number_to_string(*value)),
-            Self::Text(value) => formatter.write_str(value),
+            Self::Number(value) => pi_js_compat::number::js_number_to_string(*value).into(),
+            Self::Text(value) => value.clone(),
         }
     }
 }
@@ -82,7 +82,7 @@ impl fmt::Display for Iterm2Size {
 pub struct Iterm2Options {
     pub width: Option<Iterm2Size>,
     pub height: Option<Iterm2Size>,
-    pub name: Option<String>,
+    pub name: Option<JsString>,
     pub preserve_aspect_ratio: Option<bool>,
     pub inline: Option<bool>,
 }
@@ -90,7 +90,7 @@ pub struct Iterm2Options {
 /// Result of [`render_image`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderedImage {
-    pub sequence: String,
+    pub sequence: JsString,
     pub columns: u32,
     pub rows: u32,
     pub image_id: Option<u32>,
@@ -323,7 +323,8 @@ pub fn set_capabilities(capabilities: TerminalCapabilities) {
 const KITTY_PREFIX: &str = "\x1b_G";
 const ITERM2_PREFIX: &str = "\x1b]1337;File=";
 
-pub fn is_image_line(line: &str) -> bool {
+pub fn is_image_line(line: impl Into<pi_js_compat::js_json::JsString>) -> bool {
+    let line = line.into();
     line.starts_with(KITTY_PREFIX)
         || line.starts_with(ITERM2_PREFIX)
         || line.contains(KITTY_PREFIX)
@@ -342,26 +343,27 @@ pub fn allocate_image_id() -> u32 {
     ((hasher.finish() % 0xffff_fffe) + 1) as u32
 }
 
-pub fn encode_kitty(base64_data: &str, options: &KittyEncodeOptions) -> String {
+pub fn encode_kitty(base64_data: impl Into<JsString>, options: &KittyEncodeOptions) -> JsString {
+    let base64_data = &base64_data.into();
     const CHUNK_SIZE: usize = 4096;
 
-    let mut params = vec!["a=T".to_string(), "f=100".to_string(), "q=2".to_string()];
+    let mut params = vec![JsString::from("a=T"), JsString::from("f=100"), JsString::from("q=2")];
     if options.move_cursor == Some(false) {
-        params.push("C=1".to_string());
+        params.push(JsString::from("C=1"));
     }
     if let Some(columns) = options.columns.filter(|value| *value != 0) {
-        params.push(format!("c={columns}"));
+        params.push(JsString::from(format!("c={columns}")));
     }
     if let Some(rows) = options.rows.filter(|value| *value != 0) {
-        params.push(format!("r={rows}"));
+        params.push(JsString::from(format!("r={rows}")));
     }
     if let Some(image_id) = options.image_id.filter(|value| *value != 0) {
-        params.push(format!("i={image_id}"));
+        params.push(JsString::from(format!("i={image_id}")));
     }
-    let parameters = params.join(",");
+    let parameters = JsString::join(params.iter(), ",");
 
     if base64_data.len() <= CHUNK_SIZE {
-        return format!("\x1b_G{parameters};{base64_data}\x1b\\");
+        return JsString::from("\x1b_G") + &parameters + ";" + base64_data + "\x1b\\";
     }
 
     let mut chunks = Vec::new();
@@ -369,48 +371,55 @@ pub fn encode_kitty(base64_data: &str, options: &KittyEncodeOptions) -> String {
     let mut is_first = true;
     while offset < base64_data.len() {
         let end = (offset + CHUNK_SIZE).min(base64_data.len());
-        let chunk = &base64_data[offset..end];
+        let chunk = base64_data.slice(offset, end);
         let is_last = offset + CHUNK_SIZE >= base64_data.len();
         if is_first {
-            chunks.push(format!("\x1b_G{parameters},m=1;{chunk}\x1b\\"));
+            chunks.push(JsString::from("\x1b_G") + &parameters + ",m=1;" + chunk + "\x1b\\");
             is_first = false;
         } else if is_last {
-            chunks.push(format!("\x1b_Gm=0;{chunk}\x1b\\"));
+            chunks.push(JsString::from("\x1b_Gm=0;") + chunk + "\x1b\\");
         } else {
-            chunks.push(format!("\x1b_Gm=1;{chunk}\x1b\\"));
+            chunks.push(JsString::from("\x1b_Gm=1;") + chunk + "\x1b\\");
         }
         offset += CHUNK_SIZE;
     }
-    chunks.concat()
+    JsString::join(chunks, "")
 }
 
-pub fn delete_kitty_image(image_id: u32) -> String {
-    format!("\x1b_Ga=d,d=I,i={image_id},q=2\x1b\\")
+pub fn delete_kitty_image(image_id: u32) -> JsString {
+    JsString::from(format!("\x1b_Ga=d,d=I,i={image_id},q=2\x1b\\"))
 }
 
-pub fn delete_all_kitty_images() -> String {
-    "\x1b_Ga=d,d=A,q=2\x1b\\".to_string()
+pub fn delete_all_kitty_images() -> JsString {
+    JsString::from("\x1b_Ga=d,d=A,q=2\x1b\\")
 }
 
-pub fn encode_iterm2(base64_data: &str, options: &Iterm2Options) -> String {
-    let mut params = vec![format!("inline={}", if options.inline == Some(false) { 0 } else { 1 })];
+pub fn encode_iterm2(base64_data: impl Into<JsString>, options: &Iterm2Options) -> JsString {
+    let base64_data = &base64_data.into();
+    let mut params = vec![JsString::from(format!(
+        "inline={}",
+        if options.inline == Some(false) { 0 } else { 1 }
+    ))];
 
     if let Some(width) = &options.width {
-        params.push(format!("width={width}"));
+        params.push(JsString::from("width=") + width.to_js_string());
     }
     if let Some(height) = &options.height {
-        params.push(format!("height={height}"));
+        params.push(JsString::from("height=") + height.to_js_string());
     }
     if let Some(name) = &options.name
         && !name.is_empty()
     {
-        params.push(format!("name={}", pi_js_compat::base64::btoa(name.as_bytes())));
+        params.push(JsString::from(format!(
+            "name={}",
+            pi_js_compat::base64::btoa(encode_node_utf8(name).as_bytes())
+        )));
     }
     if options.preserve_aspect_ratio == Some(false) {
-        params.push("preserveAspectRatio=0".to_string());
+        params.push(JsString::from("preserveAspectRatio=0"));
     }
 
-    format!("\x1b]1337;File={}:{base64_data}\x07", params.join(";"))
+    JsString::from("\x1b]1337;File=") + JsString::join(params.iter(), ";") + ":" + base64_data + "\x07"
 }
 
 pub fn calculate_image_cell_size(
@@ -478,7 +487,8 @@ fn read_u32_le(bytes: &[u8], offset: usize) -> Option<u32> {
     ]))
 }
 
-pub fn get_png_dimensions(base64_data: &str) -> Option<ImageDimensions> {
+pub fn get_png_dimensions(base64_data: impl Into<JsString>) -> Option<ImageDimensions> {
+    let base64_data = &base64_data.into();
     let bytes = pi_js_compat::base64::buffer_from_base64(base64_data);
     if bytes.len() < 24 {
         return None;
@@ -492,7 +502,8 @@ pub fn get_png_dimensions(base64_data: &str) -> Option<ImageDimensions> {
     })
 }
 
-pub fn get_jpeg_dimensions(base64_data: &str) -> Option<ImageDimensions> {
+pub fn get_jpeg_dimensions(base64_data: impl Into<JsString>) -> Option<ImageDimensions> {
+    let base64_data = &base64_data.into();
     let bytes = pi_js_compat::base64::buffer_from_base64(base64_data);
     if bytes.len() < 2 || bytes[0] != 0xff || bytes[1] != 0xd8 {
         return None;
@@ -523,7 +534,8 @@ pub fn get_jpeg_dimensions(base64_data: &str) -> Option<ImageDimensions> {
     None
 }
 
-pub fn get_gif_dimensions(base64_data: &str) -> Option<ImageDimensions> {
+pub fn get_gif_dimensions(base64_data: impl Into<JsString>) -> Option<ImageDimensions> {
+    let base64_data = &base64_data.into();
     let bytes = pi_js_compat::base64::buffer_from_base64(base64_data);
     if bytes.len() < 10 {
         return None;
@@ -538,7 +550,8 @@ pub fn get_gif_dimensions(base64_data: &str) -> Option<ImageDimensions> {
     })
 }
 
-pub fn get_webp_dimensions(base64_data: &str) -> Option<ImageDimensions> {
+pub fn get_webp_dimensions(base64_data: impl Into<JsString>) -> Option<ImageDimensions> {
+    let base64_data = &base64_data.into();
     let bytes = pi_js_compat::base64::buffer_from_base64(base64_data);
     if bytes.len() < 30 {
         return None;
@@ -575,21 +588,31 @@ pub fn get_webp_dimensions(base64_data: &str) -> Option<ImageDimensions> {
     }
 }
 
-pub fn get_image_dimensions(base64_data: &str, mime_type: &str) -> Option<ImageDimensions> {
-    match mime_type {
-        "image/png" => get_png_dimensions(base64_data),
-        "image/jpeg" => get_jpeg_dimensions(base64_data),
-        "image/gif" => get_gif_dimensions(base64_data),
-        "image/webp" => get_webp_dimensions(base64_data),
-        _ => None,
+pub fn get_image_dimensions(
+    base64_data: impl Into<JsString>,
+    mime_type: impl Into<JsString>,
+) -> Option<ImageDimensions> {
+    let base64_data = base64_data.into();
+    let mime_type = mime_type.into();
+    if mime_type == "image/png" {
+        get_png_dimensions(&base64_data)
+    } else if mime_type == "image/jpeg" {
+        get_jpeg_dimensions(&base64_data)
+    } else if mime_type == "image/gif" {
+        get_gif_dimensions(&base64_data)
+    } else if mime_type == "image/webp" {
+        get_webp_dimensions(&base64_data)
+    } else {
+        None
     }
 }
 
 pub fn render_image(
-    base64_data: &str,
+    base64_data: impl Into<JsString>,
     image_dimensions: ImageDimensions,
     options: &ImageRenderOptions,
 ) -> Option<RenderedImage> {
+    let base64_data = &base64_data.into();
     let capabilities = get_capabilities();
     let protocol = capabilities.images?;
 
@@ -624,7 +647,7 @@ pub fn render_image(
                 base64_data,
                 &Iterm2Options {
                     width: Some(Iterm2Size::Number(f64::from(size.columns))),
-                    height: Some(Iterm2Size::Text("auto".to_string())),
+                    height: Some(Iterm2Size::Text(JsString::from("auto"))),
                     preserve_aspect_ratio: Some(options.preserve_aspect_ratio.unwrap_or(true)),
                     ..Iterm2Options::default()
                 },
@@ -640,19 +663,28 @@ pub fn render_image(
 }
 
 /// Wrap text in an OSC 8 hyperlink.
-pub fn hyperlink(text: &str, url: &str) -> String {
-    format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
+pub fn hyperlink(text: impl Into<JsString>, url: impl Into<JsString>) -> JsString {
+    let text = text.into();
+    let url = url.into();
+    JsString::from("\x1b]8;;") + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
 }
 
 /// Text fallback when the terminal cannot render inline images.
-pub fn image_fallback(mime_type: &str, dimensions: Option<ImageDimensions>, filename: Option<&str>) -> String {
+pub fn image_fallback(
+    mime_type: impl Into<JsString>,
+    dimensions: Option<ImageDimensions>,
+    filename: Option<&JsString>,
+) -> JsString {
     let mut parts = Vec::new();
     if let Some(filename) = filename.filter(|filename| !filename.is_empty()) {
-        parts.push(filename.to_string());
+        parts.push(filename.clone());
     }
-    parts.push(format!("[{mime_type}]"));
+    parts.push(JsString::from("[") + mime_type.into() + "]");
     if let Some(dimensions) = dimensions {
-        parts.push(format!("{}x{}", dimensions.width_px, dimensions.height_px));
+        parts.push(JsString::from(format!(
+            "{}x{}",
+            dimensions.width_px, dimensions.height_px
+        )));
     }
-    format!("[Image: {}]", parts.join(" "))
+    JsString::from("[Image: ") + JsString::join(parts, " ") + "]"
 }

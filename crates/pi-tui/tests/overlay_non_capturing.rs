@@ -3,6 +3,7 @@ mod components;
 #[path = "support/virtual_terminal.rs"]
 mod virtual_terminal;
 
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -38,7 +39,7 @@ fn positioned(row: f64, col: f64, width: f64) -> OverlayOptions {
     }
 }
 
-fn set_input_handler(state: &Rc<RefCell<TestState>>, handler: impl Fn(&str) + 'static) {
+fn set_input_handler(state: &Rc<RefCell<TestState>>, handler: impl Fn(&JsString) + 'static) {
     state.borrow_mut().on_input = Some(Rc::new(handler));
 }
 

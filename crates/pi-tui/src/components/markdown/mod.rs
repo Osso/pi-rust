@@ -9,7 +9,7 @@ pub mod tokens;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use pi_js_compat::string::{is_js_whitespace_char, js_trim};
+use pi_js_compat::js_json::JsString;
 
 use crate::terminal_image::{get_capabilities, hyperlink, is_image_line};
 use crate::tui::Component;
@@ -18,7 +18,7 @@ use crate::utils::{apply_background_to_line, visible_width, wrap_text_with_ansi}
 use self::tokens::{ListItem, ListStart, TableCell, Token};
 
 /// Caller-supplied text styling function.
-pub type StyleFn = Box<dyn Fn(&str) -> String>;
+pub type StyleFn = Box<dyn Fn(&JsString) -> JsString>;
 
 /// Default text styling for markdown content.
 #[derive(Default)]
@@ -33,27 +33,27 @@ pub struct DefaultTextStyle {
 
 /// Theme functions for markdown elements. Each returns styled text with ANSI codes.
 pub trait MarkdownTheme {
-    fn heading(&self, text: &str) -> String;
-    fn link(&self, text: &str) -> String;
-    fn link_url(&self, text: &str) -> String;
-    fn code(&self, text: &str) -> String;
-    fn code_block(&self, text: &str) -> String;
-    fn code_block_border(&self, text: &str) -> String;
-    fn quote(&self, text: &str) -> String;
-    fn quote_border(&self, text: &str) -> String;
-    fn hr(&self, text: &str) -> String;
-    fn list_bullet(&self, text: &str) -> String;
-    fn bold(&self, text: &str) -> String;
-    fn italic(&self, text: &str) -> String;
-    fn strikethrough(&self, text: &str) -> String;
-    fn underline(&self, text: &str) -> String;
+    fn heading(&self, text: &JsString) -> JsString;
+    fn link(&self, text: &JsString) -> JsString;
+    fn link_url(&self, text: &JsString) -> JsString;
+    fn code(&self, text: &JsString) -> JsString;
+    fn code_block(&self, text: &JsString) -> JsString;
+    fn code_block_border(&self, text: &JsString) -> JsString;
+    fn quote(&self, text: &JsString) -> JsString;
+    fn quote_border(&self, text: &JsString) -> JsString;
+    fn hr(&self, text: &JsString) -> JsString;
+    fn list_bullet(&self, text: &JsString) -> JsString;
+    fn bold(&self, text: &JsString) -> JsString;
+    fn italic(&self, text: &JsString) -> JsString;
+    fn strikethrough(&self, text: &JsString) -> JsString;
+    fn underline(&self, text: &JsString) -> JsString;
 
-    fn highlight_code(&self, _code: &str, _lang: Option<&str>) -> Option<Vec<String>> {
+    fn highlight_code(&self, _code: &JsString, _lang: Option<&JsString>) -> Option<Vec<JsString>> {
         None
     }
 
-    fn code_block_indent(&self) -> &str {
-        "  "
+    fn code_block_indent(&self) -> JsString {
+        "  ".into()
     }
 }
 
@@ -65,34 +65,34 @@ pub struct MarkdownOptions {
 }
 
 struct InlineStyleContext<'a> {
-    apply_text: &'a dyn Fn(&str) -> String,
-    style_prefix: String,
+    apply_text: &'a dyn Fn(&JsString) -> JsString,
+    style_prefix: JsString,
 }
 
 struct TokenRenderCache {
     next_token_type: Option<String>,
     width: usize,
     fingerprint: String,
-    wrapped_lines: Vec<String>,
+    wrapped_lines: Vec<JsString>,
 }
 
 pub struct Markdown {
-    text: String,
+    text: JsString,
     padding_x: usize,
     padding_y: usize,
     theme: Rc<dyn MarkdownTheme>,
     default_text_style: Option<DefaultTextStyle>,
     options: MarkdownOptions,
-    cached_text: Option<String>,
+    cached_text: Option<JsString>,
     cached_width: Option<usize>,
-    cached_lines: Option<Vec<String>>,
+    cached_lines: Option<Vec<JsString>>,
     previous_token_caches: Vec<TokenRenderCache>,
-    default_style_prefix: RefCell<Option<String>>,
+    default_style_prefix: RefCell<Option<JsString>>,
 }
 
 impl Markdown {
     pub fn new(
-        text: impl Into<String>,
+        text: impl Into<JsString>,
         padding_x: usize,
         padding_y: usize,
         theme: Box<dyn MarkdownTheme>,
@@ -104,7 +104,7 @@ impl Markdown {
 
     /// Same as [`Markdown::new`] for a theme shared with the caller.
     pub fn with_shared_theme(
-        text: impl Into<String>,
+        text: impl Into<JsString>,
         padding_x: usize,
         padding_y: usize,
         theme: Rc<dyn MarkdownTheme>,
@@ -126,7 +126,7 @@ impl Markdown {
         }
     }
 
-    pub fn set_text(&mut self, text: impl Into<String>) {
+    pub fn set_text(&mut self, text: impl Into<JsString>) {
         let text = text.into();
         if self.text == text {
             return;
@@ -159,7 +159,7 @@ impl Markdown {
         self.cached_lines = None;
     }
 
-    fn render_cached_tokens(&mut self, tokens: &[Token], width: usize) -> Vec<String> {
+    fn render_cached_tokens(&mut self, tokens: &[Token], width: usize) -> Vec<JsString> {
         let mut caches = Vec::with_capacity(tokens.len());
         let mut lines = Vec::new();
         for (index, token) in tokens.iter().enumerate() {
@@ -186,7 +186,7 @@ impl Markdown {
         lines
     }
 
-    fn render_and_wrap_token(&self, token: &Token, width: usize, next_type: Option<&str>) -> Vec<String> {
+    fn render_and_wrap_token(&self, token: &Token, width: usize, next_type: Option<&str>) -> Vec<JsString> {
         self.render_token(token, width, next_type, None)
             .into_iter()
             .flat_map(|line| {
@@ -199,15 +199,15 @@ impl Markdown {
             .collect()
     }
 
-    pub fn text(&self) -> &str {
+    pub fn text(&self) -> &JsString {
         &self.text
     }
 
-    fn render_content(&mut self, width: usize) -> Vec<String> {
+    fn render_content(&mut self, width: usize) -> Vec<JsString> {
         let content_width = width.saturating_sub(self.padding_x * 2).max(1);
         let text = self.text.clone();
 
-        if js_trim(&text).is_empty() {
+        if text.trim().is_empty() {
             return Vec::new();
         }
 
@@ -223,14 +223,15 @@ impl Markdown {
             .default_text_style
             .as_ref()
             .and_then(|style| style.bg_color.as_ref());
-        let mut content_lines: Vec<String> = Vec::new();
+        let mut content_lines: Vec<JsString> = Vec::new();
 
         for line in wrapped_lines {
             if is_image_line(&line) {
                 content_lines.push(line);
                 continue;
             }
-            let line_with_margins = format!("{left_margin}{line}{right_margin}");
+            let line_with_margins =
+                JsString::from(left_margin.clone()) + JsString::from(line) + JsString::from(right_margin.clone());
             if let Some(background) = background {
                 content_lines.push(apply_background_to_line(&line_with_margins, width, |text| {
                     background(text)
@@ -238,12 +239,12 @@ impl Markdown {
             } else {
                 let visible_len = visible_width(&line_with_margins);
                 let padding = width.saturating_sub(visible_len);
-                content_lines.push(format!("{line_with_margins}{}", " ".repeat(padding)));
+                content_lines.push(JsString::from(line_with_margins) + JsString::from(" ".repeat(padding)));
             }
         }
 
-        let empty_line = " ".repeat(width);
-        let mut empty_lines: Vec<String> = Vec::new();
+        let empty_line = JsString::from(" ".repeat(width));
+        let mut empty_lines: Vec<JsString> = Vec::new();
         for _ in 0..self.padding_y {
             empty_lines.push(match background {
                 Some(background) => apply_background_to_line(&empty_line, width, |text| background(text)),
@@ -255,16 +256,16 @@ impl Markdown {
         result.extend(content_lines);
         result.extend(empty_lines);
         if result.is_empty() {
-            result.push(String::new());
+            result.push(JsString::default());
         }
         result
     }
 
-    fn apply_default_style(&self, text: &str) -> String {
+    fn apply_default_style(&self, text: &JsString) -> JsString {
         let Some(style) = &self.default_text_style else {
-            return text.to_string();
+            return text.clone();
         };
-        let mut styled = text.to_string();
+        let mut styled = text.clone();
         if let Some(color) = &style.color {
             styled = color(&styled);
         }
@@ -283,15 +284,15 @@ impl Markdown {
         styled
     }
 
-    fn default_style_prefix(&self) -> String {
+    fn default_style_prefix(&self) -> JsString {
         let Some(style) = &self.default_text_style else {
-            return String::new();
+            return JsString::default();
         };
         if let Some(prefix) = self.default_style_prefix.borrow().as_ref() {
             return prefix.clone();
         }
         let sentinel = "\u{0}";
-        let mut styled = sentinel.to_string();
+        let mut styled = JsString::from(sentinel);
         if let Some(color) = &style.color {
             styled = color(&styled);
         }
@@ -308,19 +309,19 @@ impl Markdown {
             styled = self.theme.underline(&styled);
         }
         let prefix = match styled.find(sentinel) {
-            Some(index) => styled[..index].to_string(),
-            None => String::new(),
+            Some(index) => styled.slice(0, index).clone(),
+            None => JsString::default(),
         };
         *self.default_style_prefix.borrow_mut() = Some(prefix.clone());
         prefix
     }
 
-    fn style_prefix(&self, style: &dyn Fn(&str) -> String) -> String {
+    fn style_prefix(&self, style: &dyn Fn(&JsString) -> JsString) -> JsString {
         let sentinel = "\u{0}";
-        let styled = style(sentinel);
+        let styled = style(&JsString::from(sentinel));
         match styled.find(sentinel) {
-            Some(index) => styled[..index].to_string(),
-            None => String::new(),
+            Some(index) => styled.slice(0, index).clone(),
+            None => JsString::default(),
         }
     }
 
@@ -330,12 +331,12 @@ impl Markdown {
         width: usize,
         next_token_type: Option<&str>,
         style_context: Option<&InlineStyleContext>,
-    ) -> Vec<String> {
-        let mut lines: Vec<String> = Vec::new();
+    ) -> Vec<JsString> {
+        let mut lines: Vec<JsString> = Vec::new();
         match token {
             Token::Heading { depth, tokens, .. } => {
-                let heading_prefix = format!("{} ", "#".repeat(*depth as usize));
-                let heading_style = |text: &str| {
+                let heading_prefix = JsString::from("#".repeat(*depth as usize)) + JsString::from(" ");
+                let heading_style = |text: &JsString| {
                     if *depth == 1 {
                         self.theme.heading(&self.theme.bold(&self.theme.underline(text)))
                     } else {
@@ -348,19 +349,19 @@ impl Markdown {
                 };
                 let heading_text = self.render_inline_tokens(tokens, Some(&context));
                 let styled = if *depth >= 3 {
-                    format!("{}{heading_text}", heading_style(&heading_prefix))
+                    JsString::from(heading_style(&heading_prefix)) + JsString::from(heading_text)
                 } else {
                     heading_text
                 };
                 lines.push(styled);
                 if next_token_type.is_some_and(|next| next != "space") {
-                    lines.push(String::new());
+                    lines.push(JsString::default());
                 }
             }
             Token::Paragraph { tokens, .. } => {
                 lines.push(self.render_inline_tokens(tokens, style_context));
                 if next_token_type.is_some_and(|next| next != "list" && next != "space") {
-                    lines.push(String::new());
+                    lines.push(JsString::default());
                 }
             }
             Token::Text { tokens, .. } => {
@@ -368,23 +369,23 @@ impl Markdown {
                 lines.push(self.render_inline_tokens(std::slice::from_ref(token), style_context));
             }
             Token::Code { lang, text, .. } => {
-                let indent = self.theme.code_block_indent().to_string();
-                lines.push(
-                    self.theme
-                        .code_block_border(&format!("```{}", lang.as_deref().unwrap_or(""))),
-                );
-                if let Some(highlighted) = self.theme.highlight_code(text, lang.as_deref()) {
+                let indent = self.theme.code_block_indent().clone();
+                lines
+                    .push(self.theme.code_block_border(
+                        &(JsString::from("```") + JsString::from(lang.clone().unwrap_or_default())),
+                    ));
+                if let Some(highlighted) = self.theme.highlight_code(text, lang.as_ref()) {
                     for line in highlighted {
-                        lines.push(format!("{indent}{line}"));
+                        lines.push(JsString::from(indent.clone()) + JsString::from(line));
                     }
                 } else {
                     for line in text.split('\n') {
-                        lines.push(format!("{indent}{}", self.theme.code_block(line)));
+                        lines.push(JsString::from(indent.clone()) + JsString::from(self.theme.code_block(&line)));
                     }
                 }
-                lines.push(self.theme.code_block_border("```"));
+                lines.push(self.theme.code_block_border(&"```".into()));
                 if next_token_type.is_some_and(|next| next != "space") {
-                    lines.push(String::new());
+                    lines.push(JsString::default());
                 }
             }
             Token::List { .. } => {
@@ -394,23 +395,23 @@ impl Markdown {
                 lines.extend(self.render_table(header, rows, raw, width, next_token_type, style_context));
             }
             Token::Blockquote { tokens, .. } => {
-                let quote_style = |text: &str| self.theme.quote(&self.theme.italic(text));
+                let quote_style = |text: &JsString| self.theme.quote(&self.theme.italic(text));
                 let quote_style_prefix = self.style_prefix(&quote_style);
-                let apply_quote_style = |line: &str| {
+                let apply_quote_style = |line: &JsString| {
                     if quote_style_prefix.is_empty() {
                         quote_style(line)
                     } else {
-                        let reapplied = line.replace("\u{1b}[0m", &format!("\u{1b}[0m{quote_style_prefix}"));
+                        let reapplied = line.replace("\u{1b}[0m", JsString::from("\x1b[0m") + &quote_style_prefix);
                         quote_style(&reapplied)
                     }
                 };
                 let quote_content_width = width.saturating_sub(2).max(1);
-                let plain = |text: &str| text.to_string();
+                let plain = |text: &JsString| text.clone();
                 let quote_context = InlineStyleContext {
                     apply_text: &plain,
                     style_prefix: quote_style_prefix.clone(),
                 };
-                let mut rendered_quote_lines: Vec<String> = Vec::new();
+                let mut rendered_quote_lines: Vec<JsString> = Vec::new();
                 for (index, quote_token) in tokens.iter().enumerate() {
                     let next = tokens.get(index + 1).map(lexer::type_name);
                     rendered_quote_lines.extend(self.render_token(
@@ -420,42 +421,42 @@ impl Markdown {
                         Some(&quote_context),
                     ));
                 }
-                while rendered_quote_lines.last().is_some_and(String::is_empty) {
+                while rendered_quote_lines.last().is_some_and(JsString::is_empty) {
                     rendered_quote_lines.pop();
                 }
                 for quote_line in rendered_quote_lines {
                     let styled = apply_quote_style(&quote_line);
                     for wrapped in wrap_text_with_ansi(&styled, quote_content_width) {
-                        lines.push(format!("{}{wrapped}", self.theme.quote_border("│ ")));
+                        lines.push(JsString::from(self.theme.quote_border(&"│ ".into())) + JsString::from(wrapped));
                     }
                 }
                 if next_token_type.is_some_and(|next| next != "space") {
-                    lines.push(String::new());
+                    lines.push(JsString::default());
                 }
             }
             Token::Hr { .. } => {
-                lines.push(self.theme.hr(&"─".repeat(width.min(80))));
+                lines.push(self.theme.hr(&"─".repeat(width.min(80)).into()));
                 if next_token_type.is_some_and(|next| next != "space") {
-                    lines.push(String::new());
+                    lines.push(JsString::default());
                 }
             }
             Token::Html { raw, .. } => {
                 if !raw.is_empty() && !is_html_comment_only(raw) {
-                    lines.push(self.apply_default_style(js_trim(raw)));
+                    lines.push(self.apply_default_style(&raw.trim()));
                 }
             }
-            Token::Space { .. } => lines.push(String::new()),
+            Token::Space { .. } => lines.push(JsString::default()),
             _ => {
                 if let Some(text) = token.has_text() {
-                    lines.push(text.to_string());
+                    lines.push(text.clone());
                 }
             }
         }
         lines
     }
 
-    fn render_inline_tokens(&self, tokens: &[Token], style_context: Option<&InlineStyleContext>) -> String {
-        let default_apply = |text: &str| self.apply_default_style(text);
+    fn render_inline_tokens(&self, tokens: &[Token], style_context: Option<&InlineStyleContext>) -> JsString {
+        let default_apply = |text: &JsString| self.apply_default_style(text);
         let default_context;
         let context = match style_context {
             Some(context) => context,
@@ -468,9 +469,10 @@ impl Markdown {
             }
         };
         let apply_text = context.apply_text;
-        let apply_text_with_newlines = |text: &str| text.split('\n').map(apply_text).collect::<Vec<_>>().join("\n");
+        let apply_text_with_newlines =
+            |text: &JsString| JsString::join(text.split('\n').map(|line| apply_text(&line)), "\n");
 
-        let mut result = String::new();
+        let mut result = JsString::default();
         for token in tokens {
             match token {
                 Token::Escape { raw, text } => {
@@ -511,17 +513,21 @@ impl Markdown {
                         result.push_str(&hyperlink(&styled_link, href));
                         result.push_str(&context.style_prefix);
                     } else {
-                        let href_for_comparison = href.strip_prefix("mailto:").unwrap_or(href);
-                        if text.as_str() == href.as_str() || text.as_str() == href_for_comparison {
+                        let href_for_comparison = href.strip_prefix("mailto:").unwrap_or_else(|| href.clone());
+                        if text == href || *text == href_for_comparison {
                             result.push_str(&styled_link);
                         } else {
                             result.push_str(&styled_link);
-                            result.push_str(&self.theme.link_url(&format!(" ({href})")));
+                            result.push_str(
+                                &self
+                                    .theme
+                                    .link_url(&(JsString::from(" (") + JsString::from(href) + JsString::from(")"))),
+                            );
                         }
                         result.push_str(&context.style_prefix);
                     }
                 }
-                Token::Br { .. } => result.push('\n'),
+                Token::Br { .. } => result.push_str("\n"),
                 Token::Del { tokens, .. } => {
                     let content = self.render_inline_tokens(tokens, Some(context));
                     result.push_str(&self.theme.strikethrough(&content));
@@ -542,7 +548,7 @@ impl Markdown {
 
         let prefix = &context.style_prefix;
         while !prefix.is_empty() && result.ends_with(prefix) {
-            result.truncate(result.len() - prefix.len());
+            result = result.slice(0, result.len() - prefix.len());
         }
         result
     }
@@ -553,7 +559,7 @@ impl Markdown {
         depth: usize,
         width: usize,
         style_context: Option<&InlineStyleContext>,
-    ) -> Vec<String> {
+    ) -> Vec<JsString> {
         let Token::List {
             ordered,
             start,
@@ -564,7 +570,7 @@ impl Markdown {
         else {
             return Vec::new();
         };
-        let mut lines: Vec<String> = Vec::new();
+        let mut lines: Vec<JsString> = Vec::new();
         let indent = "    ".repeat(depth);
         let start_number = match start {
             ListStart::Number(value) => *value as usize,
@@ -576,23 +582,26 @@ impl Markdown {
             let bullet = if *ordered {
                 if self.options.preserve_ordered_list_markers {
                     self.ordered_list_marker(item)
-                        .unwrap_or_else(|| format!("{}. ", start_number + index))
+                        .unwrap_or_else(|| JsString::from((start_number + index).to_string()) + JsString::from(". "))
                 } else {
-                    format!("{}. ", start_number + index)
+                    JsString::from((start_number + index).to_string()) + JsString::from(". ")
                 }
             } else if self.options.preserve_ordered_list_markers {
-                self.unordered_list_marker(item).unwrap_or_else(|| "- ".to_string())
+                self.unordered_list_marker(item).unwrap_or_else(|| JsString::from("- "))
             } else {
-                "- ".to_string()
+                JsString::from("- ")
             };
             let task_marker = if item.task {
-                format!("[{}] ", if item.checked == Some(true) { "x" } else { " " })
+                JsString::from("[")
+                    + JsString::from(if item.checked == Some(true) { "x" } else { " " })
+                    + JsString::from("] ")
             } else {
-                String::new()
+                JsString::default()
             };
-            let marker = format!("{bullet}{task_marker}");
-            let first_prefix = format!("{indent}{}", self.theme.list_bullet(&marker));
-            let continuation_prefix = format!("{indent}{}", " ".repeat(visible_width(&marker)));
+            let marker = JsString::from(bullet) + JsString::from(task_marker);
+            let first_prefix = JsString::from(indent.clone()) + JsString::from(self.theme.list_bullet(&marker));
+            let continuation_prefix =
+                JsString::from(indent.clone()) + JsString::from(" ".repeat(visible_width(&marker)));
             let item_width = width.saturating_sub(visible_width(&first_prefix)).max(1);
             let mut rendered_any_line = false;
 
@@ -610,7 +619,7 @@ impl Markdown {
                         } else {
                             &first_prefix
                         };
-                        lines.push(format!("{prefix}{wrapped}"));
+                        lines.push(JsString::from(prefix) + JsString::from(wrapped));
                         rendered_any_line = true;
                     }
                 }
@@ -620,64 +629,68 @@ impl Markdown {
                 lines.push(first_prefix);
             }
             if *loose && !is_last_item {
-                lines.push(String::new());
+                lines.push(JsString::default());
             }
         }
 
         lines
     }
 
-    fn ordered_list_marker(&self, item: &ListItem) -> Option<String> {
-        let bytes = item.raw.as_bytes();
+    fn ordered_list_marker(&self, item: &ListItem) -> Option<JsString> {
+        let bytes = item.raw.units();
         let mut index = 0;
-        while index < 3 && bytes.get(index) == Some(&b' ') {
+        while index < 3 && bytes.get(index) == Some(&32) {
             index += 1;
         }
         let digits_start = index;
-        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+        while bytes.get(index).is_some_and(|unit| (48..=57).contains(unit)) {
             index += 1;
         }
         let digits = index - digits_start;
         if digits == 0 || digits > 9 {
             return None;
         }
-        if !matches!(bytes.get(index), Some(b'.') | Some(b')')) {
+        if !matches!(bytes.get(index), Some(46) | Some(41)) {
             return None;
         }
         index += 1;
-        if !matches!(bytes.get(index), Some(b' ') | Some(b'\t')) {
+        if !matches!(bytes.get(index), Some(32) | Some(9)) {
             return None;
         }
-        Some(format!("{} ", &item.raw[digits_start..index]))
+        Some(JsString::from(item.raw.slice(digits_start, index)) + JsString::from(" "))
     }
 
-    fn unordered_list_marker(&self, item: &ListItem) -> Option<String> {
-        let bytes = item.raw.as_bytes();
+    fn unordered_list_marker(&self, item: &ListItem) -> Option<JsString> {
+        let bytes = item.raw.units();
         let mut index = 0;
-        while index < 3 && bytes.get(index) == Some(&b' ') {
+        while index < 3 && bytes.get(index) == Some(&32) {
             index += 1;
         }
         let marker = *bytes.get(index)?;
-        if !matches!(marker, b'-' | b'+' | b'*') {
+        if !matches!(marker, 45 | 43 | 42) {
             return None;
         }
         index += 1;
-        let rest = &item.raw[index..];
-        let followed = match rest.chars().next() {
-            Some(' ') | Some('\t') => true,
+        let rest = item.raw.slice(index, item.raw.len());
+        let followed = match rest.units().first().copied() {
+            Some(32) | Some(9) => true,
             None => true,
-            Some('\r') => rest.starts_with("\r\n") || rest == "\r",
-            Some('\n') => true,
+            Some(13) => rest.starts_with("\r\n") || rest == "\r",
+            Some(10) => true,
             _ => false,
         };
-        followed.then(|| format!("{} ", marker as char))
+        followed.then(|| {
+            JsString::from(char::from_u32(u32::from(marker)).expect("ASCII list marker")) + JsString::from(" ")
+        })
     }
 
-    fn get_longest_word_width(text: &str, max_width: Option<usize>) -> usize {
+    fn get_longest_word_width(text: &JsString, max_width: Option<usize>) -> usize {
         let longest = text
-            .split(is_js_whitespace_char)
+            .units()
+            .split(|unit| pi_js_compat::string::is_js_whitespace_unit(*unit))
+            .map(|units| JsString::from_utf16(units.to_vec()))
             .filter(|word| !word.is_empty())
-            .map(visible_width)
+            .map(|word| visible_width(&word))
             .max()
             .unwrap_or(0);
         match max_width {
@@ -686,7 +699,7 @@ impl Markdown {
         }
     }
 
-    fn wrap_cell_text(&self, text: &str, max_width: usize) -> Vec<String> {
+    fn wrap_cell_text(&self, text: &JsString, max_width: usize) -> Vec<JsString> {
         wrap_text_with_ansi(text, max_width.max(1))
     }
 
@@ -695,12 +708,12 @@ impl Markdown {
         &self,
         header: &[TableCell],
         rows: &[Vec<TableCell>],
-        raw: &str,
+        raw: &JsString,
         available_width: usize,
         next_token_type: Option<&str>,
         style_context: Option<&InlineStyleContext>,
-    ) -> Vec<String> {
-        let mut lines: Vec<String> = Vec::new();
+    ) -> Vec<JsString> {
+        let mut lines: Vec<JsString> = Vec::new();
         let num_cols = header.len();
         if num_cols == 0 {
             return lines;
@@ -715,7 +728,7 @@ impl Markdown {
                 wrap_text_with_ansi(raw, available_width)
             };
             if next_token_type.is_some_and(|next| next != "space") {
-                fallback_lines.push(String::new());
+                fallback_lines.push(JsString::default());
             }
             return fallback_lines;
         }
@@ -809,10 +822,13 @@ impl Markdown {
             }
         }
 
-        let top_cells: Vec<String> = column_widths.iter().map(|width| "─".repeat(*width)).collect();
-        lines.push(format!("┌─{}─┐", top_cells.join("─┬─")));
+        let top_cells: Vec<JsString> = column_widths
+            .iter()
+            .map(|width| JsString::from("─".repeat(*width)))
+            .collect();
+        lines.push(JsString::from("┌─") + JsString::from(JsString::join(top_cells, "─┬─")) + JsString::from("─┐"));
 
-        let header_cell_lines: Vec<Vec<String>> = header
+        let header_cell_lines: Vec<Vec<JsString>> = header
             .iter()
             .enumerate()
             .map(|(index, cell)| {
@@ -822,27 +838,28 @@ impl Markdown {
             .collect();
         let header_line_count = header_cell_lines.iter().map(Vec::len).max().unwrap_or(0);
         for line_index in 0..header_line_count {
-            let parts: Vec<String> = header_cell_lines
+            let parts: Vec<JsString> = header_cell_lines
                 .iter()
                 .enumerate()
                 .map(|(column, cell_lines)| {
-                    let text = cell_lines.get(line_index).map(String::as_str).unwrap_or("");
-                    let padded = format!(
-                        "{text}{}",
-                        " ".repeat(column_widths[column].saturating_sub(visible_width(text)))
-                    );
+                    let text = cell_lines.get(line_index).cloned().unwrap_or_default();
+                    let padded = text.clone() + " ".repeat(column_widths[column].saturating_sub(visible_width(text)));
                     self.theme.bold(&padded)
                 })
                 .collect();
-            lines.push(format!("│ {} │", parts.join(" │ ")));
+            lines.push(JsString::from("│ ") + JsString::from(JsString::join(parts, " │ ")) + JsString::from(" │"));
         }
 
-        let separator_cells: Vec<String> = column_widths.iter().map(|width| "─".repeat(*width)).collect();
-        let separator_line = format!("├─{}─┤", separator_cells.join("─┼─"));
+        let separator_cells: Vec<JsString> = column_widths
+            .iter()
+            .map(|width| JsString::from("─".repeat(*width)))
+            .collect();
+        let separator_line =
+            JsString::from("├─") + JsString::from(JsString::join(separator_cells, "─┼─")) + JsString::from("─┤");
         lines.push(separator_line.clone());
 
         for (row_index, row) in rows.iter().enumerate() {
-            let row_cell_lines: Vec<Vec<String>> = row
+            let row_cell_lines: Vec<Vec<JsString>> = row
                 .iter()
                 .enumerate()
                 .map(|(index, cell)| {
@@ -852,38 +869,38 @@ impl Markdown {
                 .collect();
             let row_line_count = row_cell_lines.iter().map(Vec::len).max().unwrap_or(0);
             for line_index in 0..row_line_count {
-                let parts: Vec<String> = row_cell_lines
+                let parts: Vec<JsString> = row_cell_lines
                     .iter()
                     .enumerate()
                     .map(|(column, cell_lines)| {
-                        let text = cell_lines.get(line_index).map(String::as_str).unwrap_or("");
-                        format!(
-                            "{text}{}",
-                            " ".repeat(column_widths[column].saturating_sub(visible_width(text)))
-                        )
+                        let text = cell_lines.get(line_index).cloned().unwrap_or_default();
+                        text.clone() + " ".repeat(column_widths[column].saturating_sub(visible_width(text)))
                     })
                     .collect();
-                lines.push(format!("│ {} │", parts.join(" │ ")));
+                lines.push(JsString::from("│ ") + JsString::from(JsString::join(parts, " │ ")) + JsString::from(" │"));
             }
             if row_index + 1 < rows.len() {
                 lines.push(separator_line.clone());
             }
         }
 
-        let bottom_cells: Vec<String> = column_widths.iter().map(|width| "─".repeat(*width)).collect();
-        lines.push(format!("└─{}─┘", bottom_cells.join("─┴─")));
+        let bottom_cells: Vec<JsString> = column_widths
+            .iter()
+            .map(|width| JsString::from("─".repeat(*width)))
+            .collect();
+        lines.push(JsString::from("└─") + JsString::from(JsString::join(bottom_cells, "─┴─")) + JsString::from("─┘"));
 
         if next_token_type.is_some_and(|next| next != "space") {
-            lines.push(String::new());
+            lines.push(JsString::default());
         }
         lines
     }
 }
 
 impl Component for Markdown {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         if self.cached_lines.is_some()
-            && self.cached_text.as_deref() == Some(self.text.as_str())
+            && self.cached_text.as_ref() == Some(&self.text)
             && self.cached_width == Some(width)
         {
             return self.cached_lines.clone().unwrap_or_default();
@@ -902,8 +919,8 @@ impl Component for Markdown {
     }
 }
 
-fn is_html_comment_only(html: &str) -> bool {
-    let trimmed = js_trim(html);
+fn is_html_comment_only(html: &JsString) -> bool {
+    let trimmed = html.trim();
     trimmed.starts_with("<!--") && trimmed.ends_with("-->") && trimmed.len() >= 7
 }
 
@@ -919,25 +936,30 @@ pub fn trim_partial_closing_fences(tokens: &mut [Token]) {
         }
         Token::Blockquote { tokens, .. } => trim_partial_closing_fences(tokens),
         Token::Code { raw, text, .. } => {
-            let marker_length = raw.chars().take_while(|ch| *ch == '`' || *ch == '~').count();
+            let marker_length = raw
+                .units()
+                .iter()
+                .copied()
+                .take_while(|ch| *ch == 96 || *ch == 126)
+                .count();
             if marker_length < 3 {
                 return;
             }
-            let marker = &raw[..marker_length];
-            let Some(last_line) = raw.split('\n').next_back() else {
+            let marker = raw.slice(0, marker_length);
+            let Some(last_line) = raw.split('\n').last() else {
                 return;
             };
-            let marker_character = marker.chars().next().unwrap_or('`');
+            let marker_character = marker.units().first().copied().unwrap_or(96);
             if last_line.is_empty()
                 || last_line.len() >= marker.len()
-                || !last_line.chars().all(|ch| ch == marker_character)
+                || !last_line.units().iter().copied().all(|ch| ch == marker_character)
             {
                 return;
             }
             let remove = last_line.len().min(text.len());
-            let mut trimmed = text[..text.len() - remove].to_string();
+            let mut trimmed = text.slice(0, text.len() - remove).clone();
             if trimmed.ends_with('\n') {
-                trimmed.pop();
+                trimmed = trimmed.slice(0, trimmed.len() - 1);
             }
             *text = trimmed;
         }

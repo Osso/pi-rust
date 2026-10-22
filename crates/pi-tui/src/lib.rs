@@ -1,5 +1,6 @@
 //! Rust port of Pi's terminal UI library.
 
+pub mod text_units;
 mod unicode_tables;
 
 pub mod autocomplete;
