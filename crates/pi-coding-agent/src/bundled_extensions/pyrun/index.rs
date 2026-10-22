@@ -605,7 +605,7 @@ fn normalize_tool_call_params(params: Option<&Value>) -> Result<(String, Value),
     ))
 }
 
-fn normalize_command_run_params(params: Option<&Value>) -> Result<(String, JsString), HandlerError> {
+fn normalize_command_run_params(params: Option<&Value>) -> Result<(JsString, JsString), HandlerError> {
     let Some(Value::Object(record)) = params else {
         return Err(HandlerError::new("pi.commands.run requires { name, args }"));
     };
@@ -621,10 +621,7 @@ fn normalize_command_run_params(params: Option<&Value>) -> Result<(String, JsStr
         Some(_) => return Err(HandlerError::new("pi.commands.run args must be a string when provided")),
         None => JsString::default(),
     };
-    Ok((
-        name.to_utf8().map_err(|error| HandlerError::new(error.to_string()))?,
-        args,
-    ))
+    Ok((name, args))
 }
 
 fn normalize_message_params(params: Option<&Value>) -> Result<(JsString, Option<UserMessageDelivery>), HandlerError> {
@@ -833,8 +830,8 @@ pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
         name: "pyrun_eval".into(),
         label: "Pyrun Eval".to_owned(),
         description: "Evaluate Python/Pyrun code through the canonical Pyrun JSONL runtime adapter.".to_owned(),
-        prompt_snippet: Some(PYRUN_PROMPT_SNIPPET.to_owned()),
-        prompt_guidelines: Some(PYRUN_PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect()),
+        prompt_snippet: Some(PYRUN_PROMPT_SNIPPET.into()),
+        prompt_guidelines: Some(PYRUN_PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect()),
         approval_required: Some(true),
         approval_kind: None,
         parameters: pyrun_parameters(),
@@ -855,7 +852,7 @@ pub fn install_pyrun_extension(pi: &ExtensionApi, options: PyrunExtensionOptions
     let bwrap_command = options
         .bwrap_command
         .clone()
-        .or_else(|| pi_js_compat::process_env::get("PI_BWRAP_COMMAND"))
+        .or_else(|| pi_js_compat::process_env::get("PI_BWRAP_COMMAND").map(JsString::from))
         .unwrap_or_else(|| "bwrap".into());
     let slot = Arc::new(ExecutorSlot::new());
     let slot_for_evaluate = Arc::clone(&slot);
@@ -913,6 +910,19 @@ pub fn install_pyrun_extension(pi: &ExtensionApi, options: PyrunExtensionOptions
     })?;
     let _ = &dispatch_pi_request;
     Ok(())
+}
+
+#[cfg(test)]
+mod native_command_tests {
+    use super::*;
+
+    #[test]
+    fn local_command_names_and_arguments_preserve_unpaired_units() {
+        let params = js_json::parse_lossless(r#"{"name":"  command-\ud800  ","args":"arg-\udfff"}"#).unwrap();
+        let (name, args) = normalize_command_run_params(Some(&params)).unwrap();
+        assert_eq!(name, JsString::from("command-") + JsString::from_utf16(vec![0xd800]));
+        assert_eq!(args, JsString::from("arg-") + JsString::from_utf16(vec![0xdfff]));
+    }
 }
 
 /// Registered factory for `<first-party:pyrun>`.
