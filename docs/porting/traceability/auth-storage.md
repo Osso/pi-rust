@@ -48,3 +48,7 @@ Frozen all-sync-fails behavior returns `new` with memory B/disk A. Approved beha
 - Full registry restore/order/error/model-filter and login/callback proofs remain pending. Copilot's old policy fallback still differs from frozen picker-only selection; provider protocol changes were excluded.
 - Node differential proves outbound JSON escapes, form USVString replacement, and header TypeError name/message/code (ERR_INVALID_CHAR) without mutating tokens. CallbackError.code preserves boundary error identity; stored/typed values remain lossless. Nonbuiltin provider response parser revalidation remains separate.
 - Touched differential targets expose missing retired models-store/model-runtime-test-utils imports and old extension/provider protocol differences. See report; no skips, source patches, fallback or weakened expected outputs added.
+
+## Q18 native credential/config flow
+
+Config literal/template values, native env values, command cache and resolver return text use `JsString`. Names are scalar only after ASCII env-name grammar validation; unmatched units are no-match at that single parser site. Command text encodes at spawn/stdin only. Credential storage uses shared `JsValue` serde without scalar projection. Added config/raw credential tests in `raw_error_consumer_components`, **unexecuted** while coding-agent is compiler-blocked. Model registry call adaptation pending.

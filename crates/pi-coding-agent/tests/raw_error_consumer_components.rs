@@ -391,3 +391,52 @@ fn oauth_selector_native_query_matches_raw_method_name() {
     selector.handle_input(&raw);
     assert!(!JsString::join(selector.render(120), "\n").contains("No matching providers"));
 }
+
+#[test]
+fn config_values_preserve_raw_literals_and_native_environment_values() {
+    use pi_coding_agent::core::config_value::{get_config_value_env_var_names, resolve_config_value};
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let env = std::collections::HashMap::from([("SECRET".to_string(), raw.clone())]);
+    assert_eq!(
+        resolve_config_value(&(JsString::from("before ") + &raw + " $SECRET"), Some(&env)),
+        Some(JsString::from("before ") + &raw + " " + &raw)
+    );
+    let invalid = JsString::from("${") + &raw + "}";
+    assert_eq!(resolve_config_value(&invalid, Some(&env)), Some(invalid.clone()));
+    assert!(get_config_value_env_var_names(&invalid).is_empty());
+}
+
+#[tokio::test]
+async fn auth_storage_reads_and_writes_raw_credentials_without_scalar_projection() {
+    use pi_ai::auth::types::{ApiKeyCredential, AuthOperationOptions, Credential, CredentialStore};
+    use pi_coding_agent::core::auth_storage::AuthStorage;
+    let store = AuthStorage::in_memory(Vec::<(JsString, pi_js_compat::js_json::JsValue)>::new());
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let value = raw.clone();
+    store
+        .modify(
+            "fixture",
+            std::sync::Arc::new(move |_| {
+                let raw = value.clone();
+                Box::pin(async move {
+                    Ok(Some(Credential::ApiKey(ApiKeyCredential {
+                        key: Some(raw),
+                        env: None,
+                    })))
+                })
+            }),
+            AuthOperationOptions::default(),
+        )
+        .await
+        .unwrap();
+    let read = store
+        .read("fixture", AuthOperationOptions::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(read.as_api_key().unwrap().key.as_ref(), Some(&raw));
+    assert_eq!(
+        store.get_api_key("fixture", Default::default()).await.unwrap(),
+        Some(raw)
+    );
+}

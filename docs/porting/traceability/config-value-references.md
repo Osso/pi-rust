@@ -42,3 +42,7 @@ header requests against the pinned module.
 | `auth-storage.ts`, `provider-composer.ts` | Consume command classification, environment-name discovery, and configured status | Consumer mapping only; Rust integration remains out of scope |
 
 Rust parses valid UTF-8 byte offsets while recognizing only ASCII names. This matches every Rust-representable source string. Explicit environments are typed own-key `HashMap<String,String>` values; JavaScript inherited/non-string properties remain within the malformed runtime-object exclusion. Process status uses `var_os` because only nonempty presence is observable; direct Node probing confirms a non-Unicode byte value remains nonempty and configured. JavaScript lone UTF-16 surrogates and indexing behavior inside such invalid strings remain an explicit typed-string exclusion.
+
+## Q18 native credential/config flow
+
+Config literal/template values, native env values, command cache and resolver return text use `JsString`. Names are scalar only after ASCII env-name grammar validation; unmatched units are no-match at that single parser site. Command text encodes at spawn/stdin only. Credential storage uses shared `JsValue` serde without scalar projection. Added config/raw credential tests in `raw_error_consumer_components`, **unexecuted** while coding-agent is compiler-blocked. Model registry call adaptation pending.

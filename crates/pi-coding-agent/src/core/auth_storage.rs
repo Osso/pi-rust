@@ -17,7 +17,7 @@ use crate::config::get_agent_dir;
 use crate::core::config_value::{is_command_config_value, resolve_config_value};
 use crate::utils::lockfile::{LockErrorCode, LockOptions, acquire, acquire_sync};
 use crate::utils::paths::{node_dirname, normalize_path};
-use pi_js_compat::js_json;
+use pi_js_compat::{js_format, js_json};
 
 const AUTH_FILE_MODE: u32 = 0o600;
 const SYNC_LOCK_ATTEMPTS: usize = 10;
@@ -27,14 +27,14 @@ const AUTH_LOCK_STALE_MS: u64 = 30_000;
 /// Failure of a storage backend or of parsing `auth.json`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageError {
-    message: String,
+    message: JsString,
     aborted: bool,
     cause: Option<Arc<StorageError>>,
 }
 
 impl StorageError {
     /// Creates a non-abort failure with the given message.
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
             aborted: false,
@@ -45,12 +45,12 @@ impl StorageError {
     /// Node fs error messages are already repaired (unpaired units become U+FFFD), so this
     /// encoding is exact; `AuthError` carries scalar text.
     fn filesystem(message: JsString) -> Self {
-        Self::new(js_json::encode_node_utf8(&message))
+        Self::new(message)
     }
 
     fn aborted() -> Self {
         Self {
-            message: "The operation was aborted".to_owned(),
+            message: "The operation was aborted".into(),
             aborted: true,
             cause: None,
         }
@@ -71,7 +71,7 @@ impl StorageError {
 
 impl std::fmt::Display for StorageError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -396,25 +396,14 @@ fn parse_auth_data(content: Option<&str>) -> Result<AuthStorageData, StorageErro
         _ => Ok(JsObject::new()),
     }
 }
-fn credential_type(value: &JsValue) -> Option<String> {
-    value.get("type")?.as_string()?.to_utf8().ok()
+fn credential_type(value: &JsValue) -> Option<JsString> {
+    value.get("type")?.as_string().cloned()
 }
 fn to_credential(value: &JsValue) -> Result<Credential, StorageError> {
-    if credential_type(value).as_deref() == Some("oauth") {
-        return pi_ai::auth::OAuthCredential::from_js_value(value)
-            .map(Credential::OAuth)
-            .map_err(StorageError::new);
-    }
-    let value = value.to_serde().map_err(|e| StorageError::new(e.to_string()))?;
-    serde_json::from_value(value).map_err(|e| StorageError::new(e.to_string()))
+    js_json::from_value(value).map_err(|error| StorageError::new(error.to_string()))
 }
 fn credential_value(value: Credential) -> Result<JsValue, StorageError> {
-    match value {
-        Credential::OAuth(value) => Ok(value.to_js_value()),
-        Credential::ApiKey(value) => serde_json::to_value(Credential::ApiKey(value))
-            .map(|v| JsValue::from(&v))
-            .map_err(|e| StorageError::new(e.to_string())),
-    }
+    js_json::to_value(&value).map_err(|error| StorageError::new(error.to_string()))
 }
 fn oauth_value(value: pi_ai::oauth::OAuthCredentials) -> Result<JsValue, StorageError> {
     Ok(value.to_js_value())
@@ -443,7 +432,7 @@ impl Default for GetApiKeyOptions {
 #[derive(Default)]
 struct SourceAuthState {
     data: AuthStorageData,
-    runtime_overrides: std::collections::HashMap<String, String>,
+    runtime_overrides: std::collections::HashMap<String, JsString>,
     load_error: Option<StorageError>,
     errors: Vec<StorageError>,
 }
@@ -500,12 +489,12 @@ impl AuthStorage {
     }
     pub fn get_provider_env(&self, provider: &str) -> Option<JsValue> {
         let credential = self.get(provider)?;
-        if credential_type(&credential).as_deref() != Some("api_key") {
+        if !credential_type(&credential).is_some_and(|tag| tag == "api_key") {
             return None;
         }
         credential.get("env").cloned()
     }
-    pub fn set_runtime_api_key(&self, provider: &str, api_key: &str) {
+    pub fn set_runtime_api_key(&self, provider: &str, api_key: &JsString) {
         lock(&self.source_state)
             .runtime_overrides
             .insert(provider.to_owned(), api_key.to_owned());
@@ -666,7 +655,7 @@ impl AuthStorage {
                         let Some(value) = data.get(&JsString::from(&id)) else {
                             return Ok(None);
                         };
-                        if credential_type(value).as_deref() != Some("oauth") {
+                        if !credential_type(value).is_some_and(|tag| tag == "oauth") {
                             return Ok(None);
                         }
                         let credential = to_credential(value)?.into_oauth().expect("checked OAuth");
@@ -720,31 +709,21 @@ impl AuthStorage {
         options: GetApiKeyOptions,
     ) -> Result<Option<JsString>, StorageError> {
         let runtime = lock(&self.source_state).runtime_overrides.get(provider_id).cloned();
-        if runtime.as_deref().is_some_and(|k| !k.is_empty()) {
-            return Ok(runtime.map(JsString::from));
+        if runtime.as_ref().is_some_and(|k| !k.is_empty()) {
+            return Ok(runtime);
         }
         if let Some(value) = self.get(provider_id) {
-            match credential_type(&value).as_deref() {
-                Some("api_key") => {
-                    let key = value
-                        .get("key")
-                        .and_then(JsValue::as_string)
-                        .map(JsString::to_utf8)
-                        .transpose()
-                        .map_err(|e| StorageError::new(e.to_string()))?;
+            match credential_type(&value).as_ref() {
+                Some(tag) if tag == "api_key" => {
+                    let key = value.get("key").and_then(JsValue::as_string).cloned();
                     let env = self
                         .get_provider_env(provider_id)
-                        .map(|v| v.to_serde())
-                        .transpose()
-                        .map_err(|e| StorageError::new(e.to_string()))?
-                        .map(serde_json::from_value::<std::collections::HashMap<String, String>>)
+                        .map(|value| js_json::from_value::<std::collections::HashMap<String, JsString>>(&value))
                         .transpose()
                         .map_err(|e| StorageError::new(e.to_string()))?;
-                    return Ok(key
-                        .and_then(|key| resolve_config_value(&key, env.as_ref()))
-                        .map(JsString::from));
+                    return Ok(key.and_then(|key| resolve_config_value(&key, env.as_ref())));
                 }
-                Some("oauth") => {
+                Some(tag) if tag == "oauth" => {
                     let Some(provider) = pi_ai::oauth::get_oauth_provider(provider_id) else {
                         return Ok(None);
                     };
@@ -760,7 +739,7 @@ impl AuthStorage {
                             self.reload();
                             let reloaded = lock(&self.source_state).load_error.is_none();
                             if let Some(updated) = self.get(provider_id).filter(|_| reloaded)
-                                && credential_type(&updated).as_deref() == Some("oauth")
+                                && credential_type(&updated).is_some_and(|tag| tag == "oauth")
                             {
                                 let updated = to_credential(&updated)?.into_oauth().expect("checked OAuth");
                                 if source_now_millis() < updated.expires {
