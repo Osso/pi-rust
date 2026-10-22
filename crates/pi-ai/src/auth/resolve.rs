@@ -124,7 +124,7 @@ pub fn with_cause_detail(
 
 #[derive(Debug, Clone, Default)]
 pub struct AuthResolutionOverrides {
-    pub api_key: Option<String>,
+    pub api_key: Option<pi_js_compat::js_json::JsString>,
     pub env: Option<ProviderEnv>,
     /// Require this much remaining OAuth-token validity.
     pub min_oauth_validity_ms: Option<f64>,
@@ -178,7 +178,7 @@ async fn resolve_with_signal(
         && let Some(api_key_auth) = &provider_auth.api_key
     {
         let credential = ApiKeyCredential {
-            key: Some(api_key.clone()),
+            key: Some((api_key.clone()).into()),
             env: overrides.env.clone(),
         };
         return resolve_api_key(
@@ -356,7 +356,7 @@ async fn resolve_stored_oauth(
     Ok(Some(AuthResult {
         auth,
         env: None,
-        source: Some("OAuth".to_owned()),
+        source: Some(("OAuth".to_owned()).into()),
     }))
 }
 

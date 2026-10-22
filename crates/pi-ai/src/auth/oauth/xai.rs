@@ -78,7 +78,7 @@ impl OAuthAuth for XaiOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access_utf8()?),
+                api_key: Some((credential.access_utf8()?).into()),
                 ..ModelAuth::default()
             })
         })
@@ -299,11 +299,12 @@ async fn login_xai(
         .await
         .map_err(|error| AuthError::failed(error.message))?;
     interaction.notify(AuthEvent::DeviceCode {
-        user_code: device.user_code.clone(),
-        verification_uri: device
+        user_code: (device.user_code.clone()).into(),
+        verification_uri: (device
             .verification_uri_complete
             .clone()
-            .unwrap_or_else(|| device.verification_uri.clone()),
+            .unwrap_or_else(|| device.verification_uri.clone()))
+        .into(),
         interval_seconds: device.interval_seconds,
         expires_in_seconds: Some(device.expires_in_seconds),
     });

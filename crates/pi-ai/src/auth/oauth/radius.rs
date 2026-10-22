@@ -103,7 +103,7 @@ impl OAuthAuth for RadiusOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access_utf8()?),
+                api_key: Some((credential.access_utf8()?).into()),
                 ..ModelAuth::default()
             })
         })
@@ -318,8 +318,8 @@ async fn login_with_browser(
         message: format!("Listening for OAuth callback on {REDIRECT_URI}"),
     });
     interaction.notify(AuthEvent::AuthUrl {
-        url: authorize_url,
-        instructions: Some("Continue in your browser.".to_owned()),
+        url: (authorize_url).into(),
+        instructions: Some(("Continue in your browser.".to_owned()).into()),
     });
 
     let CallbackCodeServer {
@@ -433,8 +433,8 @@ async fn login_with_device_code(
         .await
         .map_err(|error| AuthError::failed(error.message))?;
     interaction.notify(AuthEvent::DeviceCode {
-        user_code: device.user_code.clone(),
-        verification_uri: device.verification_uri.clone(),
+        user_code: (device.user_code.clone()).into(),
+        verification_uri: (device.verification_uri.clone()).into(),
         interval_seconds: device.interval,
         expires_in_seconds: Some(device.expires_in),
     });
@@ -503,13 +503,13 @@ async fn login_radius(
                 message: format!("Sign in to {name}:"),
                 options: vec![
                     AuthSelectOption {
-                        id: LOGIN_METHOD_BROWSER.to_owned(),
-                        label: "Sign in with browser (recommended)".to_owned(),
+                        id: (LOGIN_METHOD_BROWSER.to_owned()).into(),
+                        label: ("Sign in with browser (recommended)".to_owned()).into(),
                         description: None,
                     },
                     AuthSelectOption {
-                        id: LOGIN_METHOD_DEVICE_CODE.to_owned(),
-                        label: "Sign in with device code (when signing in from another device)".to_owned(),
+                        id: (LOGIN_METHOD_DEVICE_CODE.to_owned()).into(),
+                        label: ("Sign in with device code (when signing in from another device)".to_owned()).into(),
                         description: None,
                     },
                 ],
@@ -518,14 +518,18 @@ async fn login_radius(
         .await
         .map_err(|error| AuthError::failed(error.message))?;
 
-    match method.as_str() {
-        LOGIN_METHOD_DEVICE_CODE => login_with_device_code(runtime, gateway, interaction).await,
-        LOGIN_METHOD_BROWSER => {
-            let authorization_endpoint = load_discovery(runtime, gateway, interaction.signal())
-                .await
-                .map_err(|error| AuthError::failed(error.message))?;
-            login_with_browser(runtime, gateway, &authorization_endpoint, interaction).await
-        }
-        other => Err(AuthError::failed(format!("Unknown {name} sign-in method: {other}"))),
+    if method == LOGIN_METHOD_DEVICE_CODE {
+        login_with_device_code(runtime, gateway, interaction).await
+    } else if method == LOGIN_METHOD_BROWSER {
+        let authorization_endpoint = load_discovery(runtime, gateway, interaction.signal())
+            .await
+            .map_err(|error| AuthError::failed(error.message))?;
+        login_with_browser(runtime, gateway, &authorization_endpoint, interaction).await
+    } else {
+        Err(AuthError::failed(pi_js_compat::js_format!(
+            "Unknown {} sign-in method: {}",
+            name,
+            method
+        )))
     }
 }

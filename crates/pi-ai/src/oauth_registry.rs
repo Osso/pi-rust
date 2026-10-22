@@ -222,7 +222,7 @@ impl AuthInteraction for Callbacks {
     fn signal(&self) -> CancellationToken {
         self.0.signal().unwrap_or_default()
     }
-    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<String, CallbackError>> {
+    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
         Box::pin(async move {
             match prompt.kind {
                 AuthPromptKind::Text { message, placeholder } | AuthPromptKind::Secret { message, placeholder } => {

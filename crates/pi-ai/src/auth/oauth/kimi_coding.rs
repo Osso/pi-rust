@@ -328,8 +328,8 @@ async fn login_kimi_coding(
         .await
         .map_err(|error| AuthError::failed(error.message))?;
     interaction.notify(AuthEvent::DeviceCode {
-        user_code: device.user_code.clone(),
-        verification_uri: device.verification_uri_complete.clone(),
+        user_code: (device.user_code.clone()).into(),
+        verification_uri: (device.verification_uri_complete.clone()).into(),
         interval_seconds: Some(device.interval_seconds),
         expires_in_seconds: Some(device.expires_in_seconds),
     });

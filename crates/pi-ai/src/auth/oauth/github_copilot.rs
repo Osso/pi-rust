@@ -90,12 +90,12 @@ impl OAuthAuth for GitHubCopilotOAuth {
         Box::pin(async move {
             let enterprise_domain = copilot_enterprise_domain(&credential);
             Ok(ModelAuth {
-                api_key: Some(credential.access_utf8()?),
+                api_key: Some((credential.access_utf8()?).into()),
                 headers: None,
-                base_url: Some(get_github_copilot_base_url(
-                    Some(&credential.access_utf8()?),
-                    enterprise_domain.as_deref(),
-                )),
+                base_url: Some(
+                    (get_github_copilot_base_url(Some(&credential.access_utf8()?), enterprise_domain.as_deref()))
+                        .into(),
+                ),
             })
         })
     }
@@ -529,8 +529,8 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
         .prompt(AuthPrompt {
             signal: None,
             kind: AuthPromptKind::Text {
-                message: "GitHub Enterprise URL/domain (blank for github.com)".to_owned(),
-                placeholder: Some("company.ghe.com".to_owned()),
+                message: ("GitHub Enterprise URL/domain (blank for github.com)".to_owned()).into(),
+                placeholder: Some(("company.ghe.com".to_owned()).into()),
             },
         })
         .await
@@ -550,8 +550,8 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
         .await
         .map_err(to_auth_error)?;
     interaction.notify(AuthEvent::DeviceCode {
-        user_code: device.user_code.clone(),
-        verification_uri: device.verification_uri.clone(),
+        user_code: (device.user_code.clone()).into(),
+        verification_uri: (device.verification_uri.clone()).into(),
         interval_seconds: device.interval,
         expires_in_seconds: Some(device.expires_in),
     });
@@ -564,7 +564,7 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
         .map_err(to_auth_error)?;
 
     interaction.notify(AuthEvent::Progress {
-        message: "Enabling models...".to_owned(),
+        message: ("Enabling models...".to_owned()).into(),
     });
     enable_all_models(
         runtime,

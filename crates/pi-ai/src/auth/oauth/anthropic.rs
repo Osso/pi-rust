@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/auth/oauth/anthropic.ts` (Claude Pro/Max).
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -97,7 +98,7 @@ impl OAuthAuth for AnthropicOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access_utf8()?),
+                api_key: Some((credential.access_utf8()?).into()),
                 ..ModelAuth::default()
             })
         })
@@ -191,13 +192,13 @@ fn format_error_details(error: &CallbackError) -> pi_js_compat::js_json::JsStrin
 
 async fn exchange_authorization_code(
     runtime: &OAuthRuntime,
-    code: &str,
-    state: &str,
+    code: &JsString,
+    state: &JsString,
     verifier: &str,
     redirect_uri: &str,
     signal: CancellationToken,
 ) -> Result<OAuthCredential, CallbackError> {
-    let body = json!({
+    let body = pi_js_compat::js_json!({
         "grant_type": "authorization_code",
         "client_id": CLIENT_ID,
         "code": code,
@@ -270,21 +271,25 @@ async fn login_anthropic(
         ],
     );
     interaction.notify(AuthEvent::AuthUrl {
-        url: authorize_url,
+        url: (authorize_url).into(),
         instructions: Some(
-            "Complete login in your browser. If the browser is on another machine, paste the final redirect URL here."
-                .to_owned(),
+            ("Complete login in your browser. If the browser is on another machine, paste the final redirect URL here."
+                .to_owned()).into(),
         ),
     });
 
-    let mut prompt = Box::pin(interaction.prompt(AuthPrompt {
-        signal: Some(manual_abort.clone()),
-        kind: AuthPromptKind::ManualCode {
-            message: "Complete login in your browser, or paste the authorization code / redirect URL here:".to_owned(),
-            placeholder: Some(REDIRECT_URI.to_owned()),
-        },
-    }));
-    let mut manual: Option<Result<String, CallbackError>> = None;
+    let mut prompt = Box::pin(
+        interaction.prompt(AuthPrompt {
+            signal: Some(manual_abort.clone()),
+            kind: AuthPromptKind::ManualCode {
+                message: ("Complete login in your browser, or paste the authorization code / redirect URL here:"
+                    .to_owned())
+                .into(),
+                placeholder: Some((REDIRECT_URI.to_owned()).into()),
+            },
+        }),
+    );
+    let mut manual: Option<Result<JsString, CallbackError>> = None;
     let CallbackWait {
         receiver,
         settle: wait_settle,
@@ -317,7 +322,7 @@ async fn login_anthropic(
     }
 
     let (code, state) = match result {
-        Some(CallbackCode { code, state }) => (Some(code), Some(state)),
+        Some(CallbackCode { code, state }) => (Some(code.into()), Some(state.into())),
         None => match manual.and_then(Result::ok).filter(|input| !input.is_empty()) {
             Some(input) => match resolve_manual_input(&input, &pkce.verifier) {
                 Ok(resolved) => resolved,
@@ -343,7 +348,7 @@ async fn login_anthropic(
     };
 
     interaction.notify(AuthEvent::Progress {
-        message: "Exchanging authorization code for tokens...".to_owned(),
+        message: ("Exchanging authorization code for tokens...".to_owned()).into(),
     });
     let credential = exchange_authorization_code(
         runtime,
@@ -359,7 +364,7 @@ async fn login_anthropic(
     credential.map_err(|error| AuthError::failed(error.message))
 }
 
-fn resolve_manual_input(input: &str, verifier: &str) -> Result<(Option<String>, Option<String>), AuthError> {
+fn resolve_manual_input(input: &JsString, verifier: &str) -> Result<(Option<JsString>, Option<JsString>), AuthError> {
     let AuthorizationInput { code, state } = parse_authorization_input(input);
     if state.as_deref().is_some_and(|state| state != verifier) {
         return Err(AuthError::failed("OAuth state mismatch"));
