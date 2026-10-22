@@ -2656,7 +2656,7 @@ impl AgentSession {
         let Some(sender_id) = message.sender.agent_id.as_ref() else {
             return;
         };
-        let Some(data) = build_detached_tool_call_completion_entry(store.get_agent(&sender_id).as_ref()) else {
+        let Some(data) = build_detached_tool_call_completion_entry(store.get_agent(sender_id).as_ref()) else {
             return;
         };
         let already_recorded = lock(&self.inner.session_manager).get_entries().iter().any(|entry| {
@@ -2869,7 +2869,7 @@ impl AgentSession {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
             return;
         };
-        let pending: Vec<(String, PendingSteeringTerminal)> = lock(&self.inner.runtime_mailbox_pending_terminal)
+        let pending: Vec<(JsString, PendingSteeringTerminal)> = lock(&self.inner.runtime_mailbox_pending_terminal)
             .iter()
             .map(|(agent_id, pending)| (agent_id.clone(), pending.clone()))
             .collect();

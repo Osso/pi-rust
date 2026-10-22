@@ -32,7 +32,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     assert!(path.units().contains(&0xd800));
     let manager = SessionManager::open(&path, Some(&directory), None).unwrap();
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(Default::default()))),
+        credentials: Some(Arc::new(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()))),
         models_path: Some(None),
         allow_model_network: false,
         refresh_on_create: Some(false),
@@ -161,8 +161,8 @@ async fn raw_storage_paths_keep_identity_until_the_filesystem_boundary() {
             .unwrap()
             .ends_with(&(JsString::from("File: ") + &models_path))
     );
-    let settings = SettingsManager::create(&raw, Some(&raw), Default::default()).unwrap();
-    assert!(settings.get_errors().is_empty());
+    let mut settings = SettingsManager::create(&raw, Some(&raw), Default::default()).unwrap();
+    assert!(settings.drain_errors().is_empty());
 }
 
 #[tokio::test]
