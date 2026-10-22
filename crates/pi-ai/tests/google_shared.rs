@@ -588,7 +588,7 @@ fn tool(parameters: Value) -> Tool {
     Tool::new("test_tool", "A test tool", parameters)
 }
 
-fn declarations(tools: &[Tool], use_parameters: bool) -> Vec<Value> {
+fn declarations(tools: &[Tool], use_parameters: bool) -> Vec<pi_js_compat::js_json::JsValue> {
     convert_tools(tools, use_parameters, true)
         .expect("tools convert")
         .expect("tools are present")
@@ -610,7 +610,7 @@ fn legacy_parameters_strip_json_schema_meta_keys_recursively() {
     let parameters = &converted[0]["functionDeclarations"][0]["parameters"];
     assert_eq!(
         *parameters,
-        json!({
+        pi_js_compat::js_json!({
             "type": "object",
             "properties": {"command": {"type": "string"}},
             "required": ["command"]
@@ -631,7 +631,7 @@ fn nested_meta_keys_are_stripped_and_refs_preserved() {
     let converted = declarations(&tools, true);
     assert_eq!(
         converted[0]["functionDeclarations"][0]["parameters"],
-        json!({
+        pi_js_compat::js_json!({
             "type": "object",
             "properties": {
                 "deep": {"type": "string"},
@@ -653,7 +653,7 @@ fn json_schema_parameters_keep_their_meta_keys() {
     let converted = declarations(&tools, false);
     assert_eq!(
         converted[0]["functionDeclarations"][0]["parametersJsonSchema"],
-        parameters
+        pi_js_compat::js_json!(parameters)
     );
     assert_eq!(tools[0].parameters, parameters);
 }
