@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pi_ai::request::{BoxFuture, CallbackError};
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_js_compat::number::{js_number_to_string, parse_number};
 use pi_js_compat::string::{js_trim, utf16_len};
 use pi_tui::components::input::InputOptions;
@@ -71,7 +72,7 @@ pub trait LlamaUi: Send + Sync {
     fn show_models(&self, server_url: String, models: Vec<LlamaModelInfo>) -> BoxFuture<'_, LlamaManagerAction>;
     fn select(&self, title: String, options: Vec<String>) -> BoxFuture<'_, Option<String>>;
     fn confirm(&self, title: String, message: String) -> BoxFuture<'_, bool>;
-    fn connection_error(&self, server_url: String, message: String) -> BoxFuture<'_, ConnectionErrorChoice>;
+    fn connection_error(&self, server_url: String, message: JsString) -> BoxFuture<'_, ConnectionErrorChoice>;
     fn search_models(&self, search: HuggingFaceSearchFn) -> BoxFuture<'_, Option<String>>;
     fn show_status(&self, title: String, message: String);
     fn progress(&self, state: ProgressState) -> BoxFuture<'_, ()>;
@@ -209,7 +210,7 @@ struct ModelList {
 }
 
 struct OptionList {
-    title: String,
+    title: JsString,
     options: Vec<String>,
     selected: usize,
     sender: Option<oneshot::Sender<Option<String>>>,
@@ -285,6 +286,17 @@ impl LlamaView {
         self.tui.request_render();
     }
 
+    fn select_raw_title(&self, title: JsString, options: Vec<String>) -> BoxFuture<'_, Option<String>> {
+        let (sender, receiver) = oneshot::channel();
+        self.set_content(ViewContent::Select(OptionList {
+            title,
+            options,
+            selected: 0,
+            sender: Some(sender),
+        }));
+        Box::pin(async move { receiver.await.unwrap_or(None) })
+    }
+
     fn models_content(&self, list: &ModelList) -> Container {
         let body = vec![
             component(Text::new(self.theme.fg(ThemeColor::Dim, &list.server_url), 1, 0)),
@@ -330,7 +342,7 @@ impl LlamaView {
             key_hint("tui.select.confirm", "select"),
             key_hint("tui.select.cancel", "cancel")
         );
-        frame(&self.theme, &list.title, body, Some(footer))
+        frame(&self.theme, &encode_node_utf8(&list.title), body, Some(footer))
     }
 
     fn search_results(&self, search: &SearchState) -> Container {
@@ -475,14 +487,7 @@ impl LlamaUi for LlamaView {
     }
 
     fn select(&self, title: String, options: Vec<String>) -> BoxFuture<'_, Option<String>> {
-        let (sender, receiver) = oneshot::channel();
-        self.set_content(ViewContent::Select(OptionList {
-            title,
-            options,
-            selected: 0,
-            sender: Some(sender),
-        }));
-        Box::pin(async move { receiver.await.unwrap_or(None) })
+        self.select_raw_title(title.into(), options)
     }
 
     fn confirm(&self, title: String, message: String) -> BoxFuture<'_, bool> {
@@ -494,11 +499,11 @@ impl LlamaUi for LlamaView {
         })
     }
 
-    fn connection_error(&self, server_url: String, message: String) -> BoxFuture<'_, ConnectionErrorChoice> {
+    fn connection_error(&self, server_url: String, message: JsString) -> BoxFuture<'_, ConnectionErrorChoice> {
         Box::pin(async move {
             let choice = self
-                .select(
-                    format!("llama.cpp unavailable\n{server_url}\n\n{message}"),
+                .select_raw_title(
+                    JsString::from("llama.cpp unavailable\n") + server_url + "\n\n" + message,
                     vec!["Retry".to_owned(), "Close".to_owned()],
                 )
                 .await;
@@ -1033,11 +1038,11 @@ pub async fn run_with_progress<T: Send + 'static>(
 }
 
 /// `showLlamaUi`'s run callback.
-pub type LlamaUiRun = Box<dyn FnOnce(Arc<dyn LlamaUi>) -> BoxFuture<'static, Result<(), String>> + Send>;
+pub type LlamaUiRun = Box<dyn FnOnce(Arc<dyn LlamaUi>) -> BoxFuture<'static, Result<(), JsString>> + Send>;
 
 /// `showLlamaUi`.
-pub async fn show_llama_ui(ctx: &ExtensionCommandContext, run: LlamaUiRun) -> Result<(), String> {
-    let ui_context = ctx.ui().map_err(|error| error.to_string())?;
+pub async fn show_llama_ui(ctx: &ExtensionCommandContext, run: LlamaUiRun) -> Result<(), JsString> {
+    let ui_context = ctx.ui().map_err(|error| error.message)?;
     show_llama_ui_with_context(ui_context, run).await
 }
 
@@ -1045,7 +1050,7 @@ pub async fn show_llama_ui(ctx: &ExtensionCommandContext, run: LlamaUiRun) -> Re
 pub async fn show_llama_ui_with_context(
     ui_context: Arc<dyn crate::core::extensions::types::ExtensionUiContext>,
     run: LlamaUiRun,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let run = Arc::new(Mutex::new(Some(run)));
     let notify_context = Arc::clone(&ui_context);
     let factory: ExtensionUiCustomFactory = Arc::new(move |context, done: ExtensionUiDone| {
@@ -1068,5 +1073,5 @@ pub async fn show_llama_ui_with_context(
         });
         crate::core::extensions::ready_custom_component(Box::new(LlamaViewComponent { view }))
     });
-    ui_context.custom(factory, None).await.map(|_| ())
+    ui_context.custom(factory, None).await.map(|_| ()).map_err(Into::into)
 }

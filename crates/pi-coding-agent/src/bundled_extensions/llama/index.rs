@@ -1,6 +1,7 @@
 //! Port of `packages/coding-agent/src/extensions/llama/index.ts` and
 //! `packages/coding-agent/src/extensions/index.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_ai::models::ModelsRefreshOptions;
@@ -30,17 +31,34 @@ pub fn model_is_loaded(model: &LlamaModelInfo) -> bool {
 /// `isConnectionError`.
 ///
 /// `CallbackError` carries no `Error.name`; the message is checked alone.
-pub fn is_connection_error(message: &str) -> bool {
-    let message = message.to_lowercase();
+pub fn is_connection_error(message: impl Into<JsString>) -> bool {
+    let message = message.into().to_lowercase();
     message.contains("fetch failed") || message.contains("timeout") || message.contains("network")
 }
 
 /// `connectionErrorMessage`.
-pub fn connection_error_message(message: &str) -> String {
-    if is_connection_error(message) {
-        "Could not connect to the server.".to_owned()
+pub fn connection_error_message(message: impl Into<JsString>) -> JsString {
+    let message = message.into();
+    if is_connection_error(&message) {
+        "Could not connect to the server.".into()
     } else {
-        message.to_owned()
+        message
+    }
+}
+
+#[cfg(test)]
+mod lossless_error_tests {
+    use super::*;
+
+    #[test]
+    fn non_connection_errors_keep_raw_message_units() {
+        let message = JsString::from("invalid ") + JsString::from_utf16(vec![0xd800]);
+        assert_eq!(connection_error_message(&message), message);
+        let connection = JsString::from("NETWORK ") + JsString::from_utf16(vec![0xdc00]);
+        assert_eq!(
+            connection_error_message(&connection),
+            "Could not connect to the server."
+        );
     }
 }
 
@@ -53,16 +71,18 @@ pub fn parse_hugging_face_model(value: &str) -> (String, Option<String>) {
     }
 }
 
-fn notify(ctx: &ExtensionCommandContext, message: &str, kind: NotifyType) -> Result<(), String> {
-    ctx.ui().map_err(|error| error.to_string())?.notify(message, Some(kind));
+fn notify(ctx: &ExtensionCommandContext, message: impl Into<JsString>, kind: NotifyType) -> Result<(), JsString> {
+    ctx.ui()
+        .map_err(|error| error.message)?
+        .notify(&message.into(), Some(kind));
     Ok(())
 }
 
 async fn configured_client(
     ctx: &ExtensionCommandContext,
     fetch: Arc<dyn Fetch>,
-) -> Result<Option<LlamaClient>, String> {
-    let registry = ctx.model_registry().map_err(|error| error.to_string())?;
+) -> Result<Option<LlamaClient>, JsString> {
+    let registry = ctx.model_registry().map_err(|error| error.message)?;
     let result = registry
         .resolve_provider_auth(LLAMA_PROVIDER_ID)
         .await
@@ -86,7 +106,7 @@ async fn configured_client(
     .map_err(|error| error.to_string())?;
     LlamaClient::with_fetch(&server_url, result.auth.api_key.as_deref(), fetch)
         .map(Some)
-        .map_err(|error| error.message)
+        .map_err(|error| error.message.into())
 }
 
 async fn sync_catalog(
@@ -94,7 +114,7 @@ async fn sync_catalog(
     client: &LlamaClient,
     controller: &LlamaProviderController,
     catalog: Option<Vec<LlamaModelInfo>>,
-) -> Result<Vec<LlamaModelInfo>, String> {
+) -> Result<Vec<LlamaModelInfo>, JsString> {
     let deadline = RequestDeadline::start(None, Some(15_000));
     let signal = deadline.as_ref().map(|deadline| deadline.signal().clone());
     let current = match catalog {
@@ -110,7 +130,7 @@ async fn sync_catalog(
     controller
         .set_catalog(&current, client.server_url())
         .map_err(|error| error.to_string())?;
-    let registry = ctx.model_registry().map_err(|error| error.to_string())?;
+    let registry = ctx.model_registry().map_err(|error| error.message)?;
     let result = registry
         .refresh(ModelsRefreshOptions {
             allow_network: None,
@@ -121,10 +141,10 @@ async fn sync_catalog(
         .await
         .map_err(|error| error.to_string())?;
     if result.aborted {
-        return Err("Model catalog refresh timed out.".to_owned());
+        return Err("Model catalog refresh timed out.".into());
     }
     if let Some(error) = result.errors.get(LLAMA_PROVIDER_ID) {
-        return Err(error.message.clone());
+        return Err(error.message.clone().into());
     }
     Ok(current)
 }
@@ -134,7 +154,7 @@ async fn read_catalog(
     ui: &dyn LlamaUi,
     client: &LlamaClient,
     controller: &LlamaProviderController,
-) -> Result<Option<Vec<LlamaModelInfo>>, String> {
+) -> Result<Option<Vec<LlamaModelInfo>>, JsString> {
     loop {
         match sync_catalog(ctx, client, controller, None).await {
             Ok(catalog) => return Ok(Some(catalog)),
@@ -156,7 +176,7 @@ async fn restore_loaded(
     client: &LlamaClient,
     controller: &LlamaProviderController,
     loaded: &[LlamaModelInfo],
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     notify(ctx, "Restoring previously loaded models", NotifyType::Info)?;
     for model in loaded {
         client
@@ -175,7 +195,7 @@ async fn load_model(
     controller: &LlamaProviderController,
     catalog: &[LlamaModelInfo],
     target: &LlamaModelInfo,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let loaded = catalog
         .iter()
         .filter(|model| model.id != target.id && model_is_loaded(model))
@@ -211,7 +231,7 @@ async fn load_model(
         }
     }
 
-    let result: Result<(), String> = async {
+    let result: Result<(), JsString> = async {
         let run_client = client.clone();
         let target_id = target.id.clone();
         let cancel_client = client.clone();
@@ -273,7 +293,7 @@ async fn unload_model(
     client: &LlamaClient,
     controller: &LlamaProviderController,
     model: &LlamaModelInfo,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     if !ui.confirm("Unload model?".to_owned(), model.id.clone()).await {
         return Ok(());
     }
@@ -291,7 +311,7 @@ async fn download_model(
     client: &LlamaClient,
     controller: &LlamaProviderController,
     fetch: Arc<dyn Fetch>,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let token = find_hugging_face_token_from_process().await;
     let hugging_face = HuggingFaceClient::with_fetch(token.as_deref(), None, Arc::clone(&fetch));
     let hugging_face = Arc::new(hugging_face);
