@@ -162,9 +162,9 @@ impl FirstTimeSetupComponent {
                     JsString::from("  ")
                 };
                 let label = if is_selected {
-                    theme.fg(ThemeColor::Accent, label)
+                    theme.fg(ThemeColor::Accent, *label)
                 } else {
-                    theme.fg(ThemeColor::Text, label)
+                    theme.fg(ThemeColor::Text, *label)
                 };
                 js_format!("{}{}", prefix, label)
             });

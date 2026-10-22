@@ -148,7 +148,7 @@ impl TrustSelectorComponent {
         } else {
             ProjectTrustDecision::Untrusted
         };
-        saved_decision.decision == decision && saved_decision.path == saved_path
+        saved_decision.decision == decision && &saved_decision.path == saved_path
     }
 
     fn update_list(&mut self) {
