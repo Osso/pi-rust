@@ -87,6 +87,7 @@ pub struct LocalReadOperations;
 impl ReadOperations for LocalReadOperations {
     fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async move {
+            super::node_fs::validate_node_path(absolute_path)?;
             tokio::fs::read(&encode_node_utf8(absolute_path))
                 .await
                 .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "open", &absolute_path)))
@@ -104,6 +105,7 @@ impl ReadOperations for LocalReadOperations {
         end: u64,
     ) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async move {
+            super::node_fs::validate_node_path(absolute_path)?;
             let length = end.saturating_sub(start);
             let mut file = tokio::fs::File::open(&encode_node_utf8(absolute_path))
                 .await
@@ -130,6 +132,7 @@ impl ReadOperations for LocalReadOperations {
 
     fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<u64>>> {
         Box::pin(async move {
+            super::node_fs::validate_node_path(absolute_path)?;
             tokio::fs::metadata(&encode_node_utf8(absolute_path))
                 .await
                 .map(|metadata| Some(metadata.len()))
@@ -139,6 +142,7 @@ impl ReadOperations for LocalReadOperations {
 
     fn access<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
+            super::node_fs::validate_node_path(absolute_path)?;
             tokio::fs::metadata(&encode_node_utf8(absolute_path))
                 .await
                 .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "access", &absolute_path)))?;

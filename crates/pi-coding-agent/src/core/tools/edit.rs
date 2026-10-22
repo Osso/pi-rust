@@ -64,6 +64,7 @@ pub struct LocalEditOperations;
 impl EditOperations for LocalEditOperations {
     fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async move {
+            super::node_fs::validate_node_path(absolute_path)?;
             tokio::fs::read(&encode_node_utf8(absolute_path))
                 .await
                 .map_err(|error| {
@@ -74,6 +75,7 @@ impl EditOperations for LocalEditOperations {
 
     fn write_file<'a>(&'a self, absolute_path: &'a JsString, content: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
+            super::node_fs::validate_node_path(absolute_path)?;
             tokio::fs::write(encode_node_utf8(absolute_path), encode_node_utf8(content))
                 .await
                 .map_err(|error| {
@@ -84,6 +86,7 @@ impl EditOperations for LocalEditOperations {
 
     fn access<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
+            super::node_fs::validate_node_path(absolute_path)?;
             let path = std::ffi::CString::new(encode_node_utf8(absolute_path))
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains a NUL byte"))?;
             rustix::fs::access(
