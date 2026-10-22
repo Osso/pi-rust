@@ -1,6 +1,6 @@
 //! Detached job runtime mailbox commands (`core/detached-job-control.ts`).
 
-use serde_json::{Map, Value};
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 
 use crate::core::detached_job_runner::DetachedJobOwnershipIdentity;
 use crate::core::session_control_db::{
@@ -16,7 +16,7 @@ const MAILBOX_CLAIM_LIMIT: i64 = 20;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetachedJobCancelCommand {
     pub identity: DetachedJobOwnershipIdentity,
-    pub reason: Option<String>,
+    pub reason: Option<JsString>,
     pub mailbox_row_id: i64,
 }
 
@@ -34,8 +34,8 @@ pub struct DetachedJobStatusCommand {
 pub struct DetachedJobResponseCommand {
     pub identity: DetachedJobOwnershipIdentity,
     pub request_id: String,
-    pub result: Option<Value>,
-    pub error: Option<String>,
+    pub result: Option<JsValue>,
+    pub error: Option<JsString>,
     pub mailbox_row_id: i64,
 }
 
@@ -69,7 +69,7 @@ impl DetachedJobRuntimeCommand {
 enum StoredCommand {
     Cancel {
         identity: DetachedJobOwnershipIdentity,
-        reason: Option<String>,
+        reason: Option<JsString>,
     },
     Status {
         identity: DetachedJobOwnershipIdentity,
@@ -79,8 +79,8 @@ enum StoredCommand {
     Response {
         identity: DetachedJobOwnershipIdentity,
         request_id: String,
-        result: Option<Value>,
-        error: Option<String>,
+        result: Option<JsValue>,
+        error: Option<JsString>,
     },
 }
 
@@ -154,7 +154,7 @@ pub fn enqueue_detached_job_status_request(
     input: &EnqueueDetachedJobStatusRequestInput,
 ) -> Result<i64, ControlDbError> {
     let message_id = format!("detached-status-request:{}:{}", input.identity.job_id, input.request_id);
-    let body = serde_json::json!({
+    let body = pi_js_compat::js_json!({
         "command": "status",
         "identity": input.identity,
         "replyTo": input.requester_address,
@@ -168,12 +168,12 @@ pub fn enqueue_detached_job_status_request(
             sender: input.requester_address.clone(),
             kind: RuntimeMailboxMessageKind::System,
             store_ref: RuntimeMailboxStoreRef {
-                message_id: message_id.clone(),
-                session_path: input.session_path.clone(),
+                message_id: message_id.clone().into(),
+                session_path: input.session_path.clone().into(),
             },
-            message: serde_json::json!({
-                "body": serialize_body(&body)?,
-                "fromAgentId": input.requester_address.agent_id.clone().unwrap_or_else(|| "main".to_owned()),
+            message: pi_js_compat::js_json!({
+                "body": js_json::stringify_lossless(&body),
+                "fromAgentId": input.requester_address.agent_id.clone().unwrap_or_else(|| "main".into()),
                 "id": message_id,
                 "kind": "system",
                 "status": "pending",
@@ -204,7 +204,7 @@ pub struct EnqueueDetachedJobStatusResponseInput {
     pub request_id: String,
     pub runner_address: RuntimeMailboxAddress,
     pub session_path: String,
-    pub status: Value,
+    pub status: JsValue,
 }
 
 /// `enqueueDetachedJobStatusResponse`.
@@ -212,7 +212,7 @@ pub fn enqueue_detached_job_status_response(
     input: &EnqueueDetachedJobStatusResponseInput,
 ) -> Result<i64, ControlDbError> {
     let message_id = format!("detached-status:{}:{}", input.identity.job_id, input.request_id);
-    let body = serde_json::json!({
+    let body = pi_js_compat::js_json!({
         "command": "respond",
         "identity": input.identity,
         "requestId": input.request_id,
@@ -226,16 +226,16 @@ pub fn enqueue_detached_job_status_response(
             sender: input.runner_address.clone(),
             kind: RuntimeMailboxMessageKind::System,
             store_ref: RuntimeMailboxStoreRef {
-                message_id: message_id.clone(),
-                session_path: input.session_path.clone(),
+                message_id: message_id.clone().into(),
+                session_path: input.session_path.clone().into(),
             },
-            message: serde_json::json!({
-                "body": serialize_body(&body)?,
+            message: pi_js_compat::js_json!({
+                "body": js_json::stringify_lossless(&body),
                 "fromAgentId": input.identity.job_id,
                 "id": message_id,
                 "kind": "system",
                 "status": "pending",
-                "toAgentId": input.reply_to.agent_id.clone().unwrap_or_else(|| "main".to_owned()),
+                "toAgentId": input.reply_to.agent_id.clone().unwrap_or_else(|| "main".into()),
             }),
             updated_at: None,
         },
@@ -259,82 +259,72 @@ pub fn claim_detached_job_control_commands(
     )
 }
 
-fn serialize_body(body: &Value) -> Result<String, ControlDbError> {
-    serde_json::to_string(body).map_err(|error| ControlDbError::new(error.to_string()))
-}
-
-fn parse_runtime_command(body: &str) -> Option<StoredCommand> {
-    let parsed: Value = serde_json::from_str(body).ok()?;
+fn parse_runtime_command(body: &JsString) -> Option<StoredCommand> {
+    let parsed = js_json::parse_lossless(body).ok()?;
     let record = parsed.as_object()?;
     let identity = parse_identity(record.get("identity")?)?;
-    match record.get("command").and_then(Value::as_str) {
-        Some("cancel") => Some(StoredCommand::Cancel {
+    let command = scalar_text(record.get("command")?)?;
+    match command.as_str() {
+        "cancel" => Some(StoredCommand::Cancel {
             identity,
-            reason: record.get("reason").and_then(Value::as_str).map(str::to_owned),
+            reason: record.get("reason").and_then(JsValue::as_string).cloned(),
         }),
-        Some("status") => {
-            let request_id = record.get("requestId").and_then(Value::as_str)?;
-            let reply_to = parse_mailbox_address(record.get("replyTo")?)?;
-            Some(StoredCommand::Status {
-                identity,
-                reply_to,
-                request_id: request_id.to_owned(),
-            })
-        }
-        Some("respond") => {
-            let request_id = record.get("requestId").and_then(Value::as_str)?;
-            Some(StoredCommand::Response {
-                identity,
-                request_id: request_id.to_owned(),
-                result: record.get("result").cloned(),
-                error: record.get("error").and_then(Value::as_str).map(str::to_owned),
-            })
-        }
+        "status" => Some(StoredCommand::Status {
+            identity,
+            reply_to: parse_mailbox_address(record.get("replyTo")?)?,
+            request_id: scalar_text(record.get("requestId")?)?,
+        }),
+        "respond" => Some(StoredCommand::Response {
+            identity,
+            request_id: scalar_text(record.get("requestId")?)?,
+            result: record.get("result").cloned(),
+            error: record.get("error").and_then(JsValue::as_string).cloned(),
+        }),
         _ => None,
     }
 }
 
-fn parse_mailbox_address(value: &Value) -> Option<RuntimeMailboxAddress> {
+fn parse_mailbox_address(value: &JsValue) -> Option<RuntimeMailboxAddress> {
     let record = value.as_object()?;
-    let session_id = record.get("sessionId")?.as_str()?;
+    let session_id = record.get("sessionId")?.as_string()?.clone();
     let agent_id = match record.get("agentId") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(agent_id)) => Some(agent_id.clone()),
+        None | Some(JsValue::Null) => None,
+        Some(JsValue::String(agent_id)) => Some(agent_id.clone()),
         Some(_) => return None,
     };
-    Some(RuntimeMailboxAddress {
-        agent_id,
-        session_id: session_id.to_owned(),
-    })
+    Some(RuntimeMailboxAddress { agent_id, session_id })
 }
 
-fn parse_identity(value: &Value) -> Option<DetachedJobOwnershipIdentity> {
+/// Process and ownership metadata has a scalar Rust contract. Reject, never replace.
+fn scalar_text(value: &JsValue) -> Option<String> {
+    value.as_string()?.to_utf8().ok()
+}
+
+fn parse_identity(value: &JsValue) -> Option<DetachedJobOwnershipIdentity> {
     let record = value.as_object()?;
-    let job_id = record.get("jobId")?.as_str()?;
+    let job_id = scalar_text(record.get("jobId")?)?;
     let owner = record.get("owner")?.as_object()?;
-    let owner_session_id = owner.get("sessionId")?.as_str()?;
+    let owner_session_id = scalar_text(owner.get("sessionId")?)?;
     let owner_agent_id = match owner.get("agentId") {
-        Some(Value::Null) => None,
-        Some(Value::String(agent_id)) => Some(agent_id.clone()),
+        Some(JsValue::Null) => None,
+        Some(value @ JsValue::String(_)) => Some(scalar_text(value)?),
         _ => return None,
     };
-    let process_identity = parse_process_identity(record.get("processIdentity")?.as_object()?)?;
-    let output_label = record.get("outputLabel")?.as_str()?;
     Some(DetachedJobOwnershipIdentity {
-        job_id: job_id.to_owned(),
+        job_id,
         owner: crate::core::session_control_db::MultiAgentRuntimeOwnerIdentity {
             agent_id: owner_agent_id,
-            session_id: owner_session_id.to_owned(),
+            session_id: owner_session_id,
         },
-        process_identity,
-        output_label: output_label.to_owned(),
+        process_identity: parse_process_identity(record.get("processIdentity")?.as_object()?)?,
+        output_label: scalar_text(record.get("outputLabel")?)?,
     })
 }
 
-fn parse_process_identity(record: &Map<String, Value>) -> Option<crate::core::runtime_process::ProcessIdentity> {
+fn parse_process_identity(record: &JsObject) -> Option<crate::core::runtime_process::ProcessIdentity> {
     let pid = safe_integer(record.get("pid")?)?;
     let start_time_ticks = safe_integer(record.get("startTimeTicks")?)?;
-    let incarnation = record.get("incarnation").and_then(Value::as_str).map(str::to_owned);
+    let incarnation = record.get("incarnation").and_then(scalar_text);
     Some(crate::core::runtime_process::ProcessIdentity {
         pid: u32::try_from(pid).ok()?,
         start_time_ticks: u64::try_from(start_time_ticks).ok()?,
@@ -342,12 +332,11 @@ fn parse_process_identity(record: &Map<String, Value>) -> Option<crate::core::ru
     })
 }
 
-fn safe_integer(value: &Value) -> Option<i64> {
-    let number = value.as_i64()?;
-    const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
-    (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER)
-        .contains(&number)
-        .then_some(number)
+fn safe_integer(value: &JsValue) -> Option<i64> {
+    let number = value.as_f64()?;
+    const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+    let is_safe_integer = number.is_finite() && number.fract() == 0.0 && number.abs() <= MAX_SAFE_INTEGER;
+    is_safe_integer.then_some(number as i64)
 }
 
 fn command_identity_matches(command: &StoredCommand, current: &DetachedJobOwnershipIdentity) -> bool {

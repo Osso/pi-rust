@@ -178,13 +178,16 @@ pub fn complete_sent_architect_request(
     if input.to_agent_id != "main" {
         return Ok(());
     }
-    let Some(thread_id) = input.thread_id.as_deref() else {
+    let Some(thread_id) = input.thread_id.as_ref() else {
         return Ok(());
     };
     let Some(suffix) = thread_id.strip_prefix(ARCHITECT_REQUEST_THREAD_PREFIX) else {
         return Ok(());
     };
-    let request_id = parse_number(suffix);
+    let Ok(suffix) = suffix.to_utf8() else {
+        return Ok(());
+    };
+    let request_id = parse_number(&suffix);
     if !is_safe_integer(request_id) || request_id < 1.0 {
         return Ok(());
     }
@@ -198,8 +201,8 @@ fn is_safe_integer(value: f64) -> bool {
 /// One outbound session message observed by the mailbox extension.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SentArchitectMessage {
-    pub thread_id: Option<String>,
-    pub to_agent_id: String,
+    pub thread_id: Option<pi_js_compat::js_json::JsString>,
+    pub to_agent_id: pi_js_compat::js_json::JsString,
     pub to_session_id: String,
 }
 
@@ -213,7 +216,7 @@ pub fn block_architect_global_broadcast(tool_name: &str) -> Option<BeforeToolCal
     };
     Some(BeforeToolCallResult {
         block: Some(true),
-        reason: Some(reason.to_owned()),
+        reason: Some(reason.to_owned().into()),
     })
 }
 
@@ -599,7 +602,7 @@ pub async fn run_architect_service() -> Result<(), String> {
             session
                 .prompt(&content, PromptOptions::default())
                 .await
-                .map_err(|error| error.message().to_owned())
+                .map_err(|error| error.message().to_utf8_lossy())
         }
     };
     run_architect_service_loop(

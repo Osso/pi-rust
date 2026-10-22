@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::core::extensions::types::{ExtensionApi, HandlerError, ToolDefinition};
 
@@ -143,21 +143,21 @@ pub fn architect_project_spec_tool_definition() -> ToolDefinition {
     }
 }
 
-async fn execute_project_spec_tool(params: &Value) -> Result<AgentToolResult, HandlerError> {
+async fn execute_project_spec_tool(params: &pi_js_compat::js_json::JsValue) -> Result<AgentToolResult, HandlerError> {
     let project_cwd = params
         .get("project_cwd")
-        .and_then(Value::as_str)
+        .and_then(pi_js_compat::js_json::JsValue::as_string)
         .ok_or_else(|| HandlerError::new("read_project_spec requires a string project_cwd"))?;
     let spec_path = params
         .get("spec_path")
-        .and_then(Value::as_str)
+        .and_then(pi_js_compat::js_json::JsValue::as_string)
         .ok_or_else(|| HandlerError::new("read_project_spec requires a string spec_path"))?;
-    let content = read_project_spec(project_cwd, spec_path)
+    let content = read_project_spec(&project_cwd.to_utf8_lossy(), &spec_path.to_utf8_lossy())
         .await
         .map_err(HandlerError::new)?;
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(content))],
-        details: Some(json!({"path": spec_path})),
+        details: Some(pi_js_compat::js_json!({"path": spec_path})),
         is_error: None,
         terminate: None,
     })

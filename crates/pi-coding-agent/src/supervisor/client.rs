@@ -2,7 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde_json::{Map, Value};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 
 use crate::core::session_control_db::{
     ControlDbError, PostSupervisorRequestInput, SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse,
@@ -15,7 +15,7 @@ use crate::utils::iso_time::format_iso_millis;
 pub struct RequestSupervisorDecisionInput {
     pub control_db_path: String,
     pub kind: SupervisorRequestKind,
-    pub payload: Map<String, Value>,
+    pub payload: JsObject,
     pub project_id: String,
     pub sender_session_id: String,
     pub timeout_ms: i64,
@@ -86,16 +86,16 @@ pub async fn request_supervisor_decision(
         format!(" after {max_attempts} attempts")
     };
     Ok(SupervisorResponse::Error {
-        reason: format!("Supervisor request timed out{suffix}"),
+        reason: format!("Supervisor request timed out{suffix}").into(),
     })
 }
 
 /// `payload` object key order follows the caller's insertion order.
-pub fn advisory_payload(question: &str, context: Option<&str>) -> Map<String, Value> {
-    let mut payload = Map::new();
-    payload.insert("question".to_owned(), Value::String(question.to_owned()));
+pub fn advisory_payload(question: &JsString, context: Option<&JsString>) -> JsObject {
+    let mut payload = JsObject::new();
+    payload.insert("question".into(), JsValue::String(question.clone()));
     if let Some(context) = context {
-        payload.insert("context".to_owned(), Value::String(context.to_owned()));
+        payload.insert("context".into(), JsValue::String(context.clone()));
     }
     payload
 }

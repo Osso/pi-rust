@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::{ControlDbError, with_control_db, with_immediate_transaction};
 use crate::core::permissions::presets::SandboxProfileName;
-use pi_js_compat::js_json;
+use pi_js_compat::js_json::{self, JsString};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,28 +24,30 @@ pub struct SessionNameState {
     pub has_stored_value: bool,
 }
 
-/// `normalizeSessionName`: collapse line breaks, trim, and treat empty as unset.
-pub fn normalize_session_name(name: Option<&str>) -> Option<String> {
-    let normalized = collapse_session_name_line_breaks(name?);
-    let trimmed = pi_js_compat::string::js_trim(&normalized);
-    (!trimmed.is_empty()).then(|| trimmed.to_owned())
-}
-
-fn collapse_session_name_line_breaks(name: &str) -> String {
-    let mut result = String::new();
-    let mut pending_space = false;
-    for character in name.chars() {
-        if character == '\r' || character == '\n' {
-            pending_space = true;
+/// `normalizeSessionName`: collapse CR/LF runs, JS-trim, and treat empty as unset.
+pub fn normalize_session_name_utf16(name: Option<&JsString>) -> Option<JsString> {
+    let mut normalized = JsString::default();
+    let mut line_break_run = false;
+    for unit in name?.units() {
+        if *unit == u16::from(b'\r') || *unit == u16::from(b'\n') {
+            line_break_run = true;
             continue;
         }
-        if pending_space {
-            result.push(' ');
-            pending_space = false;
+        if line_break_run {
+            normalized.push_unit(u16::from(b' '));
+            line_break_run = false;
         }
-        result.push(character);
+        normalized.push_unit(*unit);
     }
-    result
+    let trimmed = normalized.trim();
+    (!trimmed.is_empty()).then_some(trimmed)
+}
+
+/// Scalar SQL metadata callers share the raw normalizer; scalar input remains scalar.
+pub fn normalize_session_name(name: Option<&str>) -> Option<String> {
+    let input = name.map(JsString::from);
+    normalize_session_name_utf16(input.as_ref())
+        .map(|value| value.to_utf8().expect("scalar session name remains scalar"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,12 +130,20 @@ pub struct EmptyMainSessionCandidate {
 }
 
 /// `writeSessionName`.
-pub fn write_session_name(control_db_path: &str, session_path: &str, name: Option<&str>) -> Result<(), ControlDbError> {
-    let stored_name = normalize_session_name(name).unwrap_or_default();
+pub fn write_session_name(
+    control_db_path: &str,
+    session_path: &str,
+    name: Option<&JsString>,
+) -> Result<(), ControlDbError> {
+    let stored_name = normalize_session_name_utf16(name).unwrap_or_default();
     with_control_db(control_db_path, |db| {
         let changed = db.execute(
             "UPDATE session_metadata SET name = ?, updated_at = ? WHERE session_path = ?",
-            params![stored_name, crate::utils::iso_time::now_iso_string(), session_path],
+            params![
+                stored_name.to_utf8_lossy(),
+                crate::utils::iso_time::now_iso_string(),
+                session_path
+            ],
         )?;
         if changed != 1 {
             return Err(ControlDbError::new(format!(

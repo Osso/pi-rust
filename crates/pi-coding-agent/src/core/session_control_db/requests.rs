@@ -2,10 +2,10 @@
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::{ControlDbError, with_control_db, with_immediate_transaction};
-use pi_js_compat::js_json;
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -82,18 +82,63 @@ pub enum SupervisorRequestStatus {
     Cancelled,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SupervisorResponse {
-    Approve { reason: String },
-    Reject { reason: String },
-    Complete { reason: String },
-    Continue { instructions: String, reason: String },
-    Pause { reason: String },
-    Wait { reason: String },
-    Set { objective: String, reason: String },
-    Advisory { answer: String },
-    Error { reason: String },
+    Approve { reason: JsString },
+    Reject { reason: JsString },
+    Complete { reason: JsString },
+    Continue { instructions: JsString, reason: JsString },
+    Pause { reason: JsString },
+    Wait { reason: JsString },
+    Set { objective: JsString, reason: JsString },
+    Advisory { answer: JsString },
+    Error { reason: JsString },
+}
+
+impl<'de> Deserialize<'de> for SupervisorResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        let text = |key: &str| {
+            value
+                .get(key)
+                .and_then(JsValue::as_string)
+                .cloned()
+                .ok_or_else(|| serde::de::Error::custom(format!("expected supervisor response string {key}")))
+        };
+        let kind = text("kind")?.to_utf8().map_err(serde::de::Error::custom)?;
+        Ok(match kind.as_str() {
+            "approve" => Self::Approve {
+                reason: text("reason")?,
+            },
+            "reject" => Self::Reject {
+                reason: text("reason")?,
+            },
+            "complete" => Self::Complete {
+                reason: text("reason")?,
+            },
+            "continue" => Self::Continue {
+                instructions: text("instructions")?,
+                reason: text("reason")?,
+            },
+            "pause" => Self::Pause {
+                reason: text("reason")?,
+            },
+            "wait" => Self::Wait {
+                reason: text("reason")?,
+            },
+            "set" => Self::Set {
+                objective: text("objective")?,
+                reason: text("reason")?,
+            },
+            "advisory" => Self::Advisory {
+                answer: text("answer")?,
+            },
+            "error" => Self::Error {
+                reason: text("reason")?,
+            },
+            _ => return Err(serde::de::Error::custom("unknown supervisor response kind")),
+        })
+    }
 }
 
 impl Serialize for SupervisorResponse {
@@ -165,14 +210,18 @@ impl SupervisorResponse {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SupervisorRequest {
     pub id: i64,
     pub sender_session_id: String,
     pub project_id: String,
     pub kind: SupervisorRequestKind,
-    pub payload: Map<String, Value>,
+    #[serde(
+        serialize_with = "js_json::serialize_object",
+        deserialize_with = "js_json::deserialize_object"
+    )]
+    pub payload: JsObject,
     pub deadline_at: String,
     pub status: SupervisorRequestStatus,
     pub created_at: String,
@@ -186,13 +235,17 @@ pub struct SupervisorRequest {
     pub response: Option<SupervisorResponse>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostSupervisorRequestInput {
     pub sender_session_id: String,
     pub project_id: String,
     pub kind: SupervisorRequestKind,
-    pub payload: Map<String, Value>,
+    #[serde(
+        serialize_with = "js_json::serialize_object",
+        deserialize_with = "js_json::deserialize_object"
+    )]
+    pub payload: JsObject,
     pub deadline_at: String,
 }
 
@@ -460,8 +513,8 @@ type SupervisorRequestRow = (
 );
 
 fn supervisor_request_from_row(row: SupervisorRequestRow) -> Result<SupervisorRequest, ControlDbError> {
-    let payload = js_json::parse(&row.4).map_err(|error| ControlDbError::new(error.to_string()))?;
-    let Value::Object(payload) = payload else {
+    let payload = js_json::parse_lossless(&row.4).map_err(|error| ControlDbError::new(error.to_string()))?;
+    let JsValue::Object(payload) = payload else {
         return Err(ControlDbError::new(format!(
             "Invalid persisted JSON at supervisor request {}",
             row.0
@@ -470,9 +523,9 @@ fn supervisor_request_from_row(row: SupervisorRequestRow) -> Result<SupervisorRe
     let response = match row.11 {
         None => None,
         Some(response_json) => {
-            let value =
-                pi_js_compat::js_json::parse(&response_json).map_err(|error| ControlDbError::new(error.to_string()))?;
-            Some(serde_json::from_value(value).map_err(|error| ControlDbError::new(error.to_string()))?)
+            let value = pi_js_compat::js_json::parse_lossless(&response_json)
+                .map_err(|error| ControlDbError::new(error.to_string()))?;
+            Some(js_json::from_value(&value).map_err(|error| ControlDbError::new(error.to_string()))?)
         }
     };
     Ok(SupervisorRequest {
@@ -550,7 +603,7 @@ pub fn post_supervisor_request(
                 input.sender_session_id,
                 input.project_id,
                 input.kind.as_str(),
-                js_json::stringify(&Value::Object(input.payload.clone())),
+                js_json::stringify_lossless(&JsValue::Object(input.payload.clone())),
                 input.deadline_at,
                 crate::utils::iso_time::now_iso_string()
             ],

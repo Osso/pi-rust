@@ -43,7 +43,7 @@ const UPSERT_RUNTIME_MAILBOX_LISTENER_SQL: &str = "
 ";
 
 /// Result of `readRuntimeMailboxMessageForDelivery`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeMailboxDeliveryRead {
     pub message: RuntimeMailboxMessage,
     pub payload_data: Option<String>,
@@ -79,30 +79,20 @@ fn route_runtime_mailbox_message(
         let Some(row) = read_canonical_mailbox_row_by_store_ref(db, &input.store_ref)? else {
             return Err(ControlDbError::new(format!(
                 "Runtime mailbox store reference does not exist: {}#{}",
-                input.store_ref.session_path, input.store_ref.message_id
+                input.store_ref.session_path.to_utf8_lossy(),
+                input.store_ref.message_id.to_utf8_lossy()
             )));
         };
         let context = format!(
             "multi_agent_mailbox_messages:{}#{}",
-            input.store_ref.session_path, input.store_ref.message_id
+            input.store_ref.session_path.to_utf8_lossy(),
+            input.store_ref.message_id.to_utf8_lossy()
         );
         let message = parse_stored_json_object(&row.data, &context)?;
         validate_mailbox_payload(&Value::Object(message.clone()), &context)?;
         assert_runtime_mailbox_routing(&super::parse_canonical_mailbox_payload_lossless(&row)?, input)?;
-        let routed = add_runtime_mailbox_routing(&message, input)?;
-        let serialized = super::serialize_canonical_mailbox_mutation(&row, |canonical| {
-            for key in [
-                "recipientHost",
-                "recipientSessionId",
-                "recipientAgentId",
-                "senderSessionId",
-                "senderAgentId",
-            ] {
-                if let Some(value) = routed.get(key) {
-                    canonical.insert(JsString::from(key), JsValue::from(value));
-                }
-            }
-        })?;
+        let routed = add_runtime_mailbox_routing(&super::parse_canonical_mailbox_payload_lossless(&row)?, input)?;
+        let serialized = js_json::stringify_lossless(&JsValue::Object(routed));
         if serialized == row.data {
             return Ok(RoutedMailboxMessage {
                 id: row.id,
@@ -124,14 +114,23 @@ fn route_runtime_mailbox_message(
     }
     Err(ControlDbError::new(format!(
         "Runtime mailbox row changed while routing: {}#{}",
-        input.store_ref.session_path, input.store_ref.message_id
+        input.store_ref.session_path.to_utf8_lossy(),
+        input.store_ref.message_id.to_utf8_lossy()
     )))
+}
+
+/// Scalar schema validation is read-only; the original UTF-16 object is the only write authority.
+fn scalar_mailbox_validation(message: &js_json::JsObject) -> Result<Map<String, Value>, ControlDbError> {
+    super::parse_stored_json_object(
+        &js_json::stringify_lossless(&JsValue::Object(message.clone())),
+        "mailbox validation",
+    )
 }
 
 pub(crate) struct PreparedStoredRuntimeMailboxMessage {
     pub(crate) defaulted_birth: bool,
     pub(crate) context: String,
-    pub(crate) routed: Map<String, Value>,
+    pub(crate) routed: js_json::JsObject,
     pub(crate) serialized: String,
     pub(crate) updated_at: String,
 }
@@ -141,20 +140,20 @@ pub(crate) fn prepare_stored_runtime_mailbox_message(
 ) -> Result<PreparedStoredRuntimeMailboxMessage, ControlDbError> {
     let context = format!(
         "multi_agent_mailbox_messages:{}#{}",
-        input.store_ref.session_path, input.store_ref.message_id
+        input.store_ref.session_path.to_utf8_lossy(),
+        input.store_ref.message_id.to_utf8_lossy()
     );
-    validate_mailbox_payload(&input.message, &context)?;
-    let Value::Object(incoming) = js_json::parse(&js_json::stringify(&input.message))
-        .map_err(|_| ControlDbError::new(format!("Invalid persisted JSON at {context}")))?
-    else {
+    let validation = js_json::parse(&js_json::stringify_lossless(&input.message))
+        .map_err(|_| ControlDbError::new(format!("Invalid persisted JSON at {context}")))?;
+    validate_mailbox_payload(&validation, &context)?;
+    let JsValue::Object(mut incoming) = input.message.clone() else {
         return Err(ControlDbError::new(format!("Invalid persisted object at {context}")));
     };
-    let mut incoming = incoming;
-    let defaulted_birth = incoming.get("createdAt").is_none_or(Value::is_null);
+    let defaulted_birth = incoming.get(&JsString::from("createdAt")).is_none_or(JsValue::is_null);
     if defaulted_birth {
         incoming.insert(
             "createdAt".into(),
-            Value::String(crate::utils::iso_time::now_iso_string()),
+            JsValue::String(crate::utils::iso_time::now_iso_string().into()),
         );
     }
     let routed = add_runtime_mailbox_routing(
@@ -167,11 +166,11 @@ pub(crate) fn prepare_stored_runtime_mailbox_message(
             store_ref: input.store_ref.clone(),
         },
     )?;
-    super::retention::assert_mailbox_message_fresh(&routed, &context)?;
+    super::retention::assert_mailbox_message_fresh(&scalar_mailbox_validation(&routed)?, &context)?;
     Ok(PreparedStoredRuntimeMailboxMessage {
         defaulted_birth,
         context,
-        serialized: js_json::stringify(&Value::Object(routed.clone())),
+        serialized: js_json::stringify_lossless(&JsValue::Object(routed.clone())),
         routed,
         updated_at: input
             .updated_at
@@ -229,7 +228,7 @@ fn persist_stored_runtime_mailbox_message(
     input: &EnqueueStoredRuntimeMailboxMessageInput,
     prepared: &PreparedStoredRuntimeMailboxMessage,
 ) -> Result<RoutedMailboxMessage, ControlDbError> {
-    super::retention::assert_mailbox_message_fresh(&prepared.routed, &prepared.context)?;
+    super::retention::assert_mailbox_message_fresh(&scalar_mailbox_validation(&prepared.routed)?, &prepared.context)?;
     if let Some(existing) = read_canonical_mailbox_row_by_store_ref(db, &input.store_ref)? {
         return validate_existing_stored_runtime_mailbox_message(&existing, input, prepared);
     }
@@ -238,8 +237,8 @@ fn persist_stored_runtime_mailbox_message(
 			 VALUES (?, ?, ?, ?)
 			 ON CONFLICT(session_path, message_id) DO NOTHING",
         params![
-            input.store_ref.session_path,
-            input.store_ref.message_id,
+            input.store_ref.session_path.to_utf8_lossy(),
+            input.store_ref.message_id.to_utf8_lossy(),
             prepared.serialized,
             prepared.updated_at
         ],
@@ -253,7 +252,8 @@ fn persist_stored_runtime_mailbox_message(
     let Some(concurrent) = read_canonical_mailbox_row_by_store_ref(db, &input.store_ref)? else {
         return Err(ControlDbError::new(format!(
             "Runtime mailbox store reference disappeared after insert conflict: {}#{}",
-            input.store_ref.session_path, input.store_ref.message_id
+            input.store_ref.session_path.to_utf8_lossy(),
+            input.store_ref.message_id.to_utf8_lossy()
         )));
     };
     validate_existing_stored_runtime_mailbox_message(&concurrent, input, prepared)
@@ -264,12 +264,13 @@ fn validate_existing_stored_runtime_mailbox_message(
     input: &EnqueueStoredRuntimeMailboxMessageInput,
     prepared: &PreparedStoredRuntimeMailboxMessage,
 ) -> Result<RoutedMailboxMessage, ControlDbError> {
-    let previous = parse_stored_json_object(&existing.data, &prepared.context)?;
-    super::retention::assert_mailbox_message_fresh(&previous, &prepared.context)?;
+    let previous = super::parse_stored_json_object_lossless(&existing.data, &prepared.context)?;
+    super::retention::assert_mailbox_message_fresh(&scalar_mailbox_validation(&previous)?, &prepared.context)?;
     if !same_mailbox_message_identity(&previous, &prepared.routed, &input.store_ref.message_id) {
         return Err(ControlDbError::new(format!(
             "Mailbox message ID collision: {}#{}",
-            input.store_ref.session_path, input.store_ref.message_id
+            input.store_ref.session_path.to_utf8_lossy(),
+            input.store_ref.message_id.to_utf8_lossy()
         )));
     }
     assert_runtime_mailbox_routing(
@@ -287,7 +288,8 @@ fn validate_existing_stored_runtime_mailbox_message(
     {
         return Err(ControlDbError::new(format!(
             "Mailbox message ID collision: {}#{}",
-            input.store_ref.session_path, input.store_ref.message_id
+            input.store_ref.session_path.to_utf8_lossy(),
+            input.store_ref.message_id.to_utf8_lossy()
         )));
     }
     Ok(RoutedMailboxMessage {
@@ -297,21 +299,21 @@ fn validate_existing_stored_runtime_mailbox_message(
 }
 
 pub(crate) fn same_mailbox_message_identity(
-    previous: &Map<String, Value>,
-    next: &Map<String, Value>,
-    id: &str,
+    previous: &js_json::JsObject,
+    next: &js_json::JsObject,
+    id: &JsString,
 ) -> bool {
     let required_identity = [previous, next].iter().all(|message| {
-        matches!(message.get("id"), Some(Value::String(_)))
-            && matches!(message.get("fromAgentId"), Some(Value::String(_)))
-            && matches!(message.get("toAgentId"), Some(Value::String(_)))
-            && matches!(message.get("kind"), Some(Value::String(_)))
+        matches!(message.get("id"), Some(JsValue::String(_)))
+            && matches!(message.get("fromAgentId"), Some(JsValue::String(_)))
+            && matches!(message.get("toAgentId"), Some(JsValue::String(_)))
+            && matches!(message.get("kind"), Some(JsValue::String(_)))
     });
     if !required_identity {
         return false;
     }
-    previous.get("id").and_then(Value::as_str) == Some(id)
-        && next.get("id").and_then(Value::as_str) == Some(id)
+    previous.get("id").and_then(JsValue::as_string) == Some(id)
+        && next.get("id").and_then(JsValue::as_string) == Some(id)
         && previous.get("fromAgentId") == next.get("fromAgentId")
         && previous.get("toAgentId") == next.get("toAgentId")
         && previous.get("kind") == next.get("kind")
@@ -690,7 +692,7 @@ fn read_runtime_mailbox_authority_snapshot(
     Ok(RuntimeMailboxAuthoritySnapshot {
         listener: read_runtime_mailbox_listener_row(db, recipient)?,
         ownership: match &recipient.agent_id {
-            Some(agent_id) => read_multi_agent_runtime_ownership_row(db, session_path, agent_id)?,
+            Some(agent_id) => read_multi_agent_runtime_ownership_row(db, session_path, &agent_id.to_utf8_lossy())?,
             None => None,
         },
     })
@@ -873,11 +875,11 @@ fn read_canonical_mailbox_rows_for_recipient(
         .query_map(
             params![
                 status_name(status),
-                recipient.session_id,
+                recipient.session_id.to_utf8_lossy(),
                 gethostname::gethostname().to_string_lossy(),
                 super::retention::mailbox_cutoff_ms(),
-                recipient.agent_id,
-                recipient.agent_id,
+                recipient.agent_id.as_ref().map(JsString::to_utf8_lossy),
+                recipient.agent_id.as_ref().map(JsString::to_utf8_lossy),
                 limit
             ],
             |row| {
@@ -949,7 +951,7 @@ pub fn register_runtime_mailbox_listener(
         }
         Err(ControlDbError::new(format!(
             "Runtime mailbox listener changed repeatedly while registering session {}",
-            registration.recipient.session_id
+            registration.recipient.session_id.to_utf8_lossy()
         )))
     })?;
     if pid == std::process::id() && registration.runtime_instance_id == get_runtime_process_instance_id()? {
@@ -1006,7 +1008,7 @@ fn read_runtime_mailbox_registration_snapshot(
 ) -> Result<RuntimeMailboxRegistrationSnapshot, ControlDbError> {
     Ok(RuntimeMailboxRegistrationSnapshot {
         health: match recipient.agent_id {
-            None => read_session_health_row(db, &recipient.session_id)?,
+            None => read_session_health_row(db, &recipient.session_id.to_utf8_lossy())?,
             Some(_) => None,
         },
         listener: read_runtime_mailbox_listener_row(db, recipient)?,
@@ -1035,13 +1037,13 @@ fn register_runtime_mailbox_listener_in_transaction(
         ..
     } = registration;
     if recipient.agent_id.is_none() {
-        retire_superseded_main_runtime_mailbox_listeners(db, &recipient.session_id, *pid, now_iso)?;
+        retire_superseded_main_runtime_mailbox_listeners(db, &recipient.session_id.to_utf8_lossy(), *pid, now_iso)?;
     }
     db.execute(
         UPSERT_RUNTIME_MAILBOX_LISTENER_SQL,
         params![
-            recipient.session_id,
-            runtime_mailbox_agent_id_key(recipient.agent_id.as_deref()),
+            recipient.session_id.to_utf8_lossy(),
+            runtime_mailbox_agent_id_key(recipient.agent_id.as_ref()),
             pid,
             runtime_instance_id,
             session_path,
@@ -1050,7 +1052,13 @@ fn register_runtime_mailbox_listener_in_transaction(
         ],
     )?;
     if recipient.agent_id.is_none() {
-        upsert_session_health_for_listener(db, &recipient.session_id, *pid, now_iso, should_reconcile_replacement)?;
+        upsert_session_health_for_listener(
+            db,
+            &recipient.session_id.to_utf8_lossy(),
+            *pid,
+            now_iso,
+            should_reconcile_replacement,
+        )?;
     }
     Ok(())
 }
@@ -1094,7 +1102,7 @@ fn assert_runtime_replacement_allowed(
     if !is_runtime_process_alive(existing_owner_pid) {
         return Ok(());
     }
-    let session_id = &registration.recipient.session_id;
+    let session_id = &registration.recipient.session_id.to_utf8_lossy();
     let cwd = match existing_listener {
         Some(listener) => read_verified_session_cwd(db, session_id, listener)?,
         None => None,
@@ -1153,13 +1161,13 @@ fn retire_runtime_mailbox_listener_row(
 				AND pid = ?
 			",
         params![
-            recipient.session_id,
-            runtime_mailbox_agent_id_key(recipient.agent_id.as_deref()),
+            recipient.session_id.to_utf8_lossy(),
+            runtime_mailbox_agent_id_key(recipient.agent_id.as_ref()),
             pid
         ],
     )? > 0;
     if retired && recipient.agent_id.is_none() {
-        retire_session_health_for_listener(db, &recipient.session_id, pid, now_iso)?;
+        retire_session_health_for_listener(db, &recipient.session_id.to_utf8_lossy(), pid, now_iso)?;
     }
     Ok(retired)
 }
@@ -1262,7 +1270,7 @@ pub fn assert_main_session_runtime_available(control_db_path: &str, session_id: 
             pid: std::process::id(),
             recipient: RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: session_id.to_owned(),
+                session_id: session_id.to_owned().into(),
             },
             runtime_instance_id: get_runtime_process_instance_id()?.to_owned(),
             session_path: None,
@@ -1298,7 +1306,7 @@ pub fn resolve_own_main_runtime_coordination_recipient(
         }
         Ok(Some(RuntimeMailboxAddress {
             agent_id: None,
-            session_id: rows[0].clone(),
+            session_id: rows[0].clone().into(),
         }))
     })
 }
