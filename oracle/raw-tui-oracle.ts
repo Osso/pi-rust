@@ -39,7 +39,9 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "input_route") {
+			} else if (request.operation === "settings") {
+                output = await captureSettings(source, native(request.units), request.width, request.search);
+            } else if (request.operation === "input_route") {
                 output = await captureInputRoute(source);
             } else if (request.operation === "terminal_colors") {
                 const module = await import(pathToFileURL(path.join(source, "terminal-colors.ts")).href);
@@ -221,4 +223,22 @@ async function captureInputRoute(source: string): Promise<unknown> {
     for (const value of ["x", "y", "\ud800", "z", "\udc00", "\r"]) terminal.sendInput(value);
     tui.stop();
     return [input.getValue(), submitted, seen];
+}
+
+async function captureSettings(source: string, raw: string, width: number, search: boolean): Promise<unknown> {
+    const module = await import(pathToFileURL(path.join(source, "components/settings-list.ts")).href);
+    const identity = (value: string): string => value;
+    const theme = { label: identity, value: identity, description: identity, cursor: "→ ", hint: identity };
+    const changes: string[][] = [];
+    let cancelled = 0;
+    const items = [0,1].map((index) => ({ id: raw + index, label: raw + "label" + index, description: raw + " desc", currentValue: raw + "v0", values: [raw + "v0",raw + "v1"] }));
+    const list = new module.SettingsList(items, 2, theme, (id: string, value: string) => changes.push([id,value]), () => cancelled++, { enableSearch: search });
+    const renders = [list.render(width)];
+    list.updateValue(raw + "0", raw + "external");
+    renders.push(list.render(width));
+    for (const key of ["\r", raw, "\x1b[B", "\r", "\x1b"]) {
+        list.handleInput(key);
+        renders.push(list.render(width));
+    }
+    return [renders, changes, cancelled, list.selectedIndex];
 }

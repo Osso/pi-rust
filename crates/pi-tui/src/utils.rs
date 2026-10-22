@@ -620,6 +620,12 @@ fn split_into_tokens_with_ansi(text: &JsString) -> Vec<JsString> {
 /// Wrap text with ANSI codes preserved. Performs word wrapping only; lines are
 /// not padded and carry no background colors.
 pub fn wrap_text_with_ansi(text: impl Into<JsString>, width: usize) -> Vec<JsString> {
+    wrap_text_with_ansi_signed(text, width as i128)
+}
+
+/// Source component arithmetic can produce a negative content width from a
+/// valid terminal width. Preserve it instead of clamping before wrapping.
+pub(crate) fn wrap_text_with_ansi_signed(text: impl Into<JsString>, width: i128) -> Vec<JsString> {
     let text = &text.into();
     if text.is_empty() {
         return vec![JsString::default()];
@@ -651,12 +657,12 @@ fn split_lines(text: &JsString) -> Vec<JsString> {
     text.split('\n').collect()
 }
 
-fn wrap_single_line(line: &JsString, width: usize) -> Vec<JsString> {
+fn wrap_single_line(line: &JsString, width: i128) -> Vec<JsString> {
     if line.is_empty() {
         return vec![JsString::default()];
     }
 
-    if visible_width(line) <= width {
+    if visible_width(line) as i128 <= width {
         return vec![line.clone()];
     }
 
@@ -671,7 +677,7 @@ fn wrap_single_line(line: &JsString, width: usize) -> Vec<JsString> {
         let token_visible_length = visible_width(&token);
         let is_whitespace = token.trim().is_empty();
 
-        if token_visible_length > width && !is_whitespace {
+        if token_visible_length as i128 > width && !is_whitespace {
             if !current_line.is_empty() {
                 current_line.push_str(&tracker.get_line_end_reset());
                 wrapped.push(std::mem::take(&mut current_line));
@@ -687,7 +693,7 @@ fn wrap_single_line(line: &JsString, width: usize) -> Vec<JsString> {
         }
 
         let total_needed = current_visible_length + token_visible_length;
-        if total_needed > width && current_visible_length > 0 {
+        if total_needed as i128 > width && current_visible_length > 0 {
             let mut line_to_wrap = current_line.trim_end().clone();
             line_to_wrap.push_str(&tracker.get_line_end_reset());
             wrapped.push(line_to_wrap);
@@ -722,7 +728,7 @@ enum WordSegment {
     Grapheme(JsString),
 }
 
-fn break_long_word(word: &JsString, width: usize, tracker: &mut AnsiCodeTracker) -> Vec<JsString> {
+fn break_long_word(word: &JsString, width: i128, tracker: &mut AnsiCodeTracker) -> Vec<JsString> {
     let mut lines: Vec<JsString> = Vec::new();
     let mut current_line = tracker.get_active_codes();
     let mut current_width = 0;
@@ -756,7 +762,7 @@ fn break_long_word(word: &JsString, width: usize, tracker: &mut AnsiCodeTracker)
                     continue;
                 }
                 let grapheme_width = visible_width(&grapheme);
-                if current_width + grapheme_width > width {
+                if (current_width + grapheme_width) as i128 > width {
                     current_line.push_str(&tracker.get_line_end_reset());
                     lines.push(std::mem::take(&mut current_line));
                     current_line = tracker.get_active_codes();

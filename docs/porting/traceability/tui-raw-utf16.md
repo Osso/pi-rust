@@ -158,3 +158,21 @@ compares frozen actual TUI listener rewrites to high/low units, direct raw event
 focused Input values, original listener data and submit callbacks. Interface RED then
 actual production module differential GREEN. Remaining component implementations and
 legacy test helpers still require native signature migration; no scalar fallback.
+
+## SettingsList
+
+Item IDs, labels, descriptions, values, submenu input/done, change callbacks, theme
+callbacks/cursor, search/filter data and rendering now use native strings.
+`update_value` accepts native IDs/values; component input is `&JsString` throughout.
+`raw_settings` compares 24 frozen scenarios (4 raw corpora × widths 1/10/50 × search
+off/on), intermediate render lines, raw update IDs, value cycling/change callbacks,
+raw search keys, selection/cancel state. Interface RED then source differential GREEN.
+Submenu raw signatures migrated; dedicated submenu callback proof pending.
+
+Observed frozen boundary preserved: SettingsList render(1) calls wrapping at width -3,
+which emits an extra blank before a zero-width surrogate description. Earlier Rust
+saturating subtraction silently clamped this internal source computation. Behavioral
+source differential reproduced the missing line; native wrapping now accepts signed
+internal width while public usize/numeric gaps remain unchanged. Settings source
+behavior is preserved, not repaired; source/delta files remain untouched. Existing
+192-case raw utility matrix remains GREEN after this internal width change.
