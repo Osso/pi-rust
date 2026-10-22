@@ -1,13 +1,12 @@
 //! `end_turn` tool (`core/tools/end-turn.ts`).
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::sync::OnceLock;
 
 use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
-use pi_js_compat::string::js_trim;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -20,14 +19,15 @@ pub const LABEL: &str = "end_turn";
 pub const DESCRIPTION: &str =
     "End the current model turn. Provide a concise reason explaining why the turn is finished.";
 pub const PROMPT_SNIPPET: &str = "End the current model turn with a required reason";
-pub const PROMPT_GUIDELINES: [&str; 2] = [
+pub const PROMPT_GUIDELINES: [&str; 3] = [
     "Call end_turn only when the task is complete, progress requires user input, or the user explicitly asks you to stop. If work remains and progress is possible, continue working instead of calling end_turn. Assistant text alone does not finish the turn.",
     "Provide one concise, non-empty reason.",
+    "Thinking is never shown to the user. When responding to the user, write the reply as assistant text before calling end_turn; never leave an answer only in thinking.",
 ];
 
 #[derive(Debug, Deserialize)]
 struct EndTurnParams {
-    reason: String,
+    reason: JsString,
 }
 
 /// `createEndTurnToolDefinition()`.
@@ -89,12 +89,12 @@ impl AgentHarnessTool<ExtensionContext> for EndTurnTool {
         Box::pin(async move {
             let params: EndTurnParams =
                 pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
-            if js_trim(&params.reason).is_empty() {
+            if params.reason.trim().is_empty() {
                 return Err(ToolError::new("end_turn reason must be a non-empty string"));
             }
             Ok(terminating_text_result(
-                format!("Turn ended: {}", params.reason),
-                json!({ "reason": params.reason }),
+                pi_js_compat::js_format!("Turn ended: {}", params.reason),
+                pi_js_compat::js_json!({ "reason": params.reason }),
             ))
         })
     }

@@ -1,5 +1,7 @@
 //! Port of `packages/coding-agent/test/end-turn-tool.test.ts`.
 
+#[path = "support/oracle.rs"]
+mod oracle;
 #[path = "support/tool_context.rs"]
 mod tool_context;
 
@@ -61,4 +63,28 @@ async fn terminates_with_its_required_reason() {
     );
     assert_eq!(result.terminate, Some(true));
     assert_eq!(result.is_error, None);
+}
+
+#[tokio::test]
+async fn raw_reasons_match_the_frozen_end_turn_result_without_normalization() {
+    let cases = js_json::parse_lossless(
+        r#"[{"reason":" before-\ud800-after "},{"reason":"\udfff"},{"reason":"pair-\ud83d\ude00"}]"#,
+    )
+    .unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "coding-agent-end-turn-oracle.ts",
+        "packages/coding-agent/src/core/tools/end-turn.ts",
+    );
+    let expected = source.request(&pi_js_compat::js_json!({"id": 1, "cases": cases}));
+    assert_eq!(expected["ok"], pi_js_compat::js_json!(true));
+    let cases = cases.as_array().unwrap();
+    let results = expected["output"].as_array().unwrap();
+    assert_eq!(cases.len(), results.len());
+    for (params, expected) in cases.iter().zip(results) {
+        let result = EndTurnTool::new()
+            .execute("raw-reason".into(), params.clone(), None, None, context().await, None)
+            .await
+            .expect("native reason must execute");
+        assert_eq!(js_json::to_value(&result).unwrap(), *expected);
+    }
 }
