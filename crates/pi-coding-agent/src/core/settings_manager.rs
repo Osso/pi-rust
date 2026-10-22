@@ -443,28 +443,28 @@ pub struct AgentProfileSettings {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageFilter {
-    pub source: String,
+    pub source: JsString,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub autoload: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extensions: Option<Vec<String>>,
+    pub extensions: Option<Vec<JsString>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub skills: Option<Vec<String>>,
+    pub skills: Option<Vec<JsString>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompts: Option<Vec<String>>,
+    pub prompts: Option<Vec<JsString>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub themes: Option<Vec<String>>,
+    pub themes: Option<Vec<JsString>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PackageSource {
-    Name(String),
+    Name(JsString),
     Filter(PackageFilter),
 }
 
 impl PackageSource {
-    pub fn source(&self) -> &str {
+    pub fn source(&self) -> &JsString {
         match self {
             Self::Name(source) => source,
             Self::Filter(filter) => &filter.source,
@@ -1495,8 +1495,8 @@ impl SettingsManager {
         self.save();
     }
 
-    pub fn get_npm_command(&self) -> Option<Vec<String>> {
-        string_array(self.settings.get("npmCommand"))
+    pub fn get_npm_command(&self) -> Option<Vec<JsString>> {
+        string_array(self.settings.get("npmCommand")).map(|values| values.into_iter().map(JsString::from).collect())
     }
 
     pub fn set_npm_command(&mut self, command: Option<&[String]>) {

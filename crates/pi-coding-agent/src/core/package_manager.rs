@@ -41,6 +41,7 @@ use crate::utils::paths::{
     PathInputOptions, canonicalize_path, is_local_path, mark_path_ignored_by_cloud_sync, relative_path, resolve_path,
 };
 use pi_js_compat::js_json;
+use pi_js_compat::js_json::JsString;
 
 const NETWORK_TIMEOUT_MS: u64 = 10_000;
 const UPDATE_CHECK_CONCURRENCY: usize = 4;
@@ -215,14 +216,14 @@ pub use crate::core::settings_manager::{PackageFilter, PackageSource};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PackageSettingsSnapshot {
     pub packages: Vec<PackageSource>,
-    pub extensions: Vec<String>,
-    pub skills: Vec<String>,
-    pub prompts: Vec<String>,
-    pub themes: Vec<String>,
+    pub extensions: Vec<JsString>,
+    pub skills: Vec<JsString>,
+    pub prompts: Vec<JsString>,
+    pub themes: Vec<JsString>,
 }
 
 impl PackageSettingsSnapshot {
-    fn resource_entries(&self, resource_type: ResourceType) -> &[String] {
+    fn resource_entries(&self, resource_type: ResourceType) -> &[JsString] {
         match resource_type {
             ResourceType::Extensions => &self.extensions,
             ResourceType::Skills => &self.skills,
@@ -239,7 +240,7 @@ pub trait PackageSettingsStore: Send + Sync {
     fn set_packages(&self, packages: Vec<PackageSource>);
     fn set_project_packages(&self, packages: Vec<PackageSource>);
     fn is_project_trusted(&self) -> bool;
-    fn get_npm_command(&self) -> Option<Vec<String>>;
+    fn get_npm_command(&self) -> Option<Vec<JsString>>;
 }
 
 pub type MissingSourceHandler<'a> =
@@ -291,7 +292,7 @@ impl PackageSettingsStore for SettingsManagerStore {
         self.with(|manager| manager.is_project_trusted())
     }
 
-    fn get_npm_command(&self) -> Option<Vec<String>> {
+    fn get_npm_command(&self) -> Option<Vec<JsString>> {
         self.with(|manager| manager.get_npm_command())
     }
 }
@@ -312,11 +313,11 @@ fn snapshot_from_settings(settings: &Settings) -> PackageSettingsSnapshot {
     }
 }
 
-fn string_list(settings: &Settings, key: &str) -> Vec<String> {
+fn string_list(settings: &Settings, key: &str) -> Vec<JsString> {
     settings
         .get(key)
         .and_then(Value::as_array)
-        .map(|entries| entries.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .and_then(|entries| entries.iter().map(|entry| entry.as_str().map(JsString::from)).collect())
         .unwrap_or_default()
 }
 
