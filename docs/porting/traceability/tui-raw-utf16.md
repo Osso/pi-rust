@@ -28,3 +28,23 @@ acceptance. `/tmp/pi-rust-repin-lossless-tui/REPORT.md` records commands and rev
 
 Input baseline reproduces `handleInput('a'); setValue('😀'); handleInput('x')` panic with cursor
 1. Frozen JS retains cursor 1 and inserts between pair units. No inside-pair gap is approved.
+
+## Input / kill ring / word navigation (staged)
+
+`Input` value, paste buffer, undo values, masking, cursor, edit slices, kill ring and
+render lines now use `JsString` / UTF-16 units. Native `handle_input(Into<JsString>)`
+is the sole input algorithm; the decoded terminal `Component::handle_input(&str)`
+entrypoint lifts into it. ASCII keyboard-protocol parsing is a transient recognition
+projection only, never text state or output. Submit callbacks receive `&JsString`.
+
+`raw_input` compares every intermediate value/cursor/render and submitted values over
+six concrete edit histories × mask on/off × widths 1–9 (108 scenarios): inside-pair
+insert/backspace/delete/undo, lone high/low keys, split bracketed paste with CRLF/tab,
+word kill/yank, home/end, submit. Native source output uses `JSON.stringify`.
+Word navigation now segments UTF-16 directly and does not snap inside-pair cursors.
+Its callbacks and custom segments are native strings. ICU dictionary gap unchanged.
+
+`Component::render` now declares `Vec<JsString>`. Remaining component/frame
+implementations are compile-blocked, not adapted through scalar encoding.
+Input isolated proof uses production Input/kill/word/keybinding/keys modules and the
+literal source trait interface with placeholder unused Container; no renderer proof.

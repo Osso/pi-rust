@@ -5,6 +5,8 @@
 //! are `Rc<RefCell<dyn Component>>` handles, which preserves the object identity
 //! the source relies on for focus, overlays, fixed cells, and render regions.
 
+use pi_js_compat::js_json::JsString;
+
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -47,7 +49,7 @@ fn same_component(left: &ComponentRef, right: &ComponentRef) -> bool {
 
 /// Component interface: render to lines and optionally handle input.
 pub trait Component {
-    fn render(&mut self, width: usize) -> Vec<String>;
+    fn render(&mut self, width: usize) -> Vec<JsString>;
 
     fn handle_input(&mut self, _data: &str) {}
 
