@@ -1241,7 +1241,6 @@ fn clamp_reasoning_level(level: ModelThinkingLevel) -> Option<crate::types::Thin
 fn merge_headers(
     model_headers: Option<&IndexMap<String, JsString>>,
     dynamic: Option<IndexMap<String, String>>,
-    options_headers: Option<&ProviderHeaders>,
 ) -> IndexMap<String, Option<JsString>> {
     let mut headers: IndexMap<String, Option<JsString>> = IndexMap::new();
     for (name, value) in model_headers.into_iter().flatten() {
@@ -1249,9 +1248,6 @@ fn merge_headers(
     }
     for (name, value) in dynamic.into_iter().flatten() {
         headers.insert(name, Some(value.into()));
-    }
-    for (name, value) in options_headers.into_iter().flatten() {
-        headers.insert(name.clone(), value.clone());
     }
     headers
 }
@@ -1268,19 +1264,16 @@ fn create_client(
         let has_images = has_copilot_vision_input(&context.messages);
         build_copilot_dynamic_headers(&context.messages, has_images)
     });
-    let mut headers = merge_headers(model.headers.as_ref(), dynamic, stream_options.request.headers.as_ref());
+    let mut headers = merge_headers(model.headers.as_ref(), dynamic);
     if let Some(session_id) = session_id
         && compat.send_session_affinity_headers
     {
-        if compat.session_affinity_format == crate::types::SessionAffinityFormat::Openrouter {
-            headers.insert("x-session-id".to_owned(), Some(session_id.clone()));
-        } else {
-            if compat.session_affinity_format == crate::types::SessionAffinityFormat::Openai {
-                headers.insert("session_id".to_owned(), Some(session_id.clone()));
-            }
-            headers.insert("x-client-request-id".to_owned(), Some(session_id.clone()));
-            headers.insert("x-session-affinity".to_owned(), Some(session_id.clone()));
-        }
+        headers.insert("session_id".to_owned(), Some(session_id.clone()));
+        headers.insert("x-client-request-id".to_owned(), Some(session_id.clone()));
+        headers.insert("x-session-affinity".to_owned(), Some(session_id.clone()));
+    }
+    for (name, value) in stream_options.request.headers.iter().flatten() {
+        headers.insert(name.clone(), value.clone());
     }
     SdkClient::new(SdkClientConfig {
         api_key: api_key.to_owned(),
