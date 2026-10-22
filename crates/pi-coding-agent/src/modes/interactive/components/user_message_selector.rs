@@ -1,6 +1,6 @@
 //! Ported from `packages/coding-agent/src/modes/interactive/components/user-message-selector.ts`.
 
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::{js_format, js_json::JsString};
 
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -17,7 +17,7 @@ use super::dynamic_border::dynamic_border;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UserMessageItem {
     /// Entry ID in the session.
-    pub id: String,
+    pub id: JsString,
     pub text: JsString,
 }
 
@@ -26,14 +26,14 @@ pub struct UserMessageList {
     messages: Vec<UserMessageItem>,
     selected_index: usize,
     max_visible: usize,
-    pub on_select: Option<Rc<dyn Fn(String)>>,
+    pub on_select: Option<Rc<dyn Fn(JsString)>>,
     pub on_cancel: Option<Rc<dyn Fn()>>,
 }
 
 impl UserMessageList {
-    pub fn new(messages: Vec<UserMessageItem>, initial_selected_id: Option<&str>) -> Self {
+    pub fn new(messages: Vec<UserMessageItem>, initial_selected_id: Option<&JsString>) -> Self {
         let initial_index = initial_selected_id
-            .and_then(|id| messages.iter().position(|message| message.id == id))
+            .and_then(|id| messages.iter().position(|message| &message.id == id))
             .map(|index| index as isize)
             .unwrap_or(-1);
         let selected_index = if initial_index >= 0 {
@@ -56,7 +56,7 @@ impl UserMessageList {
 }
 
 impl Component for UserMessageList {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         if self.messages.is_empty() {
             lines.push(with_theme(|theme| {
@@ -76,11 +76,11 @@ impl Component for UserMessageList {
         for index in start_index..end_index {
             let message = &self.messages[index];
             let is_selected = index == self.selected_index;
-            let normalized_message = encode_node_utf8(&message.text.replace("\n", " ").trim());
+            let normalized_message = message.text.replace("\n", " ").trim();
             let cursor = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "› "))
             } else {
-                "  ".to_owned()
+                JsString::from("  ")
             };
             let max_message_width = width.saturating_sub(2);
             let truncated_message = truncate_to_width(&normalized_message, max_message_width);
@@ -92,20 +92,20 @@ impl Component for UserMessageList {
                 };
             lines.push(message_line);
 
-            let metadata = format!("  Message {} of {}", index + 1, length);
+            let metadata = js_format!("  Message {} of {}", index + 1, length);
             lines.push(with_theme(|theme| theme.fg(ThemeColor::Muted, &metadata)));
-            lines.push(String::new());
+            lines.push(JsString::default());
         }
 
         if start_index > 0 || end_index < length {
-            let scroll_info = format!("  ({}/{})", self.selected_index + 1, length);
+            let scroll_info = js_format!("  ({}/{})", self.selected_index + 1, length);
             lines.push(with_theme(|theme| theme.fg(ThemeColor::Muted, &scroll_info)));
         }
 
         lines
     }
 
-    fn handle_input(&mut self, key_data: &str) {
+    fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(key_data, "tui.select.up") {
             self.selected_index = if self.selected_index == 0 {
@@ -147,9 +147,9 @@ pub struct UserMessageSelectorComponent {
 impl UserMessageSelectorComponent {
     pub fn new(
         messages: Vec<UserMessageItem>,
-        on_select: Rc<dyn Fn(String)>,
+        on_select: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
-        initial_selected_id: Option<&str>,
+        initial_selected_id: Option<&JsString>,
     ) -> Self {
         let prefix_children = vec![
             component(Spacer::new(1)),
@@ -209,7 +209,7 @@ impl UserMessageSelectorComponent {
 }
 
 impl Component for UserMessageSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         for child in &self.prefix_children {
             lines.extend(child.borrow_mut().render(width));

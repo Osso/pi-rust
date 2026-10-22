@@ -230,3 +230,43 @@ fn earendil_announcement_renders_and_invalidates_native_lines() {
     panel.invalidate();
     assert_eq!(JsString::join(panel.render(100), "\n"), output);
 }
+
+#[test]
+fn user_message_selector_retains_raw_normalized_preview_and_id() {
+    use pi_coding_agent::modes::interactive::components::user_message_selector::{UserMessageItem, UserMessageList};
+    init_theme();
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let id = JsString::from_utf16(vec![0xdc00]);
+    let mut list = UserMessageList::new(
+        vec![UserMessageItem {
+            id: id.clone(),
+            text: raw.clone() + "\nsecond",
+        }],
+        Some(&id),
+    );
+    let selected = Rc::new(std::cell::RefCell::new(None));
+    let callback = selected.clone();
+    list.on_select = Some(Rc::new(move |id| *callback.borrow_mut() = Some(id)));
+    assert!(JsString::join(list.render(80), "\n").contains(raw + " second"));
+    list.handle_input(&"\r".into());
+    assert_eq!(*selected.borrow(), Some(id));
+}
+
+#[test]
+fn agent_switcher_main_thread_selection_is_native() {
+    use pi_coding_agent::modes::interactive::components::agent_switcher::AgentSwitcherComponent;
+    init_theme();
+    let selected = Rc::new(std::cell::RefCell::new(None));
+    let callback = selected.clone();
+    let mut switcher = AgentSwitcherComponent::new(
+        vec![],
+        None,
+        Rc::new(move |id| *callback.borrow_mut() = Some(id)),
+        Rc::new(|| {}),
+        Rc::new(|_| {}),
+    );
+    switcher.handle_input(&JsString::from_utf16(vec![0xd800]));
+    assert!(JsString::join(switcher.render(80), "\n").contains("Main thread"));
+    switcher.handle_input(&"\r".into());
+    assert_eq!(*selected.borrow(), Some(JsString::from("main")));
+}
