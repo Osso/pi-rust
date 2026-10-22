@@ -46,7 +46,7 @@ impl AccountUsageRow {
 }
 
 fn claude_status_row(status: JsString) -> AccountUsageRow {
-    AccountUsageRow::new("Claude", JsString::new()).with_status(status)
+    AccountUsageRow::new("Claude", JsString::default()).with_status(status)
 }
 
 fn sanitize_usage_text(text: &JsString) -> JsString {

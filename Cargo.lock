@@ -2125,6 +2125,7 @@ dependencies = [
  "globset",
  "image 0.24.9",
  "indexmap",
+ "jiff",
  "nix",
  "notify",
  "percent-encoding",
