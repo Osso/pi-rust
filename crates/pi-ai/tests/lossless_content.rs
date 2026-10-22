@@ -461,7 +461,7 @@ async fn native_context_items_reach_http_json_without_scalar_projection() {
 }
 
 #[tokio::test]
-async fn openai_prompt_cache_key_keeps_utf16_slice_in_http_json() {
+async fn openai_prompt_cache_key_keeps_raw_codepoints_in_http_json() {
     use pi_ai::types::{Context, Model};
     use pi_js_compat::js_json::{JsString, JsValue};
     let model: Model = serde_json::from_value(serde_json::json!({
@@ -473,7 +473,9 @@ async fn openai_prompt_cache_key_keeps_utf16_slice_in_http_json() {
     options.request.fetch = Some(fetch.clone());
     options.request.api_key = Some("test".into());
     options.request.max_retries = Some(0.0);
-    let key = JsString::from("a".repeat(63)) + JsString::from_utf16(vec![0xd83d, 0xde00, 0xd800]);
+    let key = JsString::from_utf16(vec![0xd800])
+        + JsString::from("a".repeat(62))
+        + JsString::from_utf16(vec![0xd83d, 0xde00, 0xdc00]);
     options.session_id = Some(key.clone());
     let mut stream = pi_ai::api::openai_responses::stream(
         model,
@@ -489,6 +491,6 @@ async fn openai_prompt_cache_key_keeps_utf16_slice_in_http_json() {
     assert_eq!(requests.len(), 1);
     let body = std::str::from_utf8(requests[0].body.as_ref().unwrap()).unwrap();
     let parsed = parse_lossless(body).unwrap();
-    assert_eq!(parsed["prompt_cache_key"], JsValue::String(key.slice(0, 64)));
-    assert!(body.contains("\\ud83d"));
+    assert_eq!(parsed["prompt_cache_key"], JsValue::String(key.slice(0, 65)));
+    assert!(body.contains("\\ud800"));
 }

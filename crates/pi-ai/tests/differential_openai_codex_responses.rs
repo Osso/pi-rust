@@ -69,7 +69,7 @@ fn options(
                 ..ProviderRequestOptions::default()
             },
             transport: Some(transport),
-            session_id: session_id.map(str::to_owned),
+            session_id: session_id.map(Into::into),
             ..StreamOptions::default()
         },
         ..OpenAICodexResponsesOptions::default()
@@ -489,7 +489,7 @@ async fn differential_websocket_cached_continuation() {
         options(
             RecordingFetch::new(Vec::new()),
             Transport::WebsocketCached,
-            Some("diff-ws-cached"),
+            Some(&"diff-ws-cached".into()),
             None,
         ),
     ))
@@ -507,7 +507,7 @@ async fn differential_websocket_cached_continuation() {
         options(
             RecordingFetch::new(Vec::new()),
             Transport::WebsocketCached,
-            Some("diff-ws-cached"),
+            Some(&"diff-ws-cached".into()),
             None,
         ),
     ))
@@ -519,8 +519,8 @@ async fn differential_websocket_cached_continuation() {
     assert_eq!(first.1, expected["first"], "first result mismatch");
     assert_events(&second.0, &expected["secondEvents"], "second");
     assert_eq!(second.1, expected["second"], "second result mismatch");
-    close_openai_codex_websocket_sessions(Some("diff-ws-cached"));
-    reset_openai_codex_websocket_debug_stats(Some("diff-ws-cached"));
+    close_openai_codex_websocket_sessions(Some(&"diff-ws-cached".into()));
+    reset_openai_codex_websocket_debug_stats(Some(&"diff-ws-cached".into()));
 }
 
 fn snapshot(connections: &[ws_server::ServerConnection]) -> Value {
