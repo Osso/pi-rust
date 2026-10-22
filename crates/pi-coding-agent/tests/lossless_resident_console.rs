@@ -31,6 +31,7 @@ impl ResidentConsoleHost<JsValue, JsValue> for Host {
             session_id: JsString::from("session-") + JsString::from_utf16(vec![0xd800]),
             cwd: JsString::from("/resident-") + JsString::from_utf16(vec![0xdfff]),
             generation: 1,
+            identity: None,
             branch: vec![js_json::parse_lossless(r#"{"key-\ud800":"text-\udfff"}"#).unwrap()],
         }
     }

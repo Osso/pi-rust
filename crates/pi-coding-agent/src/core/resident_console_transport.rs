@@ -29,13 +29,35 @@ pub enum ResidentConsoleService {
     Supervisor,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ResidentConsoleManagedBy {
+    External,
+    Pi,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResidentConsoleIdentity {
+    pub version: JsString,
+    pub pid: f64,
+    pub executable: JsString,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<JsString>,
+    pub instance_id: JsString,
+    pub managed_by: ResidentConsoleManagedBy,
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResidentConsoleSnapshot<Entry> {
     pub service: ResidentConsoleService,
     pub session_id: JsString,
     pub cwd: JsString,
     pub generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<ResidentConsoleIdentity>,
     pub branch: Vec<Entry>,
 }
 
@@ -313,18 +335,17 @@ fn attach<Entry, Event>(
         unsubscribe: Some(unsubscribe),
         marker: PhantomData,
     });
-    state.write(
-        sender,
-        json!({
-            "type": "attached",
-            "version": RESIDENT_CONSOLE_PROTOCOL_VERSION,
-            "service": snapshot.service,
-            "sessionId": snapshot.session_id,
-            "cwd": snapshot.cwd,
-            "generation": snapshot.generation,
-            "branch": snapshot.branch,
-        }),
-    );
+    state.write(sender, snapshot_message("attached", &snapshot));
+}
+
+fn snapshot_message<Entry: Serialize>(kind: &str, snapshot: &ResidentConsoleSnapshot<Entry>) -> Value {
+    let mut message = json!({"type": kind, "version": RESIDENT_CONSOLE_PROTOCOL_VERSION});
+    let snapshot = json!(snapshot);
+    message
+        .as_object_mut()
+        .expect("frame object")
+        .extend(snapshot.as_object().expect("snapshot object").clone());
+    message
 }
 
 async fn handle_owned_message<Entry, Event>(
@@ -594,13 +615,27 @@ where
     }
     let branch: Vec<Entry> = js_json::from_value(&message["branch"])
         .map_err(|_| JsString::from("Invalid resident console attach response"))?;
+    let identity = message
+        .get("identity")
+        .map(read_resident_console_identity)
+        .transpose()?;
     Ok(ResidentConsoleSnapshot {
         service,
         session_id: message["sessionId"].as_string().cloned().unwrap_or_default(),
         cwd: message["cwd"].as_string().cloned().unwrap_or_default(),
         generation: message["generation"].as_u64().unwrap_or_default(),
+        identity,
         branch,
     })
+}
+
+fn read_resident_console_identity(value: &Value) -> Result<ResidentConsoleIdentity, JsString> {
+    let identity: ResidentConsoleIdentity =
+        js_json::from_value(value).map_err(|_| JsString::from("Invalid resident console identity"))?;
+    if !identity.ready || value.get("entrypoint").is_some_and(|entry| !entry.is_string()) {
+        return Err("Invalid resident console identity".into());
+    }
+    Ok(identity)
 }
 
 fn spawn_client_reader<Event>(reader: BufReader<tokio::net::unix::OwnedReadHalf>, state: Arc<ClientState<Event>>)

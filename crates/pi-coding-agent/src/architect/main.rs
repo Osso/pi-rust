@@ -122,6 +122,7 @@ pub fn create_architect_console_snapshot(
         session_id: session_id.cloned().unwrap_or_else(|| ARCHITECT_SESSION_ID.into()),
         cwd: cwd.clone(),
         generation,
+        identity: None,
         branch,
     }
 }

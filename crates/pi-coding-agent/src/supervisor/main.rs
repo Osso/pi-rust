@@ -218,6 +218,7 @@ pub fn create_supervisor_console_snapshot(
         session_id: session_id.cloned().unwrap_or_else(|| SUPERVISOR_SESSION_ID.into()),
         cwd: cwd.to_owned(),
         generation,
+        identity: None,
         branch,
     }
 }
