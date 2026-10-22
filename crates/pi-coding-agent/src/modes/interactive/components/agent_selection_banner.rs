@@ -1,7 +1,7 @@
 //! Ported from `coding-agent/src/modes/interactive/components/agent-selection-banner.ts`.
 
-use std::sync::Arc;
 use pi_js_compat::{js_format, js_json::JsString};
+use std::sync::Arc;
 
 use pi_tui::{Component, truncate_to_width};
 

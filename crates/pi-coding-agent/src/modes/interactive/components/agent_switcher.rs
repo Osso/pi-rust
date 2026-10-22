@@ -142,7 +142,7 @@ impl AgentSwitcherList {
             .collect();
         let selected_agent_index = build_agent_rows(&active_agents)
             .iter()
-            .position(|row| Some(row.&agent.id) == selected_agent_id.as_ref())
+            .position(|row| Some(&row.agent.id) == selected_agent_id.as_ref())
             .map(|index| index + 1)
             .unwrap_or(0);
         Self {
@@ -194,8 +194,7 @@ impl AgentSwitcherList {
     fn render_agent_line(&self, row: &AgentSwitcherRow, index: usize, width: usize) -> JsString {
         let agent = &row.agent;
         let is_selected = index == self.selected_index;
-        let is_current =
-            Some(&agent.id) == self.selected_agent_id.as_ref() && is_active_lifecycle(agent.lifecycle);
+        let is_current = Some(&agent.id) == self.selected_agent_id.as_ref() && is_active_lifecycle(agent.lifecycle);
         let cursor = if is_selected {
             with_theme(|theme| theme.fg(ThemeColor::Accent, "› "))
         } else {
@@ -226,7 +225,13 @@ impl AgentSwitcherList {
         let right_text = with_theme(|theme| {
             theme.fg(
                 ThemeColor::Muted,
-                &js_format!("{}{} {}{}", lifecycle, inactive_marker, &agent.agent_type, selected_marker),
+                &js_format!(
+                    "{}{} {}{}",
+                    lifecycle,
+                    inactive_marker,
+                    &agent.agent_type,
+                    selected_marker
+                ),
             )
         });
         let left_width = visible_width(&left_text) + visible_width(&id_text);
