@@ -1,17 +1,18 @@
 use pi_agent_core::harness::compaction::utils::format_file_operations;
+use pi_js_compat::js_json::JsString;
 
 #[test]
 fn empty_lists_return_empty_output() {
-    let read_files: Vec<String> = Vec::new();
-    let modified_files: Vec<String> = Vec::new();
+    let read_files: Vec<JsString> = Vec::new();
+    let modified_files: Vec<JsString> = Vec::new();
 
     assert_eq!(format_file_operations(&read_files, &modified_files), "");
 }
 
 #[test]
 fn read_only_files_emit_one_exact_section() {
-    let read_files = vec!["src/a.ts".to_owned(), "src/b.ts".to_owned()];
-    let modified_files: Vec<String> = Vec::new();
+    let read_files = vec![JsString::from("src/a.ts"), JsString::from("src/b.ts")];
+    let modified_files: Vec<JsString> = Vec::new();
 
     assert_eq!(
         format_file_operations(&read_files, &modified_files),
@@ -21,8 +22,8 @@ fn read_only_files_emit_one_exact_section() {
 
 #[test]
 fn modified_only_files_emit_one_exact_section() {
-    let read_files: Vec<String> = Vec::new();
-    let modified_files = vec!["src/changed.ts".to_owned()];
+    let read_files: Vec<JsString> = Vec::new();
+    let modified_files = vec![JsString::from("src/changed.ts")];
 
     assert_eq!(
         format_file_operations(&read_files, &modified_files),
@@ -32,8 +33,8 @@ fn modified_only_files_emit_one_exact_section() {
 
 #[test]
 fn both_sections_have_exact_prefix_and_separator() {
-    let read_files = vec!["src/read.ts".to_owned()];
-    let modified_files = vec!["src/write.ts".to_owned()];
+    let read_files = vec![JsString::from("src/read.ts")];
+    let modified_files = vec![JsString::from("src/write.ts")];
 
     assert_eq!(
         format_file_operations(&read_files, &modified_files),
@@ -43,8 +44,13 @@ fn both_sections_have_exact_prefix_and_separator() {
 
 #[test]
 fn preserves_order_duplicates_and_empty_entries() {
-    let read_files = vec!["first".to_owned(), "".to_owned(), "first".to_owned(), "last".to_owned()];
-    let modified_files = vec!["changed".to_owned(), "changed".to_owned(), "".to_owned()];
+    let read_files = vec![
+        JsString::from("first"),
+        JsString::from(""),
+        JsString::from("first"),
+        JsString::from("last"),
+    ];
+    let modified_files = vec![JsString::from("changed"), JsString::from("changed"), JsString::from("")];
 
     assert_eq!(
         format_file_operations(&read_files, &modified_files),
@@ -54,8 +60,8 @@ fn preserves_order_duplicates_and_empty_entries() {
 
 #[test]
 fn preserves_unicode_nul_punctuation_and_raw_xml_sensitive_content() {
-    let read_files = vec!["é/技能/😀\0<&>\"'".to_owned()];
-    let modified_files = vec!["a&b< c >\"'".to_owned()];
+    let read_files = vec![JsString::from("é/技能/😀\0<&>\"'")];
+    let modified_files = vec![JsString::from("a&b< c >\"'")];
 
     assert_eq!(
         format_file_operations(&read_files, &modified_files),
@@ -65,8 +71,8 @@ fn preserves_unicode_nul_punctuation_and_raw_xml_sensitive_content() {
 
 #[test]
 fn preserves_embedded_and_trailing_newlines_verbatim() {
-    let read_files = vec!["before\ninside\n".to_owned(), "after".to_owned()];
-    let modified_files = vec!["changed\n\n".to_owned()];
+    let read_files = vec![JsString::from("before\ninside\n"), JsString::from("after")];
+    let modified_files = vec![JsString::from("changed\n\n")];
 
     assert_eq!(
         format_file_operations(&read_files, &modified_files),

@@ -3,9 +3,9 @@ pub mod support;
 use pi_agent_core::agent::*;
 use pi_agent_core::harness::{BeforeToolCallResult, ThinkingLevel};
 use pi_ai::types::{AssistantContent, ToolCallExecution};
+use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
-use serde_json::json;
 use std::sync::{Arc, Mutex};
 use support::*;
 
@@ -64,7 +64,8 @@ async fn hooks_keep_original_tool_call_after_argument_preparation() {
         assert_eq!(args, json!({"value":"prepared"}));
         text_result("found")
     });
-    tool.parameters = json!({"type":"object","properties":{"value":{"type":"string"}},"required":["value"]});
+    tool.parameters =
+        serde_json::json!({"type":"object","properties":{"value":{"type":"string"}},"required":["value"]});
     tool.prepare_arguments = Some(Arc::new(|_| Ok(JsValue::from(json!({"value":"prepared"})))));
     let mut cfg = AgentLoopConfig::new(model(), identity_convert());
     let observed = Arc::new(Mutex::new(Vec::new()));

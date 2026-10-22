@@ -1,4 +1,5 @@
 use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -105,7 +106,7 @@ where
 {
     match future.await {
         Ok(_) => panic!("operation must fail"),
-        Err(error) => assert_eq!(error.code(), code, "message: {}", error.message()),
+        Err(error) => assert_eq!(error.code(), code, "message: {:?}", error.message()),
     }
 }
 
@@ -122,7 +123,7 @@ async fn assigns_parents_and_one_sequence_across_every_mutation() {
             EntryBody::Custom {
                 id: "child".to_owned(),
                 custom_type: "note".to_owned(),
-                data: json!({"value": 1}).into(),
+                data: JsValue::from(json!({"value": 1})).into(),
             },
             "thread",
         )
@@ -252,7 +253,7 @@ async fn supports_bounded_filtered_and_cursor_based_queries() {
             EntryBody::Custom {
                 id: "old-note".to_owned(),
                 custom_type: "note".to_owned(),
-                data: json!(1).into(),
+                data: JsValue::from(json!(1)).into(),
             },
             "main",
         )
@@ -278,7 +279,7 @@ async fn supports_bounded_filtered_and_cursor_based_queries() {
             EntryBody::Custom {
                 id: "new-note".to_owned(),
                 custom_type: "note".to_owned(),
-                data: json!(2).into(),
+                data: JsValue::from(json!(2)).into(),
             },
             "main",
         )
@@ -591,7 +592,7 @@ async fn keeps_latest_facts_and_computes_ledger_statistics_across_lanes() {
             attempt: None,
             stop_reason: None,
             tool_call_id: None,
-            details: json!({"reason": "provider correction"}).into(),
+            details: JsValue::from(json!({"reason": "provider correction"})).into(),
             usage: Usage {
                 input: -2.0,
                 output: 0.0,

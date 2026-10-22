@@ -8,9 +8,9 @@ use pi_agent_core::harness::session::{
     default_context_entry_transform,
 };
 use pi_ai::types::{AssistantMessage, StopReason, TextContent, TextOrImageContent, UserContent, UserMessage, UserRole};
-use serde_json::json;
+use pi_js_compat::js_json as json;
 
-fn user_message(text: &str) -> AgentMessage {
+fn user_message(text: impl Into<JsString>) -> AgentMessage {
     AgentMessage::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(text))]),
@@ -36,7 +36,7 @@ fn entry(body: EntryBody, seq: i64) -> Entry {
     }
 }
 
-fn roles(context: &pi_agent_core::harness::session::SessionContext) -> Vec<String> {
+fn roles(context: &pi_agent_core::harness::session::SessionContext) -> Vec<JsString> {
     context
         .messages
         .iter()
@@ -218,8 +218,11 @@ fn projects_custom_entries_and_omits_deferred_assistant_handles() {
             let EntryBody::Custom { data, .. } = &entry.body else {
                 return None;
             };
-            let value = data.as_value().and_then(|value| value.as_str()).unwrap_or_default();
-            Some(vec![user_message(&format!("note: {value}"))])
+            let value = data
+                .as_value()
+                .and_then(|value| value.as_string())
+                .expect("custom string data");
+            Some(vec![user_message(pi_js_compat::js_format!("note: {}", value))])
         }) as pi_agent_core::harness::session::CustomEntryContextMessageProjector,
     );
     let options = SessionContextBuildOptions {

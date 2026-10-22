@@ -338,7 +338,7 @@ async fn provider_failure_survives_jsonl_repo_close_and_reopen() {
     let repo = JsonlSessionRepo::with_clock(
         JsonlSessionRepoOptions {
             fs: Arc::new(NativeFileSystem::new(root.path().to_str().unwrap())),
-            sessions_root: root.path().to_string_lossy().into_owned().into(),
+            sessions_root: root.path().to_str().expect("utf-8 test path").to_owned().into(),
         },
         Arc::new(|| 1_700_000_000_000),
     );
@@ -358,7 +358,7 @@ async fn provider_failure_survives_jsonl_repo_close_and_reopen() {
         .create(JsonlSessionCreateOptions {
             id: Some("native-error".into()),
             parent_session_id: None,
-            cwd: root.path().to_string_lossy().into_owned().into(),
+            cwd: root.path().to_str().expect("utf-8 test path").to_owned().into(),
             metadata: None,
         })
         .await

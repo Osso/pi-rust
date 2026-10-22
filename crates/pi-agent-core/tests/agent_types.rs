@@ -77,13 +77,13 @@ fn agent_event_serializes_typescript_wire_names() {
         AgentEvent::ToolExecutionStart {
             tool_call_id: "call-1".to_owned(),
             tool_name: "echo".to_owned(),
-            args: json!({"value": "x"}),
+            args: pi_js_compat::js_json!({"value": "x"}),
             started_at: 10.0,
         },
         AgentEvent::ToolExecutionUpdate {
             tool_call_id: "call-1".to_owned(),
             tool_name: "echo".to_owned(),
-            args: json!({"value": "x"}),
+            args: pi_js_compat::js_json!({"value": "x"}),
             partial_result: AgentToolResult::text("partial"),
         },
         AgentEvent::ToolExecutionEnd {
@@ -194,7 +194,7 @@ fn agent_context_and_hook_contexts_are_constructible() {
         args: std::sync::Arc::new(std::sync::Mutex::new(JsValue::from(json!({})))),
         context: context.clone(),
     };
-    assert_eq!(before.args_snapshot(), json!({}));
+    assert_eq!(before.args_snapshot(), pi_js_compat::js_json!({}));
     assert_eq!(before.context.system_prompt, "sys");
 
     let stop = ShouldStopAfterTurnContext {

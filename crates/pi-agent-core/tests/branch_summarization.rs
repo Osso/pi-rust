@@ -128,7 +128,9 @@ impl EntryFactory {
                 id,
                 from_id: "branch".to_owned(),
                 summary: JsString::from(summary.to_owned()),
-                details: details.map_or(OptionalValue::Missing, OptionalValue::Present),
+                details: details
+                    .map(JsValue::from)
+                    .map_or(OptionalValue::Missing, OptionalValue::Present),
                 usage: None,
             },
             parent_id: None,
@@ -356,7 +358,7 @@ fn registered_models(faux: &FauxProviderHandle) -> pi_ai::models::ModelsCollecti
 
 #[derive(Debug, Clone, Default, PartialEq)]
 struct CapturedCall {
-    prompt: String,
+    prompt: JsString,
     max_tokens: Option<f64>,
     cache_retention: Option<CacheRetention>,
 }
@@ -387,19 +389,19 @@ fn scripted_responses(log: CallLog, texts: Vec<&'static str>) -> Vec<FauxRespons
         .collect()
 }
 
-fn first_user_text(context: &Context) -> String {
+fn first_user_text(context: &Context) -> JsString {
     match context.messages.first() {
         Some(Message::User(user)) => match &user.content {
             UserContent::Text(text) => text.clone(),
-            UserContent::Blocks(blocks) => blocks
-                .iter()
-                .filter_map(|block| match block {
-                    TextOrImageContent::Text(text) => Some(text.text.as_str()),
+            UserContent::Blocks(blocks) => JsString::join(
+                blocks.iter().filter_map(|block| match block {
+                    TextOrImageContent::Text(text) => Some(text.text.clone()),
                     TextOrImageContent::Image(_) => None,
-                })
-                .collect(),
+                }),
+                "",
+            ),
         },
-        _ => String::new(),
+        _ => JsString::default(),
     }
 }
 
@@ -507,13 +509,15 @@ async fn appends_or_replaces_custom_instructions() {
     faux.set_responses(scripted_responses(Arc::clone(&log), vec!["first", "second"]));
 
     let mut appended = options(&models, &model);
-    appended.custom_instructions = Some(&JsString::from("focus on files"));
+    let appended_custom_instructions = JsString::from("focus on files");
+    appended.custom_instructions = Some(&appended_custom_instructions);
     generate_branch_summary(&branch_entries(), &appended)
         .await
         .expect("summary must succeed");
 
     let mut replaced = options(&models, &model);
-    replaced.custom_instructions = Some(&JsString::from("only this instruction"));
+    let replaced_custom_instructions = JsString::from("only this instruction");
+    replaced.custom_instructions = Some(&replaced_custom_instructions);
     replaced.replace_instructions = true;
     generate_branch_summary(&branch_entries(), &replaced)
         .await

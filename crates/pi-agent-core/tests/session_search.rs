@@ -313,8 +313,10 @@ fn jsonl_source(
 async fn scans_jsonl_sessions_from_disk_through_the_scanning_source() {
     let root = TempDir::new().unwrap();
     let options = JsonlSessionRepoOptions {
-        fs: Arc::new(NativeFileSystem::new(root.path())),
-        sessions_root: JsString::from(root.path().to_string_lossy().into_owned()),
+        fs: Arc::new(NativeFileSystem::new(JsString::from(
+            root.path().to_str().expect("utf-8 test path"),
+        ))),
+        sessions_root: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
     };
     let repository = JsonlSessionRepo::with_clock(options.clone(), Arc::new(|| 1_700_000_000_000));
     let cwd = root.path().join("workspace");
@@ -323,7 +325,7 @@ async fn scans_jsonl_sessions_from_disk_through_the_scanning_source() {
         .create(JsonlSessionCreateOptions {
             id: Some("jsonl".to_owned()),
             parent_session_id: None,
-            cwd: JsString::from(cwd.to_string_lossy().into_owned()),
+            cwd: JsString::from(cwd.to_str().expect("utf-8 test path").to_owned()),
             metadata: None,
         })
         .await
@@ -337,7 +339,7 @@ async fn scans_jsonl_sessions_from_disk_through_the_scanning_source() {
         .create(JsonlSessionCreateOptions {
             id: Some("other".to_owned()),
             parent_session_id: None,
-            cwd: JsString::from(other_cwd.to_string_lossy().into_owned()),
+            cwd: JsString::from(other_cwd.to_str().expect("utf-8 test path").to_owned()),
             metadata: None,
         })
         .await

@@ -110,7 +110,7 @@ impl AgentHarnessTool<Value> for EchoTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        _params: Value,
+        _params: pi_js_compat::js_json::JsValue,
         _signal: Option<tokio_util::sync::CancellationToken>,
         _on_update: Option<pi_agent_core::agent::AgentToolUpdateCallback>,
         context: Value,

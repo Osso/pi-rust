@@ -1,4 +1,5 @@
 use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -446,7 +447,7 @@ impl pi_agent_core::agent::AgentTool for EchoTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        _params: Value,
+        _params: JsValue,
         _signal: Option<tokio_util::sync::CancellationToken>,
         _on_update: pi_agent_core::agent::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::AgentToolExecutionContext>,

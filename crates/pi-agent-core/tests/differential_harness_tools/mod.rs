@@ -99,7 +99,7 @@ fn compare_case(oracle: &mut TsOracle, runtime: &tokio::runtime::Runtime, case: 
     let request = json!({
         "id": 2,
         "operation": "tool",
-        "root": ts_root.path().to_string_lossy(),
+        "root": ts_root.path().to_str().expect("utf-8 test path"),
         "tool": case.tool.as_str(),
         "input": case.input,
         "abort": case.abort,
@@ -130,7 +130,7 @@ fn compare_case(oracle: &mut TsOracle, runtime: &tokio::runtime::Runtime, case: 
 fn rust_context() -> (TempDir, Arc<ExecutionToolContext>) {
     let root = tempfile::tempdir().expect("temp dir");
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_string_lossy().into_owned()),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     });
@@ -140,7 +140,7 @@ fn rust_context() -> (TempDir, Arc<ExecutionToolContext>) {
 
 fn context_at(root: &Path) -> Arc<ExecutionToolContext> {
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.to_string_lossy().into_owned()),
+        cwd: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     });
@@ -181,7 +181,7 @@ async fn run_tool(case: &Case, root: &Path) -> Value {
                 BashToolOptions {
                     command_prefix: Some("prefix=ready".to_owned()),
                     prepare: Some(Arc::new(PrepareWorkspace {
-                        workspace: root.join("workspace").to_string_lossy().into_owned(),
+                        workspace: root.join("workspace").to_str().expect("utf-8 test path").to_owned(),
                     })),
                 }
             } else {
@@ -272,9 +272,9 @@ fn summary(result: &Value, root: &Path) -> Value {
         "error": result.get("error").cloned().unwrap_or(Value::Null),
         "lastUpdate": last_update,
     });
-    let root = root.to_string_lossy().into_owned();
+    let root = root.to_str().expect("utf-8 test path").to_owned();
     let canonical_root = std::fs::canonicalize(root.as_str())
-        .map(|path| path.to_string_lossy().into_owned())
+        .map(|path| path.to_str().expect("utf-8 test path").to_owned())
         .unwrap_or_else(|_| root.clone());
     normalize(&mut value, &root, &canonical_root, full_output_path.as_deref());
     value
@@ -335,12 +335,16 @@ fn collect_snapshot(root: &Path, directory: &Path, entries: &mut Map<String, Val
         let relative = path
             .strip_prefix(root)
             .expect("fixture path must be under root")
-            .to_string_lossy()
-            .into_owned();
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned();
         let metadata = std::fs::symlink_metadata(&path).expect("fixture metadata must be readable");
         if metadata.file_type().is_symlink() {
             let target = std::fs::read_link(&path).expect("symlink target must be readable");
-            entries.insert(relative, json!({"kind": "symlink", "target": target.to_string_lossy()}));
+            entries.insert(
+                relative,
+                json!({"kind": "symlink", "target": target.to_str().expect("utf-8 test path")}),
+            );
         } else if metadata.is_dir() {
             entries.insert(relative, json!({"kind": "directory"}));
             collect_snapshot(root, &path, entries);

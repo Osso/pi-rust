@@ -62,18 +62,17 @@ fn message_timestamp(message: &Message) -> i64 {
     }
 }
 
-fn user_text(message: &Message) -> String {
+fn user_text(message: &Message) -> JsString {
     match message {
         Message::User(user) => match &user.content {
             UserContent::Text(text) => text.clone(),
-            UserContent::Blocks(blocks) => blocks
-                .iter()
-                .map(|block| match block {
+            UserContent::Blocks(blocks) => JsString::join(
+                blocks.iter().map(|block| match block {
                     TextOrImageContent::Text(text) => text.text.clone(),
-                    TextOrImageContent::Image(image) => format!("[image:{}]", image.mime_type),
-                })
-                .collect::<Vec<_>>()
-                .join(""),
+                    TextOrImageContent::Image(image) => pi_js_compat::js_format!("[image:{}]", image.mime_type),
+                }),
+                "",
+            ),
         },
         other => panic!("expected a user message, got {other:?}"),
     }
@@ -82,7 +81,7 @@ fn user_text(message: &Message) -> String {
 #[test]
 fn passes_standard_roles_through_unchanged() {
     let messages = vec![user("hi"), assistant("hello"), tool_result("done")];
-    let converted = convert_to_llm(&messages);
+    let converted = convert_to_llm(&messages).expect("convert fixture messages");
 
     assert_eq!(converted.len(), 3);
     assert_eq!(converted[0], Message::User(user("hi").as_user().expect("user").clone()));
@@ -108,7 +107,7 @@ fn formats_bash_execution_text_exactly() {
         "timestamp": 1
     }));
     assert_eq!(
-        user_text(&convert_to_llm(&[with_output])[0]),
+        user_text(&convert_to_llm(&[with_output]).expect("convert fixture messages")[0]),
         "Ran `ls -la`\n```\na\nb\n```"
     );
 
@@ -121,7 +120,10 @@ fn formats_bash_execution_text_exactly() {
         "truncated": false,
         "timestamp": 1
     }));
-    assert_eq!(user_text(&convert_to_llm(&[no_output])[0]), "Ran `true`\n(no output)");
+    assert_eq!(
+        user_text(&convert_to_llm(&[no_output]).expect("convert fixture messages")[0]),
+        "Ran `true`\n(no output)"
+    );
 
     let cancelled = custom(json!({
         "role": "bashExecution",
@@ -133,7 +135,7 @@ fn formats_bash_execution_text_exactly() {
         "timestamp": 1
     }));
     assert_eq!(
-        user_text(&convert_to_llm(&[cancelled])[0]),
+        user_text(&convert_to_llm(&[cancelled]).expect("convert fixture messages")[0]),
         "Ran `sleep 10`\n(no output)\n\n(command cancelled)"
     );
 
@@ -147,7 +149,7 @@ fn formats_bash_execution_text_exactly() {
         "timestamp": 1
     }));
     assert_eq!(
-        user_text(&convert_to_llm(&[failed])[0]),
+        user_text(&convert_to_llm(&[failed]).expect("convert fixture messages")[0]),
         "Ran `false`\n```\nboom\n```\n\nCommand exited with code 2"
     );
 
@@ -162,7 +164,7 @@ fn formats_bash_execution_text_exactly() {
         "timestamp": 1
     }));
     assert_eq!(
-        user_text(&convert_to_llm(&[truncated])[0]),
+        user_text(&convert_to_llm(&[truncated]).expect("convert fixture messages")[0]),
         "Ran `yes`\n```\ny\n```\n\n[Output truncated. Full output: /tmp/full.log]"
     );
 }
@@ -190,8 +192,12 @@ fn skips_bash_execution_excluded_from_context() {
         "timestamp": 1
     }));
 
-    assert!(convert_to_llm(&[excluded]).is_empty());
-    assert_eq!(convert_to_llm(&[included]).len(), 1);
+    assert!(
+        convert_to_llm(&[excluded])
+            .expect("convert fixture messages")
+            .is_empty()
+    );
+    assert_eq!(convert_to_llm(&[included]).expect("convert fixture messages").len(), 1);
 }
 
 #[test]
@@ -214,7 +220,7 @@ fn converts_custom_string_and_block_content_to_user_messages() {
         "timestamp": 8
     }));
 
-    let converted = convert_to_llm(&[string_content, block_content]);
+    let converted = convert_to_llm(&[string_content, block_content]).expect("convert fixture messages");
     assert_eq!(converted.len(), 2);
     // The source wraps string content as `[{ type: "text", text }]`.
     assert_eq!(
@@ -257,14 +263,14 @@ fn frames_branch_and_compaction_summaries_as_user_messages() {
         "timestamp": 4
     }));
 
-    let converted = convert_to_llm(&[branch, compaction]);
+    let converted = convert_to_llm(&[branch, compaction]).expect("convert fixture messages");
     assert_eq!(
         user_text(&converted[0]),
-        format!("{BRANCH_SUMMARY_PREFIX}branch text{BRANCH_SUMMARY_SUFFIX}")
+        pi_js_compat::js_format!("{}branch text{}", BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX)
     );
     assert_eq!(
         user_text(&converted[1]),
-        format!("{COMPACTION_SUMMARY_PREFIX}compact text{COMPACTION_SUMMARY_SUFFIX}")
+        pi_js_compat::js_format!("{}compact text{}", COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX)
     );
     assert_eq!(message_timestamp(&converted[1]), 4);
 }
@@ -279,7 +285,7 @@ fn skips_unknown_roles_and_preserves_order() {
         user("two"),
     ];
 
-    let converted = convert_to_llm(&messages);
+    let converted = convert_to_llm(&messages).expect("convert fixture messages");
     assert_eq!(converted.len(), 2);
     assert_eq!(user_text(&converted[0]), "one");
     assert_eq!(user_text(&converted[1]), "two");

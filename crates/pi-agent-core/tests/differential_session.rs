@@ -31,8 +31,10 @@ const SOURCE_MODULE: &str = "packages/agent/src/harness/session/index.ts";
 fn jsonl_repo(root: &Path) -> JsonlSessionRepo {
     JsonlSessionRepo::with_clock(
         JsonlSessionRepoOptions {
-            fs: std::sync::Arc::new(NativeFileSystem::new(root)),
-            sessions_root: JsString::from(root.to_string_lossy().into_owned()),
+            fs: std::sync::Arc::new(NativeFileSystem::new(JsString::from(
+                root.to_str().expect("utf-8 test path"),
+            ))),
+            sessions_root: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
         },
         std::sync::Arc::new(|| 1_700_000_000_000),
     )
@@ -190,7 +192,14 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
         .create(JsonlSessionCreateOptions {
             id: Some("session".to_owned()),
             parent_session_id: None,
-            cwd: JsString::from(rust_root.path().join("workspace").to_string_lossy().into_owned()),
+            cwd: JsString::from(
+                rust_root
+                    .path()
+                    .join("workspace")
+                    .to_str()
+                    .expect("utf-8 test path")
+                    .to_owned(),
+            ),
             metadata: Some(
                 json!({"owner": "agent", "nested": {"enabled": true}})
                     .as_object()
@@ -207,7 +216,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
         2,
         "create",
         create,
-        normalize_jsonl_metadata(&created_metadata, &rust_root.path().to_string_lossy()),
+        normalize_jsonl_metadata(&created_metadata, &rust_root.path().to_str().expect("utf-8 test path")),
         &mut oracle,
     );
 
@@ -355,7 +364,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
         29,
         "get_metadata",
         request,
-        normalize_jsonl_metadata(&current, &rust_root.path().to_string_lossy()),
+        normalize_jsonl_metadata(&current, &rust_root.path().to_str().expect("utf-8 test path")),
         &mut oracle,
     );
 
@@ -363,7 +372,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
     let listed = repo.list(JsonlSessionListOptions::default()).await.unwrap();
     let rust_list: Vec<Value> = listed
         .iter()
-        .map(|metadata| normalize_jsonl_metadata(metadata, &rust_root.path().to_string_lossy()))
+        .map(|metadata| normalize_jsonl_metadata(metadata, &rust_root.path().to_str().expect("utf-8 test path")))
         .collect();
     compare(30, "list", request, Value::Array(rust_list), &mut oracle);
 
@@ -388,7 +397,14 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
             JsonlSessionCreateOptions {
                 id: Some("tree-fork".to_owned()),
                 parent_session_id: None,
-                cwd: JsString::from(rust_root.path().join("workspace").to_string_lossy().into_owned()),
+                cwd: JsString::from(
+                    rust_root
+                        .path()
+                        .join("workspace")
+                        .to_str()
+                        .expect("utf-8 test path")
+                        .to_owned(),
+                ),
                 metadata: None,
             },
         )
@@ -401,7 +417,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
         32,
         "fork",
         fork_request,
-        normalize_jsonl_metadata(&tree_metadata, &rust_root.path().to_string_lossy()),
+        normalize_jsonl_metadata(&tree_metadata, &rust_root.path().to_str().expect("utf-8 test path")),
         &mut oracle,
     );
 
@@ -419,7 +435,14 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
             JsonlSessionCreateOptions {
                 id: Some("branch-fork".to_owned()),
                 parent_session_id: None,
-                cwd: JsString::from(rust_root.path().join("workspace").to_string_lossy().into_owned()),
+                cwd: JsString::from(
+                    rust_root
+                        .path()
+                        .join("workspace")
+                        .to_str()
+                        .expect("utf-8 test path")
+                        .to_owned(),
+                ),
                 metadata: None,
             },
         )
@@ -432,7 +455,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
         33,
         "fork",
         branch_request,
-        normalize_jsonl_metadata(&branch_metadata, &rust_root.path().to_string_lossy()),
+        normalize_jsonl_metadata(&branch_metadata, &rust_root.path().to_str().expect("utf-8 test path")),
         &mut oracle,
     );
 
@@ -444,7 +467,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
         34,
         "open",
         open_request,
-        normalize_jsonl_metadata(&reopened_metadata, &rust_root.path().to_string_lossy()),
+        normalize_jsonl_metadata(&reopened_metadata, &rust_root.path().to_str().expect("utf-8 test path")),
         &mut oracle,
     );
 
@@ -479,7 +502,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
     let listed = repo.list(JsonlSessionListOptions::default()).await.unwrap();
     let rust_list: Vec<Value> = listed
         .iter()
-        .map(|metadata| normalize_jsonl_metadata(metadata, &rust_root.path().to_string_lossy()))
+        .map(|metadata| normalize_jsonl_metadata(metadata, &rust_root.path().to_str().expect("utf-8 test path")))
         .collect();
     compare(38, "list", list_request, Value::Array(rust_list), &mut oracle);
 
@@ -845,7 +868,7 @@ async fn session_context_matches_the_pinned_typescript_source() {
                         return None;
                     };
                     Some(vec![pi_agent_core::agent::AgentMessage::Custom(
-                        (json!({"role": "user", "content": [{"type": "text", "text": format!("note: {}", data.as_value().and_then(JsValue::as_string).unwrap_or_default())}], "timestamp": entry.timestamp})
+                        (json!({"role": "user", "content": [{"type": "text", "text": pi_js_compat::js_format!("note: {}", data.as_value().and_then(JsValue::as_string).expect("custom string data"))}], "timestamp": entry.timestamp})
                             .as_object()
                             .unwrap()
                             .clone()).into_iter().map(|(key, value)| (JsString::from(key), JsValue::from(value))).collect::<pi_js_compat::js_json::JsObject>(),
@@ -885,7 +908,7 @@ async fn jsonl_search_matches_the_pinned_typescript_source() {
             .create(JsonlSessionCreateOptions {
                 id: Some(id.to_owned()),
                 parent_session_id: None,
-                cwd: JsString::from(rust_root.path().join(cwd).to_string_lossy().into_owned()),
+                cwd: JsString::from(rust_root.path().join(cwd).to_str().expect("utf-8 test path").to_owned()),
                 metadata: None,
             })
             .await
@@ -908,8 +931,10 @@ async fn jsonl_search_matches_the_pinned_typescript_source() {
     }
 
     let options = JsonlSessionRepoOptions {
-        fs: std::sync::Arc::new(NativeFileSystem::new(rust_root.path())),
-        sessions_root: JsString::from(rust_root.path().to_string_lossy().into_owned()),
+        fs: std::sync::Arc::new(NativeFileSystem::new(JsString::from(
+            rust_root.path().to_str().expect("utf-8 test path"),
+        ))),
+        sessions_root: JsString::from(rust_root.path().to_str().expect("utf-8 test path").to_owned()),
     };
     let source = std::sync::Arc::new(move |query: Option<JsonlSessionListOptions>| {
         let options = options.clone();

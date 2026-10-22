@@ -209,7 +209,7 @@ fn convert_to_llm_passes_typed_messages_through_unchanged() {
         provider_native: None,
         timestamp: 21,
     });
-    let converted = convert_to_llm(std::slice::from_ref(&user));
+    let converted = convert_to_llm(std::slice::from_ref(&user)).expect("convert fixture messages");
     assert_eq!(
         converted,
         vec![Message::User(match user {

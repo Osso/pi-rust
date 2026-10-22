@@ -128,7 +128,10 @@ async fn run_continue(
 
 fn echo_tool() -> TestTool {
     let mut tool = TestTool::new("echo", |_id, params| {
-        text_result(&format!("echoed: {}", params["value"].as_str().unwrap_or_default()))
+        text_result(&pi_js_compat::js_format!(
+            "echoed: {}",
+            params["value"].as_string().expect("string tool argument")
+        ))
     });
     tool.parameters = value_tool_schema();
     tool
@@ -217,19 +220,19 @@ async fn run_agent_with_throwing_listener(
     output
 }
 
-fn big_text(mode: &str) -> String {
+fn big_text(mode: &JsString) -> String {
     match mode {
-        "lines" => (0..2001)
+        mode if mode == "lines" => (0..2001)
             .map(|index| char::from(b'a' + (index % 26) as u8).to_string())
             .collect::<Vec<_>>()
             .join("\n"),
-        "single" => "a".repeat(20000),
-        "emoji" => "😀".repeat(3000),
-        _ => panic!("unknown big mode {mode}"),
+        mode if mode == "single" => "a".repeat(20000),
+        mode if mode == "emoji" => "😀".repeat(3000),
+        _ => panic!("unknown big mode {mode:?}"),
     }
 }
 
-fn big_details(mode: &str) -> Value {
+fn big_details(mode: &JsString) -> Value {
     let value = if mode == "lines" {
         "y".repeat(20000)
     } else {
@@ -298,7 +301,7 @@ async fn run_scenario(name: &str) -> Value {
             tool.execute = {
                 let release_first = Arc::clone(&release_first);
                 Arc::new(move |_id, params, _signal, _on_update| {
-                    let value = params["value"].as_str().unwrap_or_default().to_owned();
+                    let value = params["value"].as_string().expect("string tool argument").to_owned();
                     let release_first = Arc::clone(&release_first);
                     Box::pin(async move {
                         if value == "first" {
@@ -307,7 +310,7 @@ async fn run_scenario(name: &str) -> Value {
                         if value == "second" {
                             release_first.notify_waiters();
                         }
-                        Ok(text_result(&format!("echoed: {value}")))
+                        Ok(text_result(&pi_js_compat::js_format!("echoed: {}", value)))
                     })
                 })
             };
@@ -375,7 +378,7 @@ async fn run_scenario(name: &str) -> Value {
             .await
         }
         "before_mutation" => {
-            let seen = Arc::new(Mutex::new(Vec::<Value>::new()));
+            let seen = Arc::new(Mutex::new(Vec::<JsValue>::new()));
             let mut tool = echo_tool();
             tool.execute = {
                 let seen = Arc::clone(&seen);
@@ -383,7 +386,10 @@ async fn run_scenario(name: &str) -> Value {
                     let seen = Arc::clone(&seen);
                     Box::pin(async move {
                         seen.lock().unwrap().push(params.clone());
-                        Ok(text_result(&format!("echoed: {}", params["value"])))
+                        Ok(text_result(&pi_js_compat::js_format!(
+                            "echoed: {}",
+                            pi_js_compat::js_json::stringify_lossless(&params["value"])
+                        )))
                     })
                 })
             };
@@ -405,17 +411,17 @@ async fn run_scenario(name: &str) -> Value {
                 ],
             )
             .await;
-            output["toolArgs"] = Value::Array(seen.lock().unwrap().clone());
+            output["toolArgs"] = json!(seen.lock().unwrap().clone());
             output
         }
         "terminate_all" => {
             let mut tool = echo_tool();
             tool.execute = Arc::new(|_id, params, _signal, _on_update| {
-                let value = params["value"].as_str().unwrap_or_default().to_owned();
+                let value = params["value"].as_string().expect("string tool argument").to_owned();
                 Box::pin(async move {
                     Ok(AgentToolResult {
                         terminate: Some(true),
-                        ..text_result(&format!("echoed: {value}"))
+                        ..text_result(&pi_js_compat::js_format!("echoed: {}", value))
                     })
                 })
             });
@@ -431,11 +437,11 @@ async fn run_scenario(name: &str) -> Value {
         "terminate_mixed" => {
             let mut tool = echo_tool();
             tool.execute = Arc::new(|_id, params, _signal, _on_update| {
-                let value = params["value"].as_str().unwrap_or_default().to_owned();
+                let value = params["value"].as_string().expect("string tool argument").to_owned();
                 Box::pin(async move {
                     Ok(AgentToolResult {
                         terminate: Some(value == "first"),
-                        ..text_result(&format!("echoed: {value}"))
+                        ..text_result(&pi_js_compat::js_format!("echoed: {}", value))
                     })
                 })
             });
@@ -479,7 +485,7 @@ async fn run_scenario(name: &str) -> Value {
         }
         "prepare_arguments_error" => {
             let mut tool = echo_tool();
-            tool.prepare_arguments = Some(Arc::new(|_args: Value| {
+            tool.prepare_arguments = Some(Arc::new(|_args: JsValue| {
                 Err(pi_agent_core::agent::ToolError::new("prepareArguments exploded"))
             }));
             tool.execute =
@@ -506,8 +512,8 @@ async fn run_scenario(name: &str) -> Value {
                 })
             }));
             tool.execute = Arc::new(|_id, params, _signal, _on_update| {
-                let value = params["value"].as_str().unwrap_or_default().to_owned();
-                Box::pin(async move { Ok(text_result(&format!("{value}:known-agent"))) })
+                let value = params["value"].as_string().expect("string tool argument").to_owned();
+                Box::pin(async move { Ok(text_result(&pi_js_compat::js_format!("{}:known-agent", value))) })
             });
             run_loop(
                 vec![AgentMessage::User(user("echo"))],
@@ -731,7 +737,7 @@ async fn run_scenario(name: &str) -> Value {
             };
             let mut tool = echo_tool();
             tool.execute = Arc::new(|_id, params, _signal, _on_update| {
-                let value = params["value"].as_str().unwrap_or_default().to_owned();
+                let value = params["value"].as_string().expect("string tool argument").to_owned();
                 Box::pin(async move { Ok(text_result(&value)) })
             });
             run_continue(
@@ -786,14 +792,14 @@ async fn run_scenario(name: &str) -> Value {
         "parallel_update" => {
             let mut tool = echo_tool();
             tool.execute = Arc::new(|_id, params, _signal, on_update| {
-                let value = params["value"].as_str().unwrap_or_default().to_owned();
+                let value = params["value"].as_string().expect("string tool argument").to_owned();
                 on_update(AgentToolResult {
                     content: vec![TextOrImageContent::Text(TextContent::new("partial"))],
                     details: Some(JsValue::from(json!({"status": "partial"}))),
                     is_error: None,
                     terminate: None,
                 });
-                Box::pin(async move { Ok(text_result(&format!("echoed: {value}"))) })
+                Box::pin(async move { Ok(text_result(&pi_js_compat::js_format!("echoed: {}", value))) })
             });
             run_loop(
                 vec![AgentMessage::User(user("echo"))],
@@ -1027,7 +1033,7 @@ async fn run_scenario(name: &str) -> Value {
                 "required": ["mode"]
             });
             tool.execute = Arc::new(|_id, params, _signal, on_update| {
-                let mode = params["mode"].as_str().unwrap_or_default().to_owned();
+                let mode = params["mode"].as_string().expect("string tool argument").to_owned();
                 Box::pin(async move {
                     let text = big_text(&mode);
                     if mode == "lines" {

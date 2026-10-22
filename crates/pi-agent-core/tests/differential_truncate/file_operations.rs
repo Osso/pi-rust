@@ -1,4 +1,5 @@
 use pi_agent_core::harness::compaction::utils::format_file_operations;
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -44,7 +45,10 @@ fn request(fixture: &Fixture) -> Value {
 fn rust_response(fixture: &Fixture) -> Value {
     ok_response(
         fixture.request_id,
-        json!(format_file_operations(&fixture.read_files, &fixture.modified_files)),
+        json!(format_file_operations(
+            &fixture.read_files.iter().map(JsString::from).collect::<Vec<_>>(),
+            &fixture.modified_files.iter().map(JsString::from).collect::<Vec<_>>()
+        )),
     )
 }
 
