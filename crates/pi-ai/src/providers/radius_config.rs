@@ -164,7 +164,7 @@ pub async fn load_radius_gateway_config(
         return Err(CallbackError::new(js_format!(
             "Could not load Radius config from {}: {}: {}",
             gateway,
-            response.status,
+            u32::from(response.status),
             truncate_http_body(&response.body)
         )));
     }
