@@ -1,8 +1,8 @@
 # coding-agent detached-job-control traceability
 
-Pinned source: `packages/coding-agent/src/core/detached-job-control.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Pinned source: `packages/coding-agent/src/core/detached-job-control.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. Earlier scalar test evidence requires current-pin revalidation.
 
-Rust: `crates/pi-coding-agent/src/core/detached_job_control.rs`. Tests: `crates/pi-coding-agent/tests/detached_job_control.rs` (6 behavioral).
+Rust: `crates/pi-coding-agent/src/core/detached_job_control.rs`. Tests: `crates/pi-coding-agent/tests/detached_job_control.rs` (native real-mailbox behavioral fixtures; currently compiler-blocked).
 
 | Source symbol / branch | Rust item | Proof |
 | --- | --- | --- |
@@ -15,8 +15,14 @@ Rust: `crates/pi-coding-agent/src/core/detached_job_control.rs`. Tests: `crates/
 | `commandIdentityMatches` | `StoredCommand::identity` equality with `DetachedJobOwnershipIdentity` | different-runner test |
 | Failure messages `Detached job control identity mismatch` / `Detached job control delivery failed` | `fail_runtime_mailbox_message` calls | mismatch tests assert the exact message |
 
+## Q18 native control checkpoint
+
+Control/session paths, request IDs and constructed message IDs use JsString. Parsed job/owner/session/output-label/incarnation strings are cloned directly from the lossless JSON authority. Removed scalar_text and every checked UTF-8 drop; command tags compare native literals. Status/result/reason/error payloads preserve raw units and explicit null.
+
+`cancellation_identity_and_reason_keep_raw_units_through_real_mailbox_claim` exercises actual SQLite-backed mailbox insert/claim/deliver with raw identity fields, incarnation and cancellation text. The existing fixtures now use native IDs/paths and JsValue body serialization. All current targets remain **unexecuted** until the real coding library compiles, per main; no mocked-store scaffold and no new runtime PASS.
+
 Gaps / deviations:
 
 - `claimRuntimeMailboxMessages` default limit 20 is inlined as `MAILBOX_CLAIM_LIMIT`.
-- `result?: unknown` becomes `Option<Value>`; a JSON `null` result is preserved as `Some(Null)`.
+- `result?: unknown` becomes `Option<JsValue>`; a JSON `null` result is preserved as `Some(Null)`.
 - `owner.agentId === null || string` validation rejects a missing `agentId` exactly like the source.
