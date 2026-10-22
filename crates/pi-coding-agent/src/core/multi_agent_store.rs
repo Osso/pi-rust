@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -107,9 +108,9 @@ pub struct AgentCurrentActivityOwner {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentFileReference {
-    pub path: String,
+    pub path: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
+    pub label: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -787,6 +788,10 @@ impl MultiAgentStoreError {
         Self {
             message: message.into(),
         }
+    }
+
+    pub fn message(&self) -> &JsString {
+        &self.message
     }
 }
 
@@ -2596,9 +2601,11 @@ pub fn validate_file_refs(
     };
     let mut validated = Vec::with_capacity(refs.len());
     for (index, reference) in refs.iter().enumerate() {
-        if !Path::new(&reference.path).is_absolute() {
-            return Err(MultiAgentStoreError::new(format!(
-                "Invalid file reference at {context}[{index}]: path must be absolute, received {}",
+        if !crate::utils::paths::node_is_absolute(&reference.path) {
+            return Err(MultiAgentStoreError::new(js_format!(
+                "Invalid file reference at {}[{}]: path must be absolute, received {}",
+                context,
+                index.to_string(),
                 reference.path
             )));
         }

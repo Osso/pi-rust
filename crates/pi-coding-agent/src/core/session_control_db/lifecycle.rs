@@ -30,8 +30,8 @@ pub struct DetachedJobOwnershipIdentity {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetachedJobTerminalOutput {
-    pub label: String,
-    pub path: String,
+    pub label: JsString,
+    pub path: JsString,
     pub size: i64,
     pub sha256: String,
 }

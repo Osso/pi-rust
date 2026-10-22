@@ -736,7 +736,7 @@ pub(crate) fn parse_file_refs(
         }
         let label = match reference.get("label") {
             None => None,
-            Some(Value::String(label)) => Some(label.clone()),
+            Some(Value::String(label)) => Some(label.as_str().into()),
             Some(_) => {
                 return Err(ControlDbError::new(js_format!(
                     "Invalid file reference at {}[{}]: label must be a string",
@@ -746,7 +746,7 @@ pub(crate) fn parse_file_refs(
             }
         };
         refs.push(AgentFileReference {
-            path: path.clone(),
+            path: path.as_str().into(),
             label,
         });
     }

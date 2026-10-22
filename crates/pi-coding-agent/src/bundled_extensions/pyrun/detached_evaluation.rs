@@ -328,8 +328,8 @@ fn detach_state_fn(state: &DetachState) -> bool {
         tool_call_id: state.tool_call_id.clone(),
         detached: Some(true),
         file_refs: Some(vec![crate::core::multi_agent_store::AgentFileReference {
-            label: Some("Pyrun script".to_owned()),
-            path: state.script_path.clone(),
+            label: Some("Pyrun script".into()),
+            path: state.script_path.clone().into(),
         }]),
     });
     let Ok(ownership) = ownership else {
