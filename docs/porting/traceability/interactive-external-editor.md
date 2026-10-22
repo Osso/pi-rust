@@ -18,3 +18,7 @@ Rust: `crates/pi-coding-agent/src/modes/interactive/external_editor.rs`
 | `finally` cleanup | `TempDir` drop | directory-removed assertions |
 
 Gaps: Windows `shell: true` uses `cmd /d /s /c`; not exercised on Linux. A missing editor binary (spawn error) has no test because the fixture path always exists.
+
+## Re-pin gap: temporary file lifecycle (record only)
+
+Frozen `interactive-mode.ts:5453–5507` writes directly to a `pi-editor-${Date.now()}.pi.md` file in `tmpdir()`, removes it in `finally`, then restarts the TUI. The extracted Rust helper still creates a private temporary directory and `prompt.md` before invoking the editor. This older lifecycle is not new-pin parity evidence. Q18 changes only UTF-16 command/content/error propagation and filesystem/argv encoding; replacing the temp lifecycle is deferred, not approved as parity.

@@ -280,7 +280,7 @@ mod lossless_login_tests {
         fn signal(&self) -> CancellationToken {
             CancellationToken::new()
         }
-        fn prompt(&self, _prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, crate::CallbackError>> {
+        fn prompt(&self, _prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, crate::request::CallbackError>> {
             let answer = self.0.lock().unwrap().pop_front().expect("answer");
             Box::pin(async move { Ok(answer) })
         }
