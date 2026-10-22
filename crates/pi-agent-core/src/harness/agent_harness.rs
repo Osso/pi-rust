@@ -272,9 +272,15 @@ impl AgentHarness {
     }
     pub fn subscribe(&self, listener: HarnessListener) -> Unsubscribe {
         let mut handlers = self.inner.handlers.lock().expect("harness handlers");
-        let id = handlers.next_id;
-        handlers.next_id += 1;
-        handlers.listeners.insert(id, listener);
+        let existing = handlers
+            .listeners
+            .iter()
+            .find_map(|(id, registered)| Arc::ptr_eq(registered, &listener).then_some(*id));
+        let id = existing.unwrap_or(handlers.next_id);
+        if existing.is_none() {
+            handlers.next_id += 1;
+            handlers.listeners.insert(id, listener);
+        }
         let inner = Arc::downgrade(&self.inner);
         Box::new(move || {
             if let Some(inner) = inner.upgrade() {
@@ -289,9 +295,16 @@ impl AgentHarness {
     }
     pub fn on(&self, kind: HarnessHookKind, hook: HarnessHook) -> Unsubscribe {
         let mut handlers = self.inner.handlers.lock().expect("harness handlers");
-        let id = handlers.next_id;
-        handlers.next_id += 1;
-        handlers.hooks.entry(kind).or_default().insert(id, hook);
+        let existing = handlers.hooks.get(&kind).and_then(|hooks| {
+            hooks
+                .iter()
+                .find_map(|(id, registered)| Arc::ptr_eq(registered, &hook).then_some(*id))
+        });
+        let id = existing.unwrap_or(handlers.next_id);
+        if existing.is_none() {
+            handlers.next_id += 1;
+            handlers.hooks.entry(kind).or_default().insert(id, hook);
+        }
         let inner = Arc::downgrade(&self.inner);
         Box::new(move || {
             if let Some(inner) = inner.upgrade() {
@@ -301,27 +314,27 @@ impl AgentHarness {
             }
         })
     }
-    fn hooks(&self, kind: HarnessHookKind) -> Vec<HarnessHook> {
-        self.inner
-            .handlers
-            .lock()
-            .expect("harness handlers")
+    fn next_hook(&self, kind: HarnessHookKind, after: Option<usize>) -> Option<(usize, HarnessHook)> {
+        let handlers = self.inner.handlers.lock().expect("harness handlers");
+        handlers
             .hooks
-            .get(&kind)
-            .map(|hooks| hooks.values().cloned().collect())
-            .unwrap_or_default()
+            .get(&kind)?
+            .iter()
+            .find(|(id, _)| after.is_none_or(|after| **id > after))
+            .map(|(id, hook)| (*id, hook.clone()))
+    }
+    fn next_listener(&self, after: Option<usize>) -> Option<(usize, HarnessListener)> {
+        let handlers = self.inner.handlers.lock().expect("harness handlers");
+        handlers
+            .listeners
+            .iter()
+            .find(|(id, _)| after.is_none_or(|after| **id > after))
+            .map(|(id, listener)| (*id, listener.clone()))
     }
     async fn emit(&self, event: HarnessEvent, signal: Option<CancellationToken>) -> Result<(), AgentHarnessError> {
-        let listeners = self
-            .inner
-            .handlers
-            .lock()
-            .expect("harness handlers")
-            .listeners
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        for listener in listeners {
+        let mut cursor = None;
+        while let Some((id, listener)) = self.next_listener(cursor) {
+            cursor = Some(id);
             listener(event.clone(), signal.clone()).await.map_err(hook_error)?;
         }
         Ok(())
@@ -332,7 +345,9 @@ impl AgentHarness {
         event: HarnessEvent,
     ) -> Result<Option<HarnessHookResult>, AgentHarnessError> {
         let mut last = None;
-        for hook in self.hooks(kind) {
+        let mut cursor = None;
+        while let Some((id, hook)) = self.next_hook(kind, cursor) {
+            cursor = Some(id);
             if let Some(result) = hook(event.clone()).await.map_err(hook_error)? {
                 last = Some(result);
             }
