@@ -6,25 +6,24 @@ use pi_ai::request::BoxFuture;
 use pi_ai::types::TextOrImageContent;
 use pi_coding_agent::core::tools::read::{ReadOperations, ReadTool, ReadToolOptions};
 use pi_coding_agent::core::tools::truncate::DEFAULT_MAX_BYTES;
-use serde_json::json;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsString, JsValue};
 
-fn execute(tool: &ReadTool, params: serde_json::Value) -> Result<AgentToolResult, String> {
+fn execute(tool: &ReadTool, params: JsValue) -> Result<AgentToolResult, JsString> {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     runtime
         .block_on(tool.execute("call".to_owned(), params, None, Arc::new(|_result| {}), None))
         .map_err(|error| error.message)
 }
 
-fn text(result: &AgentToolResult) -> String {
-    result
-        .content
-        .iter()
-        .filter_map(|entry| match entry {
-            TextOrImageContent::Text(text) => Some(text.text.clone()),
+fn text(result: &AgentToolResult) -> JsString {
+    JsString::join(
+        result.content.iter().filter_map(|entry| match entry {
+            TextOrImageContent::Text(text) => Some(&text.text),
             TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }),
+        "\n",
+    )
 }
 
 #[test]
@@ -34,7 +33,7 @@ fn reads_files_that_fit_within_limits() {
     let content = "Hello, world!\nLine 2\nLine 3";
     std::fs::write(&file, content).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy()),
+        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
         json!({"path": file.to_string_lossy()}),
     )
     .expect("read result");
@@ -48,12 +47,12 @@ fn missing_files_report_enoent() {
     let temp = tempfile::tempdir().expect("temp dir");
     let file = temp.path().join("nonexistent.txt");
     let error = execute(
-        &ReadTool::new(temp.path().to_string_lossy()),
+        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
         json!({"path": file.to_string_lossy()}),
     )
     .expect_err("missing file");
-    assert!(error.contains("ENOENT"), "{error}");
-    assert!(error.contains("access"), "{error}");
+    assert!(error.contains("ENOENT"), "{error:?}");
+    assert!(error.contains("access"), "{error:?}");
 }
 
 #[test]
@@ -63,15 +62,15 @@ fn truncates_files_exceeding_the_line_limit() {
     let lines = vec!["x"; 2500];
     std::fs::write(&file, lines.join("\n")).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy()),
+        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
         json!({"path": file.to_string_lossy()}),
     )
     .expect("read result");
     let output = text(&result);
-    assert_eq!(output.lines().filter(|line| *line == "x").count(), 2000);
+    assert_eq!(output.split('\n').filter(|line| *line == "x").count(), 2000);
     assert!(
         output.contains("[Showing lines 1-2000 of 2500. Use offset=2001 to continue.]"),
-        "{output}"
+        "{output:?}"
     );
     let truncation = &result.details.expect("details")["truncation"];
     assert_eq!(truncation["truncated"], json!(true));
@@ -89,15 +88,15 @@ fn truncates_when_the_byte_limit_is_exceeded() {
         .collect::<Vec<_>>();
     std::fs::write(&file, lines.join("\n")).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy()),
+        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
         json!({"path": file.to_string_lossy()}),
     )
     .expect("read result");
     let output = text(&result);
-    assert!(output.contains("Line 1:"), "{output}");
+    assert!(output.contains("Line 1:"), "{output:?}");
     assert!(
         output.contains("[Showing lines 1-") && output.contains(" limit). Use offset="),
-        "{output}"
+        "{output:?}"
     );
 }
 
@@ -110,14 +109,14 @@ fn caps_oversized_user_limits_before_returning_content() {
         .collect::<Vec<_>>();
     std::fs::write(&file, lines.join("\n")).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy()),
+        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
         json!({"path": file.to_string_lossy(), "limit": 5000}),
     )
     .expect("read result");
     let output = text(&result);
-    assert!(output.contains("Line 1:"), "{output}");
-    assert!(!output.contains("Line 5000:"), "{output}");
-    assert!(output.contains("Use offset="), "{output}");
+    assert!(output.contains("Line 1:"), "{output:?}");
+    assert!(!output.contains("Line 5000:"), "{output:?}");
+    assert!(output.contains("Use offset="), "{output:?}");
     assert_eq!(result.details.expect("details")["truncation"]["truncated"], json!(true));
 }
 
@@ -127,7 +126,7 @@ struct RangeOperations {
 }
 
 impl ReadOperations for RangeOperations {
-    fn read_file<'a>(&'a self, _absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
+    fn read_file<'a>(&'a self, _absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
         self.full_reads.fetch_add(1, Ordering::SeqCst);
         Box::pin(async { Err(std::io::Error::other("full read should not be used")) })
     }
@@ -138,7 +137,7 @@ impl ReadOperations for RangeOperations {
 
     fn read_range<'a>(
         &'a self,
-        _absolute_path: &'a str,
+        _absolute_path: &'a JsString,
         start: u64,
         end: u64,
     ) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
@@ -147,11 +146,11 @@ impl ReadOperations for RangeOperations {
         Box::pin(async { Ok(b"Line 1\nLine 2\nLine 3".to_vec()) })
     }
 
-    fn stat<'a>(&'a self, _absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<Option<u64>>> {
+    fn stat<'a>(&'a self, _absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Option<u64>>> {
         Box::pin(async { Ok(Some(DEFAULT_MAX_BYTES as u64 * 4)) })
     }
 
-    fn access<'a>(&'a self, _absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<()>> {
+    fn access<'a>(&'a self, _absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<()>> {
         Box::pin(async { Ok(()) })
     }
 }
@@ -164,7 +163,7 @@ fn avoids_full_reads_for_oversized_files() {
         range_reads: AtomicUsize::new(0),
     });
     let tool = ReadTool::with_options(
-        temp.path().to_string_lossy(),
+        temp.path().to_string_lossy().as_ref(),
         ReadToolOptions {
             auto_resize_images: None,
             operations: Some(operations.clone()),
@@ -174,8 +173,8 @@ fn avoids_full_reads_for_oversized_files() {
     let output = text(&result);
     assert_eq!(operations.full_reads.load(Ordering::SeqCst), 0);
     assert_eq!(operations.range_reads.load(Ordering::SeqCst), 1);
-    assert!(output.contains("Line 1"), "{output}");
-    assert!(output.contains("Use offset="), "{output}");
+    assert!(output.contains("Line 1"), "{output:?}");
+    assert!(output.contains("Use offset="), "{output:?}");
 }
 
 #[test]
@@ -184,23 +183,23 @@ fn offset_and_limit_select_lines_and_report_remaining() {
     let file = temp.path().join("offset-test.txt");
     let lines = (0..100).map(|index| format!("Line {}", index + 1)).collect::<Vec<_>>();
     std::fs::write(&file, lines.join("\n")).expect("fixture");
-    let tool = ReadTool::new(temp.path().to_string_lossy());
+    let tool = ReadTool::new(temp.path().to_string_lossy().as_ref());
 
     let result = execute(&tool, json!({"path": file.to_string_lossy(), "offset": 51})).expect("offset read");
     let output = text(&result);
-    assert!(!output.contains("Line 50"), "{output}");
-    assert!(output.contains("Line 51"), "{output}");
-    assert!(output.contains("Line 100"), "{output}");
-    assert!(!output.contains("Use offset="), "{output}");
+    assert!(!output.contains("Line 50"), "{output:?}");
+    assert!(output.contains("Line 51"), "{output:?}");
+    assert!(output.contains("Line 100"), "{output:?}");
+    assert!(!output.contains("Use offset="), "{output:?}");
 
     let result = execute(&tool, json!({"path": file.to_string_lossy(), "limit": 10})).expect("limit read");
     let output = text(&result);
-    assert!(output.contains("Line 1"), "{output}");
-    assert!(output.contains("Line 10"), "{output}");
-    assert!(!output.contains("Line 11"), "{output}");
+    assert!(output.contains("Line 1"), "{output:?}");
+    assert!(output.contains("Line 10"), "{output:?}");
+    assert!(!output.contains("Line 11"), "{output:?}");
     assert!(
         output.contains("[90 more lines in file. Use offset=11 to continue.]"),
-        "{output}"
+        "{output:?}"
     );
 
     let result = execute(
@@ -209,13 +208,13 @@ fn offset_and_limit_select_lines_and_report_remaining() {
     )
     .expect("offset+limit read");
     let output = text(&result);
-    assert!(!output.contains("Line 40"), "{output}");
-    assert!(output.contains("Line 41"), "{output}");
-    assert!(output.contains("Line 60"), "{output}");
-    assert!(!output.contains("Line 61"), "{output}");
+    assert!(!output.contains("Line 40"), "{output:?}");
+    assert!(output.contains("Line 41"), "{output:?}");
+    assert!(output.contains("Line 60"), "{output:?}");
+    assert!(!output.contains("Line 61"), "{output:?}");
     assert!(
         output.contains("[40 more lines in file. Use offset=61 to continue.]"),
-        "{output}"
+        "{output:?}"
     );
 }
 
@@ -225,7 +224,7 @@ fn offset_beyond_end_reports_the_total_line_count() {
     let file = temp.path().join("short.txt");
     std::fs::write(&file, "Line 1\nLine 2\nLine 3").expect("fixture");
     let error = execute(
-        &ReadTool::new(temp.path().to_string_lossy()),
+        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
         json!({"path": file.to_string_lossy(), "offset": 100}),
     )
     .expect_err("offset beyond end");
@@ -239,13 +238,13 @@ fn detects_images_from_file_magic() {
     let png = base64_png();
     std::fs::write(&file, &png).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy()),
+        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
         json!({"path": file.to_string_lossy()}),
     )
     .expect("read result");
     assert!(
         text(&result).contains("Read image file [image/png]"),
-        "{}",
+        "{:?}",
         text(&result)
     );
     let image = result
@@ -266,15 +265,15 @@ fn converts_bmp_files_to_png_attachments() {
     let file = temp.path().join("image.bmp");
     std::fs::write(&file, tiny_bmp()).expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy()),
+        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
         json!({"path": file.to_string_lossy()}),
     )
     .expect("read result");
     let output = text(&result);
-    assert!(output.contains("Read image file [image/png]"), "{output}");
+    assert!(output.contains("Read image file [image/png]"), "{output:?}");
     assert!(
         output.contains("[Image converted from image/bmp to image/png.]"),
-        "{output}"
+        "{output:?}"
     );
     let image = result
         .content
@@ -293,7 +292,7 @@ fn treats_image_extension_with_non_image_content_as_text() {
     let file = temp.path().join("not-an-image.png");
     std::fs::write(&file, "definitely not a png").expect("fixture");
     let result = execute(
-        &ReadTool::new(temp.path().to_string_lossy()),
+        &ReadTool::new(temp.path().to_string_lossy().as_ref()),
         json!({"path": file.to_string_lossy()}),
     )
     .expect("read result");
@@ -313,7 +312,7 @@ fn aborted_reads_return_the_source_error() {
     token.cancel();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let error = runtime
-        .block_on(ReadTool::new(temp.path().to_string_lossy()).execute(
+        .block_on(ReadTool::new(temp.path().to_string_lossy().as_ref()).execute(
             "call".to_owned(),
             json!({"path": "file.txt"}),
             Some(token),
