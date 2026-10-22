@@ -1993,11 +1993,11 @@ impl MultiAgentStore {
         let Some(target) = self.get_persistence_target() else {
             return Ok(None);
         };
-        let encode = |value| serde_json::to_value(value).map_err(|error| MultiAgentStoreError::new(error.to_string()));
+        let encode = |value| js_json::to_value(value).map_err(|error| MultiAgentStoreError::new(error.to_string()));
         let model = updates
             .model
             .as_ref()
-            .map(serde_json::to_value)
+            .map(js_json::to_value)
             .transpose()
             .map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
         let persisted = if let Some(activity) = &updates.current_activity {
@@ -2007,7 +2007,7 @@ impl MultiAgentStore {
                     current.id
                 ))
             })?;
-            let value = serde_json::to_value(activity).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
+            let value = js_json::to_value(activity).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
             update_multi_agent_agent_current_activity(
                 &target.control_db_path,
                 &target.session_path,
@@ -2033,8 +2033,7 @@ impl MultiAgentStore {
                 ownership,
             )?
         } else if let Some(transcript) = &updates.transcript {
-            let value =
-                serde_json::to_value(transcript).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
+            let value = js_json::to_value(transcript).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
             update_multi_agent_agent_transcript(
                 &target.control_db_path,
                 &target.session_path,
@@ -2043,7 +2042,7 @@ impl MultiAgentStore {
                 updated_at,
             )?
         } else if let Some(slot) = &updates.slot {
-            let value = serde_json::to_value(slot).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
+            let value = js_json::to_value(slot).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
             update_multi_agent_agent_slot(
                 &target.control_db_path,
                 &target.session_path,
@@ -2062,7 +2061,7 @@ impl MultiAgentStore {
             )?
         };
         persisted
-            .map(serde_json::from_value)
+            .map(|value| js_json::from_value(&value))
             .transpose()
             .map_err(|error| MultiAgentStoreError::new(error.to_string()))
     }
