@@ -51,6 +51,12 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## Detached Bash manifest/transport checkpoint (runtime pending)
+
+Manifest paths/command/cwd/session/tool-call fields, runner invocation paths/argv, activation/foreground completion paths/reasons/signals, artifact JSONL paths and human runner errors are native. Manifest env uses one JsObject authority with lossless object serde (raw keys/values, original order), not a scalar BTreeMap. String-valued env records are the typed source contract; no unpaired-unit restriction. Gated payload launch receives native arguments directly. Only real FS and Command boundaries encode; JSON file bytes use the lossless writer. Error accessors preserve native payload/control/IO-carried messages; Display alone encodes.
+
+`lossless_detached_paths::detached_manifest_keeps_raw_paths_env_keys_and_file_bytes` compares actual persisted bytes/checksum against frozen TS; **unexecuted**, pending real coding-library compilation. No detached acceptance. Dedicated manifest/runner/artifact tests and owned Pyrun callers still need propagation. `internal_runner` entrypoint outside this lane must widen decoded CLI paths into JsString on entry.
+
 ## Gated payload bootstrap checkpoint (runtime pending)
 
 Main granted `detached_job_bootstrap.rs`. Gated command/argv/cwd/environment, output/identity paths, stored identity path and SpawnFailed error are native. Split-output equality happens before encoding. Only actual output/identity opens/writes/rename/directory sync and Command argv/env/cwd encode. Runtime-process errors retain native messages inside the IO error carrier; Display alone encodes.

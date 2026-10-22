@@ -19,6 +19,12 @@ async function main() {
 			process.stdout.write(`${JSON.stringify({call:call.render(input.width),result:result.render(input.width)})}\n`);
 			continue;
 		}
+		if (input.kind === "detachedManifest") {
+			module.writeDetachedBashLaunchManifest(input.path,input.data);
+			const {readFile}=await import("node:fs/promises");
+			process.stdout.write(`${JSON.stringify({wire:await readFile(input.path,"utf8")})}\n`);
+			continue;
+		}
 		if (input.kind === "bootstrapSplit") {
 			try {module.spawnGatedDetachedPayload(input.input);throw new Error("expected split output rejection");}
 			catch(error) {
