@@ -13,6 +13,8 @@ Frozen `packages/ai/src/utils/estimate.ts` at `4f9e6f8a4` (114 lines). Rust `uti
 
 Removed old-only timestamp-prefix filter and dynamic-added-tool estimate. Assertions changed only to exact frozen algorithm, corroborated by differential oracle; RED had 2 failures before implementation, GREEN 8 behavioral + 1 differential test (10 scenarios). Commands/revision: `/tmp/pi-rust-repin-delta-ai/ledger.md`, revision `7559ccc1` + estimate slice.
 
+Enumerable AgentTool label/executionMode are now retained by Tool and counted by this whole-object JSON path. Actual frozen comparisons cover four metadata variants, including the shared harness fixture and unpaired label units; [carrier/consumer audit](ai-types.md#enumerable-agenttool-metadata), `tool_metadata` GREEN at eede786f. This does not close the other scalar description/schema gaps below.
+
 ## Explicit gaps
 
 - `estimate_text_tokens(&str)` cannot accept lone UTF-16 units directly; content/context paths do retain native `JsString` units.
