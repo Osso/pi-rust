@@ -143,7 +143,7 @@ pub struct AgentToolExecutionContext {
 }
 
 /// Result returned by a before-tool-call hook.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BeforeToolCallResult {
     pub block: Option<bool>,
     pub reason: Option<JsString>,
