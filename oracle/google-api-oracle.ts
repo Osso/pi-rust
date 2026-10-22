@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { normalizeAssistantMessageClock } from "./assistant-snapshots.ts";
 import * as net from "node:net";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -66,20 +67,34 @@ function normalizeId(id: string): string {
 	return id.replace(GENERATED_ID, "_<generated>");
 }
 
-function normalize(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(normalize);
-	if (value && typeof value === "object") {
-		const source = value as Record<string, unknown>;
-		const result: Record<string, unknown> = {};
-		for (const [key, entry] of Object.entries(source)) {
-			if (key === "timestamp") result[key] = 0;
-			else if (key === "id" && typeof entry === "string")
-				result[key] = normalizeId(entry);
-			else result[key] = normalize(entry);
+function normalizeMessage(value: unknown): unknown {
+	const copy = normalizeAssistantMessageClock(value);
+	if (
+		copy !== null &&
+		typeof copy === "object" &&
+		"content" in copy &&
+		Array.isArray(copy.content)
+	) {
+		for (const block of copy.content) {
+			if (
+				block &&
+				typeof block === "object" &&
+				block.type === "toolCall" &&
+				typeof block.id === "string"
+			) {
+				block.id = normalizeId(block.id);
+			}
 		}
-		return result;
 	}
-	return value;
+	return copy;
+}
+
+function normalizeEvent(value: unknown): unknown {
+	const copy = structuredClone(value) as Record<string, unknown>;
+	for (const key of ["partial", "message", "error"]) {
+		if (copy[key] !== undefined) copy[key] = normalizeMessage(copy[key]);
+	}
+	return copy;
 }
 
 function decodeBase64Url(text: string): string {
@@ -109,13 +124,7 @@ function normalizeBody(body: string | null): {
 }
 
 function normalizeSdkHeaders(headers: Headers): Record<string, string> {
-	const result: Record<string, string> = {};
-	for (const [name, value] of headers.entries()) {
-		if (name === "user-agent" || name === "x-goog-api-client")
-			result[name] = "<sdk-ua>";
-		else result[name] = value;
-	}
-	return result;
+	return Object.fromEntries(headers);
 }
 
 function encodeChunk(chunk: ChunkSpec): Uint8Array {
@@ -350,7 +359,7 @@ async function execute(request: RunRequest, api: ApiModule): Promise<unknown> {
 		const originalPush = stream.push?.bind(stream);
 		if (originalPush) {
 			stream.push = (event: unknown) => {
-				events.push(JSON.parse(JSON.stringify(normalize(event))));
+				events.push(normalizeEvent(event));
 				originalPush(event);
 			};
 		}
@@ -358,11 +367,10 @@ async function execute(request: RunRequest, api: ApiModule): Promise<unknown> {
 		for await (const event of stream) {
 			// Events pushed before the patch was installed (synchronous setup
 			// failures) are snapshotted when the consumer receives them.
-			if (events.length === consumed)
-				events.push(JSON.parse(JSON.stringify(normalize(event))));
+			if (events.length === consumed) events.push(normalizeEvent(event));
 			consumed++;
 		}
-		const result = normalize(await stream.result());
+		const result = normalizeMessage(await stream.result());
 		return { requests, events, result };
 	} finally {
 		clearFetchScript();
