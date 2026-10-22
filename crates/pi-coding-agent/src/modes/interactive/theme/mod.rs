@@ -1315,12 +1315,10 @@ pub fn detect_terminal_theme_for_auto(
     timeout: Duration,
     env: &BTreeMap<String, String>,
 ) -> TerminalTheme {
-    let color_scheme = ui.query_terminal_color_scheme(timeout);
-    let background_theme = detect_terminal_background_theme(ui, timeout, env);
-    match color_scheme {
-        Some(Ok(Some(theme))) => theme,
-        _ => background_theme.theme,
+    if let Some(Ok(Some(theme))) = ui.query_terminal_color_scheme(timeout) {
+        return theme;
     }
+    detect_terminal_background_theme(ui, timeout, env).theme
 }
 
 /// Default theme from `COLORFGBG`, defaulting to dark.

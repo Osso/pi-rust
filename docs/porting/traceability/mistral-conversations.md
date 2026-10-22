@@ -2,7 +2,7 @@
 
 ## Q4 common-pin status
 
-Partial. Global-fetch correction now drives the frozen Mistral SDK, including Request URL/method/body capture. Scenario 0's model-less SSE is rejected by frozen SDK `data.model` validation but accepted by native code; SDK request headers and unused onResponse also differ. Full assertions retained. [Current audit/proof](../ai-scripted-provider-oracles.md); historical differential claims below are superseded. Native request.fetch remains pending interface approval.
+Partial. Global-fetch correction now drives the frozen Mistral SDK, including Request URL/method/body capture. Scenario 0's model-less SSE is rejected by frozen SDK `data.model` validation but accepted by native code; SDK request headers and unused onResponse also differ. Full assertions retained. [Current audit/proof](../ai-scripted-provider-oracles.md); historical differential claims below are superseded. `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
 
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 

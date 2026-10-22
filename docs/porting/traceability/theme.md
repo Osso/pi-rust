@@ -67,7 +67,7 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 | `ansi256ToHex` basic/cube/gray | `ansi256_to_hex` | `theme_export_probe` (24 → `#005f87`), `theme_resolved_probe` |
 | COLORFGBG last-valid-index scan | `get_color_fg_bg_background_index` | differential helpers |
 | luminance thresholds | `get_rgb_color_luminance` | differential helpers |
-| `detectTerminalThemeForAuto` color-scheme preference + fallback | `detect_terminal_theme_for_auto` | `theme_detection_probe` |
+| `detectTerminalThemeForAuto` scheme early return before sequential background query (frozen:771–782) | `detect_terminal_theme_for_auto` | `differential_auto_theme` six delayed scenario traces; `theme_detection_probe` |
 | `initTheme` fallback to dark, no watcher; fallback failure escapes | `init_theme` | `theme_global_probe`, `theme_missing_builtin_probe` |
 | `setTheme` fallback + callback + error text; fallback failure escapes | `set_theme` | `theme_global_probe`, `theme_missing_builtin_probe` |
 | `setThemeInstance` sets `<in-memory>` | `set_theme_instance` | `theme_global_probe` |

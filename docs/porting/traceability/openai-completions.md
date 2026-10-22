@@ -2,7 +2,7 @@
 
 ## Q4 common-pin status
 
-Partial. Corrected global-fetch oracle now drives frozen SDK requests. First RED: native SDK version header 6.40.0 versus frozen 6.26.0; later branches remain unported. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; native request.fetch is a pending interface delta.
+Partial. Corrected global-fetch oracle now drives frozen SDK requests. SDK header6.26.0 restored; removed source-absent rawStopReason assignment after exact scenario0 event/result key RED (`differential_openai_completions-sdk626.log`). Current recorded matrix (35 scenarios) and9 behavioral tests pass at `56a4113a` (`completions-budget-green.log`). Restored frozen request behavior: no Baseten chat_template_args, no Qwen reasoning_effort, function-only tools with strict:false, no sampling-param merge/deferred placement/thinking-token-budget, uniform affinity headers, incremented SDK retry count. These are exact request/event/result comparisons, not whole-module parity. Old public grammar/message-conversion options and stream grammar handling remain to remove; option/compat type cleanup remains pending. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
 
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 

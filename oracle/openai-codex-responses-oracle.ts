@@ -1,6 +1,11 @@
 import crypto from "node:crypto";
 import net from "node:net";
 import { pathToFileURL } from "node:url";
+import {
+	clearFetchScript,
+	installScriptedFetch,
+	setFetchScript,
+} from "./scripted-fetch.ts";
 import { zstdDecompressSync } from "node:zlib";
 
 type RequestId = string | number | null;
@@ -30,16 +35,25 @@ interface WsRequest {
 type Request = SseRequest | WsRequest;
 
 type Api = {
-	stream: (model: unknown, context: unknown, options: unknown) => AsyncIterable<unknown> & {
+	stream: (
+		model: unknown,
+		context: unknown,
+		options: unknown,
+	) => AsyncIterable<unknown> & {
 		result: () => Promise<unknown>;
 	};
-	streamSimple: (model: unknown, context: unknown, options: unknown) => AsyncIterable<unknown> & {
+	streamSimple: (
+		model: unknown,
+		context: unknown,
+		options: unknown,
+	) => AsyncIterable<unknown> & {
 		result: () => Promise<unknown>;
 	};
 };
 
 function normalizeError(error: unknown): { name: string; message: string } {
-	if (error instanceof Error) return { name: error.name, message: error.message };
+	if (error instanceof Error)
+		return { name: error.name, message: error.message };
 	return { name: "UnknownError", message: String(error) };
 }
 
@@ -57,7 +71,11 @@ function stripScratch(value: unknown): void {
 
 function normalizeEvent(value: unknown): unknown {
 	const normalized = normalize(value) as Record<string, unknown>;
-	if (normalized.type !== "done" && normalized.partial && typeof normalized.partial === "object") {
+	if (
+		normalized.type !== "done" &&
+		normalized.partial &&
+		typeof normalized.partial === "object"
+	) {
 		delete (normalized.partial as Record<string, unknown>).endTurn;
 		delete (normalized.partial as Record<string, unknown>).responseId;
 	}
@@ -69,7 +87,9 @@ function normalize(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(normalize);
 	if (value && typeof value === "object") {
 		const output: Record<string, unknown> = {};
-		for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+		for (const [key, entry] of Object.entries(
+			value as Record<string, unknown>,
+		)) {
 			if (key === "timestamp") output[key] = 0;
 			else if (key === "stack") continue;
 			else if (
@@ -93,13 +113,17 @@ function normalize(value: unknown): unknown {
 
 function mockToken(accountId = "acc_test"): string {
 	const payload = Buffer.from(
-		JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: accountId } }),
+		JSON.stringify({
+			"https://api.openai.com/auth": { chatgpt_account_id: accountId },
+		}),
 		"utf8",
 	).toString("base64");
 	return `aaa.${payload}.bbb`;
 }
 
-function model(baseUrl = "https://chatgpt.com/backend-api"): Record<string, unknown> {
+function model(
+	baseUrl = "https://chatgpt.com/backend-api",
+): Record<string, unknown> {
 	return {
 		id: "gpt-5.1-codex",
 		name: "GPT-5.1 Codex",
@@ -124,7 +148,8 @@ function context(): Record<string, unknown> {
 function decodeBody(body: unknown, headers: Record<string, string>): unknown {
 	if (typeof body === "string") return JSON.parse(body);
 	if (body instanceof Uint8Array) {
-		const bytes = headers["content-encoding"] === "zstd" ? zstdDecompressSync(body) : body;
+		const bytes =
+			headers["content-encoding"] === "zstd" ? zstdDecompressSync(body) : body;
 		return JSON.parse(Buffer.from(bytes).toString("utf8"));
 	}
 	return null;
@@ -139,10 +164,12 @@ interface RecordedRequest {
 
 function installFetch(request: SseRequest, recorded: RecordedRequest[]): void {
 	let calls = 0;
-	globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
+	setFetchScript((async (input: string | URL, init?: RequestInit) => {
 		const url = typeof input === "string" ? input : input.toString();
 		const headers =
-			init?.headers instanceof Headers ? Object.fromEntries(init.headers.entries()) : {};
+			init?.headers instanceof Headers
+				? Object.fromEntries(init.headers.entries())
+				: {};
 		recorded.push({
 			url,
 			method: init?.method ?? "GET",
@@ -152,7 +179,12 @@ function installFetch(request: SseRequest, recorded: RecordedRequest[]): void {
 		if (request.pendingHeaders) {
 			return new Promise<Response>((_resolve, reject) => {
 				const signal = init?.signal;
-				const onAbort = () => reject(signal?.reason instanceof Error ? signal.reason : new Error("aborted"));
+				const onAbort = () =>
+					reject(
+						signal?.reason instanceof Error
+							? signal.reason
+							: new Error("aborted"),
+					);
 				if (signal?.aborted) onAbort();
 				else signal?.addEventListener("abort", onAbort, { once: true });
 			});
@@ -164,7 +196,11 @@ function installFetch(request: SseRequest, recorded: RecordedRequest[]): void {
 				headers: request.retryHeaders ?? [],
 			});
 		}
-		const payload = request.rawPayload ?? request.events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+		const payload =
+			request.rawPayload ??
+			request.events
+				.map((event) => `data: ${JSON.stringify(event)}\n\n`)
+				.join("");
 		const chunks: string[] = [];
 		const size = Math.max(1, request.chunkSize ?? payload.length);
 		for (let index = 0; index < payload.length; index += size) {
@@ -177,8 +213,11 @@ function installFetch(request: SseRequest, recorded: RecordedRequest[]): void {
 				if (!request.pendingBody) controller.close();
 			},
 		});
-		return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
-	}) as typeof fetch;
+		return new Response(stream, {
+			status: 200,
+			headers: { "content-type": "text/event-stream" },
+		});
+	}) as typeof fetch);
 }
 
 async function runSse(api: Api, request: SseRequest): Promise<unknown> {
@@ -201,13 +240,19 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 	const events: unknown[] = [];
 	for await (const event of resultStream) {
 		events.push(normalizeEvent(event));
-		if (request.abortAfterDelta && (event as { type?: string }).type === "text_delta") {
+		if (
+			request.abortAfterDelta &&
+			(event as { type?: string }).type === "text_delta"
+		) {
 			controller.abort();
 		}
 	}
 	const result = await resultStream.result();
 	return {
-		requests: recorded.map((entry) => ({ ...entry, headers: { ...entry.headers, "user-agent": "<ua>" } })),
+		requests: recorded.map((entry) => ({
+			...entry,
+			headers: { ...entry.headers, "user-agent": "<ua>" },
+		})),
 		events,
 		result: normalize(result),
 		retries,
@@ -222,25 +267,37 @@ class MinimalWebSocket {
 	private buffer = Buffer.alloc(0);
 	private handshaken = false;
 
-	constructor(url: string, protocols?: string | string[] | { headers?: Record<string, string> }) {
+	constructor(
+		url: string,
+		protocols?: string | string[] | { headers?: Record<string, string> },
+	) {
 		const parsed = new URL(url);
 		const headers =
-			protocols && typeof protocols === "object" && !Array.isArray(protocols) ? (protocols.headers ?? {}) : {};
-		this.socket = net.connect(Number(parsed.port || 80), parsed.hostname, () => {
-			const key = crypto.randomBytes(16).toString("base64");
-			const lines = [
-				`GET ${parsed.pathname}${parsed.search} HTTP/1.1`,
-				`Host: ${parsed.host}`,
-				"Upgrade: websocket",
-				"Connection: Upgrade",
-				`Sec-WebSocket-Key: ${key}`,
-				"Sec-WebSocket-Version: 13",
-			];
-			for (const [name, value] of Object.entries(headers)) lines.push(`${name}: ${value}`);
-			this.socket.write(`${lines.join("\r\n")}\r\n\r\n`);
-		});
+			protocols && typeof protocols === "object" && !Array.isArray(protocols)
+				? (protocols.headers ?? {})
+				: {};
+		this.socket = net.connect(
+			Number(parsed.port || 80),
+			parsed.hostname,
+			() => {
+				const key = crypto.randomBytes(16).toString("base64");
+				const lines = [
+					`GET ${parsed.pathname}${parsed.search} HTTP/1.1`,
+					`Host: ${parsed.host}`,
+					"Upgrade: websocket",
+					"Connection: Upgrade",
+					`Sec-WebSocket-Key: ${key}`,
+					"Sec-WebSocket-Version: 13",
+				];
+				for (const [name, value] of Object.entries(headers))
+					lines.push(`${name}: ${value}`);
+				this.socket.write(`${lines.join("\r\n")}\r\n\r\n`);
+			},
+		);
 		this.socket.on("data", (data) => this.onData(data));
-		this.socket.on("error", (error) => this.dispatch("error", { message: error.message }));
+		this.socket.on("error", (error) =>
+			this.dispatch("error", { message: error.message }),
+		);
 		this.socket.on("close", () => {
 			this.readyState = 3;
 			this.dispatch("close", { code: 1006, reason: "", wasClean: false });
@@ -309,17 +366,23 @@ class MinimalWebSocket {
 			}
 			const maskLength = masked ? 4 : 0;
 			if (this.buffer.length < offset + maskLength + length) return;
-			let payload = this.buffer.subarray(offset + maskLength, offset + maskLength + length);
+			let payload = this.buffer.subarray(
+				offset + maskLength,
+				offset + maskLength + length,
+			);
 			if (masked) {
 				const mask = this.buffer.subarray(offset, offset + 4);
-				payload = Buffer.from(payload.map((byte, index) => byte ^ mask[index % 4]));
+				payload = Buffer.from(
+					payload.map((byte, index) => byte ^ mask[index % 4]),
+				);
 			}
 			this.buffer = this.buffer.subarray(offset + maskLength + length);
 			if (opcode === 1) {
 				this.dispatch("message", { data: payload.toString("utf8") });
 			} else if (opcode === 8) {
 				const code = payload.length >= 2 ? payload.readUInt16BE(0) : 1005;
-				const reason = payload.length > 2 ? payload.subarray(2).toString("utf8") : "";
+				const reason =
+					payload.length > 2 ? payload.subarray(2).toString("utf8") : "";
 				this.readyState = 3;
 				this.dispatch("close", { code, reason, wasClean: true });
 			} else if (opcode === 9) {
@@ -345,7 +408,9 @@ class MinimalWebSocket {
 			header[1] = 0x80 | 127;
 			header.writeBigUInt64BE(BigInt(length), 2);
 		}
-		const masked = Buffer.from(payload.map((byte, index) => byte ^ mask[index % 4]));
+		const masked = Buffer.from(
+			payload.map((byte, index) => byte ^ mask[index % 4]),
+		);
 		this.socket.write(Buffer.concat([header, mask, masked]));
 	}
 }
@@ -363,22 +428,38 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	const baseModel = model(baseUrl);
 
 	if (request.operation === "ws_idle") {
-		const resultStream = api.stream(baseModel, context(), options("diff-ws-idle", { transport: "websocket", timeoutMs: 50 }));
+		const resultStream = api.stream(
+			baseModel,
+			context(),
+			options("diff-ws-idle", { transport: "websocket", timeoutMs: 50 }),
+		);
 		const events: unknown[] = [];
 		for await (const event of resultStream) events.push(normalizeEvent(event));
 		return { events, result: normalize(await resultStream.result()) };
 	}
 	if (request.operation === "ws_connect_timeout") {
-		const resultStream = api.stream(baseModel, context(), options("diff-ws-connect", { transport: "websocket", websocketConnectTimeoutMs: 50 }));
+		const resultStream = api.stream(
+			baseModel,
+			context(),
+			options("diff-ws-connect", {
+				transport: "websocket",
+				websocketConnectTimeoutMs: 50,
+			}),
+		);
 		const events: unknown[] = [];
 		for await (const event of resultStream) events.push(normalizeEvent(event));
 		return { events, result: normalize(await resultStream.result()) };
 	}
 
 	const firstContext = context();
-	const firstStream = api.stream(baseModel, firstContext, options("diff-ws-cached"));
+	const firstStream = api.stream(
+		baseModel,
+		firstContext,
+		options("diff-ws-cached"),
+	);
 	const firstEvents: unknown[] = [];
-	for await (const event of firstStream) firstEvents.push(normalizeEvent(event));
+	for await (const event of firstStream)
+		firstEvents.push(normalizeEvent(event));
 	const first = await firstStream.result();
 
 	const secondContext = {
@@ -389,9 +470,14 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 			{ role: "user", content: "Now finish", timestamp: 2 },
 		],
 	};
-	const secondStream = api.stream(baseModel, secondContext, options("diff-ws-cached"));
+	const secondStream = api.stream(
+		baseModel,
+		secondContext,
+		options("diff-ws-cached"),
+	);
 	const secondEvents: unknown[] = [];
-	for await (const event of secondStream) secondEvents.push(normalizeEvent(event));
+	for await (const event of secondStream)
+		secondEvents.push(normalizeEvent(event));
 	return {
 		firstEvents,
 		first: normalize(first),
@@ -401,8 +487,12 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 }
 
 async function execute(api: Api, request: Request): Promise<unknown> {
-	if (request.operation === "sse") return runSse(api, request);
-	return runWs(api, request);
+	try {
+		if (request.operation === "sse") return await runSse(api, request);
+		return await runWs(api, request);
+	} finally {
+		clearFetchScript();
+	}
 }
 
 function serveRequests(api: Api): void {
@@ -434,12 +524,18 @@ function serveRequests(api: Api): void {
 
 async function main(): Promise<void> {
 	const modulePath = process.argv[2];
-	if (modulePath === undefined) throw new Error("codex oracle requires a source module path");
-	const codex = (await import(pathToFileURL(`${modulePath}/api/openai-codex-responses.ts`).href)) as Api;
+	if (modulePath === undefined)
+		throw new Error("codex oracle requires a source module path");
+	installScriptedFetch();
+	const codex = (await import(
+		pathToFileURL(`${modulePath}/api/openai-codex-responses.ts`).href
+	)) as Api;
 	serveRequests(codex);
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`codex oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(
+		`codex oracle startup failed: ${normalizeError(error).message}\n`,
+	);
 	process.exitCode = 1;
 });

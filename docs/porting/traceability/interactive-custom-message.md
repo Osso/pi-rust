@@ -9,7 +9,7 @@ Rust: `crates/pi-coding-agent/src/modes/interactive/components/custom_message.rs
 | `setExpanded`; invalidate rebuild | `set_expanded`; `invalidate` | native renderer expansion and throw/rebuild tests |
 | custom renderer first, own styling | renderer arm | custom-renderer differential |
 | undefined renderer result → default | fallthrough | default differential cases |
-| renderer throw → default (:60–70) | `catch_unwind` around callback | native full-frame equality on construction, expansion, invalidation; throwing-renderer differential |
+| renderer throw → default (:60–70) | `catch_panics` around callback | native full-frame equality on construction, expansion, invalidation; throwing-renderer differential; subprocess with installed process crash hook |
 | `[customType]` label | `CustomMessageLabel` | default differential; raw leaf output |
 | text content and text-block joining | `CustomMessageContent` arms | text/blocks differential |
 | Markdown color | `CustomMessageText` callback | full ANSI differential |
@@ -28,4 +28,6 @@ Label and Markdown input stay `JsString`; style callbacks and rendered lines ret
 
 ## Proof ledger
 
-Development artifacts: `/tmp/pi-rust-repin-lossless-interactive/`. RED above predates callback catch. GREEN commands and results are recorded in `REPORT.md` there; a compiled test is not treated as executed evidence.
+Development artifacts: `/tmp/pi-rust-repin-lossless-interactive/`. Whole 99-line module compared against common pin, including persistent spacer/default box, conditional expansion, invalidate-before-rebuild, custom result/undefined/throw, string/block text extraction and Markdown theme/color.
+
+Q13 uncovered a remaining process-boundary failure: plain `catch_unwind` runs the installed panic hook first, exiting before fallback can execute. `test-custom-message-process-red.log` captures child exit 1. `catch_panics` now suppresses only the callback's caught throw at that hook boundary. `test-custom-message-process-green.log`: 1/1, constructor/expand/invalidate preserve exact default frames under installed hook. `test-custom-message-differential-q13.log`: dedicated frozen custom-message differential 1/1. No whole-mode proof claimed.

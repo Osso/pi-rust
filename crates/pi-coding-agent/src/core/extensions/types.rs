@@ -2559,9 +2559,12 @@ pub enum MarkdownMessageType {
     AssistantThinking,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct EntryRenderOptions {
     pub expanded: bool,
+    pub session_id: JsString,
+    pub request_render: Rc<dyn Fn() -> bool>,
+    pub register_cleanup: Rc<dyn Fn(Rc<dyn Fn()>)>,
 }
 
 pub type MarkdownTransformer = Arc<dyn Fn(&str, &MarkdownTransformContext) -> String + Send + Sync>;

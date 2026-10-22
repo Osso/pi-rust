@@ -672,6 +672,10 @@ impl ToolExecutionComponent {
 }
 
 impl Component for ToolExecutionComponent {
+    fn dispose(&mut self) {
+        ToolExecutionComponent::dispose(self);
+    }
+
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
         Some(self)
     }

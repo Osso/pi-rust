@@ -1,10 +1,16 @@
 # openai-sdk traceability
 
+## Q4 common-pin SDK identity
+
+Frozen installed `node_modules/openai/package.json:3` and `core/error.mjs:67–69` identify SDK6.26.0 and APIUserAbortError text `Request was aborted.`. Native SDK headers now use6.26.0, and retry-layer abort formatting matches that exact message. Three corrected actual-SDK differentials proved RED version6.40→6.26, then advanced to independent body/shape drifts; OpenRouter Images now GREEN13 behavioral +1 whole differential after two abort REDs. Revision `6ec0609f` + identity slice, `/tmp/pi-rust-repin-delta-ai/ledger.md`.
+
+Approved Rust-only `options.request.fetch` seam is recorded in AGENTS.md; absence must preserve frozen default-fetch behavior. It is not a frozen option, source oracle injection, or fallback. Shared HTTP response JSON is still scalar in the nonstreaming SDK path and requires lossless migration; no whole-SDK parity claim.
+
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 
 Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.
 
-Source: private behavior of `openai@6.40.0` (`node_modules/openai/src/client.ts`, `azure.ts`, `core/streaming.ts`, `core/error.ts`) reproduced for the four OpenAI adapters.
+Source: private behavior of frozen `openai@6.26.0` (`node_modules/openai/src/client.ts`, `azure.ts`, `core/streaming.ts`, `core/error.ts`) reproduced for the four OpenAI adapters.
 Rust: `crates/pi-ai/src/api/openai_sdk.rs`.
 Tests: covered indirectly by `crates/pi-ai/tests/differential_openai_responses.rs` (20 scenarios), `differential_azure_openai_responses.rs` (9), `differential_openai_completions.rs` (35). Requests, headers, bodies, SSE decoding, HTTP errors, and retries are compared against the real SDK.
 

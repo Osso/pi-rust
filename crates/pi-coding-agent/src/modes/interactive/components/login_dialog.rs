@@ -1,8 +1,8 @@
 //! Ported from `packages/coding-agent/src/modes/interactive/components/login-dialog.ts`.
 //!
 //! The TypeScript `Promise` returned by `showManualInput`/`showPrompt` is a
-//! `tokio::sync::oneshot` receiver resolved by the input submit handler; the
-//! `AbortSignal` is a `CancellationToken`.
+//! future backed by a `tokio::sync::oneshot`, resolved by the input submit
+//! handler. Superseded promises remain pending; `AbortSignal` is a CancellationToken.
 
 use pi_js_compat::{
     js_format,
@@ -37,7 +37,7 @@ impl std::fmt::Display for LoginError {
 
 impl std::error::Error for LoginError {}
 
-type PromptReceiver = oneshot::Receiver<Result<JsString, LoginError>>;
+type PromptReceiver = std::pin::Pin<Box<dyn std::future::Future<Output = Result<JsString, LoginError>>>>;
 
 struct LoginDialogCore {
     content: Vec<ComponentRef>,
@@ -144,8 +144,8 @@ impl LoginDialogComponent {
             {
                 input_component.on_submit = Some(Rc::new(move |value: &JsString| {
                     let mut core = submit_core.borrow_mut();
-                    core.replace_input_with_submitted_text(value);
                     if let Some(sender) = core.pending.take() {
+                        core.replace_input_with_submitted_text(value);
                         let _ = sender.send(Ok(value.to_owned()));
                     }
                 }));
@@ -196,7 +196,7 @@ impl LoginDialogComponent {
             1,
             0,
         )));
-        if let Some(instructions) = instructions {
+        if let Some(instructions) = instructions.filter(|text| !text.is_empty()) {
             self.add_content(component(Spacer::new(1)));
             self.add_content(component(Text::new(
                 with_theme(|theme| theme.fg(ThemeColor::Warning, instructions)),
@@ -237,7 +237,13 @@ impl LoginDialogComponent {
     fn begin_prompt(&self) -> PromptReceiver {
         let (sender, receiver) = oneshot::channel();
         self.core.borrow_mut().pending = Some(sender);
-        receiver
+        Box::pin(async move {
+            match receiver.await {
+                Ok(result) => result,
+                // Overwriting the resolver does not reject the prior JavaScript Promise.
+                Err(_) => std::future::pending().await,
+            }
+        })
     }
 
     /// Show an input for manual code/URL entry.
@@ -274,7 +280,7 @@ impl LoginDialogComponent {
             1,
             0,
         )));
-        if let Some(placeholder) = placeholder {
+        if let Some(placeholder) = placeholder.filter(|text| !text.is_empty()) {
             self.add_content(component(Text::new(
                 with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("e.g., {}", placeholder))),
                 1,

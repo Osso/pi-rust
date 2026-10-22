@@ -1,4 +1,4 @@
-//! Private emulation of the observable `openai@6.40.0` JavaScript SDK behavior:
+//! Private emulation of the observable `openai@6.26.0` JavaScript SDK behavior:
 //! URL/header construction, JSON body encoding, HTTP error mapping, and SSE
 //! decoding. All provider modules send through [`SdkClient::create_stream`].
 
@@ -14,7 +14,7 @@ use crate::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, Htt
 use crate::utils::provider_retry::{ProviderError, ProviderErrorHeaders, ProviderRequestError};
 
 /// Pinned SDK version whose headers and SSE behavior are reproduced.
-pub const OPENAI_JS_VERSION: &str = "6.40.0";
+pub const OPENAI_JS_VERSION: &str = "6.26.0";
 
 /// Azure overrides: `api-key` auth, `api-version` query, deployment path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +64,22 @@ pub enum SdkError {
 impl SdkClient {
     pub fn new(config: SdkClientConfig) -> Self {
         Self { config }
+    }
+
+    pub fn for_retry(&self, retry_count: usize) -> Self {
+        let mut client = self.clone();
+        let overridden = client
+            .config
+            .default_headers
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case("x-stainless-retry-count"));
+        if !overridden {
+            client.config.default_headers.insert(
+                "x-stainless-retry-count".to_owned(),
+                Some(retry_count.to_string().into()),
+            );
+        }
+        client
     }
 
     /// `client.chat.completions.create(params, { stream: true }).withResponse()`.
@@ -607,7 +623,7 @@ pub fn format_request_error(error: &ProviderRequestError<CallbackError>, prefix:
             crate::utils::error_body::format_provider_error(&normalized, prefix)
         }
         ProviderRequestError::Other(error) => error.message.clone(),
-        ProviderRequestError::Abort(_) => "Request aborted".into(),
+        ProviderRequestError::Abort(_) => "Request was aborted.".into(),
         ProviderRequestError::RetryDelayLimit(error) => error.message(),
     }
 }

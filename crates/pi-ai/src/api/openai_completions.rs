@@ -3,7 +3,7 @@
 use crate::api::openai_sdk::ingress_metadata_text;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::{JsObject, JsValue};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -12,8 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::api::constrained_sampling::{
     GrammarToolInputJsonBuffer, append_grammar_tool_input_json_delta, create_grammar_tool_input_properties,
-    get_grammar_tool_input, get_json_schema_tool_parameters, resolve_grammar_constrained_sampling,
-    resolve_json_schema_strict_sampling,
+    get_grammar_tool_input,
 };
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
@@ -21,9 +20,7 @@ use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_sdk::{
     SdkClient, SdkClientConfig, SdkError, format_request_error, format_sdk_error, json_object,
 };
-use crate::api::simple_options::{
-    MIN_ANSWER_TOKENS, build_base_options, clamp_standard_reasoning_level, model_thinking_level,
-};
+use crate::api::simple_options::{build_base_options, clamp_standard_reasoning_level, model_thinking_level};
 use crate::api::transform_messages::transform_messages_with;
 use crate::models::{calculate_cost, clamp_thinking_level};
 use crate::request::{
@@ -316,35 +313,6 @@ fn has_tool_history(messages: &[Message]) -> bool {
     })
 }
 
-fn get_deferred_tool_names(messages: &[Message]) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut seen = BTreeSet::new();
-    for message in messages {
-        if let Message::ToolResult(result) = message {
-            for name in result.added_tool_names.iter().flatten() {
-                if seen.insert(name.clone()) {
-                    names.push(name.clone());
-                }
-            }
-        }
-    }
-    names
-}
-
-fn get_tools_by_name(tools: Option<&[Tool]>, names: &[String]) -> Vec<Tool> {
-    let Some(tools) = tools else {
-        return Vec::new();
-    };
-    let by_name = tools
-        .iter()
-        .map(|tool| (tool.name.clone(), tool))
-        .collect::<BTreeMap<_, _>>();
-    names
-        .iter()
-        .filter_map(|name| by_name.get(name).map(|tool| (*tool).clone()))
-        .collect()
-}
-
 // =============================================================================
 // Message conversion
 // =============================================================================
@@ -635,8 +603,6 @@ pub fn convert_messages(
             }
             Message::ToolResult(_) => {
                 let mut image_blocks = Vec::new();
-                let mut deferred_tool_names = Vec::new();
-                let mut deferred_tool_name_set = BTreeSet::new();
                 let mut next = index;
                 while next < transformed_messages.len() {
                     let Message::ToolResult(tool_result) = &transformed_messages[next] else {
@@ -677,14 +643,6 @@ pub fn convert_messages(
                         tool_message.insert("name".into(), JsValue::String(tool_result.tool_name.clone().into()));
                     }
                     params.push(JsValue::Object(tool_message));
-
-                    if compat.deferred_tools_mode == Some(crate::types::DeferredToolsMode::Kimi) {
-                        for name in tool_result.added_tool_names.iter().flatten() {
-                            if deferred_tool_name_set.insert(name.clone()) {
-                                deferred_tool_names.push(name.clone());
-                            }
-                        }
-                    }
 
                     if has_images && model.input.contains(&crate::types::Modality::Image) {
                         for block in &tool_result.content {
@@ -728,15 +686,6 @@ pub fn convert_messages(
                     last_role = Some("toolResult".into());
                 }
 
-                if !deferred_tool_names.is_empty() {
-                    let deferred_tools = get_tools_by_name(context.tools.as_deref(), &deferred_tool_names);
-                    if !deferred_tools.is_empty() {
-                        params.push(lossless_object(vec![
-                            ("role", JsValue::String("system".into())),
-                            ("tools", convert_tools(&deferred_tools, compat).into()),
-                        ]));
-                    }
-                }
                 index += 1;
                 continue;
             }
@@ -749,43 +698,13 @@ pub fn convert_messages(
 fn convert_tools(tools: &[Tool], compat: &ResolvedOpenAICompletionsCompat) -> Value {
     let mut converted = Vec::new();
     for tool in tools {
-        if let Ok(Some(grammar)) = resolve_grammar_constrained_sampling(tool, compat.supports_openai_grammar_tools) {
-            converted.push(json_object(vec![
-                ("type", Value::String("custom".to_owned())),
-                (
-                    "custom",
-                    json_object(vec![
-                        ("name", Value::String(tool.name.clone())),
-                        ("description", Value::String(tool.description.clone())),
-                        (
-                            "format",
-                            json_object(vec![
-                                ("type", Value::String("grammar".to_owned())),
-                                (
-                                    "grammar",
-                                    json_object(vec![
-                                        ("syntax", serde_json::to_value(grammar.format).unwrap_or(Value::Null)),
-                                        ("definition", Value::String(grammar.definition)),
-                                    ]),
-                                ),
-                            ]),
-                        ),
-                    ]),
-                ),
-            ]));
-            continue;
-        }
-
-        let strict = resolve_json_schema_strict_sampling(tool, compat.supports_strict_mode)
-            .ok()
-            .flatten();
-        let parameters = get_json_schema_tool_parameters(tool, strict).unwrap_or(Value::Null);
+        let parameters = tool.parameters.clone();
         let mut function = Map::new();
         function.insert("name".to_owned(), Value::String(tool.name.clone()));
         function.insert("description".to_owned(), Value::String(tool.description.clone()));
         function.insert("parameters".to_owned(), parameters);
         if compat.supports_strict_mode {
-            function.insert("strict".to_owned(), Value::Bool(strict.unwrap_or(false)));
+            function.insert("strict".to_owned(), Value::Bool(false));
         }
         converted.push(json_object(vec![
             ("type", Value::String("function".to_owned())),
@@ -1042,21 +961,8 @@ pub fn build_params(
         params.insert("temperature".into(), js_number_value(temperature).into());
     }
 
-    let deferred_tool_names = if compat.deferred_tools_mode == Some(crate::types::DeferredToolsMode::Kimi) {
-        get_deferred_tool_names(&context.messages)
-    } else {
-        Vec::new()
-    };
-    let deferred_names_set = deferred_tool_names.iter().cloned().collect::<BTreeSet<_>>();
-    let active_tools = context.tools.as_deref().map(|tools| {
-        tools
-            .iter()
-            .filter(|tool| !deferred_names_set.contains(&tool.name))
-            .cloned()
-            .collect::<Vec<_>>()
-    });
     let mut tools_value = None;
-    if let Some(active_tools) = active_tools.as_deref().filter(|tools| !tools.is_empty()) {
+    if let Some(active_tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
         tools_value = Some(JsValue::from(convert_tools(active_tools, compat)));
         if compat.zai_tool_stream {
             params.insert("tool_stream".into(), JsValue::Bool(true));
@@ -1100,7 +1006,6 @@ pub fn build_params(
         }
     } else if compat.thinking_format == ThinkingFormat::Qwen && model.reasoning {
         params.insert("enable_thinking".into(), JsValue::Bool(effort.is_some()));
-        insert_nullish_reasoning_effort(&mut params, model, effort, compat.supports_reasoning_effort);
     } else if compat.thinking_format == ThinkingFormat::QwenChatTemplate && model.reasoning {
         params.insert(
             "chat_template_kwargs".into(),
@@ -1112,19 +1017,6 @@ pub fn build_params(
     } else if compat.thinking_format == ThinkingFormat::ChatTemplate && model.reasoning {
         if let Some(values) = build_chat_template_values(model, effort, &compat.chat_template_kwargs) {
             params.insert("chat_template_kwargs".into(), values.into());
-        }
-    } else if compat.thinking_format == ThinkingFormat::Baseten && model.reasoning {
-        if let Some(values) = build_chat_template_values(model, effort, &compat.chat_template_args) {
-            params.insert("chat_template_args".into(), values.into());
-        }
-        if compat.supports_reasoning_effort {
-            let mapped = match effort {
-                Some(effort) => strict_effort(model, effort),
-                None => off_value(model).flatten(),
-            };
-            if let Some(mapped) = mapped {
-                params.insert("reasoning_effort".into(), JsValue::String(mapped.into()));
-            }
         }
     } else if compat.thinking_format == ThinkingFormat::Deepseek && model.reasoning {
         if effort.is_some() {
@@ -1196,41 +1088,6 @@ pub fn build_params(
         params.insert("reasoning_effort".into(), JsValue::String(off_value.into()));
     }
 
-    if compat.supports_thinking_token_budget
-        && effort.is_some()
-        && model.reasoning
-        && let Some(level) = effort.and_then(thinking_level_from_str).and_then(clamp_reasoning_level)
-    {
-        let mut budgets = ThinkingBudgets {
-            minimal: Some(1024.0),
-            low: Some(2048.0),
-            medium: Some(8192.0),
-            high: Some(16384.0),
-        };
-        if let Some(custom) = &options.thinking_budgets {
-            budgets.minimal = custom.minimal.or(budgets.minimal);
-            budgets.low = custom.low.or(budgets.low);
-            budgets.medium = custom.medium.or(budgets.medium);
-            budgets.high = custom.high.or(budgets.high);
-        }
-        let budget = match level {
-            crate::types::ThinkingLevel::Minimal => budgets.minimal,
-            crate::types::ThinkingLevel::Low => budgets.low,
-            crate::types::ThinkingLevel::Medium => budgets.medium,
-            _ => budgets.high,
-        }
-        .unwrap_or(0.0);
-        let ceiling = params
-            .get("max_tokens")
-            .and_then(JsValue::as_f64)
-            .or_else(|| params.get("max_completion_tokens").and_then(JsValue::as_f64))
-            .unwrap_or(model.max_tokens);
-        let budget = budget.min((ceiling - MIN_ANSWER_TOKENS).max(0.0));
-        if budget > 0.0 {
-            params.insert("thinking_token_budget".into(), js_number_value(budget).into());
-        }
-    }
-
     if let Some(ModelCompat::OpenAICompletions(compat)) = &model.compat
         && let Some(routing) = &compat.open_router_routing
     {
@@ -1264,24 +1121,7 @@ pub fn build_params(
         );
     }
 
-    if let Some(sampling_params) = &stream_options.sampling_params {
-        for (key, value) in sampling_params {
-            params.insert(key.clone().into(), value.clone().into());
-        }
-    }
     JsValue::Object(params)
-}
-
-fn clamp_reasoning_level(level: ModelThinkingLevel) -> Option<crate::types::ThinkingLevel> {
-    Some(match level {
-        ModelThinkingLevel::Minimal => crate::types::ThinkingLevel::Minimal,
-        ModelThinkingLevel::Low => crate::types::ThinkingLevel::Low,
-        ModelThinkingLevel::Medium => crate::types::ThinkingLevel::Medium,
-        ModelThinkingLevel::High | ModelThinkingLevel::Xhigh | ModelThinkingLevel::Max | ModelThinkingLevel::Ultra => {
-            crate::types::ThinkingLevel::High
-        }
-        ModelThinkingLevel::Off => return None,
-    })
 }
 
 // =============================================================================
@@ -1291,7 +1131,6 @@ fn clamp_reasoning_level(level: ModelThinkingLevel) -> Option<crate::types::Thin
 fn merge_headers(
     model_headers: Option<&IndexMap<String, JsString>>,
     dynamic: Option<IndexMap<String, String>>,
-    options_headers: Option<&ProviderHeaders>,
 ) -> IndexMap<String, Option<JsString>> {
     let mut headers: IndexMap<String, Option<JsString>> = IndexMap::new();
     for (name, value) in model_headers.into_iter().flatten() {
@@ -1299,9 +1138,6 @@ fn merge_headers(
     }
     for (name, value) in dynamic.into_iter().flatten() {
         headers.insert(name, Some(value.into()));
-    }
-    for (name, value) in options_headers.into_iter().flatten() {
-        headers.insert(name.clone(), value.clone());
     }
     headers
 }
@@ -1318,19 +1154,16 @@ fn create_client(
         let has_images = has_copilot_vision_input(&context.messages);
         build_copilot_dynamic_headers(&context.messages, has_images)
     });
-    let mut headers = merge_headers(model.headers.as_ref(), dynamic, stream_options.request.headers.as_ref());
+    let mut headers = merge_headers(model.headers.as_ref(), dynamic);
     if let Some(session_id) = session_id
         && compat.send_session_affinity_headers
     {
-        if compat.session_affinity_format == crate::types::SessionAffinityFormat::Openrouter {
-            headers.insert("x-session-id".to_owned(), Some(session_id.clone()));
-        } else {
-            if compat.session_affinity_format == crate::types::SessionAffinityFormat::Openai {
-                headers.insert("session_id".to_owned(), Some(session_id.clone()));
-            }
-            headers.insert("x-client-request-id".to_owned(), Some(session_id.clone()));
-            headers.insert("x-session-affinity".to_owned(), Some(session_id.clone()));
-        }
+        headers.insert("session_id".to_owned(), Some(session_id.clone()));
+        headers.insert("x-client-request-id".to_owned(), Some(session_id.clone()));
+        headers.insert("x-session-affinity".to_owned(), Some(session_id.clone()));
+    }
+    for (name, value) in stream_options.request.headers.iter().flatten() {
+        headers.insert(name.clone(), value.clone());
     }
     SdkClient::new(SdkClientConfig {
         api_key: api_key.to_owned(),
@@ -1643,7 +1476,6 @@ pub async fn process_completions_stream(
         if let Some(finish_reason) = choice.get("finish_reason").and_then(ingress_metadata_text).as_deref()
             && !finish_reason.is_empty()
         {
-            output.raw_stop_reason = Some(finish_reason.to_owned());
             let mapped = map_stop_reason(finish_reason);
             output.stop_reason = mapped.stop_reason;
             if mapped.error_message.is_some() {
@@ -1964,8 +1796,15 @@ async fn run_stream(
     }
 
     let signal = stream_options.request.signal.clone();
+    let mut retry_count = 0;
     let response = retry_provider_request(
-        || client.create_chat_completion_stream(params.clone(), signal.clone()),
+        || {
+            let client = client.for_retry(retry_count);
+            retry_count += 1;
+            let params = params.clone();
+            let signal = signal.clone();
+            async move { client.create_chat_completion_stream(params, signal).await }
+        },
         retry_options(&stream_options.request),
     )
     .await

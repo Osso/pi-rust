@@ -27,7 +27,14 @@ fn custom_entry_renderer_keeps_native_payload_when_expanded() {
         parent_id: None,
         timestamp: "2026-10-22T00:00:00.000Z".into(),
     };
-    let mut component = CustomEntryComponent::new(entry, renderer);
+    let mut component = CustomEntryComponent::new(
+        entry,
+        renderer,
+        pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
+            session_id: "fixture".into(),
+            request_render: std::rc::Rc::new(|| false),
+        },
+    );
     assert!(component.render(80).iter().any(|line| line.contains(&raw)));
     component.set_expanded(true);
     assert!(

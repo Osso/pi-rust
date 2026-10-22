@@ -143,6 +143,10 @@ fn set_text(target: &ComponentRef, text: JsString) {
 }
 
 impl Component for ExtensionInputComponent {
+    fn dispose(&mut self) {
+        ExtensionInputComponent::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }

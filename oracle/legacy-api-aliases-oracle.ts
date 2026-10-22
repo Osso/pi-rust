@@ -1,10 +1,18 @@
 import { pathToFileURL } from "node:url";
+import {
+	clearFetchScript,
+	installScriptedFetch,
+	setFetchScript,
+} from "./scripted-fetch.ts";
 
 type RequestId = string | number | null;
 
 type Model = Record<string, unknown>;
 
-type AliasApi = Record<string, (model: Model, context: unknown, options?: unknown) => any>;
+type AliasApi = Record<
+	string,
+	(model: Model, context: unknown, options?: unknown) => any
+>;
 
 type Request = { id: RequestId; op: "aliases" };
 
@@ -26,16 +34,36 @@ const CASES: Array<{
 	token?: string;
 	extra?: Record<string, unknown>;
 }> = [
-	{ alias: "Anthropic", api: "anthropic-messages", provider: "anthropic", baseUrl: "https://api.anthropic.com" },
+	{
+		alias: "Anthropic",
+		api: "anthropic-messages",
+		provider: "anthropic",
+		baseUrl: "https://api.anthropic.com",
+	},
 	{
 		alias: "AzureOpenAIResponses",
 		api: "azure-openai-responses",
 		provider: "azure-openai-responses",
 		baseUrl: "https://example.test/openai",
 	},
-	{ alias: "Google", api: "google-generative-ai", provider: "google", baseUrl: "https://example.test" },
-	{ alias: "GoogleVertex", api: "google-vertex", provider: "google-vertex", baseUrl: "https://example.test" },
-	{ alias: "Mistral", api: "mistral-conversations", provider: "mistral", baseUrl: "https://example.test" },
+	{
+		alias: "Google",
+		api: "google-generative-ai",
+		provider: "google",
+		baseUrl: "https://example.test",
+	},
+	{
+		alias: "GoogleVertex",
+		api: "google-vertex",
+		provider: "google-vertex",
+		baseUrl: "https://example.test",
+	},
+	{
+		alias: "Mistral",
+		api: "mistral-conversations",
+		provider: "mistral",
+		baseUrl: "https://example.test",
+	},
 	{
 		alias: "OpenAICodexResponses",
 		api: "openai-codex-responses",
@@ -44,8 +72,18 @@ const CASES: Array<{
 		token: CODEX_TOKEN,
 		extra: { transport: "sse" },
 	},
-	{ alias: "OpenAICompletions", api: "openai-completions", provider: "openai", baseUrl: "https://example.test/v1" },
-	{ alias: "OpenAIResponses", api: "openai-responses", provider: "openai", baseUrl: "https://example.test/v1" },
+	{
+		alias: "OpenAICompletions",
+		api: "openai-completions",
+		provider: "openai",
+		baseUrl: "https://example.test/v1",
+	},
+	{
+		alias: "OpenAIResponses",
+		api: "openai-responses",
+		provider: "openai",
+		baseUrl: "https://example.test/v1",
+	},
 ];
 
 function aliasName(testCase: (typeof CASES)[number], simple: boolean): string {
@@ -76,15 +114,18 @@ async function execute(aliases: AliasApi) {
 			const name = aliasName(testCase, simple);
 			const alias = aliases[name];
 			const requests: Array<{ url: string; method: string }> = [];
-			const fetchImpl = async (input: unknown, init?: RequestInit) => {
-				requests.push({ url: String(input), method: init?.method ?? "GET" });
-				return new Response(JSON.stringify({ error: { message: "recorded" } }), {
-					status: 400,
-					headers: { "content-type": "application/json" },
-				});
+			const fetchImpl: typeof globalThis.fetch = async (input, init) => {
+				const request = new Request(input, init);
+				requests.push({ url: request.url, method: request.method });
+				return new Response(
+					JSON.stringify({ error: { message: "recorded" } }),
+					{
+						status: 400,
+						headers: { "content-type": "application/json" },
+					},
+				);
 			};
-			const originalFetch = globalThis.fetch;
-			globalThis.fetch = fetchImpl as typeof fetch;
+			setFetchScript(fetchImpl);
 			try {
 				const options = {
 					apiKey: testCase.token ?? "test-key",
@@ -99,9 +140,15 @@ async function execute(aliases: AliasApi) {
 					error: null,
 				});
 			} catch (error) {
-				results.push({ name, requests, stopReason: null, errorMessage: null, error: normalizeError(error) });
+				results.push({
+					name,
+					requests,
+					stopReason: null,
+					errorMessage: null,
+					error: normalizeError(error),
+				});
 			} finally {
-				globalThis.fetch = originalFetch;
+				clearFetchScript();
 			}
 		}
 	}
@@ -111,9 +158,13 @@ async function execute(aliases: AliasApi) {
 async function main(): Promise<void> {
 	const modulePath = process.argv[2];
 	if (!modulePath) throw new Error("missing module path");
+	installScriptedFetch();
 	const aliases = (await import(pathToFileURL(modulePath).href)) as AliasApi;
 	const readline = await import("node:readline");
-	const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+	const lines = readline.createInterface({
+		input: process.stdin,
+		crlfDelay: Infinity,
+	});
 	for await (const line of lines) {
 		if (line.trim().length === 0) continue;
 		let id: RequestId = null;
@@ -123,7 +174,9 @@ async function main(): Promise<void> {
 			const output = await execute(aliases);
 			console.log(JSON.stringify({ id, ok: true, output }));
 		} catch (error) {
-			console.log(JSON.stringify({ id, ok: false, error: normalizeError(error) }));
+			console.log(
+				JSON.stringify({ id, ok: false, error: normalizeError(error) }),
+			);
 		}
 	}
 }
@@ -132,4 +185,3 @@ main().catch((error: unknown) => {
 	console.error(error);
 	process.exit(1);
 });
-

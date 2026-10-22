@@ -147,6 +147,32 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return { renders, previews, submitted };
 	},
+	customEntryLifecycle: (api, request) => {
+		const events: unknown[] = [];
+		let generation = 0;
+		const component = new api.CustomEntryComponent({ customType: request.customType }, (_entry: any, options: any) => {
+			const current = ++generation;
+			events.push(["build", current, options.expanded, options.sessionId]);
+			if (!request.throws) events.push(["requested", options.requestRender()]);
+			const cleanup = () => events.push(["cleanup", current]);
+			options.registerCleanup(cleanup);
+			options.registerCleanup(cleanup);
+			if (request.throws) throw new Error(String.fromCharCode(...request.errorUnits));
+			if (request.empty) return undefined;
+			return { render: () => [`generation ${current}`], invalidate: () => events.push(["invalidate", current]), dispose: () => events.push(["dispose", current]) };
+		}, { sessionId: request.sessionId, requestRender: () => { events.push(["request"]); return true; } });
+		const frames = [component.render(request.width)];
+		if (!request.throws) {
+			component.setExpanded(true);
+			frames.push(component.render(request.width));
+			component.setExpanded(true);
+			component.invalidate();
+			frames.push(component.render(request.width));
+		}
+		component.dispose();
+		component.dispose();
+		return { frames: frames.map(lines => lines.map(line => Array.from({ length: line.length }, (_, i) => line.charCodeAt(i)))), events, hasContent: component.hasContent(), retired: component.render(request.width) };
+	},
 	customEntry: async (api, request, sourceRoot) => {
 		const tuiModule = (await import(pathToFileURL(`${sourceRoot}/../../tui/src/index.ts`).href)) as Api;
 		const entry = {
@@ -159,7 +185,7 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		};
 		const component = new api.CustomEntryComponent(entry, (value: any, options: any) => {
 			return new tuiModule.Text(`custom ${value.customType} expanded=${options.expanded}`, 0, 0);
-		});
+		}, { sessionId: "fixture", requestRender: () => false });
 		component.setExpanded(request.expanded);
 		return { lines: component.render(request.width), hasContent: component.hasContent() };
 	},
@@ -172,7 +198,7 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			parentId: null,
 			timestamp: "2026-01-01T00:00:00.000Z",
 		};
-		const component = new api.CustomEntryComponent(entry, () => undefined);
+		const component = new api.CustomEntryComponent(entry, () => undefined, { sessionId: "fixture", requestRender: () => false });
 		return { lines: component.render(request.width), hasContent: component.hasContent() };
 	},
 	customMessage: async (api, request, sourceRoot) => {
@@ -419,6 +445,121 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			});
 		}
 		return footer.render(request.width);
+	},
+	loginLifecycle: async (api, request, sourceRoot) => {
+		const themeApi = await import(pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href);
+		themeApi.initTheme("dark", false);
+		const events: unknown[] = [];
+		const answers: unknown[] = [];
+		const dialog = new api.LoginDialogComponent({ requestRender: () => events.push(["render"]) }, "fixture", (success: boolean, message: string) => events.push(["complete", success, message]), undefined, "Fixture");
+		const states: unknown[] = [];
+		for (const step of request.steps) {
+			if (step.op === "prompt" || step.op === "manual") {
+				const index = answers.length;
+				answers.push("pending");
+				const promise = step.op === "prompt" ? dialog.showPrompt(step.message, step.placeholder) : dialog.showManualInput(step.message);
+				promise.then((value: string) => { answers[index] = ["ok", value]; }, (error: Error) => { answers[index] = ["error", error.message]; });
+			} else if (step.op === "input") dialog.handleInput(step.data);
+			else if (step.op === "info") dialog.showInfo(step.lines);
+			else if (step.op === "waiting") dialog.showWaiting(step.message);
+			else if (step.op === "progress") dialog.showProgress(step.message);
+			else if (step.op === "device") dialog.showDeviceCode(step.info);
+			else if (step.op === "auth") dialog.showAuth(step.url, step.instructions);
+			else if (step.op === "focus") dialog.focused = step.value;
+			else throw new Error(`unknown login step ${step.op}`);
+			await Promise.resolve();
+			states.push({ frames: dialog.render(request.width).map((line: string) => Array.from({ length: line.length }, (_, i) => line.charCodeAt(i))), answers: structuredClone(answers), cancelled: dialog.signal.aborted, focused: dialog.focused });
+		}
+		return { states, events };
+	},
+	themeController: async (api, request, sourceRoot) => {
+		const themeApi = await import(pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href);
+		const events: unknown[] = [];
+		let setting = request.setting ?? undefined;
+		let listener: (value: string) => void = () => {};
+		const settings = { getThemeSetting: () => setting, setTheme: (value: string) => { setting = value; }, flush: async () => {} };
+		const ui = {
+			invalidate: () => events.push(["invalidate"]), requestRender: () => events.push(["render"]),
+			setTerminalColorSchemeNotifications: (enabled: boolean) => events.push(["notifications", enabled]),
+			onTerminalColorSchemeChange: (callback: (value: string) => void) => { listener = callback; events.push(["listen"]); },
+			queryTerminalColorScheme: async () => { events.push(["scheme"]); return request.scheme; },
+			queryTerminalBackgroundColor: async () => { events.push(["background"]); return request.background; },
+		};
+		const controller = new api.InteractiveThemeController(ui, settings, (error: string) => events.push(["error", error]), () => events.push(["changed"]));
+		const states: unknown[] = [];
+		for (const step of request.steps) {
+			if (step.op === "apply") await controller.applyFromSettings();
+			else if (step.op === "set") controller.setThemeName(step.name, step.showError ?? false);
+			else if (step.op === "preview") controller.preview(step.name);
+			else if (step.op === "instance") controller.setThemeInstance(themeApi.getThemeByName("light"));
+			else if (step.op === "disable") controller.disableAutoSync();
+			else if (step.op === "setting") setting = step.name;
+			else if (step.op === "emit") listener(step.theme);
+			else throw new Error(`unknown controller step ${step.op}`);
+			states.push({ active: themeApi.theme.name ?? null, terminal: controller.getTerminalTheme(), setting: setting ?? null });
+		}
+		return { events, states };
+	},
+	autoThemeDetection: async (api, request) => {
+		const events: unknown[] = [];
+		const ui: Record<string, unknown> = {};
+		const query = (name: string, value: unknown, fail: boolean) => async () => {
+			events.push([name, "start"]);
+			await new Promise(resolve => setTimeout(resolve, request.timeoutMs));
+			events.push([name, "finish"]);
+			if (fail) throw new Error(name);
+			return value;
+		};
+		if (!request.missingScheme) ui.queryTerminalColorScheme = query("scheme", request.scheme, request.schemeError);
+		ui.queryTerminalBackgroundColor = query("background", request.background, request.backgroundError);
+		const theme = await api.detectTerminalThemeForAuto({ ui, timeoutMs: request.timeoutMs, env: request.env });
+		return { theme, events };
+	},
+	renderRegionContainer: (api, request) => {
+		const retired: number[] = [];
+		const children = [0, 1, 2].map(id => ({ render: () => [`child ${id}`], invalidate: () => {}, dispose: () => retired.push(id) }));
+		// An unstarted TUI cannot repaint a region. Screen-write success is tested with a real capture terminal.
+		const container = new api.RenderRegionContainer({ createRenderRegion: () => ({ place: () => {}, clear: () => {}, tryRender: () => false, dispose: () => {} }) });
+		const results: unknown[] = [];
+		container.addChild(children[0]);
+		results.push(container.requestChildRender(children[0]));
+		container.trackScopedChild(children[0]);
+		container.trackScopedChild(children[0]);
+		container.trackScopedChild(children[1]);
+		results.push(container.requestChildRender(children[1]));
+		results.push(container.requestChildRender(children[0]));
+		results.push(container.render(request.width));
+		container.place({ row: 3, col: 1, width: request.width, height: 1 });
+		results.push(container.requestChildRender(children[0]));
+		container.removeChild(children[0]);
+		container.removeChild(children[0]);
+		results.push(container.requestChildRender(children[0]));
+		container.addChild(children[2]);
+		results.push(container.render(request.width));
+		container.clear();
+		container.clear();
+		results.push(container.render(request.width));
+		return { results, retired };
+	},
+	rootCompositor: (api, request) => {
+		let height = request.sizes[0];
+		let events: unknown[] = [];
+		const rect = (value: any) => [value.row, value.col, value.width, value.height];
+		const component = (label: string) => ({ render: () => [label], invalidate: () => {} });
+		const onLayout = (label: string) => (layout: any) => events.push([label, rect(layout)]);
+		const root = api.createInteractiveRootCompositor({
+			getHeight: () => height, header: component("header"), loadedResources: component("resources"),
+			chat: component("chat"), onChatLayout: onLayout("chat"), transcriptTail: component("tail"), pendingMessages: component("pending"),
+			onTranscriptTailLayout: (layout: any) => events.push(["tail", rect(layout.rect), layout.flowEndRow, layout.bottomRow, layout.bottomHeight, layout.viewportHeight]),
+			status: component("status"), onStatusLayout: onLayout("status"), widgetAbove: component("above"),
+			onWidgetAboveLayout: request.widgetLayout ? onLayout("above") : undefined,
+			editor: component("editor"), onEditorLayout: onLayout("editor"), widgetBelow: component("below"), footer: component("footer"),
+		});
+		return request.sizes.map((size: number) => {
+			height = size;
+			events = [];
+			return { frame: root.render(request.width), events };
+		});
 	},
 	editorRestore: async (api, request, sourceRoot) => {
 		const tui = await import(pathToFileURL(`${sourceRoot}/../../tui/src/index.ts`).href);

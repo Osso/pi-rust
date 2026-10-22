@@ -2,7 +2,7 @@
 
 ## Q4 common-pin status
 
-Partial. Corrected global-fetch oracle now drives frozen recorded images responses: scenarios 0–2 equal, scenario 3 RED on abort message (`Request aborted` versus frozen `Request was aborted.`). Later branches remain unported. [Audit/proof](../ai-scripted-provider-oracles.md). Historical full differential claims below are superseded. No assertion narrowed; native request.fetch remains pending interface approval.
+Partial at remaining lossless interface/response boundaries. Corrected global-fetch oracle now drives frozen SDK and full current scenario matrix is GREEN, plus13 behavioral tests. Source abort text `Request was aborted.` restored after two RED behavioral tests and source SDK error proof (`core/error.mjs:67–69`). Ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`, `openrouter_images-sdk626-abort.log` and `differential_openrouter_images-sdk626-abort.log`. Nonstream SDK response JSON and image onPayload still cross scalar Value; these unapproved gaps remain pending re-port. [Audit/proof](../ai-scripted-provider-oracles.md). Historical full differential claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
 
 Source: `packages/ai/src/api/openrouter-images.ts`, `packages/ai/src/api/openrouter-images.lazy.ts`.
 Rust: `crates/pi-ai/src/api/openrouter_images.rs`, `crates/pi-ai/src/api/openrouter_images_lazy.rs`.
@@ -10,7 +10,7 @@ Tests: `crates/pi-ai/tests/openrouter_images.rs` (13 behavioral), `crates/pi-ai/
 
 ## Representation
 - `generateImages` → `generate_images(model, context, options) -> BoxFuture<'static, Result<AssistantImages, CallbackError>>`. Failures are encoded in the returned `AssistantImages` (`stopReason: "error" | "aborted"`), matching TypeScript; `Ok` is always returned.
-- The `openai@6.40.0` client behavior is reused from `api::openai_sdk` (`SdkClient`, `create_chat_completion`, `format_request_error`), not reimplemented. `SdkClientConfig.default_headers` receives `providerHeadersToRecord({ ...model.headers, ...options.headers })` (exact-key merge, explicit `null` suppressions dropped).
+- The frozen `openai@6.26.0` client behavior is reused from `api::openai_sdk` (`SdkClient`, `create_chat_completion`, `format_request_error`), not reimplemented. `SdkClientConfig.default_headers` receives `providerHeadersToRecord({ ...model.headers, ...options.headers })` (exact-key merge, explicit `null` suppressions dropped).
 - `openrouterImagesApi()` → `openrouter_images_api() -> Arc<dyn ProviderImages>` wrapping `OpenRouterImagesApi`; Rust links the implementation directly (no dynamic import).
 - Request body is built with `serde_json::Map` insertion order (`model`, `messages`, `stream`, `modalities`), matching `JSON.stringify`.
 - `onPayload`/`onResponse` use the image-specific callback types in `ImagesRequestOptions` (TypeScript parameterizes `ProviderRequestOptions` over `ImagesModel`).
@@ -38,9 +38,9 @@ Tests: `crates/pi-ai/tests/openrouter_images.rs` (13 behavioral), `crates/pi-ai/
 | lazy API factory | `openrouter_images_api` | used by `images-models`/provider tests |
 
 ## Gaps
-- A `2xx` response with a non-JSON body is a discrepancy: the Rust path returns an error result with the JSON parser message, while `openai@6.40.0` would return the text body and the module would treat it as an empty response. OpenRouter returns JSON, so this path is not differentially tested.
+- `2xx` non-JSON body handling still needs frozen6.26 SDK proof; the historical6.40 discrepancy claim is retired, not an approved deviation.
 - The TypeScript SDK logs, `withResponse()` response metadata beyond status/headers, and `dangerouslyAllowBrowser` are not observable here.
-- `signal.reason` is not representable; abort always reports `Request aborted` like the retry wrapper.
+- Arbitrary signal.reason is unproven. Current early/body-read abort cases preserve source SDK default `Request was aborted.` exactly.
 - Header names are lowercased by the SDK stand-in; JavaScript `Headers` does the same on the wire. Differential headers are compared after dropping `user-agent`/`x-stainless-*`, which are environment/SDK-internal.
 
 ## Discrepancies

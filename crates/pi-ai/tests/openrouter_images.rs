@@ -309,7 +309,7 @@ async fn aborted_signal_returns_aborted_without_a_request() {
     assert_eq!(output.stop_reason, ImagesStopReason::Aborted);
     assert_eq!(
         output.error_message.as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from("Request aborted"))
+        Some(&pi_js_compat::js_json::JsString::from("Request was aborted."))
     );
     assert!(fetch.requests().is_empty());
 }
@@ -526,6 +526,6 @@ async fn abort_during_body_read_returns_aborted() {
     assert_eq!(output.stop_reason, ImagesStopReason::Aborted);
     assert_eq!(
         output.error_message.as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from("Request aborted"))
+        Some(&pi_js_compat::js_json::JsString::from("Request was aborted."))
     );
 }
