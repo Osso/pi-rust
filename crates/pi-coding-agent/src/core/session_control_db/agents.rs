@@ -1734,8 +1734,7 @@ fn terminal_mutation_replay_result(
 ) -> CommitMultiAgentTerminalMutationResult {
     let terminal_revision = agent.get("revision").and_then(JsValue::as_f64).unwrap_or(0.0) as i64;
     for (key, value) in input.agent_details.to_map() {
-        if js_json::stringify_lossless(agent.get(&key).unwrap_or(&JsValue::Null)) != js_json::stringify_lossless(&value)
-        {
+        if agent.get(&key).map(js_json::stringify_lossless) != Some(js_json::stringify_lossless(&value)) {
             return CommitMultiAgentTerminalMutationResult::Err {
                 error: LifecycleCommandError::MutationMismatch,
             };
@@ -3980,6 +3979,42 @@ fn read_detached_owner_for_recovery(
 #[cfg(test)]
 mod lossless_integration_tests {
     use super::*;
+
+    #[test]
+    fn terminal_replay_distinguishes_missing_payload_from_explicit_null() {
+        let input = CommitMultiAgentTerminalMutationInput {
+            session_path: "/fixture/s".into(),
+            agent_id: "bash_1".into(),
+            process_identity: crate::core::runtime_process::ProcessIdentity {
+                pid: 42,
+                start_time_ticks: 100,
+                incarnation: None,
+            },
+            owner: MultiAgentRuntimeOwnerIdentity {
+                session_id: "s".into(),
+                agent_id: None,
+            },
+            terminal_lifecycle: "aborted".into(),
+            event_kind: "aborted".into(),
+            agent_details: AgentDetails {
+                error: Some(JsValue::Null),
+                result: None,
+            },
+            updated_at: "2026-10-21T00:00:00.000Z".into(),
+        };
+        let missing = js_json::parse_lossless(r#"{"revision":2}"#).unwrap();
+        assert_eq!(
+            terminal_mutation_replay_result(&input, missing.as_object().unwrap()),
+            CommitMultiAgentTerminalMutationResult::Err {
+                error: LifecycleCommandError::MutationMismatch
+            }
+        );
+        let null = js_json::parse_lossless(r#"{"revision":2,"error":null}"#).unwrap();
+        assert_eq!(
+            terminal_mutation_replay_result(&input, null.as_object().unwrap()),
+            CommitMultiAgentTerminalMutationResult::Ok { terminal_revision: 2 }
+        );
+    }
 
     // Frozen session-control-db.ts spreads the existing agent before changing lifecycle metadata.
     #[test]
