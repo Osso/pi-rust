@@ -4,12 +4,14 @@
 //! executable's `--internal-bwrap-fs-worker` mode instead of Node
 //! `fs-worker.cjs`; operations and protocol are identical.
 
-use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
 
+use crate::utils::child_process::node_spawn_error_message;
+use crate::utils::paths::{node_dirname, process_cwd};
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::js_format;
 use pi_js_compat::{
     js_json as json,
     js_json::{self, JsObject as Map, JsString, JsValue as Value, encode_node_utf8},
@@ -50,11 +52,13 @@ const DEFAULT_MAX_BYTES: usize = 10 * 1024;
 
 #[derive(Clone, Default)]
 pub struct BwrapExtensionOptions {
-    pub bwrap_command: Option<String>,
+    pub bwrap_command: Option<JsString>,
 }
 
-fn default_bwrap_command() -> String {
-    pi_js_compat::process_env::get("PI_BWRAP_COMMAND").unwrap_or_else(|| DEFAULT_BWRAP_COMMAND.to_owned())
+fn default_bwrap_command() -> JsString {
+    pi_js_compat::process_env::get("PI_BWRAP_COMMAND")
+        .map(JsString::from)
+        .unwrap_or_else(|| DEFAULT_BWRAP_COMMAND.into())
 }
 
 fn read_sandbox_profile_name(ctx: &ExtensionContext) -> SandboxProfileName {
@@ -76,49 +80,49 @@ fn read_sandbox_profile(ctx: &ExtensionContext) -> Option<BwrapSandboxProfile> {
 
 #[derive(Clone)]
 struct SandboxParams {
-    bwrap_command: String,
-    cwd: String,
+    bwrap_command: JsString,
+    cwd: JsString,
     profile: BwrapSandboxProfile,
 }
 
-fn read_sandbox_params(ctx: &ExtensionContext, bwrap_command: &str) -> Result<Option<SandboxParams>, HandlerError> {
-    let profile = read_sandbox_profile(ctx);
-    Ok(profile.map(|profile| SandboxParams {
-        bwrap_command: bwrap_command.to_owned(),
-        cwd: ctx.cwd().unwrap_or_default(),
+fn read_sandbox_params(
+    ctx: &ExtensionContext,
+    bwrap_command: &JsString,
+) -> Result<Option<SandboxParams>, HandlerError> {
+    let Some(profile) = read_sandbox_profile(ctx) else {
+        return Ok(None);
+    };
+    Ok(Some(SandboxParams {
+        bwrap_command: bwrap_command.clone(),
+        cwd: ctx.cwd()?,
         profile,
     }))
 }
 
-fn worker_path() -> String {
+fn worker_path() -> Result<JsString, JsString> {
     std::env::current_exe()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| "pi".to_owned())
+        .map(|path| path.to_string_lossy().into_owned().into())
+        .map_err(|error| error.to_string().into())
 }
 
 fn build_sandbox_worker_invocation(
     params: &SandboxParams,
     operation: &str,
     payload: &Map,
-) -> Result<crate::bundled_extensions::bwrap::backend::BwrapInvocation, String> {
+) -> Result<crate::bundled_extensions::bwrap::backend::BwrapInvocation, JsString> {
     let mut worker_payload = payload.clone();
     worker_payload.insert("workspace".into(), Value::String(params.cwd.clone().into()));
-    let worker = worker_path();
+    let worker = worker_path()?;
     let command = vec![
         worker.clone(),
-        BWRAP_FS_WORKER_MODE.to_owned(),
-        operation.to_owned(),
+        BWRAP_FS_WORKER_MODE.into(),
+        operation.into(),
         js_json::stringify_lossless(&Value::Object(worker_payload)).into(),
     ];
-    let extra_read_only_paths = vec![
-        Path::new(&worker)
-            .parent()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| worker.clone()),
-    ];
+    let extra_read_only_paths = vec![node_dirname(&worker)];
     build_bwrap_invocation(&BwrapInvocationOptions {
         bwrap_command: params.bwrap_command.clone(),
-        command: command.into_iter().map(JsString::from).collect(),
+        command,
         cwd: params.cwd.clone(),
         env: None,
         extra_read_only_paths: Some(extra_read_only_paths),
@@ -135,15 +139,22 @@ async fn run_json_in_sandbox(
 ) -> Result<Value, JsString> {
     run_bwrap_availability_check(&params.bwrap_command)?;
     let invocation = build_sandbox_worker_invocation(params, operation, &payload)?;
-    let mut command = Command::new(&invocation.command);
+    let mut command = Command::new(encode_node_utf8(&invocation.command));
     command
         .args(invocation.argv.iter().map(encode_node_utf8))
         .env_clear()
-        .envs(&invocation.env)
+        .envs(
+            invocation
+                .env
+                .iter()
+                .map(|(key, value)| (encode_node_utf8(key), encode_node_utf8(value))),
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let mut child = command
+        .spawn()
+        .map_err(|error| node_spawn_error_message("spawn", &invocation.command, &error))?;
     let mut stdout = child
         .stdout
         .take()
@@ -154,13 +165,13 @@ async fn run_json_in_sandbox(
         .ok_or_else(|| "sandbox stderr unavailable".to_owned())?;
     let stdout_task = tokio::spawn(async move {
         let mut bytes = Vec::new();
-        let _ = stdout.read_to_end(&mut bytes).await;
-        bytes
+        stdout.read_to_end(&mut bytes).await?;
+        Ok::<_, std::io::Error>(bytes)
     });
     let stderr_task = tokio::spawn(async move {
         let mut bytes = Vec::new();
-        let _ = stderr.read_to_end(&mut bytes).await;
-        bytes
+        stderr.read_to_end(&mut bytes).await?;
+        Ok::<_, std::io::Error>(bytes)
     });
     let signal_for_wait = signal.clone();
     let status = tokio::select! {
@@ -175,17 +186,23 @@ async fn run_json_in_sandbox(
             return Err("Operation aborted".into());
         }
     };
-    let stdout_bytes = stdout_task.await.unwrap_or_default();
-    let stderr_bytes = stderr_task.await.unwrap_or_default();
+    let stdout_bytes = stdout_task
+        .await
+        .map_err(|error| JsString::from(error.to_string()))?
+        .map_err(|error| JsString::from(error.to_string()))?;
+    let stderr_bytes = stderr_task
+        .await
+        .map_err(|error| JsString::from(error.to_string()))?
+        .map_err(|error| JsString::from(error.to_string()))?;
     if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
         return Err("Operation aborted".into());
     }
-    let stdout_text = String::from_utf8_lossy(&stdout_bytes).into_owned();
-    let stderr_text = String::from_utf8_lossy(&stderr_bytes).into_owned();
+    let stdout_text = JsString::from(String::from_utf8_lossy(&stdout_bytes).into_owned());
+    let stderr_text = JsString::from(String::from_utf8_lossy(&stderr_bytes).into_owned());
     if status.code() != Some(0) {
-        let trimmed = pi_js_compat::string::js_trim(&stderr_text);
+        let trimmed = stderr_text.trim();
         return Err(if trimmed.is_empty() {
-            format!(
+            js_format!(
                 "sandbox operation failed with exit code {}",
                 status.code().unwrap_or(-1)
             )
@@ -221,7 +238,7 @@ impl ReadOperations for SandboxReadOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "readFile", path_payload(absolute_path), None)
                 .await
-                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
+                .map_err(crate::core::tools::node_fs::operation_error)?;
             Ok(pi_js_compat::base64::buffer_from_base64(
                 value
                     .get("data")
@@ -249,7 +266,7 @@ impl ReadOperations for SandboxReadOperations {
             payload.insert("start".into(), json!(start));
             let value = run_sandbox_operation(&self.params, "readRange", payload, None)
                 .await
-                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
+                .map_err(crate::core::tools::node_fs::operation_error)?;
             Ok(pi_js_compat::base64::buffer_from_base64(
                 value
                     .get("data")
@@ -264,7 +281,7 @@ impl ReadOperations for SandboxReadOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "stat", path_payload(absolute_path), None)
                 .await
-                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
+                .map_err(crate::core::tools::node_fs::operation_error)?;
             Ok(value.get("size").and_then(Value::as_u64))
         })
     }
@@ -274,7 +291,7 @@ impl ReadOperations for SandboxReadOperations {
             run_sandbox_operation(&self.params, "access", path_payload(absolute_path), None)
                 .await
                 .map(|_| ())
-                .map_err(|message| std::io::Error::other(HandlerError::new(message)))
+                .map_err(crate::core::tools::node_fs::operation_error)
         })
     }
 
@@ -319,7 +336,7 @@ impl WriteOperations for SandboxWriteOperations {
             run_sandbox_operation(&self.params, "writeFile", payload, None)
                 .await
                 .map(|_| ())
-                .map_err(|message| std::io::Error::other(HandlerError::new(message)))
+                .map_err(crate::core::tools::node_fs::operation_error)
         })
     }
 
@@ -328,7 +345,7 @@ impl WriteOperations for SandboxWriteOperations {
             run_sandbox_operation(&self.params, "mkdir", path_payload(directory), None)
                 .await
                 .map(|_| ())
-                .map_err(|message| std::io::Error::other(HandlerError::new(message)))
+                .map_err(crate::core::tools::node_fs::operation_error)
         })
     }
 }
@@ -365,7 +382,7 @@ impl LsOperations for SandboxLsOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
                 .await
-                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
+                .map_err(crate::core::tools::node_fs::operation_error)?;
             Ok(value.get("exists").and_then(Value::as_bool).unwrap_or(false))
         })
     }
@@ -374,7 +391,7 @@ impl LsOperations for SandboxLsOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "stat", path_payload(absolute_path), None)
                 .await
-                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
+                .map_err(crate::core::tools::node_fs::operation_error)?;
             Ok(value.get("isDirectory").and_then(Value::as_bool).unwrap_or(false))
         })
     }
@@ -383,7 +400,7 @@ impl LsOperations for SandboxLsOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "readdir", path_payload(absolute_path), None)
                 .await
-                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
+                .map_err(crate::core::tools::node_fs::operation_error)?;
             Ok(value
                 .get("entries")
                 .and_then(Value::as_array)
@@ -402,7 +419,7 @@ impl FindOperations for SandboxFindOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
                 .await
-                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
+                .map_err(crate::core::tools::node_fs::operation_error)?;
             Ok(value.get("exists").and_then(Value::as_bool).unwrap_or(false))
         })
     }
@@ -425,7 +442,7 @@ impl FindOperations for SandboxFindOperations {
             payload.insert("pattern".into(), Value::String(pattern.into()));
             let value = run_sandbox_operation(&self.params, "find", payload, None)
                 .await
-                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
+                .map_err(crate::core::tools::node_fs::operation_error)?;
             Ok(value
                 .get("results")
                 .and_then(Value::as_array)
@@ -435,16 +452,19 @@ impl FindOperations for SandboxFindOperations {
     }
 }
 
-fn build_grep_notices(details: &Map, truncation: &crate::core::tools::truncate::TruncationResult) -> Vec<String> {
+fn build_grep_notices(details: &Map, truncation: &crate::core::tools::truncate::TruncationResult) -> Vec<JsString> {
     let mut notices = Vec::new();
     if let Some(limit) = details.get("matchLimitReached") {
-        notices.push(format!("{} matches limit reached", js_json::stringify_lossless(limit)));
+        notices.push(js_format!(
+            "{} matches limit reached",
+            js_json::stringify_lossless(limit)
+        ));
     }
     if details.get("linesTruncated").and_then(Value::as_bool) == Some(true) {
-        notices.push("long lines truncated".to_owned());
+        notices.push("long lines truncated".into());
     }
     if truncation.truncated {
-        notices.push(format!(
+        notices.push(js_format!(
             "{} limit reached",
             pi_agent_core::harness::utils::format_size(DEFAULT_MAX_BYTES)
         ));
@@ -522,17 +542,15 @@ async fn execute_sandboxed_grep(
 }
 
 struct BwrapRuntime {
-    bwrap_command: String,
-    local_cwd: String,
+    bwrap_command: JsString,
+    local_cwd: JsString,
 }
 
-fn create_bwrap_runtime(options: &BwrapExtensionOptions) -> BwrapRuntime {
-    BwrapRuntime {
+fn create_bwrap_runtime(options: &BwrapExtensionOptions) -> Result<BwrapRuntime, HandlerError> {
+    Ok(BwrapRuntime {
         bwrap_command: options.bwrap_command.clone().unwrap_or_else(default_bwrap_command),
-        local_cwd: std::env::current_dir()
-            .map(|path| path.display().to_string())
-            .unwrap_or_default(),
-    }
+        local_cwd: process_cwd().map_err(|error| HandlerError::new(error.message()))?,
+    })
 }
 
 fn register_bwrap_session_start(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Result<(), String> {
@@ -544,21 +562,24 @@ fn register_bwrap_session_start(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
             // `ctx.ui.theme` throws before `initTheme`; the source's runner
             // records the error, so surface it as a handler error.
             let theme = crate::modes::interactive::theme::try_current_theme()
-                .map_err(|error| HandlerError::new(error.to_string()))?;
+                .map_err(|error| HandlerError::new(error.message()))?;
             let Some(profile) = profile else {
                 if let Ok(ui) = ctx.ui() {
-                    ui.set_status("bwrap", Some(&theme.fg(ThemeColor::Muted, "bwrap: full access")));
+                    ui.set_status(
+                        &"bwrap".into(),
+                        Some(&theme.fg(ThemeColor::Muted, "bwrap: full access")),
+                    );
                 }
                 return Ok(None);
             };
             if let Ok(ui) = ctx.ui() {
                 match run_bwrap_availability_check(&bwrap_command) {
                     Ok(()) => ui.set_status(
-                        "bwrap",
-                        Some(&theme.fg(ThemeColor::Accent, &format!("bwrap: {}", profile.as_str()))),
+                        &"bwrap".into(),
+                        Some(&theme.fg(ThemeColor::Accent, &js_format!("bwrap: {}", profile.as_str()))),
                     ),
                     Err(message) => {
-                        ui.set_status("bwrap", Some(&theme.fg(ThemeColor::Error, "bwrap unavailable")));
+                        ui.set_status(&"bwrap".into(), Some(&theme.fg(ThemeColor::Error, "bwrap unavailable")));
                         ui.notify(&message.into(), Some(NotifyType::Error));
                     }
                 }
@@ -590,13 +611,13 @@ fn register_bwrap_tool_gate(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Result
     }))
 }
 
-type CreateSandboxedTool = Arc<dyn Fn(&str, &SandboxParams) -> ToolDefinition + Send + Sync>;
+type CreateSandboxedTool = Arc<dyn Fn(&JsString, &SandboxParams) -> ToolDefinition + Send + Sync>;
 
 fn register_sandboxed_tool(
     pi: &ExtensionApi,
     local_tool: ToolDefinition,
     runtime: &BwrapRuntime,
-    create_local: Arc<dyn Fn(&str) -> ToolDefinition + Send + Sync>,
+    create_local: Arc<dyn Fn(&JsString) -> ToolDefinition + Send + Sync>,
     create_sandboxed: CreateSandboxedTool,
 ) -> Result<(), String> {
     let bwrap_command = runtime.bwrap_command.clone();
@@ -606,7 +627,7 @@ fn register_sandboxed_tool(
         let create_sandboxed = Arc::clone(&create_sandboxed);
         let bwrap_command = bwrap_command.clone();
         Box::pin(async move {
-            let cwd = ctx.cwd().unwrap_or_default();
+            let cwd = ctx.cwd()?;
             let sandbox = read_sandbox_params(&ctx, &bwrap_command)?;
             let tool = match sandbox {
                 Some(sandbox) => create_sandboxed(&cwd, &sandbox),
@@ -706,7 +727,7 @@ fn register_sandboxed_bash_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
     local_bash.execute = Arc::new(move |id, params, signal, on_update, ctx| {
         let bwrap_command = bwrap_command.clone();
         Box::pin(async move {
-            let cwd = ctx.cwd().unwrap_or_default();
+            let cwd = ctx.cwd()?;
             let sandbox = read_sandbox_params(&ctx, &bwrap_command)?;
             let tool = match sandbox {
                 Some(sandbox) => create_bash_tool_definition(
@@ -734,7 +755,7 @@ fn register_sandboxed_grep_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
     local_grep.execute = Arc::new(move |_id, params, signal, on_update, ctx| {
         let bwrap_command = bwrap_command.clone();
         Box::pin(async move {
-            let cwd = ctx.cwd().unwrap_or_default();
+            let cwd = ctx.cwd()?;
             let sandbox = read_sandbox_params(&ctx, &bwrap_command)?;
             match sandbox {
                 Some(sandbox) => execute_sandboxed_grep(&sandbox, &params, signal)
@@ -770,16 +791,16 @@ fn register_before_agent_start_handler(pi: &ExtensionApi) -> Result<(), String> 
             let Some(profile) = read_sandbox_profile(&ctx) else {
                 return Ok(None);
             };
-            let cwd = ctx.cwd().unwrap_or_default();
-            let local_line = format!("Current working directory: {cwd}");
-            let sandbox_line = format!(
-                "Current working directory: {cwd} (Linux bubblewrap sandbox, profile {}; HOME is fake, only runtime paths plus workspace are mounted, and Pyrun executes inside the sandbox without Pi bridge capabilities)",
-                profile.as_str()
+            let cwd = ctx.cwd()?;
+            let local_line = js_format!("Current working directory: {}", cwd);
+            let sandbox_line = js_format!(
+                "Current working directory: {} (Linux bubblewrap sandbox, profile {}; HOME is fake, only runtime paths plus workspace are mounted, and Pyrun executes inside the sandbox without Pi bridge capabilities)",
+                cwd, profile.as_str()
             );
             let system_prompt = if event.system_prompt.contains(&local_line) {
                 { let mut prompt = event.system_prompt.clone(); let start = prompt.find(&local_line).expect("line found"); prompt.replace_range(start..start + local_line.len(), &sandbox_line); prompt }
             } else {
-                event.system_prompt.clone() + format!("\n\n{sandbox_line}")
+                event.system_prompt.clone() + js_format!("\n\n{}", sandbox_line)
             };
             Ok(Some(crate::core::extensions::types::BeforeAgentStartEventResult {
                 message: None,
@@ -796,25 +817,27 @@ fn register_bwrap_status_command(pi: &ExtensionApi, runtime: &BwrapRuntime) -> R
     let bwrap_command = runtime.bwrap_command.clone();
     pi.register_command(
         "bwrap",
-        Some("Show bubblewrap sandbox status".to_owned()),
+        Some("Show bubblewrap sandbox status".into()),
         None,
         Arc::new(move |_args, ctx| {
             let bwrap_command = bwrap_command.clone();
             Box::pin(async move {
                 let profile = read_sandbox_profile(&ctx);
                 let mode = match profile {
-                    Some(profile) => format!("sandboxed ({})", profile.as_str()),
-                    None => "unsandboxed/full-access".to_owned(),
+                    Some(profile) => js_format!("sandboxed ({})", profile.as_str()),
+                    None => JsString::from("unsandboxed/full-access"),
                 };
                 if let Ok(ui) = ctx.ui() {
+                    let cwd = ctx.cwd()?;
                     ui.notify(
-                        &[
-                            format!("bwrap backend: {mode}"),
-                            format!("cwd: {}", ctx.cwd().unwrap_or_default()),
-                            format!("bwrap: {bwrap_command}"),
-                        ]
-                        .join("\n")
-                        .into(),
+                        &JsString::join(
+                            [
+                                js_format!("bwrap backend: {}", mode),
+                                js_format!("cwd: {}", cwd),
+                                js_format!("bwrap: {}", bwrap_command),
+                            ],
+                            "\n",
+                        ),
                         Some(NotifyType::Info),
                     );
                 }
@@ -826,7 +849,7 @@ fn register_bwrap_status_command(pi: &ExtensionApi, runtime: &BwrapRuntime) -> R
 
 /// `bwrapExtension`.
 pub fn install_bwrap_extension(pi: &ExtensionApi, options: BwrapExtensionOptions) -> Result<(), HandlerError> {
-    let runtime = create_bwrap_runtime(&options);
+    let runtime = create_bwrap_runtime(&options)?;
     register_bwrap_session_start(pi, &runtime).map_err(HandlerError::new)?;
     register_bwrap_tool_gate(pi, &runtime).map_err(HandlerError::new)?;
     register_standard_sandboxed_tools(pi, &runtime).map_err(HandlerError::new)?;
