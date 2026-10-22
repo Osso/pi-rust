@@ -55,7 +55,23 @@ async fn captures_a_single_oversized_chunk_to_a_full_output_file() {
     assert!(full_output.contains("start"));
     assert!(full_output.contains("end"));
     assert!(result.output.len() < full_output.len());
-    assert!(result.truncation.last_line_partial);
+    assert!(result.output.ends_with("end"));
+}
+
+#[tokio::test]
+async fn raw_bytes_trigger_full_output_before_sanitization() {
+    let (_root, env) = env();
+    let result = execute_shell_with_capture(
+        &env,
+        &JsString::from("node -e \"process.stdout.write('\\x01'.repeat(11000))\""),
+        ShellCaptureOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.output, "");
+    assert!(result.truncated);
+    let path = result.full_output_path.expect("raw bytes exceed frozen threshold");
+    assert_eq!(env.read_text_file(&path, None).await.unwrap(), "");
 }
 
 #[tokio::test]
@@ -79,25 +95,9 @@ async fn reports_cancelled_commands() {
 }
 
 #[tokio::test]
-async fn returns_execution_errors_when_requested() {
+async fn returns_execution_errors() {
     let sleep_command = JsString::from("sleep 5");
     let (_root, env) = env();
-    let result = execute_shell_with_capture(
-        &env,
-        &JsString::from("printf out; sleep 5"),
-        ShellCaptureOptions {
-            timeout: Some(0.01),
-            return_execution_errors: true,
-            ..ShellCaptureOptions::default()
-        },
-    )
-    .await
-    .unwrap();
-    let error = result.execution_error.expect("execution error");
-    assert_eq!(error.code, pi_agent_core::harness::types::ExecutionErrorCode::Timeout);
-    assert_eq!(result.output, "out");
-    assert_eq!(result.exit_code, None);
-
     let error = execute_shell_with_capture(
         &env,
         &sleep_command,
@@ -126,7 +126,7 @@ async fn sanitizes_chunks_and_removes_carriage_returns() {
 }
 
 #[tokio::test]
-async fn reports_progress_to_chunk_callbacks() {
+async fn reports_sanitized_text_to_chunk_callbacks() {
     let (_root, env) = env();
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = Arc::clone(&calls);
@@ -134,9 +134,10 @@ async fn reports_progress_to_chunk_callbacks() {
         &env,
         &JsString::from("printf 'one\\ntwo\\n'"),
         ShellCaptureOptions {
-            on_chunk: Some(Arc::new(move |_chunk: &str, progress| {
+            on_chunk: Some(Arc::new(move |chunk: &JsString| {
                 observed.fetch_add(1, Ordering::SeqCst);
-                assert!(!progress.truncation.content.is_empty() || progress.output.is_empty());
+                assert!(!chunk.is_empty());
+                Ok(())
             })),
             ..ShellCaptureOptions::default()
         },
@@ -145,6 +146,4 @@ async fn reports_progress_to_chunk_callbacks() {
     .unwrap();
     assert_eq!(result.output, "one\ntwo\n");
     assert!(calls.load(Ordering::SeqCst) >= 1);
-    assert_eq!(result.truncation.total_lines, 2);
-    assert_eq!(result.last_line_bytes, 0);
 }

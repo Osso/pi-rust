@@ -5,7 +5,10 @@ use pi_coding_agent::core::tools::truncate::{
 use pi_js_compat::js_json::JsString;
 
 fn options(max_lines: usize, max_bytes: usize) -> TruncationOptions {
-    TruncationOptions { max_lines, max_bytes }
+    TruncationOptions {
+        max_lines: max_lines as f64,
+        max_bytes: max_bytes as f64,
+    }
 }
 
 #[test]
@@ -24,8 +27,8 @@ fn head_keeps_complete_leading_lines_within_the_byte_limit() {
             output_bytes: 7,
             last_line_partial: false,
             first_line_exceeds_limit: false,
-            max_lines: 10,
-            max_bytes: 7,
+            max_lines: 10 as f64,
+            max_bytes: 7 as f64,
         }
     );
 }
@@ -55,7 +58,7 @@ fn tail_classifies_the_line_limit() {
     let result = truncate_tail(
         "1\n2\n3\n4",
         TruncationOptions {
-            max_lines: 2,
+            max_lines: 2 as f64,
             ..Default::default()
         },
     );

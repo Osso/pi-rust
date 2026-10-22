@@ -189,14 +189,17 @@ fn execute_code_index(
         let truncation = truncate_head(
             &output,
             TruncationOptions {
-                max_lines: MAX_SAFE_INTEGER,
-                max_bytes: DEFAULT_MAX_BYTES,
+                max_lines: MAX_SAFE_INTEGER as f64,
+                max_bytes: DEFAULT_MAX_BYTES as f64,
             },
         );
         let mut text = truncation.content.clone();
         let mut details = Map::new();
         if truncation.truncated {
-            text.push_str(&format!("\n\n[{} limit reached]", format_size(DEFAULT_MAX_BYTES)));
+            text.push_str(&format!(
+                "\n\n[{} limit reached]",
+                format_size(DEFAULT_MAX_BYTES as f64)
+            ));
             details.insert(
                 "truncation".into(),
                 pi_js_compat::js_json::to_value(&truncation).expect("truncation metadata must serialize"),

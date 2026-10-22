@@ -4649,8 +4649,8 @@ impl InteractiveMode {
                         output_bytes: 0,
                         last_line_partial: false,
                         first_line_exceeds_limit: false,
-                        max_lines: 0,
-                        max_bytes: 0,
+                        max_lines: 0 as f64,
+                        max_bytes: 0 as f64,
                     }),
                     full_output_path,
                 );
@@ -7790,8 +7790,8 @@ impl InteractiveMode {
                                 output_bytes: 0,
                                 last_line_partial: false,
                                 first_line_exceeds_limit: false,
-                                max_lines: 0,
-                                max_bytes: 0,
+                                max_lines: 0 as f64,
+                                max_bytes: 0 as f64,
                             }),
                         result.full_output_path.clone(),
                     );

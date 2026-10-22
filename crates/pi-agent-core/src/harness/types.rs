@@ -18,8 +18,8 @@ use crate::agent::{AgentToolResult, AgentToolUpdateCallback, ToolError};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Skill {
     pub name: JsString,
-    pub description: String,
-    pub content: String,
+    pub description: JsString,
+    pub content: JsString,
     pub file_path: JsString,
     pub disable_model_invocation: Option<bool>,
 }
@@ -504,6 +504,7 @@ pub struct RemoveOptions {
 pub struct CreateTempFileOptions {
     pub prefix: Option<JsString>,
     pub suffix: Option<JsString>,
+    pub abort: Option<CancellationToken>,
 }
 
 /// Shell stdout/stderr callback. `Err` carries the callback error message.
@@ -592,7 +593,12 @@ pub trait FileSystem: Send + Sync {
         content: FileContent<'a>,
         abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<(), FileError>>;
-    fn append_file<'a>(&'a self, path: &'a JsString, content: FileContent<'a>) -> BoxFuture<'a, Result<(), FileError>>;
+    fn append_file<'a>(
+        &'a self,
+        path: &'a JsString,
+        content: FileContent<'a>,
+        abort: Option<&'a CancellationToken>,
+    ) -> BoxFuture<'a, Result<(), FileError>>;
     fn rename_file<'a>(
         &'a self,
         source_path: &'a JsString,

@@ -466,7 +466,7 @@ fn build_grep_notices(details: &Map, truncation: &crate::core::tools::truncate::
     if truncation.truncated {
         notices.push(js_format!(
             "{} limit reached",
-            pi_agent_core::harness::utils::format_size(DEFAULT_MAX_BYTES)
+            pi_agent_core::harness::utils::format_size(DEFAULT_MAX_BYTES as f64)
         ));
     }
     notices
@@ -512,8 +512,8 @@ async fn execute_sandboxed_grep(
     let truncation = crate::core::tools::truncate::truncate_head(
         text,
         pi_agent_core::harness::utils::TruncationOptions {
-            max_lines: usize::MAX,
-            max_bytes: DEFAULT_MAX_BYTES,
+            max_lines: usize::MAX as f64,
+            max_bytes: DEFAULT_MAX_BYTES as f64,
         },
     );
     let mut details = result

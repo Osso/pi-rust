@@ -20,7 +20,7 @@ pub(crate) fn compare_all_fixtures(oracle: &mut TsOracle) {
     for (offset, (name, bytes)) in fixtures.into_iter().enumerate() {
         let id = FIRST_REQUEST_ID + u64::try_from(offset).expect("fixture offset must fit u64");
         let expected = oracle.request(&json!({"id": id, "operation": "format_size", "bytes": bytes}));
-        let actual = ok_response(id, json!({"value": format_size(bytes)}));
+        let actual = ok_response(id, json!({"value": format_size(bytes as f64)}));
 
         assert_eq!(actual, expected, "format-size mismatch: {name}");
     }

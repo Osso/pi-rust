@@ -9,7 +9,7 @@ use pi_js_compat::js_json::{JsString, encode_node_utf8};
 const TRUNCATION_MARKER: &str = "... [truncated]";
 
 /// Truncated output and source-compatible metadata.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TruncationResult {
     pub content: JsString,
@@ -21,8 +21,10 @@ pub struct TruncationResult {
     pub output_bytes: usize,
     pub last_line_partial: bool,
     pub first_line_exceeds_limit: bool,
-    pub max_lines: usize,
-    pub max_bytes: usize,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
+    pub max_lines: f64,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
+    pub max_bytes: f64,
 }
 
 /// Single-line truncation result.
@@ -43,16 +45,20 @@ pub fn truncate_head(content: impl Into<JsString>, options: TruncationOptions) -
     }
 
     let first_line_bytes = lines.first().map_or(0, |line| encode_node_utf8(line).len());
-    if first_line_bytes > options.max_bytes {
+    if first_line_bytes as f64 > options.max_bytes {
         return empty_head_byte_result(totals, options);
     }
 
     let mut output = Vec::new();
     let mut output_bytes = 0;
     let mut truncated_by = TruncatedBy::Lines;
-    for (index, line) in lines.iter().take(options.max_lines).enumerate() {
+    for (index, line) in lines.iter().enumerate() {
+        let within_limit = (index as f64) < options.max_lines;
+        if !within_limit {
+            break;
+        }
         let line_bytes = encode_node_utf8(line).len() + usize::from(index > 0);
-        if output_bytes + line_bytes > options.max_bytes {
+        if (output_bytes + line_bytes) as f64 > options.max_bytes {
             truncated_by = TruncatedBy::Bytes;
             break;
         }
@@ -60,7 +66,7 @@ pub fn truncate_head(content: impl Into<JsString>, options: TruncationOptions) -
         output_bytes += line_bytes;
     }
 
-    if output.len() >= options.max_lines && output_bytes <= options.max_bytes {
+    if output.len() as f64 >= options.max_lines && output_bytes as f64 <= options.max_bytes {
         truncated_by = TruncatedBy::Lines;
     }
     let output_lines = output.len();
@@ -128,7 +134,7 @@ impl Totals {
     }
 
     fn fit(self, options: TruncationOptions) -> bool {
-        self.lines <= options.max_lines && self.bytes <= options.max_bytes
+        self.lines as f64 <= options.max_lines && self.bytes as f64 <= options.max_bytes
     }
 }
 
@@ -143,9 +149,13 @@ fn collect_tail_lines(lines: &[JsString], options: TruncationOptions) -> TailSel
     let mut output_bytes = 0;
     let mut truncated_by = TruncatedBy::Lines;
     let mut last_line_partial = false;
-    for line in lines.iter().rev().take(options.max_lines) {
+    for line in lines.iter().rev() {
+        let within_limit = (output.len() as f64) < options.max_lines;
+        if !within_limit {
+            break;
+        }
         let line_bytes = encode_node_utf8(line).len() + usize::from(!output.is_empty());
-        if output_bytes + line_bytes > options.max_bytes {
+        if (output_bytes + line_bytes) as f64 > options.max_bytes {
             truncated_by = TruncatedBy::Bytes;
             if output.is_empty() {
                 let partial = truncate_string_to_bytes_from_end(line, options.max_bytes);
@@ -159,7 +169,7 @@ fn collect_tail_lines(lines: &[JsString], options: TruncationOptions) -> TailSel
         output_bytes += line_bytes;
     }
 
-    if output.len() >= options.max_lines && output_bytes <= options.max_bytes {
+    if output.len() as f64 >= options.max_lines && output_bytes as f64 <= options.max_bytes {
         truncated_by = TruncatedBy::Lines;
     }
     output.reverse();
@@ -239,7 +249,8 @@ fn truncated_result(
     }
 }
 
-fn truncate_string_to_bytes_from_end(value: &JsString, max_bytes: usize) -> JsString {
+fn truncate_string_to_bytes_from_end(value: &JsString, max_bytes: f64) -> JsString {
+    let max_bytes = max_bytes.max(0.0) as usize;
     let encoded = encode_node_utf8(value);
     if encoded.len() <= max_bytes {
         return value.clone();

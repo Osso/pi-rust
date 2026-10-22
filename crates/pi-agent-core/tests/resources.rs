@@ -9,8 +9,8 @@ fn assert_debug<T: Debug>(_: &T) {}
 fn skill_preserves_required_fields_and_none_option() {
     let mut skill = Skill {
         name: JsString::from("skill-name"),
-        description: "skill description".to_owned(),
-        content: "skill content".to_owned(),
+        description: "skill description".into(),
+        content: "skill content".into(),
         file_path: JsString::from("/skills/skill-name/SKILL.md"),
         disable_model_invocation: None,
     };
@@ -22,8 +22,8 @@ fn skill_preserves_required_fields_and_none_option() {
     assert_eq!(skill.disable_model_invocation, None);
 
     skill.name = JsString::from("renamed-skill");
-    skill.description = "updated description".to_owned();
-    skill.content = "updated content".to_owned();
+    skill.description = "updated description".into();
+    skill.content = "updated content".into();
     skill.file_path = JsString::from("/skills/renamed-skill/SKILL.md");
     skill.disable_model_invocation = Some(true);
 
@@ -42,8 +42,8 @@ fn skill_preserves_optional_disable_model_invocation_states() {
     for state in states {
         let skill = Skill {
             name: JsString::from("name"),
-            description: "description".to_owned(),
-            content: "content".to_owned(),
+            description: "description".into(),
+            content: "content".into(),
             file_path: JsString::from("/skill"),
             disable_model_invocation: state,
         };
@@ -56,8 +56,8 @@ fn skill_preserves_optional_disable_model_invocation_states() {
 fn skill_preserves_empty_unicode_and_embedded_nul_strings() {
     let skill = Skill {
         name: JsString::from(""),
-        description: "描述🙂e\u{301}\0, punctuation!?".to_owned(),
-        content: "内容🙂e\u{301}\0, <skill>!".to_owned(),
+        description: "描述🙂e\u{301}\0, punctuation!?".into(),
+        content: "内容🙂e\u{301}\0, <skill>!".into(),
         file_path: JsString::from("路径/技能🙂e\u{301}\0/SKILL.md,!"),
         disable_model_invocation: Some(false),
     };
@@ -73,8 +73,8 @@ fn skill_preserves_empty_unicode_and_embedded_nul_strings() {
 fn skill_preserves_empty_strings_in_every_string_field() {
     let skill = Skill {
         name: JsString::default(),
-        description: String::new(),
-        content: String::new(),
+        description: JsString::default(),
+        content: JsString::default(),
         file_path: JsString::default(),
         disable_model_invocation: None,
     };
@@ -181,15 +181,15 @@ fn resources_preserve_none_and_empty_array_distinction() {
 fn resources_preserve_order_duplicates_and_nested_mutation() {
     let first_skill = Skill {
         name: JsString::from("duplicate"),
-        description: "first".to_owned(),
-        content: "content-1".to_owned(),
+        description: "first".into(),
+        content: "content-1".into(),
         file_path: JsString::from("/first"),
         disable_model_invocation: None,
     };
     let second_skill = Skill {
         name: JsString::from("duplicate"),
-        description: "second".to_owned(),
-        content: "content-2".to_owned(),
+        description: "second".into(),
+        content: "content-2".into(),
         file_path: JsString::from("/second"),
         disable_model_invocation: Some(false),
     };
@@ -240,8 +240,8 @@ fn resources_preserve_order_duplicates_and_nested_mutation() {
 
     resources.skills = Some(vec![Skill {
         name: JsString::from("replacement skill"),
-        description: "replacement description".to_owned(),
-        content: "replacement content".to_owned(),
+        description: "replacement description".into(),
+        content: "replacement content".into(),
         file_path: JsString::from("/replacement"),
         disable_model_invocation: None,
     }]);

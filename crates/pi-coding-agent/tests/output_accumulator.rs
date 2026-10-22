@@ -91,8 +91,8 @@ fn snapshot_truncation_uses_tail_limits_and_full_counts() {
     let tail = truncate_tail(
         "a\nb\nc\n",
         TruncationOptions {
-            max_lines: 2,
-            max_bytes: 1_024,
+            max_lines: 2.0,
+            max_bytes: 1_024.0,
         },
     );
 

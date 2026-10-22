@@ -175,7 +175,12 @@ impl FileSystem for NodeExecutionEnv {
         })
     }
 
-    fn append_file<'a>(&'a self, path: &'a JsString, content: FileContent<'a>) -> BoxFuture<'a, Result<(), FileError>> {
+    fn append_file<'a>(
+        &'a self,
+        path: &'a JsString,
+        content: FileContent<'a>,
+        _abort: Option<&'a CancellationToken>,
+    ) -> BoxFuture<'a, Result<(), FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
             create_parent_dir(&resolved).await?;

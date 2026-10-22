@@ -468,18 +468,18 @@ fn render_read_output(input: &ReadRenderInput<'_>) -> (JsString, Option<Value>) 
                 "\n\n[Showing lines {}-{} of file ({} limit). Use offset={} to continue.]",
                 start_line_display,
                 end_line_display,
-                format_size(DEFAULT_MAX_BYTES),
+                format_size(DEFAULT_MAX_BYTES as f64),
                 next_offset
             );
         return (output_text, Some(truncation_details(truncation, true, file_stat)));
     }
     if truncation.first_line_exceeds_limit {
-        let first_line_size = format_size(all_lines[start_line_display - 1].len());
+        let first_line_size = format_size(all_lines[start_line_display - 1].len() as f64);
         let output_text = JsString::from(format!(
             "[Line {} is {}, exceeds {} limit. Use bash: sed -n '{}p' ",
             start_line_display,
             first_line_size,
-            format_size(DEFAULT_MAX_BYTES),
+            format_size(DEFAULT_MAX_BYTES as f64),
             start_line_display,
         )) + path
             + format!(" | head -c {}]", DEFAULT_MAX_BYTES);
@@ -500,7 +500,7 @@ fn render_read_output(input: &ReadRenderInput<'_>) -> (JsString, Option<Value>) 
                 start_line_display,
                 end_line_display,
                 total_file_lines,
-                format_size(DEFAULT_MAX_BYTES),
+                format_size(DEFAULT_MAX_BYTES as f64),
                 next_offset
             ));
         }
