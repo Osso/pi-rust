@@ -186,9 +186,10 @@ impl<'de> Deserialize<'de> for Credential {
             let key = object.get(&JsString::from("key")).and_then(JsValue::as_string).cloned();
             let env = object
                 .get(&JsString::from("env"))
-                .map(pi_js_compat::js_json::from_value)
+                .map(pi_js_compat::js_json::from_value::<Option<Vec<AuthInfoLink>>>)
                 .transpose()
-                .map_err(D::Error::custom)?;
+                .map_err(D::Error::custom)?
+                .flatten();
             return Ok(Self::ApiKey(ApiKeyCredential { key, env }));
         }
         Err(D::Error::custom("unknown credential type"))
@@ -347,14 +348,22 @@ impl<'de> Deserialize<'de> for AuthEvent {
                 .cloned()
                 .ok_or_else(|| D::Error::custom(format!("Missing auth event string: {name}")))
         };
-        let optional = |name: &str| value.get(name).and_then(JsValue::as_string).cloned();
+        let optional = |name: &str| -> Result<Option<JsString>, D::Error> {
+            value
+                .get(name)
+                .map(pi_js_compat::js_json::from_value::<Option<JsString>>)
+                .transpose()
+                .map(Option::flatten)
+                .map_err(D::Error::custom)
+        };
         let tag = field("type")?;
         if tag == "info" {
             let links = value
                 .get("links")
-                .map(pi_js_compat::js_json::from_value)
+                .map(pi_js_compat::js_json::from_value::<Option<Vec<AuthInfoLink>>>)
                 .transpose()
-                .map_err(D::Error::custom)?;
+                .map_err(D::Error::custom)?
+                .flatten();
             return Ok(Self::Info {
                 message: field("message")?,
                 links,
@@ -363,7 +372,7 @@ impl<'de> Deserialize<'de> for AuthEvent {
         if tag == "auth_url" {
             return Ok(Self::AuthUrl {
                 url: field("url")?,
-                instructions: optional("instructions"),
+                instructions: optional("instructions")?,
             });
         }
         if tag == "progress" {
@@ -375,8 +384,18 @@ impl<'de> Deserialize<'de> for AuthEvent {
             return Ok(Self::DeviceCode {
                 user_code: field("userCode")?,
                 verification_uri: field("verificationUri")?,
-                interval_seconds: value.get("intervalSeconds").and_then(JsValue::as_f64),
-                expires_in_seconds: value.get("expiresInSeconds").and_then(JsValue::as_f64),
+                interval_seconds: value
+                    .get("intervalSeconds")
+                    .map(pi_js_compat::js_json::from_value::<Option<f64>>)
+                    .transpose()
+                    .map_err(D::Error::custom)?
+                    .flatten(),
+                expires_in_seconds: value
+                    .get("expiresInSeconds")
+                    .map(pi_js_compat::js_json::from_value::<Option<f64>>)
+                    .transpose()
+                    .map_err(D::Error::custom)?
+                    .flatten(),
             });
         }
         Err(D::Error::custom("unknown auth event type"))
