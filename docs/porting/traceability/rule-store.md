@@ -36,3 +36,13 @@ destinations, and a 9-step store sequence. Focused tests: `tests/permission_rule
 
 - Focused cases: 9.
 - Differential: 5 content cases, 30 write cases (10 fixtures × 3 destinations), 9 store steps.
+
+## Q18 native settings ingress (2026-10-22)
+
+PermissionRuleStore consumes the native JsValue settings authority directly; no
+serde_json round trip remains. RuleStoreError text is native, and JSON property
+scanning parses literals losslessly so unrelated escaped raw keys do not fail.
+File content is decoded at the filesystem byte ingress before byte-preserving
+splicing; raw JSON rule strings remain in the native AST. Native in-memory rule
+fixture written but unexecuted while coding compilation is blocked. No runtime
+PASS. replacement-adapters-1 has zero rule-store primaries.
