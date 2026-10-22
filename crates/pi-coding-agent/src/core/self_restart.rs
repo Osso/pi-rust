@@ -30,7 +30,7 @@ const BUN_VIRTUAL_ENTRYPOINT_PREFIXES: [&str; 3] = ["/$bunfs/root/", "/~BUN/root
 /// `SelfRestartRequest`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelfRestartRequest {
-    pub session_file: String,
+    pub session_file: JsString,
     pub prompt: Option<pi_js_compat::js_json::JsString>,
     pub old_pid: Option<u32>,
 }
@@ -38,7 +38,7 @@ pub struct SelfRestartRequest {
 /// `SelfRestartHandoff`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelfRestartHandoff {
-    pub session_file: String,
+    pub session_file: JsString,
     pub prompt: Option<pi_js_compat::js_json::JsString>,
     pub old_pid: Option<u32>,
 }
@@ -93,7 +93,7 @@ pub fn consume_self_restart_request(
         _ => None,
     };
     Some(SelfRestartHandoff {
-        session_file,
+        session_file: session_file.into(),
         prompt: prompt.filter(|prompt| !prompt.is_empty()).map(JsString::from),
         old_pid,
     })
@@ -192,7 +192,12 @@ pub fn append_self_restart_notice(
         return Ok(());
     };
     let notice = format_restart_notice(prompt, handoff.old_pid, current_pid);
-    session_manager.append_custom_message_entry("self_restart", CustomMessageContent::Text(notice), true, None)?;
+    session_manager.append_custom_message_entry(
+        &"self_restart".into(),
+        CustomMessageContent::Text(notice),
+        true,
+        None,
+    )?;
     Ok(())
 }
 

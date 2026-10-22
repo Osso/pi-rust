@@ -164,3 +164,42 @@ async fn raw_storage_paths_keep_identity_until_the_filesystem_boundary() {
     let settings = SettingsManager::create(&raw, Some(&raw), Default::default()).unwrap();
     assert!(settings.get_errors().is_empty());
 }
+
+#[tokio::test]
+async fn runtime_factory_error_and_cwd_keep_original_units() {
+    use pi_coding_agent::core::agent_session_runtime::{
+        CreateAgentSessionRuntimeFactory, create_agent_session_runtime,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let raw = JsString::from(root.path().to_str().unwrap()) + "/cwd-" + JsString::from_utf16(vec![0xdc00]);
+    std::fs::create_dir_all(encode_node_utf8(&raw)).unwrap();
+    let expected_error = JsString::from("factory-") + JsString::from_utf16(vec![0xd800]);
+    let seen = Arc::new(Mutex::new(None));
+    let factory: CreateAgentSessionRuntimeFactory = Arc::new({
+        let seen = seen.clone();
+        let error = expected_error.clone();
+        move |options| {
+            *seen.lock().unwrap() = Some((options.cwd, options.agent_dir));
+            let error = error.clone();
+            Box::pin(async move { Err(error) })
+        }
+    });
+    let manager = SessionManager::in_memory(Some(&raw), None).unwrap();
+    let result = create_agent_session_runtime(factory, &raw, &raw, manager).await;
+    assert_eq!(result.err(), Some(expected_error));
+    assert_eq!(*seen.lock().unwrap(), Some((raw.clone(), raw)));
+}
+
+#[test]
+fn session_resource_cleanup_receives_raw_session_id() {
+    let raw = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
+    let seen = Arc::new(Mutex::new(None));
+    let captured = seen.clone();
+    let registration = pi_ai::session_resources::register_session_resource_cleanup(Box::new(move |id| {
+        *captured.lock().unwrap() = id.cloned();
+        Ok(())
+    }));
+    pi_ai::session_resources::cleanup_session_resources(Some(&raw)).unwrap();
+    registration.unregister();
+    assert_eq!(*seen.lock().unwrap(), Some(raw));
+}
