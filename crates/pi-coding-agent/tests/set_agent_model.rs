@@ -698,6 +698,8 @@ async fn schema_argument_admission_matches_source_validation() {
         name: definition.name.clone(),
         description: definition.description,
         parameters: definition.parameters,
+        label: None,
+        execution_mode: None,
         typebox_kind: true,
         constrained_sampling: None,
     };

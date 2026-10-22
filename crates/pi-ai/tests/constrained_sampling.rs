@@ -12,6 +12,8 @@ fn tool(name: &str, parameters: Value, constrained_sampling: Option<ConstrainedS
         description: "Sample tool".to_owned(),
         parameters,
         constrained_sampling,
+        label: None,
+        execution_mode: None,
         typebox_kind: false,
     }
 }

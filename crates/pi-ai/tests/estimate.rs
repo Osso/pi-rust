@@ -146,6 +146,8 @@ fn context_prefix_adds_system_prompt_and_tool_definitions() {
         description: "The late_tool tool".to_owned(),
         parameters: json!({"type": "object"}),
         constrained_sampling: None,
+        label: None,
+        execution_mode: None,
         typebox_kind: false,
     };
     let context = Context {
@@ -167,6 +169,8 @@ fn tool_definitions_are_ignored_when_assistant_usage_exists() {
         description: "late".to_owned(),
         parameters: json!({"type": "object"}),
         constrained_sampling: None,
+        label: None,
+        execution_mode: None,
         typebox_kind: false,
     };
     let context = Context {

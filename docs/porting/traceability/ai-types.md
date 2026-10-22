@@ -13,6 +13,22 @@ Deferred request interfaces, constrained sampling and other pre-repin exports be
 Sources: `packages/ai/src/types.ts`, `packages/ai/src/utils/event-stream.ts`.
 Rust: `crates/pi-ai/src/types.rs`, `crates/pi-ai/src/utils/event_stream.rs`, `crates/pi-js-compat/src/number.rs`.
 
+## Enumerable AgentTool metadata
+
+[Contract](../../specs/tool-enumerable-metadata.md). Frozen AgentTool extends Tool with label, optional executionMode and function-valued prepareArguments/prepareExecution/execute (`agent-core/src/types.ts:383–411`). Only label/executionMode survive JSON. Frozen coding-agent `tool-definition-wrapper.ts:100–119,141–156` emits name,label,description,parameters,executionMode in that order after function/undefined omission. Rust Tool retains optional JsString label/execution_mode in that order; constructors leave both absent. These are JSON carriers, not an AI execution policy.
+
+| Whole-object path / explicit mapping | Frozen evidence | Metadata behavior |
+|---|---|---|
+| Faux prompt serialization | `ai/providers/faux.ts:190–202` | JSON.stringify(context.tools) counts both fields |
+| Context token estimate | `ai/utils/estimate.ts:21–27,101–103` | safeJsonStringify(context.tools) counts both fields |
+| Whole-context proxy, outside AI package | `agent-core/proxy.ts:158–162` | JSON.stringify({model,context,options}) retains both fields; raw-context request proof |
+| Completions / Responses / Azure / Codex | `openai-completions.ts:1095–1108`, `openai-responses-shared.ts:425–437`; other three delegate | Explicit name/description/parameters mapping ignores both fields |
+| Anthropic / Google / Bedrock / Mistral | `anthropic-messages.ts:1195–1208`, `google-shared.ts:308–317`, `bedrock-converse-stream.ts:905–911`, `mistral-conversations.ts:485–495` | Explicit schema/name/description mapping ignores both fields |
+
+Whole AI-source JSON.stringify/structuredClone/spread audit found no additional whole-Tool consumer: other serializers handle arguments, messages, reasoning items, OAuth/error/proxy data or already-mapped request bodies; schema spreads/clones affect parameters only. No generic unknown-property bag or function serialization is added. AgentTool population is owned by222; its label accessor's native representation is outside this carrier slice.
+
+RED reproduced the shared harness fixture exactly: Native Faux input48 versus actual frozen53 (`tool-metadata-red.log`). `tool_metadata.rs` additionally compares whole Tool JSON order, both estimators, unpaired label units, optional execution modes and explicit provider mapping. Carrier availability alone does not claim harness integration.
+
 ## Representation decisions
 - `StreamOptions.metadata` is native `JsObject`, preserving arbitrary nested JSON and lone UTF-16 keys/values through buildBaseOptions. Anthropic forwards only string user_id, matching frozen; proxy forwards the complete metadata object. RED: metadata deserialization rejected a lone surrogate; proxy silently omitted native metadata. Proof: `lossless_metadata` and core `proxy` UTF-16 regression (`metadata-{red,proxy-red}.log` in the lane ledger). ImagesOptions.metadata and Bedrock's separate requestMetadata extra are outside this common-field slice.
 - TS `number` → `f64` serialized via `pi_js_compat::number` (integral values print without `.0`, like `JSON.stringify`). User/Assistant/ToolResult `timestamp` → `f64`, including nonfinite/signed-zero values; [integration proof](message-timestamps.md). `contentIndex` → `usize`. `Number.parseInt` → `pi_js_compat::number::parse_int` (used by the `pi-ai` CLI selection prompt).
