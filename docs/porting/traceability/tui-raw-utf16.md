@@ -48,3 +48,13 @@ Its callbacks and custom segments are native strings. ICU dictionary gap unchang
 implementations are compile-blocked, not adapted through scalar encoding.
 Input isolated proof uses production Input/kill/word/keybinding/keys modules and the
 literal source trait interface with placeholder unused Container; no renderer proof.
+
+## Text
+
+`Text::{new,with_background,set_text}` accept `Into<JsString>`; `text()` borrows
+`JsString`. `StyleFn = Rc<dyn Fn(&JsString) -> JsString>`. Text, cached text,
+wrapped/padded lines and cached rendered lines are native, with no scalar copies.
+`raw_text` compares 256 frozen cases (raw high/low/pair/mixed, widths 1–8,
+horizontal/vertical padding, background off/on); each compares two cached renders.
+Representation RED was the pre-migration scalar Text failing the native trait/test
+interface; GREEN uses actual Text in the same isolated harness as Input.
