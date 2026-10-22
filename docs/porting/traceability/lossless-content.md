@@ -14,6 +14,10 @@ Contract: [lossless content](../../specs/lossless-content.md). Frozen source: `4
 | Questions / mailbox / session name | raw contracts and consumers integrated; see checkpoints below | compilation and runtime acceptance pending | compiler-blocked; no end-to-end PASS |
 | Provider ingress | [SSE and Codex WebSocket](lossless-provider-ingress.md) merged at `5909f149` | human errors, scalar metadata and non-stream images remain gaps | six sandbox tests PASS at lane executable revision; not parent integration acceptance |
 
+## Canonical relay integration checkpoint
+
+Canonical host-relay ingestion now constructs the shared raw mailbox address/ref/message fields directly. Literal kind classification no longer encodes text before comparing tags; the original literal remains in the routed object. Existing `host_relay_store` raw-payload and `host_relay_protocol` surrogate-address retry regressions remain required after parent compilation; merging canonical fixes is not a new runtime PASS.
+
 ## Custom glob input checkpoint
 
 `FindOperations::glob` receives `&JsString`; the tool and sandbox payload no longer encode pattern units before matching. `custom_find_operation_receives_original_pattern_units` covers the actual custom-operation callback. `find-pattern-red.jsonl` remains compiler-blocked, not a behavioral RED or PASS. Matcher runtime proof is a separate dependency.
