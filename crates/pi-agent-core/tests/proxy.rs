@@ -448,3 +448,103 @@ async fn rejects_text_delta_for_non_text_content() {
     );
     assert_eq!(result.content, Vec::<pi_ai::types::AssistantContent>::new());
 }
+
+#[path = "../../pi-ai/tests/support/oracle.rs"]
+mod oracle;
+
+#[test]
+fn unknown_proxy_events_warn_exactly_to_stderr() {
+    let mut oracle = oracle::TsOracle::spawn("proxy-stream-oracle.ts", "packages/agent-core/src/proxy.ts");
+    let response: serde_json::Value = oracle.request(&json!({"model":model(),"events":[{"type":"future-event"},{"type":"done","reason":"stop","usage":pi_ai::types::Usage::default()}]}));
+    assert_eq!(
+        response["warnings"],
+        json!(["Unhandled proxy event type: future-event"])
+    );
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "unknown_proxy_warning_child", "--nocapture"])
+        .env("PI_PROXY_WARNING_CHILD", "1")
+        .output()
+        .unwrap();
+    assert!(child.status.success(), "{}", String::from_utf8_lossy(&child.stderr));
+    assert_eq!(
+        String::from_utf8(child.stderr).unwrap(),
+        "Unhandled proxy event type: future-event\n"
+    );
+    assert!(
+        !String::from_utf8(child.stdout)
+            .unwrap()
+            .contains("Unhandled proxy event type:")
+    );
+}
+#[tokio::test]
+async fn unknown_proxy_warning_child() {
+    if std::env::var_os("PI_PROXY_WARNING_CHILD").is_none() {
+        return;
+    }
+    let fetch = Arc::new(ScriptedFetch {
+        status: 200,
+        status_text: "OK".into(),
+        chunks: vec![sse(&[
+            json!({"type":"future-event"}),
+            json!({"type":"done","reason":"stop","usage":pi_ai::types::Usage::default()}),
+        ])],
+        requests: Arc::new(Mutex::new(vec![])),
+        honour_cancel: false,
+    });
+    let (events, result) = collect(stream_proxy(
+        model(),
+        Context {
+            system_prompt: None,
+            messages: vec![],
+            tools: None,
+        },
+        options(fetch, None),
+    ))
+    .await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(result.stop_reason, StopReason::Stop);
+}
+
+#[tokio::test]
+async fn non_contiguous_proxy_index_is_an_explicit_protocol_error() {
+    // Frozen proxy.ts:246/280/313 assigns sparse slots; AGENTS 2026-10-22 records
+    // the approved gap: native protocol error rather than sparse JS arrays.
+    for kind in [
+        "text_start",
+        "thinking_start",
+        "toolcall_start",
+        "text_delta",
+        "thinking_delta",
+        "toolcall_delta",
+        "text_end",
+        "thinking_end",
+        "toolcall_end",
+    ] {
+        let fetch = Arc::new(ScriptedFetch {
+            status: 200,
+            status_text: "OK".into(),
+            chunks: vec![sse(&[
+                json!({"type":kind,"contentIndex":2,"id":"call","toolName":"lookup","delta":"x"}),
+            ])],
+            requests: Arc::new(Mutex::new(vec![])),
+            honour_cancel: false,
+        });
+        let (_, result) = collect(stream_proxy(
+            model(),
+            Context {
+                system_prompt: None,
+                messages: vec![],
+                tools: None,
+            },
+            options(fetch, None),
+        ))
+        .await;
+        assert_eq!(result.stop_reason, StopReason::Error);
+        assert_eq!(
+            result.error_message.as_ref(),
+            Some(&JsString::from(
+                "Proxy protocol error: non-contiguous contentIndex 2 (next index: 0)"
+            ))
+        );
+    }
+}
