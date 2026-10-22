@@ -310,14 +310,14 @@ fn help_cases() -> Vec<(u64, &'static str, Vec<ExtensionFlag>)> {
                     description: Some("Enable plan mode".to_owned()),
                     kind: ExtensionFlagType::Boolean,
                     default: None,
-                    extension_path: "/ext/plan.ts".to_owned(),
+                    extension_path: "/ext/plan.ts".into(),
                 },
                 ExtensionFlag {
                     name: "model-extra".to_owned(),
                     description: None,
                     kind: ExtensionFlagType::String,
                     default: None,
-                    extension_path: "/ext/extra.ts".to_owned(),
+                    extension_path: "/ext/extra.ts".into(),
                 },
             ],
         ),
@@ -335,7 +335,7 @@ fn oracle_flags(flags: &[ExtensionFlag]) -> Value {
                         ExtensionFlagType::Boolean => "boolean",
                         ExtensionFlagType::String => "string",
                     },
-                    "extensionPath": flag.extension_path,
+                    "extensionPath": flag.extension_path.to_utf8().expect("fixture paths are well-formed"),
                 });
                 if let Some(description) = &flag.description {
                     value["description"] = json!(description);

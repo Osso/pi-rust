@@ -492,17 +492,32 @@ fn prints_help_with_and_without_extension_flags() {
             description: Some("Enable plan mode".to_owned()),
             kind: pi_coding_agent::cli::args::ExtensionFlagType::Boolean,
             default: None,
-            extension_path: "/ext/plan.ts".to_owned(),
+            extension_path: "/ext/plan.ts".into(),
         },
         ExtensionFlag {
             name: "model-extra".to_owned(),
             description: None,
             kind: pi_coding_agent::cli::args::ExtensionFlagType::String,
             default: None,
-            extension_path: "/ext/extra.ts".to_owned(),
+            extension_path: "/ext/extra.ts".into(),
         },
     ]);
     assert!(with_flags.contains(
         "\nExtension CLI Flags:\n  --plan                      Enable plan mode\n  --model-extra <value>       Registered by /ext/extra.ts\n\n"
     ));
+}
+
+#[test]
+fn help_keeps_extension_path_native_until_the_stdout_boundary() {
+    let mut path = pi_js_compat::js_json::JsString::from("/ext/");
+    path.push_str(pi_js_compat::js_json::JsString::from_utf16(vec![0xDC00]));
+    path.push_str(".ts");
+    let help = print_help(&[ExtensionFlag {
+        name: "raw".to_owned(),
+        description: None,
+        kind: pi_coding_agent::cli::args::ExtensionFlagType::Boolean,
+        default: None,
+        extension_path: path,
+    }]);
+    assert!(help.contains("  --raw                       Registered by /ext/\u{FFFD}.ts\n"));
 }

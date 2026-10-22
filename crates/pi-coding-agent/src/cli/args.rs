@@ -2,6 +2,8 @@
 
 use indexmap::IndexMap;
 use pi_agent_core::harness::ThinkingLevel;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_tui::tui::TuiMode;
 
 use crate::config;
@@ -506,7 +508,7 @@ pub struct ExtensionFlag {
     pub description: Option<String>,
     pub kind: ExtensionFlagType,
     pub default: Option<ExtensionFlagDefault>,
-    pub extension_path: String,
+    pub extension_path: JsString,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -530,33 +532,32 @@ pub(crate) fn pad_end_utf16(value: &str, width: usize) -> String {
     padded
 }
 
-fn extension_flags_text(extension_flags: &[ExtensionFlag], chalk: &Chalk) -> String {
+fn extension_flags_text(extension_flags: &[ExtensionFlag], chalk: &Chalk) -> JsString {
     if extension_flags.is_empty() {
-        return String::new();
+        return JsString::default();
     }
 
-    let rows = extension_flags
-        .iter()
-        .map(|flag| {
-            let value = match flag.kind {
-                ExtensionFlagType::String => " <value>",
-                ExtensionFlagType::Boolean => "",
-            };
-            let description = flag
-                .description
-                .clone()
-                .unwrap_or_else(|| format!("Registered by {}", flag.extension_path));
-            format!(
-                "{}{description}",
-                pad_end_utf16(&format!("  --{}{value}", flag.name), 30)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!("\n{}\n{rows}\n", chalk.bold("Extension CLI Flags:"))
+    let rows = extension_flags.iter().map(|flag| {
+        let value = match flag.kind {
+            ExtensionFlagType::String => " <value>",
+            ExtensionFlagType::Boolean => "",
+        };
+        let description = match &flag.description {
+            Some(description) => JsString::from(description.as_str()),
+            None => js_format!("Registered by {}", flag.extension_path),
+        };
+        JsString::from(pad_end_utf16(&format!("  --{}{value}", flag.name), 30)) + description
+    });
+    js_format!(
+        "\n{}\n{}\n",
+        chalk.bold("Extension CLI Flags:"),
+        JsString::join(rows, "\n")
+    )
 }
 
-/// `printHelp` output including the trailing newline from `console.log`.
+/// `printHelp` output including the trailing newline from `console.log`. This is the stdout
+/// boundary: each native piece is encoded separately, which equals encoding the whole text
+/// because every piece is adjacent only to ASCII.
 pub fn print_help(extension_flags: &[ExtensionFlag]) -> String {
     let chalk = Chalk::stdout();
     let mut output = render_help(extension_flags, &chalk);
@@ -569,8 +570,8 @@ fn render_help(extension_flags: &[ExtensionFlag], chalk: &Chalk) -> String {
     let config_dir_name = config::package_config().config_dir_name.clone();
     let env_agent_dir = pad_end_utf16(&config::env_agent_dir(), 32);
     let env_session_dir = pad_end_utf16(&config::env_session_dir(), 32);
-    let extension_flags_text = extension_flags_text(extension_flags, chalk);
-    let bold = |text: &str| chalk.bold(text);
+    let extension_flags_text = encode_node_utf8(&extension_flags_text(extension_flags, chalk));
+    let bold = |text: &str| encode_node_utf8(&chalk.bold(text));
 
     format!(
         "{app} - AI coding assistant with file, command, and structural code tools
