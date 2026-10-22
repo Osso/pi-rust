@@ -23,7 +23,6 @@ pub trait ThemeUi {
     fn request_render(&self);
     fn set_terminal_color_scheme_notifications(&self, enabled: bool);
     fn on_terminal_color_scheme_change(&self, listener: Rc<dyn Fn(TerminalTheme)>) -> usize;
-    fn remove_terminal_color_scheme_listener(&self, id: usize);
     fn query_terminal_background_color(&self, timeout: Duration) -> Result<Option<RgbColor>, ThemeQueryError>;
     /// Optional `queryTerminalColorScheme`; `None` means the TUI lacks it.
     fn query_terminal_color_scheme(
@@ -119,7 +118,6 @@ impl ControllerCore {
 /// Settings-driven theme selection with terminal light/dark auto-sync.
 pub struct InteractiveThemeController {
     core: Rc<RefCell<ControllerCore>>,
-    terminal_color_scheme_unsubscribe: Option<usize>,
 }
 
 impl InteractiveThemeController {
@@ -147,19 +145,9 @@ impl InteractiveThemeController {
             active_theme_name,
             auto_sync_enabled: false,
         }));
-        let mut controller = Self {
-            core,
-            terminal_color_scheme_unsubscribe: None,
-        };
+        let controller = Self { core };
         controller.bind_terminal_color_scheme_listener();
         Ok(controller)
-    }
-
-    pub fn rebind_tui(&mut self) {
-        self.unbind_terminal_color_scheme_listener();
-        self.bind_terminal_color_scheme_listener();
-        let auto_sync = self.core.borrow().auto_sync_enabled;
-        self.core.borrow().ui.set_terminal_color_scheme_notifications(auto_sync);
     }
 
     pub fn apply_from_settings(&mut self) {
@@ -254,25 +242,13 @@ impl InteractiveThemeController {
         self.core.borrow().terminal_theme
     }
 
-    fn bind_terminal_color_scheme_listener(&mut self) {
+    fn bind_terminal_color_scheme_listener(&self) {
         let core = Rc::clone(&self.core);
         let ui = Rc::clone(&self.core.borrow().ui);
         let listener = Rc::new(move |terminal_theme: TerminalTheme| {
             core.borrow_mut().apply_terminal_theme(terminal_theme);
         });
-        self.terminal_color_scheme_unsubscribe = Some(ui.on_terminal_color_scheme_change(listener));
-    }
-
-    fn unbind_terminal_color_scheme_listener(&mut self) {
-        if let Some(id) = self.terminal_color_scheme_unsubscribe.take() {
-            self.core.borrow().ui.remove_terminal_color_scheme_listener(id);
-        }
-    }
-}
-
-impl Drop for InteractiveThemeController {
-    fn drop(&mut self) {
-        self.unbind_terminal_color_scheme_listener();
+        ui.on_terminal_color_scheme_change(listener);
     }
 }
 

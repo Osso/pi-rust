@@ -446,6 +446,49 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return footer.render(request.width);
 	},
+	themeController: async (api, request, sourceRoot) => {
+		const themeApi = await import(pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href);
+		const events: unknown[] = [];
+		let setting = request.setting ?? undefined;
+		let listener: (value: string) => void = () => {};
+		const settings = { getThemeSetting: () => setting, setTheme: (value: string) => { setting = value; }, flush: async () => {} };
+		const ui = {
+			invalidate: () => events.push(["invalidate"]), requestRender: () => events.push(["render"]),
+			setTerminalColorSchemeNotifications: (enabled: boolean) => events.push(["notifications", enabled]),
+			onTerminalColorSchemeChange: (callback: (value: string) => void) => { listener = callback; events.push(["listen"]); },
+			queryTerminalColorScheme: async () => { events.push(["scheme"]); return request.scheme; },
+			queryTerminalBackgroundColor: async () => { events.push(["background"]); return request.background; },
+		};
+		const controller = new api.InteractiveThemeController(ui, settings, (error: string) => events.push(["error", error]), () => events.push(["changed"]));
+		const states: unknown[] = [];
+		for (const step of request.steps) {
+			if (step.op === "apply") await controller.applyFromSettings();
+			else if (step.op === "set") controller.setThemeName(step.name, step.showError ?? false);
+			else if (step.op === "preview") controller.preview(step.name);
+			else if (step.op === "instance") controller.setThemeInstance(themeApi.getThemeByName("light"));
+			else if (step.op === "disable") controller.disableAutoSync();
+			else if (step.op === "setting") setting = step.name;
+			else if (step.op === "emit") listener(step.theme);
+			else throw new Error(`unknown controller step ${step.op}`);
+			states.push({ active: themeApi.theme.name ?? null, terminal: controller.getTerminalTheme(), setting: setting ?? null });
+		}
+		return { events, states };
+	},
+	autoThemeDetection: async (api, request) => {
+		const events: unknown[] = [];
+		const ui: Record<string, unknown> = {};
+		const query = (name: string, value: unknown, fail: boolean) => async () => {
+			events.push([name, "start"]);
+			await new Promise(resolve => setTimeout(resolve, request.timeoutMs));
+			events.push([name, "finish"]);
+			if (fail) throw new Error(name);
+			return value;
+		};
+		if (!request.missingScheme) ui.queryTerminalColorScheme = query("scheme", request.scheme, request.schemeError);
+		ui.queryTerminalBackgroundColor = query("background", request.background, request.backgroundError);
+		const theme = await api.detectTerminalThemeForAuto({ ui, timeoutMs: request.timeoutMs, env: request.env });
+		return { theme, events };
+	},
 	renderRegionContainer: (api, request) => {
 		const retired: number[] = [];
 		const children = [0, 1, 2].map(id => ({ render: () => [`child ${id}`], invalidate: () => {}, dispose: () => retired.push(id) }));
