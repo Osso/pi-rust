@@ -85,3 +85,19 @@ fn persisted_provider_failure_keeps_native_units() {
     );
     assert_eq!(AgentError::new(raw_error()).message(), &raw_error());
 }
+
+#[test]
+fn custom_type_and_branch_origin_keep_native_units() {
+    use pi_agent_core::harness::messages::{
+        CustomMessageContent, create_branch_summary_message, create_custom_message,
+    };
+    let custom = create_custom_message(&raw_error(), CustomMessageContent::Text("body".into()), true, None, 0);
+    let branch = create_branch_summary_message("summary", &raw_error(), 0);
+    for (message, field) in [(custom, "customType"), (branch, "fromId")] {
+        let wire = serde_json::to_string(&message).unwrap();
+        assert_eq!(
+            parse_lossless(&wire).unwrap().get(field).and_then(JsValue::as_string),
+            Some(&raw_error())
+        );
+    }
+}

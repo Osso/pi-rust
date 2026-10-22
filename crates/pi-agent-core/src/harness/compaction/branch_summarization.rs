@@ -179,9 +179,11 @@ pub async fn collect_entries_for_branch_summary<M: SessionMetadataValue>(
 fn get_message_from_entry(entry: &Entry) -> Option<AgentMessage> {
     match &entry.body {
         EntryBody::Message { message, .. } => (!message.has_role("toolResult")).then(|| message.clone()),
-        EntryBody::BranchSummary { summary, from_id, .. } => {
-            Some(create_branch_summary_message(summary, from_id, entry.timestamp))
-        }
+        EntryBody::BranchSummary { summary, from_id, .. } => Some(create_branch_summary_message(
+            summary,
+            &JsString::from(from_id.as_str()),
+            entry.timestamp,
+        )),
         EntryBody::Compaction {
             summary,
             tokens_before,
