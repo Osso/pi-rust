@@ -8,6 +8,10 @@ Rust: `crates/pi-coding-agent/src/core/extensions/types.rs`.
 Approved deviation: TypeScript extension files are not loaded (AGENTS.md). The
 event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
+## Native terminal/indicator checkpoint
+
+`TerminalInputHandler` receives `&JsString`, `TerminalInputResult.data` is `Option<JsString>`, and `WorkingIndicatorOptions.frames` is `Option<Vec<JsString>>`. No scalar terminal adapter remains in those contracts. `raw_extension_ui_types.rs` tests lone high/low units and astral callback values plus lossless frame serialization; execution is pending whole coding integration compilation. Interactive dispatch is a separate native migration, not proof supplied by this contract change.
+
 ## Contract adaptations
 
 - Representation deviation (Rust-native extension API, AGENTS.md): handlers

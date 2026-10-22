@@ -49,7 +49,7 @@ impl Mode {
             frames: Some(
                 frames
                     .into_iter()
-                    .map(|(text, index)| format!("\x1b[38;2;{}m{text}\x1b[39m", colors[index]))
+                    .map(|(text, index)| format!("\x1b[38;2;{}m{text}\x1b[39m", colors[index]).into())
                     .collect(),
             ),
             interval_ms,
