@@ -262,7 +262,7 @@ pub fn create_faux_core(options: RegisterFauxProviderOptions) -> FauxCore {
             name: definition.name.unwrap_or_else(|| definition.id.clone()),
             api: api.clone(),
             provider: provider.clone(),
-            base_url: DEFAULT_BASE_URL.to_owned(),
+            base_url: DEFAULT_BASE_URL.into(),
             reasoning: definition.reasoning.unwrap_or(false),
             thinking_level_map: None,
             input: definition

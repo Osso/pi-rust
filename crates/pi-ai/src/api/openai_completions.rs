@@ -293,14 +293,14 @@ fn has_header(headers: Option<&ProviderHeaders>, name: &str) -> bool {
 
 fn get_client_api_key(
     provider: &str,
-    api_key: Option<&str>,
+    api_key: Option<&JsString>,
     headers: Option<&ProviderHeaders>,
-) -> Result<String, String> {
+) -> Result<JsString, String> {
     if let Some(api_key) = api_key.filter(|api_key| !api_key.is_empty()) {
         return Ok(api_key.to_owned());
     }
     if has_header(headers, "authorization") || has_header(headers, "cf-aig-authorization") {
-        return Ok("unused".to_owned());
+        return Ok("unused".into());
     }
     Err(format!("No API key for provider: {provider}"))
 }
@@ -1289,16 +1289,16 @@ fn clamp_reasoning_level(level: ModelThinkingLevel) -> Option<crate::types::Thin
 // =============================================================================
 
 fn merge_headers(
-    model_headers: Option<&IndexMap<String, String>>,
+    model_headers: Option<&IndexMap<String, JsString>>,
     dynamic: Option<IndexMap<String, String>>,
     options_headers: Option<&ProviderHeaders>,
-) -> IndexMap<String, Option<String>> {
-    let mut headers: IndexMap<String, Option<String>> = IndexMap::new();
+) -> IndexMap<String, Option<JsString>> {
+    let mut headers: IndexMap<String, Option<JsString>> = IndexMap::new();
     for (name, value) in model_headers.into_iter().flatten() {
         headers.insert(name.clone(), Some(value.clone()));
     }
     for (name, value) in dynamic.into_iter().flatten() {
-        headers.insert(name, Some(value));
+        headers.insert(name, Some(value.into()));
     }
     for (name, value) in options_headers.into_iter().flatten() {
         headers.insert(name.clone(), value.clone());
@@ -1309,7 +1309,7 @@ fn merge_headers(
 fn create_client(
     model: &Model,
     context: &Context,
-    api_key: &str,
+    api_key: &JsString,
     stream_options: &StreamOptions,
     session_id: Option<&JsString>,
     compat: &ResolvedOpenAICompletionsCompat,
@@ -1323,25 +1323,13 @@ fn create_client(
         && compat.send_session_affinity_headers
     {
         if compat.session_affinity_format == crate::types::SessionAffinityFormat::Openrouter {
-            headers.insert(
-                "x-session-id".to_owned(),
-                Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
-            );
+            headers.insert("x-session-id".to_owned(), Some(session_id.clone()));
         } else {
             if compat.session_affinity_format == crate::types::SessionAffinityFormat::Openai {
-                headers.insert(
-                    "session_id".to_owned(),
-                    Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
-                );
+                headers.insert("session_id".to_owned(), Some(session_id.clone()));
             }
-            headers.insert(
-                "x-client-request-id".to_owned(),
-                Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
-            );
-            headers.insert(
-                "x-session-affinity".to_owned(),
-                Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
-            );
+            headers.insert("x-client-request-id".to_owned(), Some(session_id.clone()));
+            headers.insert("x-session-affinity".to_owned(), Some(session_id.clone()));
         }
     }
     SdkClient::new(SdkClientConfig {
@@ -1944,7 +1932,7 @@ async fn run_stream(
 ) -> Result<(), CompletionsFailure> {
     let api_key = get_client_api_key(
         &model.provider,
-        stream_options.request.api_key.as_deref(),
+        stream_options.request.api_key.as_ref(),
         stream_options.request.headers.as_ref(),
     )
     .map_err(|error| CompletionsFailure::Message(error.into()))?;
@@ -2111,7 +2099,7 @@ pub fn stream_simple(
 ) -> crate::utils::event_stream::AssistantMessageEventStream {
     let api_key = match get_client_api_key(
         &model.provider,
-        options.stream.request.api_key.as_deref(),
+        options.stream.request.api_key.as_ref(),
         options.stream.request.headers.as_ref(),
     ) {
         Ok(api_key) => api_key,

@@ -120,14 +120,14 @@ fn has_header(headers: Option<&ProviderHeaders>, name: &str) -> bool {
 
 fn get_client_api_key(
     provider: &str,
-    api_key: Option<&str>,
+    api_key: Option<&JsString>,
     headers: Option<&ProviderHeaders>,
-) -> Result<String, String> {
+) -> Result<JsString, String> {
     if let Some(api_key) = api_key.filter(|api_key| !api_key.is_empty()) {
         return Ok(api_key.to_owned());
     }
     if has_header(headers, "authorization") || has_header(headers, "cf-aig-authorization") {
-        return Ok("unused".to_owned());
+        return Ok("unused".into());
     }
     Err(format!("No API key for provider: {provider}"))
 }
@@ -340,16 +340,16 @@ fn apply_service_tier_pricing(usage: &mut Usage, service_tier: Option<&str>, mod
 }
 
 fn merge_provider_headers(
-    base: Option<&IndexMap<String, String>>,
+    base: Option<&IndexMap<String, JsString>>,
     dynamic: Option<IndexMap<String, String>>,
     options_headers: Option<&ProviderHeaders>,
-) -> IndexMap<String, Option<String>> {
-    let mut merged: IndexMap<String, Option<String>> = IndexMap::new();
+) -> IndexMap<String, Option<JsString>> {
+    let mut merged: IndexMap<String, Option<JsString>> = IndexMap::new();
     for (name, value) in base.into_iter().flatten() {
         merged.insert(name.clone(), Some(value.clone()));
     }
     for (name, value) in dynamic.into_iter().flatten() {
-        merged.insert(name, Some(value));
+        merged.insert(name, Some(value.into()));
     }
     for (name, value) in options_headers.into_iter().flatten() {
         merged.insert(name.clone(), value.clone());
@@ -360,7 +360,7 @@ fn merge_provider_headers(
 fn create_client(
     model: &Model,
     context: &Context,
-    api_key: &str,
+    api_key: &JsString,
     options: &StreamOptions,
     session_id: Option<&JsString>,
     compat: &ResolvedCompat,
@@ -373,22 +373,13 @@ fn create_client(
     if let Some(session_id) = session_id {
         match compat.session_affinity_format {
             SessionAffinityFormat::Openrouter => {
-                headers.insert(
-                    "x-session-id".to_owned(),
-                    Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
-                );
+                headers.insert("x-session-id".to_owned(), Some(session_id.clone()));
             }
             format => {
                 if format == SessionAffinityFormat::Openai {
-                    headers.insert(
-                        "session_id".to_owned(),
-                        Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
-                    );
+                    headers.insert("session_id".to_owned(), Some(session_id.clone()));
                 }
-                headers.insert(
-                    "x-client-request-id".to_owned(),
-                    Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
-                );
+                headers.insert("x-client-request-id".to_owned(), Some(session_id.clone()));
             }
         }
     }
@@ -440,7 +431,7 @@ async fn run_stream(
 ) -> Result<(), Failure> {
     let api_key = get_client_api_key(
         &model.provider,
-        stream_options.request.api_key.as_deref(),
+        stream_options.request.api_key.as_ref(),
         stream_options.request.headers.as_ref(),
     )
     .map_err(|error| Failure::Message(error.into()))?;
@@ -597,7 +588,7 @@ pub fn stream_simple(
 ) -> crate::utils::event_stream::AssistantMessageEventStream {
     let api_key = match get_client_api_key(
         &model.provider,
-        options.stream.request.api_key.as_deref(),
+        options.stream.request.api_key.as_ref(),
         options.stream.request.headers.as_ref(),
     ) {
         Ok(api_key) => api_key,
