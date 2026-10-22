@@ -1,5 +1,6 @@
 //! Behavioral tests for interactive components owned by ca-interactive-b.
 
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
@@ -17,18 +18,18 @@ use pi_tui::utils::strip_terminal_sequences;
 use pi_tui::{Component, MarkdownTheme};
 
 fn install_theme() -> Arc<Theme> {
-    let colors: Vec<(String, ColorValue)> = REQUIRED_COLORS
+    let colors: Vec<(JsString, ColorValue)> = REQUIRED_COLORS
         .iter()
         .enumerate()
         .map(|(index, key)| {
             (
-                key.to_string(),
-                ColorValue::Text(format!(
+                JsString::from(*key),
+                ColorValue::Text(JsString::from(format!(
                     "#{:02x}{:02x}{:02x}",
                     (16 + 7 * index) % 256,
                     (32 + 11 * index) % 256,
                     (48 + 13 * index) % 256
-                )),
+                ))),
             )
         })
         .collect();
@@ -48,78 +49,74 @@ fn theme() -> Arc<Theme> {
     install_theme()
 }
 
-fn plain(lines: &[String]) -> String {
-    lines
-        .iter()
-        .map(|line| strip_terminal_sequences(line))
-        .collect::<Vec<_>>()
-        .join("\n")
+fn plain(lines: &[JsString]) -> JsString {
+    JsString::join(lines.iter().map(|line| strip_terminal_sequences(line)), "\n")
 }
 
 struct PlainMarkdownTheme;
 
 impl MarkdownTheme for PlainMarkdownTheme {
-    fn heading(&self, text: &str) -> String {
-        text.to_string()
+    fn heading(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn link(&self, text: &str) -> String {
-        text.to_string()
+    fn link(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn link_url(&self, text: &str) -> String {
-        text.to_string()
+    fn link_url(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn code(&self, text: &str) -> String {
-        text.to_string()
+    fn code(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn code_block(&self, text: &str) -> String {
-        text.to_string()
+    fn code_block(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn code_block_border(&self, text: &str) -> String {
-        text.to_string()
+    fn code_block_border(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn quote(&self, text: &str) -> String {
-        text.to_string()
+    fn quote(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn quote_border(&self, text: &str) -> String {
-        text.to_string()
+    fn quote_border(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn hr(&self, text: &str) -> String {
-        text.to_string()
+    fn hr(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn list_bullet(&self, text: &str) -> String {
-        text.to_string()
+    fn list_bullet(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn bold(&self, text: &str) -> String {
-        text.to_string()
+    fn bold(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn italic(&self, text: &str) -> String {
-        text.to_string()
+    fn italic(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn strikethrough(&self, text: &str) -> String {
-        text.to_string()
+    fn strikethrough(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn underline(&self, text: &str) -> String {
-        text.to_string()
+    fn underline(&self, text: &JsString) -> JsString {
+        text.clone()
     }
 }
 
 fn agent(id: &str, display_name: &str, lifecycle: AgentLifecycle) -> AgentSnapshot {
     AgentSnapshot {
-        id: id.to_string(),
+        id: JsString::from(id.to_string()),
         parent_id: None,
-        display_name: display_name.to_string(),
-        agent_type: "scout".to_string(),
+        display_name: JsString::from(display_name.to_string()),
+        agent_type: JsString::from("scout"),
         origin: None,
         lifecycle,
         revision: 1,
-        created_at: "2026-01-01T00:00:00.000Z".to_string(),
-        updated_at: "2026-01-01T00:00:00.000Z".to_string(),
-        cwd: "/repo".to_string(),
+        created_at: JsString::from("2026-01-01T00:00:00.000Z"),
+        updated_at: JsString::from("2026-01-01T00:00:00.000Z"),
+        cwd: JsString::from("/repo"),
         worktree: None,
         model: None,
         account: None,
         permission: AgentPermission {
-            policy: "on-request".to_string(),
+            policy: JsString::from("on-request"),
             inherited_from: None,
             narrowed: true,
         },
@@ -144,7 +141,7 @@ fn agent_selection_banner_renders_the_selected_agent() {
     store
         .publish_lifecycle_coordinator_snapshot(&agent("agent-1", "Scout", AgentLifecycle::WaitingForInput))
         .unwrap();
-    store.select_agent_view("agent-1");
+    store.select_agent_view(&JsString::from("agent-1"));
 
     let theme = theme();
     let mut banner = AgentSelectionBannerComponent::new(Some(Arc::new(store)), theme.clone());
@@ -163,16 +160,16 @@ fn agent_selection_banner_renders_the_selected_agent() {
 #[test]
 fn skill_invocation_message_switches_between_collapsed_and_expanded() {
     let block = ParsedSkillBlock {
-        name: "code-review".to_string(),
-        location: "/skills/code-review".to_string(),
-        content: "Review the diff.".to_string(),
+        name: JsString::from("code-review"),
+        location: JsString::from("/skills/code-review"),
+        content: JsString::from("Review the diff."),
         user_message: None,
     };
     let theme = theme();
     let mut component = SkillInvocationMessageComponent::new(block, Rc::new(PlainMarkdownTheme), theme.clone());
 
     let collapsed = component.render(80);
-    let collapsed_raw = collapsed.join("\n");
+    let collapsed_raw = JsString::join(&collapsed, "\n");
     assert!(collapsed_raw.contains("\u{1b}[1m[skill]\u{1b}[22m"), "{collapsed:?}");
     let collapsed_text = plain(&collapsed);
     assert!(collapsed_text.contains("code-review"), "{collapsed:?}");
@@ -183,11 +180,11 @@ fn skill_invocation_message_switches_between_collapsed_and_expanded() {
     component.set_expanded(true);
     let expanded = component.render(80);
     assert!(expanded.len() > collapsed.len(), "{expanded:?}");
-    let expanded_raw = expanded.join("\n");
+    let expanded_raw = JsString::join(&expanded, "\n");
     assert!(expanded_raw.contains("\u{1b}[1m[skill]\u{1b}[22m"), "{expanded:?}");
     let joined = plain(&expanded);
-    assert!(joined.contains("code-review"), "{joined}");
-    assert!(joined.contains("Review the diff."), "{joined}");
+    assert!(joined.contains("code-review"), "{joined:?}");
+    assert!(joined.contains("Review the diff."), "{joined:?}");
     assert!(expanded.iter().any(|line| line.contains(background)), "{expanded:?}");
 
     component.set_expanded(false);
@@ -202,11 +199,11 @@ fn earendil_announcement_renders_text_and_borders_without_the_bundled_image() {
     let mut component = EarendilAnnouncementComponent::new(theme.clone());
     let lines = component.render(120);
     let joined = plain(&lines);
-    assert!(joined.contains("pi has joined Earendil"), "{joined}");
-    assert!(joined.contains("Read the blog post:"), "{joined}");
+    assert!(joined.contains("pi has joined Earendil"), "{joined:?}");
+    assert!(joined.contains("Read the blog post:"), "{joined:?}");
     assert!(
         joined.contains("https://mariozechner.at/posts/2026-04-08-ive-sold-out/"),
-        "{joined}"
+        "{joined:?}"
     );
     let accent = theme.get_fg_ansi(ThemeColor::Accent);
     assert!(lines[0].starts_with(accent), "{lines:?}");

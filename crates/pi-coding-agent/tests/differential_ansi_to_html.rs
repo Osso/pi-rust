@@ -2,6 +2,7 @@
 mod oracle;
 
 use pi_coding_agent::core::export_html::ansi_to_html::{ansi_lines_to_html, ansi_to_html};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 const HUGE: &str =
@@ -34,8 +35,8 @@ fn coding_agent_ansi_to_html_matches_the_pinned_typescript_source() {
 fn actual_case(name: &str, text: &str) -> Value {
     json!({
         "name": name,
-        "html": ansi_to_html(text),
-        "linesHtml": ansi_lines_to_html(&text.split('\u{0}').map(str::to_owned).collect::<Vec<_>>()),
+        "html": ansi_to_html(&JsString::from(text)),
+        "linesHtml": ansi_lines_to_html(&text.split('\u{0}').map(str::to_owned).collect::<Vec<_>>().iter().map(JsString::from).collect::<Vec<_>>()),
     })
 }
 

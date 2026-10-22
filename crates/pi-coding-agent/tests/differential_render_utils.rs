@@ -6,13 +6,20 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::tools::render_utils::{
     get_text_output, invalid_arg_text, normalize_display_text, render_tool_path, replace_tabs, shorten_path, str_value,
 };
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 
 fn dark_theme() -> std::sync::Arc<pi_coding_agent::modes::interactive::theme::Theme> {
     use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path, set_theme_instance};
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
-    let theme =
-        std::sync::Arc::new(load_theme_from_path(&path, Some(ColorMode::Truecolor)).expect("built-in dark theme"));
+    let theme = std::sync::Arc::new(
+        load_theme_from_path(
+            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            Some(ColorMode::Truecolor),
+        )
+        .expect("built-in dark theme"),
+    );
     set_theme_instance(std::sync::Arc::clone(&theme));
     theme
 }
@@ -40,7 +47,7 @@ fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
         json!({"a": 1}),
         json!([1, 2]),
     ] {
-        let expected = str_value(Some(&value));
+        let expected = str_value(Some(&JsValue::from(value.clone())));
         cases.push((
             json!({"kind": "str", "value": value}),
             json!({"ok": true, "value": expected}),
@@ -49,13 +56,13 @@ fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
     for text in ["a\tb", "\t\t", "no tabs", "a\tb\tc"] {
         cases.push((
             json!({"kind": "tabs", "text": text}),
-            json!({"ok": true, "value": replace_tabs(text)}),
+            json!({"ok": true, "value": replace_tabs(&JsString::from(text))}),
         ));
     }
     for text in ["a\r\nb", "a\rb\rc", "plain"] {
         cases.push((
             json!({"kind": "display", "text": text}),
-            json!({"ok": true, "value": normalize_display_text(text)}),
+            json!({"ok": true, "value": normalize_display_text(&JsString::from(text))}),
         ));
     }
     for texts in [
@@ -98,7 +105,7 @@ fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
         }
         cases.push((
             request,
-            json!({"ok": true, "value": render_tool_path(path, &theme, "/tmp", empty_fallback)}),
+            json!({"ok": true, "value": render_tool_path(path.map(JsString::from).as_ref(), &theme, &JsString::from("/tmp"), empty_fallback)}),
         ));
     }
 
@@ -121,5 +128,5 @@ fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
 }
 
 fn path_result(path: &str) -> Value {
-    json!({"ok": true, "value": shorten_path(path)})
+    json!({"ok": true, "value": shorten_path(&JsString::from(path))})
 }

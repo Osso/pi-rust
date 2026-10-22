@@ -1,5 +1,6 @@
 //! Behavioral tests for `modes/interactive/components/model-selector.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -30,18 +31,18 @@ impl ModelSelectorUi for TestUi {
 }
 
 fn install_theme() -> Arc<Theme> {
-    let colors: Vec<(String, ColorValue)> = REQUIRED_COLORS
+    let colors: Vec<(JsString, ColorValue)> = REQUIRED_COLORS
         .iter()
         .enumerate()
         .map(|(index, key)| {
             (
-                key.to_string(),
-                ColorValue::Text(format!(
+                JsString::from(*key),
+                ColorValue::Text(JsString::from(format!(
                     "#{:02x}{:02x}{:02x}",
                     (16 + 7 * index) % 256,
                     (32 + 11 * index) % 256,
                     (48 + 13 * index) % 256
-                )),
+                ))),
             )
         })
         .collect();
@@ -81,8 +82,8 @@ async fn runtime() -> ModelRuntime {
                 provider,
                 ProviderConfigInput {
                     name: Some(provider.to_string()),
-                    base_url: Some("https://example.test/v1".to_string()),
-                    api_key: Some("literal-key".to_string()),
+                    base_url: Some(pi_js_compat::js_json::JsString::from("https://example.test/v1")),
+                    api_key: Some(pi_js_compat::js_json::JsString::from("literal-key")),
                     api: Some("openai-completions".to_string()),
                     models: Some(vec![model(&format!("{provider}-one"), provider)]),
                     ..Default::default()
@@ -129,13 +130,15 @@ fn selector(
     (component, ui, settings)
 }
 
-fn plain(component: &mut ModelSelectorComponent) -> String {
-    component
-        .render(120)
-        .iter()
-        .map(|line| strip_terminal_sequences(line))
-        .collect::<Vec<_>>()
-        .join("\n")
+fn plain(component: &mut ModelSelectorComponent) -> JsString {
+    JsString::join(
+        component
+            .render(120)
+            .iter()
+            .map(|line| strip_terminal_sequences(line))
+            .collect::<Vec<_>>(),
+        "\n",
+    )
 }
 
 #[tokio::test]
@@ -144,15 +147,15 @@ async fn sorts_the_current_model_first_then_by_provider_and_marks_it() {
     let current = model("zeta-one", "zeta");
     let (mut component, ui, _settings) = selector(runtime, Some(current), vec![], Rc::new(|_| {}), Rc::new(|| {}));
     let output = plain(&mut component);
-    assert!(output.contains("→ zeta-one [zeta] ✓"), "{output}");
+    assert!(output.contains("→ zeta-one [zeta] ✓"), "{output:?}");
     let zeta = output.find("→ zeta-one [zeta] ✓").expect("current row");
-    assert!(output.contains("  alpha-one [alpha]"), "{output}");
+    assert!(output.contains("  alpha-one [alpha]"), "{output:?}");
     let alpha = output.find("  alpha-one [alpha]").expect("alpha row");
-    assert!(zeta < alpha, "{output}");
-    assert!(output.contains("Model Name: zeta-one display"), "{output}");
+    assert!(zeta < alpha, "{output:?}");
+    assert!(output.contains("Model Name: zeta-one display"), "{output:?}");
     assert!(
         output.contains("Only showing models from configured providers"),
-        "{output}"
+        "{output:?}"
     );
     assert!(*ui.renders.borrow() >= 1);
 }
@@ -162,16 +165,16 @@ async fn search_filters_models_and_resets_selection_to_the_top() {
     let runtime = runtime().await;
     let current = model("zeta-one", "zeta");
     let (mut component, _ui, _settings) = selector(runtime, Some(current), vec![], Rc::new(|_| {}), Rc::new(|| {}));
-    component.handle_input("\u{1b}[B");
+    component.handle_input(&pi_js_compat::js_json::JsString::from("\u{1b}[B"));
     assert_eq!(component.selected_index(), 1);
 
     for character in ["a", "l", "p", "h", "a"] {
-        component.handle_input(character);
+        component.handle_input(&pi_js_compat::js_json::JsString::from(character));
     }
     assert_eq!(component.selected_index(), 0);
     let output = plain(&mut component);
-    assert!(output.contains("→ alpha-one [alpha]"), "{output}");
-    assert!(!output.contains("zeta-one"), "{output}");
+    assert!(output.contains("→ alpha-one [alpha]"), "{output:?}");
+    assert!(!output.contains("zeta-one"), "{output:?}");
 }
 
 #[tokio::test]
@@ -185,15 +188,15 @@ async fn tab_toggles_scope_and_marks_the_current_scope() {
     let (mut component, _ui, _settings) = selector(runtime, Some(current), scoped, Rc::new(|_| {}), Rc::new(|| {}));
     assert_eq!(component.scope(), "scoped");
     let output = plain(&mut component);
-    assert!(output.contains("Scope:"), "{output}");
-    assert!(output.contains("all | scoped"), "{output}");
-    assert!(output.contains("scope"), "{output}");
-    assert!(!output.contains("zeta-one"), "{output}");
+    assert!(output.contains("Scope:"), "{output:?}");
+    assert!(output.contains("all | scoped"), "{output:?}");
+    assert!(output.contains("scope"), "{output:?}");
+    assert!(!output.contains("zeta-one"), "{output:?}");
 
-    component.handle_input("\t");
+    component.handle_input(&pi_js_compat::js_json::JsString::from("\t"));
     assert_eq!(component.scope(), "all");
     let output = plain(&mut component);
-    assert!(output.contains("zeta-one"), "{output}");
+    assert!(output.contains("zeta-one"), "{output:?}");
 }
 
 #[tokio::test]
@@ -213,11 +216,17 @@ async fn confirm_saves_the_default_model_and_reports_the_selection() {
         },
         Rc::new(|| {}),
     );
-    component.handle_input("\u{1b}[B");
-    component.handle_input("\r");
+    component.handle_input(&pi_js_compat::js_json::JsString::from("\u{1b}[B"));
+    component.handle_input(&pi_js_compat::js_json::JsString::from("\r"));
     assert_eq!(*selected.borrow(), vec![("alpha".to_string(), "alpha-one".to_string())]);
-    assert_eq!(lock_settings_manager(&settings).get_default_provider(), Some("alpha"));
-    assert_eq!(lock_settings_manager(&settings).get_default_model(), Some("alpha-one"));
+    assert_eq!(
+        lock_settings_manager(&settings).get_default_provider(),
+        Some(&pi_js_compat::js_json::JsString::from("alpha"))
+    );
+    assert_eq!(
+        lock_settings_manager(&settings).get_default_model(),
+        Some(&pi_js_compat::js_json::JsString::from("alpha-one"))
+    );
 }
 
 #[tokio::test]
@@ -228,7 +237,7 @@ async fn cancel_reports_cancellation() {
         let cancelled = cancelled.clone();
         Rc::new(move || *cancelled.borrow_mut() += 1)
     });
-    component.handle_input("\u{1b}");
+    component.handle_input(&pi_js_compat::js_json::JsString::from("\u{1b}"));
     assert_eq!(*cancelled.borrow(), 1);
 }
 
@@ -237,7 +246,7 @@ async fn renders_no_matching_models_when_the_query_matches_nothing() {
     let runtime = runtime().await;
     let (mut component, _ui, _settings) = selector(runtime, None, vec![], Rc::new(|_| {}), Rc::new(|| {}));
     for character in ["z", "z", "z"] {
-        component.handle_input(character);
+        component.handle_input(&pi_js_compat::js_json::JsString::from(character));
     }
     assert!(plain(&mut component).contains("No matching models"));
 }
@@ -246,9 +255,9 @@ async fn renders_no_matching_models_when_the_query_matches_nothing() {
 async fn up_and_down_wrap_around_the_filtered_list() {
     let runtime = runtime().await;
     let (mut component, _ui, _settings) = selector(runtime, None, vec![], Rc::new(|_| {}), Rc::new(|| {}));
-    component.handle_input("\u{1b}[A");
+    component.handle_input(&pi_js_compat::js_json::JsString::from("\u{1b}[A"));
     assert_eq!(component.selected_index(), 1);
-    component.handle_input("\u{1b}[B");
+    component.handle_input(&pi_js_compat::js_json::JsString::from("\u{1b}[B"));
     assert_eq!(component.selected_index(), 0);
 }
 
@@ -264,7 +273,7 @@ async fn native_search_retains_unmatched_units_without_selecting_a_model() {
     );
     let raw = JsString::from_utf16(vec![0xd800]);
     component.handle_input(&raw);
-    assert_eq!(component.get_search_input().get_value(), raw);
+    assert_eq!(component.get_search_input().get_value(), &raw);
     assert!(JsString::join(component.render(120), "\n").contains("No matching models"));
     component.handle_input(&"\r".into());
     component.dispose();

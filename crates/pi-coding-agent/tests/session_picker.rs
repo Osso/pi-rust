@@ -3,19 +3,20 @@
 use pi_coding_agent::cli::session_picker::SessionListProgress;
 use pi_coding_agent::cli::session_picker::{SessionListFuture, SessionLoader, load_sessions};
 use pi_coding_agent::core::session_manager::SessionInfo;
+use pi_js_compat::js_json::JsString;
 
 fn session(path: &str, name: Option<&str>, modified: i64, archived: bool) -> SessionInfo {
     SessionInfo {
-        path: path.to_owned(),
-        id: path.to_owned(),
-        cwd: "/work".to_owned(),
-        name: name.map(str::to_owned),
+        path: JsString::from(path.to_owned()),
+        id: JsString::from(path.to_owned()),
+        cwd: JsString::from("/work"),
+        name: name.map(str::to_owned).map(JsString::from),
         is_archived: Some(archived),
         parent_session_path: None,
         created: modified,
         modified,
         message_count: 0,
-        first_message: String::new(),
+        first_message: JsString::default(),
     }
 }
 
@@ -27,7 +28,7 @@ impl SessionLoader for FixedLoader {
     fn load<'a>(
         &'a self,
         on_progress: Option<SessionListProgress<'a>>,
-    ) -> SessionListFuture<'a, Result<Vec<SessionInfo>, String>> {
+    ) -> SessionListFuture<'a, Result<Vec<SessionInfo>, JsString>> {
         Box::pin(async move {
             if let Some(progress) = on_progress {
                 progress(1, 2);
@@ -42,8 +43,8 @@ fn loader(sessions: Vec<SessionInfo>) -> FixedLoader {
     FixedLoader { sessions }
 }
 
-fn paths(sessions: &[SessionInfo]) -> Vec<&str> {
-    sessions.iter().map(|session| session.path.as_str()).collect()
+fn paths(sessions: &[SessionInfo]) -> Vec<&JsString> {
+    sessions.iter().map(|session| &session.path).collect()
 }
 
 #[tokio::test]
@@ -110,8 +111,8 @@ async fn loader_errors_propagate() {
         fn load<'a>(
             &'a self,
             _on_progress: Option<SessionListProgress<'a>>,
-        ) -> SessionListFuture<'a, Result<Vec<SessionInfo>, String>> {
-            Box::pin(async { Err("scan failed".to_owned()) })
+        ) -> SessionListFuture<'a, Result<Vec<SessionInfo>, JsString>> {
+            Box::pin(async { Err(JsString::from("scan failed")) })
         }
     }
 

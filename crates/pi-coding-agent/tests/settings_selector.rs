@@ -1,5 +1,6 @@
 //! Behavioral tests for `modes/interactive/components/settings-selector.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -22,18 +23,18 @@ use pi_tui::utils::strip_terminal_sequences;
 use pi_tui::{Component, KeybindingsManager, set_keybindings};
 
 fn install_theme() -> Arc<Theme> {
-    let colors: Vec<(String, ColorValue)> = REQUIRED_COLORS
+    let colors: Vec<(JsString, ColorValue)> = REQUIRED_COLORS
         .iter()
         .enumerate()
         .map(|(index, key)| {
             (
-                key.to_string(),
-                ColorValue::Text(format!(
+                JsString::from(*key),
+                ColorValue::Text(JsString::from(format!(
                     "#{:02x}{:02x}{:02x}",
                     (16 + 7 * index) % 256,
                     (32 + 11 * index) % 256,
                     (48 + 13 * index) % 256
-                )),
+                ))),
             )
         })
         .collect();
@@ -46,8 +47,8 @@ fn install_theme() -> Arc<Theme> {
 struct Recorder {
     exit_output: RefCell<Vec<FullscreenExitOutput>>,
     scrollbar: RefCell<Vec<ScrollViewScrollbar>>,
-    themes: RefCell<Vec<String>>,
-    previews: RefCell<Vec<String>>,
+    themes: RefCell<Vec<JsString>>,
+    previews: RefCell<Vec<JsString>>,
     warnings: RefCell<Vec<WarningSettings>>,
     thinking: RefCell<Vec<ThinkingLevel>>,
 }
@@ -75,9 +76,9 @@ fn callbacks(recorder: Rc<Recorder>) -> Rc<SettingsCallbacks> {
         on_transport_change: Rc::new(|_| {}),
         on_http_idle_timeout_ms_change: Rc::new(|_| {}),
         on_thinking_level_change: Rc::new(move |level| thinking_recorder.thinking.borrow_mut().push(level)),
-        on_theme_change: Rc::new(move |theme| theme_recorder.themes.borrow_mut().push(theme.to_string())),
+        on_theme_change: Rc::new(move |theme| theme_recorder.themes.borrow_mut().push(theme.clone())),
         on_theme_preview: Some(Rc::new(move |theme| {
-            preview_recorder.previews.borrow_mut().push(theme.to_string());
+            preview_recorder.previews.borrow_mut().push(theme.clone());
         })),
         on_hide_thinking_block_change: Rc::new(|_| {}),
         on_mermaid_rendering_mode_change: Rc::new(|_| {}),
@@ -120,9 +121,9 @@ fn config() -> SettingsConfig {
         http_idle_timeout_ms: 300_000,
         thinking_level: ThinkingLevel::Low,
         available_thinking_levels: vec![ThinkingLevel::Off, ThinkingLevel::Low, ThinkingLevel::High],
-        current_theme: "dark".to_string(),
+        current_theme: JsString::from("dark"),
         terminal_theme: TerminalTheme::Dark,
-        available_themes: vec!["dark".to_string(), "light".to_string()],
+        available_themes: vec![JsString::from("dark"), JsString::from("light")],
         hide_thinking_block: false,
         mermaid_rendering_mode: MermaidRenderingMode::Off,
         show_cache_miss_notices: true,
@@ -158,16 +159,18 @@ fn selector(config: SettingsConfig, recorder: Rc<Recorder>) -> SettingsSelectorC
 
 fn type_label(component: &mut SettingsSelectorComponent, label: &str) {
     // Frozen SettingsList reserves a single Space for activation.
-    component.handle_input(&label.replace(' ', ""));
+    component.handle_input(&JsString::from(&label.replace(' ', "")));
 }
 
-fn plain(component: &mut SettingsSelectorComponent) -> String {
-    component
-        .render(120)
-        .iter()
-        .map(|line| strip_terminal_sequences(line))
-        .collect::<Vec<_>>()
-        .join("\n")
+fn plain(component: &mut SettingsSelectorComponent) -> JsString {
+    JsString::join(
+        component
+            .render(120)
+            .iter()
+            .map(|line| strip_terminal_sequences(line))
+            .collect::<Vec<_>>(),
+        "\n",
+    )
 }
 
 #[test]
@@ -177,7 +180,7 @@ fn cycles_through_fullscreen_settings() {
         let mut component = selector(config(), recorder.clone());
         type_label(&mut component, label);
         for _ in 0..count {
-            component.handle_input("\r");
+            component.handle_input(&JsString::from("\r"));
         }
     };
 
@@ -221,9 +224,10 @@ fn renders_the_settings_rows_in_source_order() {
     ];
     let mut position = 0;
     for label in first_window {
-        let found = output[position..]
+        let found = output
+            .slice(position, output.len())
             .find(label)
-            .unwrap_or_else(|| panic!("{label} missing in {output}"));
+            .unwrap_or_else(|| panic!("{label} missing in {output:?}"));
         position += found + label.len();
     }
 
@@ -254,7 +258,7 @@ fn renders_the_settings_rows_in_source_order() {
         let mut component = selector(config(), recorder);
         type_label(&mut component, label);
         let output = plain(&mut component);
-        assert!(output.contains(label), "{label} missing in {output}");
+        assert!(output.contains(label), "{label:?} missing in {output:?}");
     }
 }
 
@@ -264,23 +268,23 @@ fn theme_submenu_previews_and_switches_to_automatic_mode() {
     let mut component = selector(config(), recorder.clone());
 
     type_label(&mut component, "Theme");
-    component.handle_input("\r");
+    component.handle_input(&JsString::from("\r"));
     let output = plain(&mut component);
-    assert!(output.contains("Select a theme, or choose Automatic"), "{output}");
+    assert!(output.contains("Select a theme, or choose Automatic"), "{output:?}");
 
-    component.handle_input("\u{1b}[A");
-    component.handle_input("\r");
+    component.handle_input(&JsString::from("\u{1b}[A"));
+    component.handle_input(&JsString::from("\r"));
     let output = plain(&mut component);
-    assert!(output.contains("Automatic Theme"), "{output}");
+    assert!(output.contains("Automatic Theme"), "{output:?}");
     assert!(
         recorder.previews.borrow().iter().any(|preview| preview == "dark/dark"),
         "{:?}",
         recorder.previews.borrow()
     );
 
-    component.handle_input("\u{1b}[B");
-    component.handle_input("\u{1b}[B");
-    component.handle_input("\r");
+    component.handle_input(&JsString::from("\u{1b}[B"));
+    component.handle_input(&JsString::from("\u{1b}[B"));
+    component.handle_input(&JsString::from("\r"));
     assert_eq!(*recorder.themes.borrow(), vec!["dark/dark".to_string()]);
 }
 
@@ -290,9 +294,9 @@ fn theme_submenu_selects_a_single_theme() {
     let mut component = selector(config(), recorder.clone());
 
     type_label(&mut component, "Theme");
-    component.handle_input("\r");
-    component.handle_input("\u{1b}[B");
-    component.handle_input("\r");
+    component.handle_input(&JsString::from("\r"));
+    component.handle_input(&JsString::from("\u{1b}[B"));
+    component.handle_input(&JsString::from("\r"));
     assert_eq!(*recorder.themes.borrow(), vec!["light".to_string()]);
 }
 
@@ -302,8 +306,8 @@ fn warnings_submenu_updates_the_warning_settings() {
     let mut component = selector(config(), recorder.clone());
 
     type_label(&mut component, "Warnings");
-    component.handle_input("\r");
-    component.handle_input("\r");
+    component.handle_input(&JsString::from("\r"));
+    component.handle_input(&JsString::from("\r"));
     assert_eq!(recorder.warnings.borrow().len(), 1);
     assert_eq!(recorder.warnings.borrow()[0].anthropic_extra_usage, Some(false));
 }
@@ -314,8 +318,8 @@ fn thinking_submenu_selects_a_level() {
     let mut component = selector(config(), recorder.clone());
 
     type_label(&mut component, "Thinking level");
-    component.handle_input("\r");
-    component.handle_input("\u{1b}[B");
-    component.handle_input("\r");
+    component.handle_input(&JsString::from("\r"));
+    component.handle_input(&JsString::from("\u{1b}[B"));
+    component.handle_input(&JsString::from("\r"));
     assert_eq!(*recorder.thinking.borrow(), vec![ThinkingLevel::High]);
 }

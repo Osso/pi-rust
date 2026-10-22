@@ -1,7 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use pi_coding_agent::utils::footer_status::{format_extension_status_text_lines, sanitize_footer_status_text};
 use serde_json::{Value, json};
@@ -67,12 +67,12 @@ fn response() -> Value {
         .enumerate()
         .map(|(index, case)| {
             let value = match case {
-                Case::Sanitize(input) => json!(sanitize_footer_status_text(input)),
+                Case::Sanitize(input) => json!(sanitize_footer_status_text(*input)),
                 Case::Lines(statuses) => {
                     let map = statuses
                         .iter()
-                        .map(|(key, text)| ((*key).to_owned(), (*text).to_owned()))
-                        .collect::<BTreeMap<_, _>>();
+                        .map(|(key, text)| ((*key).into(), (*text).into()))
+                        .collect::<IndexMap<_, _>>();
                     json!(format_extension_status_text_lines(&map))
                 }
             };
