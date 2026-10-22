@@ -38,7 +38,19 @@ async fn faux_stream_matches_frozen_utf16_chunks_and_zero_timestamp() {
     let request = to_value(&json!({"context": context()})).unwrap();
     let mut request = request.as_object().unwrap().clone();
     request.insert("content".into(), to_value(&content).unwrap());
-    let expected: JsValue = oracle.request(&JsValue::Object(request));
+    let mut expected: JsValue = oracle.request(&JsValue::Object(request));
+    // Approved immutable snapshot deviation (AGENTS.md); frozen faux.ts:330–336/386–389.
+    replace_partial_field(&mut expected, 1, 0, "text", JsValue::String("".into()));
+    replace_partial_field(&mut expected, 2, 0, "text", JsValue::String("abcd".into()));
+    for index in 6..=9 {
+        replace_partial_field(
+            &mut expected,
+            index,
+            1,
+            "arguments",
+            JsValue::Object(Default::default()),
+        );
+    }
     let core = create_faux_core(RegisterFauxProviderOptions {
         api: Some("test-api".into()),
         provider: Some("test-provider".into()),
@@ -72,6 +84,19 @@ async fn faux_stream_matches_frozen_utf16_chunks_and_zero_timestamp() {
         eprintln!("EXPECTED {}", pi_js_compat::js_json::stringify_lossless(&expected));
     }
     assert_eq!(actual, expected);
+}
+
+fn replace_partial_field(
+    value: &mut pi_js_compat::js_json::JsValue,
+    event: usize,
+    block: usize,
+    field: &str,
+    replacement: pi_js_compat::js_json::JsValue,
+) {
+    let events = value.get_mut("events").unwrap().as_array_mut().unwrap();
+    let partial = events[event].get_mut("partial").unwrap();
+    let content = partial.get_mut("content").unwrap().as_array_mut().unwrap();
+    *content[block].get_mut(field).unwrap() = replacement;
 }
 
 fn context() -> Context {
