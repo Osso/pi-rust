@@ -5,6 +5,7 @@
 //! this port builds the same payload shape as ordered JSON and applies the
 //! identical camelCase-to-snake_case remapping.
 
+use crate::api::openai_sdk::{ingress_metadata_text, validate_metadata_fields};
 use pi_js_compat::js_json::{JsObject, JsValue};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -974,8 +975,6 @@ struct StreamState {
 }
 
 /// Applies one parsed event; `true` means the `[DONE]` sentinel ended the stream.
-// Metadata only: content and argument fragments never cross this scalar boundary.
-use crate::api::openai_sdk::{ingress_metadata_text, validate_metadata_fields};
 
 fn process_mistral_event(
     model: &Model,

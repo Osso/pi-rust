@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/api/openai-completions.ts` (+ `.lazy.ts`).
 
+use crate::api::openai_sdk::ingress_metadata_text;
 use pi_js_compat::js_json::{JsObject, JsValue};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -1456,9 +1457,6 @@ fn apply_pending_reasoning_detail(tool_call: &mut ToolCall, pending: &mut BTreeM
         tool_call.thought_signature = Some(detail);
     }
 }
-
-// Scalar provider metadata remains a checked UTF-8 boundary; never use for content.
-use crate::api::openai_sdk::ingress_metadata_text;
 
 fn is_encrypted_ingress_detail(detail: &JsValue) -> bool {
     detail.get("type").and_then(ingress_metadata_text).as_deref() == Some("reasoning.encrypted")

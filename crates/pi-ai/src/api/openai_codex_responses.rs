@@ -4,6 +4,7 @@
 //! machine: SSE with idle timeouts, WebSocket transports (including cached
 //! continuation), retries, and the session WebSocket cache.
 
+use crate::api::openai_sdk::ingress_metadata_text;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1328,9 +1329,6 @@ fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ParsedErro
         friendly_message,
     }
 }
-
-// Scalar metadata only; raw event content stays in JsValue.
-use crate::api::openai_sdk::ingress_metadata_text;
 
 enum SseStep {
     Event(JsValue),

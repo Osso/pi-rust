@@ -3,6 +3,7 @@
 //! Message/tool conversion and the Responses SSE state machine. Request bodies
 //! are built as JSON values to preserve the exact TypeScript wire shape.
 
+use crate::api::openai_sdk::{ingress_metadata_text, validate_metadata_fields};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 
@@ -951,9 +952,6 @@ fn parse_arguments(partial_json: Option<&pi_js_compat::js_json::JsString>) -> pi
     }
 }
 
-// Scalar metadata only. Content fields are always read with JsValue::as_string.
-use crate::api::openai_sdk::{ingress_metadata_text, validate_metadata_fields};
-
 fn apply_message_phase_stop_reason(output: &mut AssistantMessage, item: &JsValue) {
     if item.get("type").and_then(ingress_metadata_text).as_deref() == Some("message")
         && item.get("phase").and_then(ingress_metadata_text).as_deref() == Some("final_answer")
@@ -1331,48 +1329,61 @@ fn done_reason(stop_reason: StopReason) -> Option<DoneReason> {
 }
 
 fn validate_response_item_metadata(item: &JsValue) -> Result<(), String> {
-    validate_metadata_fields(
-        item,
-        &[
-            "type",
-            "id",
-            "call_id",
-            "name",
-            "namespace",
-            "phase",
-            "status",
-            "result",
-        ],
-    )?;
-    if let Some(content) = item.get("content").and_then(JsValue::as_array) {
-        for part in content {
-            validate_metadata_fields(part, &["type"])?;
+    validate_metadata_fields(item, &["type"])?;
+    match ingress_metadata_text(&item["type"]).as_deref() {
+        Some("message") => {
+            validate_metadata_fields(item, &["id", "phase"])?;
+            if let Some(content) = item.get("content").and_then(JsValue::as_array) {
+                for part in content {
+                    validate_metadata_fields(part, &["type"])?;
+                }
+            }
         }
+        Some("reasoning") => validate_metadata_fields(item, &["id"])?,
+        Some("function_call" | "custom_tool_call") => {
+            validate_metadata_fields(item, &["id", "call_id", "name", "namespace"])?
+        }
+        Some("image_generation_call") => validate_metadata_fields(item, &["status", "result"])?,
+        _ => {}
     }
     Ok(())
 }
 
 pub(crate) fn validate_responses_metadata(event: &JsValue) -> Result<(), String> {
-    validate_metadata_fields(event, &["type", "code", "message", "partial_image_b64"])?;
+    validate_metadata_fields(event, &["type"])?;
+    match ingress_metadata_text(&event["type"]).as_deref() {
+        Some("error") => {
+            validate_metadata_fields(event, &["code", "message"])?;
+            if let Some(error) = event.get("error") {
+                validate_metadata_fields(error, &["code", "message"])?;
+            }
+        }
+        Some("response.image_generation_call.partial_image") => {
+            validate_metadata_fields(event, &["partial_image_b64"])?
+        }
+        _ => {}
+    }
     if let Some(item) = event.get("item") {
         validate_response_item_metadata(item)?;
     }
     if let Some(response) = event.get("response") {
-        validate_metadata_fields(response, &["id", "status", "service_tier"])?;
-        if let Some(details) = response.get("incomplete_details") {
-            validate_metadata_fields(details, &["reason"])?;
-        }
-        if let Some(error) = response.get("error") {
-            validate_metadata_fields(error, &["code", "message"])?;
-        }
-        if let Some(items) = response.get("output").and_then(JsValue::as_array) {
-            for item in items {
-                validate_response_item_metadata(item)?;
-            }
-        }
+        validate_response_metadata(response)?;
     }
-    if let Some(error) = event.get("error") {
+    Ok(())
+}
+
+fn validate_response_metadata(response: &JsValue) -> Result<(), String> {
+    validate_metadata_fields(response, &["id", "status", "service_tier"])?;
+    if let Some(details) = response.get("incomplete_details") {
+        validate_metadata_fields(details, &["reason"])?;
+    }
+    if let Some(error) = response.get("error") {
         validate_metadata_fields(error, &["code", "message"])?;
+    }
+    if let Some(items) = response.get("output").and_then(JsValue::as_array) {
+        for item in items {
+            validate_response_item_metadata(item)?;
+        }
     }
     Ok(())
 }
