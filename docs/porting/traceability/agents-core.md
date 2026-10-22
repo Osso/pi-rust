@@ -6,11 +6,11 @@ Actual in-crate baseline `agents_core_drift` at `27410344`: five intended behavi
 
 | Boundary | Implementation | Proof |
 |---|---|---|
-| Registration API errors | Helpers/top-level registration propagate the original error in source order | RED observed; focused GREEN pending |
-| Completion-time UI lookup | Resolve current UI after dispatch settles; errors reach the existing process uncaught handler | Source observer output confirmed with actual runner; focused GREEN pending |
-| Post-construction session lookup | Fallible lookup occurs after construction and before admission; no error-to-path fallback | RED observed; focused GREEN pending |
-| Accessed profile model / unrelated fields | Raw profile getter; model registry read precedes source-equivalent model-type error; consumers project accessed fields only | Two REDs observed; focused GREEN pending |
-| Tracked-agent DB read | Queued | Unit RED-intent remains unexecuted; public integration fixture pending |
+| Registration API errors | Helpers/top-level registration propagate the original error in source order | GREEN at `4636282b`, `agents-core-drift-incrate-green.log` |
+| Completion-time UI lookup | Resolve current UI after dispatch settles; errors reach the existing process uncaught handler | GREEN at `d03f49d3`, `agents-core-ui-fidelity-green.log`; actual frozen runner observer evidence asserted |
+| Post-construction session lookup | Fallible lookup occurs after construction and before admission; no error-to-path fallback | GREEN at `4636282b`, `agents-core-drift-incrate-green.log` |
+| Accessed profile model / unrelated fields | Raw profile getter; model registry read precedes source-equivalent model-type error; consumers project accessed fields only | Both GREEN at `4636282b`, `agents-core-drift-incrate-green.log` |
+| Tracked-agent DB read | Queued | Existing unit RED-intent remains unexecuted while shared lib-test target is compiler-blocked; no duplicate integration fixture |
 
 ### Stale-context fixture fidelity
 
