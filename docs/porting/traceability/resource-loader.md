@@ -94,11 +94,17 @@ Settings `get_disabled_extensions` returns native strings, but its JSON ingress
 remains scalar serde_json pending the separately assigned SettingsManager native
 authority slice. This projection does not claim lossless persisted settings.
 
-### Unclassified pre-existing source drift
+### Source-drift removals
 
-Compared with common pin resource-loader.ts, Rust has AGENTS.override.md precedence
-and worktree-shadow suppression not present in that frozen module. Rust
-`extend_resources` discards update errors whereas source `extendResources` can
-throw. These are recorded discrepancies, not new parity evidence or approved
-deviations; parent notified for scope/classification. Native migration preserves
-existing behavior pending that decision.
+Removed old-only AGENTS.override.md precedence and worktree-shadow suppression;
+neither exists in common-pin resource-loader.ts:88–122 and no locked delta
+authorizes them. Context candidates now match the frozen AGENTS/CLAUDE lists and
+family selection. Deleted shadow-only tests; updated layered instructions
+expectations. New frozen oracle comparison covers an override file beside regular
+AGENTS files. Coding compilation still blocks its execution (no behavioral RED
+claim). The now-unneeded native footer path migration is reverted completely.
+
+`extend_resources` returns `Result` and propagates update failures rather than
+discarding them. AgentSession forwards the error from resource discovery through
+reload/bind_extensions. Invalid file-URL fixture asserts an observable failure;
+written but unexecuted. These are source-drift removals, not approved deviations.

@@ -7250,7 +7250,7 @@ impl AgentSession {
     }
 
     /// Binds extension host callbacks and emits `session_start`.
-    pub async fn bind_extensions(&self, bindings: ExtensionBindings) {
+    pub async fn bind_extensions(&self, bindings: ExtensionBindings) -> Result<(), AgentSessionError> {
         if let Some(ui_context) = bindings.ui_context {
             *lock(&self.inner.extension_ui_context) = Some(ui_context);
         }
@@ -7281,7 +7281,7 @@ impl AgentSession {
         self.apply_extension_bindings(&runner);
         let mut event = ExtensionEvent::SessionStart(self.inner.session_start_event.clone());
         runner.emit(&mut event).await;
-        self.extend_resources_from_extensions().await;
+        self.extend_resources_from_extensions().await
     }
 
     /// Reloads settings, resources, and extensions (`AgentSession.reload`).
@@ -7335,7 +7335,7 @@ impl AgentSession {
         });
         self.runner().emit(&mut event).await;
         self.extend_resources_with_reason(crate::core::extensions::types::ResourcesDiscoverReason::Reload)
-            .await;
+            .await?;
         Ok(())
     }
 
@@ -7358,24 +7358,27 @@ impl AgentSession {
         *lock(&self.inner.extension_runner) = runner;
     }
 
-    async fn extend_resources_from_extensions(&self) {
+    async fn extend_resources_from_extensions(&self) -> Result<(), AgentSessionError> {
         let reason =
             if self.inner.session_start_event.reason == crate::core::extensions::types::SessionStartReason::Reload {
                 crate::core::extensions::types::ResourcesDiscoverReason::Reload
             } else {
                 crate::core::extensions::types::ResourcesDiscoverReason::Startup
             };
-        self.extend_resources_with_reason(reason).await;
+        self.extend_resources_with_reason(reason).await
     }
 
-    async fn extend_resources_with_reason(&self, reason: crate::core::extensions::types::ResourcesDiscoverReason) {
+    async fn extend_resources_with_reason(
+        &self,
+        reason: crate::core::extensions::types::ResourcesDiscoverReason,
+    ) -> Result<(), AgentSessionError> {
         let runner = self.runner();
         if !runner.has_handlers("resources_discover") {
-            return;
+            return Ok(());
         }
         let paths = runner.emit_resources_discover(&self.inner.cwd, reason).await;
         if paths.skill_paths.is_empty() && paths.prompt_paths.is_empty() && paths.theme_paths.is_empty() {
-            return;
+            return Ok(());
         }
         let convert = |entries: Vec<crate::core::extensions::runner::DiscoveredPath>| {
             entries
@@ -7403,10 +7406,12 @@ impl AgentSession {
                 skill_paths: convert(paths.skill_paths),
                 prompt_paths: convert(paths.prompt_paths),
                 theme_paths: convert(paths.theme_paths),
-            });
+            })
+            .map_err(AgentSessionError::new)?;
         let prompt = self.rebuild_system_prompt(&self.get_active_tool_names());
         *lock(&self.inner.base_system_prompt) = prompt.clone();
         self.inner.agent.set_system_prompt(prompt);
+        Ok(())
     }
 
     fn create_internal_commands(
