@@ -473,3 +473,57 @@ async fn shell_options_retain_native_units_until_process_boundary() {
         expected
     );
 }
+
+#[tokio::test]
+async fn shell_spawn_argument_validation_and_envpair_encoding_match_node() {
+    let root = tempfile::tempdir().unwrap();
+    let native = env(root.path().to_str().unwrap());
+    let mut oracle = oracle();
+    let cases: Vec<(&str, Option<JsString>, Option<indexmap::IndexMap<String, JsString>>)> = vec![
+        ("true\0bad", None, None),
+        ("true", Some("bad\0cwd".into()), None),
+        ("true", None, Some([("EXTRA".into(), "bad\0value".into())].into())),
+        ("true", None, Some([("BAD\0KEY".into(), "ok".into())].into())),
+        ("printenv a", None, Some([("a=b".into(), "payload".into())].into())),
+        ("printenv ''", None, Some([("".into(), "payload".into())].into())),
+        (
+            "true",
+            None,
+            Some(
+                [
+                    ("EXTRA".into(), "bad\0value".into()),
+                    ("0".into(), "bad\0number".into()),
+                ]
+                .into(),
+            ),
+        ),
+        ("true\0arg", Some("bad\0cwd".into()), None),
+    ];
+    let mut expected = Vec::new();
+    let mut actual = Vec::new();
+    for (command, cwd, extra) in cases {
+        expected.push(oracle.request(
+            &json!({"kind":"shell-boundary","root":root.path(),"command":command,"cwd":cwd,"extraEnv":extra}),
+        ));
+        actual.push(shell_result(
+            native
+                .exec(
+                    &command.into(),
+                    ShellExecOptions {
+                        cwd,
+                        env: extra,
+                        ..Default::default()
+                    },
+                )
+                .await,
+        ));
+    }
+    let actual = JsValue::Array(actual);
+    let expected = JsValue::Array(expected);
+    assert!(
+        actual == expected,
+        "actual={}\nexpected={}",
+        pi_js_compat::js_json::stringify_lossless(&actual),
+        pi_js_compat::js_json::stringify_lossless(&expected)
+    );
+}
