@@ -49,7 +49,7 @@ fn assistant_message_round_trips_exact_wire_shape() {
     let AssistantContent::ToolCall(call) = &assistant.content[2] else {
         panic!("third block must be a tool call");
     };
-    assert_eq!(call.arguments["limit"], json!(10));
+    assert_eq!(call.arguments["limit"], 10.into());
 }
 
 fn round_trip_stream_block(kind: &str, block: Value) {
@@ -99,7 +99,7 @@ fn user_message_accepts_string_and_block_content() {
     let Message::User(user) = text else {
         panic!("must be user")
     };
-    assert_eq!(user.content, UserContent::Text("hi".to_owned()));
+    assert_eq!(user.content, UserContent::Text("hi".into()));
 
     let blocks: Message = round_trip(&json!({
         "role": "user",

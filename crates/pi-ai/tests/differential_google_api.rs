@@ -219,7 +219,7 @@ fn stream_options(
                 "long" => CacheRetention::Long,
                 _ => CacheRetention::Short,
             }),
-        session_id: stream.get("sessionId").and_then(Value::as_str).map(str::to_owned),
+        session_id: stream.get("sessionId").and_then(Value::as_str).map(Into::into),
         on_retry: None,
         websocket_connect_timeout_ms: stream.get("websocketConnectTimeoutMs").and_then(Value::as_f64),
         metadata: stream.get("metadata").and_then(Value::as_object).cloned(),
@@ -538,7 +538,7 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
         let patch = Arc::clone(&patch);
         options.request.on_payload = Some(Arc::new(move |_payload, _model| {
             let patch = Arc::clone(&patch);
-            Box::pin(async move { Ok(Some((*patch).clone())) })
+            Box::pin(async move { Ok(Some((*patch).clone().into())) })
         }));
     }
 

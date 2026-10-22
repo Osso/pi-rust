@@ -58,7 +58,7 @@ fn assistant(content: Vec<AssistantContent>, provider: &str, api: &str, id: &str
 fn user_text(text: &str) -> Message {
     Message::User(UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text(text.to_owned()),
+        content: UserContent::Text(text.into()),
         input_source: None,
         provider_native: None,
         timestamp: 1,
@@ -76,7 +76,7 @@ fn context(messages: Vec<Message>) -> Context {
 fn text_block(text: &str, signature: Option<&str>) -> AssistantContent {
     AssistantContent::Text(TextContent {
         r#type: Default::default(),
-        text: text.to_owned(),
+        text: text.into(),
         text_signature: signature.map(str::to_owned),
         index: None,
     })
@@ -85,7 +85,7 @@ fn text_block(text: &str, signature: Option<&str>) -> AssistantContent {
 fn thinking_block(thinking: &str, signature: Option<&str>) -> AssistantContent {
     AssistantContent::Thinking(ThinkingContent {
         r#type: Default::default(),
-        thinking: thinking.to_owned(),
+        thinking: thinking.into(),
         thinking_signature: signature.map(str::to_owned),
         redacted: None,
         index: None,
@@ -93,7 +93,13 @@ fn thinking_block(thinking: &str, signature: Option<&str>) -> AssistantContent {
 }
 
 fn tool_call(id: &str, name: &str, signature: Option<&str>) -> AssistantContent {
-    let mut call = ToolCall::new(id, name, [("command".to_owned(), json!("ls"))].into_iter().collect());
+    let mut call = ToolCall::new(
+        id,
+        name,
+        [("command".into(), pi_js_compat::js_json::JsValue::from("ls"))]
+            .into_iter()
+            .collect(),
+    );
     call.thought_signature = signature.map(str::to_owned);
     AssistantContent::ToolCall(call)
 }
