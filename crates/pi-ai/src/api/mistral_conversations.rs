@@ -234,11 +234,11 @@ async fn produce_stream(
     Ok(())
 }
 
-fn required_api_key<'a>(model: &Model, options: &'a StreamOptions) -> Result<&'a str, MistralError> {
+fn required_api_key<'a>(model: &Model, options: &'a StreamOptions) -> Result<&'a JsString, MistralError> {
     options
         .request
         .api_key
-        .as_deref()
+        .as_ref()
         .filter(|key| !key.is_empty())
         .ok_or_else(|| MistralError::message(format!("No API key for provider: {}", model.provider)))
 }
@@ -413,7 +413,7 @@ struct MistralResponse {
 async fn request_mistral_stream(
     model: &Model,
     payload: &JsValue,
-    api_key: &str,
+    api_key: &JsString,
     options: &MistralOptions,
 ) -> Result<MistralResponse, MistralError> {
     let url = chat_completions_url(model)?;
@@ -437,8 +437,9 @@ async fn request_mistral_stream(
                 url: url.to_string(),
                 headers: headers
                     .iter()
-                    .map(|(name, value)| (name.clone(), value.clone()))
-                    .collect(),
+                    .map(|(name, value)| crate::request::header_value(value).map(|value| (name.clone(), value)))
+                    .collect::<Result<_, _>>()
+                    .map_err(|error| MistralError::message(error.message))?,
                 body: Some(body),
             },
             Some(signal.token.clone()),
@@ -474,18 +475,23 @@ async fn request_mistral_stream(
 }
 
 fn chat_completions_url(model: &Model) -> Result<Url, MistralError> {
-    let mut base = Url::parse(&model.base_url).map_err(|error| MistralError::message(error.to_string()))?;
+    let serialized =
+        crate::request::request_url(&model.base_url).map_err(|error| MistralError::message(error.message))?;
+    let mut base = Url::parse(&serialized).expect("request_url parsed URL");
     let path = base.path().trim_end_matches('/');
     base.set_path(&format!("{path}/"));
     base.join("v1/chat/completions")
         .map_err(|error| MistralError::message(error.to_string()))
 }
 
-fn build_mistral_headers(model: &Model, api_key: &str, options: &MistralOptions) -> IndexMap<String, String> {
+fn build_mistral_headers(model: &Model, api_key: &JsString, options: &MistralOptions) -> IndexMap<String, JsString> {
     let mut headers = IndexMap::from([
-        ("accept".to_owned(), "text/event-stream".to_owned()),
-        ("authorization".to_owned(), format!("Bearer {api_key}")),
-        ("content-type".to_owned(), "application/json".to_owned()),
+        ("accept".to_owned(), JsString::from("text/event-stream")),
+        (
+            "authorization".to_owned(),
+            pi_js_compat::js_format!("Bearer {}", api_key),
+        ),
+        ("content-type".to_owned(), JsString::from("application/json")),
     ]);
     apply_model_header_overrides(&mut headers, model.headers.as_ref());
     apply_mistral_header_overrides(&mut headers, options.stream.request.headers.as_ref());
@@ -494,13 +500,13 @@ fn build_mistral_headers(model: &Model, api_key: &str, options: &MistralOptions)
     if should_use_prompt_caching(options) && !has_explicit_affinity {
         headers.insert(
             "x-affinity".to_owned(),
-            pi_js_compat::js_json::encode_node_utf8(&options.stream.session_id.clone().unwrap_or_default()),
+            options.stream.session_id.clone().unwrap_or_default(),
         );
     }
     headers
 }
 
-fn model_has_header_override(headers: Option<&IndexMap<String, String>>, target: &str) -> bool {
+fn model_has_header_override(headers: Option<&IndexMap<String, JsString>>, target: &str) -> bool {
     headers.is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case(target)))
 }
 
@@ -508,7 +514,10 @@ fn provider_has_header_override(headers: Option<&crate::types::ProviderHeaders>,
     headers.is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case(target)))
 }
 
-fn apply_model_header_overrides(headers: &mut IndexMap<String, String>, overrides: Option<&IndexMap<String, String>>) {
+fn apply_model_header_overrides(
+    headers: &mut IndexMap<String, JsString>,
+    overrides: Option<&IndexMap<String, JsString>>,
+) {
     let Some(overrides) = overrides else {
         return;
     };
@@ -518,7 +527,7 @@ fn apply_model_header_overrides(headers: &mut IndexMap<String, String>, override
 }
 
 fn apply_mistral_header_overrides(
-    headers: &mut IndexMap<String, String>,
+    headers: &mut IndexMap<String, JsString>,
     overrides: Option<&crate::types::ProviderHeaders>,
 ) {
     let Some(overrides) = overrides else {

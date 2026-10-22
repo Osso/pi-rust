@@ -100,7 +100,7 @@ async fn request_images(
     let api_key = options
         .request
         .api_key
-        .as_deref()
+        .as_ref()
         .ok_or_else(|| format!("No API key for provider: {}", model.provider))?;
     let params = build_effective_params(model, context, options).await?;
     let client = build_client(model, api_key, options);
@@ -123,7 +123,7 @@ async fn build_effective_params(
     Ok(next_params.unwrap_or(params))
 }
 
-fn build_client(model: &ImagesModel, api_key: &str, options: &ImagesOptions) -> SdkClient {
+fn build_client(model: &ImagesModel, api_key: &JsString, options: &ImagesOptions) -> SdkClient {
     SdkClient::new(SdkClientConfig {
         api_key: api_key.to_owned(),
         base_url: model.base_url.clone(),
@@ -201,8 +201,8 @@ fn timeout_error() -> ProviderRequestError<CallbackError> {
     })
 }
 
-fn merged_headers(model: &ImagesModel, options: &ImagesOptions) -> IndexMap<String, Option<String>> {
-    let mut merged: IndexMap<String, Option<String>> = IndexMap::new();
+fn merged_headers(model: &ImagesModel, options: &ImagesOptions) -> IndexMap<String, Option<JsString>> {
+    let mut merged: IndexMap<String, Option<JsString>> = IndexMap::new();
     if let Some(headers) = &model.headers {
         for (name, value) in headers {
             merged.insert(name.clone(), Some(value.clone()));
