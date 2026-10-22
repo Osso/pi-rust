@@ -3,7 +3,6 @@ mod client;
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::encode_node_utf8;
 use pi_tui::{
     terminal::*,
     tui::{Component, Focusable},

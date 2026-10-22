@@ -4,7 +4,6 @@ use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue as Value;
-use pi_js_compat::js_json::encode_node_utf8;
 use pi_tui::{
     Input, TUI,
     components::{
@@ -217,7 +216,7 @@ impl RpcExtensionUi {
             return;
         }
         self.prompt.set_value("");
-        match value {
+        match &value {
             command if command == "/select" => self.select(
                 "Pick a color".into(),
                 ["Red", "Green", "Blue", "Yellow"]
