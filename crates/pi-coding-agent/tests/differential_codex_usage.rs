@@ -679,6 +679,11 @@ async fn differential_usage_all_codex_credentials() {
             "model":{"provider":provider},"storedEmail":email,"runtimeOnly":runtime_only,
             "responses":[{"status":200,"body":payload.to_string()}]}));
     }
+    let access = token_with_claims(&token);
+    cases.push(
+        json!({"name":"all-codex-error-redaction","kind":"command","args":"all","token":token,
+        "responses":[{"status":500,"body":format!("bad {access} twice {access}\nBearer secret sk-secret")}]}),
+    );
     let mut ts = TsOracle::spawn("codex-usage-oracle.ts", SOURCE);
     let response = ts.request(&json!({"id":4,"operation":"cases","cases":cases}));
     assert_eq!(response["ok"], true, "{response}");

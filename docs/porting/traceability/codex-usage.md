@@ -1,7 +1,7 @@
 # `codex-usage` extension traceability
 
 Source: `packages/coding-agent/extensions/codex-usage/src/index.ts`. Rust:
-`crates/pi-coding-agent/src/bundled_extensions/codex_usage/mod.rs`.
+`crates/pi-coding-agent/src/bundled_extensions/codex_usage/{mod,bridge}.rs`.
 
 | TypeScript symbol / branch | Rust item | Proof |
 |---|---|---|
@@ -68,3 +68,5 @@ Oracle uses frozen `AuthStorage.inMemory`, `isIdle: () => true`, and native fixt
 `ModelRuntime::read_stored_credential` delegates to the existing backing credential store, without the runtime API-key overlay or a parallel metadata copy. `readCodexAccountRow` checks that stored read instead of `list_credentials`, preserving frozen `AuthStorage.has`: runtime-only credentials are not logged-in all-account rows. `readCodexUsage` prefers nonempty stored OAuth `email` over the JWT claim; empty/null metadata retains the claim. `differential_usage_all_codex_credentials` covers all three Codex providers, active selection, stored/empty/null email and runtime-only credentials. Parent authorized this minimal accessor on 2026-10-22.
 
 `all-date-*` covers years 0000/0001/0099 and normalized February overflow/fractional seconds; Central labels use Intl numeric year-of-era (not padded ISO years). Fixture listeners yield once before resolving to prove the claimed future is awaited.
+
+`all-codex-error-redaction` reproduces frozen `readCodexUsage`'s catch boundary: every literal occurrence of the access token is redacted before account-row sanitization and 300-unit clipping. RED showed repeated raw JWTs; Rust now applies the frozen replace-all operation after obtaining the token, preserving pre-token login errors unchanged.

@@ -211,6 +211,10 @@ async fn read_logged_in_codex_row(
         return Ok(None);
     }
     let usage = read_codex_usage_for_provider(ctx, fetch, provider).await?;
+    Ok(Some(format_codex_account_row(&usage, provider, selected)))
+}
+
+fn format_codex_account_label(usage: &CodexUsage, provider: &str, selected: &str) -> JsString {
     let identity = usage
         .email
         .as_ref()
@@ -223,7 +227,11 @@ async fn read_logged_in_codex_row(
         .filter(|plan| !plan.is_empty())
         .map(|plan| js_format!(" ({})", sanitize_usage_text(&plan.into())))
         .unwrap_or_default();
-    let label = js_format!("{}{} [{}]{}", sanitize_usage_text(&identity), plan, provider, selected);
+    js_format!("{}{} [{}]{}", sanitize_usage_text(&identity), plan, provider, selected)
+}
+
+fn format_codex_account_row(usage: &CodexUsage, provider: &str, selected: &str) -> AccountUsageRow {
+    let label = format_codex_account_label(usage, provider, selected);
     let mut row = AccountUsageRow::new("Codex", label);
     row.reset_credits_available = usage.reset_credits_available;
     let limit = usage.limits.iter().find(|limit| limit.limit_id == "codex");
@@ -245,7 +253,7 @@ async fn read_logged_in_codex_row(
             .flatten()
             .find(|window| window.window_minutes == Some(WEEKLY_WINDOW_MINUTES)),
     );
-    Ok(Some(row))
+    row
 }
 
 fn format_usage_percent(cell: Option<&UsageCell>) -> String {
@@ -326,6 +334,11 @@ pub(super) async fn handle_usage_all(
         ),
     );
     rows.extend(codex_rows);
+    let table = format_account_table(&rows);
+    send_usage_all_report(ctx, pi, table)
+}
+
+fn format_account_table(rows: &[AccountUsageRow]) -> JsString {
     let width = rows
         .iter()
         .map(|row| row.account.len())
@@ -343,7 +356,14 @@ pub(super) async fn handle_usage_all(
     .map(JsString::from);
     let lines = std::iter::once(format_account_columns(header, width))
         .chain(rows.iter().map(|row| format_account_row(row, width)));
-    let table = JsString::join(lines, "\n");
+    JsString::join(lines, "\n")
+}
+
+fn send_usage_all_report(
+    ctx: &ExtensionCommandContext,
+    pi: &ExtensionApi,
+    table: JsString,
+) -> Result<(), HandlerError> {
     let content = js_format!("{}\n\n```\n{}\n```", ALL_TITLE, table);
     let options = if ctx.is_idle()? {
         None

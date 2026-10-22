@@ -438,7 +438,7 @@ async fn read_codex_access_token_for_provider(
 ) -> Result<JsString, HandlerError> {
     let token = ctx
         .model_registry()?
-        .get_api_key_for_provider(&provider_id)
+        .get_api_key_for_provider(provider_id)
         .await
         .map_err(|error| HandlerError::new(error.message()))?;
     let Some(token) = token else {
@@ -501,29 +501,51 @@ async fn read_codex_usage_for_provider(
     provider_id: &str,
 ) -> Result<CodexUsage, HandlerError> {
     let token = read_codex_access_token_for_provider(ctx, provider_id).await?;
-    let account_info = resolve_codex_account_info(&token).map_err(HandlerError::new)?;
+    read_codex_usage_with_token(ctx, fetch, provider_id, &token)
+        .await
+        .map_err(|error| HandlerError::new(error.message.replace(token, "[redacted]")))
+}
+
+async fn read_stored_codex_email(
+    ctx: &ExtensionCommandContext,
+    provider_id: &str,
+) -> Result<Option<JsString>, HandlerError> {
     let stored = ctx
         .model_registry()?
         .runtime()
         .read_stored_credential(provider_id, Default::default())
         .await
         .map_err(|error| HandlerError::new(error.to_string()))?;
-    let stored_email = stored
+    Ok(stored
         .and_then(|credential| credential.into_oauth())
-        .and_then(|credential| truthy_claim(credential.extra.get(&JsString::from("email"))));
+        .and_then(|credential| truthy_claim(credential.extra.get(&JsString::from("email")))))
+}
+
+async fn fetch_codex_usage_payload(fetch: &dyn Fetch, token: &JsString) -> Result<Value, HandlerError> {
     let response = fetch
         .fetch(
             HttpRequest {
                 method: "GET".to_owned(),
                 url: CODEX_USAGE_URL.to_owned(),
-                headers: create_codex_headers(&token, Vec::new())?,
+                headers: create_codex_headers(token, Vec::new())?,
                 body: None,
             },
             None,
         )
         .await
         .map_err(callback_error)?;
-    let payload = read_json_response(response).await?;
+    read_json_response(response).await
+}
+
+async fn read_codex_usage_with_token(
+    ctx: &ExtensionCommandContext,
+    fetch: &dyn Fetch,
+    provider_id: &str,
+    token: &JsString,
+) -> Result<CodexUsage, HandlerError> {
+    let account_info = resolve_codex_account_info(token).map_err(HandlerError::new)?;
+    let stored_email = read_stored_codex_email(ctx, provider_id).await?;
+    let payload = fetch_codex_usage_payload(fetch, token).await?;
     let mut usage = map_codex_usage_payload(&payload);
     usage.account_id = Some(account_info.account_id);
     usage.email = stored_email.or(account_info.email);
