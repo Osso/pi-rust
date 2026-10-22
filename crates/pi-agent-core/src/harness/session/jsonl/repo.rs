@@ -89,7 +89,7 @@ async fn jsonl_session_directory(
     file_result(
         fs.join_path(&[sessions_root.to_owned(), jsonl_session_directory_name(cwd)])
             .await,
-        &js_format!("Failed to resolve sessions directory for {}", &cwd),
+        &js_format!("Failed to resolve sessions directory for {}", cwd),
     )
 }
 
@@ -111,7 +111,7 @@ async fn session_directory_for_cwd(
 ) -> Result<Vec<JsString>, SessionError> {
     let resolved_cwd = file_result(
         options.fs.absolute_path(cwd).await,
-        &js_format!("Failed to resolve session cwd {}", &cwd),
+        &js_format!("Failed to resolve session cwd {}", cwd),
     )?;
     let directory = jsonl_session_directory(&options.fs, sessions_root, &resolved_cwd).await?;
     let exists = file_result(
@@ -127,14 +127,14 @@ async fn child_session_directories(
 ) -> Result<Vec<JsString>, SessionError> {
     let exists = file_result(
         options.fs.exists(sessions_root).await,
-        &js_format!("Failed to check sessions directory {}", &sessions_root),
+        &js_format!("Failed to check sessions directory {}", sessions_root),
     )?;
     if !exists {
         return Ok(Vec::new());
     }
     let entries = file_result(
         options.fs.list_dir(sessions_root).await,
-        &js_format!("Failed to list sessions directory {}", &sessions_root),
+        &js_format!("Failed to list sessions directory {}", sessions_root),
     )?;
     Ok(entries
         .into_iter()
@@ -176,7 +176,7 @@ async fn list_jsonl_files(
 ) -> Result<Vec<crate::harness::types::FileInfo>, SessionError> {
     let files = file_result(
         options.fs.list_dir(directory).await,
-        &js_format!("Failed to list sessions directory {}", &directory),
+        &js_format!("Failed to list sessions directory {}", directory),
     )?;
     Ok(files
         .into_iter()

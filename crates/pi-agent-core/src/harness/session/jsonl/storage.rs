@@ -51,11 +51,11 @@ impl JsonlSessionStorage {
     ) -> Result<Self, SessionError> {
         file_result(
             fs.write_file(path, &encode_header(header)).await,
-            &js_format!("Failed to initialize session {}", &path),
+            &js_format!("Failed to initialize session {}", path),
         )?;
         let file_info = file_result(
             fs.file_info(path).await,
-            &js_format!("Failed to read session metadata {}", &path),
+            &js_format!("Failed to read session metadata {}", path),
         )?;
         Ok(Self::with_clock(
             fs,
@@ -72,7 +72,7 @@ impl JsonlSessionStorage {
     ) -> Result<Self, SessionError> {
         let content = file_result(
             fs.read_text_file(path).await,
-            &js_format!("Failed to read session {}", &path),
+            &js_format!("Failed to read session {}", path),
         )?;
         let physical_lines = split_physical_lines(&content);
         let storage = load_storage_from_lines(Arc::clone(&fs), path, clock, &physical_lines).await?;
@@ -82,7 +82,7 @@ impl JsonlSessionStorage {
         if !content.ends_with('\n') {
             file_result(
                 fs.append_file(path, "\n").await,
-                &js_format!("Failed to repair unterminated session tail {}", &path),
+                &js_format!("Failed to repair unterminated session tail {}", path),
             )?;
         }
         Ok(storage)
@@ -105,7 +105,7 @@ impl JsonlSessionStorage {
             }
             file_result(
                 self.fs.rename_file(&temp_path, path).await,
-                &js_format!("Failed to publish staged file {}", &path),
+                &js_format!("Failed to publish staged file {}", path),
             )
         }
         .await;
@@ -138,11 +138,11 @@ async fn publish_file_atomically(
     let result = async {
         file_result(
             fs.write_file(&temp_path, content).await,
-            &js_format!("Failed to stage {} {}", &label, &destination),
+            &js_format!("Failed to stage {} {}", label, destination),
         )?;
         file_result(
             fs.rename_file(&temp_path, destination).await,
-            &js_format!("Failed to publish staged file {}", &destination),
+            &js_format!("Failed to publish staged file {}", destination),
         )
     }
     .await;
@@ -176,7 +176,7 @@ async fn load_storage_from_lines(
     let header = parse_header(first_line).map_err(|error| invalid_file(path, 1, &error))?;
     let file_info = file_result(
         fs.file_info(path).await,
-        &js_format!("Failed to read session metadata {}", &path),
+        &js_format!("Failed to read session metadata {}", path),
     )?;
     Ok(JsonlSessionStorage::with_clock(
         fs,
