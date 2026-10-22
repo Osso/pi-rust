@@ -5,8 +5,12 @@ use std::sync::{Arc, Mutex};
 
 use pi_agent_core::AgentToolResult;
 use pi_agent_core::agent::types::AgentToolUpdateCallback;
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsString, JsValue as Value},
+};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json as schema_json;
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError, ToolDefinition};
 use crate::core::multi_agent_store::{
@@ -32,7 +36,7 @@ pub type OnSessionMessageSent = Arc<dyn Fn(&AgentMailboxMessage, &str) -> Result
 #[serde(rename_all = "camelCase")]
 pub struct SendAgentMessageParams {
     pub file_refs: Option<Vec<crate::core::multi_agent_store::AgentFileReference>>,
-    pub message: String,
+    pub message: JsString,
     pub thread_id: Option<String>,
     pub to_agent_id: String,
     pub to_session_id: Option<String>,
@@ -43,12 +47,12 @@ pub struct SendAgentMessageParams {
 #[serde(rename_all = "camelCase")]
 pub struct ContactParentParams {
     pub file_refs: Option<Vec<crate::core::multi_agent_store::AgentFileReference>>,
-    pub message: String,
+    pub message: JsString,
     pub thread_id: Option<String>,
 }
 
-pub fn contact_parent_schema() -> Value {
-    json!({
+pub fn contact_parent_schema() -> serde_json::Value {
+    schema_json!({
         "type": "object",
         "required": [
             "body"
@@ -87,8 +91,8 @@ pub fn contact_parent_schema() -> Value {
     })
 }
 
-pub fn send_agent_message_schema() -> Value {
-    json!({
+pub fn send_agent_message_schema() -> serde_json::Value {
+    schema_json!({
         "type": "object",
         "required": [
             "body",
@@ -931,7 +935,7 @@ pub fn register_mailbox_tools(
                 let callback = send_callback.clone();
                 Box::pin(async move {
                     let params: SendAgentMessageParams =
-                        serde_json::from_value(model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
+                        js_json::from_value(&model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
                     send_agent_message(&store, &params, Some(&ctx), callback.as_ref())
                 })
             },
@@ -963,7 +967,7 @@ pub fn register_mailbox_tools(
                 let store = Arc::clone(&store);
                 Box::pin(async move {
                     let params: ContactParentParams =
-                        serde_json::from_value(model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
+                        js_json::from_value(&model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
                     contact_parent(&store, &params, Some(&ctx))
                 })
             },
