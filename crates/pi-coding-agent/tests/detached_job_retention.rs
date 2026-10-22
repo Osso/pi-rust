@@ -133,7 +133,7 @@ fn rejects_invalid_nonnegative_finite_values() {
             .expect_err("invalid input must be rejected");
         assert!(
             error.starts_with(message) && error.ends_with("must be a nonnegative finite number"),
-            "{error}"
+            "{error:?}"
         );
     }
 }
