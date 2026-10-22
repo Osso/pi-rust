@@ -263,7 +263,7 @@ pub fn launch_detached_pyrun_runner(manifest_path: &str) -> Result<u32, String> 
 }
 
 struct PendingBridgeRequest {
-    resolve: tokio::sync::oneshot::Sender<Result<Option<Value>, String>>,
+    resolve: tokio::sync::oneshot::Sender<Result<Option<Value>, JsString>>,
 }
 
 type PendingRequests = Arc<Mutex<std::collections::HashMap<String, PendingBridgeRequest>>>;
@@ -401,7 +401,7 @@ async fn wait_for_detached_pyrun_settlement(
                     cancel: control.cancel.clone(),
                     identity: control.identity.clone(),
                     result: None,
-                    error: Some(error.to_string().into()),
+                    error: Some(error.message().clone()),
                 },
             });
         }
@@ -473,7 +473,7 @@ async fn dispatch_detached_pyrun_bridge_request(
     identity: &DetachedJobOwnershipIdentity,
     pending: PendingRequests,
     request: super::runner::PiRequest,
-) -> Result<Option<Value>, String> {
+) -> Result<Option<Value>, JsString> {
     let request_id = enqueue_detached_pyrun_bridge_request(EnqueueDetachedPyrunBridgeRequestInput {
         control_db_path: manifest.data.control_db_path.clone(),
         identity: identity.clone(),
@@ -499,7 +499,7 @@ async fn dispatch_foreground_pyrun_bridge_request(
     manifest: &DetachedPyrunLaunchManifest,
     pending: PendingRequests,
     request: super::runner::PiRequest,
-) -> Result<Option<Value>, String> {
+) -> Result<Option<Value>, JsString> {
     let request_id = pi_ai::utils::uuid::random_uuid();
     let mut record = Map::new();
     record.insert("method".into(), Value::String(request.method.clone().into()));
@@ -513,7 +513,11 @@ async fn dispatch_foreground_pyrun_bridge_request(
             read_json_lines(&manifest.data.bridge_response_path, offset).map_err(|error| error.to_string())?;
         offset = records.offset;
         for response in &records.values {
-            if response.get("requestId").and_then(Value::as_string) != Some(request_id.as_str()) {
+            if !response
+                .get("requestId")
+                .and_then(Value::as_string)
+                .is_some_and(|id| id == &request_id)
+            {
                 continue;
             }
             if response.get("claimed").and_then(Value::as_bool) == Some(true) {

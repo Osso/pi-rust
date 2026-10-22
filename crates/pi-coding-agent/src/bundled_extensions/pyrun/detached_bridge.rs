@@ -66,7 +66,7 @@ pub fn enqueue_detached_pyrun_bridge_request(input: EnqueueDetachedPyrunBridgeRe
 
 /// `parseDetachedPyrunBridgeRequest`.
 pub fn parse_detached_pyrun_bridge_request(message: &RuntimeMailboxMessage) -> Option<DetachedPyrunBridgeRequest> {
-    let parsed: DetachedPyrunBridgeRequest = serde_json::from_str(&message.body).ok()?;
+    let parsed: DetachedPyrunBridgeRequest = js_json::from_value(&js_json::parse_lossless(&message.body).ok()?).ok()?;
     let has_valid_tool_call_id = parsed
         .tool_call_id
         .as_deref()
@@ -90,7 +90,13 @@ pub fn validate_detached_pyrun_bridge_request(
     input: ValidateDetachedPyrunBridgeRequestInput<'_>,
 ) -> Result<bool, String> {
     let identity = &input.request.identity;
-    if input.message.sender.agent_id.as_deref() != Some(identity.job_id.as_str()) {
+    if !input
+        .message
+        .sender
+        .agent_id
+        .as_ref()
+        .is_some_and(|id| id == &identity.job_id)
+    {
         return Ok(false);
     }
     let agent = read_multi_agent_agent(input.control_db_path, input.session_path, &identity.job_id)

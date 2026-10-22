@@ -259,6 +259,19 @@ fn basename(path: &JsString) -> JsString {
         .unwrap_or_default()
 }
 
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn plan_metadata_keeps_raw_filename_before_filesystem_encoding() {
+        let name = JsString::from("plan-") + JsString::from_utf16(vec![0xd800]) + ".md";
+        let plan = resolve_plan_file("/repo", &name);
+        assert_eq!(plan.file, name);
+        assert_eq!(plan.path, JsString::from("/repo/") + &name);
+        assert_eq!(basename(&plan.path), name);
+    }
+}
+
 fn join_plan_path(cwd: &str, file: &JsString) -> JsString {
     let joined = JsString::from(cwd) + "/" + file;
     let mut parts = Vec::new();

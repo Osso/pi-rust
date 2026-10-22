@@ -819,7 +819,14 @@ async fn restore_foreground_pyrun_runner(
     let Some(candidate) = read_pyrun_manifest_candidate(&directory)? else {
         return Ok(None);
     };
-    if candidate.manifest.data.runner_address.agent_id.as_deref() != Some(agent_id.as_str()) {
+    if !candidate
+        .manifest
+        .data
+        .runner_address
+        .agent_id
+        .as_ref()
+        .is_some_and(|id| id == &agent_id)
+    {
         return Err(HandlerError::new(format!(
             "Pyrun launch manifest agent ID mismatch: {}",
             candidate.manifest_path

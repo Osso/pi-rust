@@ -582,7 +582,7 @@ fn reject_generation_locked(state: &mut RunnerState, generation: u64, error: Pyr
 fn is_final_result(value: &Value) -> bool {
     matches!(
         value.get("type").and_then(Value::as_string),
-        Some("completed" | "error" | "needs_approval")
+        Some(kind) if kind == "completed" || kind == "error" || kind == "needs_approval"
     )
 }
 

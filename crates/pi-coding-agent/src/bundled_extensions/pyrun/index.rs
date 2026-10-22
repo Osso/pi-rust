@@ -321,12 +321,12 @@ fn normalize_compact_params(params: Option<&Value>) -> Result<CompactOptions, Ha
 
 #[derive(Debug, Clone, Default)]
 struct ResumeSessionParams {
-    id: Option<String>,
-    name: Option<String>,
-    path: Option<String>,
+    id: Option<JsString>,
+    name: Option<JsString>,
+    path: Option<JsString>,
 }
 
-fn read_non_empty_string(record: &Map, key: &str) -> Result<Option<String>, HandlerError> {
+fn read_non_empty_string(record: &Map, key: &str) -> Result<Option<JsString>, HandlerError> {
     let Some(value) = record.get(key) else {
         return Ok(None);
     };
@@ -341,11 +341,18 @@ fn read_non_empty_string(record: &Map, key: &str) -> Result<Option<String>, Hand
             "pi.sessions.resume {key} must be a non-empty string"
         )));
     }
-    Ok(Some(
-        trimmed
-            .to_utf8()
-            .map_err(|error| HandlerError::new(error.to_string()))?,
-    ))
+    Ok(Some(trimmed))
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn resume_name_remains_a_utf16_lookup_value() {
+        let params = js_json::parse_lossless(r#"{"name":"session-\ud800"}"#).unwrap();
+        let normalized = normalize_resume_session_params(Some(&params)).unwrap();
+        assert_eq!(normalized.name, params["name"].as_string().cloned());
+    }
 }
 
 fn normalize_resume_session_params(params: Option<&Value>) -> Result<ResumeSessionParams, HandlerError> {
@@ -383,14 +390,16 @@ fn assert_resume_session_path(path: &str) -> Result<String, HandlerError> {
 
 fn find_unique_session_match(
     sessions: &[SessionInfo],
-    label: &str,
+    label: &JsString,
     matches: impl Fn(&SessionInfo) -> bool,
 ) -> Result<SessionInfo, HandlerError> {
     let matched: Vec<&SessionInfo> = sessions.iter().filter(|session| matches(session)).collect();
     match matched.len() {
-        0 => Err(HandlerError::new(format!("No session found matching {label}"))),
+        0 => Err(HandlerError::new(JsString::from("No session found matching ") + label)),
         1 => Ok(matched[0].clone()),
-        _ => Err(HandlerError::new(format!("Ambiguous session match for {label}"))),
+        _ => Err(HandlerError::new(
+            JsString::from("Ambiguous session match for ") + label,
+        )),
     }
 }
 
@@ -413,15 +422,15 @@ fn list_resolvable_sessions(ctx: &ExtensionContext) -> Result<Vec<SessionInfo>, 
 fn resolve_resume_session_file(params: &ResumeSessionParams, ctx: &ExtensionContext) -> Result<String, HandlerError> {
     if let Some(path) = &params.path {
         let cwd = ctx.cwd()?;
-        let resolved = crate::utils::paths::resolve_path(path, &cwd, &Default::default())
+        let resolved = crate::utils::paths::resolve_path(&encode_node_utf8(path), &cwd, &Default::default())
             .map_err(|error| HandlerError::new(error.to_string()))?;
         return assert_resume_session_path(&resolved);
     }
     let sessions = list_resolvable_sessions(ctx)?;
     if let Some(name) = &params.name {
         return Ok(
-            find_unique_session_match(&sessions, &format!("name '{name}'"), |session| {
-                session.name.as_deref() == Some(name)
+            find_unique_session_match(&sessions, &(JsString::from("name '") + name + "'"), |session| {
+                session.name.as_ref().map(JsString::from).as_ref() == Some(name)
             })?
             .path,
         );
@@ -431,14 +440,21 @@ fn resolve_resume_session_file(params: &ResumeSessionParams, ctx: &ExtensionCont
             "pi.sessions.resume requires { path }, { id }, or { name }",
         ));
     };
-    let exact_matches: Vec<&SessionInfo> = sessions.iter().filter(|session| &session.id == id).collect();
+    let exact_matches: Vec<&SessionInfo> = sessions.iter().filter(|session| id == &session.id).collect();
     if exact_matches.len() == 1 {
         return Ok(exact_matches[0].path.clone());
     }
     if exact_matches.len() > 1 {
-        return Err(HandlerError::new(format!("Ambiguous session match for id '{id}'")));
+        return Err(HandlerError::new(
+            JsString::from("Ambiguous session match for id '") + id + "'",
+        ));
     }
-    Ok(find_unique_session_match(&sessions, &format!("id '{id}'"), |session| session.id.starts_with(id))?.path)
+    Ok(
+        find_unique_session_match(&sessions, &(JsString::from("id '") + id + "'"), |session| {
+            JsString::from(&session.id).starts_with(id)
+        })?
+        .path,
+    )
 }
 
 fn list_scoped_models(ctx: &ExtensionContext) -> Result<Value, HandlerError> {
@@ -527,13 +543,17 @@ async fn set_session_model(
         .get_available()
         .into_iter()
         .find(|model| provider == model.provider.as_str() && id == model.id)
-        .ok_or_else(|| HandlerError::new(format!("Model not found or not authenticated: {provider}/{id}")))?;
+        .ok_or_else(|| {
+            HandlerError::new(JsString::from("Model not found or not authenticated: ") + &provider + "/" + &id)
+        })?;
     if !pi
         .set_model(model.clone())
         .await
         .map_err(|error| HandlerError::new(error.to_string()))?
     {
-        return Err(HandlerError::new(format!("No API key for {provider}/{id}")));
+        return Err(HandlerError::new(
+            JsString::from("No API key for ") + &provider + "/" + &id,
+        ));
     }
     if let Some(level) = thinking_level {
         pi.set_thinking_level(level)

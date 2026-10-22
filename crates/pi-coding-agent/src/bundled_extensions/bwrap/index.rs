@@ -118,7 +118,7 @@ fn build_sandbox_worker_invocation(
     ];
     build_bwrap_invocation(&BwrapInvocationOptions {
         bwrap_command: params.bwrap_command.clone(),
-        command,
+        command: command.into_iter().map(JsString::from).collect(),
         cwd: params.cwd.clone(),
         env: None,
         extra_read_only_paths: Some(extra_read_only_paths),

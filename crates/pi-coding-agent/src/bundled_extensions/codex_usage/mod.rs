@@ -6,7 +6,6 @@ use pi_ai::request::{CallbackError, Fetch, HttpRequest, read_body_text};
 use pi_js_compat::base64::buffer_from_base64;
 use pi_js_compat::date::utc_date_fields;
 use pi_js_compat::number::{js_number_to_string, to_fixed};
-use pi_js_compat::string::js_trim;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
