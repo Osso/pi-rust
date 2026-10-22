@@ -14,6 +14,7 @@ Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
 | `shorten_path`, `render_tool_path`, `get_text_output`, `link_path` | `JsString` | propagation implemented; source terminal integration pending native TUI and utility refresh |
 | file URL | percent-encoded Node UTF-8 boundary | differential URL fixture pending |
 | `LsTool`, `LsOperations` | raw cwd, callback paths and directory entries; UTF-16 locale sort | callback order, raw output and missing-path error compared to frozen TS |
+| `ReadTool`, `ReadOperations` | raw cwd and callback paths, raw first-line overflow notice path and render labels | frozen TS callback/notice/details differential PASS; image branch and actual renderer integration excluded |
 | local ls / rtk | Node UTF-8 at filesystem and process argv boundary | custom-operation test disables rtk; native execution regression pending |
 
 `crates/pi-coding-agent/tests/lossless_tool_paths.rs` and `oracle/lossless-tool-paths-oracle.ts` exercise the actual frozen write module with custom operations, not a reimplementation.
@@ -31,4 +32,7 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 - `ls-green-attempt.log`: oracle used the wrong operation name (`isDirectory` instead of `stat`); rejected as proof. Fixture corrected to frozen interface.
 - `write-ls-green.log`: **4/4 runner tests PASS, zero warnings** using actual write/ls/render-utils/queue/truncate/path modules. Same explicit harness support limits apply. Shared display helpers now compared to frozen TS too.
 
-Outside callers: `bundled_extensions/bwrap/index.rs` must widen its `WriteOperations` implementation to `&JsString` paths/content and preserve raw JSON payloads; `LsOperations` now takes `&JsString` and returns `Vec<JsString>` from `readdir`. Tests implementing this trait need the same changes. `ToolRenderContext.cwd` and native TUI `hyperlink` must accept native strings. These changes do not establish Q18 acceptance.
+- `read-red.log`: full coding target remains compiler-blocked; no runtime RED.
+- `read-green.log`: **1/1 runner test PASS, zero warnings**, original read module receives raw cwd/path through custom access/read callbacks; first-line overflow text and details equal frozen TS. Harness does not exercise image paths (explicit panic stub).
+
+Outside callers: `bundled_extensions/bwrap/index.rs` must widen its `WriteOperations` implementation to `&JsString` paths/content and preserve raw JSON payloads; `LsOperations` now takes `&JsString` and returns `Vec<JsString>` from `readdir`. `ReadOperations` now receives `&JsString` for all paths; bwrap implementations and trait-based tests need the same widening. `ToolRenderContext.cwd` and native TUI `hyperlink` must accept native strings. These changes do not establish Q18 acceptance.

@@ -23,6 +23,17 @@ async function main() {
 			continue;
 		}
 		const calls: unknown[] = [];
+		if (input.kind === "read") {
+			const tool = module.createReadTool(input.cwd, {
+				operations: {
+					access: async (path: string) => { calls.push(["access",path]); },
+					readFile: async (path: string) => { calls.push(["read",path]); return Buffer.alloc(10241, "x"); },
+				},
+			});
+			const result = await tool.execute("raw-read", input.params);
+			process.stdout.write(`${JSON.stringify({calls,result})}\n`);
+			continue;
+		}
 		if (input.kind === "ls") {
 			const tool = module.createLsTool(input.cwd, {
 				operations: {

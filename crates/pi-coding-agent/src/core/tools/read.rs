@@ -3,10 +3,11 @@
 //! Text offsets/limits, oversized head-range reads, and image attachment
 //! normalization. Renderers are pending `theme.ts`.
 
+use crate::utils::paths::{node_basename, node_dirname, node_is_absolute};
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use std::cell::RefCell;
 use std::io;
-use std::path::Path;
 use std::rc::Rc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
@@ -46,7 +47,7 @@ pub const READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribut
 
 /// File access used by [`ReadTool`]. Override to delegate reads to a remote system.
 pub trait ReadOperations: Send + Sync {
-    fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>>;
+    fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>>;
 
     /// Whether [`ReadOperations::read_range`] is implemented.
     fn supports_read_range(&self) -> bool {
@@ -54,21 +55,26 @@ pub trait ReadOperations: Send + Sync {
     }
 
     /// Reads `[start, end)` bytes. Only called when [`ReadOperations::supports_read_range`] is true.
-    fn read_range<'a>(&'a self, absolute_path: &'a str, start: u64, end: u64) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+    fn read_range<'a>(
+        &'a self,
+        absolute_path: &'a JsString,
+        start: u64,
+        end: u64,
+    ) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         let _ = (absolute_path, start, end);
         Box::pin(async { Err(io::Error::other("readRange is not implemented")) })
     }
 
     /// File size, or `None` when the operation does not expose `stat`.
-    fn stat<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Option<u64>>> {
+    fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<u64>>> {
         let _ = absolute_path;
         Box::pin(async { Ok(None) })
     }
 
-    fn access<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<()>>;
+    fn access<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<()>>;
 
     /// Detects an image MIME type; `None` for non-images.
-    fn detect_image_mime_type<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Option<String>>> {
+    fn detect_image_mime_type<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<String>>> {
         let _ = absolute_path;
         Box::pin(async { Ok(None) })
     }
@@ -79,11 +85,12 @@ pub trait ReadOperations: Send + Sync {
 pub struct LocalReadOperations;
 
 impl ReadOperations for LocalReadOperations {
-    fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+    fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async move {
-            tokio::fs::read(absolute_path)
+            let absolute_path = encode_node_utf8(absolute_path);
+            tokio::fs::read(&absolute_path)
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "open", absolute_path)))
+                .map_err(|error| io::Error::other(node_fs_error(&error, "open", &absolute_path)))
         })
     }
 
@@ -91,22 +98,28 @@ impl ReadOperations for LocalReadOperations {
         true
     }
 
-    fn read_range<'a>(&'a self, absolute_path: &'a str, start: u64, end: u64) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+    fn read_range<'a>(
+        &'a self,
+        absolute_path: &'a JsString,
+        start: u64,
+        end: u64,
+    ) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async move {
+            let absolute_path = encode_node_utf8(absolute_path);
             let length = end.saturating_sub(start);
-            let mut file = tokio::fs::File::open(absolute_path)
+            let mut file = tokio::fs::File::open(&absolute_path)
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "read", absolute_path)))?;
+                .map_err(|error| io::Error::other(node_fs_error(&error, "read", &absolute_path)))?;
             file.seek(io::SeekFrom::Start(start))
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "read", absolute_path)))?;
+                .map_err(|error| io::Error::other(node_fs_error(&error, "read", &absolute_path)))?;
             let mut buffer = vec![0; length as usize];
             let mut bytes_read = 0;
             while bytes_read < buffer.len() {
                 let read = file
                     .read(&mut buffer[bytes_read..])
                     .await
-                    .map_err(|error| io::Error::other(node_fs_error(&error, "read", absolute_path)))?;
+                    .map_err(|error| io::Error::other(node_fs_error(&error, "read", &absolute_path)))?;
                 if read == 0 {
                     break;
                 }
@@ -117,29 +130,32 @@ impl ReadOperations for LocalReadOperations {
         })
     }
 
-    fn stat<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Option<u64>>> {
+    fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<u64>>> {
         Box::pin(async move {
-            tokio::fs::metadata(absolute_path)
+            let absolute_path = encode_node_utf8(absolute_path);
+            tokio::fs::metadata(&absolute_path)
                 .await
                 .map(|metadata| Some(metadata.len()))
-                .map_err(|error| io::Error::other(node_fs_error(&error, "stat", absolute_path)))
+                .map_err(|error| io::Error::other(node_fs_error(&error, "stat", &absolute_path)))
         })
     }
 
-    fn access<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn access<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
-            tokio::fs::metadata(absolute_path)
+            let absolute_path = encode_node_utf8(absolute_path);
+            tokio::fs::metadata(&absolute_path)
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "access", absolute_path)))?;
+                .map_err(|error| io::Error::other(node_fs_error(&error, "access", &absolute_path)))?;
             Ok(())
         })
     }
 
-    fn detect_image_mime_type<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Option<String>>> {
+    fn detect_image_mime_type<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<String>>> {
         Box::pin(async move {
-            detect_supported_image_mime_type_from_file(std::path::Path::new(absolute_path))
+            let absolute_path = encode_node_utf8(absolute_path);
+            detect_supported_image_mime_type_from_file(std::path::Path::new(&absolute_path))
                 .map(|mime_type| mime_type.map(|value| value.to_owned()))
-                .map_err(|error| io::Error::other(node_fs_error(&error, "open", absolute_path)))
+                .map_err(|error| io::Error::other(node_fs_error(&error, "open", &absolute_path)))
         })
     }
 }
@@ -155,18 +171,18 @@ pub struct ReadToolOptions {
 
 /// Reads text files and images.
 pub struct ReadTool {
-    cwd: String,
+    cwd: JsString,
     parameters: SchemaValue,
     operations: std::sync::Arc<dyn ReadOperations>,
     auto_resize_images: bool,
 }
 
 impl ReadTool {
-    pub fn new(cwd: impl Into<String>) -> Self {
+    pub fn new(cwd: impl Into<JsString>) -> Self {
         Self::with_options(cwd, ReadToolOptions::default())
     }
 
-    pub fn with_options(cwd: impl Into<String>, options: ReadToolOptions) -> Self {
+    pub fn with_options(cwd: impl Into<JsString>, options: ReadToolOptions) -> Self {
         Self {
             cwd: cwd.into(),
             parameters: read_schema(),
@@ -233,7 +249,7 @@ struct ReadInput {
 }
 
 async fn execute_read(
-    cwd: &str,
+    cwd: &JsString,
     operations: std::sync::Arc<dyn ReadOperations>,
     auto_resize_images: bool,
     params: JsValue,
@@ -241,9 +257,9 @@ async fn execute_read(
 ) -> Result<AgentToolResult, ToolError> {
     let input = parse_read_input(&params)?;
     check_aborted(signal.as_ref())?;
-    let absolute_path = resolve_read_path_async(&encode_node_utf8(&input.path), cwd)
+    let absolute_path = resolve_read_path_async(&input.path, cwd)
         .await
-        .map_err(|error| ToolError::new(error.to_string()))?;
+        .map_err(|error| ToolError::new(error.message().clone()))?;
     operations
         .access(&absolute_path)
         .await
@@ -299,7 +315,7 @@ fn number_argument(params: &JsValue, name: &str) -> Option<usize> {
 
 async fn read_image(
     operations: &dyn ReadOperations,
-    absolute_path: &str,
+    absolute_path: &JsString,
     mime_type: &str,
     auto_resize_images: bool,
 ) -> Result<(Vec<TextOrImageContent>, Option<Value>), ToolError> {
@@ -342,7 +358,7 @@ async fn read_image(
 
 async fn read_text(
     operations: &dyn ReadOperations,
-    absolute_path: &str,
+    absolute_path: &JsString,
     input: &ReadInput,
 ) -> Result<(Vec<TextOrImageContent>, Option<Value>), ToolError> {
     let file_stat = operations
@@ -527,17 +543,17 @@ fn truncation_details(truncation: &TruncationResult, force_bytes: bool, total_by
 // Renderers
 // ============================================================================
 
-fn render_args_path(args: &JsValue) -> Option<String> {
+fn render_args_path(args: &JsValue) -> Option<JsString> {
     let value = args.get("file_path").filter(|value| !value.is_null());
     let value = value.or_else(|| args.get("path"));
     str_value(value)
 }
 
-fn format_read_line_range(args: &JsValue, theme: &Theme) -> String {
+fn format_read_line_range(args: &JsValue, theme: &Theme) -> JsString {
     let offset = args.get("offset").and_then(Value::as_f64);
     let limit = args.get("limit").and_then(Value::as_f64);
     if offset.is_none() && limit.is_none() {
-        return String::new();
+        return JsString::default();
     }
     let start_line = offset.unwrap_or(1.0);
     let end_line = limit.map(|limit| start_line + limit - 1.0);
@@ -551,11 +567,12 @@ fn format_read_line_range(args: &JsValue, theme: &Theme) -> String {
     }
 }
 
-fn format_read_call(args: &JsValue, theme: &Theme, cwd: &str) -> String {
-    let path_display = render_tool_path(render_args_path(args).as_deref(), theme, cwd, None);
-    format!(
-        "{} {path_display}{}",
+fn format_read_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> JsString {
+    let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None);
+    js_format!(
+        "{} {}{}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("read")),
+        path_display,
         format_read_line_range(args, theme)
     )
 }
@@ -569,7 +586,7 @@ enum CompactReadKind {
 
 struct CompactReadClassification {
     kind: CompactReadKind,
-    label: String,
+    label: JsString,
 }
 
 const COMPACT_RESOURCE_FILE_NAMES: [&str; 9] = [
@@ -584,18 +601,18 @@ const COMPACT_RESOURCE_FILE_NAMES: [&str; 9] = [
     "CLAUDE.local.MD",
 ];
 
-fn get_pi_docs_classification(absolute_path: &str) -> Option<CompactReadClassification> {
+fn get_pi_docs_classification(absolute_path: &JsString) -> Option<CompactReadClassification> {
     let package_root = crate::config::get_readme_path().parent()?.to_path_buf();
     let package_root = package_root.to_string_lossy().into_owned();
-    let relative_path = crate::utils::paths::relative_path(&package_root, absolute_path);
+    let relative_path = crate::utils::paths::relative_path(&package_root, absolute_path).ok()?;
     if relative_path.is_empty()
         || relative_path == ".."
         || relative_path.starts_with("../")
-        || Path::new(&relative_path).is_absolute()
+        || node_is_absolute(&relative_path)
     {
         return None;
     }
-    let label = relative_path.replace('\\', "/");
+    let label = relative_path.replace("\\", "/");
     if label == "README.md" || label.starts_with("docs/") || label.starts_with("examples/") {
         return Some(CompactReadClassification {
             kind: CompactReadKind::Docs,
@@ -605,23 +622,20 @@ fn get_pi_docs_classification(absolute_path: &str) -> Option<CompactReadClassifi
     None
 }
 
-fn get_compact_read_classification(args: &JsValue, cwd: &str) -> Option<CompactReadClassification> {
+fn get_compact_read_classification(args: &JsValue, cwd: &JsString) -> Option<CompactReadClassification> {
     let raw_path = render_args_path(args)?;
     if raw_path.is_empty() {
         return None;
     }
     let absolute_path = super::path_utils::resolve_to_cwd(&raw_path, cwd).ok()?;
-    let file_name = Path::new(&absolute_path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let file_name = node_basename(&absolute_path);
     if file_name == "SKILL.md" {
-        let label = Path::new(&absolute_path)
-            .parent()
-            .and_then(Path::file_name)
-            .map(|name| name.to_string_lossy().into_owned())
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| file_name.clone());
+        let directory_name = node_basename(node_dirname(&absolute_path));
+        let label = if directory_name.is_empty() {
+            file_name.clone()
+        } else {
+            directory_name
+        };
         return Some(CompactReadClassification {
             kind: CompactReadKind::Skill,
             label,
@@ -630,7 +644,7 @@ fn get_compact_read_classification(args: &JsValue, cwd: &str) -> Option<CompactR
     if let Some(classification) = get_pi_docs_classification(&absolute_path) {
         return Some(classification);
     }
-    if COMPACT_RESOURCE_FILE_NAMES.contains(&file_name.as_str()) {
+    if COMPACT_RESOURCE_FILE_NAMES.iter().any(|name| file_name == *name) {
         return Some(CompactReadClassification {
             kind: CompactReadKind::Resource,
             label: format_path_relative_to_cwd_or_absolute(&absolute_path, cwd).unwrap_or(absolute_path),
@@ -639,13 +653,13 @@ fn get_compact_read_classification(args: &JsValue, cwd: &str) -> Option<CompactR
     None
 }
 
-fn format_compact_read_call(classification: &CompactReadClassification, args: &JsValue, theme: &Theme) -> String {
+fn format_compact_read_call(classification: &CompactReadClassification, args: &JsValue, theme: &Theme) -> JsString {
     let expand_hint = theme.fg(
         ThemeColor::Dim,
         &format!(" ({} to expand)", key_text("app.tools.expand")),
     );
     if classification.kind == CompactReadKind::Skill {
-        return format!(
+        return js_format!(
             "{}{}{}{}",
             theme.fg(ThemeColor::CustomMessageLabel, "\u{1b}[1m[skill]\u{1b}[22m "),
             theme.fg(ThemeColor::CustomMessageText, &classification.label),
@@ -658,7 +672,7 @@ fn format_compact_read_call(classification: &CompactReadClassification, args: &J
         CompactReadKind::Resource => "resource",
         CompactReadKind::Skill => "skill",
     };
-    format!(
+    js_format!(
         "{} {}{}{}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold(&format!("read {kind}"))),
         theme.fg(ThemeColor::Accent, &classification.label),
@@ -667,7 +681,7 @@ fn format_compact_read_call(classification: &CompactReadClassification, args: &J
     )
 }
 
-fn trim_trailing_empty_lines(mut lines: Vec<String>) -> Vec<String> {
+fn trim_trailing_empty_lines(mut lines: Vec<JsString>) -> Vec<JsString> {
     let mut end = lines.len();
     while end > 0 && lines[end - 1].is_empty() {
         end -= 1;
@@ -683,38 +697,37 @@ fn format_read_result(
     theme: &Theme,
     show_images: bool,
     is_error: bool,
-) -> String {
+) -> JsString {
     if !options.expanded && !is_error {
-        return String::new();
+        return JsString::default();
     }
     let raw_path = render_args_path(args);
     let output = get_text_output(Some(result), show_images);
     let lang = if !is_error {
-        raw_path.as_deref().and_then(get_language_from_path)
+        raw_path.as_ref().and_then(get_language_from_path).map(JsString::from)
     } else {
         None
     };
-    let rendered_lines = match lang {
+    let rendered_lines = match lang.as_ref() {
         Some(lang) => highlight_code(&replace_tabs(&output), Some(lang)),
-        None => output.split('\n').map(str::to_owned).collect(),
+        None => output.split('\n').collect(),
     };
     let lines = trim_trailing_empty_lines(rendered_lines);
     let max_lines = if options.expanded { lines.len() } else { 10 };
     let display_lines = lines.iter().take(max_lines).collect::<Vec<_>>();
     let remaining = lines.len().saturating_sub(max_lines);
-    let mut text = format!(
+    let mut text = js_format!(
         "\n{}",
-        display_lines
-            .iter()
-            .map(|line| match lang {
+        JsString::join(
+            display_lines.iter().map(|line| match lang {
                 Some(_) => replace_tabs(line),
                 None => theme.fg(ThemeColor::ToolOutput, &replace_tabs(line)),
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+            }),
+            "\n"
+        )
     );
     if remaining > 0 {
-        text.push_str(&format!(
+        text.push_str(js_format!(
             "{}{}{}",
             theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
             key_hint("app.tools.expand", "to expand"),
@@ -729,7 +742,7 @@ fn format_read_result(
         && truncation.truncated
     {
         if truncation.first_line_exceeds_limit {
-            text.push_str(&format!(
+            text.push_str(js_format!(
                 "\n{}",
                 theme.fg(
                     ThemeColor::Warning,
@@ -737,7 +750,7 @@ fn format_read_result(
                 )
             ));
         } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
-            text.push_str(&format!(
+            text.push_str(js_format!(
                 "\n{}",
                 theme.fg(
                     ThemeColor::Warning,
@@ -748,7 +761,7 @@ fn format_read_result(
                 )
             ));
         } else {
-            text.push_str(&format!(
+            text.push_str(js_format!(
                 "\n{}",
                 theme.fg(
                     ThemeColor::Warning,
@@ -798,7 +811,7 @@ pub fn render_result(
 
 /// `createReadToolDefinition`: the read tool plus its renderers.
 pub fn create_read_tool_definition(
-    cwd: &str,
+    cwd: impl Into<JsString>,
     options: ReadToolOptions,
 ) -> crate::core::extensions::types::ToolDefinition {
     let tool: std::sync::Arc<dyn AgentTool> = std::sync::Arc::new(ReadTool::with_options(cwd, options));
@@ -819,6 +832,6 @@ pub fn create_read_tool_definition(
 }
 
 /// `createReadTool`: the read tool wrapped with the shared result cap.
-pub fn create_read_tool(cwd: &str, options: ReadToolOptions) -> std::sync::Arc<dyn AgentTool> {
+pub fn create_read_tool(cwd: impl Into<JsString>, options: ReadToolOptions) -> std::sync::Arc<dyn AgentTool> {
     super::tool_definition_wrapper::wrap_agent_tool(std::sync::Arc::new(ReadTool::with_options(cwd, options)))
 }

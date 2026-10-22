@@ -53,6 +53,71 @@ async fn local_write_error_matches_node_original_path_units() {
     );
 }
 
+struct RecordingRead {
+    calls: Mutex<Vec<JsValue>>,
+    bytes: Vec<u8>,
+}
+
+impl pi_coding_agent::core::tools::read::ReadOperations for RecordingRead {
+    fn access<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(pi_js_compat::js_json!(["access", path]));
+            Ok(())
+        })
+    }
+    fn read_file<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+        Box::pin(async move {
+            self.calls.lock().unwrap().push(pi_js_compat::js_json!(["read", path]));
+            Ok(self.bytes.clone())
+        })
+    }
+}
+
+#[tokio::test]
+async fn custom_read_retains_path_in_operations_and_first_line_notice() {
+    use pi_coding_agent::core::tools::read::{ReadTool, ReadToolOptions};
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(directory.path().to_str().unwrap()) + "/cwd-" + JsString::from_utf16(vec![0xd800]);
+    let params = parse_lossless(r#"{"path":"file-\udfff"}"#).unwrap();
+    let operations = Arc::new(RecordingRead {
+        calls: Mutex::new(Vec::new()),
+        bytes: vec![b'x'; 10241],
+    });
+    let tool = ReadTool::with_options(
+        &cwd,
+        ReadToolOptions {
+            operations: Some(operations.clone()),
+            auto_resize_images: None,
+        },
+    );
+    let actual = tool
+        .execute("read".into(), params.clone(), None, Arc::new(|_| {}), None)
+        .await
+        .unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-tool-paths-oracle.ts",
+        "packages/coding-agent/src/core/tools/read.ts",
+    );
+    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"read","cwd":cwd,"params":params}));
+    assert_eq!(
+        JsValue::Array(operations.calls.lock().unwrap().clone()),
+        expected["calls"]
+    );
+    let TextOrImageContent::Text(text) = &actual.content[0] else {
+        panic!("text")
+    };
+    assert_eq!(
+        &text.text,
+        expected["result"]["content"].as_array().unwrap()[0]["text"]
+            .as_string()
+            .unwrap()
+    );
+    assert_eq!(actual.details.as_ref().unwrap(), &expected["result"]["details"]);
+}
+
 struct RecordingLs {
     calls: Mutex<Vec<JsValue>>,
     entries: Vec<JsString>,
