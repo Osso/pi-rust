@@ -1,5 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/custom-entry.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 
 use pi_tui::components::spacer::Spacer;
@@ -65,7 +66,7 @@ impl CustomEntryComponent {
 }
 
 impl Component for CustomEntryComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
