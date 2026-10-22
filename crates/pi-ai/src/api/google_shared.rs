@@ -22,6 +22,17 @@ use crate::utils::provider_retry::{
 };
 use crate::utils::sanitize_unicode::sanitize_surrogates;
 
+/// Frozen Google API response-token ceiling, exclusive of 65536.
+pub const GOOGLE_MAX_OUTPUT_TOKENS: f64 = 65535.0;
+
+pub fn clamp_google_max_output_tokens(max_tokens: f64) -> f64 {
+    if max_tokens > GOOGLE_MAX_OUTPUT_TOKENS {
+        GOOGLE_MAX_OUTPUT_TOKENS
+    } else {
+        max_tokens
+    }
+}
+
 /// Thinking level for Gemini 3 models; mirrors Google's `ThinkingLevel` enum values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -572,7 +583,10 @@ pub(crate) fn build_generate_content_params(
         config.insert("temperature".into(), pi_js_compat::js_json!(temperature));
     }
     if let Some(max_tokens) = max_tokens {
-        config.insert("maxOutputTokens".into(), pi_js_compat::js_json!(max_tokens));
+        config.insert(
+            "maxOutputTokens".into(),
+            pi_js_compat::js_json!(clamp_google_max_output_tokens(max_tokens)),
+        );
     }
     if let Some(system_prompt) = context.system_prompt.as_ref().filter(|prompt| !prompt.is_empty()) {
         config.insert(

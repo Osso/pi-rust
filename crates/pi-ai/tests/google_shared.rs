@@ -18,6 +18,17 @@ use serde_json::{Value, json};
 
 const VALID_SIG: &str = "AAAAAAAAAAAAAAAAAAAAAA==";
 
+#[test]
+fn max_output_token_cap_preserves_js_numbers_below_the_ceiling() {
+    use pi_ai::api::google_shared::clamp_google_max_output_tokens;
+    for value in [-f64::INFINITY, -1.5, -0.0, 0.0, 12.25, 65535.0] {
+        assert_eq!(clamp_google_max_output_tokens(value).to_bits(), value.to_bits());
+    }
+    assert_eq!(clamp_google_max_output_tokens(65536.0), 65535.0);
+    assert_eq!(clamp_google_max_output_tokens(f64::INFINITY), 65535.0);
+    assert!(clamp_google_max_output_tokens(f64::NAN).is_nan());
+}
+
 fn model(api: &str, provider: &str, id: &str, images: bool) -> Model {
     serde_json::from_value(json!({
         "id": id,
