@@ -20,6 +20,6 @@ impl Harness {
 
     pub async fn run_command(&self, name: &str, args: &str) -> Result<(), HandlerError> {
         let handler = self.command(name).handler;
-        handler(args.to_owned(), self.command_context()).await
+        handler(pi_js_compat::js_json::JsString::from(args), self.command_context()).await
     }
 }
