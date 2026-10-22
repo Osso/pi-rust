@@ -548,3 +548,119 @@ async fn non_contiguous_proxy_index_is_an_explicit_protocol_error() {
         );
     }
 }
+
+fn normalize_proxy(value: &mut pi_js_compat::js_json::JsValue) {
+    use pi_js_compat::js_json::JsValue;
+    match value {
+        JsValue::Array(values) => values.iter_mut().for_each(normalize_proxy),
+        JsValue::Object(values) => {
+            for (key, value) in values {
+                if key == "timestamp" {
+                    *value = JsValue::Number(0.0);
+                } else {
+                    normalize_proxy(value);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+#[tokio::test]
+async fn proxy_event_matrix_matches_frozen_module() {
+    use pi_js_compat::{
+        js_json as native_json,
+        js_json::{JsValue, parse_lossless, to_value},
+    };
+    let usage = pi_ai::types::Usage::default();
+    let complete = vec![
+        json!({"type":"start"}),
+        json!({"type":"text_start","contentIndex":0}),
+        json!({"type":"text_delta","contentIndex":0,"delta":"a😀"}),
+        json!({"type":"text_end","contentIndex":0,"contentSignature":"sig"}),
+        json!({"type":"thinking_start","contentIndex":1}),
+        json!({"type":"thinking_delta","contentIndex":1,"delta":"thought"}),
+        json!({"type":"thinking_end","contentIndex":1,"contentSignature":"thought-sig"}),
+        json!({"type":"toolcall_start","contentIndex":2,"id":"call","toolName":"lookup"}),
+        json!({"type":"toolcall_delta","contentIndex":2,"delta":"{\"value\":\"native\"}"}),
+        json!({"type":"toolcall_end","contentIndex":2}),
+        json!({"type":"done","reason":"toolUse","usage":usage}),
+    ];
+    let done = format!("data: {}\n", json!({"type":"done","reason":"stop","usage":usage}));
+    let mut cases = vec![];
+    for chunk in [1, 2, 7, 4096] {
+        cases.push(native_json!({"model":model(),"events":complete,"chunkSize":chunk}));
+    }
+    cases.push(native_json!({"model":model(),"wire":format!("\u{feff}data: {{\"type\":\"text_start\",\"contentIndex\":0}}\ndata: {{\"type\":\"text_delta\",\"contentIndex\":0,\"delta\":\"hello\"}}\n{done}"),"chunkSize":1}));
+    cases.push(native_json!({"model":model(),"wire":format!("data: \u{feff}{{\"type\":\"text_start\",\"contentIndex\":0}}\n{done}")}));
+    cases.push(native_json!({"model":model(),"wire":"data: {oops}\n"}));
+    cases.push(native_json!({"model":model(),"wire":format!("{done}data: {{unparsed")}));
+    for event in [
+        json!({"type":"text_delta","contentIndex":0,"delta":"x"}),
+        json!({"type":"text_end","contentIndex":0}),
+        json!({"type":"thinking_delta","contentIndex":0,"delta":"x"}),
+        json!({"type":"thinking_end","contentIndex":0}),
+        json!({"type":"toolcall_delta","contentIndex":0,"delta":"x"}),
+        json!({"type":"toolcall_end","contentIndex":0}),
+    ] {
+        cases.push(
+            native_json!({"model":model(),"events":[event,json!({"type":"done","reason":"stop","usage":usage})]}),
+        );
+    }
+    for reason in ["error", "aborted"] {
+        cases.push(native_json!({"model":model(),"events":[json!({"type":"error","reason":reason,"errorMessage":"failure","usage":usage})]}));
+    }
+    let mut oracle = oracle::TsOracle::spawn("proxy-stream-oracle.ts", "packages/agent-core/src/proxy.ts");
+    for case in cases {
+        let expected: JsValue = oracle.request(&case);
+        let wire = case
+            .get("wire")
+            .and_then(JsValue::as_string)
+            .map(|wire| wire.to_utf8().unwrap())
+            .unwrap_or_else(|| {
+                case["events"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|event| format!("data: {}\n\n", pi_js_compat::js_json::stringify_lossless(event)))
+                    .collect()
+            });
+        let size = case
+            .get("chunkSize")
+            .and_then(JsValue::as_f64)
+            .map(|size| size as usize)
+            .unwrap_or(wire.len().max(1));
+        let requests = Arc::new(Mutex::new(vec![]));
+        let fetch = Arc::new(ScriptedFetch {
+            status: 200,
+            status_text: "OK".into(),
+            chunks: wire.as_bytes().chunks(size).map(<[u8]>::to_vec).collect(),
+            requests: requests.clone(),
+            honour_cancel: false,
+        });
+        let (events, result) = collect(stream_proxy(
+            model(),
+            Context {
+                system_prompt: None,
+                messages: vec![],
+                tools: None,
+            },
+            options(fetch, None),
+        ))
+        .await;
+        let captured: Vec<_> = requests
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|request| parse_lossless(std::str::from_utf8(request.body.as_ref().unwrap()).unwrap()).unwrap())
+            .collect();
+        let mut actual = native_json!({"events":to_value(&events).unwrap(),"result":to_value(&result).unwrap(),"requests":captured,"warnings":[]});
+        normalize_proxy(&mut actual);
+        assert!(
+            actual == expected,
+            "case {}\nactual {}\nexpected {}",
+            pi_js_compat::js_json::stringify_lossless(&case),
+            pi_js_compat::js_json::stringify_lossless(&actual),
+            pi_js_compat::js_json::stringify_lossless(&expected)
+        );
+    }
+}
