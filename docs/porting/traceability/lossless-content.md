@@ -13,6 +13,10 @@ Contract: [lossless content](../../specs/lossless-content.md). Frozen source: `4
 | Agent loop / core custom messages and summaries | lossless execution/hook arguments, result/details, custom AST and summary strings | coding-agent consumers and persisted JSONL integration pending | `lossless_agent`: two sandbox cases, including pinned TS JSON reread |
 | Questions / mailbox / session name | downstream migration pending | no end-to-end claim | not yet proven |
 
+## Session callback integration checkpoint
+
+Session-info extension events and notification callbacks use `JsString`; interactive notification queues and RPC payloads preserve it until actual terminal output. Detached completion errors retain the same raw authority as their agent snapshot. New `lossless_session` regressions cover raw names and callback units, but remain compiler-blocked; `parent-integration-red.log` records 423 errors before bundled integration. No runtime PASS claimed.
+
 ## Development proof ledger
 
 Artifacts under `/tmp/pi-rust-repin-lossless-content/`:
@@ -40,7 +44,7 @@ A generic dispatcher fixture hung after a Google provider task panicked on a bar
 
 No whole-value argument/event adapters remain. Validator integration at `1120b034` uses the lane's JsValue engine directly; its entrypoint now constructs JsValue::Object(call.arguments.clone()). Anthropic events are JsValue throughout.
 
-`anthropic_messages::metadata_text` remains a checked UTF-8 restriction for scalar provider metadata (ids/names/type discriminators, stop reasons/explanations, signatures). Parent approved this explicit gap pending user classification on 2026-10-21. Unmatched units produce an error, never replacement. Text, thinking and argument content never call this helper.
+`anthropic_messages::metadata_text` remains a checked UTF-8 restriction for scalar provider metadata (ids/names/type discriminators, stop reasons/explanations, signatures). This restriction remains unapproved pending user classification; parent retention is not user approval. Unmatched units produce an error, never replacement. Text, thinking and argument content never call this helper.
 
 ### Native fragment / Anthropic ingress checkpoint
 

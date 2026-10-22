@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/api/openai-completions.ts` (+ `.lazy.ts`).
 
+use crate::api::openai_sdk::ingress_metadata_text;
 use pi_js_compat::js_json::{JsObject, JsValue};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -341,18 +342,6 @@ fn get_tools_by_name(tools: Option<&[Tool]>, names: &[String]) -> Vec<Tool> {
         .iter()
         .filter_map(|name| by_name.get(name).map(|tool| (*tool).clone()))
         .collect()
-}
-
-fn is_encrypted_reasoning_detail(detail: &Value) -> bool {
-    detail.get("type").and_then(Value::as_str) == Some("reasoning.encrypted")
-        && detail
-            .get("id")
-            .and_then(Value::as_str)
-            .is_some_and(|id| !id.is_empty())
-        && detail
-            .get("data")
-            .and_then(Value::as_str)
-            .is_some_and(|data| !data.is_empty())
 }
 
 // =============================================================================
@@ -1469,34 +1458,51 @@ fn apply_pending_reasoning_detail(tool_call: &mut ToolCall, pending: &mut BTreeM
     }
 }
 
+fn is_encrypted_ingress_detail(detail: &JsValue) -> bool {
+    detail.get("type").and_then(ingress_metadata_text).as_deref() == Some("reasoning.encrypted")
+        && detail
+            .get("id")
+            .and_then(JsValue::as_string)
+            .is_some_and(|id| !id.is_empty())
+        && detail
+            .get("data")
+            .and_then(JsValue::as_string)
+            .is_some_and(|data| !data.is_empty())
+}
+
+fn ingress_i64(value: &JsValue) -> Option<i64> {
+    let number = value.as_f64()?;
+    (number.fract() == 0.0 && number >= i64::MIN as f64 && number <= i64::MAX as f64).then_some(number as i64)
+}
+
 fn ensure_tool_call_block(
     blocks: &mut Vec<AssistantContent>,
     tool_states: &mut BTreeMap<usize, ToolState>,
     by_index: &mut BTreeMap<i64, usize>,
     by_id: &mut BTreeMap<String, usize>,
-    tool_call: &Value,
+    tool_call: &JsValue,
     grammar_tool_input_properties: &IndexMap<String, String>,
     pending: &mut BTreeMap<String, String>,
 ) -> (usize, bool) {
-    let stream_index = tool_call.get("index").and_then(Value::as_i64);
+    let stream_index = tool_call.get("index").and_then(ingress_i64);
     let name = tool_call
         .get("function")
         .and_then(|function| function.get("name"))
         .or_else(|| tool_call.get("custom").and_then(|custom| custom.get("name")))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let id = tool_call.get("id").and_then(Value::as_str).unwrap_or("");
+        .and_then(ingress_metadata_text)
+        .unwrap_or_default();
+    let id = tool_call.get("id").and_then(ingress_metadata_text).unwrap_or_default();
 
     let mut block_index = stream_index.and_then(|index| by_index.get(&index).copied());
     if block_index.is_none() && !id.is_empty() {
-        block_index = by_id.get(id).copied();
+        block_index = by_id.get(&id).copied();
     }
     let mut created = false;
     if block_index.is_none() {
         let custom_input_property = if tool_call.get("custom").is_some() && tool_call.get("function").is_none() {
             Some(
                 grammar_tool_input_properties
-                    .get(name)
+                    .get(&name)
                     .cloned()
                     .unwrap_or_else(|| "input".to_owned()),
             )
@@ -1508,7 +1514,7 @@ fn ensure_tool_call_block(
         if let Some(property) = &custom_input_property {
             arguments.insert(property.clone().into(), JsValue::String(Default::default()));
         }
-        let mut block = ToolCall::new(id.to_owned(), name, arguments);
+        let mut block = ToolCall::new(id.to_owned(), &name, arguments);
         let _ = &mut block;
         blocks.push(AssistantContent::ToolCall(block));
         let index = blocks.len() - 1;
@@ -1566,7 +1572,7 @@ fn ensure_tool_call_block(
             .unwrap_or_else(|| "input".to_owned());
         tool_call_block
             .arguments
-            .insert(property.clone().into(), Value::String(String::new()).into());
+            .insert(property.clone().into(), JsValue::String(Default::default()));
         if let Some(state) = tool_states.get_mut(&index) {
             state.custom_property = Some(property);
             state.partial_args = None;
@@ -1600,13 +1606,14 @@ pub async fn process_completions_stream(
         if !chunk.is_object() {
             continue;
         }
+        crate::api::openai_sdk::validate_chat_metadata(&chunk).map_err(CompletionsFailure::Message)?;
 
         if output.response_id.as_deref().is_none_or(str::is_empty)
-            && let Some(id) = chunk.get("id").and_then(Value::as_str)
+            && let Some(id) = chunk.get("id").and_then(ingress_metadata_text).as_deref()
         {
             output.response_id = Some(id.to_owned());
         }
-        if let Some(chunk_model) = chunk.get("model").and_then(Value::as_str)
+        if let Some(chunk_model) = chunk.get("model").and_then(ingress_metadata_text).as_deref()
             && !chunk_model.is_empty()
             && chunk_model != model.id
             && output.response_model.as_deref().is_none_or(str::is_empty)
@@ -1620,7 +1627,7 @@ pub async fn process_completions_stream(
 
         let Some(choice) = chunk
             .get("choices")
-            .and_then(Value::as_array)
+            .and_then(JsValue::as_array)
             .and_then(|choices| choices.first())
         else {
             continue;
@@ -1631,7 +1638,7 @@ pub async fn process_completions_stream(
             output.usage = parse_chunk_usage(usage, model);
         }
 
-        if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str)
+        if let Some(finish_reason) = choice.get("finish_reason").and_then(ingress_metadata_text).as_deref()
             && !finish_reason.is_empty()
         {
             output.raw_stop_reason = Some(finish_reason.to_owned());
@@ -1647,7 +1654,7 @@ pub async fn process_completions_stream(
             continue;
         };
 
-        if let Some(content) = delta.get("content").and_then(Value::as_str)
+        if let Some(content) = delta.get("content").and_then(JsValue::as_string)
             && !content.is_empty()
         {
             let index = match text_block {
@@ -1679,12 +1686,16 @@ pub async fn process_completions_stream(
             .find(|field| {
                 delta
                     .get(**field)
-                    .and_then(Value::as_str)
+                    .and_then(JsValue::as_string)
                     .is_some_and(|value| !value.is_empty())
             })
             .copied();
         if let Some(field) = found_reasoning {
-            let delta_text = delta.get(field).and_then(Value::as_str).unwrap_or("");
+            let delta_text = delta
+                .get(field)
+                .and_then(JsValue::as_string)
+                .cloned()
+                .unwrap_or_default();
             let signature = if model.provider == "opencode-go" && field == "reasoning" {
                 "reasoning_content"
             } else {
@@ -1710,7 +1721,7 @@ pub async fn process_completions_stream(
                 }
             };
             if let AssistantContent::Thinking(block) = &mut output.content[index] {
-                block.thinking.push_str(delta_text);
+                block.thinking.push_str(&delta_text);
             }
             sender.push(AssistantMessageEvent::ThinkingDelta {
                 content_index: index,
@@ -1719,7 +1730,7 @@ pub async fn process_completions_stream(
             });
         }
 
-        if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
+        if let Some(tool_calls) = delta.get("tool_calls").and_then(JsValue::as_array) {
             for tool_call in tool_calls {
                 let (index, created) = ensure_tool_call_block(
                     &mut output.content,
@@ -1736,7 +1747,7 @@ pub async fn process_completions_stream(
                         partial: output.clone(),
                     });
                 }
-                if let Some(id) = tool_call.get("id").and_then(Value::as_str)
+                if let Some(id) = tool_call.get("id").and_then(ingress_metadata_text).as_deref()
                     && let AssistantContent::ToolCall(block) = &mut output.content[index]
                     && block.id.is_empty()
                 {
@@ -1747,18 +1758,19 @@ pub async fn process_completions_stream(
                     .get("function")
                     .and_then(|function| function.get("name"))
                     .or_else(|| tool_call.get("custom").and_then(|custom| custom.get("name")))
-                    .and_then(Value::as_str)
+                    .and_then(ingress_metadata_text)
+                    .as_deref()
                     && let AssistantContent::ToolCall(block) = &mut output.content[index]
                     && block.name.is_empty()
                 {
                     block.name = name.to_owned();
                 }
 
-                let mut delta_text = String::new();
+                let mut delta_text = pi_js_compat::js_json::JsString::default();
                 if let Some(arguments) = tool_call
                     .get("function")
                     .and_then(|function| function.get("arguments"))
-                    .and_then(Value::as_str)
+                    .and_then(JsValue::as_string)
                     .filter(|arguments| !arguments.is_empty())
                 {
                     delta_text = arguments.to_owned();
@@ -1772,7 +1784,7 @@ pub async fn process_completions_stream(
                 } else if let Some(input) = tool_call
                     .get("custom")
                     .and_then(|custom| custom.get("input"))
-                    .and_then(Value::as_str)
+                    .and_then(JsValue::as_string)
                     .filter(|input| !input.is_empty())
                 {
                     let state = tool_states.entry(index).or_default();
@@ -1782,7 +1794,7 @@ pub async fn process_completions_stream(
                     let next_input = custom_tool_call_input(block, state) + input;
                     let delta = append_custom_tool_call_input(block, state, &next_input, false)
                         .map_err(CompletionsFailure::Message)?;
-                    delta_text = delta.unwrap_or_default();
+                    delta_text = delta.unwrap_or_default().into();
                 }
                 sender.push(AssistantMessageEvent::ToolCallDelta {
                     content_index: index,
@@ -1792,12 +1804,12 @@ pub async fn process_completions_stream(
             }
         }
 
-        if let Some(reasoning_details) = delta.get("reasoning_details").and_then(Value::as_array) {
+        if let Some(reasoning_details) = delta.get("reasoning_details").and_then(JsValue::as_array) {
             for detail in reasoning_details {
-                if is_encrypted_reasoning_detail(detail) {
-                    let serialized = detail.to_string();
-                    let id = detail.get("id").and_then(Value::as_str).unwrap_or("");
-                    if let Some(index) = tool_by_id.get(id).copied() {
+                if is_encrypted_ingress_detail(detail) {
+                    let serialized = pi_js_compat::js_json::stringify_lossless(detail);
+                    let id = detail.get("id").and_then(ingress_metadata_text).unwrap_or_default();
+                    if let Some(index) = tool_by_id.get(&id).copied() {
                         if let AssistantContent::ToolCall(block) = &mut output.content[index] {
                             block.thought_signature = Some(serialized);
                         }
@@ -1815,20 +1827,20 @@ pub async fn process_completions_stream(
     Ok(has_finish_reason)
 }
 
-fn parse_chunk_usage(usage: &Value, model: &Model) -> Usage {
-    let prompt_tokens = usage.get("prompt_tokens").and_then(Value::as_f64).unwrap_or(0.0);
+fn parse_chunk_usage(usage: &JsValue, model: &Model) -> Usage {
+    let prompt_tokens = usage.get("prompt_tokens").and_then(JsValue::as_f64).unwrap_or(0.0);
     let prompt_details = usage.get("prompt_tokens_details");
     let cache_read_tokens = prompt_details
         .and_then(|details| details.get("cached_tokens"))
-        .and_then(Value::as_f64)
-        .or_else(|| usage.get("prompt_cache_hit_tokens").and_then(Value::as_f64))
+        .and_then(JsValue::as_f64)
+        .or_else(|| usage.get("prompt_cache_hit_tokens").and_then(JsValue::as_f64))
         .unwrap_or(0.0);
     let cache_write_tokens = prompt_details
         .and_then(|details| details.get("cache_write_tokens"))
-        .and_then(Value::as_f64)
+        .and_then(JsValue::as_f64)
         .unwrap_or(0.0);
     let input = (prompt_tokens - cache_read_tokens - cache_write_tokens).max(0.0);
-    let output_tokens = usage.get("completion_tokens").and_then(Value::as_f64).unwrap_or(0.0);
+    let output_tokens = usage.get("completion_tokens").and_then(JsValue::as_f64).unwrap_or(0.0);
     let mut parsed = Usage {
         input,
         output: output_tokens,
@@ -1838,7 +1850,7 @@ fn parse_chunk_usage(usage: &Value, model: &Model) -> Usage {
         reasoning: usage
             .get("completion_tokens_details")
             .and_then(|details| details.get("reasoning_tokens"))
-            .and_then(Value::as_f64)
+            .and_then(JsValue::as_f64)
             .unwrap_or(0.0)
             .into(),
         total_tokens: input + output_tokens + cache_read_tokens + cache_write_tokens,
