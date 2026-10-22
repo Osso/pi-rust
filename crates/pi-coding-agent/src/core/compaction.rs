@@ -597,7 +597,7 @@ Be concise. Focus on what's needed to understand the kept suffix.";
 
 fn create_summarization_options(
     max_tokens: f64,
-    api_key: Option<String>,
+    api_key: Option<JsString>,
     headers: Option<ProviderHeaders>,
     env: Option<pi_ai::types::ProviderEnv>,
     signal: Option<CancellationToken>,
@@ -1083,7 +1083,7 @@ struct TurnPrefixSummaryRequestOptions<'a> {
     messages: &'a [AgentMessage],
     model: &'a Model,
     reserve_tokens: f64,
-    api_key: Option<String>,
+    api_key: Option<JsString>,
     headers: Option<ProviderHeaders>,
     env: Option<pi_ai::types::ProviderEnv>,
     signal: Option<CancellationToken>,

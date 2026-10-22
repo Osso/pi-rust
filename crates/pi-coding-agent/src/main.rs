@@ -589,7 +589,7 @@ async fn create_runtime(
             Some(model) => {
                 let provider = model.provider.clone();
                 model_runtime
-                    .set_runtime_api_key(&provider, api_key, AuthOperationOptions::default())
+                    .set_runtime_api_key(&provider, &JsString::from(api_key), AuthOperationOptions::default())
                     .await
                     .map_err(|error| error.to_string())?;
                 model_runtime

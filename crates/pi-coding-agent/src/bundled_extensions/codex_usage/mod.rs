@@ -5,6 +5,8 @@ use std::sync::Arc;
 use pi_ai::request::{CallbackError, Fetch, HttpRequest, read_body_text};
 use pi_js_compat::base64::buffer_from_base64;
 use pi_js_compat::date::utc_date_fields;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsString, JsValue};
 use pi_js_compat::number::{js_number_to_string, to_fixed};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -56,8 +58,8 @@ pub struct CodexRateLimit {
 #[serde(rename_all = "camelCase")]
 pub struct CodexUsage {
     pub plan_type: Option<String>,
-    pub account_id: Option<String>,
-    pub email: Option<String>,
+    pub account_id: Option<JsString>,
+    pub email: Option<JsString>,
     #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub reset_credits_available: f64,
     pub limits: Vec<CodexRateLimit>,
@@ -66,8 +68,8 @@ pub struct CodexUsage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexAccountInfo {
-    pub account_id: String,
-    pub email: Option<String>,
+    pub account_id: JsString,
+    pub email: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -107,34 +109,40 @@ fn nullable_number(value: Option<&Value>) -> Option<f64> {
     value.and_then(Value::as_f64)
 }
 
-fn decode_codex_token_payload(token: &str) -> Result<Value, String> {
-    let parts: Vec<&str> = token.split('.').collect();
+/// `JSON.parse(Buffer.from(part, "base64url").toString("utf8"))`: claims keep
+/// exact UTF-16 (JSON escapes may hold unpaired surrogates).
+fn decode_codex_token_payload(token: &JsString) -> Result<JsValue, JsString> {
+    let parts: Vec<JsString> = token.split('.').collect();
     if parts.len() != 3 {
-        return Err("Invalid OpenAI Codex access token".to_owned());
+        return Err("Invalid OpenAI Codex access token".into());
     }
-    let bytes = buffer_from_base64(parts[1]);
+    let bytes = buffer_from_base64(&parts[1]);
     let text = String::from_utf8_lossy(&bytes);
-    pi_js_compat::js_json::parse(&text).map_err(|error| error.to_string())
+    js_json::parse_lossless(text.as_ref()).map_err(|error| error.to_string().into())
 }
 
-fn resolve_email_claim(payload: &Value) -> Option<String> {
-    if let Some(email) = truthy_string(payload.get("email")) {
+fn truthy_claim(value: Option<&JsValue>) -> Option<JsString> {
+    value
+        .and_then(JsValue::as_string)
+        .filter(|text| !text.is_empty())
+        .cloned()
+}
+
+fn resolve_email_claim(payload: &JsValue) -> Option<JsString> {
+    if let Some(email) = truthy_claim(payload.get("email")) {
         return Some(email);
     }
     let profile_email = payload.get("profile").and_then(|profile| profile.get("email"));
-    truthy_string(profile_email)
+    truthy_claim(profile_email)
 }
 
-pub fn resolve_codex_account_info(token: &str) -> Result<CodexAccountInfo, String> {
+pub fn resolve_codex_account_info(token: &JsString) -> Result<CodexAccountInfo, JsString> {
     let payload = decode_codex_token_payload(token)?;
     let account_id = payload
         .get(ACCOUNT_ID_CLAIM)
-        .and_then(|claim| claim.get("chatgpt_account_id"))
-        .and_then(Value::as_str)
-        .filter(|account_id| !account_id.is_empty())
-        .map(str::to_owned);
-    let Some(account_id) = account_id else {
-        return Err("OpenAI Codex access token does not include a ChatGPT account id".to_owned());
+        .and_then(|claim| claim.get("chatgpt_account_id"));
+    let Some(account_id) = truthy_claim(account_id) else {
+        return Err("OpenAI Codex access token does not include a ChatGPT account id".into());
     };
     Ok(CodexAccountInfo {
         account_id,
@@ -142,13 +150,16 @@ pub fn resolve_codex_account_info(token: &str) -> Result<CodexAccountInfo, Strin
     })
 }
 
-pub fn resolve_codex_account_id(token: &str) -> Result<String, String> {
+pub fn resolve_codex_account_id(token: &JsString) -> Result<JsString, JsString> {
     Ok(resolve_codex_account_info(token)?.account_id)
 }
 
-pub fn resolve_codex_display_email(token: &str, stored_email: Option<&Value>) -> Result<Option<String>, String> {
-    if let Some(email) = stored_email.and_then(Value::as_str).filter(|email| !email.is_empty()) {
-        return Ok(Some(email.to_owned()));
+pub fn resolve_codex_display_email(
+    token: &JsString,
+    stored_email: Option<&JsValue>,
+) -> Result<Option<JsString>, JsString> {
+    if let Some(email) = truthy_claim(stored_email) {
+        return Ok(Some(email));
     }
     Ok(resolve_codex_account_info(token)?.email)
 }
@@ -350,29 +361,35 @@ fn format_credits(credits: &CodexCredits) -> String {
     }
 }
 
-pub fn format_codex_usage(usage: &CodexUsage) -> String {
-    let email_line = usage.email.as_ref().map(|email| format!("User: {email}"));
+pub fn format_codex_usage(usage: &CodexUsage) -> JsString {
+    let email_line = usage.email.as_ref().map(|email| js_format!("User: {}", email));
     let account_id_line = usage
         .account_id
         .as_ref()
-        .map(|account_id| format!("Account: {account_id}"));
-    let mut lines = vec!["OpenAI Codex usage".to_owned()];
+        .map(|account_id| js_format!("Account: {}", account_id));
+    let mut lines: Vec<JsString> = vec!["OpenAI Codex usage".into()];
     if let Some(line) = email_line {
         lines.push(line);
     }
     if let Some(line) = account_id_line {
         lines.push(line);
     }
-    lines.push(format!(
-        "Plan: {}",
-        usage.plan_type.clone().unwrap_or_else(|| "unknown".to_owned())
-    ));
-    lines.push(format!(
-        "Reset credits: {} available",
-        js_number_to_string(usage.reset_credits_available)
-    ));
-    lines.extend(usage.limits.iter().map(format_limit));
-    lines.join("\n")
+    lines.push(
+        format!(
+            "Plan: {}",
+            usage.plan_type.clone().unwrap_or_else(|| "unknown".to_owned())
+        )
+        .into(),
+    );
+    lines.push(
+        format!(
+            "Reset credits: {} available",
+            js_number_to_string(usage.reset_credits_available)
+        )
+        .into(),
+    );
+    lines.extend(usage.limits.iter().map(|limit| JsString::from(format_limit(limit))));
+    JsString::join(lines, "\n")
 }
 
 pub fn format_reset_response(response: &ConsumeResetCreditResponse) -> String {
@@ -388,7 +405,7 @@ pub fn format_reset_response(response: &ConsumeResetCreditResponse) -> String {
     }
 }
 
-fn send_codex_usage_message(pi: &ExtensionApi, content: String) -> Result<(), HandlerError> {
+fn send_codex_usage_message(pi: &ExtensionApi, content: JsString) -> Result<(), HandlerError> {
     pi.send_message(
         CustomMessagePayload {
             custom_type: "codex-usage".into(),
@@ -409,7 +426,7 @@ fn resolve_codex_provider_id(ctx: &ExtensionCommandContext) -> Result<String, Ha
     Ok(DEFAULT_CODEX_PROVIDER_ID.to_owned())
 }
 
-async fn read_codex_access_token(ctx: &ExtensionCommandContext) -> Result<String, HandlerError> {
+async fn read_codex_access_token(ctx: &ExtensionCommandContext) -> Result<JsString, HandlerError> {
     let provider_id = resolve_codex_provider_id(ctx)?;
     let token = ctx.model_registry()?.get_api_key_for_provider(&provider_id).await;
     let Some(token) = token else {
@@ -420,22 +437,26 @@ async fn read_codex_access_token(ctx: &ExtensionCommandContext) -> Result<String
     Ok(token)
 }
 
-fn create_codex_headers(token: &str, extra: Vec<(String, String)>) -> Result<Vec<(String, String)>, HandlerError> {
+/// `new Headers(...)` + `headers.set`: each value is converted to a
+/// ByteString when set.
+fn create_codex_headers(token: &JsString, extra: Vec<(String, String)>) -> Result<Vec<(String, String)>, HandlerError> {
     let mut headers = extra;
-    let mut set = |name: &str, value: String| {
+    let mut set = |name: &str, value: &JsString| -> Result<(), HandlerError> {
+        let value = pi_ai::request::header_value(value).map_err(callback_error)?;
         if let Some(existing) = headers.iter_mut().find(|(key, _)| key.eq_ignore_ascii_case(name)) {
             existing.1 = value;
         } else {
             headers.push((name.to_owned(), value));
         }
+        Ok(())
     };
-    set("authorization", format!("Bearer {token}"));
+    set("authorization", &(JsString::from("Bearer ") + token))?;
     set(
         "chatgpt-account-id",
-        resolve_codex_account_id(token).map_err(HandlerError::new)?,
-    );
-    set("originator", "pi".to_owned());
-    set("user-agent", "pi".to_owned());
+        &resolve_codex_account_id(token).map_err(HandlerError::new)?,
+    )?;
+    set("originator", &"pi".into())?;
+    set("user-agent", &"pi".into())?;
     Ok(headers)
 }
 
@@ -529,10 +550,7 @@ async fn reset_codex_usage_and_send_result(
     if usage_before_reset.reset_credits_available <= 0.0 {
         send_codex_usage_message(
             pi,
-            format!(
-                "{}\n\nNo reset credits available.",
-                format_codex_usage(&usage_before_reset)
-            ),
+            format_codex_usage(&usage_before_reset) + "\n\nNo reset credits available.",
         )?;
         return Ok(());
     }
@@ -555,11 +573,8 @@ async fn reset_codex_usage_and_send_result(
 
     let reset_response = consume_codex_usage_reset_credit(ctx, fetch).await?;
     let usage_after_reset = read_codex_usage(ctx, fetch).await?;
-    let message = format!(
-        "{}\n\n{}",
-        format_reset_response(&reset_response),
-        format_codex_usage(&usage_after_reset)
-    );
+    let message =
+        JsString::from(format_reset_response(&reset_response)) + "\n\n" + format_codex_usage(&usage_after_reset);
     send_codex_usage_message(pi, message)
 }
 

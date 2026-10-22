@@ -892,7 +892,7 @@ fn normalize_required_request_auth_error(message: JsString, provider: &str) -> A
 
 struct CompactionRequestAuth {
     model: Model,
-    api_key: Option<String>,
+    api_key: Option<JsString>,
     headers: Option<ProviderHeaders>,
     env: Option<pi_ai::types::ProviderEnv>,
 }
