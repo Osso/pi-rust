@@ -1,3 +1,6 @@
+#[path = "support/provider_normalize.rs"]
+pub mod provider_normalize;
+
 use std::sync::Arc;
 
 #[path = "support/oracle.rs"]
@@ -92,40 +95,15 @@ fn assert_events(actual: &[Value], expected: &Value, label: &str) {
 }
 
 fn normalize_event(value: &Value) -> Value {
-    let mut normalized = normalize(value);
-    if normalized.get("type").and_then(Value::as_str) != Some("done")
-        && let Some(partial) = normalized.get_mut("partial").and_then(Value::as_object_mut)
-    {
-        partial.remove("responseId");
-    }
+    let mut normalized = value.clone();
+    provider_normalize::normalize_event_clocks(&mut normalized);
     normalized
 }
 
 fn normalize(value: &Value) -> Value {
-    match value {
-        Value::Array(items) => Value::Array(items.iter().map(normalize).collect()),
-        Value::Object(object) => {
-            let mut output = serde_json::Map::new();
-            for (key, entry) in object {
-                if key == "timestamp" {
-                    output.insert(key.clone(), Value::from(0));
-                } else if key == "stack" {
-                    continue;
-                } else if key == "errorMessage"
-                    && entry.as_str().is_some_and(|message| {
-                        message.starts_with("Invalid Codex SSE JSON:")
-                            || message.starts_with("Invalid Codex WebSocket JSON:")
-                    })
-                {
-                    output.insert(key.clone(), Value::String("<invalid json>".to_owned()));
-                } else {
-                    output.insert(key.clone(), normalize(entry));
-                }
-            }
-            Value::Object(output)
-        }
-        other => other.clone(),
-    }
+    let mut normalized = value.clone();
+    provider_normalize::normalize_message_clock(&mut normalized);
+    normalized
 }
 
 fn sse_payload(events: &[Value]) -> String {
@@ -347,10 +325,7 @@ fn request_value(request: &HttpRequest) -> Value {
     let headers = request
         .headers
         .iter()
-        .map(|(name, value)| {
-            let value = if name == "user-agent" { "<ua>" } else { value };
-            (name.clone(), Value::String(value.to_owned()))
-        })
+        .map(|(name, value)| (name.clone(), Value::String(value.to_owned())))
         .collect::<serde_json::Map<_, _>>();
     let body = request
         .body
@@ -372,7 +347,7 @@ fn request_value(request: &HttpRequest) -> Value {
 }
 
 fn normalize_requests(value: &Value) -> Value {
-    normalize(value)
+    value.clone()
 }
 
 #[tokio::test]

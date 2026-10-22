@@ -1,4 +1,10 @@
+import { dirname } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import {
+	installAssistantSnapshots,
+	normalizeAssistantEventClocks,
+	normalizeAssistantMessageClock,
+} from "./assistant-snapshots.ts";
 import { pathToFileURL } from "node:url";
 import {
 	clearFetchScript,
@@ -50,29 +56,7 @@ function normalizeError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function stripStreamingScratch(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(stripStreamingScratch);
-	if (!value || typeof value !== "object") return value;
-	const result: Record<string, unknown> = {};
-	for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-		if (
-			key === "partialJson" ||
-			key === "customInput" ||
-			key === "streamIndex" ||
-			key === "partialArgs"
-		)
-			continue;
-		if (key === "timestamp") {
-			result[key] = 0;
-			continue;
-		}
-		result[key] = stripStreamingScratch(entry);
-	}
-	return result;
-}
-
 const ENV_HEADERS = new Set([
-	"user-agent",
 	"x-stainless-os",
 	"x-stainless-arch",
 	"x-stainless-runtime",
@@ -81,10 +65,12 @@ const ENV_HEADERS = new Set([
 
 function normalizeHeaders(
 	headers: Record<string, string>,
+	configuredHeaders: Set<string>,
 ): Record<string, string> {
 	const normalized: Record<string, string> = {};
 	for (const [name, value] of Object.entries(headers)) {
-		normalized[name] = ENV_HEADERS.has(name) ? "<env>" : value;
+		normalized[name] =
+			ENV_HEADERS.has(name) && !configuredHeaders.has(name) ? "<env>" : value;
 	}
 	return normalized;
 }
@@ -95,6 +81,13 @@ function createFetch(
 	controller: AbortController,
 ): typeof fetch {
 	let responseIndex = 0;
+	const configuredHeaders = new Set<string>();
+	for (const headers of [scenario.model.headers, scenario.stream?.headers]) {
+		if (headers !== null && typeof headers === "object") {
+			for (const name of Object.keys(headers))
+				configuredHeaders.add(name.toLowerCase());
+		}
+	}
 	return (async (input: string | URL | Request, init?: RequestInit) => {
 		const request = init ?? {};
 		const body =
@@ -107,7 +100,7 @@ function createFetch(
 		requests.push({
 			url: String(input),
 			method: request.method ?? "GET",
-			headers: normalizeHeaders(headerEntries),
+			headers: normalizeHeaders(headerEntries, configuredHeaders),
 			body,
 		});
 
@@ -185,7 +178,7 @@ async function execute(request: Request, module: Module): Promise<unknown> {
 		};
 		const originalPush = stream.push.bind(stream);
 		stream.push = (event: unknown) => {
-			events.push(stripStreamingScratch(JSON.parse(JSON.stringify(event))));
+			events.push(normalizeAssistantEventClocks(event));
 			originalPush(event);
 		};
 		for await (const _event of stream) {
@@ -193,7 +186,7 @@ async function execute(request: Request, module: Module): Promise<unknown> {
 		}
 		let result: unknown;
 		try {
-			result = stripStreamingScratch(await stream.result());
+			result = normalizeAssistantMessageClock(await stream.result());
 		} catch (error) {
 			result = { error: normalizeError(error) };
 		}
@@ -248,6 +241,7 @@ async function main(): Promise<void> {
 	if (modulePath === undefined)
 		throw new Error("openai responses oracle requires a source module path");
 	installScriptedFetch();
+	await installAssistantSnapshots(dirname(dirname(modulePath)));
 	const module = (await import(pathToFileURL(modulePath).href)) as Module;
 	serveRequests(module);
 }

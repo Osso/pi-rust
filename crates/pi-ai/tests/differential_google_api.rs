@@ -1,3 +1,6 @@
+#[path = "support/provider_normalize.rs"]
+pub mod provider_normalize;
+
 #[path = "support/google_fetch.rs"]
 mod google_fetch;
 #[path = "support/json_compare.rs"]
@@ -273,11 +276,7 @@ fn request_value(request: &HttpRequest) -> Value {
         .headers
         .iter()
         .map(|(name, value)| {
-            let value = if name == "user-agent" || name == "x-goog-api-client" {
-                "<sdk-ua>"
-            } else {
-                value.as_str()
-            };
+            let value = value.as_str();
             (name.clone(), Value::String(value.to_owned()))
         })
         .collect::<Vec<_>>();
@@ -347,28 +346,32 @@ fn assert_jwt_header_order(actual: &Value, expected: &Value, path: &str) {
     }
 }
 
-fn normalize_events(value: &mut Value) {
-    let generated = regex::Regex::new(r"_1\d{12}_\d+$").expect("generated id pattern");
-    normalize_events_with(value, &generated);
-}
-
-fn normalize_events_with(value: &mut Value, generated: &regex::Regex) {
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(|item| normalize_events_with(item, generated)),
-        Value::Object(map) => {
-            for (key, entry) in map.iter_mut() {
-                match key.as_str() {
-                    "timestamp" => *entry = json!(0),
-                    "id" => {
-                        if let Value::String(id) = entry {
-                            *id = generated.replace(id, "_<generated>").into_owned();
-                        }
-                    }
-                    _ => normalize_events_with(entry, generated),
+fn normalize_generated_tool_ids(message: &mut Value, generated: &regex::Regex) {
+    if let Some(content) = message.get_mut("content").and_then(Value::as_array_mut) {
+        for block in content {
+            if block.get("type").and_then(Value::as_str) == Some("toolCall") {
+                if let Some(Value::String(id)) = block.get_mut("id") {
+                    *id = generated.replace(id, "_<generated>").into_owned();
                 }
             }
         }
-        _ => {}
+    }
+}
+
+fn normalize_events(capture: &mut Value) {
+    provider_normalize::normalize_capture_clocks(capture);
+    let generated = regex::Regex::new(r"_1\d{12}_\d+$").expect("generated id pattern");
+    if let Some(events) = capture.get_mut("events").and_then(Value::as_array_mut) {
+        for event in events {
+            for key in ["partial", "message", "error"] {
+                if let Some(message) = event.get_mut(key) {
+                    normalize_generated_tool_ids(message, &generated);
+                }
+            }
+        }
+    }
+    if let Some(message) = capture.get_mut("result") {
+        normalize_generated_tool_ids(message, &generated);
     }
 }
 

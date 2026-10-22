@@ -1,3 +1,6 @@
+#[path = "support/provider_normalize.rs"]
+pub mod provider_normalize;
+
 #[path = "support/oracle.rs"]
 mod oracle;
 // The shared support module exposes helpers used by sibling test binaries.
@@ -14,45 +17,6 @@ use pi_ai::types::{Context, Model, ProviderHeaders, ThinkingLevel};
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
-
-fn normalize(value: &mut Value) {
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                normalize(item);
-            }
-        }
-        Value::Object(object) => {
-            object.remove("partialArgs");
-            object.remove("stack");
-            for key in ["timestamp", "timestampMs"] {
-                if object.contains_key(key) {
-                    object.insert(key.to_owned(), json!(0));
-                }
-            }
-            for entry in object.values_mut() {
-                normalize(entry);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Rebuilds a value with the normalizations that only substitute
-/// environment-derived values. Key order is left untouched.
-fn canonical(value: Value) -> Value {
-    match value {
-        Value::Array(items) => Value::Array(items.into_iter().map(canonical).collect()),
-        Value::Object(object) => {
-            Value::Object(object.into_iter().map(|(key, value)| (key, canonical(value))).collect())
-        }
-        Value::Number(number) => match number.as_f64() {
-            Some(float) => pi_js_compat::number::js_number_value(float),
-            None => Value::Number(number),
-        },
-        other => other,
-    }
-}
 
 fn response_chunks(scenario: &Value) -> Vec<Vec<u8>> {
     let chunks = scenario["response"]["chunks"]
@@ -221,9 +185,9 @@ async fn observe(scenario: &Value) -> Value {
     }
     let message = event_stream.result().await.expect("stream result");
     let mut message = serde_json::to_value(message).expect("message JSON");
-    normalize(&mut message);
+    provider_normalize::normalize_message_clock(&mut message);
     for event in &mut events {
-        normalize(event);
+        provider_normalize::normalize_event_clocks(event);
     }
 
     let request = fetch.requests().first().cloned().map(|request| {
@@ -243,14 +207,14 @@ async fn observe(scenario: &Value) -> Value {
         Value::Object(captured)
     });
 
-    canonical(json!({
+    json!({
         "id": id,
         "ok": true,
         "request": request,
         "onResponse": observed.lock().unwrap().clone(),
         "events": events,
         "message": message,
-    }))
+    })
 }
 
 fn parse_thinking_level(value: &str) -> Option<ThinkingLevel> {
@@ -599,7 +563,7 @@ fn mistral_stream_matches_the_pinned_typescript_module() {
         "packages/ai/src/api/mistral-conversations.ts",
     );
     for scenario in scenarios() {
-        let expected = canonical(oracle.request(&scenario));
+        let expected = oracle.request(&scenario);
         let observed = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
