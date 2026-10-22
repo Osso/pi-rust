@@ -36,7 +36,7 @@ pub fn select_detached_artifact_directories_to_delete(
 fn require_nonnegative_finite(value: f64, name: impl Into<JsString>) -> Result<(), JsString> {
     let name = name.into();
     if !value.is_finite() || value < 0.0 {
-        return Err(js_format!("{name} must be a nonnegative finite number"));
+        return Err(js_format!("{} must be a nonnegative finite number", name));
     }
     Ok(())
 }
@@ -68,7 +68,9 @@ fn compare_candidates(
     left.terminal_at
         .partial_cmp(&right.terminal_at)
         .unwrap_or(Ordering::Equal)
-        .then_with(|| pi_js_compat::locale_compare_utf16(left.directory_path.units(), right.directory_path.units()))
+        .then_with(|| {
+            pi_js_compat::collator::locale_compare_utf16(left.directory_path.units(), right.directory_path.units())
+        })
 }
 
 fn find_expired_candidates(
