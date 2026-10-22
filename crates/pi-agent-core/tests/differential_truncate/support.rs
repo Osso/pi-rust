@@ -1,4 +1,4 @@
-use pi_agent_core::harness::utils::{TruncatedBy, TruncationOptions, TruncationResult, truncate_head, truncate_tail};
+use pi_agent_core::harness::utils::{TruncationOptions, TruncationResult, truncate_head, truncate_tail};
 use serde_json::{Value, json};
 
 #[derive(Clone, Copy)]
@@ -65,7 +65,10 @@ impl TruncationCase {
 }
 
 pub(crate) const fn options(max_lines: usize, max_bytes: usize) -> TruncationOptions {
-    TruncationOptions { max_lines, max_bytes }
+    TruncationOptions {
+        max_lines: max_lines as f64,
+        max_bytes: max_bytes as f64,
+    }
 }
 
 pub(crate) fn normalize_options(options: TruncationOptions) -> Value {
@@ -73,23 +76,7 @@ pub(crate) fn normalize_options(options: TruncationOptions) -> Value {
 }
 
 pub(crate) fn normalize_result(result: &TruncationResult) -> Value {
-    json!({
-        "content": result.content,
-        "truncated": result.truncated,
-        "truncatedBy": match result.truncated_by {
-            Some(TruncatedBy::Lines) => json!("lines"),
-            Some(TruncatedBy::Bytes) => json!("bytes"),
-            None => Value::Null,
-        },
-        "totalLines": result.total_lines,
-        "totalBytes": result.total_bytes,
-        "outputLines": result.output_lines,
-        "outputBytes": result.output_bytes,
-        "lastLinePartial": result.last_line_partial,
-        "firstLineExceedsLimit": result.first_line_exceeds_limit,
-        "maxLines": result.max_lines,
-        "maxBytes": result.max_bytes,
-    })
+    serde_json::to_value(result).expect("serialize the public result contract without rebuilding it")
 }
 
 pub(crate) fn ok_response(id: u64, output: Value) -> Value {

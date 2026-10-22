@@ -43,9 +43,6 @@ fn dirname_env_path(path: &JsString) -> JsString {
     let Some(index) = normalized.units().iter().rposition(|unit| is_path_separator(*unit)) else {
         return "/".into();
     };
-    if index == 2 && normalized.units().get(1) == Some(&0x3a) {
-        return normalized.slice(0, index + 1);
-    }
     if index == 0 {
         return "/".into();
     }
@@ -53,7 +50,7 @@ fn dirname_env_path(path: &JsString) -> JsString {
 }
 
 fn is_path_separator(unit: u16) -> bool {
-    unit == 0x2f || unit == 0x5c
+    unit == 0x2f
 }
 
 /// Stable diagnostic codes emitted while loading skills.
@@ -476,8 +473,8 @@ impl<'a> Loader<'a> {
         (
             Some(Skill {
                 name,
-                description: description.to_owned(),
-                content: parsed.body,
+                description: description.into(),
+                content: parsed.body.into(),
                 file_path: file_path.to_owned(),
                 disable_model_invocation: Some(
                     frontmatter.get("disable-model-invocation") == Some(&serde_json::Value::Bool(true)),

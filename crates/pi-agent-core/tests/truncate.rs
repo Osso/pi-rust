@@ -6,7 +6,10 @@ use pi_agent_core::harness::utils::{
 const TRUNCATION_MARKER: &str = "... [truncated]";
 
 fn options(max_lines: usize, max_bytes: usize) -> TruncationOptions {
-    TruncationOptions { max_lines, max_bytes }
+    TruncationOptions {
+        max_lines: max_lines as f64,
+        max_bytes: max_bytes as f64,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -53,7 +56,7 @@ fn result(
     limits: TruncationOptions,
 ) -> TruncationResult {
     TruncationResult {
-        content: content.to_owned(),
+        content: content.into(),
         truncated: truncated_by.is_some(),
         truncated_by,
         total_lines: counts.total_lines,
@@ -74,28 +77,34 @@ fn constants_and_default_options_match_source() {
     assert_eq!(GREP_MAX_LINE_LENGTH, 500);
 
     let defaults = TruncationOptions::default();
-    assert_eq!(defaults.max_lines, DEFAULT_MAX_LINES);
-    assert_eq!(defaults.max_bytes, DEFAULT_MAX_BYTES);
+    assert_eq!(defaults.max_lines, DEFAULT_MAX_LINES as f64);
+    assert_eq!(defaults.max_bytes, DEFAULT_MAX_BYTES as f64);
 }
 
 #[test]
 fn format_size_matches_byte_kilobyte_and_megabyte_thresholds() {
-    assert_eq!(format_size(0), "0B");
-    assert_eq!(format_size(1_023), "1023B");
-    assert_eq!(format_size(1_024), "1.0KB");
-    assert_eq!(format_size(1_280), "1.3KB");
-    assert_eq!(format_size(1_048_575), "1024.0KB");
-    assert_eq!(format_size(1_048_576), "1.0MB");
-    assert_eq!(format_size(1_572_864), "1.5MB");
+    assert_eq!(format_size(0.0), "0B");
+    assert_eq!(format_size(1_023.0), "1023B");
+    assert_eq!(format_size(1_024.0), "1.0KB");
+    assert_eq!(format_size(1_280.0), "1.3KB");
+    assert_eq!(format_size(1_048_575.0), "1024.0KB");
+    assert_eq!(format_size(1_048_576.0), "1.0MB");
+    assert_eq!(format_size(1_572_864.0), "1.5MB");
 }
 
 #[test]
-fn no_truncation_preserves_crlf_unicode_trailing_lf_and_full_metadata() {
+fn head_counts_terminal_empty_line_while_tail_does_not() {
     let content = "é\r\n🙂\n";
 
     assert_eq!(
         truncate_head(content, options(2, 9)),
-        result(content, None, counts(2, 9, 2, 9), NO_FLAGS, options(2, 9))
+        result(
+            "é\r\n🙂",
+            Some(TruncatedBy::Lines),
+            counts(3, 9, 2, 8),
+            NO_FLAGS,
+            options(2, 9)
+        )
     );
     assert_eq!(
         truncate_tail(content, options(2, 9)),
@@ -104,14 +113,26 @@ fn no_truncation_preserves_crlf_unicode_trailing_lf_and_full_metadata() {
 }
 
 #[test]
-fn empty_input_with_zero_limits_is_not_truncated() {
+fn empty_input_still_has_one_split_line_and_zero_limits_truncate_it() {
     assert_eq!(
         truncate_head("", options(0, 0)),
-        result("", None, counts(0, 0, 0, 0), NO_FLAGS, options(0, 0))
+        result(
+            "",
+            Some(TruncatedBy::Lines),
+            counts(1, 0, 0, 0),
+            NO_FLAGS,
+            options(0, 0)
+        )
     );
     assert_eq!(
         truncate_tail("", options(0, 0)),
-        result("", None, counts(0, 0, 0, 0), NO_FLAGS, options(0, 0))
+        result(
+            "",
+            Some(TruncatedBy::Lines),
+            counts(1, 0, 0, 0),
+            NO_FLAGS,
+            options(0, 0)
+        )
     );
 }
 
@@ -263,14 +284,14 @@ fn truncate_line_uses_default_limit_and_exact_marker() {
     assert_eq!(
         truncate_line(&exact, None),
         TruncatedLine {
-            text: exact.clone(),
+            text: exact.clone().into(),
             was_truncated: false,
         }
     );
     assert_eq!(
         truncate_line(&over, None),
         TruncatedLine {
-            text: format!("{exact}{TRUNCATION_MARKER}"),
+            text: format!("{exact}{TRUNCATION_MARKER}").into(),
             was_truncated: true,
         }
     );
@@ -279,27 +300,27 @@ fn truncate_line_uses_default_limit_and_exact_marker() {
 #[test]
 fn truncate_line_supports_zero_and_custom_ascii_limits() {
     assert_eq!(
-        truncate_line("abc", Some(0)),
+        truncate_line("abc", Some(0.0)),
         TruncatedLine {
-            text: TRUNCATION_MARKER.to_owned(),
+            text: TRUNCATION_MARKER.into(),
             was_truncated: true,
         }
     );
     assert_eq!(
-        truncate_line("abc", Some(2)),
+        truncate_line("abc", Some(2.0)),
         TruncatedLine {
-            text: format!("ab{TRUNCATION_MARKER}"),
+            text: format!("ab{TRUNCATION_MARKER}").into(),
             was_truncated: true,
         }
     );
 }
 
 #[test]
-fn truncate_line_never_splits_a_unicode_scalar() {
+fn truncate_line_slices_utf16_units_even_inside_a_scalar() {
     assert_eq!(
-        truncate_line("🙂x", Some(1)),
+        truncate_line("🙂x", Some(1.0)),
         TruncatedLine {
-            text: format!("🙂{TRUNCATION_MARKER}"),
+            text: pi_js_compat::js_json::JsString::from_utf16(vec![0xd83d]) + TRUNCATION_MARKER,
             was_truncated: true,
         }
     );

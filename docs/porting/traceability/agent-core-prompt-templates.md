@@ -17,4 +17,4 @@ Q9 representation: `PromptTemplate.description`, `content`, argument vectors and
 
 RED: `lossless_prompt_templates` failed before production changes: Rust unit 59 = 65533; frozen = 55357. GREEN: 2 differential tests, plus existing 8 helper tests, 7 loader tests and retained loader/message oracle target. Logs: `/tmp/pi-rust-repin-delta-agent-core/prompt-{red,green}.log`.
 
-Remaining: YAML parse-error diagnostic text differs from the TS `yaml` package; the preexisting differential masks that wording and proves only diagnostic occurrence. Lone-surrogate YAML escapes remain the separately approved gap in AGENTS.md. Typed Rust excludes invalid JS runtime input types; does not exclude human-text UTF-16.
+Approved deviations (user decision relayed by parent 2026-10-22): YAML parse-error diagnostic text may differ from TS `yaml`, while success/failure must match. The preexisting differential masks only wording and proves occurrence. Lone-surrogate YAML escapes remain the separately approved gap in AGENTS.md. Typed Rust excludes invalid JS runtime input types; does not exclude human-text UTF-16. No unapproved loader gap remains.

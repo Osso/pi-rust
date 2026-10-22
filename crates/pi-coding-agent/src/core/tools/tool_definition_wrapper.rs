@@ -58,8 +58,8 @@ pub fn cap_tool_result_output(
         .map_err(|error| ToolError::new(node_fs_error(&error, "open", &full_output_path)))?;
     let footer = pi_js_compat::js_format!(
         "[Showing last {} of {}. Full output: {}]",
-        format_size(truncation.output_bytes),
-        format_size(truncation.total_bytes),
+        format_size(truncation.output_bytes as f64),
+        format_size(truncation.total_bytes as f64),
         full_output_path
     );
     result.content = vec![TextOrImageContent::Text(TextContent::new(

@@ -257,8 +257,8 @@ async fn execute_grep(
     let truncation = truncate_head(
         &raw_output,
         TruncationOptions {
-            max_lines: MAX_SAFE_INTEGER,
-            max_bytes: DEFAULT_MAX_BYTES,
+            max_lines: MAX_SAFE_INTEGER as f64,
+            max_bytes: DEFAULT_MAX_BYTES as f64,
         },
     );
     let mut output = truncation.content.clone();
@@ -272,7 +272,7 @@ async fn execute_grep(
         details.insert("matchLimitReached".into(), json!(effective_limit));
     }
     if truncation.truncated {
-        notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
+        notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES as f64)));
         details.insert(
             "truncation".into(),
             pi_js_compat::js_json::to_value(&truncation).expect("truncation metadata must serialize"),

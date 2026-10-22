@@ -252,8 +252,8 @@ async fn list_with_operations(
     let truncation = truncate_head(
         &raw_output,
         TruncationOptions {
-            max_lines: MAX_SAFE_INTEGER,
-            max_bytes: DEFAULT_MAX_BYTES,
+            max_lines: MAX_SAFE_INTEGER as f64,
+            max_bytes: DEFAULT_MAX_BYTES as f64,
         },
     );
     let mut output = truncation.content.clone();
@@ -267,7 +267,7 @@ async fn list_with_operations(
         details.insert("entryLimitReached".into(), json!(effective_limit));
     }
     if truncation.truncated {
-        notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
+        notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES as f64)));
         details.insert(
             "truncation".into(),
             pi_js_compat::js_json::to_value(&truncation).expect("truncation metadata must serialize"),
@@ -430,8 +430,8 @@ fn format_rtk_ls_output(stdout: &str, limit: Option<usize>) -> AgentToolResult {
     let truncation = truncate_head(
         &raw_output,
         TruncationOptions {
-            max_lines: MAX_SAFE_INTEGER,
-            max_bytes: DEFAULT_MAX_BYTES,
+            max_lines: MAX_SAFE_INTEGER as f64,
+            max_bytes: DEFAULT_MAX_BYTES as f64,
         },
     );
     let mut details = Map::new();
@@ -444,7 +444,7 @@ fn format_rtk_ls_output(stdout: &str, limit: Option<usize>) -> AgentToolResult {
         details.insert("entryLimitReached".into(), json!(effective_limit));
     }
     if truncation.truncated {
-        notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
+        notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES as f64)));
         details.insert(
             "truncation".into(),
             pi_js_compat::js_json::to_value(&truncation).expect("truncation metadata must serialize"),

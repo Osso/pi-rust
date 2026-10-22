@@ -1144,9 +1144,9 @@ fn format_output(
             let last_bytes = output.lock().expect("output lock").last_line_bytes();
             js_format!(
                 "\n\n[Showing last {} of line {} (line is {}). Full output: {}]",
-                format_size(truncation.output_bytes),
+                format_size(truncation.output_bytes as f64),
                 end_line.to_string(),
-                format_size(last_bytes),
+                format_size(last_bytes as f64),
                 path
             )
         } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
@@ -1163,7 +1163,7 @@ fn format_output(
                 start_line.to_string(),
                 end_line.to_string(),
                 truncation.total_lines.to_string(),
-                format_size(DEFAULT_MAX_BYTES),
+                format_size(DEFAULT_MAX_BYTES as f64),
                 path
             )
         };

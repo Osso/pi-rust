@@ -69,9 +69,13 @@ async fn reads_writes_lists_and_removes_files_and_directories() {
     )
     .await
     .unwrap();
-    env.append_file(&JsString::from("nested/child/file.txt"), text(&JsString::from("lo")))
-        .await
-        .unwrap();
+    env.append_file(
+        &JsString::from("nested/child/file.txt"),
+        text(&JsString::from("lo")),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         env.read_text_file(&JsString::from("nested/child/file.txt"), None)
             .await
@@ -292,10 +296,10 @@ async fn returns_file_errors_for_missing_paths_and_listing_non_directories() {
 async fn appends_to_new_files_and_creates_parent_directories() {
     let root = temp_dir();
     let env = env_at(root.path());
-    env.append_file(&JsString::from("new/nested/file.txt"), text(&JsString::from("a")))
+    env.append_file(&JsString::from("new/nested/file.txt"), text(&JsString::from("a")), None)
         .await
         .unwrap();
-    env.append_file(&JsString::from("new/nested/file.txt"), text(&JsString::from("b")))
+    env.append_file(&JsString::from("new/nested/file.txt"), text(&JsString::from("b")), None)
         .await
         .unwrap();
     assert_eq!(
@@ -372,6 +376,7 @@ async fn creates_temporary_directories_and_files() {
         .create_temp_file(CreateTempFileOptions {
             prefix: Some(JsString::from("prefix-")),
             suffix: Some(JsString::from(".txt")),
+            abort: None,
         })
         .await
         .unwrap();

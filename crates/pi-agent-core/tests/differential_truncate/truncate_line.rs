@@ -10,7 +10,7 @@ const HIGH_SURROGATE: u16 = 0xd83d;
 
 pub(crate) fn compare_all_fixtures(oracle: &mut TsOracle) {
     compare_shared_fixtures(oracle);
-    compare_approved_unicode_discrepancy(oracle);
+    compare_split_surrogate(oracle);
 }
 
 fn compare_shared_fixtures(oracle: &mut TsOracle) {
@@ -27,14 +27,14 @@ fn compare_shared_fixtures(oracle: &mut TsOracle) {
     for (offset, (name, line, max_chars)) in fixtures.into_iter().enumerate() {
         let id = FIRST_REQUEST_ID + u64::try_from(offset).expect("fixture offset must fit u64");
         let expected = oracle.request(&line_request(id, &line, max_chars));
-        let result = truncate_line(&line, max_chars);
+        let result = truncate_line(&line, max_chars.map(|value| value as f64));
         let actual = line_response(id, &result.text, result.was_truncated);
 
         assert_eq!(actual, expected, "shared truncate-line mismatch: {name}");
     }
 }
 
-fn compare_approved_unicode_discrepancy(oracle: &mut TsOracle) {
+fn compare_split_surrogate(oracle: &mut TsOracle) {
     let expected = oracle.request(&line_request(DISCREPANCY_REQUEST_ID, "🙂x", Some(1)));
     let mut source_units = vec![HIGH_SURROGATE];
     source_units.extend(MARKER.encode_utf16());
@@ -47,10 +47,13 @@ fn compare_approved_unicode_discrepancy(oracle: &mut TsOracle) {
         "pinned UTF-16 source discrepancy changed"
     );
 
-    let rust = truncate_line("🙂x", Some(1));
-    assert_eq!(rust.text, format!("🙂{MARKER}"));
+    let rust = truncate_line("🙂x", Some(1.0));
+    assert_eq!(rust.text.units(), source_units);
     assert!(rust.was_truncated);
-    assert_ne!(rust.text.encode_utf16().collect::<Vec<_>>(), source_units);
+    assert_eq!(
+        line_response(DISCREPANCY_REQUEST_ID, &rust.text, rust.was_truncated),
+        expected
+    );
 }
 
 fn line_request(id: u64, line: &str, max_chars: Option<usize>) -> Value {
@@ -61,11 +64,11 @@ fn line_request(id: u64, line: &str, max_chars: Option<usize>) -> Value {
     request
 }
 
-fn line_response(id: u64, text: &str, was_truncated: bool) -> Value {
+fn line_response(id: u64, text: &pi_js_compat::js_json::JsString, was_truncated: bool) -> Value {
     ok_response(
         id,
         json!({
-            "textUtf16": text.encode_utf16().collect::<Vec<_>>(),
+            "textUtf16": text.units(),
             "wasTruncated": was_truncated,
         }),
     )

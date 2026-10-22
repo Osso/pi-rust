@@ -173,10 +173,17 @@ const fn source_only(name: &'static str, units: Vec<u16>, code_points: Vec<u32>)
     }
 }
 
-fn normalize_text(text: &str) -> Value {
+fn normalize_text(text: &pi_js_compat::js_json::JsString) -> Value {
+    let code_points = char::decode_utf16(text.units().iter().copied())
+        .map(|point| {
+            point
+                .map(u32::from)
+                .unwrap_or_else(|error| u32::from(error.unpaired_surrogate()))
+        })
+        .collect::<Vec<_>>();
     json!({
         "text": text,
-        "utf16Units": text.encode_utf16().collect::<Vec<_>>(),
-        "codePoints": text.chars().map(u32::from).collect::<Vec<_>>(),
+        "utf16Units": text.units(),
+        "codePoints": code_points,
     })
 }
