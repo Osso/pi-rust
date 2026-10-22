@@ -3,6 +3,7 @@ mod components;
 #[path = "support/virtual_terminal.rs"]
 mod virtual_terminal;
 
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -36,8 +37,22 @@ fn enables_focus_reporting_once_while_running_and_disables_it_once_on_stop() {
     tui.stop();
 
     let writes = terminal.borrow().writes();
-    assert_eq!(writes.matches("\x1b[?1004h").count(), 1);
-    assert_eq!(writes.matches("\x1b[?1004l").count(), 1);
+    assert_eq!(
+        writes
+            .units()
+            .windows("\x1b[?1004h".len())
+            .filter(|window| window.iter().copied().eq("\x1b[?1004h".encode_utf16()))
+            .count(),
+        1
+    );
+    assert_eq!(
+        writes
+            .units()
+            .windows("\x1b[?1004l".len())
+            .filter(|window| window.iter().copied().eq("\x1b[?1004l".encode_utf16()))
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -155,10 +170,10 @@ fn consumes_focus_events_instead_of_forwarding_them_to_the_focused_component() {
     tui.start().unwrap();
     wait(&tui, &terminal);
 
-    let listener_inputs: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let listener_inputs: Rc<RefCell<Vec<JsString>>> = Rc::new(RefCell::new(Vec::new()));
     let recorded = Rc::clone(&listener_inputs);
-    tui.add_input_listener(Rc::new(move |data: &str| {
-        recorded.borrow_mut().push(data.to_string());
+    tui.add_input_listener(Rc::new(move |data: &JsString| {
+        recorded.borrow_mut().push(data.clone());
         TuiInputListenerResult::default()
     }));
 
