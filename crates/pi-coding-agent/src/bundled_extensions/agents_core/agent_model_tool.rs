@@ -1,5 +1,6 @@
 //! `extensions/agents-core/src/agent-model-tool.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;

@@ -1,5 +1,7 @@
 //! Parent agent journal (`extensions/agents-core/src/parent-agent-journal.ts`).
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::collections::HashSet;
 use std::sync::Arc;
 

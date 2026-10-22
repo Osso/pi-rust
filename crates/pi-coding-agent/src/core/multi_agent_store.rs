@@ -2229,12 +2229,12 @@ impl MultiAgentStore {
 
     fn create_agent_id(&self, prefix: &str) -> Result<JsString, MultiAgentStoreError> {
         let allocated = self.allocate_counter(CounterName::Agent)?;
-        Ok(format!("{prefix}_{allocated}"))
+        Ok(format!("{prefix}_{allocated}").into())
     }
 
     fn create_message_id(&self) -> Result<JsString, MultiAgentStoreError> {
         let allocated = self.allocate_counter(CounterName::Message)?;
-        Ok(format!("message_{allocated}"))
+        Ok(format!("message_{allocated}").into())
     }
 
     fn allocate_counter(&self, counter_name: CounterName) -> Result<i64, MultiAgentStoreError> {

@@ -1,5 +1,6 @@
 //! Child agent dispatch (`extensions/agents-core/src/dispatch-runtime.ts`).
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

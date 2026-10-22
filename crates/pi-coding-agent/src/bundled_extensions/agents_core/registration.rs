@@ -2,6 +2,7 @@
 //! (`extensions/agents-core/src/registration.ts`).
 
 use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
