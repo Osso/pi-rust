@@ -1,29 +1,27 @@
 //! Coding-agent prompt templates (`core/prompt-templates.ts`).
 
 use std::fs;
-use std::path::Path;
 
-use regex::Regex;
+use pi_js_compat::js_json::{JsValue, encode_node_utf8};
+use pi_js_compat::js_regex::{JsCaptures, JsRegex};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::config::package_config;
 use crate::core::source_info::{SourceInfo, SourceScope, SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::utils::frontmatter::parse_frontmatter;
-use crate::utils::paths::{PathInputOptions, resolve_path};
+use crate::utils::paths::{PathInputOptions, node_basename, node_dirname, node_join, process_cwd, resolve_path};
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::locale_compare;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PromptTemplate {
-    pub name: String,
-    pub description: String,
+    pub name: JsString,
+    pub description: JsString,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub argument_hint: Option<String>,
-    pub content: String,
+    pub argument_hint: Option<JsString>,
+    pub content: JsString,
     pub source_info: SourceInfo,
-    pub file_path: String,
+    pub file_path: JsString,
 }
 
 /// Parses command arguments, honoring single and double quotes.
@@ -70,246 +68,207 @@ fn is_js_whitespace(character: char) -> bool {
 }
 
 /// Substitutes `$1`, `$@`, `$ARGUMENTS`, defaults, and bash-style slices.
-pub fn substitute_args(content: &str, args: &[JsString]) -> JsString {
+pub fn substitute_args(content: &JsString, args: &[JsString]) -> JsString {
     let all_args = JsString::join(args, " ");
-    let pattern =
-        Regex::new(r"\$\{([0-9]+|ARGUMENTS|@):-([^}]*)\}|\$\{@:([0-9]+)(?::([0-9]+))?\}|\$(ARGUMENTS|@|[0-9]+)")
-            .expect("prompt template substitution regex is valid");
-
-    let mut result = JsString::default();
-    let mut previous_end = 0;
-    for captures in pattern.captures_iter(content) {
-        let matched = captures.get(0).expect("regex match");
-        result.push_str(&content[previous_end..matched.start()]);
-        result.push_str(substitution_value(&captures, args, &all_args));
-        previous_end = matched.end();
-    }
-    result.push_str(&content[previous_end..]);
-    result
+    let pattern = JsRegex::new(r"\$\{([0-9]+):-([^}]*)\}|\$\{@:([0-9]+)(?::([0-9]+))?\}|\$(ARGUMENTS|@|[0-9]+)")
+        .expect("prompt template substitution regex is valid");
+    pattern.replace_all_with(content, |captures| substitution_value(captures, args, &all_args))
 }
 
-fn substitution_value(captures: &regex::Captures<'_>, args: &[JsString], all_args: &JsString) -> JsString {
+fn substitution_value(captures: &JsCaptures, args: &[JsString], all_args: &JsString) -> JsString {
     if let Some(target) = captures.get(1) {
-        let default_value = captures.get(2).map_or("", |value| value.as_str());
-        let value = if matches!(target.as_str(), "@" | "ARGUMENTS") {
-            all_args.clone()
-        } else {
-            positional_arg(args, target.as_str()).unwrap_or_default()
-        };
+        let value = positional_arg(args, &target.text()).unwrap_or_default();
         return if value.is_empty() {
-            JsString::from(default_value)
+            captures.get(2).map(|value| value.text()).unwrap_or_default()
         } else {
             value
         };
     }
-
     if let Some(slice_start) = captures.get(3) {
-        let start = positional_index(slice_start.as_str());
-        if let Some(slice_length) = captures.get(4) {
-            let length = slice_length.as_str().parse::<usize>().unwrap_or(0);
-            let end = start.saturating_add(length).min(args.len());
-            return args
-                .get(start..end)
-                .map_or_else(JsString::default, |slice| JsString::join(slice, " "));
-        }
+        let start = parse_position(&slice_start.text()).saturating_sub(1);
+        let end = captures.get(4).map_or(args.len(), |length| {
+            start.saturating_add(parse_position(&length.text())).min(args.len())
+        });
         return args
-            .get(start..)
+            .get(start..end)
             .map_or_else(JsString::default, |slice| JsString::join(slice, " "));
     }
-
-    let simple = captures.get(5).map_or("", |value| value.as_str());
-    if matches!(simple, "ARGUMENTS" | "@") {
+    let simple = captures.get(5).map(|value| value.text()).unwrap_or_default();
+    if simple == "ARGUMENTS" || simple == "@" {
         return all_args.clone();
     }
-    positional_arg(args, simple).unwrap_or_default()
+    positional_arg(args, &simple).unwrap_or_default()
 }
 
-fn positional_index(text: &str) -> usize {
-    text.parse::<usize>().map_or(0, |index| index.saturating_sub(1))
+fn parse_position(text: &JsString) -> usize {
+    // Captures contain ASCII digits only. Overflow behaves like an out-of-range JS slice index.
+    text.units().iter().fold(0usize, |value, unit| {
+        value
+            .saturating_mul(10)
+            .saturating_add(usize::from(*unit - u16::from(b'0')))
+    })
 }
 
-fn positional_arg(args: &[JsString], text: &str) -> Option<JsString> {
-    let index = text.parse::<usize>().ok()?.checked_sub(1)?;
+fn positional_arg(args: &[JsString], text: &JsString) -> Option<JsString> {
+    let index = parse_position(text).checked_sub(1)?;
     args.get(index).cloned()
 }
 
 #[derive(Debug, Clone)]
 pub struct LoadPromptTemplatesOptions {
-    /// Working directory for project-local templates.
-    pub cwd: String,
-    /// Agent config directory for global templates.
-    pub agent_dir: String,
-    /// Explicit prompt template paths (files or directories).
-    pub prompt_paths: Vec<String>,
-    /// Include default prompt directories.
+    pub cwd: JsString,
+    pub agent_dir: JsString,
+    pub prompt_paths: Vec<JsString>,
     pub include_defaults: bool,
 }
 
 /// Loads global, project, and explicit prompt templates in source order.
-pub fn load_prompt_templates(
-    options: &LoadPromptTemplatesOptions,
-) -> Result<Vec<PromptTemplate>, crate::utils::paths::PathError> {
-    let process_cwd =
-        std::env::current_dir().map_or_else(|_| "/".to_owned(), |path| path.to_string_lossy().into_owned());
-    let resolved_cwd = resolve_path(&options.cwd, &process_cwd, &PathInputOptions::default())?;
-    let resolved_agent_dir = resolve_path(&options.agent_dir, &process_cwd, &PathInputOptions::default())?;
-
-    let global_prompts_dir = Path::new(&resolved_agent_dir).join("prompts");
-    let project_prompts_dir = Path::new(&resolved_cwd)
-        .join(&package_config().config_dir_name)
-        .join("prompts");
-
-    let get_source_info = |resolved_path: &Path| -> SourceInfo {
-        if is_under_path(resolved_path, &global_prompts_dir) {
-            return create_synthetic_source_info(
-                &resolved_path.to_string_lossy(),
-                &SyntheticSourceInfoOptions {
-                    source: "local".to_owned(),
-                    scope: Some(SourceScope::User),
-                    origin: None,
-                    base_dir: Some(global_prompts_dir.to_string_lossy().into_owned()),
-                },
-            );
-        }
-        if is_under_path(resolved_path, &project_prompts_dir) {
-            return create_synthetic_source_info(
-                &resolved_path.to_string_lossy(),
-                &SyntheticSourceInfoOptions {
-                    source: "local".to_owned(),
-                    scope: Some(SourceScope::Project),
-                    origin: None,
-                    base_dir: Some(project_prompts_dir.to_string_lossy().into_owned()),
-                },
-            );
-        }
-        let base_dir = if fs::metadata(resolved_path).is_ok_and(|metadata| metadata.is_dir()) {
-            resolved_path.to_path_buf()
-        } else {
-            resolved_path
-                .parent()
-                .map_or_else(|| resolved_path.to_path_buf(), Path::to_path_buf)
-        };
-        create_synthetic_source_info(
-            &resolved_path.to_string_lossy(),
-            &SyntheticSourceInfoOptions {
-                source: "local".to_owned(),
-                scope: None,
-                origin: None,
-                base_dir: Some(base_dir.to_string_lossy().into_owned()),
-            },
-        )
-    };
-
+pub fn load_prompt_templates(options: &LoadPromptTemplatesOptions) -> Result<Vec<PromptTemplate>, JsString> {
+    let process_cwd = process_cwd().map_err(|error| error.message().clone())?;
+    let cwd = resolve_path(&options.cwd, &process_cwd, &PathInputOptions::default())
+        .map_err(|error| error.message().clone())?;
+    let agent_dir = resolve_path(&options.agent_dir, &process_cwd, &PathInputOptions::default())
+        .map_err(|error| error.message().clone())?;
+    let global = node_join(&agent_dir, "prompts");
+    let project = node_join(node_join(&cwd, &package_config().config_dir_name), "prompts");
+    let source_info = |path: &JsString| template_source_info(path, &global, &project);
     let mut templates = Vec::new();
     if options.include_defaults {
-        templates.extend(load_templates_from_dir(&global_prompts_dir, &get_source_info));
-        templates.extend(load_templates_from_dir(&project_prompts_dir, &get_source_info));
+        templates.extend(load_templates_from_dir(&global, &source_info));
+        templates.extend(load_templates_from_dir(&project, &source_info));
     }
-
     for raw_path in &options.prompt_paths {
-        let resolved_path = resolve_path(
+        let path = resolve_path(
             raw_path,
-            &resolved_cwd,
+            &cwd,
             &PathInputOptions {
                 trim: true,
-                ..PathInputOptions::default()
+                ..Default::default()
             },
-        )?;
-        let path = Path::new(&resolved_path);
-        if !path.exists() {
+        )
+        .map_err(|error| error.message().clone())?;
+        let encoded = encode_node_utf8(&path);
+        if !std::path::Path::new(&encoded).exists() {
             continue;
         }
-
-        let Ok(metadata) = fs::metadata(path) else {
-            continue;
-        };
+        let metadata = fs::metadata(&encoded).map_err(|error| JsString::from(error.to_string()))?;
         if metadata.is_dir() {
-            templates.extend(load_templates_from_dir(path, &get_source_info));
-        } else if metadata.is_file()
-            && resolved_path.ends_with(".md")
-            && let Some(template) = load_template_from_file(path, &get_source_info(path))
-        {
-            templates.push(template);
+            templates.extend(load_templates_from_dir(&path, &source_info));
+        } else if metadata.is_file() && path.ends_with(".md") {
+            let source = source_info(&path)?;
+            if let Some(template) = load_template_from_file(&path, &source) {
+                templates.push(template);
+            }
         }
     }
-
     Ok(templates)
 }
 
-fn is_under_path(target: &Path, root: &Path) -> bool {
-    target == root || target.starts_with(root)
+fn is_under_path(target: &JsString, root: &JsString) -> bool {
+    target == root || target.starts_with(root.clone() + "/")
 }
 
-fn load_template_from_file(file_path: &Path, source_info: &SourceInfo) -> Option<PromptTemplate> {
-    let raw_content = fs::read_to_string(file_path).ok()?;
-    let parsed = parse_frontmatter(&raw_content).ok()?;
-    let frontmatter = parsed.frontmatter;
-    let body = parsed.body;
+fn template_source_info(path: &JsString, global: &JsString, project: &JsString) -> Result<SourceInfo, JsString> {
+    let (scope, base_dir) = if is_under_path(path, global) {
+        (Some(SourceScope::User), global.clone())
+    } else if is_under_path(path, project) {
+        (Some(SourceScope::Project), project.clone())
+    } else {
+        let metadata = fs::metadata(encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
+        (
+            None,
+            if metadata.is_dir() {
+                path.clone()
+            } else {
+                node_dirname(path)
+            },
+        )
+    };
+    Ok(create_synthetic_source_info(
+        path,
+        &SyntheticSourceInfoOptions {
+            source: "local".to_owned(),
+            scope,
+            origin: None,
+            base_dir: Some(base_dir),
+        },
+    ))
+}
 
-    let name = file_path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let name = name.strip_suffix(".md").unwrap_or(&name).to_owned();
-
-    let mut description = frontmatter
+fn load_template_from_file(file_path: &JsString, source_info: &SourceInfo) -> Option<PromptTemplate> {
+    // Frozen loadTemplateFromFile catches the whole read/parse operation.
+    let bytes = match fs::read(encode_node_utf8(file_path)) {
+        Ok(bytes) => bytes,
+        Err(_) => return None,
+    };
+    let raw_content = JsString::from(String::from_utf8_lossy(&bytes).as_ref());
+    let parsed = match parse_frontmatter(&raw_content) {
+        Ok(parsed) => parsed,
+        Err(_) => return None,
+    };
+    let name = node_basename(file_path);
+    let name = name.strip_suffix(".md").unwrap_or(name);
+    let mut description = parsed
+        .frontmatter
         .get("description")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_owned();
+        .and_then(JsValue::as_string)
+        .cloned()
+        .unwrap_or_default();
     if description.is_empty()
-        && let Some(first_line) = body.split('\n').find(|line| !line.trim().is_empty())
+        && let Some(first_line) = parsed.body.split('\n').find(|line| !line.trim().is_empty())
     {
-        description = slice_utf16(first_line, 60);
-        if first_line.encode_utf16().count() > 60 {
+        description = first_line.slice(0, 60);
+        if first_line.len() > 60 {
             description.push_str("...");
         }
     }
-
-    let argument_hint = frontmatter
+    let argument_hint = parsed
+        .frontmatter
         .get("argument-hint")
-        .and_then(Value::as_str)
+        .and_then(JsValue::as_string)
         .filter(|hint| !hint.is_empty())
-        .map(str::to_owned);
-
+        .cloned();
     Some(PromptTemplate {
         name,
         description,
         argument_hint,
-        content: body,
+        content: parsed.body,
         source_info: source_info.clone(),
-        file_path: file_path.to_string_lossy().into_owned(),
+        file_path: file_path.clone(),
     })
 }
 
-fn slice_utf16(value: &str, length: usize) -> String {
-    String::from_utf16_lossy(&value.encode_utf16().take(length).collect::<Vec<u16>>())
-}
-
-fn load_templates_from_dir(dir: &Path, get_source_info: &dyn Fn(&Path) -> SourceInfo) -> Vec<PromptTemplate> {
+fn load_templates_from_dir(
+    dir: &JsString,
+    source_info: &dyn Fn(&JsString) -> Result<SourceInfo, JsString>,
+) -> Vec<PromptTemplate> {
     let mut templates = Vec::new();
-    if !dir.exists() {
-        return templates;
-    }
-
-    let Ok(entries) = fs::read_dir(dir) else {
-        return templates;
+    // readdirSync throws as one operation; never discard individual read_dir errors.
+    let entries = match fs::read_dir(encode_node_utf8(dir)) {
+        Ok(entries) => entries,
+        Err(_) => return templates,
     };
-    let mut entries: Vec<fs::DirEntry> = entries.filter_map(Result::ok).collect();
-    // Node's `readdirSync` returns libuv's `scandir` order (locale-collated names).
+    let mut entries = match entries.collect::<Result<Vec<_>, _>>() {
+        Ok(entries) => entries,
+        Err(_) => return templates,
+    };
     entries.sort_by(|left, right| {
-        locale_compare(
-            &left.file_name().to_string_lossy(),
-            &right.file_name().to_string_lossy(),
-        )
+        left.file_name()
+            .as_encoded_bytes()
+            .cmp(right.file_name().as_encoded_bytes())
     });
     for entry in entries {
-        let full_path = dir.join(entry.file_name());
-        let is_file = fs::metadata(&full_path).is_ok_and(|metadata| metadata.is_file());
-        if is_file
-            && entry.file_name().to_string_lossy().ends_with(".md")
-            && let Some(template) = load_template_from_file(&full_path, &get_source_info(&full_path))
-        {
+        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+        let path = node_join(dir, &name);
+        let is_file = fs::metadata(encode_node_utf8(&path)).is_ok_and(|metadata| metadata.is_file());
+        if !is_file || !name.ends_with(".md") {
+            continue;
+        }
+        let source = match source_info(&path) {
+            Ok(source) => source,
+            Err(_) => return templates,
+        };
+        if let Some(template) = load_template_from_file(&path, &source) {
             templates.push(template);
         }
     }
@@ -329,7 +288,7 @@ pub fn expand_prompt_template(text: impl Into<JsString>, templates: &[PromptTemp
         .position(|unit| char::from_u32(u32::from(*unit)).is_some_and(is_js_whitespace))
         .map_or(units.len(), |index| index + 1);
     let name = JsString::from_utf16(units[1..end].to_vec());
-    let Some(template) = templates.iter().find(|template| name == template.name.as_str()) else {
+    let Some(template) = templates.iter().find(|template| name == &template.name) else {
         return text;
     };
     let args = JsString::from_utf16(units[end..].to_vec()).trim();

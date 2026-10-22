@@ -36,5 +36,7 @@ Source: `packages/coding-agent/src/core/prompt-templates.ts` (285 lines, pinned 
 
 - Focused: `cargo test -p pi-coding-agent --test prompt_templates` (3 passed).
 - Differential: `cargo test -p pi-coding-agent --test differential_prompt_templates` (1 passed) via
-  `oracle/coding-agent-prompt-templates-oracle.ts`, comparing templates in source order. Directory entries
-  are locale-collated in Rust to match libuv `scandir` order used by Node `readdirSync`.
+  `oracle/coding-agent-prompt-templates-oracle.ts`, comparing templates in source order. Directory entries in that retired proof were locale-collated; Q18 replaces that incorrect construction with bytewise scandir order.
+
+## Q18 common-pin migration
+Template text/name/description/hint/file path and load options use JsString. Substitution uses native JsRegex capture ranges and native defaults/arguments. Source regex has numeric defaults only; the old `${ARGUMENTS:-...}` extension was removed to match the frozen expression. The file-description cap now retains native 60-unit slices instead of String::from_utf16_lossy. Filesystem operations alone encode paths; entries follow libuv bytewise scandir ordering, not locale comparison. Directory iteration errors are caught as a whole readdir operation. `lossless_resources::substitutions_keep_raw_template_defaults_and_arguments` is compiler-blocked (`resources-red.jsonl`), not runtime PASS. Old scalar corpus results above predate this change.

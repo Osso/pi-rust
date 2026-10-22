@@ -36,3 +36,6 @@ Production commit: `37a8cc2`. Differential/typeproof commit: `d3a4b08`.
 - Inherited independent verification at docs-only HEAD `e48a6c0` revalidates current focused/differential/oracle/typeproof/Node/fmt/diff/readability evidence, confirms the `e966d3d` broad artifacts remain valid, and returns `OVERALL: PASS`.
 
 Final workspace/static/dependency/clean-pin and inherited verification pass. No deployment applies.
+
+## Q18 common-pin migration
+SourceInfo.path/base_dir, SyntheticSourceInfoOptions.base_dir and both constructor path inputs are JsString. `lossless_resources::source_metadata_retains_native_path_identity` checks original unmatched units; target remains library-compiler-blocked. Package-manager PathMetadata still needs matching native path fields (same active resource slice). Old proof above does not establish current common-pin native parity.

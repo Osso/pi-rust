@@ -24,3 +24,6 @@ Differential proof: request `26007` executes the real pinned module across 28 va
 
 - Focused cases: 9.
 - Differential request: `26007`, 28 cases.
+
+## Q18 common-pin migration
+Native extraction normalizes/slices/trims JsString and returns a JsValue frontmatter authority plus native body. `lossless_resources::frontmatter_body_keeps_raw_units_after_native_extraction` compares raw body extraction to the frozen module; `resources-red.jsonl` remains library-blocked, not runtime PASS. The YAML parser is deliberately isolated in `parse_yaml_frontmatter`: serde_yaml_ng still rejects literal/escaped unmatched units explicitly. Main requested this interim restriction pending the user's gap/native-parser decision; this is **not** approved exact YAML parity. No replacement or silent parse drop occurs in this module.

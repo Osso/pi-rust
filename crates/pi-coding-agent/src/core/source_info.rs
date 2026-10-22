@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use serde::{Deserialize, Serialize};
 
 use crate::core::package_manager::{MetadataOrigin, PathMetadata};
@@ -45,12 +46,12 @@ impl SourceOrigin {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
-    pub path: String,
+    pub path: JsString,
     pub source: String,
     pub scope: SourceScope,
     pub origin: SourceOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base_dir: Option<String>,
+    pub base_dir: Option<JsString>,
 }
 
 impl From<crate::core::package_manager::SourceScope> for SourceScope {
@@ -73,7 +74,7 @@ impl From<MetadataOrigin> for SourceOrigin {
 }
 
 /// Creates source metadata from package-manager path metadata (`createSourceInfo`).
-pub fn create_source_info(path: &str, metadata: &PathMetadata) -> SourceInfo {
+pub fn create_source_info(path: &JsString, metadata: &PathMetadata) -> SourceInfo {
     SourceInfo {
         path: path.to_owned(),
         source: metadata.source.clone(),
@@ -89,11 +90,11 @@ pub struct SyntheticSourceInfoOptions {
     pub source: String,
     pub scope: Option<SourceScope>,
     pub origin: Option<SourceOrigin>,
-    pub base_dir: Option<String>,
+    pub base_dir: Option<JsString>,
 }
 
 /// Creates source metadata with the TypeScript synthetic-source defaults.
-pub fn create_synthetic_source_info(path: &str, options: &SyntheticSourceInfoOptions) -> SourceInfo {
+pub fn create_synthetic_source_info(path: &JsString, options: &SyntheticSourceInfoOptions) -> SourceInfo {
     SourceInfo {
         path: path.to_owned(),
         source: options.source.clone(),
