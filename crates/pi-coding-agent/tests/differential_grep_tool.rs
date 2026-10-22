@@ -46,7 +46,7 @@ fn coding_agent_grep_tool_matches_the_pinned_typescript_source() {
         "coding-agent-grep-tool-oracle.ts",
         "packages/coding-agent/src/core/tools/grep.ts",
     );
-    let expected = oracle.request_lossless(&json!({
+    let expected = oracle.request(&json!({
         "id": 27_500,
         "operation": "coding_agent_grep_tool",
         "cwd": cwd,

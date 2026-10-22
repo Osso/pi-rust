@@ -23,7 +23,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
         "packages/coding-agent/src/core/session-manager.ts",
     );
     assert_eq!(oracle.request(&serde_json::json!({"id":"scalar-probe", "operation":"default_session_dir", "cwd":root.path().to_str().unwrap(), "agentDir":root.path().to_str().unwrap()}))["ok"], true);
-    let source = oracle.request_lossless(&pi_js_compat::js_json!({
+    let source = oracle.request(&pi_js_compat::js_json!({
         "id":"raw-path-session", "operation":"write_session", "cwd":cwd, "dir":directory,
         "messages":[{"role":"user","content":"seed","timestamp":0}, {"role":"assistant","content":[],"api":"openai-responses","provider":"openai","model":"probe","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1}]
     }));
@@ -235,7 +235,7 @@ fn model_reference_matching_does_not_replace_unmatched_units() {
         "model-resolver-oracle.ts",
         "packages/coding-agent/src/core/model-resolver.ts",
     );
-    let source = oracle.request_lossless(
+    let source = oracle.request(
         &pi_js_compat::js_json!({"id":"raw-model-reference", "operation":"exact", "reference":raw, "models":[model]}),
     );
     assert_eq!(source["ok"].as_bool(), Some(true));

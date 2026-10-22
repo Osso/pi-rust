@@ -54,8 +54,7 @@ async fn client_retains_frozen_identity_metadata_in_the_attached_snapshot() {
         "lossless-resident-console-oracle.ts",
         "packages/coding-agent/src/core/resident-console-transport.ts",
     );
-    let expected =
-        source.request_lossless(&pi_js_compat::js_json!({"kind":"identity","socketPath":path,"snapshot":snapshot}));
+    let expected = source.request(&pi_js_compat::js_json!({"kind":"identity","socketPath":path,"snapshot":snapshot}));
     assert_eq!(actual, expected["snapshot"]);
 }
 
@@ -116,7 +115,7 @@ async fn probe_returns_a_snapshot_without_replacing_the_attached_owner() {
         "lossless-resident-console-oracle.ts",
         "packages/coding-agent/src/core/resident-console-transport.ts",
     );
-    let expected = source
-        .request_lossless(&pi_js_compat::js_json!({"kind":"probe","socketPath":path,"snapshot":Host.get_snapshot()}));
+    let expected =
+        source.request(&pi_js_compat::js_json!({"kind":"probe","socketPath":path,"snapshot":Host.get_snapshot()}));
     assert_eq!(js_json::parse_lossless(&response).unwrap(), expected["probe"]);
 }

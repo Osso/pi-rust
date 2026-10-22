@@ -21,7 +21,7 @@ async fn ts_created_raw_loader_paths_keep_names_locations_and_diagnostics_native
         "harness-raw-path-oracle.ts",
         "packages/ai/src/utils/sanitize-unicode.ts",
     );
-    let reference = oracle.request_lossless(&pi_js_compat::js_json!({"root": root.path().to_str().unwrap()}));
+    let reference = oracle.request(&pi_js_compat::js_json!({"root": root.path().to_str().unwrap()}));
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
         cwd: root.path().to_str().unwrap().into(),
         ..Default::default()
@@ -54,7 +54,7 @@ async fn ts_raw_path_stays_native_through_read_variants_env_and_tool() {
         "harness-raw-path-oracle.ts",
         "packages/ai/src/utils/sanitize-unicode.ts",
     );
-    let reference = oracle.request_lossless(&pi_js_compat::js_json!({ "root": root.path().to_str().unwrap() }));
+    let reference = oracle.request(&pi_js_compat::js_json!({ "root": root.path().to_str().unwrap() }));
     let input = reference["input"].as_string().unwrap().clone();
     let expected = reference["resolved"].as_string().unwrap().clone();
     let env = Arc::new(NodeExecutionEnv::new(NodeExecutionEnvOptions {

@@ -24,7 +24,7 @@ fn realpath_preserves_source_units_for_existing_encoded_names_and_symlinks() {
         for unit in [0xd800, 0xdfff] {
             let path = root.clone() + "/" + name + "/" + JsString::from_utf16(vec![unit]);
             assert!(std::path::Path::new(&encode_node_utf8(&path)).exists());
-            let expected = oracle.request_lossless(
+            let expected = oracle.request(
                 &pi_js_compat::js_json!({"id":1,"cases":[{"kind":"canonicalize","name":"existing","path":path}]}),
             );
             assert_eq!(
@@ -82,7 +82,7 @@ fn native_posix_path_helpers_match_node_with_raw_components() {
     ]);
     for base in &texts {
         for input in &texts {
-            let expected = oracle.request_lossless(&pi_js_compat::js_json!({"id":1,"cases":[
+            let expected = oracle.request(&pi_js_compat::js_json!({"id":1,"cases":[
                 {"kind":"normalize","input":input,"base":base}, {"kind":"join","input":input,"base":base},
                 {"kind":"resolve","input":input,"base":base}, {"kind":"relative","input":input,"base":base},
                 {"kind":"dirname","input":input,"base":base}, {"kind":"basename","input":input,"base":base},
@@ -154,7 +154,7 @@ fn path_operations_keep_native_units_until_explicit_url_or_filesystem_boundaries
                 {"kind":"canonicalize","name":"canonical","path":text}
             ]
         });
-        let expected = oracle.request_lossless(&request);
+        let expected = oracle.request(&request);
         let rows = expected["output"]["results"].as_array().unwrap();
         let actual = [
             normalize_path(&text, &options).map(JsValue::String),

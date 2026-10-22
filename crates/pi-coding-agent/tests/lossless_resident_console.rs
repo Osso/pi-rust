@@ -101,7 +101,7 @@ async fn client_preserves_snapshot_events_prompt_errors_and_raw_socket_path() {
         "lossless-resident-console-oracle.ts",
         "packages/coding-agent/src/core/resident-console-transport.ts",
     );
-    let expected = source.request_lossless(&pi_js_compat::js_json!({"socketPath":path,"snapshot":host.get_snapshot(),"event":event,"rejection":rejection,"id":JsString::from("request-")+&raw,"text":JsString::from("text-")+&raw}));
+    let expected = source.request(&pi_js_compat::js_json!({"socketPath":path,"snapshot":host.get_snapshot(),"event":event,"rejection":rejection,"id":JsString::from("request-")+&raw,"text":JsString::from("text-")+&raw}));
     assert_eq!(actual, expected);
 }
 

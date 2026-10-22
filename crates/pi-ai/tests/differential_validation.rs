@@ -1309,7 +1309,7 @@ fn lossless_utf16_validation_matches_frozen_typescript() {
         }
     }
     let mut oracle = oracle::TsOracle::spawn("validation-oracle.ts", "packages/ai/src/utils/validation.ts");
-    let response = oracle.request_lossless(&js_json!({"id":1,"operation":"validate_tool_arguments","cases":fixtures}));
+    let response = oracle.request(&js_json!({"id":1,"operation":"validate_tool_arguments","cases":fixtures}));
     assert_eq!(response["ok"], JsValue::Bool(true), "{response:?}");
     let results = response["output"]["results"].as_array().unwrap();
     assert_eq!(results.len(), fixtures.len());

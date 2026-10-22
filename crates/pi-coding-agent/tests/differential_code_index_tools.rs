@@ -31,7 +31,7 @@ fn coding_agent_code_index_tools_match_the_pinned_typescript_source() {
         "coding-agent-code-index-tools-oracle.ts",
         "packages/coding-agent/src/core/tools/code-index.ts",
     );
-    let expected = oracle.request_lossless(&json!({
+    let expected = oracle.request(&json!({
         "id": 27_700,
         "operation": "coding_agent_code_index_tools",
         "cwd": cwd,

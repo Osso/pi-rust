@@ -28,7 +28,7 @@ async fn local_filesystem_operations_reject_raw_nul_paths_like_node_before_io() 
         JsString::from_utf16(vec![0xd800, 0]) + "x".repeat(160) + JsString::from_utf16(vec![0xdfff]),
     ] {
         let path = root.clone() + "/invalid-" + suffix;
-        let expected = source.request_lossless(&pi_js_compat::js_json!({"operation":"readAsync","path":path}));
+        let expected = source.request(&pi_js_compat::js_json!({"operation":"readAsync","path":path}));
         assert_eq!(expected["name"], pi_js_compat::js_json!("TypeError"));
         assert_eq!(expected["own"]["code"], pi_js_compat::js_json!("ERR_INVALID_ARG_VALUE"));
         let content = JsString::from("must not be written");

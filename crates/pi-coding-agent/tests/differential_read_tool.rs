@@ -55,7 +55,7 @@ fn coding_agent_read_tool_matches_the_pinned_typescript_source() {
         "coding-agent-read-tool-oracle.ts",
         "packages/coding-agent/src/core/tools/read.ts",
     );
-    let expected = oracle.request_lossless(&json!({
+    let expected = oracle.request(&json!({
         "id": 27_200,
         "operation": "coding_agent_read_tool",
         "cwd": cwd,

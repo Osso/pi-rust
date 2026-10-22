@@ -55,7 +55,7 @@ fn native_chalk_styles_preserve_unmatched_units_and_reopen_lines() {
                 .as_string()
                 .unwrap()
                 .clone();
-            let expected = oracle.request_lossless(&pi_js_compat::js_json!({
+            let expected = oracle.request(&pi_js_compat::js_json!({
                 "id":REQUEST_ID,"operation":"style","cases":[{"name":"raw","level":level.number(),"styles":["bold","red"],"text":text}]
             }));
             let expected = &expected["output"]["results"].as_array().unwrap()[0]["value"];

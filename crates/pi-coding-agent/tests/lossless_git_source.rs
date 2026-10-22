@@ -11,8 +11,7 @@ fn generic_git_reference_retains_unpaired_units() {
     assert_eq!(parsed.reference, Some(raw));
     assert_eq!(parsed.path, JsString::from("user/repo"));
     let mut oracle = oracle::TsOracle::spawn("coding-agent-git-oracle.ts", "packages/coding-agent/src/utils/git.ts");
-    let expected =
-        oracle.request_lossless(&pi_js_compat::js_json!({"id":1,"cases":[{"name":"raw-reference","source":source}]}));
+    let expected = oracle.request(&pi_js_compat::js_json!({"id":1,"cases":[{"name":"raw-reference","source":source}]}));
     assert_eq!(expected["ok"].as_bool(), Some(true));
     assert_eq!(
         pi_js_compat::js_json::to_value(&parsed).unwrap(),

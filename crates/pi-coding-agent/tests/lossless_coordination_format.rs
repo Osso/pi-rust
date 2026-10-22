@@ -28,7 +28,7 @@ fn mailbox_host_body_and_file_reference_units_match_frozen() {
         "runtime-coordination-format-oracle.ts",
         "packages/coding-agent/src/core/runtime-coordination-format.ts",
     );
-    let expected = source.request_lossless(&source_request(raw.clone()));
+    let expected = source.request(&source_request(raw.clone()));
     assert_eq!(expected["ok"], JsValue::Bool(true));
     let message: RuntimeMailboxMessage = js_json::from_value(&raw).unwrap();
     let actual = format_runtime_mailbox_prompt(&message, JsString::from_utf16(vec![0x73, 0xd800])).unwrap();
@@ -47,7 +47,7 @@ fn invalid_file_references_surface_the_frozen_formatting_error() {
             unreachable!()
         };
         fields.insert("fileRefs".into(), js_json::parse_lossless(file_refs).unwrap());
-        let expected = source.request_lossless(&source_request(raw.clone()));
+        let expected = source.request(&source_request(raw.clone()));
         assert_eq!(expected["ok"], JsValue::Bool(false));
         let message: RuntimeMailboxMessage = js_json::from_value(&raw).unwrap();
         let error = format_runtime_mailbox_prompt(&message, "recipient").unwrap_err();

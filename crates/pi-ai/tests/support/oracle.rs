@@ -42,17 +42,9 @@ impl TsOracle {
         Self { child, stdin, stdout }
     }
 
-    pub(crate) fn request(&mut self, request: &Value) -> Value {
-        self.request_lossless(&request.into())
-            .to_serde()
-            .expect("scalar oracle response")
-    }
-
-    pub(crate) fn request_lossless(
-        &mut self,
-        request: &pi_js_compat::js_json::JsValue,
-    ) -> pi_js_compat::js_json::JsValue {
-        self.request_raw_json(&pi_js_compat::js_json::stringify_lossless(request))
+    /// One request path for scalar `Value` and native `JsValue` callers.
+    pub(crate) fn request<T: OracleWire>(&mut self, request: &T) -> T {
+        T::from_wire(self.request_raw_json(&pi_js_compat::js_json::stringify_lossless(&request.to_wire())))
     }
 
     pub(crate) fn request_raw_json(&mut self, request: &str) -> pi_js_compat::js_json::JsValue {
@@ -71,6 +63,31 @@ impl TsOracle {
             .expect("oracle response must be readable");
         assert_ne!(bytes_read, 0, "oracle must return one response per request");
         pi_js_compat::js_json::parse_lossless(&line).expect("oracle response must be valid JSON")
+    }
+}
+
+/// Oracle wire payload: scalar callers decode responses through serde (and fail on raw
+/// UTF-16), native callers keep the lossless `JsValue`.
+pub(crate) trait OracleWire: Sized {
+    fn to_wire(&self) -> pi_js_compat::js_json::JsValue;
+    fn from_wire(value: pi_js_compat::js_json::JsValue) -> Self;
+}
+
+impl OracleWire for pi_js_compat::js_json::JsValue {
+    fn to_wire(&self) -> pi_js_compat::js_json::JsValue {
+        self.clone()
+    }
+    fn from_wire(value: pi_js_compat::js_json::JsValue) -> Self {
+        value
+    }
+}
+
+impl OracleWire for Value {
+    fn to_wire(&self) -> pi_js_compat::js_json::JsValue {
+        self.into()
+    }
+    fn from_wire(value: pi_js_compat::js_json::JsValue) -> Self {
+        value.to_serde().expect("scalar oracle response")
     }
 }
 

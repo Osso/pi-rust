@@ -44,7 +44,7 @@ fn coding_agent_ls_tool_matches_the_pinned_typescript_source() {
         "coding-agent-ls-tool-oracle.ts",
         "packages/coding-agent/src/core/tools/ls.ts",
     );
-    let expected = oracle.request_lossless(&json!({
+    let expected = oracle.request(&json!({
         "id": 27_400,
         "operation": "coding_agent_ls_tool",
         "cwd": cwd,

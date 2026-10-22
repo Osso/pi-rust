@@ -24,7 +24,7 @@ async fn file_attachment_keeps_original_absolute_path_units() {
             .text,
         JsString::default()
     );
-    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"fileAttachment","paths":[path]}));
+    let expected = source.request(&pi_js_compat::js_json!({"kind":"fileAttachment","paths":[path]}));
     assert_eq!(&actual.text, expected["text"].as_string().unwrap());
     assert!(actual.images.is_empty());
 }

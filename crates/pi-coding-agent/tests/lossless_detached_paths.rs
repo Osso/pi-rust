@@ -42,8 +42,7 @@ fn detached_manifest_keeps_raw_paths_env_keys_and_file_bytes() {
         "lossless-tool-paths-oracle.ts",
         "packages/coding-agent/src/core/detached-bash-runner.ts",
     );
-    let expected =
-        source.request_lossless(&pi_js_compat::js_json!({"kind":"detachedManifest","path":path,"data":data}));
+    let expected = source.request(&pi_js_compat::js_json!({"kind":"detachedManifest","path":path,"data":data}));
     assert_eq!(
         JsString::from(String::from_utf8(actual).unwrap()),
         expected["wire"].as_string().unwrap().clone()
@@ -72,7 +71,7 @@ fn distinct_raw_output_paths_reject_before_filesystem_or_spawn() {
         "lossless-tool-paths-oracle.ts",
         "packages/coding-agent/src/core/detached-job-bootstrap.ts",
     );
-    let expected=source.request_lossless(&pi_js_compat::js_json!({"kind":"bootstrapSplit","input":{"args":[],"command":command,"cwd":cwd,"identityPath":identity,"stderrPath":stderr,"stdoutPath":stdout}}));
+    let expected=source.request(&pi_js_compat::js_json!({"kind":"bootstrapSplit","input":{"args":[],"command":command,"cwd":cwd,"identityPath":identity,"stderrPath":stderr,"stdoutPath":stdout}}));
     assert_eq!(&error.message(), expected["error"].as_string().unwrap());
 }
 
@@ -87,11 +86,11 @@ fn detached_artifact_paths_and_collision_errors_match_frozen_units() {
         "lossless-tool-paths-oracle.ts",
         "packages/coding-agent/src/core/detached-job-runner.ts",
     );
-    let expected=source.request_lossless(&pi_js_compat::js_json!({"kind":"detachedArtifacts","operation":"createDetachedJobArtifacts","root":root,"job":job}));
+    let expected=source.request(&pi_js_compat::js_json!({"kind":"detachedArtifacts","operation":"createDetachedJobArtifacts","root":root,"job":job}));
     assert_eq!(to_value(&actual).unwrap(), expected["artifacts"]);
     let collision = JsString::from("job-") + JsString::from_utf16(vec![0xd800]);
     let error = reserve_detached_job_artifacts(&root, &collision).unwrap_err();
-    let expected=source.request_lossless(&pi_js_compat::js_json!({"kind":"detachedArtifacts","operation":"reserveDetachedJobArtifacts","root":root,"job":collision}));
+    let expected=source.request(&pi_js_compat::js_json!({"kind":"detachedArtifacts","operation":"reserveDetachedJobArtifacts","root":root,"job":collision}));
     assert_eq!(&error.message(), expected["error"].as_string().unwrap());
     let invalid=source.request(&serde_json::json!({"kind":"detachedArtifacts","operation":"createDetachedJobArtifacts","root":"unused","job":""}));
     assert_eq!(invalid["error"], "Detached job ID must be one path segment");

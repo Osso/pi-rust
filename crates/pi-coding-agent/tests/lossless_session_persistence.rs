@@ -17,7 +17,7 @@ fn native_parser_accepts_literal_unpaired_units_without_a_utf8_boundary() {
         "lossless-session-records-oracle.mjs",
         "packages/coding-agent/src/core/session-manager.ts",
     );
-    let expected = source.request_lossless(&JsValue::Object(input));
+    let expected = source.request(&JsValue::Object(input));
     assert_eq!(expected.get("ok"), Some(&JsValue::Bool(true)), "{expected:?}");
     let entries = parse_session_entries(&content);
     assert_eq!(entries.len(), 1);

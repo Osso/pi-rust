@@ -12,7 +12,7 @@ fn request(source: &mut oracle::TsOracle, operation: &str, path: &JsString, cont
     if let Some(content) = content {
         fields.insert("content".into(), JsValue::String(content.into()));
     }
-    let response = source.request_lossless(&JsValue::Object(fields));
+    let response = source.request(&JsValue::Object(fields));
     assert_eq!(response.get("ok"), Some(&JsValue::Bool(true)), "{response:?}");
     response.get("output").unwrap().clone()
 }
@@ -249,7 +249,7 @@ fn raw_provider_native_survives_compaction_context_and_rewrite_and_typed_derivat
     update.insert("path".into(), JsValue::String(path.clone()));
     update.insert("entryId".into(), JsValue::String(id.clone()));
     update.insert("summary".into(), JsValue::String(summary.clone()));
-    let expected = source.request_lossless(&JsValue::Object(update));
+    let expected = source.request(&JsValue::Object(update));
     assert_eq!(expected.get("ok"), Some(&JsValue::Bool(true)), "{expected:?}");
     manager.update_compaction_summary(&id, &summary).unwrap();
     let before: Vec<_> = manager

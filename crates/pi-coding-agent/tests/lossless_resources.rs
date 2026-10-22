@@ -14,8 +14,8 @@ fn frontmatter_body_keeps_raw_units_after_native_extraction() {
         "lossless-resources-oracle.ts",
         "packages/coding-agent/src/utils/frontmatter.ts",
     );
-    let source = oracle
-        .request_lossless(&pi_js_compat::js_json!({"id":"raw-body", "operation":"frontmatter", "content":content}));
+    let source =
+        oracle.request(&pi_js_compat::js_json!({"id":"raw-body", "operation":"frontmatter", "content":content}));
     assert_eq!(source["ok"].as_bool(), Some(true));
     let parsed = parse_frontmatter(&content).unwrap();
     assert_eq!(parsed.body, raw);
@@ -38,7 +38,7 @@ fn substitutions_keep_raw_template_defaults_and_arguments() {
         "lossless-resources-oracle.ts",
         "packages/coding-agent/src/core/prompt-templates.ts",
     );
-    let source = oracle.request_lossless(
+    let source = oracle.request(
         &pi_js_compat::js_json!({"id":"raw-template", "operation":"substitute", "content":content, "args":args}),
     );
     assert_eq!(source["ok"].as_bool(), Some(true));
@@ -71,8 +71,7 @@ fn ts_created_raw_skill_directory_retains_native_load_and_prompt_paths() {
         "lossless-resources-oracle.ts",
         "packages/coding-agent/src/core/skills.ts",
     );
-    let source =
-        oracle.request_lossless(&pi_js_compat::js_json!({"id":"raw-skill-dir", "operation":"prepareSkill", "dir":dir}));
+    let source = oracle.request(&pi_js_compat::js_json!({"id":"raw-skill-dir", "operation":"prepareSkill", "dir":dir}));
     assert_eq!(source["ok"].as_bool(), Some(true));
     let loaded = load_skills_from_dir(&LoadSkillsFromDirOptions {
         dir: dir.clone(),

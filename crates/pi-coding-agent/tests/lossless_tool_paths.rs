@@ -97,7 +97,7 @@ fn native_tool_renderers_match_frozen_raw_path_and_error_lines() {
             pi_js_compat::js_json!({"call":call.borrow_mut().render(100),"result":output.borrow_mut().render(100)});
         let module = format!("packages/coding-agent/src/core/tools/{name}.ts");
         let mut source = oracle::TsOracle::spawn("lossless-tool-paths-oracle.ts", &module);
-        let expected=source.request_lossless(&pi_js_compat::js_json!({"kind":"render","factory":factory,"cwd":cwd,"params":params,"result":result,"themePath":theme_path.to_str().unwrap(),"width":100}));
+        let expected=source.request(&pi_js_compat::js_json!({"kind":"render","factory":factory,"cwd":cwd,"params":params,"result":result,"themePath":theme_path.to_str().unwrap(),"width":100}));
         assert!(
             actual == expected,
             "{name}\nactual: {}\nexpected: {}",
@@ -118,7 +118,7 @@ fn custom_shell_missing_path_retains_original_units_in_error() {
         "lossless-tool-paths-oracle.ts",
         "packages/coding-agent/src/utils/shell.ts",
     );
-    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"shellMissing","path":path}));
+    let expected = source.request(&pi_js_compat::js_json!({"kind":"shellMissing","path":path}));
     assert_eq!(error.message(), expected["error"].as_string().unwrap());
 }
 
@@ -176,7 +176,7 @@ async fn local_write_error_matches_node_original_path_units() {
         "lossless-tool-paths-oracle.ts",
         "packages/coding-agent/src/core/tools/write.ts",
     );
-    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"localWriteError", "path":path}));
+    let expected = source.request(&pi_js_compat::js_json!({"kind":"localWriteError", "path":path}));
     assert_eq!(
         operation_error_message(&error),
         expected["error"].as_string().unwrap().clone()
@@ -219,7 +219,7 @@ async fn grep_missing_path_keeps_original_units_before_process_boundary() {
         "lossless-tool-paths-oracle.ts",
         "packages/coding-agent/src/core/tools/grep.ts",
     );
-    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"grepMissing","cwd":cwd,"params":params}));
+    let expected = source.request(&pi_js_compat::js_json!({"kind":"grepMissing","cwd":cwd,"params":params}));
     assert_eq!(&error.message, expected["error"].as_string().unwrap());
     assert_eq!(
         JsValue::Array(
@@ -290,7 +290,7 @@ async fn custom_find_receives_raw_search_path_pattern_and_results() {
         "lossless-tool-paths-oracle.ts",
         "packages/coding-agent/src/core/tools/find.ts",
     );
-    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"find","cwd":cwd,"params":params}));
+    let expected = source.request(&pi_js_compat::js_json!({"kind":"find","cwd":cwd,"params":params}));
     assert_eq!(
         JsValue::Array(operations.calls.lock().unwrap().clone()),
         expected["calls"]
@@ -358,7 +358,7 @@ async fn custom_edit_receives_raw_path_and_inside_pair_replacement_content() {
         "lossless-tool-paths-oracle.ts",
         "packages/coding-agent/src/core/tools/edit.ts",
     );
-    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"edit","cwd":cwd,"params":params}));
+    let expected = source.request(&pi_js_compat::js_json!({"kind":"edit","cwd":cwd,"params":params}));
     assert_eq!(
         JsValue::Array(operations.calls.lock().unwrap().clone()),
         expected["calls"]
@@ -423,7 +423,7 @@ async fn custom_read_retains_path_in_operations_and_first_line_notice() {
         "lossless-tool-paths-oracle.ts",
         "packages/coding-agent/src/core/tools/read.ts",
     );
-    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"read","cwd":cwd,"params":params}));
+    let expected = source.request(&pi_js_compat::js_json!({"kind":"read","cwd":cwd,"params":params}));
     assert_eq!(
         JsValue::Array(operations.calls.lock().unwrap().clone()),
         expected["calls"]
@@ -504,7 +504,7 @@ async fn custom_ls_retains_paths_entries_and_missing_path_error() {
         let actual = tool
             .execute("ls".into(), params.clone(), None, Arc::new(|_| {}), None)
             .await;
-        let expected = source.request_lossless(
+        let expected = source.request(
             &pi_js_compat::js_json!({"kind":"ls", "cwd":cwd, "params":params, "entries":entries, "exists":exists}),
         );
         assert_eq!(
@@ -569,7 +569,7 @@ async fn custom_write_receives_original_path_cwd_and_content_units() {
         "lossless-tool-paths-oracle.ts",
         "packages/coding-agent/src/core/tools/write.ts",
     );
-    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"write", "cwd":cwd, "params":params}));
+    let expected = source.request(&pi_js_compat::js_json!({"kind":"write", "cwd":cwd, "params":params}));
     let calls = operations.calls.lock().unwrap();
     let actual_calls = calls
         .iter()
