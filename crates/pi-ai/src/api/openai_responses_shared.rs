@@ -515,7 +515,7 @@ pub fn convert_responses_messages(
         &context.messages,
         model,
         Some(&normalize_tool_call_id),
-        crate::request::now_millis(),
+        crate::request::now_millis() as f64,
     );
 
     let include_system_prompt = options.include_system_prompt.unwrap_or(true);

@@ -413,7 +413,7 @@ async fn request_assistant_message(
         content: pi_ai::types::UserContent::Text(END_TURN_CONTINUATION_INSTRUCTION.to_owned().into()),
         input_source: None,
         provider_native: None,
-        timestamp: pi_ai::request::now_millis(),
+        timestamp: pi_ai::request::now_millis() as f64,
     });
     state.continuation_instruction_pending = false;
 
@@ -1501,7 +1501,7 @@ fn create_tool_result_message(finalized: &FinalizedToolCallOutcome) -> ToolResul
         usage: None,
         added_tool_names: None,
         is_error: finalized.is_error,
-        timestamp: pi_ai::request::now_millis(),
+        timestamp: pi_ai::request::now_millis() as f64,
     }
 }
 

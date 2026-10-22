@@ -153,7 +153,7 @@ pub fn stream(model: Model, context: Context, options: MistralOptions) -> Assist
 }
 
 async fn run_stream(model: Model, context: Context, options: MistralOptions, sender: AssistantMessageEventSender) {
-    let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
+    let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis() as f64);
     match produce_stream(&model, &context, &options, &sender, &mut output).await {
         Ok(()) => {}
         Err(error) => {
@@ -192,7 +192,7 @@ async fn produce_stream(
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .normalize(id)
     };
-    let transformed = transform_messages_with(&context.messages, model, Some(&normalize), now_millis());
+    let transformed = transform_messages_with(&context.messages, model, Some(&normalize), now_millis() as f64);
 
     let mut payload = JsValue::from(build_chat_payload(model, context, &transformed, options)?);
     if let Some(on_payload) = &options.stream.request.on_payload
