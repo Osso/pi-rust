@@ -15,9 +15,8 @@ async function main(): Promise<void> {
 	const { NodeExecutionEnv } = await import(
 		pathToFileURL(resolve(dirname(source), "env/nodejs.ts")).href
 	);
-	const { createModels, fauxProvider, fauxAssistantMessage } = await import(
-		pathToFileURL(resolve(root, "packages/ai/src/index.ts")).href
-	);
+	const { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } =
+		await import(pathToFileURL(resolve(root, "packages/ai/src/index.ts")).href);
 	// Faux never uses HTTP; forbid accidental network access through the real global boundary.
 	globalThis.fetch = async () => {
 		throw new Error("unexpected oracle HTTP request");
@@ -71,27 +70,41 @@ async function main(): Promise<void> {
 		models.setProvider(faux.provider);
 		const requests: any[] = [];
 		faux.setResponses(
-			Array.from({ length: 8 }, (_, index) => (context: any, options: any) => {
-				requests.push(
-					clean({
-						model: faux.getModel().id,
-						systemPrompt: context.systemPrompt,
-						messages: context.messages,
-						options: {
-							timeoutMs: options.timeoutMs,
-							maxRetries: options.maxRetries,
-							maxRetryDelayMs: options.maxRetryDelayMs,
-							headers: options.headers,
-							metadata: options.metadata,
-							sessionId: options.sessionId,
-							reasoning: options.reasoning,
-							transport: options.transport,
-							cacheRetention: options.cacheRetention,
-						},
-					}),
-				);
-				return fauxAssistantMessage(`reply-${index + 1}`);
-			}),
+			Array.from(
+				{ length: 8 },
+				(_, index) => async (context: any, options: any) => {
+					requests.push(
+						clean({
+							model: faux.getModel().id,
+							systemPrompt: context.systemPrompt,
+							messages: context.messages,
+							options: {
+								timeoutMs: options.timeoutMs,
+								maxRetries: options.maxRetries,
+								maxRetryDelayMs: options.maxRetryDelayMs,
+								headers: options.headers,
+								metadata: options.metadata,
+								sessionId: options.sessionId,
+								reasoning: options.reasoning,
+								transport: options.transport,
+								cacheRetention: options.cacheRetention,
+							},
+						}),
+					);
+					if (request.scenario.startsWith("payload"))
+						requests.push({
+							payloadResult: await options.onPayload(
+								{ native: "\ud800" },
+								faux.getModel(),
+							),
+						});
+					if (request.scenario.startsWith("tool") && index === 0)
+						return fauxAssistantMessage(
+							fauxToolCall("lookup", { value: "raw" }, { id: "call" }),
+						);
+					return fauxAssistantMessage(`reply-${index + 1}`);
+				},
+			),
 		);
 		const entries = request.entries ?? [];
 		const session = new Session(
@@ -100,11 +113,26 @@ async function main(): Promise<void> {
 				metadata: { id: "session-1", createdAt: "now" },
 			}),
 		);
+		const tool = (name: string) => ({
+			name,
+			label: name,
+			description: "fixture",
+			parameters: {
+				type: "object",
+				properties: { value: { type: "string" } },
+				required: ["value"],
+			},
+			execute: async (_id: string, args: any) => ({
+				content: [{ type: "text", text: args.value }],
+				details: { native: "\ud800" },
+			}),
+		});
 		const harness = new AgentHarness({
 			models,
 			session,
 			env: new NodeExecutionEnv({ cwd: "/tmp" }),
 			model: faux.getModel(),
+			tools: request.scenario.startsWith("tool") ? [tool("lookup")] : [],
 			streamOptions: request.streamOptions,
 			steeringMode: request.mode ?? "one-at-a-time",
 			followUpMode: request.mode ?? "one-at-a-time",
@@ -227,6 +255,46 @@ async function main(): Promise<void> {
 				results.push("first");
 			});
 		}
+		if (request.scenario.startsWith("payload")) {
+			harness.on("before_provider_payload", () => {
+				if (request.scenario === "payload-error")
+					throw new Error("payload\ud800");
+				return { payload: undefined };
+			});
+			harness.on("before_provider_payload", (event: any) => {
+				results.push({ payloadStage: 2, present: event.payload !== undefined });
+				return { payload: { finish: "\udc00" } };
+			});
+		}
+		if (request.treeHook)
+			harness.on("session_before_tree", () => request.treeHook);
+		if (request.compactHook)
+			harness.on("session_before_compact", () => request.compactHook);
+		if (request.scenario.startsWith("tool")) {
+			harness.on("tool_call", (event: any) => {
+				results.push({ hook: "call", input: event.input });
+				return request.scenario === "tool-block"
+					? { block: true, reason: "blocked\ud800" }
+					: undefined;
+			});
+			harness.on("tool_result", (event: any) => {
+				results.push({
+					hook: "result",
+					input: event.input,
+					content: event.content,
+					details: event.details,
+					isError: event.isError,
+				});
+				return request.scenario === "tool-terminate"
+					? {
+							content: [{ type: "text", text: "patched\udc00" }],
+							details: null,
+							isError: true,
+							terminate: true,
+						}
+					: undefined;
+			});
+		}
 		for (const operation of request.operations ?? [
 			{ op: "prompt", text: "hello\ud800" },
 		]) {
@@ -263,10 +331,40 @@ async function main(): Promise<void> {
 						value = clean(await harness.abort());
 						break;
 					case "compact":
-						value = clean(await harness.compact());
+						value = clean(await harness.compact(operation.instructions));
 						break;
 					case "navigate":
-						value = clean(await harness.navigateTree(operation.id));
+						value = clean(
+							await harness.navigateTree(operation.id, operation.options),
+						);
+						if (value.summaryEntry)
+							value.summaryEntry = entryValue(value.summaryEntry);
+						break;
+					case "active":
+						await harness.setActiveTools(operation.names);
+						value = null;
+						break;
+					case "tools":
+						await harness.setTools(operation.names.map(tool), operation.active);
+						value = null;
+						break;
+					case "settings":
+						await harness.setModel({ ...faux.getModel(), name: "changed" });
+						await harness.setThinkingLevel("low");
+						await harness.setResources({
+							promptTemplates: [{ name: "new", content: "native\udc00" }],
+						});
+						await harness.setSteeringMode("all");
+						await harness.setFollowUpMode("all");
+						value = {
+							modelName: harness.getModel().name,
+							tools: harness.getTools().map((tool: any) => tool.name),
+							active: harness.getActiveTools().map((tool: any) => tool.name),
+							resources: harness.getResources(),
+							streamOptions: harness.getStreamOptions(),
+							steering: harness.getSteeringMode(),
+							followUp: harness.getFollowUpMode(),
+						};
 						break;
 					default:
 						throw new Error(`unsupported fixture operation: ${operation.op}`);
