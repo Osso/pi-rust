@@ -1,5 +1,6 @@
 //! `core/detached-job-runner.ts` behavioral tests.
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::fs;
 use std::sync::Arc;
 
@@ -52,19 +53,19 @@ fn fixture(owner_session_id: &str) -> Fixture {
     let session_path = directory.path().join("session.jsonl").to_string_lossy().into_owned();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
-        control_db_path: control_db_path.clone(),
-        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
-        now: Arc::new(|| NOW.to_owned()),
+        control_db_path: control_db_path.clone().into(),
+        create_agent_id: Arc::new(|| Ok("unused".into())),
+        now: Arc::new(|| NOW.into()),
         process_identity: current_identity(),
-        session_path: session_path.clone(),
+        session_path: session_path.clone().into(),
     }));
     let controller = DetachedJobLifecycleController::new(DetachedJobLifecycleControllerOptions {
-        artifact_root: root,
-        control_db_path: control_db_path.clone(),
+        artifact_root: root.into(),
+        control_db_path: control_db_path.clone().into(),
         coordinator,
         owner_agent_id: None,
-        owner_session_id: owner_session_id.to_owned(),
-        session_path: session_path.clone(),
+        owner_session_id: owner_session_id.into(),
+        session_path: session_path.clone().into(),
         store: Arc::clone(&store),
         write_bash_launch_manifest: None,
     });
@@ -77,16 +78,16 @@ fn fixture(owner_session_id: &str) -> Fixture {
     }
 }
 
-fn register_bash(fixture: &Fixture, job_id: &str, identity: ProcessIdentity) -> DetachedJobOwnership {
+fn register_bash(fixture: &Fixture, job_id: &JsString, identity: ProcessIdentity) -> DetachedJobOwnership {
     fixture
         .controller
         .register(&RegisterDetachedJobInput {
             agent_type: DetachedJobAgentType::Bash,
-            cwd: "/repo".to_owned(),
-            display_name: "Bash command".to_owned(),
-            job_id: job_id.to_owned(),
+            cwd: "/repo".into(),
+            display_name: "Bash command".into(),
+            job_id: job_id.into(),
             process_identity: identity,
-            worker_handle_id: "runner".to_owned(),
+            worker_handle_id: "runner".into(),
             tool_call_id: None,
             detached: None,
             file_refs: None,
@@ -99,12 +100,12 @@ fn builds_an_immutable_terminal_input_from_the_completed_output_artifact() {
     let directory = tempfile::tempdir().expect("temp dir");
     let root = directory.path().to_string_lossy().into_owned();
     let artifacts = create_detached_job_artifacts(&root, "job-1").expect("artifacts");
-    fs::write(&artifacts.output_path, "stdout\nstderr\n").expect("output");
+    fs::write(&encode_node_utf8(&artifacts.output_path), "stdout\nstderr\n").expect("output");
     let identity = pi_coding_agent::core::detached_job_runner::DetachedJobOwnershipIdentity {
-        job_id: "job-1".to_owned(),
+        job_id: "job-1".into(),
         owner: pi_coding_agent::core::session_control_db::MultiAgentRuntimeOwnerIdentity {
             agent_id: None,
-            session_id: "supervisor-1".to_owned(),
+            session_id: "supervisor-1".into(),
         },
         process_identity: test_process_identity("runtime-1"),
         output_label: "Bash output".into(),
@@ -114,9 +115,9 @@ fn builds_an_immutable_terminal_input_from_the_completed_output_artifact() {
         &identity,
         DetachedJobOutcome::Completed {
             exit_code: Some(0),
-            summary: Some("done".to_owned()),
+            summary: Some("done".into()),
         },
-        "2026-07-11T22:00:00.000Z",
+        &JsString::from("2026-07-11T22:00:00.000Z"),
         Some(1_234),
         None,
     )
@@ -146,8 +147,14 @@ fn rejects_job_ids_that_escape_their_artifact_root() {
 #[test]
 fn rejects_an_existing_detached_job_directory_before_runner_launch() {
     let fixture = fixture("supervisor-1");
-    fixture.controller.create_artifacts("agent_1").expect("first");
-    let error = fixture.controller.create_artifacts("agent_1").expect_err("exists");
+    fixture
+        .controller
+        .create_artifacts(&JsString::from("agent_1"))
+        .expect("first");
+    let error = fixture
+        .controller
+        .create_artifacts(&JsString::from("agent_1"))
+        .expect_err("exists");
     assert!(matches!(error, DetachedJobError::ArtifactExists(_)));
     assert!(error.to_string().contains("already exists"));
 }
@@ -158,8 +165,14 @@ fn isolates_reused_agent_ids_by_supervisor_session() {
     let root = first_directory.path().to_string_lossy().into_owned();
     let first = fixture_in_root(&root, "session-1.jsonl", "supervisor-1");
     let second = fixture_in_root(&root, "session-2.jsonl", "supervisor-2");
-    let first_artifacts = first.controller.create_artifacts("agent_1").expect("first");
-    let second_artifacts = second.controller.create_artifacts("agent_1").expect("second");
+    let first_artifacts = first
+        .controller
+        .create_artifacts(&JsString::from("agent_1"))
+        .expect("first");
+    let second_artifacts = second
+        .controller
+        .create_artifacts(&JsString::from("agent_1"))
+        .expect("second");
     assert_ne!(first_artifacts.directory, second_artifacts.directory);
     assert!(first_artifacts.directory.contains("session-1"));
     assert!(second_artifacts.directory.contains("session-2"));
@@ -176,19 +189,19 @@ fn fixture_in_root(root: &str, session_name: &str, owner_session_id: &str) -> Fi
         .into_owned();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
-        control_db_path: control_db_path.clone(),
-        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
-        now: Arc::new(|| NOW.to_owned()),
+        control_db_path: control_db_path.clone().into(),
+        create_agent_id: Arc::new(|| Ok("unused".into())),
+        now: Arc::new(|| NOW.into()),
         process_identity: current_identity(),
-        session_path: session_path.clone(),
+        session_path: session_path.clone().into(),
     }));
     let controller = DetachedJobLifecycleController::new(DetachedJobLifecycleControllerOptions {
-        artifact_root: root.to_owned(),
-        control_db_path,
+        artifact_root: root.into(),
+        control_db_path: control_db_path.into(),
         coordinator,
         owner_agent_id: None,
-        owner_session_id: owner_session_id.to_owned(),
-        session_path,
+        owner_session_id: owner_session_id.into(),
+        session_path: session_path.into(),
         store: Arc::clone(&store),
         write_bash_launch_manifest: None,
     });
@@ -204,8 +217,11 @@ fn fixture_in_root(root: &str, session_name: &str, owner_session_id: &str) -> Fi
 #[test]
 fn reserves_distinct_jobs_without_reusing_retained_artifact_directories() {
     let fixture = fixture("supervisor-1");
-    let retained = fixture.controller.create_artifacts("bash_1").expect("retained");
-    let marker_path = std::path::Path::new(&retained.directory).join("retained-marker");
+    let retained = fixture
+        .controller
+        .create_artifacts(&JsString::from("bash_1"))
+        .expect("retained");
+    let marker_path = std::path::Path::new(&encode_node_utf8(&retained.directory)).join("retained-marker");
     fs::write(&marker_path, "preserve this evidence").expect("marker");
 
     let first = fixture
@@ -221,13 +237,13 @@ fn reserves_distinct_jobs_without_reusing_retained_artifact_directories() {
     assert_ne!(first.artifacts.directory, retained.directory);
     assert_ne!(first.artifacts.directory, second.artifacts.directory);
     assert_ne!(first.artifacts.output_path, second.artifacts.output_path);
-    assert!(std::path::Path::new(&first.artifacts.directory).exists());
-    assert!(std::path::Path::new(&second.artifacts.directory).exists());
+    assert!(std::path::Path::new(&encode_node_utf8(&first.artifacts.directory)).exists());
+    assert!(std::path::Path::new(&encode_node_utf8(&second.artifacts.directory)).exists());
     assert_eq!(
         fs::read_to_string(&marker_path).expect("marker"),
         "preserve this evidence"
     );
-    assert!(std::path::Path::new(&retained.directory).exists());
+    assert!(std::path::Path::new(&encode_node_utf8(&retained.directory)).exists());
 }
 
 #[test]
@@ -238,31 +254,33 @@ fn preserves_retained_artifacts_when_launch_manifest_persistence_fails() {
     let session_path = directory.path().join("session.jsonl").to_string_lossy().into_owned();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
-        control_db_path: control_db_path.clone(),
-        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
-        now: Arc::new(|| NOW.to_owned()),
+        control_db_path: control_db_path.clone().into(),
+        create_agent_id: Arc::new(|| Ok("unused".into())),
+        now: Arc::new(|| NOW.into()),
         process_identity: current_identity(),
-        session_path: session_path.clone(),
+        session_path: session_path.clone().into(),
     }));
     let controller = DetachedJobLifecycleController::new(DetachedJobLifecycleControllerOptions {
-        artifact_root: root,
-        control_db_path,
+        artifact_root: root.into(),
+        control_db_path: control_db_path.into(),
         coordinator,
         owner_agent_id: None,
-        owner_session_id: "supervisor-1".to_owned(),
-        session_path,
+        owner_session_id: "supervisor-1".into(),
+        session_path: session_path.into(),
         store: Arc::clone(&store),
-        write_bash_launch_manifest: Some(Arc::new(|_, _| Err("manifest disk failure".to_owned()))),
+        write_bash_launch_manifest: Some(Arc::new(|_, _| Err("manifest disk failure".into()))),
     });
-    let retained = controller.create_artifacts("bash_1").expect("retained");
-    let marker_path = std::path::Path::new(&retained.directory).join("retained-marker");
+    let retained = controller
+        .create_artifacts(&JsString::from("bash_1"))
+        .expect("retained");
+    let marker_path = std::path::Path::new(&encode_node_utf8(&retained.directory)).join("retained-marker");
     fs::write(&marker_path, "preserve this evidence").expect("marker");
 
     let error = controller
         .launch_bash(&pi_coding_agent::core::detached_job_runner::LaunchDetachedBashInput {
-            args: vec!["-e".to_owned(), "setInterval(() => {}, 1000)".to_owned()],
-            command: "/bin/sh".to_owned(),
-            cwd: "/repo".to_owned(),
+            args: vec!["-e".into(), "setInterval(() => {}, 1000)".into()],
+            command: "/bin/sh".into(),
+            cwd: "/repo".into(),
             env: Vec::new(),
             timeout_ms: None,
             tool_call_id: None,
@@ -285,11 +303,11 @@ fn binds_preallocated_artifacts_ownership_projection_and_exact_finalization() {
         .controller
         .register(&RegisterDetachedJobInput {
             agent_type: DetachedJobAgentType::Bash,
-            cwd: "/repo".to_owned(),
-            display_name: "Bash command".to_owned(),
+            cwd: "/repo".into(),
+            display_name: "Bash command".into(),
             job_id: job_id.clone(),
             process_identity: test_process_identity("runner"),
-            worker_handle_id: "123".to_owned(),
+            worker_handle_id: "123".into(),
             tool_call_id: None,
             detached: None,
             file_refs: None,
@@ -307,15 +325,15 @@ fn binds_preallocated_artifacts_ownership_projection_and_exact_finalization() {
         pi_coding_agent::core::multi_agent_store::AgentLifecycle::Running
     );
 
-    fs::write(&artifacts.output_path, "done").expect("output");
+    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let terminal = create_detached_job_terminal_input(
         &artifacts,
         &ownership.identity,
         DetachedJobOutcome::Completed {
             exit_code: Some(0),
-            summary: Some("done".to_owned()),
+            summary: Some("done".into()),
         },
-        "2026-07-11T22:00:30.000Z",
+        &JsString::from("2026-07-11T22:00:30.000Z"),
         None,
         None,
     )
@@ -323,7 +341,7 @@ fn binds_preallocated_artifacts_ownership_projection_and_exact_finalization() {
     let finalized = finalize_detached_job(
         &fixture.control_db_path,
         &FinalizeDetachedJobInput {
-            session_path: fixture.session_path.clone(),
+            session_path: fixture.session_path.clone().into(),
             terminal,
         },
     )
@@ -350,37 +368,37 @@ fn finds_the_active_bash_attempt_for_a_repeated_tool_call() {
         .controller
         .register(&RegisterDetachedJobInput {
             agent_type: DetachedJobAgentType::Bash,
-            cwd: "/repo".to_owned(),
-            display_name: "Bash command".to_owned(),
+            cwd: "/repo".into(),
+            display_name: "Bash command".into(),
             job_id: first_job_id.clone(),
             process_identity: test_process_identity("runner-first"),
-            worker_handle_id: "runner-first".to_owned(),
-            tool_call_id: Some(tool_call_id.to_owned()),
+            worker_handle_id: "runner-first".into(),
+            tool_call_id: Some(tool_call_id.into()),
             detached: None,
             file_refs: None,
         })
         .expect("register");
-    fs::write(&first_artifacts.output_path, "failed").expect("output");
+    fs::write(&encode_node_utf8(&first_artifacts.output_path), "failed").expect("output");
     let terminal = create_detached_job_terminal_input(
         &first_artifacts,
         &first.identity,
         DetachedJobOutcome::Failed {
             error: pi_coding_agent::core::multi_agent_store::AgentError {
-                message: "failed".to_owned(),
-                code: Some("exit_nonzero".to_owned()),
+                message: "failed".into(),
+                code: Some("exit_nonzero".into()),
             },
             exit_code: None,
         },
-        "2026-07-11T22:00:10.000Z",
+        &JsString::from("2026-07-11T22:00:10.000Z"),
         None,
-        Some(tool_call_id),
+        Some(&JsString::from(tool_call_id)),
     )
     .expect("terminal");
     assert!(matches!(
         finalize_detached_job(
             &fixture.control_db_path,
             &FinalizeDetachedJobInput {
-                session_path: fixture.session_path.clone(),
+                session_path: fixture.session_path.clone().into(),
                 terminal,
             },
         )
@@ -394,12 +412,12 @@ fn finds_the_active_bash_attempt_for_a_repeated_tool_call() {
         .controller
         .register(&RegisterDetachedJobInput {
             agent_type: DetachedJobAgentType::Bash,
-            cwd: "/repo".to_owned(),
-            display_name: "Bash command".to_owned(),
+            cwd: "/repo".into(),
+            display_name: "Bash command".into(),
             job_id: current_job_id.clone(),
             process_identity: test_process_identity("runner-current"),
-            worker_handle_id: "runner-current".to_owned(),
-            tool_call_id: Some(tool_call_id.to_owned()),
+            worker_handle_id: "runner-current".into(),
+            tool_call_id: Some(tool_call_id.into()),
             detached: None,
             file_refs: None,
         })
@@ -407,13 +425,13 @@ fn finds_the_active_bash_attempt_for_a_repeated_tool_call() {
     assert!(matches!(
         fixture
             .controller
-            .cancel(&current, Some("cancel current attempt"))
+            .cancel(&current, Some(&JsString::from("cancel current attempt")))
             .expect("cancel"),
         LifecycleCommandResult::Ok { .. }
     ));
     let found = fixture
         .controller
-        .find_bash_job_by_tool_call_id(tool_call_id)
+        .find_bash_job_by_tool_call_id(&JsString::from(tool_call_id))
         .expect("find")
         .expect("candidate");
     assert_eq!(found.id, current_job_id);
@@ -431,7 +449,7 @@ fn requests_detached_cancellation_and_publishes_cancelling_state() {
     let ownership = register_bash(&fixture, &job_id, test_process_identity("runner"));
     let cancelled = fixture
         .controller
-        .cancel(&ownership, Some("user requested"))
+        .cancel(&ownership, Some(&JsString::from("user requested")))
         .expect("cancel");
     let LifecycleCommandResult::Ok { agent } = cancelled else {
         panic!("expected cancellation");
@@ -501,7 +519,7 @@ fn observes_and_publishes_a_terminal_snapshot_committed_by_an_external_runner() 
     let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     let artifacts = fixture.controller.create_artifacts(&job_id).expect("artifacts");
     let ownership = register_bash(&fixture, &job_id, test_process_identity("runner"));
-    fs::write(&artifacts.output_path, "done").expect("output");
+    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let terminal = create_detached_job_terminal_input(
         &artifacts,
         &ownership.identity,
@@ -509,7 +527,7 @@ fn observes_and_publishes_a_terminal_snapshot_committed_by_an_external_runner() 
             exit_code: Some(0),
             summary: None,
         },
-        "2026-07-11T22:00:30.000Z",
+        &JsString::from("2026-07-11T22:00:30.000Z"),
         None,
         None,
     )
@@ -518,7 +536,7 @@ fn observes_and_publishes_a_terminal_snapshot_committed_by_an_external_runner() 
         finalize_detached_job(
             &fixture.control_db_path,
             &FinalizeDetachedJobInput {
-                session_path: fixture.session_path.clone(),
+                session_path: fixture.session_path.clone().into(),
                 terminal,
             },
         )
@@ -544,10 +562,10 @@ fn register_listener(fixture: &Fixture, owner_session_id: &str) {
         &fixture.control_db_path,
         &RuntimeMailboxAddress {
             agent_id: None,
-            session_id: owner_session_id.to_owned(),
+            session_id: owner_session_id.into(),
         },
         identity.pid,
-        Some(&fixture.session_path),
+        Some(&JsString::from(&fixture.session_path)),
         RuntimeMailboxRegistrationOptions {
             runtime_instance_id: Some(pi_coding_agent::core::session_control_db::serialize_process_identity(
                 &identity,
@@ -561,7 +579,10 @@ fn register_listener(fixture: &Fixture, owner_session_id: &str) {
 #[test]
 fn artifact_paths_are_scoped_under_the_detached_jobs_root() {
     let fixture = fixture("supervisor-1");
-    let artifacts: DetachedJobArtifacts = fixture.controller.create_artifacts("bash_1").expect("artifacts");
+    let artifacts: DetachedJobArtifacts = fixture
+        .controller
+        .create_artifacts(&JsString::from("bash_1"))
+        .expect("artifacts");
     assert!(artifacts.directory.ends_with("detached-jobs/session/bash_1"));
     assert!(
         artifacts

@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -8,21 +9,26 @@ use pi_coding_agent::core::detached_job_bootstrap::{
 
 struct Fixture {
     directory: tempfile::TempDir,
-    output: PathBuf,
-    identity: PathBuf,
+    output: JsString,
+    identity: JsString,
+    cwd: JsString,
+    command: JsString,
     marker: PathBuf,
 }
 
 impl Fixture {
     fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let output = directory.path().join("job.output");
-        let identity = directory.path().join("payload.json");
+        let output = JsString::from(directory.path().join("job.output").to_str().unwrap());
+        let identity = JsString::from(directory.path().join("payload.json").to_str().unwrap());
+        let cwd = JsString::from(directory.path().to_str().unwrap());
         let marker = directory.path().join("payload-ran");
         Self {
             directory,
             output,
             identity,
+            cwd,
+            command: "/bin/sh".into(),
             marker,
         }
     }
@@ -31,12 +37,12 @@ impl Fixture {
         self.directory.path()
     }
 
-    fn output(&self) -> &Path {
-        &self.output
+    fn output(&self) -> PathBuf {
+        encode_node_utf8(&self.output).into()
     }
 
-    fn identity(&self) -> &Path {
-        &self.identity
+    fn identity(&self) -> PathBuf {
+        encode_node_utf8(&self.identity).into()
     }
 
     fn marker(&self) -> &Path {
@@ -44,23 +50,22 @@ impl Fixture {
     }
 }
 
-fn payload_input<'a>(fixture: &'a Fixture, args: &'a [String]) -> GatedDetachedPayloadInput<'a> {
-    let _ = fixture;
+fn payload_input<'a>(fixture: &'a Fixture, args: &'a [JsString]) -> GatedDetachedPayloadInput<'a> {
     GatedDetachedPayloadInput {
         args,
-        command: "/bin/sh",
-        cwd: fixture.root(),
+        command: &fixture.command,
+        cwd: &fixture.cwd,
         env: None,
-        identity_path: fixture.identity(),
-        stderr_path: fixture.output(),
-        stdout_path: fixture.output(),
+        identity_path: &fixture.identity,
+        stderr_path: &fixture.output,
+        stdout_path: &fixture.output,
     }
 }
 
-fn payload_args(fixture: &Fixture) -> Vec<String> {
+fn payload_args(fixture: &Fixture) -> Vec<JsString> {
     vec![
-        "-c".to_owned(),
-        format!("printf ran > '{}'; printf output", fixture.marker().to_string_lossy()),
+        "-c".into(),
+        pi_js_compat::js_format!("printf ran > '{}'; printf output", fixture.marker().to_str().unwrap()),
     ]
 }
 
@@ -145,9 +150,9 @@ async fn refuses_a_second_release() {
 async fn rejects_split_output_files() {
     let fixture = Fixture::new();
     let args = payload_args(&fixture);
-    let stderr = fixture.root().join("stderr.output");
+    let stderr = JsString::from(fixture.root().join("stderr.output").to_str().unwrap());
     let mut input = payload_input(&fixture, &args);
-    input.stderr_path = stderr.as_path();
+    input.stderr_path = &stderr;
     assert_eq!(
         spawn_gated_detached_payload(&input)
             .expect_err("split output must be rejected")
@@ -168,10 +173,10 @@ async fn rejects_an_existing_output_file() {
 #[tokio::test]
 async fn reports_an_unusable_cwd_as_a_spawn_failure() {
     let fixture = Fixture::new();
-    let args: Vec<String> = Vec::new();
-    let missing_cwd = fixture.root().join("missing-cwd");
+    let args: Vec<JsString> = Vec::new();
+    let missing_cwd = JsString::from(fixture.root().join("missing-cwd").to_str().unwrap());
     let mut input = payload_input(&fixture, &args);
-    input.cwd = missing_cwd.as_path();
+    input.cwd = &missing_cwd;
     assert_eq!(
         spawn_gated_detached_payload(&input)
             .expect_err("missing cwd must fail")
@@ -183,9 +188,10 @@ async fn reports_an_unusable_cwd_as_a_spawn_failure() {
 #[tokio::test]
 async fn a_missing_command_fails_inside_the_shell_after_release() {
     let fixture = Fixture::new();
-    let args: Vec<String> = Vec::new();
+    let args: Vec<JsString> = Vec::new();
+    let command = JsString::from("/nonexistent/pi-detached");
     let mut input = payload_input(&fixture, &args);
-    input.command = "/nonexistent/pi-detached";
+    input.command = &command;
     let mut payload = spawn_gated_detached_payload(&input).expect("the shell always spawns");
     payload.persist_identity().unwrap();
     payload.release().unwrap();
@@ -200,12 +206,15 @@ fn install_child_executable(directory: &Path) {
     fs::set_permissions(&child, fs::Permissions::from_mode(0o700)).unwrap();
 }
 
-async fn run_to_exit(mut input: GatedDetachedPayloadInput<'_>, label: &str, root: &Path) -> Option<i32> {
-    let output = root.join(format!("{label}.output"));
-    let identity = root.join(format!("{label}.identity"));
-    input.stdout_path = output.as_path();
-    input.stderr_path = output.as_path();
-    input.identity_path = identity.as_path();
+async fn run_to_exit(input: GatedDetachedPayloadInput<'_>, label: &str, root: &Path) -> Option<i32> {
+    let output = JsString::from(root.join(format!("{label}.output")).to_str().unwrap());
+    let identity = JsString::from(root.join(format!("{label}.identity")).to_str().unwrap());
+    let input = GatedDetachedPayloadInput {
+        stdout_path: &output,
+        stderr_path: &output,
+        identity_path: &identity,
+        ..input
+    };
     let mut payload = spawn_gated_detached_payload(&input).expect("payload must spawn");
     payload.persist_identity().unwrap();
     payload.release().unwrap();
@@ -218,10 +227,12 @@ async fn resolves_a_relative_command_against_the_manifest_cwd() {
     let child_cwd = fixture.root().join("child");
     fs::create_dir(&child_cwd).unwrap();
     install_child_executable(&child_cwd);
-    let args: Vec<String> = Vec::new();
+    let args: Vec<JsString> = Vec::new();
+    let command = JsString::from("./pi-review-child");
+    let cwd = JsString::from(child_cwd.to_str().unwrap());
     let mut input = payload_input(&fixture, &args);
-    input.command = "./pi-review-child";
-    input.cwd = child_cwd.as_path();
+    input.command = &command;
+    input.cwd = &cwd;
     assert_eq!(run_to_exit(input, "child-cwd", fixture.root()).await, Some(0));
 }
 
@@ -231,11 +242,13 @@ async fn resolves_a_bare_command_against_the_manifest_path() {
     let child_cwd = fixture.root().join("child");
     fs::create_dir(&child_cwd).unwrap();
     install_child_executable(&child_cwd);
-    let args: Vec<String> = Vec::new();
-    let env = vec![("PATH".to_owned(), child_cwd.to_string_lossy().into_owned())];
+    let args: Vec<JsString> = Vec::new();
+    let env = vec![(JsString::from("PATH"), JsString::from(child_cwd.to_str().unwrap()))];
+    let command = JsString::from("pi-review-child");
+    let cwd = JsString::from(child_cwd.to_str().unwrap());
     let mut input = payload_input(&fixture, &args);
-    input.command = "pi-review-child";
-    input.cwd = child_cwd.as_path();
+    input.command = &command;
+    input.cwd = &cwd;
     input.env = Some(&env);
     assert_eq!(run_to_exit(input, "child-path", fixture.root()).await, Some(0));
 }
@@ -246,8 +259,8 @@ async fn replaces_the_child_environment_with_the_manifest_environment() {
     pi_js_compat::process_env::set(PARENT_ONLY, "parent-marker");
     let fixture = Fixture::new();
     let script = format!("printf '%s|%s' \"${{{PARENT_ONLY}-unset}}\" \"${{PI_AUDIT_MANIFEST_ONLY-unset}}\"");
-    let args = vec!["-c".to_owned(), script];
-    let env = vec![("PI_AUDIT_MANIFEST_ONLY".to_owned(), "manifest-marker".to_owned())];
+    let args: Vec<JsString> = vec!["-c".into(), script.into()];
+    let env = vec![("PI_AUDIT_MANIFEST_ONLY".into(), "manifest-marker".into())];
     let mut input = payload_input(&fixture, &args);
     input.env = Some(&env);
     assert_eq!(run_to_exit(input, "env", fixture.root()).await, Some(0));
@@ -262,7 +275,7 @@ async fn inherits_the_process_environment_when_the_manifest_has_none() {
     const PARENT_ONLY: &str = "PI_AUDIT_INHERITED";
     pi_js_compat::process_env::set(PARENT_ONLY, "inherited-marker");
     let fixture = Fixture::new();
-    let args = vec!["-c".to_owned(), format!("printf '%s' \"${{{PARENT_ONLY}-unset}}\"")];
+    let args: Vec<JsString> = vec!["-c".into(), format!("printf '%s' \"${{{PARENT_ONLY}-unset}}\"").into()];
     let input = payload_input(&fixture, &args);
     assert_eq!(run_to_exit(input, "inherit", fixture.root()).await, Some(0));
     assert_eq!(
@@ -274,7 +287,7 @@ async fn inherits_the_process_environment_when_the_manifest_has_none() {
 #[tokio::test]
 async fn gives_the_payload_a_closed_stdin_after_release() {
     let fixture = Fixture::new();
-    let args = vec!["-c".to_owned(), "read line || printf eof".to_owned()];
+    let args = vec!["-c".into(), "read line || printf eof".into()];
     let mut payload = spawn_gated_detached_payload(&payload_input(&fixture, &args)).unwrap();
     payload.persist_identity().unwrap();
     payload.release().unwrap();
@@ -290,7 +303,7 @@ fn process_stat_field(pid: u32, index: usize) -> String {
         .split_whitespace()
         .nth(index)
         .expect("stat field must exist")
-        .to_owned()
+        .into()
 }
 
 fn wait_for_session_leader(pid: u32) -> String {
