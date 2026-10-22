@@ -1,10 +1,11 @@
 //! Detached artifact retention (`core/detached-job-retention.ts`).
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::cmp::Ordering;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DetachedArtifactRetentionCandidate {
-    pub directory_path: String,
+    pub directory_path: JsString,
     pub byte_size: f64,
     pub terminal_at: f64,
     pub protected_by_live_reference: bool,
@@ -20,7 +21,7 @@ pub struct DetachedArtifactRetentionPolicy {
 pub fn select_detached_artifact_directories_to_delete(
     candidates: &[DetachedArtifactRetentionCandidate],
     policy: &DetachedArtifactRetentionPolicy,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<JsString>, JsString> {
     validate_retention_input(candidates, policy)?;
     let mut ordered = candidates.to_vec();
     ordered.sort_by(compare_candidates);
@@ -32,9 +33,10 @@ pub fn select_detached_artifact_directories_to_delete(
     ))
 }
 
-fn require_nonnegative_finite(value: f64, name: &str) -> Result<(), String> {
+fn require_nonnegative_finite(value: f64, name: impl Into<JsString>) -> Result<(), JsString> {
+    let name = name.into();
     if !value.is_finite() || value < 0.0 {
-        return Err(format!("{name} must be a nonnegative finite number"));
+        return Err(js_format!("{} must be a nonnegative finite number", name));
     }
     Ok(())
 }
@@ -42,18 +44,18 @@ fn require_nonnegative_finite(value: f64, name: &str) -> Result<(), String> {
 fn validate_retention_input(
     candidates: &[DetachedArtifactRetentionCandidate],
     policy: &DetachedArtifactRetentionPolicy,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     require_nonnegative_finite(policy.now, "Retention policy now")?;
     require_nonnegative_finite(policy.max_age, "Retention policy maximum age")?;
     require_nonnegative_finite(policy.max_bytes, "Retention policy maximum bytes")?;
     for candidate in candidates {
         require_nonnegative_finite(
             candidate.byte_size,
-            &format!("Artifact {} byte size", candidate.directory_path),
+            js_format!("Artifact {} byte size", candidate.directory_path),
         )?;
         require_nonnegative_finite(
             candidate.terminal_at,
-            &format!("Artifact {} terminal timestamp", candidate.directory_path),
+            js_format!("Artifact {} terminal timestamp", candidate.directory_path),
         )?;
     }
     Ok(())
@@ -66,7 +68,9 @@ fn compare_candidates(
     left.terminal_at
         .partial_cmp(&right.terminal_at)
         .unwrap_or(Ordering::Equal)
-        .then_with(|| pi_js_compat::locale_compare(&left.directory_path, &right.directory_path))
+        .then_with(|| {
+            pi_js_compat::collator::locale_compare_utf16(left.directory_path.units(), right.directory_path.units())
+        })
 }
 
 fn find_expired_candidates(
@@ -87,20 +91,20 @@ fn select_expired_and_over_cap_candidates(
     ordered_candidates: &[DetachedArtifactRetentionCandidate],
     expired_candidates: &[DetachedArtifactRetentionCandidate],
     max_bytes: f64,
-) -> Vec<String> {
-    let expired_paths: Vec<&str> = expired_candidates
+) -> Vec<JsString> {
+    let expired_paths: Vec<&JsString> = expired_candidates
         .iter()
-        .map(|candidate| candidate.directory_path.as_str())
+        .map(|candidate| &candidate.directory_path)
         .collect();
     let expired_bytes: f64 = expired_candidates.iter().map(|candidate| candidate.byte_size).sum();
     let total_bytes: f64 = ordered_candidates.iter().map(|candidate| candidate.byte_size).sum();
     let mut retained_bytes = total_bytes - expired_bytes;
-    let mut paths_to_delete: Vec<String> = expired_paths.iter().map(|path| (*path).to_owned()).collect();
+    let mut paths_to_delete: Vec<JsString> = expired_paths.iter().map(|path| (*path).to_owned()).collect();
     for candidate in ordered_candidates {
         if retained_bytes <= max_bytes {
             break;
         }
-        if candidate.protected_by_live_reference || expired_paths.contains(&candidate.directory_path.as_str()) {
+        if candidate.protected_by_live_reference || expired_paths.contains(&&candidate.directory_path) {
             continue;
         }
         paths_to_delete.push(candidate.directory_path.clone());
