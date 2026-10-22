@@ -9,11 +9,12 @@ use pi_coding_agent::core::multi_agent_store::{
     AgentSnapshot, ContactParentInput, MultiAgentStore, MultiAgentStoreOptions, RecordOutboundSessionMessageInput,
     SendMailboxMessageInput,
 };
-use serde_json::{Value, json};
+use pi_js_compat::js_json::{JsString, JsValue as Value};
+use pi_js_compat::{js_json, js_json as json};
 
 fn store() -> MultiAgentStore {
     MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".to_owned())),
+        now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".into())),
     })
 }
 
@@ -32,15 +33,15 @@ fn agent(id: &str, parent: Option<&str>, lifecycle: &str, revision: i64) -> Valu
     })
 }
 
-fn to_value<T: serde::Serialize>(value: T) -> Result<Value, String> {
-    serde_json::to_value(value).map_err(|error| error.to_string())
+fn to_value<T: serde::Serialize>(value: T) -> Result<Value, JsString> {
+    js_json::to_value(&value).map_err(|error| JsString::from(error.to_string()))
 }
 
-fn parse_agent(value: &Value) -> Result<AgentSnapshot, String> {
-    serde_json::from_value(value.clone()).map_err(|error| error.to_string())
+fn parse_agent(value: &Value) -> Result<AgentSnapshot, JsString> {
+    js_json::from_value(&value.clone()).map_err(|error| JsString::from(error.to_string()))
 }
 
-fn execute(store: &MultiAgentStore, op: &str, args: &[Value]) -> Result<Value, String> {
+fn execute(store: &MultiAgentStore, op: &str, args: &[Value]) -> Result<Value, JsString> {
     match op {
         "publishLifecycleCoordinatorSnapshot" => {
             store
@@ -61,35 +62,35 @@ fn execute(store: &MultiAgentStore, op: &str, args: &[Value]) -> Result<Value, S
             Ok(Value::Null)
         }
         "publishAgentModel" => {
-            let model = serde_json::from_value(args[1].clone()).map_err(|e| e.to_string())?;
+            let model = js_json::from_value(&args[1].clone()).map_err(|e| JsString::from(e.to_string()))?;
             to_value(
                 store
-                    .publish_agent_model(args[0].as_str().ok_or("id")?, &model, None)
+                    .publish_agent_model(args[0].as_string().ok_or("id")?, &model, None)
                     .map_err(|e| e.message)?,
             )
         }
         "publishAgentCurrentActivity" => {
-            let activity = serde_json::from_value(args[1].clone()).map_err(|e| e.to_string())?;
+            let activity = js_json::from_value(&args[1].clone()).map_err(|e| JsString::from(e.to_string()))?;
             let model = args
                 .get(3)
                 .filter(|v| !v.is_null())
-                .map(|v| serde_json::from_value(v.clone()))
+                .map(|v| js_json::from_value(&v.clone()))
                 .transpose()
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| JsString::from(e.to_string()))?;
             to_value(
                 store
-                    .publish_agent_current_activity(args[0].as_str().ok_or("id")?, activity, None, model.as_ref())
+                    .publish_agent_current_activity(args[0].as_string().ok_or("id")?, activity, None, model.as_ref())
                     .map_err(|e| e.message)?,
             )
         }
         "listAgents" => to_value(store.list_agents()),
-        "listDescendants" => to_value(store.list_descendants(args[0].as_str().ok_or("parent")?)),
-        "selectAgentView" => to_value(store.select_agent_view(args[0].as_str().ok_or("id")?)),
-        "selectAgentViewWithStatus" => to_value(store.select_agent_view_with_status(args[0].as_str().ok_or("id")?)),
+        "listDescendants" => to_value(store.list_descendants(args[0].as_string().ok_or("parent")?)),
+        "selectAgentView" => to_value(store.select_agent_view(args[0].as_string().ok_or("id")?)),
+        "selectAgentViewWithStatus" => to_value(store.select_agent_view_with_status(args[0].as_string().ok_or("id")?)),
         "selectActiveAgentTargetWithStatus" => {
-            to_value(store.select_active_agent_target_with_status(args[0].as_str().ok_or("id")?))
+            to_value(store.select_active_agent_target_with_status(args[0].as_string().ok_or("id")?))
         }
-        "selectAgentSlot" => to_value(store.select_agent_slot(args[0].as_i64().ok_or("slot")?)),
+        "selectAgentSlot" => to_value(store.select_agent_slot(args[0].as_f64().ok_or("slot")? as i64)),
         "getSelectedAgentId" => to_value(store.get_selected_agent_id()),
         "clearSelectedAgentView" => {
             store.clear_selected_agent_view();
@@ -100,42 +101,46 @@ fn execute(store: &MultiAgentStore, op: &str, args: &[Value]) -> Result<Value, S
         "pinAgentSlot" => to_value(
             store
                 .pin_agent_slot(
-                    args[0].as_str().ok_or("id")?,
-                    args[1].as_i64().ok_or("revision")?,
-                    args[2].as_i64().ok_or("slot")?,
+                    args[0].as_string().ok_or("id")?,
+                    args[1].as_f64().ok_or("revision")? as i64,
+                    args[2].as_f64().ok_or("slot")? as i64,
                 )
                 .map_err(|error| error.message.clone())?,
         ),
         "clearAgentSlot" => to_value(
             store
-                .clear_agent_slot(args[0].as_str().ok_or("id")?, args[1].as_i64().ok_or("revision")?)
+                .clear_agent_slot(
+                    args[0].as_string().ok_or("id")?,
+                    args[1].as_f64().ok_or("revision")? as i64,
+                )
                 .map_err(|error| error.message.clone())?,
         ),
         "updateAgentTranscript" => {
-            let transcript = serde_json::from_value(args[1].clone()).map_err(|error| error.to_string())?;
+            let transcript =
+                js_json::from_value(&args[1].clone()).map_err(|error| JsString::from(error.to_string()))?;
             to_value(
                 store
-                    .update_agent_transcript(args[0].as_str().ok_or("id")?, &transcript)
+                    .update_agent_transcript(args[0].as_string().ok_or("id")?, &transcript)
                     .map_err(|error| error.message.clone())?,
             )
         }
         "contactParent" => {
             let input: ContactParentInput =
-                serde_json::from_value(args[1].clone()).map_err(|error| error.to_string())?;
+                js_json::from_value(&args[1].clone()).map_err(|error| JsString::from(error.to_string()))?;
             to_value(
                 store
-                    .contact_parent(args[0].as_str().ok_or("id")?, &input)
+                    .contact_parent(args[0].as_string().ok_or("id")?, &input)
                     .map_err(|error| error.message.clone())?,
             )
         }
         "sendMailboxMessage" => {
             let input: SendMailboxMessageInput =
-                serde_json::from_value(args[2].clone()).map_err(|error| error.to_string())?;
+                js_json::from_value(&args[2].clone()).map_err(|error| JsString::from(error.to_string()))?;
             to_value(
                 store
                     .send_mailbox_message(
-                        args[0].as_str().ok_or("id")?,
-                        args[1].as_i64().ok_or("revision")?,
+                        args[0].as_string().ok_or("id")?,
+                        args[1].as_f64().ok_or("revision")? as i64,
                         &input,
                     )
                     .map_err(|error| error.message.clone())?,
@@ -143,7 +148,7 @@ fn execute(store: &MultiAgentStore, op: &str, args: &[Value]) -> Result<Value, S
         }
         "sendMainThreadMailboxMessage" => {
             let input: SendMailboxMessageInput =
-                serde_json::from_value(args[0].clone()).map_err(|error| error.to_string())?;
+                js_json::from_value(&args[0].clone()).map_err(|error| JsString::from(error.to_string()))?;
             to_value(
                 store
                     .send_main_thread_mailbox_message(&input)
@@ -152,7 +157,7 @@ fn execute(store: &MultiAgentStore, op: &str, args: &[Value]) -> Result<Value, S
         }
         "recordOutboundSessionMessage" => {
             let input: RecordOutboundSessionMessageInput =
-                serde_json::from_value(args[0].clone()).map_err(|error| error.to_string())?;
+                js_json::from_value(&args[0].clone()).map_err(|error| JsString::from(error.to_string()))?;
             to_value(
                 store
                     .record_outbound_session_message(&input)
@@ -162,53 +167,65 @@ fn execute(store: &MultiAgentStore, op: &str, args: &[Value]) -> Result<Value, S
         "listMailboxMessages" => to_value(store.list_mailbox_messages().map_err(|e| e.message)?),
         "listPendingMailboxMessagesForAgent" => to_value(
             store
-                .list_pending_mailbox_messages_for_agent(args[0].as_str().ok_or("id")?)
+                .list_pending_mailbox_messages_for_agent(args[0].as_string().ok_or("id")?)
                 .map_err(|e| e.message)?,
         ),
         "markMailboxMessageDelivered" => to_value(
             store
-                .mark_mailbox_message_delivered(args[0].as_str().ok_or("id")?)
+                .mark_mailbox_message_delivered(args[0].as_string().ok_or("id")?)
                 .map_err(|e| e.message)?,
         ),
         "markMailboxMessageFailed" => to_value(
             store
-                .mark_mailbox_message_failed(args[0].as_str().ok_or("id")?, args[1].as_str().ok_or("error")?)
+                .mark_mailbox_message_failed(args[0].as_string().ok_or("id")?, args[1].as_string().ok_or("error")?)
                 .map_err(|e| e.message)?,
         ),
         "consumeCompletionNotificationsForAgent" => to_value(
             store
-                .consume_completion_notifications_for_agent(args[0].as_str().ok_or("id")?)
+                .consume_completion_notifications_for_agent(args[0].as_string().ok_or("id")?)
                 .map_err(|e| e.message)?,
         ),
         "consumeFailureNotificationsForAgent" => to_value(
             store
-                .consume_failure_notifications_for_agent(args[0].as_str().ok_or("id")?)
+                .consume_failure_notifications_for_agent(args[0].as_string().ok_or("id")?)
                 .map_err(|e| e.message)?,
         ),
         "listPendingLifecycleNotificationsForAgent" => {
-            let lifecycle = match args[1].as_str().ok_or("lifecycle")? {
+            let lifecycle = match args[1]
+                .as_string()
+                .ok_or("lifecycle")?
+                .to_utf8()
+                .expect("ASCII fixture lifecycle")
+                .as_str()
+            {
                 "completed" => pi_coding_agent::core::multi_agent_store::LifecycleNotificationLifecycle::Completed,
                 "failed" => pi_coding_agent::core::multi_agent_store::LifecycleNotificationLifecycle::Failed,
                 "waiting_for_input" => {
                     pi_coding_agent::core::multi_agent_store::LifecycleNotificationLifecycle::WaitingForInput
                 }
-                other => return Err(format!("unknown lifecycle {other}")),
+                other => return Err(pi_js_compat::js_format!("unknown lifecycle {}", other)),
             };
             to_value(
                 store
-                    .list_pending_lifecycle_notifications_for_agent(args[0].as_str().ok_or("id")?, lifecycle)
+                    .list_pending_lifecycle_notifications_for_agent(args[0].as_string().ok_or("id")?, lifecycle)
                     .map_err(|e| e.message)?,
             )
         }
         "getProjectionSnapshot" => to_value(store.get_projection_snapshot().map_err(|e| e.message)?),
-        "getAgent" => to_value(store.get_agent(args[0].as_str().ok_or("id")?)),
+        "getAgent" => to_value(store.get_agent(args[0].as_string().ok_or("id")?)),
         "allocateAgentIdForLifecycleCoordinator" => Ok(Value::String(
             store
-                .allocate_agent_id_for_lifecycle_coordinator(args[0].as_str().unwrap_or("agent"))
+                .allocate_agent_id_for_lifecycle_coordinator(
+                    args[0]
+                        .as_string()
+                        .map(|value| value.to_utf8().expect("ASCII fixture agent prefix"))
+                        .as_deref()
+                        .unwrap_or("agent"),
+                )
                 .map_err(|e| e.message)?,
         )),
         "getRestoreGeneration" => to_value(store.get_restore_generation()),
-        other => Err(format!("unsupported store operation {other}")),
+        other => Err(format!("unsupported store operation {other}").into()),
     }
 }
 
@@ -309,7 +326,7 @@ fn store_operation_scripts_match_the_pinned_typescript_module() {
         "now": "2026-06-21T00:00:00.000Z",
         "steps": steps,
     }));
-    assert_eq!(response["ok"], Value::Bool(true), "oracle failed: {response}");
+    assert_eq!(response["ok"], Value::Bool(true), "oracle failed: {response:?}");
     let oracle_outputs = response["output"].as_array().expect("output").clone();
     assert_eq!(oracle_outputs.len(), steps.len());
 
@@ -318,7 +335,11 @@ fn store_operation_scripts_match_the_pinned_typescript_module() {
         let expected = &oracle_outputs[index];
         let actual = execute(
             &store,
-            step["op"].as_str().expect("op"),
+            &step["op"]
+                .as_string()
+                .expect("op")
+                .to_utf8()
+                .expect("ASCII fixture operation name"),
             step["args"].as_array().expect("args"),
         );
         match (expected.get("ok"), actual) {
@@ -327,12 +348,12 @@ fn store_operation_scripts_match_the_pinned_typescript_module() {
                 // site (terminal notifications vs. parent contact vs. outbound records), so
                 // object key order is not part of the store contract; every consumer parses
                 // the JSON. Compare parsed values instead of serialized key order.
-                assert_eq!(expected["value"], value, "step {index} {} mismatch", step["op"]);
+                assert_eq!(expected["value"], value, "step {index} {:?} mismatch", step["op"]);
             }
             (Some(Value::Bool(false)), Err(error)) => {
                 assert_eq!(
-                    expected["error"]["message"].as_str(),
-                    Some(error.as_str()),
+                    expected["error"]["message"].as_string(),
+                    Some(&error),
                     "step {index} error mismatch"
                 );
             }
