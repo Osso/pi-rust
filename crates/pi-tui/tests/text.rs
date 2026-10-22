@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -37,7 +38,7 @@ fn wraps_words_and_expands_tabs() {
 
 #[test]
 fn applies_background_to_content_and_padding_lines() {
-    let background = Rc::new(|line: &str| format!("[{line}]"));
+    let background = Rc::new(|line: &JsString| JsString::from("[") + line + "]");
     let mut text = Text::with_background("hi", 1, 1, background);
     let lines = text.render(6);
 
@@ -66,9 +67,9 @@ fn background_change_invalidates_cache() {
     assert_eq!(text.render(3), vec!["x  ".to_string()]);
 
     let counter_ref = Rc::clone(&counter);
-    text.set_custom_bg_fn(Some(Rc::new(move |line: &str| {
+    text.set_custom_bg_fn(Some(Rc::new(move |line: &JsString| {
         counter_ref.set(counter_ref.get() + 1);
-        format!("({line})")
+        JsString::from("(") + line + ")"
     })));
     assert_eq!(text.render(3), vec!["(x  )".to_string()]);
     assert_eq!(calls.get(), 1);

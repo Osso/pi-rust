@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::tui::{Component, Focusable};
 use pi_tui::utils::visible_width;
@@ -11,8 +12,8 @@ fn submits_value_including_backslash_on_enter() {
     let mut input = input();
     let submitted = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let sink = std::rc::Rc::clone(&submitted);
-    input.on_submit = Some(std::rc::Rc::new(move |value: &str| {
-        sink.borrow_mut().push(value.to_string());
+    input.on_submit = Some(std::rc::Rc::new(move |value: &JsString| {
+        sink.borrow_mut().push(value.clone());
     }));
 
     for character in ["h", "e", "l", "l", "o", "\\"] {
