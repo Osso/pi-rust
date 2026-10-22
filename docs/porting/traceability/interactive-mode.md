@@ -2,6 +2,10 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## Native POSIX parse directory (2026-10-22)
+
+Frozen interactive-mode.ts:1561 uses `path.posix.parse`, whose bare-file directory is empty, not dirname's `.`. Native `parse_posix_path` now extracts the directory at the last non-trailing separator without normalization and preserves root/repeated separators. Existing `parsed_posix_paths_match_node_shape` reproduced bare-file `.` versus empty RED; added local Node-confirmed root/trailing/repeated/empty cases. No user-content encoding or filesystem access occurs in this helper.
+
 ## Native extension bridge checkpoint
 
 `UiRequest` and `InteractiveUiContext` dialog arguments/results, widget/status keys/content, title/editor text, custom errors and working/hidden labels retain `JsString` through queues and mounted dispatch. SelectAgentView IDs are native. No encoding adapter is added. In-module `lossless_ui_bridge_tests` covers raw status/widget/title/selection request-response units; compilation was RED in `/tmp/q18-ui-context-red.{jsonl,log}` and execution remains blocked by incomplete whole-mode/coding migration. Theme names and remaining scalar host callers are separate pending work; this checkpoint is not whole-mode acceptance.

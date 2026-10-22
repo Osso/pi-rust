@@ -793,8 +793,15 @@ struct ParsedPath {
 fn parse_posix_path(path: &JsString) -> ParsedPath {
     let base = node_basename(path);
     let extension = node_extname(&base);
+    let units = path.units();
+    let root_length = usize::from(units.first() == Some(&u16::from(b'/')));
+    let last_component_end = units.iter().rposition(|unit| *unit != u16::from(b'/'));
+    let directory_end = last_component_end
+        .and_then(|end| units[..=end].iter().rposition(|unit| *unit == u16::from(b'/')))
+        .unwrap_or(root_length)
+        .max(root_length);
     ParsedPath {
-        dir: node_dirname(path),
+        dir: path.slice(0, directory_end),
         name: base.slice(0, base.len() - extension.len()),
     }
 }
@@ -16028,6 +16035,16 @@ mod tests {
         assert_eq!(parse_posix_path(&JsString::from("subagents/index.ts")).dir, "subagents");
         assert_eq!(parse_posix_path(&JsString::from("subagents/index.ts")).name, "index");
         assert_eq!(parse_posix_path(&JsString::from("answer.ts")).name, "answer");
+        for (path, dir) in [
+            ("/a.ts", "/"),
+            ("foo//", ""),
+            ("//foo", "/"),
+            ("a//b.ts", "a/"),
+            ("///", "/"),
+            ("", ""),
+        ] {
+            assert_eq!(parse_posix_path(&JsString::from(path)).dir, dir, "path {path}");
+        }
     }
 
     #[test]
