@@ -519,3 +519,41 @@ async fn completions_error_metadata_raw_is_human_text_not_scalar_metadata() {
     .await;
     server.join().unwrap();
 }
+
+#[tokio::test]
+async fn responses_state_machine_human_errors_remain_native() {
+    for api in ["openai-responses", "azure-openai-responses"] {
+        for (event, prefix) in [
+            (
+                r#"{"type":"error","code":"bad_request","message":"human\ud800end\udfff"}"#,
+                "Error Code bad_request: ",
+            ),
+            (
+                r#"{"type":"response.failed","response":{"status":"failed","error":{"code":"bad_request","message":"human\ud800end\udfff"}}}"#,
+                "bad_request: ",
+            ),
+        ] {
+            let body = format!("data: {event}\n\n");
+            let (url, server) = serve_sse(&body);
+            let expected = JsString::join([prefix.into(), human_error()], "");
+            let mut source = oracle::TsOracle::spawn(
+                "lossless-provider-errors-oracle.ts",
+                &format!("packages/ai/src/api/{api}.ts"),
+            );
+            let reference = source
+                .request(&serde_json::json!({"model":test_model(api, &url),"body":body,"apiKey":"fake","units":[]}));
+            let reference = parse_lossless(reference["wire"].as_str().unwrap()).unwrap();
+            assert_eq!(
+                reference
+                    .get("result")
+                    .unwrap()
+                    .get("errorMessage")
+                    .unwrap()
+                    .as_string(),
+                Some(&expected)
+            );
+            assert_final_error(stream_for(api, &url, options(api)), &expected).await;
+            server.join().unwrap();
+        }
+    }
+}

@@ -208,7 +208,9 @@ async fn exchange_authorization_code(
     let response_body = post_json(runtime, TOKEN_URL, body, signal)
         .await
         .map_err(|error| {
-            CallbackError::new(pi_js_compat::js_json::JsString::join([format!("Token exchange request failed. url={TOKEN_URL}; redirect_uri={redirect_uri}; response_type=authorization_code; details=").into(), format_error_details(&error)], ""))
+            let prefix = format!("Token exchange request failed. url={TOKEN_URL}; redirect_uri={redirect_uri}; response_type=authorization_code; details=");
+            let details = format_error_details(&error);
+            CallbackError::new(pi_js_compat::js_json::JsString::join([prefix.into(), details], ""))
         })?;
 
     let token_data: pi_js_compat::js_json::JsValue =

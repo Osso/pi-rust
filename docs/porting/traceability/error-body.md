@@ -1,5 +1,7 @@
 # utils/error-body traceability — re-pin TODO
 
+Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
+
 Frozen source: `packages/ai/src/utils/error-body.ts` (127 lines), `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. Source checkout read-only. Base native revision: `5989c9a20bc6cea40f9adf70559a8e9132d7962f`.
 
 [Contract and OPEN boundaries](../../specs/error-body.md). This module is **not done**: the old scalar-safe truncation waiver is not renewed; shared public UTF-16/value representation requires user decision.

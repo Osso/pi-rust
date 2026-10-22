@@ -1,5 +1,7 @@
 # openai-codex-responses traceability
 
+Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
+
 Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.
 
 Source: `packages/ai/src/api/openai-codex-responses.ts` and `openai-codex-responses.lazy.ts`.

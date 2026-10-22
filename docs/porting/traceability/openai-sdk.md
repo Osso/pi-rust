@@ -1,5 +1,7 @@
 # openai-sdk traceability
 
+Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
+
 Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.
 
 Source: private behavior of `openai@6.40.0` (`node_modules/openai/src/client.ts`, `azure.ts`, `core/streaming.ts`, `core/error.ts`) reproduced for the four OpenAI adapters.

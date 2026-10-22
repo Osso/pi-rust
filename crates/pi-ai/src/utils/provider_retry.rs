@@ -225,7 +225,7 @@ mod tests {
             values.insert(*name, *value);
         }
         ProviderError {
-            message: "boom".to_owned(),
+            message: "boom".into(),
             status: Some(429.0),
             headers: values,
             body: None,
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn exponential_delay_is_capped_at_eight_seconds() {
         let error = ProviderError {
-            message: "boom".to_owned(),
+            message: "boom".into(),
             status: Some(500.0),
             headers: ProviderErrorHeaders::new(),
             body: None,

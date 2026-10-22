@@ -2205,8 +2205,8 @@ mod tests {
         assert_eq!(map_stop_reason("tool_calls").stop_reason, StopReason::ToolUse);
         assert_eq!(map_stop_reason("length").stop_reason, StopReason::Length);
         assert_eq!(
-            map_stop_reason("content_filter").error_message.as_deref(),
-            Some("Provider finish_reason: content_filter")
+            map_stop_reason("content_filter").error_message.as_ref(),
+            Some(&"Provider finish_reason: content_filter".into())
         );
     }
 }
