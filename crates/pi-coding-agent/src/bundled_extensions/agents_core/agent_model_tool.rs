@@ -16,7 +16,7 @@ use super::runtime::MultiAgentRuntimeHandles;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SetAgentModelParams {
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub provider: Option<String>,
     pub model_id: Option<String>,
     pub thinking_level: Option<ThinkingLevel>,
@@ -41,7 +41,7 @@ pub fn set_agent_model_schema() -> Value {
 pub fn resolve_live_agent_mutation_target(
     store: &MultiAgentStore,
     handles: &MultiAgentRuntimeHandles,
-    agent_id: &str,
+    agent_id: &JsString,
 ) -> Result<Arc<dyn ViewedSessionMutationTarget>, HandlerError> {
     let agent = store
         .get_agent(agent_id)

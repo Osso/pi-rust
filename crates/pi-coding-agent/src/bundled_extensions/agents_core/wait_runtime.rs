@@ -1,5 +1,6 @@
 //! Wait tool runtime (`extensions/agents-core/src/wait-runtime.ts`).
 
+use pi_js_compat::js_format;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -41,25 +42,25 @@ pub enum WaitNotificationsWake {
     Agent { agent: Box<AgentSnapshot> },
     Cancelled,
     Coordination,
-    Error { message: String },
+    Error { message: JsString },
     None,
     Timeout,
-    Unavailable { message: String },
+    Unavailable { message: JsString },
     WakeUp { wake_up: WaitAgentsWakeUp },
 }
 
 #[derive(Debug, Clone)]
 struct RuntimeCoordinationRecipient {
     address: RuntimeMailboxAddress,
-    control_db_path: String,
+    control_db_path: JsString,
 }
 
 struct WaitAgentsWakeWatcherOptions {
     deadline: Option<i64>,
     active_agents: Vec<AgentSnapshot>,
-    control_db_path: String,
+    control_db_path: JsString,
     recipient: Option<RuntimeCoordinationRecipient>,
-    session_path: String,
+    session_path: JsString,
     signal: Option<tokio_util::sync::CancellationToken>,
     store: Arc<MultiAgentStore>,
     wait_wake_listeners: WaitWakeListeners,
@@ -67,12 +68,12 @@ struct WaitAgentsWakeWatcherOptions {
 
 struct WaitAgentsWakeWatcher {
     deadline: Option<i64>,
-    control_db_path: String,
+    control_db_path: JsString,
     recipient: Option<RuntimeCoordinationRecipient>,
-    session_path: String,
+    session_path: JsString,
     signal: Option<tokio_util::sync::CancellationToken>,
     store: Arc<MultiAgentStore>,
-    tracked_agent_ids: HashSet<String>,
+    tracked_agent_ids: HashSet<JsString>,
     wait_wake_listeners: WaitWakeListeners,
 }
 
@@ -199,7 +200,7 @@ impl WaitAgentsWakeWatcher {
     }
 
     fn read_tracked_terminal_agent(&self) -> Option<AgentSnapshot> {
-        let agent_ids: Vec<String> = self.tracked_agent_ids.iter().cloned().collect();
+        let agent_ids: Vec<JsString> = self.tracked_agent_ids.iter().cloned().collect();
         let agents = read_multi_agent_agents(&self.control_db_path, &self.session_path, &agent_ids).ok()?;
         agents.into_iter().find(|agent| !is_active_lifecycle(agent.lifecycle))
     }
@@ -211,19 +212,19 @@ impl WaitAgentsWakeWatcher {
             Ok(_) => {
                 if let Err(error) = deliver_terminal_outbox_projections(&DeliverTerminalOutboxOptions {
                     artifact_root: None,
-                    claim_id: pi_ai::utils::uuid::random_uuid(),
+                    claim_id: pi_ai::utils::uuid::random_uuid().into(),
                     control_db_path: self.control_db_path.clone(),
                     now: Arc::new(crate::utils::iso_time::now_iso_string),
                     store: Arc::clone(&self.store),
                 }) {
                     return Some(WaitNotificationsWake::Error {
-                        message: error.message().to_owned(),
+                        message: error.message().clone(),
                     });
                 }
                 None
             }
             Err(error) => Some(WaitNotificationsWake::Error {
-                message: error.message().to_owned(),
+                message: error.message().clone(),
             }),
         }
     }
@@ -234,7 +235,7 @@ impl WaitAgentsWakeWatcher {
             Ok(true) => Some(WaitNotificationsWake::Coordination),
             Ok(false) => None,
             Err(error) => Some(WaitNotificationsWake::Error {
-                message: error.message().to_owned(),
+                message: error.message().clone(),
             }),
         }
     }
@@ -327,7 +328,7 @@ fn consume_non_agent_wake(
                 None => tool_result("Coordination input changed before delivery.", json!({})),
             })
         }
-        WaitNotificationsWake::Error { message } => Ok(tool_result(format!("Wait failed: {message}"), json!({}))),
+        WaitNotificationsWake::Error { message } => Ok(tool_result(js_format!("Wait failed: {}", message), json!({}))),
         WaitNotificationsWake::None => Ok(empty_tool_result()),
         WaitNotificationsWake::Timeout => Ok(tool_result(
             "Wait slice timed out: agents are still running. No agents were cancelled. You can wait again after the next model request.",
@@ -335,10 +336,7 @@ fn consume_non_agent_wake(
         )),
         WaitNotificationsWake::Unavailable { message } => Ok(tool_result(message.clone(), json!({}))),
         WaitNotificationsWake::WakeUp { wake_up } => {
-            let agent = wake_up
-                .agent_id
-                .as_deref()
-                .and_then(|agent_id| store.get_agent(agent_id));
+            let agent = wake_up.agent_id.as_ref().and_then(|agent_id| store.get_agent(agent_id));
             let text = match agent {
                 Some(agent) => {
                     pi_js_compat::js_json::JsString::from("Woken after steering ") + &agent.display_name + "."
@@ -423,7 +421,7 @@ fn mark_wait_mailbox_store_message_delivered(
 ) -> Result<(), HandlerError> {
     if store
         .get_persistence_target()
-        .map(|persistence| pi_js_compat::js_json::JsString::from(persistence.session_path))
+        .map(|persistence| persistence.session_path)
         != Some(message.store_ref.session_path.clone())
     {
         return Ok(());
@@ -459,7 +457,7 @@ fn take_pending_wait_shared_channel_messages(
 }
 
 fn read_shared_channel_messages_through(
-    control_db_path: &str,
+    control_db_path: &JsString,
     cursor: i64,
     last_message_id: i64,
 ) -> Result<Vec<SharedChannelMessage>, HandlerError> {
@@ -494,18 +492,21 @@ fn terminal_notification_lifecycle(
 
 fn list_pending_terminal_notifications(
     store: &MultiAgentStore,
-    control_db_path: &str,
-    session_path: &str,
+    control_db_path: &JsString,
+    session_path: &JsString,
 ) -> Result<Vec<(AgentSnapshot, AgentMailboxMessage)>, HandlerError> {
     let persisted_agents: Vec<AgentSnapshot> = read_multi_agent_state(control_db_path, session_path)
         .map_err(|error| HandlerError::new(error.message()))?
         .map(|state| {
             state
                 .agents
-                .into_iter()
-                .filter_map(|value| pi_js_compat::js_json::from_value(&value).ok())
-                .collect()
+                .iter()
+                .map(|value| {
+                    pi_js_compat::js_json::from_value(value).map_err(|error| HandlerError::new(error.to_string()))
+                })
+                .collect::<Result<Vec<_>, _>>()
         })
+        .transpose()?
         .unwrap_or_default();
     let mut pending = Vec::new();
     for agent in persisted_agents {
@@ -526,8 +527,8 @@ fn list_pending_terminal_notifications(
 
 fn consume_pending_terminal_notifications(
     store: &MultiAgentStore,
-    control_db_path: &str,
-    session_path: &str,
+    control_db_path: &JsString,
+    session_path: &JsString,
     format_agent_status: &dyn Fn(&AgentSnapshot) -> pi_js_compat::js_json::JsString,
 ) -> Result<Option<AgentToolResult>, HandlerError> {
     let pending = list_pending_terminal_notifications(store, control_db_path, session_path)?;

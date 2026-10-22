@@ -35,18 +35,18 @@ use crate::utils::iso_time;
 const MAIN_THREAD_AGENT_ID: &str = "main";
 const DEAD_DETACHED_RECONCILIATION_RETRY_DELAY_MS: u64 = 250;
 
-fn retry_paths() -> &'static Mutex<HashSet<String>> {
-    static PATHS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+fn retry_paths() -> &'static Mutex<HashSet<JsString>> {
+    static PATHS: OnceLock<Mutex<HashSet<JsString>>> = OnceLock::new();
     PATHS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-fn schedule_dead_detached_reconciliation_retry(control_db_path: &str) {
+fn schedule_dead_detached_reconciliation_retry(control_db_path: &JsString) {
     let mut paths = retry_paths().lock().expect("retry paths mutex");
-    if !paths.insert(control_db_path.to_owned()) {
+    if !paths.insert(control_db_path.clone()) {
         return;
     }
     drop(paths);
-    let path = control_db_path.to_owned();
+    let path = control_db_path.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(DEAD_DETACHED_RECONCILIATION_RETRY_DELAY_MS));
         retry_paths().lock().expect("retry paths mutex").remove(&path);
@@ -54,14 +54,14 @@ fn schedule_dead_detached_reconciliation_retry(control_db_path: &str) {
     });
 }
 
-fn clear_dead_detached_reconciliation_retry(control_db_path: &str) {
+fn clear_dead_detached_reconciliation_retry(control_db_path: &JsString) {
     retry_paths().lock().expect("retry paths mutex").remove(control_db_path);
 }
 
 #[derive(Clone)]
 pub struct LifecycleCoordinatorOptions {
     pub control_db_path: JsString,
-    pub create_agent_id: Arc<dyn Fn() -> Result<String, ControlDbError> + Send + Sync>,
+    pub create_agent_id: Arc<dyn Fn() -> Result<JsString, ControlDbError> + Send + Sync>,
     pub now: Arc<dyn Fn() -> String + Send + Sync>,
     pub process_identity: ProcessIdentity,
     pub session_path: JsString,
@@ -70,7 +70,7 @@ pub struct LifecycleCoordinatorOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrepareChildCommandInput {
     pub spawn: SpawnAgent,
-    pub agent_id: Option<String>,
+    pub agent_id: Option<JsString>,
     pub detached: Option<bool>,
     pub result: Option<AgentResult>,
 }
@@ -85,7 +85,7 @@ pub struct OwnedLifecycleCommandInput {
 pub struct SteeringDeliveryCommandInput {
     pub agent: AgentSnapshot,
     pub ownership: MultiAgentRuntimeOwnership,
-    pub message_id: String,
+    pub message_id: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,7 +93,7 @@ pub struct SteeringCommandInput {
     pub agent: AgentSnapshot,
     pub ownership: MultiAgentRuntimeOwnership,
     pub recipient: RuntimeMailboxAddress,
-    pub from_agent_id: String,
+    pub from_agent_id: JsString,
     pub body: JsString,
     pub target_checkpoint: Option<SteeringCheckpoint>,
     pub thread_id: Option<JsString>,
@@ -104,7 +104,7 @@ pub struct SteeringCommandInput {
 pub struct DetachedCancellationCommandInput {
     pub agent: AgentSnapshot,
     pub ownership: MultiAgentRuntimeOwnership,
-    pub output_label: String,
+    pub output_label: JsString,
     pub reason: Option<JsString>,
 }
 
@@ -112,8 +112,8 @@ pub struct DetachedCancellationCommandInput {
 pub struct RecoverDeadChildCommandInput {
     pub agent: AgentSnapshot,
     pub ownership: MultiAgentRuntimeOwnership,
-    pub owner_session_id: String,
-    pub supervisor_agent_id: Option<String>,
+    pub owner_session_id: JsString,
+    pub supervisor_agent_id: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,7 +153,7 @@ pub struct LifecycleCoordinator {
 }
 
 impl LifecycleCoordinator {
-    pub fn reconcile_dead_detached_runtimes(control_db_path: &str, now_iso: &str) -> Result<i64, ControlDbError> {
+    pub fn reconcile_dead_detached_runtimes(control_db_path: &JsString, now_iso: &str) -> Result<i64, ControlDbError> {
         match reconcile_dead_detached_agent_runtimes(control_db_path, now_iso) {
             Ok(reconciled) => {
                 clear_dead_detached_reconciliation_retry(control_db_path);
@@ -191,7 +191,7 @@ impl LifecycleCoordinator {
     pub fn acquire_attached_runtime(
         &self,
         agent: &AgentSnapshot,
-        owner_session_id: &str,
+        owner_session_id: &JsString,
     ) -> Result<AcquireAttachedRuntimeOwnershipResult, ControlDbError> {
         acquire_attached_runtime_ownership(
             &self.options.control_db_path,
@@ -478,7 +478,7 @@ impl LifecycleCoordinator {
         let mut failed_agent = agent.clone();
         failed_agent.error = Some(error);
         failed_agent.lifecycle = crate::core::multi_agent_store::AgentLifecycle::Failed;
-        failed_agent.updated_at = now_iso.clone();
+        failed_agent.updated_at = now_iso.clone().into();
         create_failed_multi_agent_child(
             &self.options.control_db_path,
             &CreateFailedMultiAgentChildInput {
@@ -492,9 +492,9 @@ impl LifecycleCoordinator {
     pub fn commit_running_child(
         &self,
         agent: &AgentSnapshot,
-        owner_session_id: &str,
+        owner_session_id: &JsString,
         process_identity: &ProcessIdentity,
-        owner_agent_id: Option<String>,
+        owner_agent_id: Option<JsString>,
     ) -> Result<CreateMultiAgentChildWithRuntimeOwnershipResult, ControlDbError> {
         if agent.lifecycle != crate::core::multi_agent_store::AgentLifecycle::Running || agent.revision != 1 {
             return Err(ControlDbError::new(
@@ -521,9 +521,9 @@ impl LifecycleCoordinator {
     fn persist_child_with_ownership(
         &self,
         agent: &AgentSnapshot,
-        owner_session_id: &str,
+        owner_session_id: &JsString,
         process_identity: &ProcessIdentity,
-        owner_agent_id: Option<String>,
+        owner_agent_id: Option<JsString>,
     ) -> Result<CreateMultiAgentChildWithRuntimeOwnershipResult, ControlDbError> {
         create_multi_agent_child_with_runtime_ownership(
             &self.options.control_db_path,
@@ -585,10 +585,10 @@ impl LifecycleCoordinator {
     fn read_ownership_identity(
         &self,
         ownership: &MultiAgentRuntimeOwnership,
-        expected_agent_id: &str,
+        expected_agent_id: &JsString,
         require_current_process: bool,
     ) -> Option<MultiAgentRuntimeOwnershipIdentity> {
-        if ownership.agent_id != expected_agent_id
+        if ownership.agent_id != *expected_agent_id
             || ownership.session_path != self.options.session_path
             || ownership.process_identity.is_none()
             || ownership.owner.session_id.is_none()
@@ -618,11 +618,11 @@ impl LifecycleCoordinator {
     }
 }
 
-fn snapshot_from_spawn(input: &SpawnAgent, now_iso: String, agent_id: String) -> AgentSnapshot {
+fn snapshot_from_spawn(input: &SpawnAgent, now_iso: String, agent_id: JsString) -> AgentSnapshot {
     AgentSnapshot {
         account: input.account.clone(),
         agent_type: input.agent_type.clone(),
-        created_at: now_iso.clone(),
+        created_at: now_iso.clone().into(),
         cwd: input.cwd.clone(),
         detached: None,
         display_name: input.display_name.clone(),
@@ -631,16 +631,13 @@ fn snapshot_from_spawn(input: &SpawnAgent, now_iso: String, agent_id: String) ->
         lifecycle: crate::core::multi_agent_store::AgentLifecycle::Running,
         model: input.model.clone(),
         origin: input.origin,
-        parent_id: input
-            .parent_id
-            .clone()
-            .or_else(|| Some(MAIN_THREAD_AGENT_ID.to_owned())),
+        parent_id: input.parent_id.clone().or_else(|| Some(MAIN_THREAD_AGENT_ID.into())),
         permission: input.permission.clone(),
         result: None,
         revision: 1,
         slot: input.slot.clone(),
         transcript: input.transcript.clone(),
-        updated_at: now_iso,
+        updated_at: now_iso.into(),
         worker: input.worker.clone(),
         worktree: input.worktree.clone(),
         current_activity: None,

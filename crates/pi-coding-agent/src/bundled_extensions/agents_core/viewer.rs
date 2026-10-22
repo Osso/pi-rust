@@ -2,7 +2,7 @@
 
 use pi_agent_core::AgentToolResult;
 use pi_js_compat::{
-    js_json as json,
+    js_format, js_json as json,
     js_json::{self, JsObject as Map, JsString, JsValue as Value},
 };
 
@@ -18,15 +18,15 @@ use super::tool_results::tool_result;
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListAgentsParams {
-    pub parent_id: Option<String>,
+    pub parent_id: Option<JsString>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentViewerParams {
-    pub agent_id: String,
-    pub session_id: Option<String>,
-    pub store_session_id: Option<String>,
+    pub agent_id: JsString,
+    pub session_id: Option<JsString>,
+    pub store_session_id: Option<JsString>,
     pub trace: Option<bool>,
 }
 
@@ -40,7 +40,7 @@ pub fn list_agents(store: &MultiAgentStore, params: &ListAgentsParams) -> Result
 }
 
 fn list_matching_agents(store: &MultiAgentStore, params: &ListAgentsParams) -> Vec<AgentSnapshot> {
-    let agents = match params.parent_id.as_deref() {
+    let agents = match params.parent_id.as_ref() {
         Some(parent_id) => store.list_descendants(parent_id),
         None => store.list_agents(),
     };
@@ -50,23 +50,20 @@ fn list_matching_agents(store: &MultiAgentStore, params: &ListAgentsParams) -> V
         .collect()
 }
 
-fn format_agent_list_content(agents: &[AgentSnapshot]) -> String {
+fn format_agent_list_content(agents: &[AgentSnapshot]) -> JsString {
     let suffix = if agents.len() == 1 { "" } else { "s" };
-    let header = format!("Found {} agent{suffix}.", agents.len());
-    let entries: Vec<String> = agents
-        .iter()
-        .map(|agent| {
-            format!(
-                "id={} name={} type={} status={} lifecycle={}",
-                agent.id,
-                quote(&agent.display_name),
-                agent.agent_type,
-                agent_status_label(agent),
-                lifecycle_name(agent.lifecycle),
-            )
-        })
-        .collect();
-    std::iter::once(header).chain(entries).collect::<Vec<_>>().join("\n")
+    let header = JsString::from(format!("Found {} agent{suffix}.", agents.len()));
+    let entries = agents.iter().map(|agent| {
+        js_format!(
+            "id={} name={} type={} status={} lifecycle={}",
+            agent.id,
+            quote(&agent.display_name),
+            agent.agent_type,
+            agent_status_label(agent),
+            lifecycle_name(agent.lifecycle)
+        )
+    });
+    JsString::join(&std::iter::once(header).chain(entries).collect::<Vec<_>>(), "\n")
 }
 
 fn quote(value: impl Into<JsString>) -> String {
@@ -90,7 +87,7 @@ pub fn agent_viewer(
     params: &AgentViewerParams,
     ctx: Option<&ExtensionContext>,
 ) -> Result<AgentToolResult, HandlerError> {
-    if params.trace == Some(true) && params.store_session_id.as_deref().is_none_or(str::is_empty) {
+    if params.trace == Some(true) && params.store_session_id.as_ref().is_none_or(JsString::is_empty) {
         return Ok(tool_result(
             "Historical lifecycle trace requires storeSessionId.",
             json!({"agentId":params.agent_id,"error":"trace_requires_store_session"}),
@@ -102,19 +99,15 @@ pub fn agent_viewer(
 
     let Some(agent) = store.get_agent(&params.agent_id) else {
         return Ok(tool_result(
-            format!("Agent not found: {}.", params.agent_id),
+            js_format!("Agent not found: {}.", params.agent_id),
             json!({"agentId": params.agent_id, "error": "not_found"}),
         ));
     };
-    if let Some(session_id) = params.session_id.as_deref()
-        && agent
-            .transcript
-            .as_ref()
-            .map(|transcript| transcript.session_id.as_str())
-            != Some(session_id)
+    if let Some(session_id) = params.session_id.as_ref()
+        && agent.transcript.as_ref().map(|transcript| &transcript.session_id) != Some(session_id)
     {
         return Ok(tool_result(
-            format!("Agent {} is not attached to session {session_id}.", params.agent_id),
+            js_format!("Agent {} is not attached to session {}.", params.agent_id, session_id),
             json!({
                 "agentId": params.agent_id,
                 "error": "session_mismatch",
@@ -141,7 +134,7 @@ fn agent_viewer_from_persisted_session(
 
     let Some(agent) = agents.iter().find(|candidate| candidate.id == params.agent_id) else {
         return Ok(tool_result(
-            format!("Agent not found: {}.", params.agent_id),
+            js_format!("Agent not found: {}.", params.agent_id),
             json!({
                 "agentId": params.agent_id,
                 "error": "not_found",
@@ -149,15 +142,11 @@ fn agent_viewer_from_persisted_session(
             }),
         ));
     };
-    if let Some(session_id) = params.session_id.as_deref()
-        && agent
-            .transcript
-            .as_ref()
-            .map(|transcript| transcript.session_id.as_str())
-            != Some(session_id)
+    if let Some(session_id) = params.session_id.as_ref()
+        && agent.transcript.as_ref().map(|transcript| &transcript.session_id) != Some(session_id)
     {
         return Ok(tool_result(
-            format!("Agent {} is not attached to session {session_id}.", params.agent_id),
+            js_format!("Agent {} is not attached to session {}.", params.agent_id, session_id),
             json!({
                 "agentId": params.agent_id,
                 "error": "session_mismatch",
@@ -180,8 +169,8 @@ fn agent_viewer_from_persisted_session(
 enum AgentPersistedLoad {
     Agents {
         agents: Vec<AgentSnapshot>,
-        control_db_path: String,
-        session_path: String,
+        control_db_path: JsString,
+        session_path: JsString,
     },
     Error(Box<AgentToolResult>),
 }
@@ -211,9 +200,9 @@ fn load_persisted_agents_for_viewer(
         .find(|metadata| Some(&metadata.id) == params.store_session_id.as_ref())
     else {
         return Ok(AgentPersistedLoad::Error(Box::new(tool_result(
-            format!(
+            js_format!(
                 "Session not found: {}.",
-                params.store_session_id.as_deref().unwrap_or_default()
+                params.store_session_id.clone().unwrap_or_default()
             ),
             json!({
                 "agentId": params.agent_id,
@@ -231,9 +220,10 @@ fn load_persisted_agents_for_viewer(
                 .agents
                 .into_iter()
                 .filter(is_persisted_agent_snapshot)
-                .filter_map(|value| js_json::from_value(&value).ok())
-                .collect()
+                .map(|value| js_json::from_value(&value).map_err(|error| HandlerError::new(error.to_string())))
+                .collect::<Result<Vec<AgentSnapshot>, _>>()
         })
+        .transpose()?
         .unwrap_or_default();
     Ok(AgentPersistedLoad::Agents {
         agents,
@@ -258,9 +248,9 @@ fn agent_viewer_result(
     agents: &[AgentSnapshot],
     trace: Option<&AgentLifecycleTrace>,
 ) -> AgentToolResult {
-    let children: Vec<String> = agents
+    let children: Vec<JsString> = agents
         .iter()
-        .filter(|candidate| candidate.parent_id.as_deref() == Some(agent.id.as_str()))
+        .filter(|candidate| candidate.parent_id.as_ref() == Some(&agent.id))
         .map(|child| child.id.clone())
         .collect();
 
@@ -280,7 +270,7 @@ fn agent_viewer_result(
     if let Some(trace) = trace {
         details.insert("trace".into(), js_json::to_value(trace).expect("trace JSON"));
         content.push_unit(10);
-        content.push_str(&format_agent_lifecycle_trace(trace));
+        content.push_str(format_agent_lifecycle_trace(trace));
     }
     tool_result(content, Value::Object(details))
 }
@@ -288,14 +278,14 @@ fn agent_viewer_result(
 fn format_agent_viewer_content(agent: &AgentSnapshot) -> JsString {
     let status = agent_status_label(agent);
     let terminal = status == "terminal";
-    let mut lines = vec![JsString::from(format!(
+    let mut lines = vec![js_format!(
         "Viewing agent {}: name={} type={} status={} lifecycle={}",
         agent.id,
         quote(&agent.display_name),
         agent.agent_type,
         status,
-        lifecycle_name(agent.lifecycle),
-    ))];
+        lifecycle_name(agent.lifecycle)
+    )];
     if terminal
         && let Some(summary) = agent.result.as_ref().and_then(|result| result.summary.as_ref())
         && !summary.is_empty()

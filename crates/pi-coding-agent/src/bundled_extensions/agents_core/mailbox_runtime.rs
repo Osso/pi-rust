@@ -1,6 +1,7 @@
 //! Mailbox tools and runtime lifecycle mirroring
 //! (`extensions/agents-core/src/mailbox-runtime.ts`).
 
+use pi_js_compat::js_format;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::AgentToolResult;
@@ -49,11 +50,6 @@ pub struct ContactParentParams {
     pub file_refs: Option<Value>,
     pub message: JsString,
     pub thread_id: Option<JsString>,
-}
-
-fn find_agent_by_raw_id(store: &MultiAgentStore, id: &JsString) -> Option<AgentSnapshot> {
-    // Store keys are scalar strings; a non-scalar input cannot identify an existing key.
-    id.to_utf8().ok().and_then(|id| store.get_agent(&id))
 }
 
 pub fn contact_parent_schema() -> serde_json::Value {
@@ -170,13 +166,13 @@ pub fn send_agent_message(
     let sender = current_message_sender_id(ctx)?;
     let db = ctx.map(ExtensionContext::control_db_path).transpose()?.flatten();
     if sender.is_some()
-        && let Some(reason) = session_message_route_error(db.as_deref(), params)?
+        && let Some(reason) = session_message_route_error(db.as_ref(), params)?
     {
         let mut result = tool_result(
             JsString::from("Could not send agent message to ")
                 + format_sent_message_target(
                     &empty_direct_message(
-                        sender.as_deref().unwrap_or("unknown_subagent"),
+                        &sender.clone().unwrap_or_else(|| "unknown_subagent".into()),
                         &params.to_agent_id,
                         &params.message,
                     ),
@@ -184,7 +180,7 @@ pub fn send_agent_message(
                 )
                 + ": "
                 + reason,
-            json!({"agent":current_message_sender_agent(store, ctx)?,"message":empty_direct_message(sender.as_deref().unwrap_or("unknown_subagent"),&params.to_agent_id,&params.message)}),
+            json!({"agent":current_message_sender_agent(store, ctx)?,"message":empty_direct_message(&sender.clone().unwrap_or_else(|| "unknown_subagent".into()),&params.to_agent_id,&params.message)}),
         );
         result.is_error = Some(true);
         return Ok(result);
@@ -211,7 +207,7 @@ fn send_agent_message_from_current_sender(
             "Could not send agent message: subagent runtime identity is unavailable.",
             json!({
                 "agent": empty_agent("unknown_subagent"),
-                "message": empty_direct_message("unknown_subagent", &params.to_agent_id, &params.message),
+                "message": empty_direct_message(&"unknown_subagent".into(), &params.to_agent_id, &params.message),
             }),
         ));
     };
@@ -238,7 +234,7 @@ fn send_agent_message_from_current_sender(
             let error = mailbox_error_name(&other);
             let current = mailbox_error_current(&other).unwrap_or_else(|| empty_agent(&sender_id));
             Ok(tool_result(
-                format!("Could not send agent message from {sender_id}: {error}"),
+                js_format!("Could not send agent message from {}: {}", sender_id, error),
                 json!({
                     "agent": current,
                     "message": empty_direct_message(&sender_id, &params.to_agent_id, &params.message),
@@ -291,7 +287,7 @@ fn validate_explicit_runtime_target(
     if target_matches {
         return Ok(None);
     }
-    let sender_id = current_message_sender_id(ctx)?.unwrap_or_else(|| "unknown_subagent".to_owned());
+    let sender_id = current_message_sender_id(ctx)?.unwrap_or_else(|| "unknown_subagent".into());
     Ok(Some(tool_result(
         JsString::from("Could not send agent message to ")
             + &params.to_agent_id
@@ -356,7 +352,7 @@ fn send_main_runtime_session_message(
             json!({
                 "agent": sender,
                 "message": empty_direct_message(
-                    sender_id.as_deref().unwrap_or("unknown_subagent"),
+                    &sender_id.clone().unwrap_or_else(|| "unknown_subagent".into()),
                     &params.to_agent_id,
                     &params.message,
                 ),
@@ -368,7 +364,7 @@ fn send_main_runtime_session_message(
             "Could not send runtime session message: subagent runtime identity is unavailable.",
             json!({
                 "agent": sender,
-                "message": empty_direct_message("unknown_subagent", &params.to_agent_id, &params.message),
+                "message": empty_direct_message(&"unknown_subagent".into(), &params.to_agent_id, &params.message),
             }),
         ));
     };
@@ -428,7 +424,7 @@ pub fn contact_parent(
             "Could not contact parent: agent runtime identity is unavailable.",
             json!({
                 "agent": empty_agent(""),
-                "message": empty_parent_request("", &params.message),
+                "message": empty_parent_request(&JsString::default(), &params.message),
             }),
         ));
     };
@@ -450,7 +446,7 @@ pub fn contact_parent(
         other => {
             let (error, current) = parent_contact_error(&other, &current_agent_id);
             Ok(tool_result(
-                format!("Could not contact parent for {current_agent_id}: {error}"),
+                js_format!("Could not contact parent for {}: {}", current_agent_id, error),
                 json!({
                     "agent": current,
                     "message": empty_parent_request(&current_agent_id, &params.message),
@@ -462,7 +458,7 @@ pub fn contact_parent(
 
 fn parent_contact_error(
     result: &crate::core::multi_agent_store::ParentContactResult,
-    agent_id: &str,
+    agent_id: &JsString,
 ) -> (&'static str, AgentSnapshot) {
     use crate::core::multi_agent_store::ParentContactResult as Result;
     match result {
@@ -494,7 +490,7 @@ fn deliver_parent_contact(
 
 struct MirrorState {
     bound_ctx: Option<ExtensionContext>,
-    bound_session_id: Option<String>,
+    bound_session_id: Option<JsString>,
     unsubscribe: Option<crate::core::multi_agent_store::AgentSubscription>,
 }
 
@@ -518,12 +514,10 @@ impl RuntimeLifecycleMirror {
     }
 
     pub fn bind(&self, ctx: &ExtensionContext) -> Result<(), HandlerError> {
-        let session_id = lock_session_manager(&ctx.session_manager()?)
-            .get_session_id()
-            .to_owned();
+        let session_id = lock_session_manager(&ctx.session_manager()?).get_session_id().clone();
         let mut state = self.state.lock().expect("mirror state");
         state.bound_ctx = Some(ctx.clone());
-        if state.bound_session_id.as_deref() == Some(session_id.as_str()) && state.unsubscribe.is_some() {
+        if state.bound_session_id.as_ref() == Some(&session_id) && state.unsubscribe.is_some() {
             return Ok(());
         }
         state.unsubscribe = None;
@@ -691,7 +685,7 @@ fn enqueue_lifecycle_runtime_mailbox_message(
         );
         return Ok(());
     };
-    let agent = find_agent_by_raw_id(store, &notification.from_agent_id);
+    let agent = store.get_agent(&notification.from_agent_id);
     let already_enqueued = match agent.as_ref() {
         Some(agent) => list_runtime_mailbox_messages(&control_db_path)
             .map_err(|error| HandlerError::new(error.message()))?
@@ -810,7 +804,7 @@ fn resolve_runtime_recipient(
     message: &AgentMailboxMessage,
     ctx: &ExtensionContext,
 ) -> Result<Option<RuntimeMailboxAddress>, HandlerError> {
-    if let Some(target) = find_agent_by_raw_id(store, &message.to_agent_id)
+    if let Some(target) = store.get_agent(&message.to_agent_id)
         && let Some(transcript) = target.transcript.as_ref()
     {
         return Ok(Some(RuntimeMailboxAddress {
@@ -821,23 +815,18 @@ fn resolve_runtime_recipient(
     if !is_main_runtime_target(&message.to_agent_id) {
         return Ok(Some(RuntimeMailboxAddress {
             agent_id: Some(message.to_agent_id.clone()),
-            session_id: lock_session_manager(&ctx.session_manager()?)
-                .get_session_id()
-                .to_owned()
-                .into(),
+            session_id: lock_session_manager(&ctx.session_manager()?).get_session_id().clone(),
         }));
     }
-    let current_session_id = lock_session_manager(&ctx.session_manager()?)
-        .get_session_id()
-        .to_owned();
+    let current_session_id = lock_session_manager(&ctx.session_manager()?).get_session_id().clone();
     let session_id = read_parent_runtime_session_id(ctx)?.unwrap_or(current_session_id);
     Ok(Some(RuntimeMailboxAddress {
         agent_id: None,
-        session_id: session_id.into(),
+        session_id,
     }))
 }
 
-fn read_parent_runtime_session_id(ctx: &ExtensionContext) -> Result<Option<String>, HandlerError> {
+fn read_parent_runtime_session_id(ctx: &ExtensionContext) -> Result<Option<JsString>, HandlerError> {
     if let Some(parent_session_id) = ctx.multi_agent_parent_session_id()? {
         return Ok(Some(parent_session_id));
     }
@@ -847,7 +836,7 @@ fn read_parent_runtime_session_id(ctx: &ExtensionContext) -> Result<Option<Strin
         if !manager.is_subagent_session() {
             return Ok(None);
         }
-        let Some(parent_session) = manager.get_header().and_then(|header| header.parent_session.clone()) else {
+        let Some(parent_session) = manager.get_header().and_then(|header| header.parent_session().cloned()) else {
             return Ok(None);
         };
         parent_session
@@ -863,9 +852,9 @@ fn read_parent_runtime_session_id(ctx: &ExtensionContext) -> Result<Option<Strin
     ))
 }
 
-pub fn current_message_sender_id(ctx: Option<&ExtensionContext>) -> Result<Option<String>, HandlerError> {
+pub fn current_message_sender_id(ctx: Option<&ExtensionContext>) -> Result<Option<JsString>, HandlerError> {
     let Some(ctx) = ctx else {
-        return Ok(Some(MAIN_THREAD_AGENT_ID.to_owned()));
+        return Ok(Some(MAIN_THREAD_AGENT_ID.into()));
     };
     if let Some(agent_id) = ctx.multi_agent_agent_id()? {
         return Ok(Some(agent_id));
@@ -873,19 +862,19 @@ pub fn current_message_sender_id(ctx: Option<&ExtensionContext>) -> Result<Optio
     if ctx.multi_agent_requires_agent_id()? {
         return Ok(None);
     }
-    Ok(Some(MAIN_THREAD_AGENT_ID.to_owned()))
+    Ok(Some(MAIN_THREAD_AGENT_ID.into()))
 }
 
 fn current_message_sender_agent(
     store: &MultiAgentStore,
     ctx: Option<&ExtensionContext>,
 ) -> Result<AgentSnapshot, HandlerError> {
-    let sender_id = current_message_sender_id(ctx)?.unwrap_or_else(|| "unknown_subagent".to_owned());
+    let sender_id = current_message_sender_id(ctx)?.unwrap_or_else(|| "unknown_subagent".into());
     Ok(store.get_agent(&sender_id).unwrap_or_else(|| empty_agent(&sender_id)))
 }
 
 fn resolve_agent_runtime_session_id(store: &MultiAgentStore, to_agent_id: &JsString) -> Option<Option<JsString>> {
-    find_agent_by_raw_id(store, to_agent_id).map(|target| {
+    store.get_agent(to_agent_id).map(|target| {
         target
             .transcript
             .as_ref()
@@ -904,11 +893,11 @@ fn format_sent_message_target(message: &AgentMailboxMessage, to_session_id: Opti
     }
 }
 
-fn empty_parent_request(agent_id: &str, body: &JsString) -> AgentMailboxMessage {
+fn empty_parent_request(agent_id: &JsString, body: &JsString) -> AgentMailboxMessage {
     create_failed_mailbox_message(body, agent_id, MailboxMessageKindValue::ParentRequest, "")
 }
 
-fn empty_direct_message(from_agent_id: &str, to_agent_id: &JsString, body: &JsString) -> AgentMailboxMessage {
+fn empty_direct_message(from_agent_id: &JsString, to_agent_id: &JsString, body: &JsString) -> AgentMailboxMessage {
     create_failed_mailbox_message(body, from_agent_id, MailboxMessageKindValue::Message, to_agent_id)
 }
 
@@ -945,7 +934,7 @@ pub fn register_mailbox_tools(
         prepare_execution: None,
         execution_mode: None,
         execute: Arc::new(
-            move |_tool_call_id: String,
+            move |_tool_call_id: JsString,
                   params: Value,
                   _signal: Option<CancellationToken>,
                   _on_update: Option<AgentToolUpdateCallback>,
@@ -978,7 +967,7 @@ pub fn register_mailbox_tools(
         prepare_execution: None,
         execution_mode: None,
         execute: Arc::new(
-            move |_tool_call_id: String,
+            move |_tool_call_id: JsString,
                   params: Value,
                   _signal: Option<CancellationToken>,
                   _on_update: Option<AgentToolUpdateCallback>,

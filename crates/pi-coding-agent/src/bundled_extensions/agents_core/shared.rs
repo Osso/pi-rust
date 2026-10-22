@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use pi_agent_core::agent::types::AgentMessage;
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_json::JsString;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -38,14 +39,14 @@ pub enum WaitAgentsWakeKind {
 #[serde(rename_all = "camelCase")]
 pub struct WaitAgentsWakeUp {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_id: Option<String>,
+    pub agent_id: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coordination_prompt: Option<pi_js_compat::js_json::JsString>,
     pub kind: WaitAgentsWakeKind,
 }
 
 impl WaitAgentsWakeUp {
-    pub fn steering(agent_id: Option<String>) -> Self {
+    pub fn steering(agent_id: Option<JsString>) -> Self {
         Self {
             agent_id,
             coordination_prompt: None,
@@ -113,19 +114,20 @@ impl WaitWakeListeners {
     }
 }
 
-pub fn empty_agent(agent_id: &str) -> AgentSnapshot {
+pub fn empty_agent(agent_id: impl Into<JsString>) -> AgentSnapshot {
+    let agent_id = agent_id.into();
     let timestamp = "1970-01-01T00:00:00.000Z".to_owned();
     AgentSnapshot {
-        id: agent_id.to_owned(),
+        id: agent_id.clone(),
         parent_id: None,
-        display_name: agent_id.to_owned().into(),
+        display_name: agent_id,
         agent_type: "unknown".to_owned(),
         origin: None,
         lifecycle: AgentLifecycle::Failed,
         revision: 0,
-        created_at: timestamp.clone(),
-        updated_at: timestamp,
-        cwd: String::new(),
+        created_at: timestamp.clone().into(),
+        updated_at: timestamp.into(),
+        cwd: JsString::default(),
         worktree: None,
         model: None,
         account: None,
@@ -163,7 +165,7 @@ pub enum SpawnContext {
 
 #[derive(Clone)]
 pub struct ChildAgentDispatchInput {
-    pub active_tool_call_id: Option<String>,
+    pub active_tool_call_id: Option<JsString>,
     pub agent: AgentSnapshot,
     pub context: SpawnContext,
     pub ctx: ExtensionContext,
@@ -173,12 +175,12 @@ pub struct ChildAgentDispatchInput {
 
 #[derive(Clone)]
 pub struct AttachedSessionDispatchInput {
-    pub active_tool_call_id: Option<String>,
+    pub active_tool_call_id: Option<JsString>,
     pub agent: AgentSnapshot,
     pub ctx: ExtensionContext,
     pub prompt: pi_js_compat::js_json::JsString,
     pub signal: Option<tokio_util::sync::CancellationToken>,
-    pub session_path: String,
+    pub session_path: JsString,
 }
 
 pub trait ChildAgentSession: Send + Sync {

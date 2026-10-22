@@ -7,8 +7,8 @@ use std::sync::Arc;
 use pi_agent_core::agent::types::AgentMessage;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::request::BoxFuture;
-use pi_js_compat::js_json::JsString;
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -256,17 +256,17 @@ pub type CreateChildSession = Arc<
 >;
 
 pub type CreateChildSessionManager =
-    Arc<dyn Fn(&str, Option<&str>, NewSessionOptions) -> Result<SessionManager, JsString> + Send + Sync>;
+    Arc<dyn Fn(&JsString, Option<&JsString>, NewSessionOptions) -> Result<SessionManager, JsString> + Send + Sync>;
 
 /// `ProductionChildAgentSessionFactoryOptions`.
 #[derive(Clone)]
 pub struct ProductionChildAgentSessionFactoryOptions {
-    pub agent_dir: Option<String>,
+    pub agent_dir: Option<JsString>,
     pub create_session: CreateChildSession,
     pub create_session_manager: CreateChildSessionManager,
     pub extension_factories: Option<ChildExtensionFactories>,
     pub multi_agent_store: Option<Arc<MultiAgentStore>>,
-    pub session_dir: Option<String>,
+    pub session_dir: Option<JsString>,
 }
 
 /// `createProductionChildAgentSessionFactory`.
@@ -281,21 +281,21 @@ pub fn create_production_child_agent_session_factory(
 
 #[derive(Clone)]
 pub struct SharedProductionSessionOptions {
-    pub agent_dir: Option<String>,
+    pub agent_dir: Option<JsString>,
     pub create_session: CreateChildSession,
     pub extension_factories: Option<ChildExtensionFactories>,
     pub multi_agent_store: Option<Arc<MultiAgentStore>>,
-    pub session_dir: Option<String>,
+    pub session_dir: Option<JsString>,
 }
 
 /// `createProductionAttachedSessionFactory` options (no `createSessionManager`).
 #[derive(Clone)]
 pub struct ProductionAttachedSessionFactoryOptions {
-    pub agent_dir: Option<String>,
+    pub agent_dir: Option<JsString>,
     pub create_session: CreateChildSession,
     pub extension_factories: Option<ChildExtensionFactories>,
     pub multi_agent_store: Option<Arc<MultiAgentStore>>,
-    pub session_dir: Option<String>,
+    pub session_dir: Option<JsString>,
 }
 
 impl From<&ProductionAttachedSessionFactoryOptions> for SharedProductionSessionOptions {
@@ -308,6 +308,11 @@ impl From<&ProductionAttachedSessionFactoryOptions> for SharedProductionSessionO
             session_dir: options.session_dir.clone(),
         }
     }
+}
+
+/// Node `existsSync`: the path argument is encoded to UTF-8 at the filesystem boundary.
+fn path_exists(path: &JsString) -> bool {
+    Path::new(&encode_node_utf8(path)).exists()
 }
 
 /// `createProductionAttachedSessionFactory`.
@@ -336,7 +341,10 @@ fn is_message_role(entry: &SessionEntry, role: &str) -> bool {
     matches!(entry, SessionEntry::Known(KnownSessionEntry::Message(message)) if message.message.role() == role)
 }
 
-fn find_active_tool_call_entry<'a>(branch: &'a [SessionEntry], active_tool_call_id: &str) -> Option<&'a SessionEntry> {
+fn find_active_tool_call_entry<'a>(
+    branch: &'a [SessionEntry],
+    active_tool_call_id: &JsString,
+) -> Option<&'a SessionEntry> {
     branch.iter().rev().find(|entry| {
         let SessionEntry::Known(KnownSessionEntry::Message(message)) = entry else {
             return false;
@@ -350,39 +358,37 @@ fn find_active_tool_call_entry<'a>(branch: &'a [SessionEntry], active_tool_call_
     })
 }
 
-fn find_unresolved_turn_parent_id(branch: &[SessionEntry], active_tool_entry: &SessionEntry) -> Option<String> {
+fn find_unresolved_turn_parent_id(branch: &[SessionEntry], active_tool_entry: &SessionEntry) -> Option<JsString> {
     let immediate_parent = active_tool_entry
         .parent_id()
         .and_then(|parent_id| branch.iter().find(|entry| entry.id() == Some(parent_id)));
     if let Some(parent) = immediate_parent
         && is_message_role(parent, "assistant")
     {
-        return parent.id().map(str::to_owned);
+        return parent.id().cloned();
     }
     let mut ancestor = immediate_parent;
     while let Some(entry) = ancestor {
         if is_message_role(entry, "user") {
-            return entry.parent_id().map(str::to_owned);
+            return entry.parent_id().cloned();
         }
         ancestor = entry
             .parent_id()
             .and_then(|parent_id| branch.iter().find(|candidate| candidate.id() == Some(parent_id)));
     }
-    active_tool_entry.parent_id().map(str::to_owned)
+    active_tool_entry.parent_id().cloned()
 }
 
 fn resolve_inherited_leaf_selection(
     context: super::shared::SpawnContext,
-    active_tool_call_id: Option<&str>,
-    leaf_id: Option<&str>,
+    active_tool_call_id: Option<&JsString>,
+    leaf_id: Option<&JsString>,
     branch: &[SessionEntry],
 ) -> Result<ForkEntrySelection, JsString> {
     if let Some(active_tool_call_id) = active_tool_call_id
-        && js_trim(active_tool_call_id).is_empty()
+        && active_tool_call_id.trim().is_empty()
     {
-        return Err("Cannot inherit context: active tool call identity must be non-empty"
-            .to_owned()
-            .into());
+        return Err("Cannot inherit context: active tool call identity must be non-empty".into());
     }
     let Some(active_tool_call_id) = active_tool_call_id else {
         return Ok(leaf_id.map_or(ForkEntrySelection::All, |id| ForkEntrySelection::From(id.to_owned())));
@@ -393,20 +399,20 @@ fn resolve_inherited_leaf_selection(
         );
     }
     if context == super::shared::SpawnContext::Inherit {
-        return Err(format!(
-            "Cannot inherit context: active tool call {active_tool_call_id} is not in the parent branch"
-        )
-        .into());
+        return Err(js_format!(
+            "Cannot inherit context: active tool call {} is not in the parent branch",
+            active_tool_call_id
+        ));
     }
     Ok(leaf_id.map_or(ForkEntrySelection::All, |id| ForkEntrySelection::From(id.to_owned())))
 }
 
 struct ParentSessionSnapshot {
     branch: Vec<SessionEntry>,
-    leaf_id: Option<String>,
-    session_dir: String,
-    session_file: Option<String>,
-    session_id: String,
+    leaf_id: Option<JsString>,
+    session_dir: JsString,
+    session_file: Option<JsString>,
+    session_id: JsString,
 }
 
 fn parent_session_snapshot(ctx: &ExtensionContext) -> Result<ParentSessionSnapshot, JsString> {
@@ -414,67 +420,63 @@ fn parent_session_snapshot(ctx: &ExtensionContext) -> Result<ParentSessionSnapsh
     let manager = lock_session_manager(&manager);
     Ok(ParentSessionSnapshot {
         branch: manager.get_branch(None),
-        leaf_id: manager.get_leaf_id().map(str::to_owned),
-        session_dir: manager.get_session_dir().to_owned(),
-        session_file: manager.get_session_file().map(str::to_owned),
-        session_id: manager.get_session_id().to_owned(),
+        leaf_id: manager.get_leaf_id().cloned(),
+        session_dir: manager.get_session_dir().clone(),
+        session_file: manager.get_session_file().cloned(),
+        session_id: manager.get_session_id().clone(),
     })
 }
 
 fn validate_persisted_inheritance(
     context: super::shared::SpawnContext,
-    parent_session_file: Option<&str>,
+    parent_session_file: Option<&JsString>,
 ) -> Result<(), pi_js_compat::js_json::JsString> {
     if context == super::shared::SpawnContext::Inherit && parent_session_file.is_none() {
-        return Err("Cannot inherit context from an unpersisted parent session"
-            .to_owned()
-            .into());
+        return Err("Cannot inherit context from an unpersisted parent session".into());
     }
     Ok(())
 }
 
-fn create_child_session_manager_options(agent: &AgentSnapshot, parent_session: &str) -> NewSessionOptions {
+fn create_child_session_manager_options(agent: &AgentSnapshot, parent_session: &JsString) -> NewSessionOptions {
     NewSessionOptions {
-        parent_session: Some(parent_session.to_owned()),
+        parent_session: Some(parent_session.clone()),
         is_subagent: true,
         subagent_name: Some(agent.display_name.clone()),
         ..Default::default()
     }
 }
 
-fn non_empty(value: &str) -> Option<String> {
-    (!value.is_empty()).then(|| value.to_owned())
+fn non_empty(value: &JsString) -> Option<JsString> {
+    (!value.is_empty()).then(|| value.clone())
 }
 
 fn create_child_session_manager(
     input: &ChildAgentDispatchInput,
     options: &ProductionChildAgentSessionFactoryOptions,
-) -> Result<(Option<String>, SessionManager), JsString> {
+) -> Result<(Option<JsString>, SessionManager), JsString> {
     let parent = parent_session_snapshot(&input.ctx)?;
-    validate_persisted_inheritance(input.context, parent.session_file.as_deref())?;
+    validate_persisted_inheritance(input.context, parent.session_file.as_ref())?;
     let session_dir = options.session_dir.clone().or_else(|| non_empty(&parent.session_dir));
-    let manager_options = create_child_session_manager_options(
-        &input.agent,
-        parent.session_file.as_deref().unwrap_or(&parent.session_id),
-    );
+    let manager_options =
+        create_child_session_manager_options(&input.agent, parent.session_file.as_ref().unwrap_or(&parent.session_id));
     let session_manager = if input.context == super::shared::SpawnContext::Inherit && parent.session_file.is_some() {
-        let parent_session_file = parent.session_file.as_deref().unwrap_or_default();
+        let parent_session_file = parent.session_file.clone().unwrap_or_default();
         let selection = resolve_inherited_leaf_selection(
             input.context,
-            input.active_tool_call_id.as_deref(),
-            parent.leaf_id.as_deref(),
+            input.active_tool_call_id.as_ref(),
+            parent.leaf_id.as_ref(),
             &parent.branch,
         )?;
         SessionManager::fork_from(
-            parent_session_file,
+            &parent_session_file,
             &input.agent.cwd,
-            session_dir.as_deref(),
+            session_dir.as_ref(),
             Some(manager_options),
             Some(selection),
         )
-        .map_err(|error| JsString::from(error.to_string()))?
+        .map_err(|error| error.message().clone())?
     } else {
-        (options.create_session_manager)(&input.agent.cwd, session_dir.as_deref(), manager_options)?
+        (options.create_session_manager)(&input.agent.cwd, session_dir.as_ref(), manager_options)?
     };
     Ok((parent.session_file, session_manager))
 }
@@ -538,7 +540,10 @@ fn resolve_child_agent_tools(tools: Option<Vec<String>>) -> Option<Vec<String>> 
     Some(resolved)
 }
 
-fn create_session_start_event(reason: SessionStartReason, previous_session_file: Option<String>) -> SessionStartEvent {
+fn create_session_start_event(
+    reason: SessionStartReason,
+    previous_session_file: Option<JsString>,
+) -> SessionStartEvent {
     SessionStartEvent {
         reason,
         previous_session_file,
@@ -631,13 +636,13 @@ async fn create_bound_child_session(
     let transcript = {
         let mut manager = lock_session_manager(&session_manager);
         let transcript = AgentTranscriptMetadata {
-            path: manager.get_session_file().map(str::to_owned),
-            session_id: manager.get_session_id().to_owned(),
+            path: manager.get_session_file().cloned(),
+            session_id: manager.get_session_id().clone(),
         };
         if input.persist_for_recovery {
             manager
                 .persist_for_recovery()
-                .map_err(|error| JsString::from(error.to_string()))?;
+                .map_err(|error| error.message().clone())?;
         }
         transcript
     };
@@ -683,10 +688,11 @@ fn validate_attached_session_identity(
     };
     let actual_session_id = session_manager.get_session_id();
     if actual_session_id != expected_session_id {
-        return Err(format!(
-            "Child agent transcript session mismatch: expected {expected_session_id}, found {actual_session_id}"
-        )
-        .into());
+        return Err(js_format!(
+            "Child agent transcript session mismatch: expected {}, found {}",
+            expected_session_id,
+            actual_session_id
+        ));
     }
     Ok(())
 }
@@ -696,41 +702,42 @@ fn open_attached_session_manager(
     options: &SharedProductionSessionOptions,
 ) -> Result<SessionManager, JsString> {
     if input.session_path.is_empty() {
-        return Err("Cannot resume attached session without a session path"
-            .to_owned()
-            .into());
+        return Err("Cannot resume attached session without a session path".into());
     }
-    if !Path::new(&input.session_path).exists() {
-        return Err(format!("Child agent transcript does not exist: {}", input.session_path).into());
+    if !path_exists(&input.session_path) {
+        return Err(js_format!(
+            "Child agent transcript does not exist: {}",
+            input.session_path
+        ));
     }
     let ctx_cwd = input.ctx.cwd().map_err(|error| error.message)?;
-    if input.agent.cwd != ctx_cwd && !Path::new(&input.agent.cwd).exists() {
-        return Err(format!(
+    if input.agent.cwd != ctx_cwd && !path_exists(&input.agent.cwd) {
+        return Err(js_format!(
             "Agent {} working directory does not exist: {}",
-            input.agent.id, input.agent.cwd
-        )
-        .into());
+            input.agent.id,
+            input.agent.cwd
+        ));
     }
     let session_manager = input.ctx.session_manager().map_err(|error| error.message)?;
-    let parent_session_dir = lock_session_manager(&session_manager).get_session_dir().to_owned();
+    let parent_session_dir = lock_session_manager(&session_manager).get_session_dir().clone();
     let session_dir = options.session_dir.clone().or_else(|| non_empty(&parent_session_dir));
-    let mut session_manager = SessionManager::open(&input.session_path, session_dir.as_deref(), Some(&input.agent.cwd))
-        .map_err(|error| JsString::from(error.to_string()))?;
+    let mut session_manager = SessionManager::open(&input.session_path, session_dir.as_ref(), Some(&input.agent.cwd))
+        .map_err(|error| error.message().clone())?;
     validate_attached_session_identity(&input.agent, &session_manager)?;
     let control_db_path = input.ctx.control_db_path().map_err(|error| error.message)?;
     session_manager
-        .set_metadata_control_db_path(control_db_path.as_deref(), Default::default())
-        .map_err(|error| JsString::from(error.to_string()))?;
+        .set_metadata_control_db_path(control_db_path.as_ref(), Default::default())
+        .map_err(|error| error.message().clone())?;
     Ok(session_manager)
 }
 
 fn create_attached_settings_manager(
     agent: &AgentSnapshot,
-    agent_dir: Option<&str>,
+    agent_dir: Option<&JsString>,
 ) -> Result<SettingsManager, JsString> {
     let mut settings_manager = SettingsManager::create(
         &agent.cwd,
-        agent_dir.map(Path::new),
+        agent_dir,
         SettingsManagerCreateOptions {
             project_trusted: Some(false),
         },
@@ -758,11 +765,9 @@ async fn create_production_attached_session(
     let session_manager = open_attached_session_manager(&input, &shared)?;
     let parent_session_file = {
         let parent_manager = input.ctx.session_manager().map_err(|error| error.message)?;
-        lock_session_manager(&parent_manager)
-            .get_session_file()
-            .map(str::to_owned)
+        lock_session_manager(&parent_manager).get_session_file().cloned()
     };
-    let settings_manager = create_attached_settings_manager(&input.agent, options.agent_dir.as_deref())?;
+    let settings_manager = create_attached_settings_manager(&input.agent, options.agent_dir.as_ref())?;
     create_bound_child_session(CreateBoundChildSessionInput {
         agent: input.agent,
         ctx: input.ctx,

@@ -47,7 +47,7 @@ pub fn publish_coordinator_snapshot(store: &Arc<MultiAgentStore>, agent: &AgentS
     };
     deliver_terminal_outbox_projections(&DeliverTerminalOutboxOptions {
         artifact_root: None,
-        claim_id: pi_ai::utils::uuid::random_uuid(),
+        claim_id: pi_ai::utils::uuid::random_uuid().into(),
         control_db_path: persistence.control_db_path,
         now: Arc::new(crate::utils::iso_time::now_iso_string),
         store: Arc::clone(store),

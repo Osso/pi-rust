@@ -69,14 +69,16 @@ pub fn append_parent_agent_record(
     agent: &AgentSnapshot,
 ) -> Result<(), HandlerError> {
     let Some(transcript) = agent.transcript.as_ref() else {
-        return Err(HandlerError::new(format!(
-            "Cannot persist {custom_type} for {} without transcript identity",
+        return Err(HandlerError::new(js_format!(
+            "Cannot persist {} for {} without transcript identity",
+            custom_type,
             agent.id
         )));
     };
     let Some(transcript_path) = transcript.path.as_ref() else {
-        return Err(HandlerError::new(format!(
-            "Cannot persist {custom_type} for {} without transcript identity",
+        return Err(HandlerError::new(js_format!(
+            "Cannot persist {} for {} without transcript identity",
+            custom_type,
             agent.id
         )));
     };
@@ -114,12 +116,12 @@ pub fn append_parent_agent_completion(
     append_parent_agent_record(pi, AGENT_COMPLETE_CUSTOM_TYPE, agent)
 }
 
-pub fn read_active_parent_agent_ids_from_entries(entries: &[FileEntry]) -> HashSet<String> {
+pub fn read_active_parent_agent_ids_from_entries(entries: &[FileEntry]) -> HashSet<JsString> {
     let session_entries: Vec<SessionEntry> = entries.iter().filter_map(|entry| entry.entry().cloned()).collect();
     read_active_parent_agent_ids_from_session_entries(&session_entries)
 }
 
-pub fn read_active_parent_agent_ids_from_session_entries(entries: &[SessionEntry]) -> HashSet<String> {
+pub fn read_active_parent_agent_ids_from_session_entries(entries: &[SessionEntry]) -> HashSet<JsString> {
     let mut started = HashSet::new();
     let mut completed = HashSet::new();
     for entry in entries {
@@ -135,7 +137,6 @@ pub fn read_active_parent_agent_ids_from_session_entries(entries: &[SessionEntry
             .and_then(|data| data.as_object())
             .and_then(|data| data.get("agentId"))
             .and_then(Value::as_string)
-            .and_then(|id| id.to_utf8().ok())
         else {
             continue;
         };
@@ -151,7 +152,7 @@ pub fn read_active_parent_agent_ids_from_session_entries(entries: &[SessionEntry
     started
 }
 
-pub fn read_active_parent_agent_ids(ctx: &ExtensionContext) -> Result<HashSet<String>, HandlerError> {
+pub fn read_active_parent_agent_ids(ctx: &ExtensionContext) -> Result<HashSet<JsString>, HandlerError> {
     let session_manager = ctx.session_manager()?;
     let manager = lock_session_manager(&session_manager);
     Ok(read_active_parent_agent_ids_from_session_entries(
@@ -165,11 +166,11 @@ fn list_direct_active_agents(
 ) -> Result<Vec<AgentSnapshot>, HandlerError> {
     let parent_id = ctx
         .multi_agent_agent_id()?
-        .unwrap_or_else(|| MAIN_THREAD_AGENT_ID.to_owned());
+        .unwrap_or_else(|| MAIN_THREAD_AGENT_ID.into());
     Ok(store
         .list_active_agents()
         .into_iter()
-        .filter(|agent| agent.parent_id.as_deref().unwrap_or(MAIN_THREAD_AGENT_ID) == parent_id)
+        .filter(|agent| agent.parent_id.clone().unwrap_or_else(|| MAIN_THREAD_AGENT_ID.into()) == parent_id)
         .collect())
 }
 

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pi_agent_core::AgentToolResult;
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue};
 
 use crate::core::extensions::types::{ExtensionContext, HandlerError};
@@ -37,16 +38,16 @@ pub struct OwnedAgentRuntime {
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CancelAgentParams {
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub reason: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SteerAgentParams {
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub file_refs: Option<JsValue>,
-    pub from_agent_id: Option<String>,
+    pub from_agent_id: Option<JsString>,
     pub message: JsString,
     pub target_checkpoint: Option<SteeringCheckpoint>,
 }
@@ -81,14 +82,14 @@ pub enum CancelReservedAgentResult {
 
 #[derive(Debug, Clone)]
 pub struct AgentSteeringRuntimeBinding {
-    pub actor_agent_id: Option<String>,
-    pub control_db_path: String,
-    pub session_id: String,
+    pub actor_agent_id: Option<JsString>,
+    pub control_db_path: JsString,
+    pub session_id: JsString,
 }
 
 #[derive(Debug, Clone)]
 pub struct AgentSteeringRequest {
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub message: JsString,
     pub file_refs: Option<JsValue>,
     pub target_checkpoint: Option<SteeringCheckpoint>,
@@ -103,29 +104,29 @@ pub enum AgentSteeringRequestResult {
     Err {
         agent: AgentSnapshot,
         message: AgentMailboxMessage,
-        error: String,
+        error: JsString,
     },
 }
 
 struct SteeringAuthority {
     coordinator: Arc<crate::core::lifecycle_coordinator::LifecycleCoordinator>,
     ownership: MultiAgentRuntimeOwnership,
-    target_session_id: String,
+    target_session_id: JsString,
 }
 
 struct DetachedCancellationAuthority {
     coordinator: Arc<crate::core::lifecycle_coordinator::LifecycleCoordinator>,
-    output_label: String,
+    output_label: JsString,
     ownership: MultiAgentRuntimeOwnership,
 }
 
 pub async fn cancel_owned_agent_runtime(
     store: &Arc<MultiAgentStore>,
     runtime_handles: &MultiAgentRuntimeHandles,
-    agent_id: &str,
+    agent_id: &JsString,
     reason: Option<&JsString>,
 ) -> Result<CancelReservedAgentResult, HandlerError> {
-    let mut descendants: Vec<String> = store
+    let mut descendants: Vec<JsString> = store
         .list_descendants(agent_id)
         .into_iter()
         .filter(|agent| is_active_lifecycle(agent.lifecycle))
@@ -163,7 +164,7 @@ pub async fn cancel_agent(
                 other => other.as_str().to_owned(),
             };
             Ok(error_tool_result(
-                format!("Could not cancel {}: {error}", params.agent_id),
+                js_format!("Could not cancel {}: {}", params.agent_id, error),
                 pi_js_compat::js_json!({
                     "agent": agent.unwrap_or_else(|| empty_agent(&params.agent_id)),
                     "reason": params.reason,
@@ -182,7 +183,7 @@ pub fn wake_wait_agents_after_steering(runtime_handles: &MultiAgentRuntimeHandle
 pub fn request_interactive_agent_steering(
     store: &Arc<MultiAgentStore>,
     runtime_handles: &MultiAgentRuntimeHandles,
-    agent_id: &str,
+    agent_id: &JsString,
     message: &JsString,
     binding: &AgentSteeringRuntimeBinding,
 ) -> Result<(), JsString> {
@@ -330,7 +331,7 @@ fn steering_identity_unavailable(params: &SteerAgentParams) -> AgentToolResult {
 async fn cancel_one_owned_agent_runtime(
     store: &Arc<MultiAgentStore>,
     runtime_handles: &MultiAgentRuntimeHandles,
-    agent_id: &str,
+    agent_id: &JsString,
     reason: Option<&JsString>,
 ) -> Result<CancelReservedAgentResult, HandlerError> {
     let Some(current) = store.get_agent(agent_id) else {
@@ -443,7 +444,7 @@ fn read_detached_cancellation_authority(
     }))
 }
 
-fn detached_runtime_output_label(agent: &AgentSnapshot) -> Option<String> {
+fn detached_runtime_output_label(agent: &AgentSnapshot) -> Option<JsString> {
     let is_detached_runtime = agent.agent_type == "background" && agent.worker.is_some();
     if !is_detached_runtime {
         return None;
@@ -454,22 +455,21 @@ fn detached_runtime_output_label(agent: &AgentSnapshot) -> Option<String> {
         .file_refs
         .as_ref()?
         .iter()
-        .map(|file_ref| file_ref.label.as_deref())
-        .find(|label| is_detached_runtime_output_label(*label))
-        .flatten()
-        .map(str::to_owned)
+        .filter_map(|file_ref| file_ref.label.as_ref())
+        .find(|label| is_detached_runtime_output_label(label))
+        .cloned()
 }
 
-fn is_detached_runtime_output_label(label: Option<&str>) -> bool {
-    matches!(label, Some("Bash output" | "Pyrun output"))
+fn is_detached_runtime_output_label(label: &JsString) -> bool {
+    *label == "Bash output" || *label == "Pyrun output"
 }
 
-fn current_steering_sender_id(ctx: Option<&ExtensionContext>) -> Result<Option<String>, HandlerError> {
+fn current_steering_sender_id(ctx: Option<&ExtensionContext>) -> Result<Option<JsString>, HandlerError> {
     let Some(sender_id) = current_message_sender_id(ctx)? else {
         return Ok(None);
     };
     Ok(Some(if sender_id == MAIN_THREAD_AGENT_ID {
-        "supervisor".to_owned()
+        "supervisor".into()
     } else {
         sender_id
     }))
@@ -530,7 +530,7 @@ fn steering_rejected(agent: &AgentSnapshot, message: &JsString, coordinator_erro
     };
     AgentSteeringRequestResult::Err {
         agent: agent.clone(),
-        error: format!("Could not steer {}: {error}", agent.id),
+        error: js_format!("Could not steer {}: {}", agent.id, error),
         message: empty_message(&agent.id, message),
     }
 }
@@ -538,7 +538,7 @@ fn steering_rejected(agent: &AgentSnapshot, message: &JsString, coordinator_erro
 fn steering_not_found(params: &AgentSteeringRequest) -> AgentSteeringRequestResult {
     AgentSteeringRequestResult::Err {
         agent: empty_agent(&params.agent_id),
-        error: format!("Could not steer {}: not_found", params.agent_id),
+        error: js_format!("Could not steer {}: not_found", params.agent_id),
         message: empty_message(&params.agent_id, &params.message),
     }
 }
@@ -546,7 +546,7 @@ fn steering_not_found(params: &AgentSteeringRequest) -> AgentSteeringRequestResu
 fn steering_inactive(agent: &AgentSnapshot, message: &JsString) -> AgentSteeringRequestResult {
     AgentSteeringRequestResult::Err {
         agent: agent.clone(),
-        error: format!(
+        error: js_format!(
             "Could not steer {}: inactive ({})",
             agent.id,
             lifecycle_name(agent.lifecycle)
@@ -558,12 +558,12 @@ fn steering_inactive(agent: &AgentSnapshot, message: &JsString) -> AgentSteering
 fn steering_ownership_unavailable(agent: &AgentSnapshot, message: &JsString) -> AgentSteeringRequestResult {
     AgentSteeringRequestResult::Err {
         agent: agent.clone(),
-        error: format!("Could not steer {}: runtime ownership unavailable", agent.id),
+        error: js_format!("Could not steer {}: runtime ownership unavailable", agent.id),
         message: empty_message(&agent.id, message),
     }
 }
 
-fn empty_message(agent_id: &str, body: &JsString) -> AgentMailboxMessage {
+fn empty_message(agent_id: &JsString, body: &JsString) -> AgentMailboxMessage {
     create_failed_mailbox_message(
         body,
         "supervisor",

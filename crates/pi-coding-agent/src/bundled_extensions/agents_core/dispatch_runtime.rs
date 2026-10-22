@@ -32,8 +32,8 @@ use super::shared::{
 pub const AGENT_START_CUSTOM_TYPE: &str = "agent_start";
 pub const AGENT_COMPLETE_CUSTOM_TYPE: &str = "agent_complete";
 
-pub type BackgroundSessionHandles = Arc<Mutex<HashMap<String, Arc<dyn ChildAgentSession>>>>;
-pub type ActiveAgentDispatches = Arc<Mutex<HashMap<String, SharedDispatch>>>;
+pub type BackgroundSessionHandles = Arc<Mutex<HashMap<JsString, Arc<dyn ChildAgentSession>>>>;
+pub type ActiveAgentDispatches = Arc<Mutex<HashMap<JsString, SharedDispatch>>>;
 
 pub struct WaitingDesktopNotificationRegistration {
     pub handle: Box<dyn DesktopNotificationHandle>,
@@ -51,7 +51,7 @@ pub struct AttachSessionDispatchInput {
     pub desktop_notifier: Arc<dyn DesktopNotifier>,
     pub dispatches: ActiveAgentDispatches,
     pub handles: Option<BackgroundSessionHandles>,
-    pub ownerships: Arc<Mutex<HashMap<String, Arc<OwnedAgentRuntime>>>>,
+    pub ownerships: Arc<Mutex<HashMap<JsString, Arc<OwnedAgentRuntime>>>>,
     pub prompt: pi_js_compat::js_json::JsString,
     pub store: Arc<MultiAgentStore>,
     pub target: AgentSnapshot,
@@ -696,7 +696,7 @@ async fn fail_child_session(
 
 async fn wait_for_active_descendants(
     store: &MultiAgentStore,
-    agent_id: &str,
+    agent_id: &JsString,
     signal: Option<&tokio_util::sync::CancellationToken>,
 ) {
     let has_active_descendants = || {
@@ -767,7 +767,7 @@ fn finalize_reserved_runtime(input: FinalizeReservedRuntimeInput) -> AgentSnapsh
 
 fn acknowledge_cancelled_runtime(
     store: &Arc<MultiAgentStore>,
-    agent_id: &str,
+    agent_id: &JsString,
     reserved_runtime: Option<&Arc<OwnedAgentRuntime>>,
     expected_restore_generation: Option<u64>,
 ) -> Option<AgentSnapshot> {
@@ -799,8 +799,8 @@ fn acknowledge_cancelled_runtime(
 
 pub fn release_ownership_after_dispatch(
     dispatches: &ActiveAgentDispatches,
-    ownerships: &Arc<Mutex<HashMap<String, Arc<OwnedAgentRuntime>>>>,
-    agent_id: &str,
+    ownerships: &Arc<Mutex<HashMap<JsString, Arc<OwnedAgentRuntime>>>>,
+    agent_id: &JsString,
 ) {
     let dispatch = dispatches.lock().expect("dispatches").get(agent_id).cloned();
     if let Some(dispatch) = dispatch {
@@ -864,7 +864,7 @@ fn remember_waiting_desktop_notification(
 
 fn close_waiting_desktop_notification_when_not_waiting(
     store: &MultiAgentStore,
-    agent_id: &str,
+    agent_id: &JsString,
     waiting: &WaitingDesktopNotificationHandles,
 ) {
     if store

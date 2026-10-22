@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use pi_agent_core::AgentToolResult;
 use pi_js_compat::string::js_trim;
 use pi_js_compat::{
-    js_json as json,
+    js_format, js_json as json,
     js_json::{JsString, JsValue as Value},
 };
 use serde::Deserialize;
@@ -51,7 +51,7 @@ pub struct SpawnAgentParams {
     pub agent_type: Option<String>,
     pub context: Option<String>,
     pub display_name: Option<JsString>,
-    pub parent_id: Option<String>,
+    pub parent_id: Option<JsString>,
     pub prompt: JsString,
 }
 
@@ -61,10 +61,10 @@ pub struct AttachSessionAgentParams {
     pub agent_type: Option<String>,
     pub display_name: Option<JsString>,
     pub name: Option<JsString>,
-    pub parent_id: Option<String>,
-    pub path: Option<String>,
+    pub parent_id: Option<JsString>,
+    pub path: Option<JsString>,
     pub prompt: Option<JsString>,
-    pub session_id: Option<String>,
+    pub session_id: Option<JsString>,
 }
 
 pub fn spawn_agent_schema() -> serde_json::Value {
@@ -103,13 +103,13 @@ pub fn attach_session_agent_schema() -> serde_json::Value {
 
 #[derive(Clone)]
 pub struct SpawnAgentRuntimeInput<'a> {
-    pub active_tool_call_id: Option<String>,
+    pub active_tool_call_id: Option<JsString>,
     pub create_child_session: Option<ChildAgentSessionFactory>,
     pub ctx: ExtensionContext,
     pub desktop_notifier: Arc<dyn DesktopNotifier>,
     pub dispatches: ActiveAgentDispatches,
     pub handles: Option<BackgroundSessionHandles>,
-    pub ownerships: Arc<Mutex<HashMap<String, Arc<OwnedAgentRuntime>>>>,
+    pub ownerships: Arc<Mutex<HashMap<JsString, Arc<OwnedAgentRuntime>>>>,
     pub params: Value,
     pub pi: Option<JournalWriter>,
     pub store: Arc<MultiAgentStore>,
@@ -118,13 +118,13 @@ pub struct SpawnAgentRuntimeInput<'a> {
 }
 
 struct ValidSpawnInput {
-    active_tool_call_id: Option<String>,
+    active_tool_call_id: Option<JsString>,
     create_child_session: ChildAgentSessionFactory,
     ctx: ExtensionContext,
     desktop_notifier: Arc<dyn DesktopNotifier>,
     dispatches: ActiveAgentDispatches,
     handles: Option<BackgroundSessionHandles>,
-    ownerships: Arc<Mutex<HashMap<String, Arc<OwnedAgentRuntime>>>>,
+    ownerships: Arc<Mutex<HashMap<JsString, Arc<OwnedAgentRuntime>>>>,
     params: SpawnAgentParams,
     pi: JournalWriter,
     store: Arc<MultiAgentStore>,
@@ -556,7 +556,7 @@ fn dispatch_spawned_agent(input: &ValidSpawnInput, spawn: CommittedSpawn) -> Res
     Ok(tool_result(
         JsString::from("Spawned ")
             + &agent.display_name
-            + format!(
+            + js_format!(
                 " ({}) [type: {}, context: {}]",
                 agent.id,
                 agent.agent_type,
@@ -596,16 +596,16 @@ pub struct AttachSessionAgentRuntimeInput {
     pub dispatches: ActiveAgentDispatches,
     pub handles: Option<BackgroundSessionHandles>,
     pub params: AttachSessionAgentParams,
-    pub ownerships: Arc<Mutex<HashMap<String, Arc<OwnedAgentRuntime>>>>,
+    pub ownerships: Arc<Mutex<HashMap<JsString, Arc<OwnedAgentRuntime>>>>,
     pub store: Arc<MultiAgentStore>,
     pub waiting_desktop_notifications: WaitingDesktopNotificationHandles,
 }
 
 struct AttachSessionTarget {
-    cwd: String,
+    cwd: JsString,
     name: Option<JsString>,
-    path: String,
-    session_id: String,
+    path: JsString,
+    session_id: JsString,
 }
 
 pub async fn attach_session_agent(input: &AttachSessionAgentRuntimeInput) -> Result<AgentToolResult, HandlerError> {
@@ -626,7 +626,7 @@ pub async fn attach_session_agent(input: &AttachSessionAgentRuntimeInput) -> Res
     if let Some(prompt) = prompt.as_ref()
         && input.create_attached_session.is_none()
     {
-        let message = format!(
+        let message = js_format!(
             "Could not resume session {}: no attached session runtime is configured.",
             target.session_id
         );
@@ -636,10 +636,10 @@ pub async fn attach_session_agent(input: &AttachSessionAgentRuntimeInput) -> Res
         Ok(agent) => agent,
         Err((error, parent)) => {
             return Ok(tool_result(
-                format!("Could not attach session {}: {error}", target.session_id),
+                js_format!("Could not attach session {}: {}", target.session_id, error),
                 json!({
                     "agent": parent.unwrap_or_else(|| {
-                        empty_agent(input.params.parent_id.as_deref().unwrap_or("attach_session_agent"))
+                        empty_agent(input.params.parent_id.clone().unwrap_or_else(|| "attach_session_agent".into()))
                     }),
                     "dispatched": false,
                 }),
@@ -656,7 +656,7 @@ fn dispatch_attached_agent(
 ) -> AgentToolResult {
     let Some(prompt) = prompt else {
         return tool_result(
-            JsString::from("Attached ") + &agent.display_name + format!(" ({})", agent.id),
+            JsString::from("Attached ") + &agent.display_name + " (" + &agent.id + ")",
             json!({"agent": agent, "dispatched": false}),
         );
     };
@@ -675,11 +675,11 @@ fn dispatch_attached_agent(
     .unwrap_or(None);
     match dispatched {
         Some(dispatched) => tool_result(
-            JsString::from("Attached and resumed ") + &dispatched.display_name + format!(" ({})", dispatched.id),
+            JsString::from("Attached and resumed ") + &dispatched.display_name + " (" + &dispatched.id + ")",
             json!({"agent": dispatched, "dispatched": true, "prompt": prompt}),
         ),
         None => tool_result(
-            JsString::from("Attached ") + &agent.display_name + format!(" ({})", agent.id),
+            JsString::from("Attached ") + &agent.display_name + " (" + &agent.id + ")",
             json!({"agent": agent, "dispatched": false}),
         ),
     }
@@ -690,7 +690,7 @@ fn create_attached_agent(
     params: &AttachSessionAgentParams,
     target: &AttachSessionTarget,
     ctx: &ExtensionContext,
-) -> Result<Result<AgentSnapshot, (String, Option<AgentSnapshot>)>, HandlerError> {
+) -> Result<Result<AgentSnapshot, (JsString, Option<AgentSnapshot>)>, HandlerError> {
     let agent_type = params
         .agent_type
         .as_deref()
@@ -711,7 +711,7 @@ fn create_attached_agent(
         .map(JsString::trim)
         .filter(|value| !value.is_empty())
         .or_else(|| target.name.clone())
-        .unwrap_or_else(|| format!("Session {}", target.session_id).into());
+        .unwrap_or_else(|| JsString::from("Session ") + &target.session_id);
     let model = resolve_configured_agent_profile(&agent_type, ctx)?
         .model_metadata
         .or_else(|| parent.as_ref().and_then(|parent| parent.model.clone()));
@@ -727,7 +727,7 @@ fn create_attached_agent(
             display_name,
             model,
             parent_id: params.parent_id.clone(),
-            permission: build_attached_session_permission(store, params.parent_id.as_deref(), ctx)?,
+            permission: build_attached_session_permission(store, params.parent_id.as_ref(), ctx)?,
             transcript: Some(crate::core::multi_agent_store::AgentTranscriptMetadata {
                 session_id: target.session_id.clone(),
                 path: Some(target.path.clone()),
@@ -752,7 +752,7 @@ fn create_attached_agent(
 
 fn build_attached_session_permission(
     store: &MultiAgentStore,
-    parent_id: Option<&str>,
+    parent_id: Option<&JsString>,
     ctx: &ExtensionContext,
 ) -> Result<AgentPermission, HandlerError> {
     let Some(parent_id) = parent_id else {
@@ -792,11 +792,15 @@ fn load_attach_session_target(
             .as_ref()
             .map(JsString::trim)
             .filter(|value| !value.is_empty()),
-        params.path.as_deref().map(js_trim).filter(|value| !value.is_empty()),
+        params
+            .path
+            .as_ref()
+            .map(JsString::trim)
+            .filter(|value| !value.is_empty()),
         params
             .session_id
-            .as_deref()
-            .map(js_trim)
+            .as_ref()
+            .map(JsString::trim)
             .filter(|value| !value.is_empty()),
     );
     let count = [selectors.0.is_some(), selectors.1.is_some(), selectors.2.is_some()]
@@ -821,9 +825,9 @@ fn load_attach_session_target(
         }));
     }
     let control_db_path = ctx.control_db_path()?;
-    let local_sessions = SessionManager::list(&ctx.cwd()?, Some(&session_dir), None, control_db_path.as_deref())
+    let local_sessions = SessionManager::list(&ctx.cwd()?, Some(&session_dir), None, control_db_path.as_ref())
         .map_err(|error| HandlerError::new(error.to_string()))?;
-    let all_sessions = SessionManager::list_all(Some(&session_dir), None, control_db_path.as_deref())
+    let all_sessions = SessionManager::list_all(Some(&session_dir), None, control_db_path.as_ref())
         .map_err(|error| HandlerError::new(error.to_string()))?;
     let mut sessions = local_sessions;
     sessions.extend(all_sessions);
@@ -846,7 +850,7 @@ enum SessionMatch<'a> {
 }
 
 fn dedupe_sessions_by_path(sessions: Vec<SessionInfo>) -> Vec<SessionInfo> {
-    let mut deduped: indexmap::IndexMap<String, SessionInfo> = indexmap::IndexMap::new();
+    let mut deduped: indexmap::IndexMap<JsString, SessionInfo> = indexmap::IndexMap::new();
     for session in sessions {
         deduped.insert(session.path.clone(), session);
     }
@@ -856,7 +860,7 @@ fn dedupe_sessions_by_path(sessions: Vec<SessionInfo>) -> Vec<SessionInfo> {
 fn find_matching_session<'a>(
     sessions: &'a [SessionInfo],
     name: Option<&JsString>,
-    session_id: Option<&str>,
+    session_id: Option<&JsString>,
 ) -> SessionMatch<'a> {
     if let Some(session_id) = session_id {
         return find_matching_session_id(sessions, session_id);
@@ -874,8 +878,8 @@ fn find_matching_session<'a>(
     }
 }
 
-fn find_matching_session_id<'a>(sessions: &'a [SessionInfo], session_id: &str) -> SessionMatch<'a> {
-    let exact: Vec<&SessionInfo> = sessions.iter().filter(|session| session.id == session_id).collect();
+fn find_matching_session_id<'a>(sessions: &'a [SessionInfo], session_id: &JsString) -> SessionMatch<'a> {
+    let exact: Vec<&SessionInfo> = sessions.iter().filter(|session| session.id == *session_id).collect();
     if exact.len() > 1 {
         return SessionMatch::Ambiguous(session_id.into());
     }
@@ -911,7 +915,7 @@ pub struct RecoverAgentsInput {
     pub desktop_notifier: Arc<dyn DesktopNotifier>,
     pub dispatches: ActiveAgentDispatches,
     pub handles: Option<BackgroundSessionHandles>,
-    pub ownerships: Arc<Mutex<HashMap<String, Arc<OwnedAgentRuntime>>>>,
+    pub ownerships: Arc<Mutex<HashMap<JsString, Arc<OwnedAgentRuntime>>>>,
     pub store: Arc<MultiAgentStore>,
     pub waiting_desktop_notifications: WaitingDesktopNotificationHandles,
 }
@@ -932,7 +936,9 @@ pub fn recover_agents(input: &RecoverAgentsInput) -> Result<(), HandlerError> {
     Ok(())
 }
 
-pub fn read_active_parent_agent_ids(ctx: &ExtensionContext) -> Result<std::collections::HashSet<String>, HandlerError> {
+pub fn read_active_parent_agent_ids(
+    ctx: &ExtensionContext,
+) -> Result<std::collections::HashSet<JsString>, HandlerError> {
     read_journal_ids(ctx)
 }
 
@@ -942,15 +948,16 @@ fn query_recovery_targets(input: &RecoverAgentsInput) -> Result<Vec<AgentSnapsho
     Ok(match parent_id {
         Some(parent_id) => active_agents
             .into_iter()
-            .filter(|agent| agent.parent_id.as_deref() == Some(parent_id.as_str()))
+            .filter(|agent| agent.parent_id.as_ref() == Some(&parent_id))
             .collect(),
         None => active_agents,
     })
 }
 
 fn order_recovery_agents(agents: Vec<AgentSnapshot>) -> Vec<AgentSnapshot> {
-    let by_id: HashMap<String, AgentSnapshot> = agents.iter().map(|agent| (agent.id.clone(), agent.clone())).collect();
-    let mut depths: HashMap<String, usize> = HashMap::new();
+    let by_id: HashMap<JsString, AgentSnapshot> =
+        agents.iter().map(|agent| (agent.id.clone(), agent.clone())).collect();
+    let mut depths: HashMap<JsString, usize> = HashMap::new();
     let mut ordered = agents;
     ordered.sort_by_key(|agent| std::cmp::Reverse(depth_of(agent, &by_id, &mut depths)));
     ordered
@@ -958,13 +965,13 @@ fn order_recovery_agents(agents: Vec<AgentSnapshot>) -> Vec<AgentSnapshot> {
 
 fn depth_of(
     agent: &AgentSnapshot,
-    by_id: &HashMap<String, AgentSnapshot>,
-    depths: &mut HashMap<String, usize>,
+    by_id: &HashMap<JsString, AgentSnapshot>,
+    depths: &mut HashMap<JsString, usize>,
 ) -> usize {
     if let Some(depth) = depths.get(&agent.id) {
         return *depth;
     }
-    let parent = agent.parent_id.as_deref().and_then(|parent_id| by_id.get(parent_id));
+    let parent = agent.parent_id.as_ref().and_then(|parent_id| by_id.get(parent_id));
     let depth = parent.map_or(0, |parent| depth_of(parent, by_id, depths) + 1);
     depths.insert(agent.id.clone(), depth);
     depth
@@ -1059,7 +1066,7 @@ fn resolve_configured_agent_profile(
     };
     let model = profile.model.as_ref().and_then(|model| {
         let registry = ctx.model_registry().ok()?;
-        find_exact_model_reference_match(model, &registry.get_all())
+        find_exact_model_reference_match(&JsString::from(model), &registry.get_all())
     });
     let model_metadata = model.as_ref().map(|model| AgentModel {
         provider_id: model.provider.to_string(),

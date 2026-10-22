@@ -1,6 +1,7 @@
 //! Multi-agent extension options and runtime handles
 //! (`extensions/agents-core/src/runtime.ts`).
 
+use pi_js_compat::js_format;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -51,9 +52,9 @@ pub type SharedDispatch = Shared<BoxFuture<'static, Result<AgentSnapshot, pi_js_
 #[derive(Clone, Default)]
 pub struct MultiAgentRuntimeHandles {
     pub latest_model_request_started_at: Arc<Mutex<Option<i64>>>,
-    pub dispatches: Arc<Mutex<HashMap<String, SharedDispatch>>>,
-    pub ownerships: Arc<Mutex<HashMap<String, Arc<OwnedAgentRuntime>>>>,
-    pub sessions: Arc<Mutex<HashMap<String, Arc<dyn ChildAgentSession>>>>,
+    pub dispatches: Arc<Mutex<HashMap<JsString, SharedDispatch>>>,
+    pub ownerships: Arc<Mutex<HashMap<JsString, Arc<OwnedAgentRuntime>>>>,
+    pub sessions: Arc<Mutex<HashMap<JsString, Arc<dyn ChildAgentSession>>>>,
     pub wait_wake_listeners: WaitWakeListeners,
 }
 
@@ -67,7 +68,7 @@ impl MultiAgentRuntimeHandles {
     }
 }
 
-pub type SelectAgentView = Arc<dyn Fn(&str) -> BoxFuture<'static, Option<bool>> + Send + Sync>;
+pub type SelectAgentView = Arc<dyn Fn(&JsString) -> BoxFuture<'static, Option<bool>> + Send + Sync>;
 
 #[derive(Clone, Default)]
 pub struct MultiAgentExtensionOptions {
@@ -111,11 +112,12 @@ pub fn resolve_selected_session_mutation_target(
         return Ok(None);
     }
     let Some(agent) = store.get_agent(&selected_agent_id) else {
-        return Err(HandlerError::new(format!("Agent not found: {selected_agent_id}")));
+        return Err(HandlerError::new(js_format!("Agent not found: {}", selected_agent_id)));
     };
     if agent.agent_type == "background" {
-        return Err(HandlerError::new(format!(
-            "Agent {selected_agent_id} is detached and not a live child session"
+        return Err(HandlerError::new(js_format!(
+            "Agent {} is detached and not a live child session",
+            selected_agent_id
         )));
     }
     if !is_active_lifecycle(agent.lifecycle) {
@@ -123,13 +125,15 @@ pub fn resolve_selected_session_mutation_target(
     }
     let sessions = runtime_handles.sessions.lock().expect("sessions");
     let Some(session) = sessions.get(&selected_agent_id) else {
-        return Err(HandlerError::new(format!(
-            "Agent {selected_agent_id} is not a live child session"
+        return Err(HandlerError::new(js_format!(
+            "Agent {} is not a live child session",
+            selected_agent_id
         )));
     };
     let Some(target) = session.session_mutation_target() else {
-        return Err(HandlerError::new(format!(
-            "Agent {selected_agent_id} does not support live session mutation"
+        return Err(HandlerError::new(js_format!(
+            "Agent {} does not support live session mutation",
+            selected_agent_id
         )));
     };
     Ok(Some(target))
@@ -217,7 +221,7 @@ pub fn deliver_terminal_outbox_for_store(store: &Arc<MultiAgentStore>) -> Result
     crate::core::terminal_outbox_delivery::deliver_terminal_outbox_projections(
         &crate::core::terminal_outbox_delivery::DeliverTerminalOutboxOptions {
             artifact_root: None,
-            claim_id: pi_ai::utils::uuid::random_uuid(),
+            claim_id: pi_ai::utils::uuid::random_uuid().into(),
             control_db_path: persistence.control_db_path,
             now: Arc::new(crate::utils::iso_time::now_iso_string),
             store: Arc::clone(store),
@@ -240,7 +244,7 @@ pub fn jobs_command(store: &MultiAgentStore, ctx: &ExtensionCommandContext) -> R
         &JsString::join(
             agents
                 .iter()
-                .map(|agent| JsString::from(format!("{} ", agent.id)) + format_agent_status(agent))
+                .map(|agent| agent.id.clone() + " " + format_agent_status(agent))
                 .collect::<Vec<_>>(),
             "\n",
         ),
@@ -291,7 +295,7 @@ impl MultiAgentPiRequestHandler {
         request: &Value,
         ctx: &ExtensionContext,
         signal: Option<CancellationToken>,
-        active_tool_call_id: Option<String>,
+        active_tool_call_id: Option<JsString>,
     ) -> Result<Value, HandlerError> {
         if self.disposed.load(Ordering::SeqCst) {
             return Err(HandlerError::new("Multi-agent Pi request handler is disposed"));
@@ -299,7 +303,7 @@ impl MultiAgentPiRequestHandler {
         let method = request
             .get("method")
             .and_then(Value::as_string)
-            .and_then(|method| method.to_utf8().ok())
+            .cloned()
             .unwrap_or_default();
         let is_child_runtime = super::shared::is_child_agent_runtime(ctx)?;
         if !is_child_runtime {
@@ -314,14 +318,15 @@ impl MultiAgentPiRequestHandler {
 
     async fn dispatch(
         &self,
-        method: &str,
+        method: &JsString,
         params: Value,
         ctx: &ExtensionContext,
         signal: Option<CancellationToken>,
-        active_tool_call_id: Option<String>,
+        active_tool_call_id: Option<JsString>,
     ) -> Result<Value, HandlerError> {
-        match method {
-            "agents.spawn" => {
+        // A method name with unpaired surrogates matches no route, as in JavaScript.
+        match method.to_utf8().as_deref() {
+            Ok("agents.spawn") => {
                 let result =
                     super::spawn_attach_runtime::spawn_agent(super::spawn_attach_runtime::SpawnAgentRuntimeInput {
                         active_tool_call_id,
@@ -340,12 +345,12 @@ impl MultiAgentPiRequestHandler {
                     .await?;
                 Ok(result.details.unwrap_or(Value::Null))
             }
-            "agents.wait" => {
+            Ok("agents.wait") => {
                 assert_no_wait_agents_params(&params, "pi.agents.wait")?;
                 wait_agents(&self.runtime.store, &self.runtime.runtime_handles, signal, Some(ctx)).await?;
                 Ok(Value::Null)
             }
-            "agents.attachSession" => {
+            Ok("agents.attachSession") => {
                 let params: super::spawn_attach_runtime::AttachSessionAgentParams =
                     js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
                 let result = super::spawn_attach_runtime::attach_session_agent(
@@ -364,7 +369,7 @@ impl MultiAgentPiRequestHandler {
                 .await?;
                 Ok(result.details.unwrap_or(Value::Null))
             }
-            "agents.list" => {
+            Ok("agents.list") => {
                 let params: super::viewer::ListAgentsParams = if params.is_null() {
                     Default::default()
                 } else {
@@ -373,8 +378,8 @@ impl MultiAgentPiRequestHandler {
                 let result = super::viewer::list_agents(&self.runtime.store, &params)?;
                 Ok(result.details.unwrap_or(Value::Null))
             }
-            "agents.current" => select_current_agent(&self.runtime.store),
-            "agents.select" => {
+            Ok("agents.current") => select_current_agent(&self.runtime.store),
+            Ok("agents.select") => {
                 select_agent(
                     &self.runtime.store,
                     &params,
@@ -382,12 +387,12 @@ impl MultiAgentPiRequestHandler {
                 )
                 .await
             }
-            "messages.last" => {
+            Ok("messages.last") => {
                 let session_manager = ctx.session_manager()?;
                 let manager = lock_session_manager(&session_manager);
                 Ok(find_last_session_message(&manager.get_branch(None)))
             }
-            "messages.send" => {
+            Ok("messages.send") => {
                 let params: super::mailbox_runtime::SendAgentMessageParams =
                     js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
                 let result = super::mailbox_runtime::send_agent_message(
@@ -430,8 +435,8 @@ pub fn create_multi_agent_pi_request_handler(
     }
 }
 
-fn is_supervisor_only_agent_request(method: &str) -> bool {
-    matches!(method, "agents.spawn" | "agents.attachSession" | "agents.wait")
+fn is_supervisor_only_agent_request(method: &JsString) -> bool {
+    *method == "agents.spawn" || *method == "agents.attachSession" || *method == "agents.wait"
 }
 
 fn select_current_agent(store: &MultiAgentStore) -> Result<Value, HandlerError> {
@@ -466,7 +471,10 @@ fn select_agent<'a>(
             return select_current_agent(store);
         }
         if rendered == Some(false) {
-            return Err(HandlerError::new(format!("Agent view selection failed: {agent_id}")));
+            return Err(HandlerError::new(js_format!(
+                "Agent view selection failed: {}",
+                agent_id
+            )));
         }
         if agent_id == MAIN_THREAD_AGENT_ID {
             store.clear_selected_agent_view();
@@ -475,15 +483,15 @@ fn select_agent<'a>(
         match store.select_agent_view_with_status(&agent_id) {
             crate::core::multi_agent_store::AgentViewSelectionResult::Ok(agent) => Ok(json!({"agent": agent})),
             crate::core::multi_agent_store::AgentViewSelectionResult::NotFound { .. } => {
-                Err(HandlerError::new(format!("Agent not found: {agent_id}")))
+                Err(HandlerError::new(js_format!("Agent not found: {}", agent_id)))
             }
         }
     })
 }
 
-fn normalize_select_agent_id(params: &Value) -> Result<String, HandlerError> {
-    if params.as_string().is_some() {
-        return js_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()));
+fn normalize_select_agent_id(params: &Value) -> Result<JsString, HandlerError> {
+    if let Some(agent_id) = params.as_string() {
+        return Ok(agent_id.clone());
     }
     let Some(object) = params.as_object() else {
         return Err(HandlerError::new(
@@ -496,7 +504,7 @@ fn normalize_select_agent_id(params: &Value) -> Result<String, HandlerError> {
     if agent_id.trim().is_empty() {
         return Err(HandlerError::new("pi.agents.select requires a non-empty agentId"));
     }
-    js_json::from_value(&Value::String(agent_id.clone())).map_err(|error| HandlerError::new(error.to_string()))
+    Ok(agent_id.clone())
 }
 
 fn create_main_thread_snapshot() -> Value {

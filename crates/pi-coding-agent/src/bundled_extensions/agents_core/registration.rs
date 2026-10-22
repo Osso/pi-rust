@@ -1,6 +1,7 @@
 //! Agents-core tool and command registration
 //! (`extensions/agents-core/src/registration.ts`).
 
+use pi_js_compat::js_format;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -48,7 +49,7 @@ pub struct BackgroundDispatchContext {
     pub create_child_session: Option<ChildAgentSessionFactory>,
     pub dispatches: ActiveAgentDispatches,
     pub handles: BackgroundSessionHandles,
-    pub ownerships: Arc<Mutex<HashMap<String, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
+    pub ownerships: Arc<Mutex<HashMap<JsString, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
     pub store: Arc<MultiAgentStore>,
 }
 
@@ -59,7 +60,7 @@ pub struct AgentsCoreRegistrationContext {
     pub create_attached_session: Option<AttachedSessionFactory>,
     pub create_child_session: Option<ChildAgentSessionFactory>,
     pub desktop_notifier: Arc<dyn DesktopNotifier>,
-    pub ownerships: Arc<Mutex<HashMap<String, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
+    pub ownerships: Arc<Mutex<HashMap<JsString, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
     pub runtime_handles: MultiAgentRuntimeHandles,
     pub journal_binding: Arc<Mutex<Option<crate::core::multi_agent_store::AgentSubscription>>>,
     pub runtime_lifecycle_mirror: RuntimeLifecycleMirror,
@@ -182,7 +183,7 @@ fn register_session_shutdown_hook(pi: &ExtensionApi, registration: &AgentsCoreRe
                 for runtime in registration.ownerships.lock().expect("ownerships").values() {
                     runtime.abort_controller.cancel();
                 }
-                let background_ids: Vec<String> = registration
+                let background_ids: Vec<JsString> = registration
                     .background_sessions
                     .lock()
                     .expect("sessions")
@@ -238,7 +239,7 @@ struct HookRegistration {
     background_sessions: BackgroundSessionHandles,
     create_attached_session: Option<AttachedSessionFactory>,
     desktop_notifier: Arc<dyn DesktopNotifier>,
-    ownerships: Arc<Mutex<HashMap<String, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
+    ownerships: Arc<Mutex<HashMap<JsString, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
     journal_binding: Arc<Mutex<Option<crate::core::multi_agent_store::AgentSubscription>>>,
     runtime_lifecycle_mirror: RuntimeLifecycleMirror,
     store: Arc<MultiAgentStore>,
@@ -603,7 +604,7 @@ async fn background_command(
     ctx.ui()?.set_editor_text("");
     notify(
         ctx,
-        &format!(
+        &js_format!(
             "Background job {} started. Use /jobs to inspect it or wait_agent to wait for any completion.",
             agent.id
         ),
@@ -753,7 +754,7 @@ fn start_background_dispatch(
 fn notify_background_dispatch(
     promise: BoxFuture<'static, Result<AgentSnapshot, pi_js_compat::js_json::JsString>>,
     handles: &BackgroundSessionHandles,
-    ownerships: &Arc<Mutex<HashMap<String, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
+    ownerships: &Arc<Mutex<HashMap<JsString, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
     ctx: &ExtensionCommandContext,
 ) {
     let handles = Arc::clone(handles);

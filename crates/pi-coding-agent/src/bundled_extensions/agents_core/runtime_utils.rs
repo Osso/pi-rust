@@ -4,7 +4,7 @@ use crate::core::multi_agent_store::{
     AgentMailboxMessage, MailboxMessageKindValue, MailboxMessageStatusValue, MultiAgentStore,
 };
 
-pub fn abort_agent_handle_safely(store: &MultiAgentStore, agent_id: &str) {
+pub fn abort_agent_handle_safely(store: &MultiAgentStore, agent_id: &JsString) {
     let _ = store.abort_agent_handle(agent_id);
 }
 

@@ -14,6 +14,7 @@ use crate::core::tools::ask_questions::{
     self, AskQuestionsParams, Question, parse_params, question_result, validate_questions,
 };
 use pi_agent_core::AgentToolResult;
+use pi_js_compat::js_format;
 use pi_js_compat::{
     js_json as raw_json,
     js_json::{self, JsString, JsValue as Value},
@@ -142,17 +143,15 @@ fn format_question(question: &Question, index: usize) -> JsString {
     }
     JsString::join(lines, "\n")
 }
-fn format_parent_request(agent_id: &str, request_id: &str, params: &AskQuestionsParams) -> JsString {
+fn format_parent_request(agent_id: &JsString, request_id: &JsString, params: &AskQuestionsParams) -> JsString {
     let waiting = if params.blocking {
         "The child is blocked until you answer."
     } else {
         "The child continues meanwhile."
     };
     let mut lines = vec![
-        JsString::from(format!("Child agent {agent_id} asks (requestId: {request_id}). {waiting}")),
-        format!(
-            "Reply with answer_question using agentId \"{agent_id}\" and requestId \"{request_id}\", answers keyed by exact question text. Ask the user with ask_questions first when you cannot answer."
-        ).into(),
+        JsString::from(js_format!("Child agent {} asks (requestId: {}). {}", agent_id, request_id, waiting)),
+        js_format!("Reply with answer_question using agentId \"{}\" and requestId \"{}\", answers keyed by exact question text. Ask the user with ask_questions first when you cannot answer.", agent_id, request_id).into(),
         JsString::default(),
     ];
     lines.extend(
@@ -165,13 +164,13 @@ fn format_parent_request(agent_id: &str, request_id: &str, params: &AskQuestions
     JsString::join(lines, "\n")
 }
 struct Inbox {
-    agent_id: String,
+    agent_id: JsString,
     db: String,
-    session_id: String,
+    session_id: JsString,
 }
 fn send_questions_to_parent(
     store: &Arc<MultiAgentStore>,
-    request_id: &str,
+    request_id: &JsString,
     params: &AskQuestionsParams,
     ctx: &ExtensionContext,
 ) -> Result<Inbox, HandlerError> {
@@ -218,7 +217,7 @@ fn send_questions_to_parent(
 }
 async fn wait_for_answer(
     inbox: &Inbox,
-    request_id: &str,
+    request_id: &JsString,
     signal: Option<CancellationToken>,
 ) -> Result<Option<RuntimeMailboxMessage>, HandlerError> {
     let message_id = answer_message_id(&inbox.agent_id, request_id);
@@ -250,7 +249,7 @@ async fn wait_for_answer(
 }
 async fn ask_parent(
     store: Arc<MultiAgentStore>,
-    request_id: String,
+    request_id: JsString,
     params: Value,
     signal: Option<CancellationToken>,
     ctx: ExtensionContext,
@@ -261,8 +260,9 @@ async fn ask_parent(
     if !parsed.blocking {
         let mut result = question_result(
             &params,
-            format!(
-                "Questions sent to parent (request {request_id}). Continue independent work; the answer will arrive in your inbox."
+            js_format!(
+                "Questions sent to parent (request {}). Continue independent work; the answer will arrive in your inbox.",
+                request_id
             ),
             raw_json!({}),
             false,
@@ -376,7 +376,7 @@ fn answer_question(
     ctx: &ExtensionContext,
 ) -> Result<AgentToolResult, HandlerError> {
     let caller_id = current_message_sender_id(Some(ctx))?;
-    let target = params.agent_id.to_utf8().ok().and_then(|id| store.get_agent(&id));
+    let target = store.get_agent(&params.agent_id);
     let parent_id = target
         .as_ref()
         .and_then(|target| target.parent_id.as_deref())

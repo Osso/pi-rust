@@ -257,7 +257,7 @@ pub struct CommitMultiAgentLifecycleMutationInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetachedCancellation {
-    pub output_label: String,
+    pub output_label: JsString,
     pub reason: Option<JsString>,
     pub suppress_terminal_notification: Option<bool>,
 }
@@ -349,7 +349,7 @@ impl TerminalOutboxStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiAgentTerminalOutboxRecord {
-    pub session_path: String,
+    pub session_path: JsString,
     pub agent_id: JsString,
     pub terminal_revision: i64,
     pub event_kind: String,
@@ -406,7 +406,7 @@ impl RecoverDeadRuntimeError {
 #[serde(rename_all = "camelCase")]
 pub struct DetachedArtifactAgentRecord {
     pub agent: AgentSnapshot,
-    pub session_path: String,
+    pub session_path: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -444,7 +444,7 @@ struct ClaimedTerminalOutboxRow {
     agent_id: JsString,
     attempt_count: i64,
     event_kind: String,
-    session_path: String,
+    session_path: JsString,
     terminal_revision: i64,
 }
 
@@ -567,7 +567,7 @@ fn claim_next_terminal_outbox_row(
 pub fn fail_multi_agent_terminal_outbox(
     control_db_path: impl Into<JsString>,
     record: &MultiAgentTerminalOutboxRecord,
-    error: &str,
+    error: &JsString,
     now_iso: &str,
     max_attempts: i64,
 ) -> Result<bool, ControlDbError> {
@@ -596,7 +596,7 @@ fn update_claimed_terminal_outbox(
     record: &MultiAgentTerminalOutboxRecord,
     status: TerminalOutboxStatus,
     now_iso: &str,
-    error: Option<&str>,
+    error: Option<&JsString>,
 ) -> Result<bool, ControlDbError> {
     with_control_db(control_db_path, |db| {
         Ok(db.execute(
@@ -3987,7 +3987,7 @@ struct DeadDetachedRuntimeCandidate {
     owner_agent_id: Option<JsString>,
     owner_session_id: Option<JsString>,
     process_identity: Option<String>,
-    session_path: String,
+    session_path: JsString,
 }
 
 fn reconcile_dead_detached_agent_runtime(

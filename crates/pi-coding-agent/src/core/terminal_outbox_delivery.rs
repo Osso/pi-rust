@@ -2,6 +2,9 @@
 
 use std::sync::Arc;
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+
 use crate::core::detached_job_cleanup::run_detached_job_artifact_cleanup;
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore};
 use crate::core::session_control_db::{
@@ -18,9 +21,9 @@ const TERMINAL_OUTBOX_RETENTION_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
 
 /// `DeliverTerminalOutboxOptions`.
 pub struct DeliverTerminalOutboxOptions {
-    pub artifact_root: Option<String>,
-    pub claim_id: String,
-    pub control_db_path: String,
+    pub artifact_root: Option<JsString>,
+    pub claim_id: JsString,
+    pub control_db_path: JsString,
     pub now: Arc<dyn Fn() -> String + Send + Sync>,
     pub store: Arc<MultiAgentStore>,
 }
@@ -47,7 +50,7 @@ pub fn deliver_terminal_outbox_projections(options: &DeliverTerminalOutboxOption
         let now_millis = pi_js_compat::date::date_parse_millis(&now).unwrap_or_default();
         run_detached_job_artifact_cleanup(
             &options.control_db_path,
-            options.artifact_root.as_deref(),
+            options.artifact_root.as_ref(),
             Some(now_millis),
         );
     }
@@ -56,7 +59,7 @@ pub fn deliver_terminal_outbox_projections(options: &DeliverTerminalOutboxOption
 
 fn deliver_claimed_projections(
     options: &DeliverTerminalOutboxOptions,
-    session_path: &str,
+    session_path: &JsString,
     delivered: &mut u32,
 ) -> Result<(), ControlDbError> {
     loop {
@@ -69,7 +72,7 @@ fn deliver_claimed_projections(
             &now_iso,
             &ClaimMultiAgentTerminalOutboxOptions {
                 max_attempts: Some(TERMINAL_OUTBOX_MAX_ATTEMPTS),
-                session_path: Some(session_path.to_owned()),
+                session_path: Some(session_path.clone()),
                 stale_claim_before,
             },
         )?;
@@ -116,7 +119,7 @@ fn project_terminal_outbox(
         .publish_terminal_outbox_snapshot(&agent)
         .map_err(|error| ControlDbError::new(error.message))?;
     if !deliver_multi_agent_terminal_outbox(&options.control_db_path, record)? {
-        return Err(ControlDbError::new(format!(
+        return Err(ControlDbError::new(js_format!(
             "Could not acknowledge terminal outbox projection for {}",
             record.agent_id
         )));
@@ -125,9 +128,10 @@ fn project_terminal_outbox(
 }
 
 fn mismatch_error(record: &MultiAgentTerminalOutboxRecord) -> ControlDbError {
-    ControlDbError::new(format!(
+    ControlDbError::new(js_format!(
         "Terminal outbox projection does not match agent {} revision {}",
-        record.agent_id, record.terminal_revision
+        record.agent_id,
+        record.terminal_revision.to_string()
     ))
 }
 
