@@ -827,7 +827,7 @@ impl SessionEntry {
             Self::Known(KnownSessionEntry::Message(entry)) => Some(Cow::Borrowed(entry.message.as_ref())),
             Self::Unknown(object) if self.entry_type() == "message" => {
                 let message = object.get("message")?.as_object()?;
-                Some(Cow::Owned(AgentMessage::Custom(message.clone())))
+                Some(Cow::Owned(project_agent_message(message)))
             }
             _ => None,
         }
@@ -886,6 +886,13 @@ impl SessionEntry {
             message.insert("role".into(), JsValue::String("custom".into()));
         }
     }
+}
+
+/// Typed view of a persisted `message` object. Source messages are untyped JSON, so an
+/// object that does not fit a `Message` role variant keeps its exact object as `Custom`.
+fn project_agent_message(message: &JsObject) -> AgentMessage {
+    pi_js_compat::js_json::from_value(&JsValue::Object(message.clone()))
+        .unwrap_or_else(|_| AgentMessage::Custom(message.clone()))
 }
 
 /// Header or entry as read from a session file.

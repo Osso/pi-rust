@@ -217,3 +217,9 @@ provider-consumer execution. Standalone compilation emits two unused-function wa
 from unexercised shared paths/transcript exports; no warnings were suppressed. Manual
 Rust/JS readability audit used because `rust-code-analysis-cli` is unavailable; inherited
 long orchestration functions remain, so no whole-module readability pass is claimed.
+
+Reloaded `message` records (`SessionEntry::Unknown`) project through `project_agent_message`:
+role-typed `AgentMessage` decode, keeping the exact object as `Custom` only when it does not fit a
+`Message` variant (source messages are untyped). Regression from the raw-authority change made every
+reloaded user/assistant message `Custom`. RED `reloaded_message_records_project_typed_roles` and
+`interactive_child_view` (session-records-red.log), GREEN 6/6 + 1/1 (session-records-green.log).
