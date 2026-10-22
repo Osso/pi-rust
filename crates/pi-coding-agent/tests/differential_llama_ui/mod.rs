@@ -73,7 +73,11 @@ impl LlamaUi for FakeUi {
         Box::pin(async move { stop })
     }
 
-    fn connection_error(&self, _server_url: String, _message: String) -> BoxFuture<'_, ConnectionErrorChoice> {
+    fn connection_error(
+        &self,
+        _server_url: String,
+        _message: pi_js_compat::js_json::JsString,
+    ) -> BoxFuture<'_, ConnectionErrorChoice> {
         Box::pin(async { ConnectionErrorChoice::Close })
     }
 
