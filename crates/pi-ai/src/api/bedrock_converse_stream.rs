@@ -775,7 +775,7 @@ fn create_image_block(mime_type: &str, data: &str) -> Result<JsValue, BedrockErr
         "image/webp" => "webp",
         other => return Err(BedrockError::other(format!("Unknown image type: {other}"))),
     };
-    let bytes = base64::atob(data).map_err(|_| BedrockError::other("Invalid image data"))?;
+    let bytes = base64::atob(&JsString::from(data)).map_err(|_| BedrockError::other("Invalid image data"))?;
     Ok(object(vec![(
         "image",
         object(vec![
