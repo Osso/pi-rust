@@ -292,17 +292,22 @@ async fn handle_line<Entry, Event>(
         return;
     };
     match message["type"].as_string() {
-        Some(kind) if kind == "attach" => attach(state, connection_id, sender, &message),
+        Some(kind) if kind == "attach" || kind == "probe" => {
+            if !validate_request(state, sender, &message) {
+                return;
+            }
+            if kind == "probe" {
+                state.write(sender, snapshot_message("probed", &state.host.get_snapshot()));
+            } else {
+                attach(state, connection_id, sender);
+            }
+        }
         _ => handle_owned_message(state, connection_id, sender, &message).await,
     }
 }
 
-fn attach<Entry, Event>(
-    state: &Arc<ServerState<Entry, Event>>,
-    connection_id: u64,
-    sender: &LineSender,
-    message: &Value,
-) where
+fn validate_request<Entry, Event>(state: &ServerState<Entry, Event>, sender: &LineSender, message: &Value) -> bool
+where
     Entry: Serialize + Send + Sync + 'static,
     Event: Serialize + Send + Sync + 'static,
 {
@@ -313,13 +318,21 @@ fn attach<Entry, Event>(
             "Resident console protocol version mismatch",
             None,
         );
-        return;
+        return false;
     }
     let service = js_json::from_value::<ResidentConsoleService>(&message["service"]).ok();
     if service != Some(state.service) {
         state.send_error(sender, "service_mismatch", "Resident console service mismatch", None);
-        return;
+        return false;
     }
+    true
+}
+
+fn attach<Entry, Event>(state: &Arc<ServerState<Entry, Event>>, connection_id: u64, sender: &LineSender)
+where
+    Entry: Serialize + Send + Sync + 'static,
+    Event: Serialize + Send + Sync + 'static,
+{
     state.release_owner();
     let snapshot = state.host.get_snapshot();
     let sequence = Arc::clone(&state.sequence);
