@@ -1,6 +1,7 @@
 //! Port of `packages/ai/src/api/azure-openai-responses.ts` (+ `.lazy.ts`).
 
-use pi_js_compat::js_json::{JsObject, JsValue};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -41,10 +42,10 @@ const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS: f64 = 16.0;
 pub struct AzureOpenAIResponsesOptions {
     pub reasoning_effort: Option<String>,
     pub reasoning_summary: Option<String>,
-    pub azure_api_version: Option<String>,
-    pub azure_resource_name: Option<String>,
-    pub azure_base_url: Option<String>,
-    pub azure_deployment_name: Option<String>,
+    pub azure_api_version: Option<JsString>,
+    pub azure_resource_name: Option<JsString>,
+    pub azure_base_url: Option<JsString>,
+    pub azure_deployment_name: Option<JsString>,
 }
 
 impl AzureOpenAIResponsesOptions {
@@ -53,15 +54,15 @@ impl AzureOpenAIResponsesOptions {
         Self {
             reasoning_effort: field("reasoningEffort"),
             reasoning_summary: field("reasoningSummary"),
-            azure_api_version: field("azureApiVersion"),
-            azure_resource_name: field("azureResourceName"),
-            azure_base_url: field("azureBaseUrl"),
-            azure_deployment_name: field("azureDeploymentName"),
+            azure_api_version: field("azureApiVersion").map(JsString::from),
+            azure_resource_name: field("azureResourceName").map(JsString::from),
+            azure_base_url: field("azureBaseUrl").map(JsString::from),
+            azure_deployment_name: field("azureDeploymentName").map(JsString::from),
         }
     }
 }
 
-fn parse_deployment_name_map(value: Option<&str>) -> BTreeMap<String, String> {
+fn parse_deployment_name_map(value: Option<&JsString>) -> BTreeMap<JsString, JsString> {
     let mut map = BTreeMap::new();
     let Some(value) = value else {
         return map;
@@ -71,13 +72,15 @@ fn parse_deployment_name_map(value: Option<&str>) -> BTreeMap<String, String> {
         if trimmed.is_empty() {
             continue;
         }
-        let Some((model_id, deployment_name)) = trimmed.split_once('=') else {
+        let Some(index) = trimmed.find('=') else {
             continue;
         };
+        let model_id = trimmed.slice(0, index);
+        let deployment_name = trimmed.slice(index + 1, trimmed.len());
         if model_id.is_empty() || deployment_name.is_empty() {
             continue;
         }
-        map.insert(model_id.trim().to_owned(), deployment_name.trim().to_owned());
+        map.insert(model_id.trim(), deployment_name.trim());
     }
     map
 }
@@ -86,17 +89,24 @@ fn resolve_deployment_name(
     model: &Model,
     options: &AzureOpenAIResponsesOptions,
     env: Option<&crate::types::ProviderEnv>,
-) -> String {
+) -> JsString {
     if let Some(deployment_name) = &options.azure_deployment_name {
         return deployment_name.clone();
     }
-    let map = parse_deployment_name_map(get_provider_env_value("AZURE_OPENAI_DEPLOYMENT_NAME_MAP", env).as_deref());
-    map.get(&model.id).cloned().unwrap_or_else(|| model.id.clone())
+    let map = parse_deployment_name_map(get_provider_env_value("AZURE_OPENAI_DEPLOYMENT_NAME_MAP", env).as_ref());
+    map.get(&JsString::from(&model.id))
+        .cloned()
+        .unwrap_or_else(|| model.id.clone().into())
 }
 
-fn normalize_azure_base_url(base_url: &str) -> Result<String, String> {
-    let trimmed = base_url.trim().trim_end_matches('/');
-    let mut url = reqwest::Url::parse(trimmed).map_err(|_| format!("Invalid Azure OpenAI base URL: {base_url}"))?;
+fn normalize_azure_base_url(base_url: &JsString) -> Result<JsString, JsString> {
+    let mut trimmed = base_url.trim();
+    while trimmed.ends_with('/') {
+        trimmed = trimmed.slice(0, trimmed.len() - 1);
+    }
+    let serialized =
+        crate::request::request_url(&trimmed).map_err(|_| js_format!("Invalid Azure OpenAI base URL: {}", base_url))?;
+    let mut url = reqwest::Url::parse(&serialized).expect("request_url parsed URL");
 
     let host = url.host_str().unwrap_or("");
     let is_azure_host = host.ends_with(".openai.azure.com")
@@ -107,29 +117,29 @@ fn normalize_azure_base_url(base_url: &str) -> Result<String, String> {
         url.set_path("/openai/v1");
         url.set_query(None);
     }
-    Ok(url.to_string().trim_end_matches('/').to_owned())
+    Ok(url.to_string().trim_end_matches('/').into())
 }
 
-fn build_default_base_url(resource_name: &str) -> String {
-    format!("https://{resource_name}.openai.azure.com/openai/v1")
+fn build_default_base_url(resource_name: &JsString) -> JsString {
+    js_format!("https://{}.openai.azure.com/openai/v1", resource_name)
 }
 
 fn resolve_azure_config(
     model: &Model,
     options: &AzureOpenAIResponsesOptions,
     stream_options: &StreamOptions,
-) -> Result<(String, String), String> {
+) -> Result<(JsString, JsString), JsString> {
     let env = stream_options.request.env.as_ref();
     let api_version = options
         .azure_api_version
         .clone()
         .or_else(|| get_provider_env_value("AZURE_OPENAI_API_VERSION", env))
-        .unwrap_or_else(|| DEFAULT_AZURE_API_VERSION.to_owned());
+        .unwrap_or_else(|| DEFAULT_AZURE_API_VERSION.into());
 
     let base_url = options
         .azure_base_url
-        .as_deref()
-        .map(str::trim)
+        .as_ref()
+        .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
         .or_else(|| {
@@ -143,10 +153,10 @@ fn resolve_azure_config(
         .or_else(|| get_provider_env_value("AZURE_OPENAI_RESOURCE_NAME", env));
 
     let resolved_base_url = base_url
-        .or_else(|| resource_name.as_deref().map(build_default_base_url))
+        .or_else(|| resource_name.as_ref().map(build_default_base_url))
         .or_else(|| (!model.base_url.is_empty()).then(|| model.base_url.clone()))
         .ok_or_else(|| {
-            "Azure OpenAI base URL is required. Set AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME, or pass azureBaseUrl, azureResourceName, or model.baseUrl.".to_owned()
+            "Azure OpenAI base URL is required. Set AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME, or pass azureBaseUrl, azureResourceName, or model.baseUrl.".into()
         })?;
 
     Ok((normalize_azure_base_url(&resolved_base_url)?, api_version))
@@ -195,8 +205,8 @@ pub fn build_params(
     context: &Context,
     options: &AzureOpenAIResponsesOptions,
     stream_options: &StreamOptions,
-    deployment_name: &str,
-    grammar_tool_input_properties: &IndexMap<String, String>,
+    deployment_name: &JsString,
+    grammar_tool_input_properties: &IndexMap<String, JsString>,
 ) -> Result<JsValue, String> {
     let messages = convert_responses_messages(
         model,
@@ -291,10 +301,10 @@ pub fn build_params(
 }
 
 fn merge_headers(
-    model_headers: Option<&IndexMap<String, String>>,
+    model_headers: Option<&IndexMap<String, JsString>>,
     options_headers: Option<&crate::types::ProviderHeaders>,
-) -> IndexMap<String, Option<String>> {
-    let mut headers: IndexMap<String, Option<String>> = IndexMap::new();
+) -> IndexMap<String, Option<JsString>> {
+    let mut headers: IndexMap<String, Option<JsString>> = IndexMap::new();
     for (name, value) in model_headers.into_iter().flatten() {
         headers.insert(name.clone(), Some(value.clone()));
     }
@@ -306,10 +316,10 @@ fn merge_headers(
 
 fn create_client(
     model: &Model,
-    api_key: &str,
+    api_key: &JsString,
     options: &AzureOpenAIResponsesOptions,
     stream_options: &StreamOptions,
-) -> Result<SdkClient, String> {
+) -> Result<SdkClient, JsString> {
     let (base_url, api_version) = resolve_azure_config(model, options, stream_options)?;
     Ok(SdkClient::new(SdkClientConfig {
         api_key: api_key.to_owned(),
