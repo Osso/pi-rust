@@ -89,4 +89,4 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 
 Codex token splitting and shared atob operate on native units. Request endpoint normalization and session/request ID headers remain native until SSE HttpRequest or WebSocket connect; URL/ByteString failures become Codex transport errors. Decoded account IDs retain the explicitly approved scalar metadata restriction.
 
-Compiler checkpoint `pi-ai-slice-final.log` at `0c71c960` reached seven errors, including two owned sites fixed by `7780fac1`; remaining auth-owner errors block library acceptance. `lossless_sdk_boundaries` exercises public-provider header rejection and URL conversion; authored, not yet executed at this checkpoint.
+[Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
