@@ -132,7 +132,7 @@ async fn run_json_in_sandbox(
     operation: &str,
     payload: Map,
     signal: Option<CancellationToken>,
-) -> Result<Value, String> {
+) -> Result<Value, JsString> {
     run_bwrap_availability_check(&params.bwrap_command)?;
     let invocation = build_sandbox_worker_invocation(params, operation, &payload)?;
     let mut command = Command::new(&invocation.command);
@@ -172,13 +172,13 @@ async fn run_json_in_sandbox(
             }
         } => {
             let _ = child.kill().await;
-            return Err("Operation aborted".to_owned());
+            return Err("Operation aborted".into());
         }
     };
     let stdout_bytes = stdout_task.await.unwrap_or_default();
     let stderr_bytes = stderr_task.await.unwrap_or_default();
     if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
-        return Err("Operation aborted".to_owned());
+        return Err("Operation aborted".into());
     }
     let stdout_text = String::from_utf8_lossy(&stdout_bytes).into_owned();
     let stderr_text = String::from_utf8_lossy(&stderr_bytes).into_owned();
@@ -191,9 +191,10 @@ async fn run_json_in_sandbox(
             )
         } else {
             trimmed.to_owned()
-        });
+        }
+        .into());
     }
-    js_json::parse_lossless(&stdout_text).map_err(|error| error.to_string())
+    js_json::parse_lossless(&stdout_text).map_err(|error| error.into_message())
 }
 
 fn run_sandbox_operation<'a>(
@@ -201,7 +202,7 @@ fn run_sandbox_operation<'a>(
     operation: &'a str,
     payload: Map,
     signal: Option<CancellationToken>,
-) -> BoxFuture<'a, Result<Value, String>> {
+) -> BoxFuture<'a, Result<Value, JsString>> {
     Box::pin(async move { run_json_in_sandbox(params, operation, payload, signal).await })
 }
 
@@ -220,7 +221,7 @@ impl ReadOperations for SandboxReadOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "readFile", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(pi_js_compat::base64::buffer_from_base64(&encode_node_utf8(
                 &value
                     .get("data")
@@ -248,7 +249,7 @@ impl ReadOperations for SandboxReadOperations {
             payload.insert("start".into(), json!(start));
             let value = run_sandbox_operation(&self.params, "readRange", payload, None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(pi_js_compat::base64::buffer_from_base64(&encode_node_utf8(
                 &value
                     .get("data")
@@ -263,7 +264,7 @@ impl ReadOperations for SandboxReadOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "stat", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value.get("size").and_then(Value::as_u64))
         })
     }
@@ -273,7 +274,7 @@ impl ReadOperations for SandboxReadOperations {
             run_sandbox_operation(&self.params, "access", path_payload(absolute_path), None)
                 .await
                 .map(|_| ())
-                .map_err(std::io::Error::other)
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))
         })
     }
 
@@ -309,7 +310,7 @@ impl WriteOperations for SandboxWriteOperations {
             run_sandbox_operation(&self.params, "writeFile", payload, None)
                 .await
                 .map(|_| ())
-                .map_err(std::io::Error::other)
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))
         })
     }
 
@@ -318,7 +319,7 @@ impl WriteOperations for SandboxWriteOperations {
             run_sandbox_operation(&self.params, "mkdir", path_payload(directory), None)
                 .await
                 .map(|_| ())
-                .map_err(std::io::Error::other)
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))
         })
     }
 }
@@ -351,7 +352,7 @@ impl LsOperations for SandboxLsOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value.get("exists").and_then(Value::as_bool).unwrap_or(false))
         })
     }
@@ -360,7 +361,7 @@ impl LsOperations for SandboxLsOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "stat", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value.get("isDirectory").and_then(Value::as_bool).unwrap_or(false))
         })
     }
@@ -369,7 +370,7 @@ impl LsOperations for SandboxLsOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "readdir", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value
                 .get("entries")
                 .and_then(Value::as_array)
@@ -394,7 +395,7 @@ impl FindOperations for SandboxFindOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value.get("exists").and_then(Value::as_bool).unwrap_or(false))
         })
     }
@@ -417,7 +418,7 @@ impl FindOperations for SandboxFindOperations {
             payload.insert("pattern".into(), Value::String(pattern.into()));
             let value = run_sandbox_operation(&self.params, "find", payload, None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value
                 .get("results")
                 .and_then(Value::as_array)
@@ -454,7 +455,7 @@ async fn execute_sandboxed_grep(
     params: &SandboxParams,
     input: &Value,
     signal: Option<CancellationToken>,
-) -> Result<AgentToolResult, String> {
+) -> Result<AgentToolResult, JsString> {
     let search_path = input
         .get("path")
         .and_then(Value::as_string)

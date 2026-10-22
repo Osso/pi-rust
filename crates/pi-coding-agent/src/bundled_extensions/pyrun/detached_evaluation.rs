@@ -944,7 +944,8 @@ async fn observe_detachable_pyrun_evaluation(
         loop {
             let ownership = detach_state.ownership();
             if ownership.is_none() {
-                let requests = read_new_json_lines(&runner.bridge_request_path, &mut bridge_cursor, None)?;
+                let requests = read_new_json_lines(&runner.bridge_request_path, &mut bridge_cursor, None)
+                    .map_err(HandlerError::new)?;
                 for request in requests {
                     respond_to_foreground_bridge_request(&input, &runner, &request).await?;
                 }
@@ -953,7 +954,8 @@ async fn observe_detachable_pyrun_evaluation(
                 &runner.artifacts.output_path,
                 &mut output_cursor,
                 Some(ARTIFACT_READ_BYTE_LIMIT),
-            )?;
+            )
+            .map_err(HandlerError::new)?;
             if let Some(consumed) = consume_artifact_records(&records, report_progress.as_ref()) {
                 result = Some(consumed);
             }
