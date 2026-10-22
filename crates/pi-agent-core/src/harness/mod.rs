@@ -1,3 +1,6 @@
+pub mod agent_harness;
+mod agent_harness_types;
+pub use agent_harness::*;
 pub mod compaction;
 pub mod env;
 mod frontmatter;
