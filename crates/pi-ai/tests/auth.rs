@@ -165,7 +165,7 @@ fn credential_round_trips_and_preserves_extra_oauth_keys() {
 
     let api_key: Credential = serde_json::from_value(json!({"type": "api_key", "key": "k"})).unwrap();
     assert_eq!(api_key.credential_type(), CredentialType::ApiKey);
-    assert_eq!(api_key.as_api_key().unwrap().key.as_deref(), Some("k"));
+    assert_eq!(api_key.as_api_key().unwrap().key.as_ref(), Some(&JsString::from("k")));
     assert_eq!(
         serde_json::to_value(&api_key).unwrap(),
         json!({"type": "api_key", "key": "k"})
@@ -297,8 +297,8 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(stored.auth.api_key.as_deref(), Some("stored"));
-    assert_eq!(stored.source.as_deref(), Some("stored credential"));
+    assert_eq!(stored.auth.api_key.as_ref(), Some(&JsString::from("stored")));
+    assert_eq!(stored.source.as_ref(), Some(&JsString::from("stored credential")));
 
     let second = auth
         .resolve(pi_ai::auth::ApiKeyResolveInput {
@@ -309,8 +309,8 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(second.auth.api_key.as_deref(), Some("second"));
-    assert_eq!(second.source.as_deref(), Some("SECOND_KEY"));
+    assert_eq!(second.auth.api_key.as_ref(), Some(&JsString::from("second")));
+    assert_eq!(second.source.as_ref(), Some(&JsString::from("SECOND_KEY")));
 
     assert_eq!(
         auth.resolve(pi_ai::auth::ApiKeyResolveInput {
@@ -330,7 +330,7 @@ async fn env_api_key_login_prompts_for_a_secret() {
     let interaction = Arc::new(TestInteraction::new(CancellationToken::new(), "entered-key"));
     let trait_interaction: Arc<dyn AuthInteraction> = interaction.clone();
     let credential = auth.login(trait_interaction).unwrap().await.unwrap();
-    assert_eq!(credential.key.as_deref(), Some("entered-key"));
+    assert_eq!(credential.key.as_ref(), Some(&JsString::from("entered-key")));
     let prompts = interaction.prompts.lock().unwrap();
     assert_eq!(prompts.len(), 1);
     assert!(matches!(
@@ -356,14 +356,14 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
         Arc::clone(&ctx),
         pi_ai::auth::AuthResolutionOverrides {
             api_key: Some(("explicit".to_owned()).into()),
-            env: Some(indexmap::IndexMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())])),
+            env: Some(indexmap::IndexMap::from([("ACCOUNT_ID".into(), "acct".into())])),
             ..Default::default()
         },
     )
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(explicit.auth.api_key.as_deref(), Some("explicit"));
+    assert_eq!(explicit.auth.api_key.as_ref(), Some(&JsString::from("explicit")));
 
     let ambient = resolve_provider_auth(
         "p1",
@@ -375,7 +375,7 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(ambient.auth.api_key.as_deref(), Some("env-key"));
+    assert_eq!(ambient.auth.api_key.as_ref(), Some(&JsString::from("env-key")));
 
     credentials
         .modify(
@@ -395,8 +395,11 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(oauth_resolution.auth.api_key.as_deref(), Some("oauth-token"));
-    assert_eq!(oauth_resolution.source.as_deref(), Some("OAuth"));
+    assert_eq!(
+        oauth_resolution.auth.api_key.as_ref(),
+        Some(&JsString::from("oauth-token"))
+    );
+    assert_eq!(oauth_resolution.source.as_ref(), Some(&JsString::from("OAuth")));
 
     // A stored credential without a matching handler blocks ambient fallback.
     credentials
@@ -465,8 +468,14 @@ async fn expired_oauth_refreshes_once_and_persists_rotated_credential() {
             Default::default(),
         )
     );
-    assert_eq!(left.unwrap().unwrap().auth.api_key.as_deref(), Some("new-1"));
-    assert_eq!(right.unwrap().unwrap().auth.api_key.as_deref(), Some("new-1"));
+    assert_eq!(
+        left.unwrap().unwrap().auth.api_key.as_ref(),
+        Some(&JsString::from("new-1"))
+    );
+    assert_eq!(
+        right.unwrap().unwrap().auth.api_key.as_ref(),
+        Some(&JsString::from("new-1"))
+    );
     assert_eq!(refreshes.load(Ordering::SeqCst), 1);
     let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
     assert_eq!(
@@ -578,7 +587,7 @@ async fn lazy_oauth_loads_implementation_once_and_delegates() {
         .to_auth(OAuthCredential::new("r", "access", now_ms() + 1000.0))
         .await
         .unwrap();
-    assert_eq!(auth.api_key.as_deref(), Some("access"));
+    assert_eq!(auth.api_key.as_ref(), Some(&JsString::from("access")));
     lazy.to_auth(OAuthCredential::new("r", "access", now_ms() + 1000.0))
         .await
         .unwrap();
@@ -593,7 +602,7 @@ async fn auth_result_serializes_provider_env_and_source() {
             headers: None,
             base_url: None,
         },
-        env: Some(ProviderEnv::from([("ACCOUNT".to_owned(), "a".to_owned())])),
+        env: Some(ProviderEnv::from([("ACCOUNT".into(), "a".into())])),
         source: Some(("stored credential".to_owned()).into()),
     };
     assert_eq!(
@@ -653,8 +662,11 @@ async fn custom_credential_store_failures_wrap_with_auth_code() {
 
 #[test]
 fn models_error_with_cause_keeps_detail_once() {
-    let error =
-        pi_ai::auth::ModelsError::with_cause(ModelsErrorCode::Oauth, "OAuth refresh failed for p1", Some("bad token"));
+    let error = pi_ai::auth::ModelsError::with_cause(
+        ModelsErrorCode::Oauth,
+        "OAuth refresh failed for p1",
+        Some(&JsString::from("bad token")),
+    );
     assert_eq!(error.message, "OAuth refresh failed for p1: bad token");
     assert_eq!(error.code.as_str(), "oauth");
     let value: Value = serde_json::to_value(pi_ai::auth::AuthCheck {
