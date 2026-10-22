@@ -1,7 +1,8 @@
 //! Ported from `coding-agent/src/modes/interactive/components/diff.ts`.
 
 use pi_agent_core::jsdiff::diff_words;
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::string::is_js_whitespace_unit;
 
 use crate::modes::interactive::theme::{ThemeColor, with_theme};
@@ -60,10 +61,10 @@ fn replace_tabs(text: &JsString) -> JsString {
 }
 
 /// Compute word-level diff and render with inverse on changed parts.
-fn render_intra_line_diff(old_content: &JsString, new_content: &JsString) -> (String, String) {
+fn render_intra_line_diff(old_content: &JsString, new_content: &JsString) -> (JsString, JsString) {
     let word_diff = diff_words(old_content, new_content);
-    let mut removed_line = String::new();
-    let mut added_line = String::new();
+    let mut removed_line = JsString::default();
+    let mut added_line = JsString::default();
     let mut is_first_removed = true;
     let mut is_first_added = true;
 
@@ -73,26 +74,26 @@ fn render_intra_line_diff(old_content: &JsString, new_content: &JsString) -> (St
             if is_first_removed {
                 let leading = leading_whitespace(&value);
                 value = value.slice(leading.len(), value.len());
-                removed_line.push_str(&encode_node_utf8(&leading));
+                removed_line.push_str(&leading);
                 is_first_removed = false;
             }
             if !value.is_empty() {
-                removed_line.push_str(&with_theme(|theme| theme.inverse(&encode_node_utf8(&value))));
+                removed_line.push_str(&with_theme(|theme| theme.inverse(&value)));
             }
         } else if part.added {
             let mut value = part.value.clone();
             if is_first_added {
                 let leading = leading_whitespace(&value);
                 value = value.slice(leading.len(), value.len());
-                added_line.push_str(&encode_node_utf8(&leading));
+                added_line.push_str(&leading);
                 is_first_added = false;
             }
             if !value.is_empty() {
-                added_line.push_str(&with_theme(|theme| theme.inverse(&encode_node_utf8(&value))));
+                added_line.push_str(&with_theme(|theme| theme.inverse(&value)));
             }
         } else {
-            removed_line.push_str(&encode_node_utf8(&part.value));
-            added_line.push_str(&encode_node_utf8(&part.value));
+            removed_line.push_str(&part.value);
+            added_line.push_str(&part.value);
         }
     }
 
@@ -109,16 +110,14 @@ fn leading_whitespace(value: &JsString) -> JsString {
 }
 
 /// Render a diff string with colored lines and intra-line change highlighting.
-pub fn render_diff(diff_text: &JsString) -> String {
+pub fn render_diff(diff_text: &JsString) -> JsString {
     let lines: Vec<JsString> = diff_text.split('\n').collect();
-    let mut result: Vec<String> = Vec::new();
+    let mut result: Vec<JsString> = Vec::new();
     let mut index = 0;
 
     while index < lines.len() {
         let Some(parsed) = parse_diff_line(&lines[index]) else {
-            result.push(with_theme(|theme| {
-                theme.fg(ThemeColor::ToolDiffContext, &encode_node_utf8(&lines[index]))
-            }));
+            result.push(with_theme(|theme| theme.fg(ThemeColor::ToolDiffContext, &lines[index])));
             index += 1;
             continue;
         };
@@ -150,36 +149,35 @@ pub fn render_diff(diff_text: &JsString) -> String {
 
             if removed_lines.len() == 1 && added_lines.len() == 1 {
                 let (removed_line_num, removed_content) = &removed_lines[0];
-                let removed_line_num = encode_node_utf8(removed_line_num);
                 let (added_line_num, added_content) = &added_lines[0];
-                let added_line_num = encode_node_utf8(added_line_num);
                 let (removed_line, added_line) =
                     render_intra_line_diff(&replace_tabs(removed_content), &replace_tabs(added_content));
                 result.push(with_theme(|theme| {
                     theme.fg(
                         ThemeColor::ToolDiffRemoved,
-                        &format!("-{removed_line_num} {removed_line}"),
+                        js_format!("-{} {}", removed_line_num, removed_line),
                     )
                 }));
                 result.push(with_theme(|theme| {
-                    theme.fg(ThemeColor::ToolDiffAdded, &format!("+{added_line_num} {added_line}"))
+                    theme.fg(
+                        ThemeColor::ToolDiffAdded,
+                        js_format!("+{} {}", added_line_num, added_line),
+                    )
                 }));
             } else {
                 for (line_num, content) in removed_lines {
-                    let line_num = encode_node_utf8(&line_num);
                     result.push(with_theme(|theme| {
                         theme.fg(
                             ThemeColor::ToolDiffRemoved,
-                            &format!("-{line_num} {}", encode_node_utf8(&replace_tabs(&content))),
+                            js_format!("-{} {}", line_num, replace_tabs(&content)),
                         )
                     }));
                 }
                 for (line_num, content) in added_lines {
-                    let line_num = encode_node_utf8(&line_num);
                     result.push(with_theme(|theme| {
                         theme.fg(
                             ThemeColor::ToolDiffAdded,
-                            &format!("+{line_num} {}", encode_node_utf8(&replace_tabs(&content))),
+                            js_format!("+{} {}", line_num, replace_tabs(&content)),
                         )
                     }));
                 }
@@ -188,11 +186,7 @@ pub fn render_diff(diff_text: &JsString) -> String {
             result.push(with_theme(|theme| {
                 theme.fg(
                     ThemeColor::ToolDiffAdded,
-                    &format!(
-                        "+{} {}",
-                        encode_node_utf8(&parsed.line_num),
-                        encode_node_utf8(&replace_tabs(&parsed.content))
-                    ),
+                    js_format!("+{} {}", parsed.line_num, replace_tabs(&parsed.content)),
                 )
             }));
             index += 1;
@@ -200,18 +194,14 @@ pub fn render_diff(diff_text: &JsString) -> String {
             result.push(with_theme(|theme| {
                 theme.fg(
                     ThemeColor::ToolDiffContext,
-                    &format!(
-                        " {} {}",
-                        encode_node_utf8(&parsed.line_num),
-                        encode_node_utf8(&replace_tabs(&parsed.content))
-                    ),
+                    js_format!(" {} {}", parsed.line_num, replace_tabs(&parsed.content)),
                 )
             }));
             index += 1;
         }
     }
 
-    result.join("\n")
+    JsString::join(&result, "\n")
 }
 
 #[cfg(test)]
@@ -221,15 +211,24 @@ mod lossless_tests {
 
     #[test]
     fn distinct_surrogates_are_highlighted_before_terminal_encoding() {
+        crate::modes::interactive::theme::init_theme(Some("dark"), false).unwrap();
         let old = JsString::from_utf16(vec![0x61, 0xd800, 0x62]);
         let new = JsString::from_utf16(vec![0x61, 0xd801, 0x62]);
         let (removed, added) = render_intra_line_diff(&old, &new);
-        assert_eq!(removed, format!("a{}b", with_theme(|theme| theme.inverse("�"))));
-        assert_eq!(added, removed);
+        assert_eq!(
+            JsString::from(removed.clone()),
+            JsString::from("a") + with_theme(|theme| theme.inverse(JsString::from_utf16(vec![0xd800]))) + "b"
+        );
+        assert_eq!(
+            JsString::from(added.clone()),
+            JsString::from("a") + with_theme(|theme| theme.inverse(JsString::from_utf16(vec![0xd801]))) + "b"
+        );
+        assert_ne!(added, removed);
     }
 
     #[test]
     fn paired_surrogate_and_literal_replacement_remain_distinct() {
+        crate::modes::interactive::theme::init_theme(Some("dark"), false).unwrap();
         let input = JsString::from_utf16(vec![45, 49, 32, 0xd83d, 0xde00, 10, 43, 49, 32, 0xfffd]);
         let output = render_diff(&input);
         assert!(output.contains("😀"));

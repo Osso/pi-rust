@@ -50,6 +50,18 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## Native diff/key hints checkpoint
+
+Granted by main after `3e4511d8`: `components/diff.rs` and `keybinding_hints.rs`. Diff/intraline outputs now retain JsString through inverse/fg styling; removed every early encoding. Corrected old surrogate tests that explicitly expected replacement. Key formatting/hints return native strings, preserve raw key fragments/descriptions, and capitalize only the source first UTF-16 unit (including an untouched surrogate).
+
+`diff-render-red.log` is compiler RED against native Theme. `diff-render-green.log`: **2/2 actual diff tests PASS, zero warnings**, with actual Theme, Chalk, highlighter and pi-tui linked; no Theme/TUI/diff/key-hint stubs remain. Settings persistence/config discovery/extension contracts remain bounded probe support, not integration proof. `native-theme-green.log` additionally compares native ANSI+binary cleanup to frozen TS (1/1 PASS).
+
+All outside diff/key-hint caller paths recorded in `/tmp/pi-rust-repin-lossless-tools/key-hint-outside-callers.txt` (27 source/test/reexport paths); main/modes owner must adapt scalar formatting/line types. Shared tool callers are owned here and migrated with their modules.
+
+## Factory and shared-render propagation checkpoint
+
+All tool-index factories accept `&JsString` cwd. Shared coordination text extraction, text-component updates and themed output now return/accept the raw authority rather than encoding it. Runtime integration remains pending migration of bash/code-index and coordination callers; no compiling-factory claim.
+
 ## Sandbox operation caller checkpoint
 
 Granted by main with refresh `8f3aebbe`: `bundled_extensions/bwrap/index.rs` Operations implementations and `operation_tests.rs`. Read/Write/Edit/Ls/Find operation paths/cwd/content and returned entry lists now forward JsString through worker JSON, without encoding before the worker. Extension-to-worker process transport continues using the existing lossless JSON writer. MIME extension lookup uses native `node_extname` rather than projecting the filename. New path-payload JSON roundtrip and raw-filename extension tests are **compiler-blocked**, not PASS. Existing missing-bwrap tests adapted to the widened APIs. SandboxParams.cwd/backend invocation are outside this Operations-only grant and remain scalar pending their owner's migration.

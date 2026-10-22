@@ -656,7 +656,7 @@ fn get_compact_read_classification(args: &JsValue, cwd: &JsString) -> Option<Com
 fn format_compact_read_call(classification: &CompactReadClassification, args: &JsValue, theme: &Theme) -> JsString {
     let expand_hint = theme.fg(
         ThemeColor::Dim,
-        &format!(" ({} to expand)", key_text("app.tools.expand")),
+        js_format!(" ({} to expand)", key_text("app.tools.expand")),
     );
     if classification.kind == CompactReadKind::Skill {
         return js_format!(
