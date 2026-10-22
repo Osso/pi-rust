@@ -12,6 +12,96 @@ use pi_coding_agent::core::tools::write::{WriteOperations, WriteTool, WriteToolO
 use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
 
 #[test]
+fn native_tool_renderers_match_frozen_raw_path_and_error_lines() {
+    use pi_coding_agent::core::extensions::types::{ToolRenderContext, ToolRenderResultOptions, ToolRenderState};
+    use pi_coding_agent::core::tools::{edit, find, grep, ls, read, write};
+    use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path, set_theme_instance};
+    let theme_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/pi-coding-agent/theme/dark.json");
+    let mut capabilities = pi_tui::get_capabilities();
+    capabilities.hyperlinks = true;
+    pi_tui::set_capabilities(capabilities);
+    let theme = load_theme_from_path(&theme_path, Some(ColorMode::Truecolor)).unwrap();
+    set_theme_instance(Arc::new(theme.clone()));
+    let params = parse_lossless(
+        r#"{"path":"relative-\ud800.txt","pattern":"pat-\udfff","content":"line-\ud801\t\r\nsecond-\udfff"}"#,
+    )
+    .unwrap();
+    let cwd = JsString::from("/cwd-") + JsString::from_utf16(vec![0xd800]);
+    let result = pi_agent_core::agent::AgentToolResult {
+        content: vec![TextOrImageContent::Text(pi_ai::types::TextContent::new(
+            JsString::from("error-")
+                + JsString::from_utf16(vec![0xdfff])
+                + "\r\nnext-"
+                + JsString::from_utf16(vec![0xd801]),
+        ))],
+        details: None,
+        is_error: Some(true),
+        terminate: None,
+    };
+    let options = ToolRenderResultOptions {
+        expanded: true,
+        is_partial: false,
+    };
+    for (name, factory) in [
+        ("write", "createWriteToolDefinition"),
+        ("read", "createReadToolDefinition"),
+        ("edit", "createEditToolDefinition"),
+        ("ls", "createLsToolDefinition"),
+        ("find", "createFindToolDefinition"),
+        ("grep", "createGrepToolDefinition"),
+    ] {
+        let mut context = ToolRenderContext {
+            args: params.clone(),
+            tool_call_id: "raw-render".into(),
+            invalidate: Arc::new(|| {}),
+            last_component: None,
+            call_component: None,
+            state: ToolRenderState::new(),
+            cwd: cwd.clone(),
+            execution_started: false,
+            args_complete: false,
+            is_partial: false,
+            expanded: true,
+            show_images: false,
+            is_error: true,
+        };
+        let call = match name {
+            "write" => write::render_call(&params, &theme, &context),
+            "read" => read::render_call(&params, &theme, &context),
+            "edit" => edit::render_call(&params, &theme, &context).unwrap(),
+            "ls" => ls::render_call(&params, &theme, &context),
+            "find" => find::render_call(&params, &theme, &context),
+            "grep" => grep::render_call(&params, &theme, &context),
+            _ => unreachable!(),
+        };
+        // ToolExecutionComponent carries the call component into result rendering.
+        context.call_component = Some(call.clone());
+        let output = match name {
+            "write" => write::render_result(&result, &options, &theme, &context),
+            "read" => read::render_result(&result, &options, &theme, &context),
+            "edit" => edit::render_result(&result, &options, &theme, &context).unwrap(),
+            "ls" => ls::render_result(&result, &options, &theme, &context),
+            "find" => find::render_result(&result, &options, &theme, &context),
+            "grep" => grep::render_result(&result, &options, &theme, &context),
+            _ => unreachable!(),
+        };
+        let actual =
+            pi_js_compat::js_json!({"call":call.borrow_mut().render(100),"result":output.borrow_mut().render(100)});
+        let module = format!("packages/coding-agent/src/core/tools/{name}.ts");
+        let mut source = oracle::TsOracle::spawn("lossless-tool-paths-oracle.ts", &module);
+        let expected=source.request_lossless(&pi_js_compat::js_json!({"kind":"render","factory":factory,"cwd":cwd,"params":params,"result":result,"themePath":theme_path.to_str().unwrap(),"width":100}));
+        assert!(
+            actual == expected,
+            "{name}\nactual: {}\nexpected: {}",
+            pi_js_compat::js_json::stringify_lossless(&actual),
+            pi_js_compat::js_json::stringify_lossless(&expected)
+        );
+    }
+    pi_tui::reset_capabilities_cache();
+}
+
+#[test]
 fn ansi_and_binary_cleanup_keep_units_outside_removed_ranges() {
     use pi_coding_agent::utils::{ansi::strip_ansi, shell::sanitize_binary_output};
     let raw = JsString::from_utf16(vec![0xd800, 0xdfff, 0xd801, 0xfffd]);

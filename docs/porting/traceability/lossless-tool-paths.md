@@ -50,6 +50,12 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## Actual tool renderer differential
+
+`native_tool_renderers_match_frozen_raw_path_and_error_lines` exercises **six actual call/result renderers** (write/read/edit/ls/find/grep), actual Theme/Chalk, highlighter, diff/key-hints and native pi-tui Text/Box/Container. Forced hyperlink support verifies both retained styled path units and Node UTF-8 percent-encoding at the URL boundary. Raw multiline error text survives actual component rendering. Every returned UTF-16 line equals frozen TS, including ANSI controls and padding. `renderers-green.log`: **1/1 fixture PASS, six renderer pairs, zero warnings**.
+
+`renderers-red{,-diagnostic}.log` exposed a fixture-ordering error, not a production defect: TS stores its call component inside state; Rust `ToolExecutionComponent` carries it explicitly in `ToolRenderContext.call_component` (tool_execution.rs:278). The test now reproduces that actual caller sequence before rendering the result/header. Config discovery, settings persistence and extension execution wrappers are still probe support stubs; no whole interactive-mode or actual terminal-write proof is claimed.
+
 ## Native diff/key hints checkpoint
 
 Granted by main after `3e4511d8`: `components/diff.rs` and `keybinding_hints.rs`. Diff/intraline outputs now retain JsString through inverse/fg styling; removed every early encoding. Corrected old surrogate tests that explicitly expected replacement. Key formatting/hints return native strings, preserve raw key fragments/descriptions, and capitalize only the source first UTF-16 unit (including an untouched surrogate).

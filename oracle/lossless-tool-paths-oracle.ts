@@ -6,6 +6,19 @@ async function main() {
 	const module = await import(pathToFileURL(process.argv[2]).href);
 	for await (const line of createInterface({ input: process.stdin, terminal: false })) {
 		const input = JSON.parse(line);
+		if (input.kind === "render") {
+			const terminal=await import(new URL("../../../../tui/src/terminal-image.ts",pathToFileURL(process.argv[2])).href);
+			terminal.setCapabilities({...terminal.getCapabilities(),hyperlinks:true});
+			const themes=await import(new URL("../../modes/interactive/theme/theme.ts",pathToFileURL(process.argv[2])).href);
+			const theme=themes.loadThemeFromPath(input.themePath,"truecolor");
+			themes.setThemeInstance(theme);
+			const definition=module[input.factory](input.cwd);
+			const context={args:input.params,toolCallId:"raw-render",invalidate:()=>{},lastComponent:undefined,callComponent:undefined,state:{},cwd:input.cwd,executionStarted:false,argsComplete:false,isPartial:false,expanded:true,showImages:false,isError:true};
+			const call=definition.renderCall(input.params,theme,context);
+			const result=definition.renderResult(input.result,{expanded:true,isPartial:false},theme,context);
+			process.stdout.write(`${JSON.stringify({call:call.render(input.width),result:result.render(input.width)})}\n`);
+			continue;
+		}
 		if (input.kind === "cleanup") {
 			const shell = await import(pathToFileURL(process.argv[2].replace(/ansi\.ts$/, "shell.ts")).href);
 			const output = shell.sanitizeBinaryOutput(module.stripAnsi(String.fromCharCode(...input.units)));
