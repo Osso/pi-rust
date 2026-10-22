@@ -5,6 +5,7 @@ use std::rc::Rc;
 use indexmap::IndexMap;
 use pi_js_compat::js_json::{JsString, JsValue as Value, encode_node_utf8, parse_lossless};
 use pi_tui::components::editor::{Editor, EditorHost, EditorOptions, EditorTheme};
+use pi_tui::editor_component::{EditorHistoryError, EditorInput};
 use pi_tui::tui::Component;
 
 use crate::core::keybindings::KeybindingsManager;
@@ -49,7 +50,8 @@ impl CustomEditor {
         options: CustomEditorOptions,
     ) -> Result<Self, crate::core::session_control_db::ControlDbError> {
         let mut editor = Editor::new(tui, theme, options.editor);
-        if let Some(control_db_path) = &options.prompt_history_control_db_path {
+        let prompt_history_control_db_path = options.prompt_history_control_db_path.filter(|path| !path.is_empty());
+        if let Some(control_db_path) = &prompt_history_control_db_path {
             let history = load_prompt_history(control_db_path, options.legacy_prompt_history_path.as_ref())?;
             let history = match &options.prompt_history_filter {
                 Some(filter) => history.into_iter().filter(|entry| filter(entry)).collect(),
@@ -60,7 +62,7 @@ impl CustomEditor {
         Ok(Self {
             editor,
             keybindings,
-            prompt_history_control_db_path: options.prompt_history_control_db_path,
+            prompt_history_control_db_path,
             action_handlers: IndexMap::new(),
             on_escape: None,
             on_ctrl_d: None,
@@ -198,29 +200,49 @@ fn as_action_fn(handler: &AppActionHandler) -> Rc<dyn Fn()> {
     })
 }
 
+fn dispatch_consumed(handler: Option<Rc<dyn Fn()>>) -> EditorInput {
+    match handler {
+        Some(handler) => EditorInput::Callback(Box::new(move || {
+            handler();
+            EditorInput::Complete
+        })),
+        None => EditorInput::Complete,
+    }
+}
+
+fn resume_custom_editor(resume: impl FnOnce(&mut CustomEditor) -> EditorInput + 'static) -> EditorInput {
+    EditorInput::Resume(Box::new(move |editor| {
+        let editor = editor
+            .as_any_mut()
+            .and_then(|editor| editor.downcast_mut::<CustomEditor>())
+            .expect("CustomEditor dispatch resumes on its composed base editor");
+        resume(editor)
+    }))
+}
+
 fn same_history(left: &[JsString], right: &[JsString]) -> bool {
     left.len() == right.len() && left.iter().zip(right).all(|(left, right)| left == right)
 }
 
 impl CustomEditor {
-    /// Handles one input chunk and returns the app callbacks it matched.
-    ///
-    /// Callers that hold the editor in a `RefCell` run the callbacks after
-    /// dropping the borrow: the callbacks re-enter the editor (clear, border
-    /// color, status), which a live borrow would reject.
-    pub fn collect_input_callbacks(&mut self, data: &JsString) -> Vec<Rc<dyn Fn()>> {
-        let mut callbacks: Vec<Rc<dyn Fn()>> = Vec::new();
-        if let Some(shortcut) = &self.on_extension_shortcut
-            && shortcut(data)
-        {
-            return callbacks;
-        }
-
-        if self.keybindings.matches(data, "app.clipboard.pasteImage") {
-            if let Some(handler) = &self.on_paste_image {
-                callbacks.push(Rc::clone(handler));
+    /// Pause at callbacks so a mounted editor can release its RefCell borrow.
+    pub fn dispatch_input(&mut self, data: &JsString) -> EditorInput {
+        let Some(shortcut) = self.on_extension_shortcut.clone() else {
+            return self.dispatch_app_binding(data);
+        };
+        let data = data.clone();
+        EditorInput::Callback(Box::new(move || {
+            if shortcut(&data) {
+                EditorInput::Complete
+            } else {
+                resume_custom_editor(move |editor| editor.dispatch_app_binding(&data))
             }
-            return callbacks;
+        }))
+    }
+
+    fn dispatch_app_binding(&mut self, data: &JsString) -> EditorInput {
+        if self.keybindings.matches(data, "app.clipboard.pasteImage") {
+            return dispatch_consumed(self.on_paste_image.clone());
         }
 
         if self.keybindings.matches(data, "app.interrupt") {
@@ -229,13 +251,12 @@ impl CustomEditor {
                     .on_escape
                     .clone()
                     .or_else(|| self.action_handlers.get("app.interrupt").map(as_action_fn));
-                if let Some(handler) = handler {
-                    callbacks.push(handler);
-                    return callbacks;
+                if handler.is_some() {
+                    return dispatch_consumed(handler);
                 }
             }
             self.editor.handle_input(data);
-            return callbacks;
+            return EditorInput::Complete;
         }
 
         if self.keybindings.matches(data, "app.exit") && self.editor.get_text().is_empty() {
@@ -243,28 +264,29 @@ impl CustomEditor {
                 .on_ctrl_d
                 .clone()
                 .or_else(|| self.action_handlers.get("app.exit").map(as_action_fn));
-            if let Some(handler) = handler {
-                callbacks.push(handler);
+            return dispatch_consumed(handler);
+        }
+
+        self.dispatch_action(data, 0)
+    }
+
+    fn dispatch_action(&mut self, data: &JsString, start: usize) -> EditorInput {
+        for (index, (action, handler)) in self.action_handlers.iter().enumerate().skip(start) {
+            if action == "app.interrupt" || action == "app.exit" || !self.keybindings.matches(data, action) {
+                continue;
             }
-            return callbacks;
+            let handler = handler.clone();
+            let data = data.clone();
+            return EditorInput::Callback(Box::new(move || {
+                if handler() {
+                    EditorInput::Complete
+                } else {
+                    resume_custom_editor(move |editor| editor.dispatch_action(&data, index + 1))
+                }
+            }));
         }
-
-        if self.keybindings.matches(data, "tui.editor.historyPrevious")
-            || self.keybindings.matches(data, "tui.editor.historyNext")
-        {
-            self.editor.handle_input(data);
-            return callbacks;
-        }
-
-        for (action, handler) in &self.action_handlers {
-            if action != "app.interrupt" && action != "app.exit" && self.keybindings.matches(data, action) {
-                callbacks.push(as_action_fn(handler));
-                return callbacks;
-            }
-        }
-
         self.editor.handle_input(data);
-        callbacks
+        EditorInput::Complete
     }
 }
 
@@ -278,9 +300,7 @@ impl Component for CustomEditor {
     }
 
     fn handle_input(&mut self, data: &JsString) {
-        for callback in self.collect_input_callbacks(data) {
-            callback();
-        }
+        self.dispatch_input(data).run(|resume| resume(self));
     }
 
     fn invalidate(&mut self) {
@@ -293,8 +313,8 @@ impl Component for CustomEditor {
 }
 
 impl pi_tui::EditorComponent for CustomEditor {
-    fn handle_input_deferred(&mut self, data: &JsString) -> Vec<Rc<dyn Fn()>> {
-        self.collect_input_callbacks(data)
+    fn handle_input_deferred(&mut self, data: &JsString) -> EditorInput {
+        self.dispatch_input(data)
     }
 
     fn get_text(&self) -> JsString {
@@ -305,8 +325,10 @@ impl pi_tui::EditorComponent for CustomEditor {
         self.editor.set_text(text);
     }
 
-    fn add_to_history(&mut self, text: &JsString) {
-        let _ = CustomEditor::add_to_history(self, text);
+    fn add_to_history(&mut self, text: &JsString) -> Result<(), EditorHistoryError> {
+        CustomEditor::add_to_history(self, text).map_err(|error| EditorHistoryError {
+            message: error.message().clone(),
+        })
     }
 
     fn insert_text_at_cursor(&mut self, text: &JsString) {

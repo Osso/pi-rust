@@ -12,22 +12,61 @@ use crate::components::loader::LoaderIndicatorOptions;
 use crate::components::text::StyleFn;
 use crate::tui::Component;
 
+/// Failure from the optional persistent editor-history boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorHistoryError {
+    pub message: JsString,
+}
+
+/// Continuation that borrows the editor only after an input callback returns.
+pub type EditorInputResume = Box<dyn FnOnce(&mut dyn EditorComponent) -> EditorInput>;
+
+/// Input dispatch alternates editor mutations and callbacks that may re-enter it.
+pub enum EditorInput {
+    Complete,
+    Callback(Box<dyn FnOnce() -> EditorInput>),
+    Resume(EditorInputResume),
+}
+
+impl EditorInput {
+    pub fn run(mut self, mut resume: impl FnMut(EditorInputResume) -> EditorInput) {
+        loop {
+            self = match self {
+                Self::Complete => return,
+                Self::Callback(callback) => callback(),
+                Self::Resume(continuation) => resume(continuation),
+            };
+        }
+    }
+
+    pub fn then(self, callback: impl FnOnce() + 'static) -> Self {
+        match self {
+            Self::Complete => Self::Callback(Box::new(move || {
+                callback();
+                Self::Complete
+            })),
+            Self::Callback(next) => Self::Callback(Box::new(move || next().then(callback))),
+            Self::Resume(next) => Self::Resume(Box::new(move |editor| next(editor).then(callback))),
+        }
+    }
+}
+
 /// Custom editor implementation accepted by the core application.
 pub trait EditorComponent: Component {
     fn get_text(&self) -> JsString;
 
     fn set_text(&mut self, text: &JsString);
 
-    /// Rust-only: handles `data` and returns the app callbacks it triggered,
-    /// for hosts that hold the editor in a `RefCell` and must run callbacks that
-    /// re-enter the editor after releasing the borrow. Editors without
-    /// re-entrant callbacks handle the input directly.
-    fn handle_input_deferred(&mut self, data: &JsString) -> Vec<Rc<dyn Fn()>> {
+    /// Rust-only dispatch protocol: callbacks run outside the host's editor
+    /// borrow; continuations resume under a fresh borrow after their results.
+    fn handle_input_deferred(&mut self, data: &JsString) -> EditorInput {
         self.handle_input(data);
-        Vec::new()
+        EditorInput::Complete
     }
 
-    fn add_to_history(&mut self, _text: &JsString) {}
+    fn add_to_history(&mut self, _text: &JsString) -> Result<(), EditorHistoryError> {
+        Ok(())
+    }
 
     fn insert_text_at_cursor(&mut self, _text: &JsString) {}
 
@@ -68,8 +107,9 @@ impl EditorComponent for crate::components::editor::Editor {
         crate::components::editor::Editor::set_text(self, text);
     }
 
-    fn add_to_history(&mut self, text: &JsString) {
+    fn add_to_history(&mut self, text: &JsString) -> Result<(), EditorHistoryError> {
         crate::components::editor::Editor::add_to_history(self, text);
+        Ok(())
     }
 
     fn insert_text_at_cursor(&mut self, text: &JsString) {
