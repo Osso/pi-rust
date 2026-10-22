@@ -409,6 +409,10 @@ impl Component for VisualPreview {
 }
 
 impl Component for BashExecutionComponent {
+    fn dispose(&mut self) {
+        BashExecutionComponent::dispose(self);
+    }
+
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
         Some(self)
     }

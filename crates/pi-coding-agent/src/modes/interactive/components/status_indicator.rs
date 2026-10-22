@@ -77,6 +77,10 @@ impl StatusIndicator {
 }
 
 impl Component for StatusIndicator {
+    fn dispose(&mut self) {
+        StatusIndicator::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         self.loader.borrow_mut().render(width)
     }
@@ -131,6 +135,10 @@ impl WorkingStatusIndicator {
 }
 
 impl Component for WorkingStatusIndicator {
+    fn dispose(&mut self) {
+        WorkingStatusIndicator::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         self.indicator.render(width)
     }
@@ -198,6 +206,10 @@ impl RetryStatusIndicator {
 }
 
 impl Component for RetryStatusIndicator {
+    fn dispose(&mut self) {
+        RetryStatusIndicator::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         self.indicator.render(width)
     }
@@ -251,6 +263,10 @@ impl CompactionStatusIndicator {
 }
 
 impl Component for CompactionStatusIndicator {
+    fn dispose(&mut self) {
+        CompactionStatusIndicator::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         self.indicator.render(width)
     }
@@ -289,6 +305,10 @@ impl BranchSummaryStatusIndicator {
 }
 
 impl Component for BranchSummaryStatusIndicator {
+    fn dispose(&mut self) {
+        BranchSummaryStatusIndicator::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         self.indicator.render(width)
     }

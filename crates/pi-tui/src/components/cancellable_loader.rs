@@ -72,6 +72,10 @@ impl CancellableLoader {
 }
 
 impl Component for CancellableLoader {
+    fn dispose(&mut self) {
+        CancellableLoader::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         self.loader.render(width)
     }

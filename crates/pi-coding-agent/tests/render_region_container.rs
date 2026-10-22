@@ -95,6 +95,36 @@ impl Component for Shared {
 }
 
 #[test]
+fn scoped_chat_removal_retires_a_native_retry_timer() {
+    use pi_coding_agent::modes::interactive::components::status_indicator::RetryStatusIndicator;
+    pi_coding_agent::modes::interactive::theme::init_theme(Some(&"dark".into()), false).unwrap();
+    let (_, handle) = virtual_terminal::concrete(24, 8);
+    let tui = TuiRenderer::new(handle);
+    let mut chat = RenderRegionContainer::new(Rc::new(move |child| tui.create_render_region(child)));
+    let requests = Rc::new(Cell::new(0));
+    let render_requests = requests.clone();
+    let retry = Rc::new(RefCell::new(RetryStatusIndicator::new(
+        Rc::new(move || render_requests.set(render_requests.get() + 1)),
+        1,
+        3,
+        1000,
+    )));
+    let child: pi_tui::tui::ComponentRef = retry.clone();
+    chat.track_scoped_child(child.clone());
+    chat.add_child(child.clone());
+    chat.remove_child(&child);
+    let before = requests.get();
+    let frame = retry.borrow_mut().render(80);
+    assert!(
+        !retry
+            .borrow_mut()
+            .poll_countdown(std::time::Instant::now() + std::time::Duration::from_secs(2))
+    );
+    assert_eq!(requests.get(), before, "retired timer still requests screen writes");
+    assert_eq!(retry.borrow_mut().render(80), frame);
+}
+
+#[test]
 fn scoped_chat_updates_do_not_render_neighbors_and_retire_once() {
     let (terminal, handle) = virtual_terminal::concrete(24, 8);
     let tui = TuiRenderer::new(handle);
