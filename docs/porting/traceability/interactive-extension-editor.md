@@ -17,6 +17,12 @@ Tests: `interactive_components_c.rs::extension_editor_*`, differential `extensio
 | focus propagation | `Focusable` impl | API surface |
 | hints | `key_hint` | differential |
 
+## Common-pin native checkpoint
+
+Title, prefill, editor content, submission callbacks, rendering/input and external-editor command storage use `JsString`. `raw_extension_dialogs::extension_editor_preserves_raw_prefill_and_submission` exercises lone high/low units and an astral pair through the actual Editor and callback; isolated harness supplies a plain editor theme. Full theme and external-key dispatch integration remain pending.
+
+`external_editor.rs` retains native command/content/result/error values. UTF-8 encoding occurs at actual prompt-file/stdout/process boundaries; saved file bytes decode back to native text. `raw_external_editor` launches Python in the mandatory sandbox, captures prompt bytes and writes two newlines: the port removes exactly one. Three raw payloads pass. This is process/filesystem proof, not full frozen external-editor differential or all failure-branch proof.
+
 ## Gaps
 
 - The source suspends/starts the `TUI` around the external editor. The Rust port defines

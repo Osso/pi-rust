@@ -1,5 +1,9 @@
 # interactive selector components traceability
 
+## Common-pin native extension selector checkpoint
+
+Extension selector options, title, callbacks, render and input use `JsString`; themed border callback is native. `raw_extension_dialogs.rs` compares frozen renders/callbacks for lone high/low units and an astral pair at widths 4/12/40, with invalidation and selection navigation. Theme-color bytes are excluded from this plain-line comparison; timer/toggle/raw empty-option proofs are not claimed by this checkpoint.
+
 Sources (all under `packages/coding-agent/src/modes/interactive/components/`):
 
 | TypeScript module | Rust module | Tests |

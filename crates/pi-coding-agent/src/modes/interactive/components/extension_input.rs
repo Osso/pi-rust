@@ -2,6 +2,8 @@
 
 use std::rc::Rc;
 
+use pi_js_compat::{js_format, js_json::JsString};
+
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
@@ -27,18 +29,18 @@ pub struct ExtensionInputComponent {
     container: Container,
     input: ComponentRef,
     title_text: ComponentRef,
-    base_title: String,
+    base_title: JsString,
     countdown: Option<CountdownTimer>,
-    on_submit: Rc<dyn Fn(String)>,
+    on_submit: Rc<dyn Fn(JsString)>,
     on_cancel: Rc<dyn Fn()>,
     focused: bool,
 }
 
 impl ExtensionInputComponent {
     pub fn new(
-        title: &str,
-        _placeholder: Option<&str>,
-        on_submit: Rc<dyn Fn(String)>,
+        title: &JsString,
+        _placeholder: Option<&JsString>,
+        on_submit: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
         options: ExtensionInputOptions,
     ) -> Self {
@@ -59,7 +61,12 @@ impl ExtensionInputComponent {
             let tick = Rc::new(move |seconds: i64| {
                 set_text(
                     &tick_title,
-                    with_theme(|theme| theme.fg(ThemeColor::Accent, &format!("{base_title} ({seconds}s)"))),
+                    with_theme(|theme| {
+                        theme.fg(
+                            ThemeColor::Accent,
+                            js_format!("{} ({}s)", base_title, seconds.to_string()),
+                        )
+                    }),
                 );
             });
             let expire = Rc::clone(&on_cancel);
@@ -70,7 +77,7 @@ impl ExtensionInputComponent {
         container.add_child(Rc::clone(&input));
         container.add_child(component(Spacer::new(1)));
         container.add_child(component(Text::new(
-            format!(
+            js_format!(
                 "{}  {}",
                 key_hint("tui.select.confirm", "submit"),
                 key_hint("tui.select.cancel", "cancel")
@@ -111,11 +118,11 @@ impl ExtensionInputComponent {
         Rc::clone(&self.title_text)
     }
 
-    pub fn base_title(&self) -> &str {
+    pub fn base_title(&self) -> &JsString {
         &self.base_title
     }
 
-    fn input_value(&mut self) -> String {
+    fn input_value(&mut self) -> JsString {
         self.input
             .borrow_mut()
             .as_any_mut()
@@ -125,7 +132,7 @@ impl ExtensionInputComponent {
     }
 }
 
-fn set_text(target: &ComponentRef, text: String) {
+fn set_text(target: &ComponentRef, text: JsString) {
     if let Some(text_component) = target
         .borrow_mut()
         .as_any_mut()
@@ -136,11 +143,11 @@ fn set_text(target: &ComponentRef, text: String) {
 }
 
 impl Component for ExtensionInputComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(data, "tui.select.confirm") || data == "\n" {
             let value = self.input_value();

@@ -2,6 +2,8 @@
 
 use std::rc::Rc;
 
+use pi_js_compat::{js_format, js_json::JsString};
+
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::keybindings::get_keybindings;
@@ -23,13 +25,13 @@ pub struct ExtensionSelectorOptions {
 
 /// Generic extension option list with keyboard navigation.
 pub struct ExtensionSelectorComponent {
-    options: Vec<String>,
+    options: Vec<JsString>,
     selected_index: usize,
     list_container: Container,
-    on_select: Rc<dyn Fn(String)>,
+    on_select: Rc<dyn Fn(JsString)>,
     on_cancel: Rc<dyn Fn()>,
     title_text: ComponentRef,
-    base_title: String,
+    base_title: JsString,
     countdown: Option<CountdownTimer>,
     on_toggle_tools_expanded: Option<Rc<dyn Fn()>>,
     prefix_children: Vec<ComponentRef>,
@@ -38,9 +40,9 @@ pub struct ExtensionSelectorComponent {
 
 impl ExtensionSelectorComponent {
     pub fn new(
-        title: &str,
-        options: Vec<String>,
-        on_select: Rc<dyn Fn(String)>,
+        title: &JsString,
+        options: Vec<JsString>,
+        on_select: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
         options_config: ExtensionSelectorOptions,
     ) -> Self {
@@ -63,7 +65,7 @@ impl ExtensionSelectorComponent {
                     with_theme(|theme| {
                         theme.fg(
                             ThemeColor::Accent,
-                            &theme.bold(&format!("{tick_base_title} ({seconds}s)")),
+                            &theme.bold(js_format!("{} ({}s)", tick_base_title, seconds.to_string())),
                         )
                     }),
                 );
@@ -118,7 +120,7 @@ impl ExtensionSelectorComponent {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
                     + &with_theme(|theme| theme.fg(ThemeColor::Accent, option))
             } else {
-                format!("  {}", with_theme(|theme| theme.fg(ThemeColor::Text, option)))
+                JsString::from("  ") + with_theme(|theme| theme.fg(ThemeColor::Text, option))
             };
             self.list_container.add_child(component(Text::new(text, 1, 0)));
         }
@@ -142,12 +144,12 @@ impl ExtensionSelectorComponent {
         Rc::clone(&self.title_text)
     }
 
-    pub fn base_title(&self) -> &str {
+    pub fn base_title(&self) -> &JsString {
         &self.base_title
     }
 }
 
-fn set_text(target: &ComponentRef, text: String) {
+fn set_text(target: &ComponentRef, text: JsString) {
     if let Some(text_component) = target
         .borrow_mut()
         .as_any_mut()
@@ -158,7 +160,7 @@ fn set_text(target: &ComponentRef, text: String) {
 }
 
 impl Component for ExtensionSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         for child in &self.prefix_children {
             lines.extend(child.borrow_mut().render(width));
@@ -170,7 +172,7 @@ impl Component for ExtensionSelectorComponent {
         lines
     }
 
-    fn handle_input(&mut self, key_data: &str) {
+    fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(key_data, "app.tools.expand") {
             if let Some(toggle) = &self.on_toggle_tools_expanded {
