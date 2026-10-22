@@ -26,17 +26,32 @@ function createResourceLoader(runtime: unknown) {
 
 async function loadModules() {
 	const main = await import(supervisorMainPath);
-	const { SessionManager } = await import(`${packagesRoot}/coding-agent/src/core/session-manager.ts`);
-	const { AuthStorage } = await import(`${packagesRoot}/coding-agent/src/core/auth-storage.ts`);
-	const { ModelRegistry } = await import(`${packagesRoot}/coding-agent/src/core/model-registry.ts`);
-	const { createAgentSession } = await import(`${packagesRoot}/coding-agent/src/core/sdk.ts`);
-	const { createSupervisorResponseTool } = await import(`${packagesRoot}/coding-agent/src/supervisor/response-tool.ts`);
-	const controlDb = await import(`${packagesRoot}/coding-agent/src/core/session-control-db.ts`);
-	const sqlite = await import(`${packagesRoot}/coding-agent/src/core/sqlite.ts`);
-	const { registerFauxProvider, fauxAssistantMessage, fauxToolCall } = await import(
-		`${packagesRoot}/ai/src/compat.ts`
+	const { SessionManager } = await import(
+		`${packagesRoot}/coding-agent/src/core/session-manager.ts`
 	);
-	const { createExtensionRuntime } = await import(`${packagesRoot}/coding-agent/src/core/extensions/index.ts`);
+	const { AuthStorage } = await import(
+		`${packagesRoot}/coding-agent/src/core/auth-storage.ts`
+	);
+	const { ModelRegistry } = await import(
+		`${packagesRoot}/coding-agent/src/core/model-registry.ts`
+	);
+	const { createAgentSession } = await import(
+		`${packagesRoot}/coding-agent/src/core/sdk.ts`
+	);
+	const { createSupervisorResponseTool } = await import(
+		`${packagesRoot}/coding-agent/src/supervisor/response-tool.ts`
+	);
+	const controlDb = await import(
+		`${packagesRoot}/coding-agent/src/core/session-control-db.ts`
+	);
+	const sqlite = await import(
+		`${packagesRoot}/coding-agent/src/core/sqlite.ts`
+	);
+	const { registerFauxProvider, fauxAssistantMessage, fauxToolCall } =
+		await import(`${packagesRoot}/ai/src/compat.ts`);
+	const { createExtensionRuntime } = await import(
+		`${packagesRoot}/coding-agent/src/core/extensions/index.ts`
+	);
 	return {
 		main,
 		SessionManager,
@@ -65,10 +80,18 @@ function normalizeSessionFile(text: string): unknown[] {
 				const object = node as Record<string, unknown>;
 				const result: Record<string, unknown> = {};
 				for (const [key, child] of Object.entries(object)) {
-					if (key === "id" || key === "parentId" || key === "toolCallId") result[key] = "<id>";
+					if (key === "id" || key === "parentId" || key === "toolCallId")
+						result[key] = "<id>";
 					else if (key === "timestamp") result[key] = "<timestamp>";
 					else if (key === "cwd") result[key] = "<cwd>";
-					else if (key === "input" || key === "output" || key === "cacheRead" || key === "cacheWrite" || key === "totalTokens") result[key] = "<number>";
+					else if (
+						key === "input" ||
+						key === "output" ||
+						key === "cacheRead" ||
+						key === "cacheWrite" ||
+						key === "totalTokens"
+					)
+						result[key] = "<number>";
 					else result[key] = normalize(child);
 				}
 				return result;
@@ -77,14 +100,21 @@ function normalizeSessionFile(text: string): unknown[] {
 		});
 }
 
-function dumpControlDb(controlDbPath: string, sqlite: { createSqliteDatabase: (path: string) => {
-	prepare: (sql: string) => { all: () => unknown[] };
-	close: () => void;
-} }) {
+function dumpControlDb(
+	controlDbPath: string,
+	sqlite: {
+		createSqliteDatabase: (path: string) => {
+			prepare: (sql: string) => { all: () => unknown[] };
+			close: () => void;
+		};
+	},
+) {
 	const db = sqlite.createSqliteDatabase(controlDbPath);
 	try {
 		return db
-			.prepare("SELECT id, kind, status, response_json FROM supervisor_requests ORDER BY id")
+			.prepare(
+				"SELECT id, kind, status, response_json FROM supervisor_requests ORDER BY id",
+			)
 			.all() as unknown[];
 	} finally {
 		db.close();
@@ -126,12 +156,18 @@ async function run(request: Request) {
 		tokensPerSecond: 1_000_000,
 	});
 	faux.setResponses([
-		fauxAssistantMessage([fauxToolCall("supervisor_response", { kind: "approve", reason: "ok" })], {
-			stopReason: "toolUse",
-		}),
+		fauxAssistantMessage(
+			[fauxToolCall("supervisor_response", { kind: "approve", reason: "ok" })],
+			{
+				stopReason: "toolUse",
+			},
+		),
 	]);
 	const authStorage = AuthStorage.inMemory();
-	authStorage.set(faux.getModel().provider, { type: "api_key", key: "faux-key" });
+	authStorage.set(faux.getModel().provider, {
+		type: "api_key",
+		key: "faux-key",
+	});
 	const modelRegistry = ModelRegistry.inMemory(authStorage);
 	const model = faux.getModel();
 	modelRegistry.registerProvider(model.provider, {
@@ -152,8 +188,12 @@ async function run(request: Request) {
 			},
 		],
 	});
-	const sessionManager = SessionManager.create(dir, sessionDir, { id: "supervisor" });
-	sessionManager.setMetadataControlDbPath(controlDbPath, { indexMessageText: false });
+	const sessionManager = SessionManager.create(dir, sessionDir, {
+		id: "supervisor",
+	});
+	sessionManager.setMetadataControlDbPath(controlDbPath, {
+		indexMessageText: false,
+	});
 	// Mirror frozen main.ts:createSupervisorAgentSession through public SDK dependencies.
 	const { session } = await createAgentSession({
 		agentDir: dir,
@@ -182,8 +222,16 @@ async function run(request: Request) {
 		claimToken: "claim-token",
 		consolePrompts: { enqueue: () => {}, take: () => undefined },
 		controlDbPath,
-		processRequest: async (dbPath: string, supervisorRequest: unknown, activeSession: unknown) => {
-			await main.processSupervisorRequest(dbPath, supervisorRequest, activeSession);
+		processRequest: async (
+			dbPath: string,
+			supervisorRequest: unknown,
+			activeSession: unknown,
+		) => {
+			await main.processSupervisorRequest(
+				dbPath,
+				supervisorRequest,
+				activeSession,
+			);
 			controller.abort();
 		},
 		session,
@@ -197,8 +245,18 @@ async function run(request: Request) {
 	});
 	const sessionFile = sessionManager.getSessionFile();
 	return {
-		controlRows: dumpControlDb(controlDbPath, sqlite as unknown as { createSqliteDatabase: (path: string) => { prepare: (sql: string) => { all: () => unknown[] }; close: () => void } }),
-		session: sessionFile ? normalizeSessionFile(readFileSync(sessionFile, "utf8")) : [],
+		controlRows: dumpControlDb(
+			controlDbPath,
+			sqlite as unknown as {
+				createSqliteDatabase: (path: string) => {
+					prepare: (sql: string) => { all: () => unknown[] };
+					close: () => void;
+				};
+			},
+		),
+		session: sessionFile
+			? normalizeSessionFile(readFileSync(sessionFile, "utf8"))
+			: [],
 	};
 }
 
@@ -213,11 +271,15 @@ process.stdin.on("data", (chunk) => {
 		const request = JSON.parse(line) as Request;
 		run(request)
 			.then((output) => {
-				process.stdout.write(`${JSON.stringify({ id: request.id, ok: true, output })}\n`);
+				process.stdout.write(
+					`${JSON.stringify({ id: request.id, ok: true, output })}\n`,
+				);
 			})
 			.catch((error: unknown) => {
 				const message = error instanceof Error ? error.message : String(error);
-				process.stdout.write(`${JSON.stringify({ id: request.id, ok: false, error: { message } })}\n`);
+				process.stdout.write(
+					`${JSON.stringify({ id: request.id, ok: false, error: { message } })}\n`,
+				);
 			});
 	}
 });

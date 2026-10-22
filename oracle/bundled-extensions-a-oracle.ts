@@ -4,14 +4,19 @@
 
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { requireCases, runOracle } from "./coding-agent-utils-oracle-support.ts";
+import {
+	requireCases,
+	runOracle,
+} from "./coding-agent-utils-oracle-support.ts";
 
 type AnyRecord = Record<string, any>;
 
 const extensionsDir = dirname(dirname(dirname(process.argv[2] ?? "")));
 
 async function loadModule(relative: string): Promise<AnyRecord> {
-	return (await import(pathToFileURL(join(extensionsDir, relative)).href)) as AnyRecord;
+	return (await import(
+		pathToFileURL(join(extensionsDir, relative)).href
+	)) as AnyRecord;
 }
 
 function notifyType(type: unknown): string | null {
@@ -26,7 +31,11 @@ function makeModel(options: AnyRecord): AnyRecord {
 		provider: options.provider ?? "openai-codex",
 		baseUrl: "https://example.test",
 		reasoning: options.reasoning ?? true,
-		thinkingLevelMap: options.thinkingLevelMap ?? { xhigh: "xhigh", max: "max", ultra: "max" },
+		thinkingLevelMap: options.thinkingLevelMap ?? {
+			xhigh: "xhigh",
+			max: "max",
+			ultra: "max",
+		},
 		input: ["text", "image"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 200_000,
@@ -83,7 +92,10 @@ function loopMetadata(harness: AnyRecord): unknown {
 	};
 }
 
-async function runLoopCase(loopExtension: (pi: AnyRecord) => void, input: AnyRecord): Promise<unknown> {
+async function runLoopCase(
+	loopExtension: (pi: AnyRecord) => void,
+	input: AnyRecord,
+): Promise<unknown> {
 	const harness = createLoopHarness(loopExtension);
 	if (typeof input.command === "string") {
 		await harness.command.handler(input.command, harness.ctx);
@@ -95,7 +107,13 @@ async function runLoopCase(loopExtension: (pi: AnyRecord) => void, input: AnyRec
 			sends: harness.sends,
 		};
 	}
-	const result = await harness.tool.execute("loop-call", input.tool, undefined, undefined, harness.ctx);
+	const result = await harness.tool.execute(
+		"loop-call",
+		input.tool,
+		undefined,
+		undefined,
+		harness.ctx,
+	);
 	return {
 		name: input.name,
 		metadata: loopMetadata(harness),
@@ -112,7 +130,10 @@ function createFastHarness(
 	input: AnyRecord,
 ): AnyRecord {
 	const authority = { serviceTier: input.tier ?? undefined };
-	const handlers = new Map<string, (event: unknown, ctx: AnyRecord) => unknown>();
+	const handlers = new Map<
+		string,
+		(event: unknown, ctx: AnyRecord) => unknown
+	>();
 	const commands = new Map<string, AnyRecord>();
 	const notifications: Array<[string, string | null]> = [];
 	const statuses: Array<[string, string | null]> = [];
@@ -136,7 +157,11 @@ function createFastHarness(
 		model,
 		multiAgentAgentId: input.child ? "child-agent" : undefined,
 		sessionManager: {
-			getBranch: () => (input.branch ?? []).map((entry: AnyRecord) => ({ type: "custom", ...entry })),
+			getBranch: () =>
+				(input.branch ?? []).map((entry: AnyRecord) => ({
+					type: "custom",
+					...entry,
+				})),
 			isSubagentSession: () => false,
 		},
 		settingsManager: {
@@ -149,7 +174,10 @@ function createFastHarness(
 			setEditorText(text: string) {
 				editor.push(text);
 			},
-			setStatus(key: string, value: string | undefined | ((session?: unknown) => string | undefined)) {
+			setStatus(
+				key: string,
+				value: string | undefined | ((session?: unknown) => string | undefined),
+			) {
 				const displayed = typeof value === "function" ? value() : value;
 				statuses.push([key, displayed ?? null]);
 			},
@@ -159,7 +187,16 @@ function createFastHarness(
 			thinkingLevel = level;
 		},
 	};
-	return { authority, handlers, commands, ctx, notifications, statuses, editor, entries };
+	return {
+		authority,
+		handlers,
+		commands,
+		ctx,
+		notifications,
+		statuses,
+		editor,
+		entries,
+	};
 }
 
 async function runFastCase(
@@ -202,7 +239,10 @@ async function runEffortCase(
 	themeModule: AnyRecord,
 	input: AnyRecord,
 ): Promise<unknown> {
-	const handlers = new Map<string, (event: unknown, ctx: AnyRecord) => unknown>();
+	const handlers = new Map<
+		string,
+		(event: unknown, ctx: AnyRecord) => unknown
+	>();
 	const commands = new Map<string, AnyRecord>();
 	const notifications: Array<[string, string | null]> = [];
 	const statuses: Array<[string, string | null]> = [];
@@ -236,7 +276,11 @@ async function runEffortCase(
 		model,
 		multiAgentAgentId: input.child ? "child-agent" : undefined,
 		sessionManager: {
-			getBranch: () => (input.branch ?? []).map((entry: AnyRecord) => ({ type: "custom", ...entry })),
+			getBranch: () =>
+				(input.branch ?? []).map((entry: AnyRecord) => ({
+					type: "custom",
+					...entry,
+				})),
 			isSubagentSession: () => false,
 		},
 		ui: {
@@ -265,11 +309,20 @@ async function runEffortCase(
 		if (op.kind === "command") {
 			await commands.get(op.command).handler(op.args, ctx);
 		} else if (op.kind === "session_start") {
-			await handlers.get("session_start")({ type: "session_start", reason: "resume" }, ctx);
+			await handlers.get("session_start")(
+				{ type: "session_start", reason: "resume" },
+				ctx,
+			);
 		} else if (op.kind === "thinking_level_select") {
-			await handlers.get("thinking_level_select")({ level: op.level, previousLevel: op.previousLevel }, ctx);
+			await handlers.get("thinking_level_select")(
+				{ level: op.level, previousLevel: op.previousLevel },
+				ctx,
+			);
 		} else if (op.kind === "before_agent_start") {
-			const result = await handlers.get("before_agent_start")({ systemPrompt: op.systemPrompt }, ctx);
+			const result = await handlers.get("before_agent_start")(
+				{ systemPrompt: op.systemPrompt },
+				ctx,
+			);
 			systemPrompt = result?.systemPrompt ?? null;
 		}
 	}
@@ -293,34 +346,57 @@ void runOracle(async (api, request) => {
 	const loopExtension = api.default as (pi: AnyRecord) => void;
 	if (request.operation === "loop") {
 		return {
-			results: await Promise.all(requireCases(request).map((value) => runLoopCase(loopExtension, value as AnyRecord))),
+			results: await Promise.all(
+				requireCases(request).map((value) =>
+					runLoopCase(loopExtension, value as AnyRecord),
+				),
+			),
 		};
 	}
 	if (request.operation === "fast") {
 		const module = await loadModule("codex-fast/src/index.ts");
-		const codexFastExtension = module.default as (pi: AnyRecord, options?: AnyRecord) => void;
+		const codexFastExtension = module.default as (
+			pi: AnyRecord,
+			options?: AnyRecord,
+		) => void;
 		return {
 			results: await Promise.all(
-				requireCases(request).map((value) => runFastCase(codexFastExtension, value as AnyRecord)),
+				requireCases(request).map((value) =>
+					runFastCase(codexFastExtension, value as AnyRecord),
+				),
 			),
 		};
 	}
 	if (request.operation === "effort") {
 		const module = await loadModule("effort/src/index.ts");
 		const effortExtension = module.default as (pi: AnyRecord) => void;
-		const themePath = join(extensionsDir, "..", "src", "modes", "interactive", "theme", "theme.ts");
-		const themeModule = (await import(pathToFileURL(themePath).href)) as AnyRecord;
+		const themePath = join(
+			extensionsDir,
+			"..",
+			"src",
+			"modes",
+			"interactive",
+			"theme",
+			"theme.ts",
+		);
+		const themeModule = (await import(
+			pathToFileURL(themePath).href
+		)) as AnyRecord;
 		const piTui = (await import("@earendil-works/pi-tui")) as AnyRecord;
 		piTui.setCapabilities({ images: null, trueColor: true, hyperlinks: false });
 		themeModule.initTheme(undefined, false);
 		return {
 			results: await Promise.all(
-				requireCases(request).map((value) => runEffortCase(effortExtension, themeModule, value as AnyRecord)),
+				requireCases(request).map((value) =>
+					runEffortCase(effortExtension, themeModule, value as AnyRecord),
+				),
 			),
 		};
 	}
 	throw new Error(`unknown operation ${request.operation}`);
 }).catch((error: unknown) => {
-	process.stderr.write(`bundled extensions oracle startup failed: ${String(error)}\n`);
+	process.stderr.write(
+		`bundled extensions oracle startup failed: ${String(error)}\n`,
+	);
 	process.exitCode = 1;
 });
