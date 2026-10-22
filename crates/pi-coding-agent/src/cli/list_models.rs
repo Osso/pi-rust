@@ -14,7 +14,7 @@ use crate::utils::chalk::Chalk;
 /// Runtime surface used by [`list_models`] (the source accepts any duck-typed runtime).
 pub trait ListModelsRuntime {
     fn get_error(&self) -> Option<JsString>;
-    fn get_available(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<Model>, String>>;
+    fn get_available(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<Model>, JsString>>;
 }
 
 impl ListModelsRuntime for ModelRuntime {
@@ -22,11 +22,11 @@ impl ListModelsRuntime for ModelRuntime {
         ModelRuntime::get_error(self)
     }
 
-    fn get_available(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<Model>, String>> {
+    fn get_available(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<Model>, JsString>> {
         Box::pin(async move {
             ModelRuntime::get_available(self, None, options)
                 .await
-                .map_err(|error| error.to_string())
+                .map_err(|error| crate::core::model_runtime::resolve_error_message(&error))
         })
     }
 }
@@ -45,7 +45,7 @@ pub async fn list_models(
     runtime: &dyn ListModelsRuntime,
     search_pattern: Option<&str>,
     signal: Option<CancellationToken>,
-) -> Result<ListModelsOutput, String> {
+) -> Result<ListModelsOutput, JsString> {
     let warning = runtime
         .get_error()
         .map(|error| Chalk::stderr().yellow(JsString::from("Warning: errors loading models.json:\n") + error));

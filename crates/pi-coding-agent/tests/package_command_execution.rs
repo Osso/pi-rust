@@ -125,7 +125,7 @@ struct FakeEffects {
     loader: Arc<dyn ProjectTrustExtensionsLoader>,
     release: Result<LatestPiRelease, String>,
     self_update: Result<(), String>,
-    refresh: Result<(), String>,
+    refresh: Result<(), pi_js_compat::js_json::JsString>,
     install: Result<(), String>,
     remove: Result<bool, String>,
     update: Result<(), String>,
@@ -193,7 +193,10 @@ impl PackageCommandEffects for FakeEffects {
         Box::pin(async move { create_command_settings_manager(options, self.loader.as_ref()).await })
     }
 
-    fn refresh_model_catalogs<'a>(&'a self, _agent_dir: &'a str) -> LocalBoxFuture<'a, Result<(), String>> {
+    fn refresh_model_catalogs<'a>(
+        &'a self,
+        _agent_dir: &'a str,
+    ) -> LocalBoxFuture<'a, Result<(), pi_js_compat::js_json::JsString>> {
         self.calls.lock().unwrap().push("refresh".to_owned());
         let result = self.refresh.clone();
         Box::pin(async move { result })
@@ -444,7 +447,7 @@ async fn models_target_refreshes_catalogs_and_skips_settings() {
 async fn models_refresh_failure_sets_exit_code() {
     let root = temp_dir("models-fail");
     let mut effects = FakeEffects::new(&root, &agent_dir("models-fail"), bun_install_context(&root));
-    effects.refresh = Err("Could not refresh model catalogs: x: y".to_owned());
+    effects.refresh = Err("Could not refresh model catalogs: x: y".into());
 
     let outcome = execute_package_command(&args(&["update", "--models"]), &effects)
         .await

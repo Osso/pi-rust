@@ -306,7 +306,7 @@ async fn repin_settings_retry_delay_grows_with_attempt() {
         "",
         FauxAssistantMessageOptions {
             stop_reason: Some(pi_ai::types::StopReason::Error),
-            error_message: Some("overloaded_error: server overloaded".to_owned()),
+            error_message: Some("overloaded_error: server overloaded".into()),
             ..Default::default()
         },
     );

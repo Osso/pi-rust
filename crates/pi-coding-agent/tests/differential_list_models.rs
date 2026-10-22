@@ -5,19 +5,20 @@ use pi_ai::auth::types::AuthOperationOptions;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::Model;
 use pi_coding_agent::cli::list_models::{ListModelsOutput, ListModelsRuntime, list_models};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 struct StubRuntime {
-    error: Option<String>,
+    error: Option<JsString>,
     models: Vec<Model>,
 }
 
 impl ListModelsRuntime for StubRuntime {
-    fn get_error(&self) -> Option<String> {
+    fn get_error(&self) -> Option<JsString> {
         self.error.clone()
     }
 
-    fn get_available(&self, _options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<Model>, String>> {
+    fn get_available(&self, _options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<Model>, JsString>> {
         Box::pin(async { Ok(self.models.clone()) })
     }
 }
@@ -169,7 +170,7 @@ fn list_models_matches_the_pinned_typescript_source() {
         }));
 
         let runtime = StubRuntime {
-            error: case.load_error.map(str::to_owned),
+            error: case.load_error.map(JsString::from),
             models: case
                 .models
                 .iter()
