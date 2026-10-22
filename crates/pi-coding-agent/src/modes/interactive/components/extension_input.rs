@@ -58,19 +58,23 @@ impl ExtensionInputComponent {
         {
             let tick_title = Rc::clone(&title_text);
             let base_title = title.to_owned();
-            let tick = Rc::new(move |seconds: i64| {
+            let tick = Rc::new(move |seconds: f64| {
                 set_text(
                     &tick_title,
                     with_theme(|theme| {
                         theme.fg(
                             ThemeColor::Accent,
-                            js_format!("{} ({}s)", base_title, seconds.to_string()),
+                            js_format!(
+                                "{} ({}s)",
+                                base_title,
+                                pi_js_compat::number::js_number_to_string(seconds)
+                            ),
                         )
                     }),
                 );
             });
             let expire = Rc::clone(&on_cancel);
-            countdown = Some(CountdownTimer::new(timeout, Some(request_render), tick, expire));
+            countdown = Some(CountdownTimer::new(timeout as f64, Some(request_render), tick, expire));
         }
 
         let input = component(Input::new(InputOptions { mask: options.secret }));

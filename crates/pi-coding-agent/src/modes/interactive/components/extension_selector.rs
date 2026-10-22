@@ -59,19 +59,23 @@ impl ExtensionSelectorComponent {
         {
             let tick_title = Rc::clone(&title_text);
             let tick_base_title = base_title.clone();
-            let tick = Rc::new(move |seconds: i64| {
+            let tick = Rc::new(move |seconds: f64| {
                 set_text(
                     &tick_title,
                     with_theme(|theme| {
                         theme.fg(
                             ThemeColor::Accent,
-                            &theme.bold(js_format!("{} ({}s)", tick_base_title, seconds.to_string())),
+                            &theme.bold(js_format!(
+                                "{} ({}s)",
+                                tick_base_title,
+                                pi_js_compat::number::js_number_to_string(seconds)
+                            )),
                         )
                     }),
                 );
             });
             let expire = Rc::clone(&on_cancel);
-            countdown = Some(CountdownTimer::new(timeout, Some(request_render), tick, expire));
+            countdown = Some(CountdownTimer::new(timeout as f64, Some(request_render), tick, expire));
         }
 
         let prefix_children = vec![
