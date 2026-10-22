@@ -7,6 +7,13 @@ fn lowercase_retains_surrogates_and_respects_unicode_context() {
     assert_eq!(value.units(), &[0x039f, 0x03a3, 0xd800, 0x0041, 0xdfff]);
 }
 
+/// Node: "ß\ud800a\udfff".toUpperCase() === "SS\ud800A\udfff" (full case mapping, lone units kept).
+#[test]
+fn uppercase_retains_surrogates_and_applies_full_case_mapping() {
+    let value = JsString::from_utf16(vec![0x00df, 0xd800, 0x0061, 0xdfff]);
+    assert_eq!(value.to_uppercase().units(), &[0x0053, 0x0053, 0xd800, 0x0041, 0xdfff]);
+}
+
 #[test]
 fn unsigned_number_projection_rejects_fractional_negative_and_out_of_range_values() {
     assert_eq!(JsValue::Number(42.0).as_u64(), Some(42));
