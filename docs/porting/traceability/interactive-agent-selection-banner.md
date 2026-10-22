@@ -11,3 +11,7 @@ Rust: `crates/pi-coding-agent/src/modes/interactive/components/agent_selection_b
 | accent + bold, truncated to width | `theme.fg` + `theme.bold` + `truncate_to_width` | same test |
 
 No differential: the source constructs a `MultiAgentStore` with its own runtime; the Rust test drives the ported store directly at the same boundary.
+
+## Q18 native UTF-16
+
+Render/input, labels, IDs and selection callbacks use `JsString`; preview normalization and ID truncation operate on UTF-16 units. Tests in `raw_error_consumer_components` written **unexecuted**, library compiler-blocked. No internal Node UTF-8 encoding.

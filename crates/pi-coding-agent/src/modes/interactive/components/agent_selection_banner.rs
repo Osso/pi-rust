@@ -1,5 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/agent-selection-banner.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 
 use pi_tui::{Component, truncate_to_width};
@@ -12,13 +13,13 @@ fn format_lifecycle(lifecycle: &str) -> String {
     lifecycle.replace('_', " ")
 }
 
-fn selected_agent_text(store: &MultiAgentStore) -> Option<String> {
+fn selected_agent_text(store: &MultiAgentStore) -> Option<JsString> {
     let selected_agent_id = store.get_selected_agent_id()?;
     let selected_agent = store.get_agent(&selected_agent_id)?;
-    Some(format!(
+    Some(js_format!(
         "Agent {}: {} ({})",
-        selected_agent.id,
-        selected_agent.display_name,
+        &selected_agent.id,
+        &selected_agent.display_name,
         format_lifecycle(lifecycle_name(selected_agent.lifecycle))
     ))
 }
@@ -36,7 +37,7 @@ impl AgentSelectionBannerComponent {
 }
 
 impl Component for AgentSelectionBannerComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let Some(store) = &self.store else {
             return Vec::new();
         };

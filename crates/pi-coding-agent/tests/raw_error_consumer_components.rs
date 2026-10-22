@@ -230,3 +230,70 @@ fn earendil_announcement_renders_and_invalidates_native_lines() {
     panel.invalidate();
     assert_eq!(JsString::join(panel.render(100), "\n"), output);
 }
+
+#[test]
+fn user_message_selector_retains_raw_normalized_preview_and_id() {
+    use pi_coding_agent::modes::interactive::components::user_message_selector::{UserMessageItem, UserMessageList};
+    init_theme();
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let id = JsString::from_utf16(vec![0xdc00]);
+    let mut list = UserMessageList::new(
+        vec![UserMessageItem {
+            id: id.clone(),
+            text: raw.clone() + "\nsecond",
+        }],
+        Some(&id),
+    );
+    let selected = Rc::new(std::cell::RefCell::new(None));
+    let callback = selected.clone();
+    list.on_select = Some(Rc::new(move |id| *callback.borrow_mut() = Some(id)));
+    assert!(JsString::join(list.render(80), "\n").contains(raw + " second"));
+    list.handle_input(&"\r".into());
+    assert_eq!(*selected.borrow(), Some(id));
+}
+
+#[test]
+fn agent_switcher_main_thread_selection_is_native() {
+    use pi_coding_agent::modes::interactive::components::agent_switcher::AgentSwitcherComponent;
+    init_theme();
+    let selected = Rc::new(std::cell::RefCell::new(None));
+    let callback = selected.clone();
+    let mut switcher = AgentSwitcherComponent::new(
+        vec![],
+        None,
+        Rc::new(move |id| *callback.borrow_mut() = Some(id)),
+        Rc::new(|| {}),
+        Rc::new(|_| {}),
+    );
+    switcher.handle_input(&JsString::from_utf16(vec![0xd800]));
+    assert!(JsString::join(switcher.render(80), "\n").contains("Main thread"));
+    switcher.handle_input(&"\r".into());
+    assert_eq!(*selected.borrow(), Some(JsString::from("main")));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn bash_execution_keeps_raw_command_and_streamed_output() {
+    use pi_coding_agent::modes::interactive::components::bash_execution::{
+        BashExecutionComponent, BashExecutionOptions,
+    };
+    init_theme();
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let mut view = BashExecutionComponent::new(
+        raw.clone(),
+        Rc::new(|| {}),
+        false,
+        BashExecutionOptions {
+            show_elapsed: Some(false),
+        },
+    );
+    view.append_output(JsString::from("out ") + &raw);
+    view.append_output("\nnext");
+    assert_eq!(view.get_output(), JsString::from("out ") + &raw + "\nnext");
+    view.set_complete(Some(0), false, None, None);
+    for expanded in [false, true] {
+        view.set_expanded(expanded);
+        assert!(JsString::join(view.render(80), "\n").contains(JsString::from("out ") + &raw));
+        assert_eq!(view.get_command(), &raw);
+    }
+    view.dispose();
+}

@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use pi_js_compat::string::utf16_len;
+use pi_js_compat::{js_format, js_json::JsString};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::keybindings::get_keybindings;
@@ -18,7 +18,7 @@ const MAX_VISIBLE_AGENTS: usize = 10;
 
 struct AgentSwitcherRow {
     agent: AgentSnapshot,
-    tree_prefix: String,
+    tree_prefix: JsString,
 }
 
 fn lifecycle_name(lifecycle: AgentLifecycle) -> &'static str {
@@ -33,36 +33,26 @@ fn lifecycle_name(lifecycle: AgentLifecycle) -> &'static str {
     }
 }
 
-fn format_lifecycle(lifecycle: AgentLifecycle) -> String {
-    lifecycle_name(lifecycle).replace('_', " ")
+fn format_lifecycle(lifecycle: AgentLifecycle) -> JsString {
+    JsString::from(lifecycle_name(lifecycle)).replace("_", " ")
 }
 
-fn format_agent_id(agent_id: &str) -> String {
-    if utf16_len(agent_id) <= 12 {
+fn format_agent_id(agent_id: &JsString) -> JsString {
+    if agent_id.len() <= 12 {
         return agent_id.to_owned();
     }
-    let mut prefix = String::new();
-    let mut used = 0;
-    for character in agent_id.chars() {
-        let length = character.len_utf16();
-        if used + length > 11 {
-            break;
-        }
-        used += length;
-        prefix.push(character);
-    }
-    format!("{prefix}…")
+    agent_id.slice(0, 11) + "…"
 }
 
 fn build_agent_rows(agents: &[AgentSnapshot]) -> Vec<AgentSwitcherRow> {
-    let visible_agent_ids: std::collections::HashSet<&str> = agents.iter().map(|agent| agent.id.as_str()).collect();
-    let mut children_by_parent_id: Vec<(String, Vec<AgentSnapshot>)> = Vec::new();
+    let visible_agent_ids: std::collections::HashSet<&JsString> = agents.iter().map(|agent| &agent.id).collect();
+    let mut children_by_parent_id: Vec<(JsString, Vec<AgentSnapshot>)> = Vec::new();
     let mut roots: Vec<AgentSnapshot> = Vec::new();
 
     for agent in agents {
         let parent = agent
             .parent_id
-            .as_deref()
+            .as_ref()
             .filter(|parent_id| visible_agent_ids.contains(parent_id));
         let Some(parent_id) = parent else {
             roots.push(agent.clone());
@@ -76,16 +66,16 @@ fn build_agent_rows(agents: &[AgentSnapshot]) -> Vec<AgentSwitcherRow> {
 
     fn append_agent(
         rows: &mut Vec<AgentSwitcherRow>,
-        children_by_parent_id: &[(String, Vec<AgentSnapshot>)],
+        children_by_parent_id: &[(JsString, Vec<AgentSnapshot>)],
         agent: &AgentSnapshot,
-        prefix: &str,
+        prefix: &JsString,
         is_last_sibling: bool,
         is_root: bool,
     ) {
         let tree_prefix = if is_root {
-            String::new()
+            JsString::default()
         } else {
-            format!("{prefix}{}", if is_last_sibling { "└─ " } else { "├─ " })
+            js_format!("{}{}", prefix, if is_last_sibling { "└─ " } else { "├─ " })
         };
         rows.push(AgentSwitcherRow {
             agent: agent.clone(),
@@ -97,9 +87,9 @@ fn build_agent_rows(agents: &[AgentSnapshot]) -> Vec<AgentSwitcherRow> {
             .map(|(_, children)| children.as_slice())
             .unwrap_or_default();
         let child_prefix = if is_root {
-            String::new()
+            JsString::default()
         } else {
-            format!("{prefix}{}", if is_last_sibling { "   " } else { "│  " })
+            js_format!("{}{}", prefix, if is_last_sibling { "   " } else { "│  " })
         };
         for (child_index, child) in children.iter().enumerate() {
             append_agent(
@@ -119,7 +109,7 @@ fn build_agent_rows(agents: &[AgentSnapshot]) -> Vec<AgentSwitcherRow> {
             &mut rows,
             &children_by_parent_id,
             root,
-            "",
+            &JsString::default(),
             root_index == roots.len() - 1,
             true,
         );
@@ -131,8 +121,8 @@ struct AgentSwitcherList {
     all_agents: Vec<AgentSnapshot>,
     on_cancel: Rc<dyn Fn()>,
     on_inactive_select: Rc<dyn Fn(AgentSnapshot)>,
-    on_select: Rc<dyn Fn(String)>,
-    selected_agent_id: Option<String>,
+    on_select: Rc<dyn Fn(JsString)>,
+    selected_agent_id: Option<JsString>,
     selected_index: usize,
     show_closed_agents: bool,
 }
@@ -140,8 +130,8 @@ struct AgentSwitcherList {
 impl AgentSwitcherList {
     fn new(
         agents: Vec<AgentSnapshot>,
-        selected_agent_id: Option<String>,
-        on_select: Rc<dyn Fn(String)>,
+        selected_agent_id: Option<JsString>,
+        on_select: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
         on_inactive_select: Rc<dyn Fn(AgentSnapshot)>,
     ) -> Self {
@@ -152,7 +142,7 @@ impl AgentSwitcherList {
             .collect();
         let selected_agent_index = build_agent_rows(&active_agents)
             .iter()
-            .position(|row| Some(row.agent.id.as_str()) == selected_agent_id.as_deref())
+            .position(|row| Some(&row.agent.id) == selected_agent_id.as_ref())
             .map(|index| index + 1)
             .unwrap_or(0);
         Self {
@@ -182,14 +172,14 @@ impl AgentSwitcherList {
         build_agent_rows(&self.agents())
     }
 
-    fn render_main_thread_line(&self, width: usize, index: usize) -> String {
+    fn render_main_thread_line(&self, width: usize, index: usize) -> JsString {
         let is_selected = index == self.selected_index;
         let cursor = if is_selected {
             with_theme(|theme| theme.fg(ThemeColor::Accent, "› "))
         } else {
-            "  ".to_owned()
+            JsString::from("  ")
         };
-        let left_text = format!("{cursor}{}", with_theme(|theme| theme.bold("Main thread")));
+        let left_text = js_format!("{}{}", cursor, with_theme(|theme| theme.bold("Main thread")));
         let right_text = with_theme(|theme| theme.fg(ThemeColor::Muted, "current"));
         let spacing = width
             .saturating_sub(visible_width(&left_text) + visible_width(&right_text))
@@ -201,21 +191,20 @@ impl AgentSwitcherList {
         truncate_to_width_with(&line, width, "", false)
     }
 
-    fn render_agent_line(&self, row: &AgentSwitcherRow, index: usize, width: usize) -> String {
+    fn render_agent_line(&self, row: &AgentSwitcherRow, index: usize, width: usize) -> JsString {
         let agent = &row.agent;
         let is_selected = index == self.selected_index;
-        let is_current =
-            Some(agent.id.as_str()) == self.selected_agent_id.as_deref() && is_active_lifecycle(agent.lifecycle);
+        let is_current = Some(&agent.id) == self.selected_agent_id.as_ref() && is_active_lifecycle(agent.lifecycle);
         let cursor = if is_selected {
             with_theme(|theme| theme.fg(ThemeColor::Accent, "› "))
         } else {
-            "  ".to_owned()
+            JsString::from("  ")
         };
         let slot_label = agent
             .slot
             .as_ref()
-            .map_or_else(|| "--".to_owned(), |slot| format!("#{}", slot.index));
-        let row_label = format!("{}.", index + 1);
+            .map_or_else(|| JsString::from("--"), |slot| js_format!("#{}", slot.index));
+        let row_label = js_format!("{}.", index + 1);
         let selected_marker = if is_current { " selected" } else { "" };
         let inactive_marker = if is_active_lifecycle(agent.lifecycle) {
             ""
@@ -223,19 +212,26 @@ impl AgentSwitcherList {
             " inactive"
         };
         let lifecycle = format_lifecycle(agent.lifecycle);
-        let left_text = format!(
-            "{cursor}{}{}",
+        let left_text = js_format!(
+            "{}{}{}",
+            cursor,
             with_theme(|theme| theme.fg(
                 ThemeColor::Muted,
-                &format!("{}{slot_label} {row_label} ", row.tree_prefix)
+                &js_format!("{}{} {} ", &row.tree_prefix, slot_label, row_label)
             )),
             with_theme(|theme| theme.bold(&agent.display_name))
         );
-        let id_text = with_theme(|theme| theme.fg(ThemeColor::Dim, &format!(" {}", format_agent_id(&agent.id))));
+        let id_text = with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!(" {}", format_agent_id(&agent.id))));
         let right_text = with_theme(|theme| {
             theme.fg(
                 ThemeColor::Muted,
-                &format!("{lifecycle}{inactive_marker} {}{selected_marker}", agent.agent_type),
+                &js_format!(
+                    "{}{} {}{}",
+                    lifecycle,
+                    inactive_marker,
+                    &agent.agent_type,
+                    selected_marker
+                ),
             )
         });
         let left_width = visible_width(&left_text) + visible_width(&id_text);
@@ -249,7 +245,7 @@ impl AgentSwitcherList {
 
     fn confirm_selection(&self) {
         if self.selected_index == 0 {
-            (self.on_select)(MAIN_THREAD_AGENT_ID.to_owned());
+            (self.on_select)(MAIN_THREAD_AGENT_ID.into());
             return;
         }
         let rows = self.agent_rows();
@@ -265,11 +261,11 @@ impl AgentSwitcherList {
 }
 
 impl Component for AgentSwitcherList {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = self.render_visible_rows(width);
         let row_count = self.agent_rows().len() + 1;
         if row_count > MAX_VISIBLE_AGENTS {
-            let scroll_text = format!("  ({}/{row_count})", self.selected_index + 1);
+            let scroll_text = js_format!("  ({}/{})", self.selected_index + 1, row_count);
             lines.push(with_theme(|theme| {
                 theme.fg(
                     ThemeColor::Muted,
@@ -285,9 +281,9 @@ impl Component for AgentSwitcherList {
         if hidden_count > 0 {
             let plural = if hidden_count == 1 { "" } else { "s" };
             let status = if self.show_closed_agents {
-                format!("  Showing {hidden_count} closed agent{plural}")
+                js_format!("  Showing {} closed agent{}", hidden_count, plural)
             } else {
-                format!("  {hidden_count} closed agent{plural} hidden")
+                js_format!("  {} closed agent{} hidden", hidden_count, plural)
             };
             lines.push(with_theme(|theme| {
                 theme.fg(ThemeColor::Dim, &truncate_to_width_with(&status, width, "", false))
@@ -296,7 +292,7 @@ impl Component for AgentSwitcherList {
         lines
     }
 
-    fn handle_input(&mut self, key_data: &str) {
+    fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(key_data, "tui.select.up") {
             self.selected_index = self.selected_index.saturating_sub(1);
@@ -332,7 +328,7 @@ impl Component for AgentSwitcherList {
 }
 
 impl AgentSwitcherList {
-    fn render_visible_rows(&self, width: usize) -> Vec<String> {
+    fn render_visible_rows(&self, width: usize) -> Vec<JsString> {
         let rows = self.agent_rows();
         let row_count = rows.len() + 1;
         let start_index = self
@@ -363,8 +359,8 @@ pub struct AgentSwitcherComponent {
 impl AgentSwitcherComponent {
     pub fn new(
         agents: Vec<AgentSnapshot>,
-        selected_agent_id: Option<String>,
-        on_select: Rc<dyn Fn(String)>,
+        selected_agent_id: Option<JsString>,
+        on_select: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
         on_inactive_select: Rc<dyn Fn(AgentSnapshot)>,
     ) -> Self {
@@ -404,17 +400,17 @@ impl AgentSwitcherComponent {
 }
 
 fn dynamic_border_with_accent() -> pi_tui::components::dynamic_border::DynamicBorder {
-    pi_tui::components::dynamic_border::DynamicBorder::new(Rc::new(|line: &str| {
+    pi_tui::components::dynamic_border::DynamicBorder::new(Rc::new(|line: &JsString| {
         with_theme(|theme| theme.fg(ThemeColor::Accent, line))
     }))
 }
 
 impl Component for AgentSwitcherComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
-    fn handle_input(&mut self, key_data: &str) {
+    fn handle_input(&mut self, key_data: &JsString) {
         self.list.borrow_mut().handle_input(key_data);
     }
 
