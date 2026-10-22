@@ -2,6 +2,8 @@
 
 Rust: `crates/pi-coding-agent/src/core/sdk.rs`.
 
+Q18: convert-to-LLM callback propagates native AgentError from core conversion before optional image blocking; invalid typed provider context is never omitted or Display-encoded. Broader SDK path/runtime migration evidence remains separate.
+
 | TS | Rust | Tests |
 | --- | --- | --- |
 | `createAgentSession` | `create_agent_session` | `tests/sdk.rs` (4), `tests/differential_agent_session.rs` |

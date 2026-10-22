@@ -2,6 +2,10 @@
 
 Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_session`).
 
+## Q18 native error/path consumers
+
+Provider human errors, auto-retry start/end error fields, compaction errors and required-auth failures stay native. AgentSession config/inner cwd, agent_dir, control_db_path, session-file accessors and export JSONL path/header values use JsString. Runtime persistence identity comparisons remain raw; export bytes encode only at the actual FS call. `lossless_agent_session_paths` contains a TS-created raw-session-path fixture through AgentSession and MultiAgentStore persistence identity; coding execution remains blocked by concurrent caller/helper migrations. No parent completion claim.
+
 ## Exported symbols
 
 | TS | Rust | Tests |

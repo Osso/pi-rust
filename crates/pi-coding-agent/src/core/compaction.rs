@@ -26,7 +26,6 @@ pub use pi_ai::utils::estimate::calculate_context_tokens;
 use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy, retry_assistant_call};
 use pi_ai::utils::text::{ContentText, content_text};
 use pi_ai::utils::uuid::uuidv7;
-use pi_js_compat::date::date_parse_millis;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
@@ -74,7 +73,7 @@ pub struct CompactionSourceInfo {
 #[serde(bound(serialize = "T: Serialize", deserialize = "T: Deserialize<'de>"))]
 pub struct CompactionResult<T = Value> {
     pub summary: JsString,
-    pub first_kept_entry_id: String,
+    pub first_kept_entry_id: JsString,
     #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub tokens_before: f64,
     #[serde(
@@ -156,8 +155,8 @@ pub(crate) fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
-fn timestamp_millis(timestamp: &str) -> i64 {
-    date_parse_millis(timestamp).unwrap_or(0)
+fn timestamp_millis(timestamp: &JsString) -> i64 {
+    pi_js_compat::date::date_parse_utf16(timestamp.units()) as i64
 }
 
 fn extract_file_operations(
@@ -244,13 +243,14 @@ fn get_message_from_entry_for_compaction(entry: &SessionEntry) -> Option<AgentMe
 }
 
 /// Return usage from the last valid assistant message in session entries.
-pub fn get_last_assistant_usage(entries: &[SessionEntry]) -> Option<&Usage> {
+pub fn get_last_assistant_usage(entries: &[SessionEntry]) -> Option<Usage> {
     entries.iter().rev().find_map(|entry| {
-        let assistant = entry.as_message()?.message.as_assistant()?;
+        let message = entry.as_message()?;
+        let assistant = message.message.as_assistant()?;
         if matches!(assistant.stop_reason, StopReason::Aborted | StopReason::Error) {
             return None;
         }
-        (calculate_context_tokens(&assistant.usage) > 0.0).then_some(&assistant.usage)
+        (calculate_context_tokens(&assistant.usage) > 0.0).then(|| assistant.usage.clone())
     })
 }
 
@@ -324,7 +324,7 @@ fn find_protected_suffix_start_index(entries: &[SessionEntry], start_index: usiz
 }
 
 fn is_turn_start_entry(entry: &SessionEntry) -> bool {
-    if matches!(entry.entry_type(), "branch_summary" | "custom_message") {
+    if (entry.entry_type() == "branch_summary" || entry.entry_type() == "custom_message") {
         return true;
     }
     if entry.entry_type() != "message" {
@@ -725,7 +725,9 @@ fn get_summarization_max_tokens(model: &Model, reserve_tokens: f64) -> f64 {
     (0.8 * reserve_tokens).floor().min(model_limit)
 }
 
-fn build_compaction_materialization_messages(entry: &crate::core::session_manager::CompactionEntry) -> Vec<Message> {
+fn build_compaction_materialization_messages(
+    entry: &crate::core::session_manager::CompactionEntry,
+) -> Result<Vec<Message>, CompactionError> {
     let checkpoint = create_compaction_summary_message(
         &entry.summary,
         entry.tokens_before,
@@ -745,7 +747,7 @@ fn build_compaction_materialization_messages(entry: &crate::core::session_manage
         provider_native: None,
         timestamp: now_millis(),
     });
-    convert_to_llm(&[checkpoint, request])
+    convert_to_llm(&[checkpoint, request]).map_err(|error| CompactionError::new(error.message()))
 }
 
 fn read_compaction_materialization_response(
@@ -790,16 +792,16 @@ pub async fn materialize_compaction_summary(
     options: &MaterializeCompactionSummaryOptions<'_>,
 ) -> Result<MaterializeCompactionSummaryResult, CompactionError> {
     if entry.provider_native.is_none() {
-        return Err(CompactionError::new(format!(
+        return Err(CompactionError::new(pi_js_compat::js_format!(
             "Compaction entry {} has no provider-native checkpoint",
-            entry.id
+            &entry.id
         )));
     }
     let response = complete_summarization_without_callbacks(
         model,
         Context {
             system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
-            messages: build_compaction_materialization_messages(entry),
+            messages: build_compaction_materialization_messages(entry)?,
             tools: None,
         },
         create_summarization_options(
@@ -815,7 +817,7 @@ pub async fn materialize_compaction_summary(
     read_compaction_materialization_response(&response)
 }
 
-fn build_summary_prompt(options: &GenerateSummaryWithUsageOptions<'_>) -> JsString {
+fn build_summary_prompt(options: &GenerateSummaryWithUsageOptions<'_>) -> Result<JsString, CompactionError> {
     let summary_prompt = if options.previous_summary.is_some() {
         UPDATE_SUMMARIZATION_PROMPT
     } else {
@@ -825,35 +827,39 @@ fn build_summary_prompt(options: &GenerateSummaryWithUsageOptions<'_>) -> JsStri
         Some(instructions) => JsString::from(summary_prompt) + "\n\nAdditional focus: " + instructions,
         None => summary_prompt.into(),
     };
-    let conversation_text = serialize_conversation(&convert_to_llm(options.current_messages));
+    let conversation_text = serialize_conversation(
+        &convert_to_llm(options.current_messages).map_err(|error| CompactionError::new(error.message()))?,
+    );
     let previous_summary_text = match options.previous_summary {
         Some(summary) => JsString::from("<previous-summary>\n") + summary + "\n</previous-summary>\n\n",
         None => JsString::default(),
     };
-    JsString::from("<conversation>\n")
+    Ok(JsString::from("<conversation>\n")
         + conversation_text
         + "\n</conversation>\n\n"
         + previous_summary_text
-        + focused_prompt
+        + focused_prompt)
 }
 
-fn build_summary_request(options: &GenerateSummaryWithUsageOptions<'_>) -> (Context, SimpleStreamOptions) {
+fn build_summary_request(
+    options: &GenerateSummaryWithUsageOptions<'_>,
+) -> Result<(Context, SimpleStreamOptions), CompactionError> {
     let max_tokens = get_summarization_max_tokens(options.model, options.reserve_tokens);
-    let message = AgentMessage::User(UserMessage {
+    let message = Message::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(build_summary_prompt(
             options,
-        )))]),
+        )?))]),
         input_source: None,
         provider_native: None,
         timestamp: now_millis(),
     });
     let context = Context {
         system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
-        messages: convert_to_llm(&[message]),
+        messages: vec![message],
         tools: None,
     };
-    (
+    Ok((
         context,
         create_summarization_options(
             max_tokens,
@@ -862,7 +868,7 @@ fn build_summary_request(options: &GenerateSummaryWithUsageOptions<'_>) -> (Cont
             options.env.clone(),
             options.signal.clone(),
         ),
-    )
+    ))
 }
 
 /// Summary text and the provider usage that produced it.
@@ -876,7 +882,7 @@ async fn generate_summary_with_options<C: RetryCallbacks + ?Sized>(
     options: &GenerateSummaryWithUsageOptions<'_>,
     callbacks: Option<&mut C>,
 ) -> Result<SummaryWithUsage, CompactionError> {
-    let (context, completion_options) = build_summary_request(options);
+    let (context, completion_options) = build_summary_request(options)?;
     let response = complete_summarization(
         options.model,
         context,
@@ -919,7 +925,7 @@ pub async fn generate_summary_with_usage(
 #[serde(rename_all = "camelCase")]
 pub struct CompactionPreparation {
     /// UUID of the first entry to keep.
-    pub first_kept_entry_id: String,
+    pub first_kept_entry_id: JsString,
     /// Messages that will be summarized and discarded.
     pub messages_to_summarize: Vec<AgentMessage>,
     /// Messages turned into a turn-prefix summary when splitting.
@@ -958,7 +964,7 @@ pub fn prepare_compaction(
         previous_summary = Some(prev_compaction.summary.clone());
         let first_kept_entry_index = path_entries
             .iter()
-            .position(|entry| entry.id() == Some(prev_compaction.first_kept_entry_id.as_str()));
+            .position(|entry| entry.id() == Some(&prev_compaction.first_kept_entry_id));
         boundary_start = first_kept_entry_index.unwrap_or(index + 1);
     }
     let boundary_end = path_entries.len();
@@ -972,10 +978,7 @@ pub fn prepare_compaction(
     if cut_point.first_kept_entry_index < boundary_end && first_kept_entry.and_then(SessionEntry::id).is_none() {
         return None;
     }
-    let first_kept_entry_id = first_kept_entry
-        .and_then(SessionEntry::id)
-        .unwrap_or_default()
-        .to_owned();
+    let first_kept_entry_id = first_kept_entry.and_then(SessionEntry::id).cloned().unwrap_or_default();
 
     let history_end = if cut_point.is_split_turn {
         cut_point.turn_start_index as usize
@@ -1086,7 +1089,9 @@ struct TurnPrefixSummaryRequestOptions<'a> {
     signal: Option<CancellationToken>,
 }
 
-fn build_turn_prefix_summary_request(options: &TurnPrefixSummaryRequestOptions<'_>) -> (Context, SimpleStreamOptions) {
+fn build_turn_prefix_summary_request(
+    options: &TurnPrefixSummaryRequestOptions<'_>,
+) -> Result<(Context, SimpleStreamOptions), CompactionError> {
     let max_tokens = (0.5 * options.reserve_tokens)
         .floor()
         .min(if options.model.max_tokens > 0.0 {
@@ -1094,22 +1099,24 @@ fn build_turn_prefix_summary_request(options: &TurnPrefixSummaryRequestOptions<'
         } else {
             f64::INFINITY
         });
-    let conversation_text = serialize_conversation(&convert_to_llm(options.messages));
+    let conversation_text = serialize_conversation(
+        &convert_to_llm(options.messages).map_err(|error| CompactionError::new(error.message()))?,
+    );
     let prompt_text = JsString::from("<conversation>\n")
         + conversation_text
         + "\n</conversation>\n\n"
         + TURN_PREFIX_SUMMARIZATION_PROMPT;
-    let message = AgentMessage::User(UserMessage {
+    let message = Message::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt_text))]),
         input_source: None,
         provider_native: None,
         timestamp: now_millis(),
     });
-    (
+    Ok((
         Context {
             system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
-            messages: convert_to_llm(&[message]),
+            messages: vec![message],
             tools: None,
         },
         create_summarization_options(
@@ -1119,7 +1126,7 @@ fn build_turn_prefix_summary_request(options: &TurnPrefixSummaryRequestOptions<'
             options.env.clone(),
             options.signal.clone(),
         ),
-    )
+    ))
 }
 
 fn interpret_turn_prefix_summary_response(response: &AssistantMessage) -> Result<SummaryWithUsage, CompactionError> {
@@ -1145,7 +1152,7 @@ async fn generate_turn_prefix_summary<C: RetryCallbacks + ?Sized>(
     retry: Option<&RetryPolicy>,
     callbacks: Option<&mut C>,
 ) -> Result<SummaryWithUsage, CompactionError> {
-    let (context, request_options) = build_turn_prefix_summary_request(options);
+    let (context, request_options) = build_turn_prefix_summary_request(options)?;
     let response = complete_summarization(options.model, context, request_options, stream_fn, retry, callbacks).await;
     interpret_turn_prefix_summary_response(&response)
 }

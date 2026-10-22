@@ -25,6 +25,7 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, ImageContent, InputSource, Model, ProviderHeaders, ProviderRetryEvent,
     StopReason, TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
 };
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -103,7 +104,13 @@ impl std::error::Error for AgentSessionError {}
 
 impl From<SessionManagerError> for AgentSessionError {
     fn from(error: SessionManagerError) -> Self {
-        Self::new(error.to_string())
+        Self::new(error.message())
+    }
+}
+
+impl From<crate::core::multi_agent_store::MultiAgentStoreError> for AgentSessionError {
+    fn from(error: crate::core::multi_agent_store::MultiAgentStoreError) -> Self {
+        Self::new(error.message)
     }
 }
 
@@ -188,25 +195,27 @@ impl ToolDefinition {
 const SUPERVISOR_AUTO_APPROVED_READ_ONLY_TOOLS: [&str; 7] =
     ["find", "grep", "ls", "outline", "read", "references", "symbol"];
 
-fn build_allow_always_agent_prompt(cwd: &str, input: &JsObject, tool_name: &str) -> String {
+fn build_allow_always_agent_prompt(cwd: &JsString, input: &JsObject, tool_name: &str) -> JsString {
     let input = pi_js_compat::js_json::stringify_lossless_pretty(&JsValue::Object(input.clone()));
-    [
-        "Add a persistent allow rule for a command that was approved with Allow always in Pi.".to_owned(),
-        String::new(),
-        "Target project: /syncthing/Sync/Projects/claude/claude-bash-hook".to_owned(),
-        format!("Original cwd: {cwd}"),
-        format!("Tool name: {tool_name}"),
-        "Tool input:".to_owned(),
-        input,
-        String::new(),
-        "Requirements:".to_owned(),
-        "- Add the narrowest safe allow rule for this exact workflow.".to_owned(),
-        "- Do not broaden access beyond what the approved command requires.".to_owned(),
-        "- Preserve deny/protected-path precedence.".to_owned(),
-        "- Run the relevant claude-bash-hook tests/checks.".to_owned(),
-        "- Commit the verified config or code change if repository rules allow committing.".to_owned(),
-    ]
-    .join("\n")
+    JsString::join(
+        [
+            "Add a persistent allow rule for a command that was approved with Allow always in Pi.".into(),
+            JsString::default(),
+            "Target project: /syncthing/Sync/Projects/claude/claude-bash-hook".into(),
+            js_format!("Original cwd: {}", cwd),
+            js_format!("Tool name: {}", tool_name),
+            "Tool input:".into(),
+            input.into(),
+            JsString::default(),
+            "Requirements:".into(),
+            "- Add the narrowest safe allow rule for this exact workflow.".into(),
+            "- Do not broaden access beyond what the approved command requires.".into(),
+            "- Preserve deny/protected-path precedence.".into(),
+            "- Run the relevant claude-bash-hook tests/checks.".into(),
+            "- Commit the verified config or code change if repository rules allow committing.".into(),
+        ],
+        "\n",
+    )
 }
 
 fn builtin_source_info(name: &str) -> crate::core::source_info::SourceInfo {
@@ -262,7 +271,7 @@ pub struct AgentSessionConfig {
     pub agent: Agent,
     pub session_manager: Arc<Mutex<SessionManager>>,
     pub settings_manager: Arc<Mutex<SettingsManager>>,
-    pub cwd: String,
+    pub cwd: JsString,
     pub scoped_models: Vec<ScopedModel>,
     pub resource_loader: Arc<dyn ResourceLoader>,
     pub model_runtime: ModelRuntime,
@@ -270,8 +279,8 @@ pub struct AgentSessionConfig {
     pub allowed_tool_names: Option<Vec<String>>,
     pub excluded_tool_names: Option<Vec<String>>,
     pub permission_prompt_tool: Option<String>,
-    pub agent_dir: Option<String>,
-    pub control_db_path: Option<String>,
+    pub agent_dir: Option<JsString>,
+    pub control_db_path: Option<JsString>,
     pub base_tools: Vec<Arc<dyn AgentTool>>,
     pub custom_tools: Vec<ToolDefinition>,
     /// Rust-native carrier for SDK custom definitions executed with the runner context.
@@ -325,7 +334,7 @@ pub struct ModelCycleResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStats {
-    pub session_file: Option<String>,
+    pub session_file: Option<JsString>,
     pub session_id: String,
     pub user_messages: u64,
     pub assistant_messages: u64,
@@ -891,9 +900,9 @@ struct Inner {
     agent: Agent,
     session_manager: Arc<Mutex<SessionManager>>,
     settings_manager: Arc<Mutex<SettingsManager>>,
-    cwd: String,
-    agent_dir: String,
-    control_db_path: Option<String>,
+    cwd: JsString,
+    agent_dir: JsString,
+    control_db_path: Option<JsString>,
     scoped_models: Mutex<Vec<ScopedModel>>,
     resource_loader: Arc<dyn ResourceLoader>,
     model_runtime: ModelRuntime,
@@ -944,7 +953,7 @@ struct Inner {
     extension_ui_context: Mutex<Option<Arc<dyn ExtensionUiContext>>>,
     extension_footer_data: Mutex<Option<Arc<FooterDataProvider>>>,
     extension_mode: Mutex<ExtensionMode>,
-    extension_control_db_path: Mutex<Option<String>>,
+    extension_control_db_path: Mutex<Option<JsString>>,
     extension_command_context_actions: Mutex<Option<ExtensionCommandContextActions>>,
     extension_abort_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     extension_shutdown_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -977,7 +986,7 @@ struct Inner {
     runtime_mailbox_poll_token: Mutex<Option<CancellationToken>>,
     runtime_mailbox_heartbeat_token: Mutex<Option<CancellationToken>>,
     runtime_mailbox_signal_token: Mutex<Option<CancellationToken>>,
-    runtime_mailbox_control_db_path: Mutex<Option<String>>,
+    runtime_mailbox_control_db_path: Mutex<Option<JsString>>,
     runtime_mailbox_control_db_release: Mutex<Option<crate::core::session_control_db::RetainedControlDbGuard>>,
     session_mutation_target_resolver:
         Mutex<Option<crate::core::extensions::types::ViewedSessionMutationTargetResolver>>,
@@ -1230,7 +1239,7 @@ impl AgentSession {
         let agent_dir = config
             .agent_dir
             .clone()
-            .unwrap_or_else(|| crate::config::get_agent_dir().display().to_string());
+            .unwrap_or_else(|| crate::config::get_agent_dir().display().to_string().into());
         let extension_runner_ref = config.extension_runner_ref.clone();
         let session_start_event = config.session_start_event.clone().unwrap_or(SessionStartEvent {
             reason: crate::core::extensions::types::SessionStartReason::Startup,
@@ -1250,9 +1259,9 @@ impl AgentSession {
             let path = config
                 .control_db_path
                 .clone()
-                .or_else(|| manager.get_metadata_control_db_path().map(str::to_owned))
+                .or_else(|| manager.get_metadata_control_db_path().cloned())
                 .unwrap_or_else(|| {
-                    crate::core::session_control_db::get_control_db_path(&crate::config::get_user_state_root())
+                    crate::core::session_control_db::get_control_db_path(&crate::config::get_user_state_root()).into()
                 });
             manager
                 .set_metadata_control_db_path(Some(&path), Default::default())
@@ -1592,10 +1601,7 @@ impl AgentSession {
         let session_environment: BashSessionEnvironmentProvider = Arc::new(move || {
             let (session_id, session_file) = {
                 let manager = environment_session.session_manager();
-                (
-                    manager.get_session_id().to_owned(),
-                    manager.get_session_file().map(str::to_owned),
-                )
+                (manager.get_session_id().to_owned(), manager.get_session_file().cloned())
             };
             let model = environment_session.model();
             Some(BashSessionEnvironment {
@@ -2356,11 +2362,11 @@ impl AgentSession {
         self.inner.on_shared_channel_message_delivered.clone()
     }
 
-    fn runtime_mailbox_control_db_path(&self) -> Option<String> {
+    fn runtime_mailbox_control_db_path(&self) -> Option<JsString> {
         lock(&self.inner.extension_control_db_path).clone().or_else(|| {
             lock(&self.inner.session_manager)
                 .get_metadata_control_db_path()
-                .map(str::to_owned)
+                .cloned()
         })
     }
 
@@ -2524,7 +2530,7 @@ impl AgentSession {
 
     async fn deliver_ready_runtime_mailbox_messages(
         &self,
-        control_db_path: &str,
+        control_db_path: &JsString,
         options: DrainCoordinationOptions,
         mode: MailboxDeliveryMode,
         guard: Option<tokio::sync::MutexGuard<'_, ()>>,
@@ -3028,7 +3034,7 @@ impl AgentSession {
         self.start_runtime_mailbox_signal_handler();
     }
 
-    fn register_runtime_mailbox_listeners(&self, control_db_path: &str, agent_id: Option<&str>) {
+    fn register_runtime_mailbox_listeners(&self, control_db_path: &JsString, agent_id: Option<&str>) {
         let recipient = self.runtime_mailbox_recipient();
         let session_file = if agent_id.is_none() { self.session_file() } else { None };
         if let Err(error) = crate::core::session_control_db::register_runtime_mailbox_listener(
@@ -4827,7 +4833,7 @@ impl AgentSession {
         let previous_model = self.inner.agent.model();
         self.inner.agent.set_model(model.clone());
         lock(&self.inner.session_manager)
-            .set_session_model(&model.provider, &model.id)
+            .set_session_model(&JsString::from(&model.provider), &JsString::from(&model.id))
             .map_err(|error| AgentSessionError::new(error.to_string()))?;
         if self.inner.multi_agent_agent_id.is_none() {
             lock_settings_manager(&self.inner.settings_manager)
@@ -4925,7 +4931,7 @@ impl AgentSession {
         let previous_model = self.inner.agent.model();
         self.inner.agent.set_model(next.model.clone());
         lock(&self.inner.session_manager)
-            .set_session_model(&next.model.provider, &next.model.id)
+            .set_session_model(&JsString::from(&next.model.provider), &JsString::from(&next.model.id))
             .map_err(|error| AgentSessionError::new(error.to_string()))?;
         lock_settings_manager(&self.inner.settings_manager)
             .set_default_model_and_provider(&next.model.provider, &next.model.id);
@@ -4978,7 +4984,7 @@ impl AgentSession {
         self.inner.agent.set_thinking_level(effective);
         if is_changing {
             lock(&self.inner.session_manager)
-                .set_session_thinking_level(effective.as_str())
+                .set_session_thinking_level(&effective.as_str().into())
                 .map_err(|error| AgentSessionError::new(error.to_string()))?;
             if self.inner.multi_agent_agent_id.is_none()
                 && (self.supports_thinking() || effective != ThinkingLevel::Off)
@@ -5095,7 +5101,10 @@ impl AgentSession {
         }
         self.inner.agent.set_model(fallback_model.clone());
         lock(&self.inner.session_manager)
-            .set_session_model(&fallback_model.provider, &fallback_model.id)
+            .set_session_model(
+                &JsString::from(&fallback_model.provider),
+                &JsString::from(&fallback_model.id),
+            )
             .map_err(|error| AgentSessionError::new(error.to_string()))?;
         Ok(true)
     }
@@ -5427,7 +5436,7 @@ fn is_duplicate_turn_guard_message(message: &AgentMessage) -> bool {
 fn append_custom_agent_message(
     manager: &mut SessionManager,
     object: &JsObject,
-) -> Result<Option<String>, SessionManagerError> {
+) -> Result<Option<JsString>, SessionManagerError> {
     let custom_type = object
         .get("customType")
         .and_then(JsValue::as_string)
@@ -5442,7 +5451,7 @@ fn append_custom_agent_message(
     let display = object.get("display").and_then(JsValue::as_bool).unwrap_or(false);
     let details = object.get("details").cloned();
     manager
-        .append_custom_message_entry(custom_type, content, display, details)
+        .append_custom_message_entry(&custom_type, content, display, details)
         .map(Some)
 }
 
@@ -5565,7 +5574,7 @@ impl AgentSession {
             ThemeColor::Accent
         };
         let theme = crate::modes::interactive::theme::try_current_theme()
-            .map_err(|theme_error| error(theme_error.to_string()))?;
+            .map_err(|theme_error| error(theme_error.message()))?;
         let styled = theme.fg(color, &status_text);
         ui.set_status("bwrap", Some(&styled));
         Ok(())
@@ -5579,7 +5588,7 @@ impl AgentSession {
         &self.inner.model_registry
     }
 
-    pub fn cwd(&self) -> &str {
+    pub fn cwd(&self) -> &JsString {
         &self.inner.cwd
     }
 
@@ -5669,11 +5678,11 @@ impl AgentSession {
         self.inner.agent.follow_up_mode()
     }
 
-    pub fn session_file(&self) -> Option<String> {
-        lock(&self.inner.session_manager).get_session_file().map(str::to_owned)
+    pub fn session_file(&self) -> Option<JsString> {
+        lock(&self.inner.session_manager).get_session_file().cloned()
     }
 
-    pub fn session_id(&self) -> String {
+    pub fn session_id(&self) -> JsString {
         lock(&self.inner.session_manager).get_session_id().to_owned()
     }
 
@@ -6099,7 +6108,7 @@ impl AgentSession {
         let branch = lock(&self.inner.session_manager).get_branch(None);
         let compaction_entry = get_latest_compaction_entry(&branch).cloned();
         let assistant_is_before_compaction = compaction_entry.as_ref().is_some_and(|entry| {
-            let compaction_timestamp = entry.timestamp().and_then(pi_js_compat::date::date_parse_millis);
+            let compaction_timestamp = entry.timestamp().and_then(parse_timestamp_millis);
             compaction_timestamp.is_some_and(|timestamp| assistant_message.timestamp <= timestamp)
         });
         if assistant_is_before_compaction {
@@ -6157,9 +6166,7 @@ impl AgentSession {
             let index = last_usage_index as usize;
             if let Some(compaction_entry) = &compaction_entry
                 && let Some(AgentMessage::Assistant(usage_message)) = messages.get(index)
-                && let Some(timestamp) = compaction_entry
-                    .timestamp()
-                    .and_then(pi_js_compat::date::date_parse_millis)
+                && let Some(timestamp) = compaction_entry.timestamp().and_then(parse_timestamp_millis)
                 && usage_message.timestamp <= timestamp
             {
                 return Ok(false);
@@ -6994,23 +7001,18 @@ impl AgentSession {
     }
 
     /// Exports the current session branch to a JSONL file.
-    pub fn export_to_jsonl(&self, output_path: Option<&str>) -> Result<String, AgentSessionError> {
-        let default_name = format!(
+    pub fn export_to_jsonl(&self, output_path: Option<&JsString>) -> Result<JsString, AgentSessionError> {
+        let default_name: JsString = format!(
             "session-{}.jsonl",
             crate::utils::iso_time::now_iso_string().replace([':', '.'], "-")
-        );
-        let file_path = crate::utils::paths::resolve_path(
-            output_path.unwrap_or(&default_name),
-            &std::env::current_dir()
-                .map(|path| path.display().to_string())
-                .unwrap_or_default(),
-            &Default::default(),
         )
-        .map_err(|path_error| error(path_error.to_string()))?;
-        if let Some(parent) = std::path::Path::new(&file_path).parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|io_error| error(format!("Failed to create export directory: {io_error}")))?;
-        }
+        .into();
+        let file_path =
+            crate::utils::paths::resolve_path(output_path.unwrap_or(&default_name), "", &Default::default())
+                .map_err(|path_error| error(path_error.message()))?;
+        let parent = crate::utils::paths::node_dirname(&file_path);
+        std::fs::create_dir_all(encode_node_utf8(&parent))
+            .map_err(|io_error| error(format!("Failed to create export directory: {io_error}")))?;
         let (session_id, cwd, branch_entries) = {
             let manager = lock(&self.inner.session_manager);
             (
@@ -7019,38 +7021,39 @@ impl AgentSession {
                 manager.get_branch(None),
             )
         };
-        let mut header = Map::new();
-        header.insert("type".to_owned(), Value::String("session".to_owned()));
+        let mut header = JsObject::new();
+        header.insert("type".into(), JsValue::String("session".into()));
         header.insert(
-            "version".to_owned(),
-            serde_json::json!(crate::core::session_manager::CURRENT_SESSION_VERSION as i64),
+            "version".into(),
+            JsValue::Number(crate::core::session_manager::CURRENT_SESSION_VERSION as f64),
         );
-        header.insert("id".to_owned(), Value::String(session_id));
+        header.insert("id".into(), JsValue::String(session_id));
         header.insert(
-            "timestamp".to_owned(),
-            Value::String(crate::utils::iso_time::now_iso_string()),
+            "timestamp".into(),
+            JsValue::String(crate::utils::iso_time::now_iso_string().into()),
         );
-        header.insert("cwd".to_owned(), Value::String(cwd));
-        let mut lines = vec![pi_js_compat::js_json::stringify(&Value::Object(header))];
-        let mut previous_id: Option<String> = None;
+        header.insert("cwd".into(), JsValue::String(cwd));
+        let mut lines = vec![pi_js_compat::js_json::stringify_lossless(&JsValue::Object(header))];
+        let mut previous_id: Option<JsString> = None;
         for entry in branch_entries {
-            let mut value = serde_json::to_value(&entry).map_err(|json_error| error(json_error.to_string()))?;
-            if let Value::Object(object) = &mut value {
+            let mut value =
+                pi_js_compat::js_json::to_value(&entry).map_err(|json_error| error(json_error.to_string()))?;
+            if let JsValue::Object(object) = &mut value {
                 object.insert(
-                    "parentId".to_owned(),
-                    previous_id.clone().map(Value::String).unwrap_or(Value::Null),
+                    "parentId".into(),
+                    previous_id.clone().map(JsValue::String).unwrap_or(JsValue::Null),
                 );
             }
-            previous_id = entry.id().map(str::to_owned);
-            lines.push(pi_js_compat::js_json::stringify(&value));
+            previous_id = entry.id().cloned();
+            lines.push(pi_js_compat::js_json::stringify_lossless(&value));
         }
-        std::fs::write(&file_path, format!("{}\n", lines.join("\n")))
+        std::fs::write(encode_node_utf8(&file_path), format!("{}\n", lines.join("\n")))
             .map_err(|io_error| error(format!("Failed to write session export: {io_error}")))?;
         Ok(file_path)
     }
 
     /// Exports the current session branch to an HTML file.
-    pub async fn export_to_html(&self, output_path: Option<&str>) -> Result<String, AgentSessionError> {
+    pub async fn export_to_html(&self, output_path: Option<&JsString>) -> Result<JsString, AgentSessionError> {
         use crate::core::export_html::{
             ExportOptions, ToolHtmlRendererDeps, create_tool_html_renderer, export_session_to_html,
         };
@@ -7217,7 +7220,7 @@ pub struct ExtensionBindings {
     pub ui_context: Option<Arc<dyn ExtensionUiContext>>,
     pub footer_data: Option<Arc<FooterDataProvider>>,
     pub mode: Option<ExtensionMode>,
-    pub control_db_path: Option<String>,
+    pub control_db_path: Option<JsString>,
     pub command_context_actions: Option<ExtensionCommandContextActions>,
     pub abort_handler: Option<Arc<dyn Fn() + Send + Sync>>,
     pub shutdown_handler: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -7810,7 +7813,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
     );
     let append_weak = weak.clone();
     let append_entry: crate::core::extensions::types::AppendEntryHandler =
-        Arc::new(move |custom_type: &str, data: Option<JsValue>| {
+        Arc::new(move |custom_type: &JsString, data: Option<JsValue>| {
             let Some(inner) = append_weak.upgrade() else {
                 return Ok(());
             };
@@ -8095,7 +8098,7 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
         })
     });
     let control_weak = weak.clone();
-    let get_control_db_path: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>> = Some(Arc::new(move || {
+    let get_control_db_path: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>> = Some(Arc::new(move || {
         control_weak.upgrade().and_then(|inner| {
             lock(&inner.extension_control_db_path)
                 .clone()
@@ -8387,4 +8390,9 @@ fn synthetic_tool_call_assistant_message(model: &Model, tool_call: &AgentToolCal
     message.stop_reason = StopReason::ToolUse;
     message.timestamp = now_millis();
     message
+}
+
+fn parse_timestamp_millis(text: &JsString) -> Option<i64> {
+    let millis = pi_js_compat::date::date_parse_utf16(text.units());
+    millis.is_finite().then_some(millis as i64)
 }

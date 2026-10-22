@@ -1,0 +1,92 @@
+#[path = "support/oracle.rs"]
+mod oracle;
+
+use pi_agent_core::agent::{Agent, AgentOptions};
+use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig};
+use pi_coding_agent::core::auth_storage::AuthStorage;
+use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
+use pi_coding_agent::core::resource_loader::StaticResourceLoader;
+use pi_coding_agent::core::session_control_db::RuntimeMailboxStoreRef;
+use pi_coding_agent::core::session_manager::SessionManager;
+use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use std::sync::{Arc, Mutex};
+
+#[tokio::test]
+async fn ts_created_raw_session_path_survives_agent_session_persistence_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(root.path().to_str().unwrap());
+    let directory = cwd.clone() + "/sessions-" + JsString::from_utf16(vec![0xd800]);
+    let mut oracle = oracle::TsOracle::spawn(
+        "session-manager-oracle.ts",
+        "packages/coding-agent/src/core/session-manager.ts",
+    );
+    assert_eq!(oracle.request(&serde_json::json!({"id":"scalar-probe", "operation":"default_session_dir", "cwd":root.path().to_str().unwrap(), "agentDir":root.path().to_str().unwrap()}))["ok"], true);
+    let source = oracle.request_lossless(&pi_js_compat::js_json!({
+        "id":"raw-path-session", "operation":"write_session", "cwd":cwd, "dir":directory,
+        "messages":[{"role":"user","content":"seed","timestamp":0}, {"role":"assistant","content":[],"api":"openai-responses","provider":"openai","model":"probe","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1}]
+    }));
+    assert_eq!(source["ok"].as_bool(), Some(true));
+    let path = source["output"]["path"].as_string().unwrap().clone();
+    assert!(path.units().contains(&0xd800));
+    let manager = SessionManager::open(&path, Some(&directory), None).unwrap();
+    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        credentials: Some(Arc::new(AuthStorage::in_memory(Default::default()))),
+        models_path: Some(None),
+        allow_model_network: false,
+        refresh_on_create: Some(false),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    let session = AgentSession::new(AgentSessionConfig {
+        agent: Agent::new(AgentOptions::default()).unwrap(),
+        session_manager: Arc::new(Mutex::new(manager)),
+        settings_manager: Arc::new(Mutex::new(SettingsManager::in_memory(
+            Default::default(),
+            SettingsManagerCreateOptions::default(),
+        ))),
+        cwd: cwd.clone(),
+        scoped_models: vec![],
+        resource_loader: Arc::new(StaticResourceLoader::default()),
+        model_runtime: runtime,
+        initial_active_tool_names: Some(vec![]),
+        allowed_tool_names: Some(vec![]),
+        excluded_tool_names: None,
+        permission_prompt_tool: None,
+        agent_dir: Some(cwd.clone()),
+        control_db_path: Some(cwd.clone() + "/control.db"),
+        base_tools: vec![],
+        custom_tools: vec![],
+        custom_tool_definitions: vec![],
+        multi_agent_runtime_role: None,
+        multi_agent_execution_capability: None,
+        thinking_phase_timeout_ms: None,
+        supervisor_decision_requester: None,
+        multi_agent_store: Some(store.clone()),
+        multi_agent_agent_id: None,
+        multi_agent_parent_session_id: None,
+        multi_agent_requires_agent_id: false,
+        disable_runtime_coordination_inbound: true,
+        on_shared_channel_message_delivered: None,
+        extension_runner_ref: None,
+        session_start_event: None,
+    })
+    .unwrap();
+    assert_eq!(session.session_file(), Some(path.clone()));
+    let target = store.get_persistence_target().unwrap();
+    assert_eq!(target.session_path, path);
+    let reference = RuntimeMailboxStoreRef {
+        message_id: "message".into(),
+        session_path: path.clone(),
+    };
+    assert_eq!(reference.session_path, target.session_path);
+    let os_alias = RuntimeMailboxStoreRef {
+        message_id: "message".into(),
+        session_path: encode_node_utf8(&path).into(),
+    };
+    assert_ne!(os_alias.session_path, target.session_path);
+    session.dispose();
+}

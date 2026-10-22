@@ -66,7 +66,7 @@ pub struct CollectEntriesResult {
     /// Entries to summarize, in chronological order.
     pub entries: Vec<SessionEntry>,
     /// Common ancestor between old and new position, if any.
-    pub common_ancestor_id: Option<String>,
+    pub common_ancestor_id: Option<JsString>,
 }
 
 /// Options for [`generate_branch_summary`].
@@ -88,8 +88,8 @@ pub struct GenerateBranchSummaryOptions<'a> {
 /// Collect entries to summarize when navigating from one position to another.
 pub fn collect_entries_for_branch_summary(
     session: &SessionManager,
-    old_leaf_id: Option<&str>,
-    target_id: &str,
+    old_leaf_id: Option<&JsString>,
+    target_id: &JsString,
 ) -> CollectEntriesResult {
     let Some(old_leaf_id) = old_leaf_id else {
         return CollectEntriesResult {
@@ -98,10 +98,10 @@ pub fn collect_entries_for_branch_summary(
         };
     };
 
-    let old_path: std::collections::HashSet<String> = session
+    let old_path: std::collections::HashSet<JsString> = session
         .get_branch(Some(old_leaf_id))
         .into_iter()
-        .filter_map(|entry| entry.id().map(str::to_owned))
+        .filter_map(|entry| entry.id().cloned())
         .collect();
     let target_path = session.get_branch(Some(target_id));
 
@@ -109,19 +109,19 @@ pub fn collect_entries_for_branch_summary(
         .iter()
         .rev()
         .find(|entry| entry.id().is_some_and(|id| old_path.contains(id)))
-        .and_then(|entry| entry.id().map(str::to_owned));
+        .and_then(|entry| entry.id().cloned());
 
     let mut entries = Vec::new();
     let mut current = Some(old_leaf_id.to_owned());
     while let Some(id) = current {
-        if Some(id.as_str()) == common_ancestor_id.as_deref() {
+        if Some(&id) == common_ancestor_id.as_ref() {
             break;
         }
         let Some(entry) = session.get_entry(&id) else {
             break;
         };
         entries.push(entry.clone());
-        current = entry.parent_id().map(str::to_owned);
+        current = entry.parent_id().cloned();
     }
     entries.reverse();
 
@@ -199,7 +199,9 @@ pub fn prepare_branch_entries(entries: &[SessionEntry], token_budget: f64) -> Br
         let tokens = estimate_tokens(&message);
 
         if token_budget > 0.0 && total_tokens + tokens > token_budget {
-            if matches!(entry.entry_type(), "compaction" | "branch_summary") && total_tokens < token_budget * 0.9 {
+            if (entry.entry_type() == "compaction" || entry.entry_type() == "branch_summary")
+                && total_tokens < token_budget * 0.9
+            {
                 messages.insert(0, message);
                 total_tokens += tokens;
             }
@@ -275,7 +277,16 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
         };
     }
 
-    let conversation_text = serialize_conversation(&convert_to_llm(&messages));
+    let converted = match convert_to_llm(&messages) {
+        Ok(messages) => messages,
+        Err(error) => {
+            return BranchSummaryResult {
+                error: Some(error.message().clone()),
+                ..Default::default()
+            };
+        }
+    };
+    let conversation_text = serialize_conversation(&converted);
 
     let instructions = match (options.replace_instructions, options.custom_instructions) {
         (true, Some(custom)) => custom.to_owned(),
@@ -284,7 +295,7 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
     };
     let prompt_text = JsString::from("<conversation>\n") + conversation_text + "\n</conversation>\n\n" + instructions;
 
-    let summarization_message = AgentMessage::User(UserMessage {
+    let summarization_message = pi_ai::types::Message::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(pi_ai::types::TextContent::new(
             prompt_text,
@@ -296,7 +307,7 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
 
     let context = pi_ai::types::Context {
         system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
-        messages: convert_to_llm(&[summarization_message]),
+        messages: vec![summarization_message],
         tools: None,
     };
     let request_options = SimpleStreamOptions {

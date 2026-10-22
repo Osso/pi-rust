@@ -12,6 +12,7 @@ use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{Message, Model, ProviderHeaders, TextContent, TextOrImageContent, UserContent};
 use pi_ai::utils::event_stream::StreamFailure;
+use pi_js_compat::js_json::JsString;
 
 use crate::config::get_agent_dir;
 use crate::core::agent_session::{
@@ -310,7 +311,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         Arc::new(move |messages: Vec<AgentMessage>| {
             let settings = Arc::clone(&settings);
             Box::pin(async move {
-                let converted = convert_to_llm(&messages);
+                let converted = convert_to_llm(&messages)?;
                 if !lock(&settings).get_block_images() {
                     return Ok(converted);
                 }
