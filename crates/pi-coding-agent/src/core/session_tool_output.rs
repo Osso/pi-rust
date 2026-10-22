@@ -4,7 +4,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
-use pi_ai::utils::uuid::random_uuid;
+use pi_ai::utils::random_uuid::random_uuid;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, encode_node_utf8, stringify_lossless};
 use pi_js_compat::node_fs::{

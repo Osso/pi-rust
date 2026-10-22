@@ -505,7 +505,7 @@ async fn dispatch_foreground_pyrun_bridge_request(
     pending: PendingRequests,
     request: super::runner::PiRequest,
 ) -> Result<Option<Value>, JsString> {
-    let request_id = JsString::from(pi_ai::utils::uuid::random_uuid());
+    let request_id = JsString::from(pi_ai::utils::random_uuid::random_uuid());
     let mut record = Map::new();
     record.insert("method".into(), Value::String(request.method.clone().into()));
     record.insert("params".into(), request.params.clone());

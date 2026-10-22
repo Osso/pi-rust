@@ -154,7 +154,7 @@ fn delete_unreferenced_artifact_directory(
         js_format!(
             ".cleanup-{}-{}",
             node_basename(directory_path),
-            pi_ai::utils::uuid::random_uuid()
+            pi_ai::utils::random_uuid::random_uuid()
         ),
     );
     match fs::symlink_metadata(encode_node_utf8(directory_path)) {

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use pi_ai::utils::uuid::random_uuid;
+use pi_ai::utils::random_uuid::random_uuid;
 
 #[test]
 fn generates_rfc9562_version_4_uuids_like_node_random_uuid() {

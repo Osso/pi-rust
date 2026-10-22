@@ -13,8 +13,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use pi_agent_core::agent::AgentMessage;
 use pi_agent_core::harness::messages::CustomMessageContent;
+use pi_agent_core::uuidv7;
 use pi_ai::types::{ProviderNativeContext, TextOrImageContent, UserContent};
-use pi_ai::utils::uuid::{random_uuid, uuidv7};
+use pi_ai::utils::random_uuid::random_uuid;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};

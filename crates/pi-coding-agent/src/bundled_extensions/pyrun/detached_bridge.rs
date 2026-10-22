@@ -1,6 +1,6 @@
 //! Port of `packages/coding-agent/extensions/pyrun/src/detached-bridge.ts`.
 
-use pi_ai::utils::uuid::random_uuid;
+use pi_ai::utils::random_uuid::random_uuid;
 use pi_js_compat::js_json::{self, JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
 

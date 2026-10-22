@@ -1,11 +1,14 @@
-#[path = "../support/oracle.rs"]
+#[path = "../../../pi-ai/tests/support/oracle.rs"]
 mod oracle;
 
-use pi_ai::utils::uuid::uuidv7;
+use pi_agent_core::uuidv7;
 use serde_json::json;
 
 pub(crate) fn run() {
-    let mut oracle = oracle::TsOracle::spawn("uuid-oracle.ts", "packages/ai/src");
+    let mut oracle = oracle::TsOracle::spawn(
+        "agent-core-uuid-oracle.ts",
+        "packages/agent-core/src/harness/session/uuid.ts",
+    );
     let response = oracle.request(&json!({"id": 1, "operation": "generate", "count": 200}));
     assert_eq!(response["ok"], json!(true), "uuid oracle failed: {response}");
 

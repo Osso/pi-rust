@@ -1,11 +1,11 @@
 //! Opt-in full-context compaction using the selected registry's Gemini Flash model.
+use pi_agent_core::uuidv7;
 use pi_ai::{
     request::StreamOptions,
     types::{
         AssistantContent, CacheRetention, Context, Message, TextContent, UserContent, UserContentBlock, UserMessage,
         UserRole,
     },
-    utils::uuid::uuidv7,
 };
 use pi_coding_agent::core::{compaction::serialize_conversation, extensions::*, messages::convert_to_llm};
 use pi_js_compat::js_format;

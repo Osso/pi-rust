@@ -52,7 +52,7 @@ use crate::utils::diagnostics::{
 use crate::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
 };
-use crate::utils::uuid::uuidv7;
+use crate::utils::random_uuid::random_uuid;
 use pi_js_compat::date::date_parse;
 use pi_js_compat::number::{js_number_value, parse_number};
 
@@ -419,7 +419,7 @@ async fn execute_stream(
     {
         body = next_body;
     }
-    let websocket_request_id = codex_session_id.clone().unwrap_or_else(|| uuidv7().into());
+    let websocket_request_id = codex_session_id.clone().unwrap_or_else(|| random_uuid().into());
     let sse_headers = build_sse_headers(
         model.headers.as_ref(),
         options.stream.request.headers.as_ref(),

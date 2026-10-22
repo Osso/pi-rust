@@ -8,7 +8,7 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, TextOrImageContent, Usage, UserContent,
     UserMessage, UserRole,
 };
-use pi_ai::utils::uuid::random_uuid;
+use pi_ai::utils::random_uuid::random_uuid;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use pi_js_compat::node_fs::{node_fs_error, node_read_error};

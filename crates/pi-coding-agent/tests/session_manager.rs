@@ -119,7 +119,7 @@ fn tree_ids(nodes: &[SessionTreeNode]) -> Vec<JsString> {
 }
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("pi-rust-{name}-{}", pi_ai::utils::uuid::random_uuid()));
+    let dir = std::env::temp_dir().join(format!("pi-rust-{name}-{}", pi_ai::utils::random_uuid::random_uuid()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }

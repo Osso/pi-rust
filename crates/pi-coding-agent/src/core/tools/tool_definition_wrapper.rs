@@ -343,7 +343,7 @@ fn merge_output_details(
 }
 
 fn create_full_output_path() -> JsString {
-    let id = pi_ai::utils::uuid::random_uuid().replace('-', "");
+    let id = pi_ai::utils::random_uuid::random_uuid().replace('-', "");
     let id = &id[..16];
     crate::utils::paths::node_join(
         std::env::temp_dir().to_string_lossy().into_owned(),

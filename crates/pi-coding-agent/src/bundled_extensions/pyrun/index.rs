@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use pi_agent_core::AgentToolResult;
 use pi_agent_core::harness::types::ThinkingLevel;
+use pi_agent_core::uuidv7;
 use pi_ai::types::{TextOrImageContent, ToolCallExecution};
-use pi_ai::utils::uuid::uuidv7;
 use pi_js_compat::{
     js_json as json,
     js_json::{self, JsObject as Map, JsString, JsValue as Value, encode_node_utf8},

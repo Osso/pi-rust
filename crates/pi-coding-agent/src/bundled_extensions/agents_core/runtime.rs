@@ -221,7 +221,7 @@ pub fn deliver_terminal_outbox_for_store(store: &Arc<MultiAgentStore>) -> Result
     crate::core::terminal_outbox_delivery::deliver_terminal_outbox_projections(
         &crate::core::terminal_outbox_delivery::DeliverTerminalOutboxOptions {
             artifact_root: None,
-            claim_id: pi_ai::utils::uuid::random_uuid().into(),
+            claim_id: pi_ai::utils::random_uuid::random_uuid().into(),
             control_db_path: persistence.control_db_path,
             now: Arc::new(crate::utils::iso_time::now_iso_string),
             store: Arc::clone(store),

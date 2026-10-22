@@ -16,6 +16,7 @@ use pi_agent_core::harness::messages::{
     CompactionSummaryOptions as MessageCompactionSummaryOptions, convert_to_llm, create_branch_summary_message,
     create_compaction_summary_message, create_custom_message,
 };
+use pi_agent_core::uuidv7;
 use pi_ai::compat::complete_simple;
 use pi_ai::request::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
@@ -25,7 +26,6 @@ use pi_ai::types::{
 pub use pi_ai::utils::estimate::calculate_context_tokens;
 use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy, retry_assistant_call};
 use pi_ai::utils::text::{ContentText, content_text};
-use pi_ai::utils::uuid::uuidv7;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;

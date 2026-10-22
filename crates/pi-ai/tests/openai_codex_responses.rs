@@ -769,6 +769,24 @@ fn text_of(result: &AssistantMessage) -> Option<&pi_js_compat::js_json::JsString
 }
 
 #[tokio::test]
+async fn websocket_without_a_session_uses_a_crypto_random_uuid_v4_request_id() {
+    let fetch = RecordingFetch::new(Vec::new());
+    let server = start_ws_server(Arc::new(|_, _| completed_event("resp", Some("ok"), None))).await;
+    collect(stream(
+        ws_model(&server.url),
+        context(),
+        ws_options(fetch, Transport::Websocket, None, &mock_token("uuid-v4-account")),
+    ))
+    .await;
+    let connections = server.records.connections.lock().unwrap();
+    assert_eq!(connections.len(), 1);
+    let id = connections[0].headers.get("x-client-request-id").expect("request id");
+    assert_eq!(id.len(), 36);
+    assert_eq!(id.as_bytes()[14], b'4', "frozen crypto.randomUUID generates v4, not v7");
+    assert_eq!(connections[0].headers.get("session-id"), Some(id));
+}
+
+#[tokio::test]
 async fn websocket_cached_continuation_sends_only_input_deltas() {
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|connection, frame| {

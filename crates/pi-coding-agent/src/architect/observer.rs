@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use pi_ai::utils::uuid::random_uuid;
+use pi_ai::utils::random_uuid::random_uuid;
 use pi_js_compat::collator::locale_compare_utf16;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use serde::{Deserialize, Serialize};

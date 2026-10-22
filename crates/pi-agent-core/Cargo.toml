@@ -8,6 +8,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+# OS entropy for the frozen agent-core UUIDv7 generator.
+getrandom = "=0.4.3"
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
 pi-telemetry = { version = "=0.0.0", path = "../pi-telemetry" }
 # Shared localeCompare/Base64/JS number semantics.

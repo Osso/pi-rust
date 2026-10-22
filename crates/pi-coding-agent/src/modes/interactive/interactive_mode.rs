@@ -4469,6 +4469,8 @@ impl InteractiveMode {
     }
 
     fn add_message_to_chat(&self, message: &AgentMessage, populate_history: bool) {
+        let coordination = crate::modes::interactive::coordination_visibility::is_coordination_message(message);
+        let previous_child_count = self.chat_container.borrow().children().len();
         match message {
             AgentMessage::User(user) => {
                 let text = Self::get_user_message_text(message);
@@ -4529,6 +4531,16 @@ impl InteractiveMode {
             }
             AgentMessage::ToolResult(_) => {}
             AgentMessage::Custom(object) => self.add_custom_message_to_chat(object),
+        }
+        if coordination && self.chat_container.borrow().children().len() > previous_child_count {
+            use crate::modes::interactive::components::coordination_message::CoordinationMessageComponent;
+            let mut chat = self.chat_container.borrow_mut();
+            let mut retained = chat.children().to_vec();
+            let components = retained.split_off(previous_child_count);
+            let session = self.session();
+            let hidden = Rc::new(move || session.settings_manager().get_hide_coordination_messages());
+            *chat = Container::with_children(retained);
+            chat.add_child(component(CoordinationMessageComponent::new(components, hidden)));
         }
     }
 
@@ -5861,7 +5873,11 @@ impl InteractiveMode {
                 crate::utils::clipboard_image::extension_for_image_mime_type(&image.mime_type).unwrap_or("png");
             let file_path = node_join(
                 JsString::from(std::env::temp_dir().to_string_lossy().as_ref()),
-                js_format!("pi-clipboard-{}.{}", pi_ai::utils::uuid::random_uuid(), extension),
+                js_format!(
+                    "pi-clipboard-{}.{}",
+                    pi_ai::utils::random_uuid::random_uuid(),
+                    extension
+                ),
             );
             if std::fs::write(encode_node_utf8(&file_path), &image.bytes).is_ok() {
                 self.clipboard_temp_files.borrow_mut().track(file_path.clone());
@@ -10034,18 +10050,22 @@ impl InteractiveMode {
                 timeout,
                 respond,
             } => {
+                let restore_editor = crate::modes::interactive::editor_dialog_restore::capture_editor_dialog_restore(
+                    Rc::clone(&self.editor_container),
+                    Rc::clone(&self.ui),
+                );
                 let respond = Rc::new(RefCell::new(Some(respond)));
                 let select_respond = Rc::clone(&respond);
-                let mode = self.ui_id.get();
+                let restore = Rc::clone(&restore_editor);
                 let on_select: Rc<dyn Fn(JsString)> = Rc::new(move |option| {
+                    restore();
                     respond_once(&select_respond, Some(option));
-                    with_mode(mode, |mode| mode.restore_editor());
                 });
                 let cancel_respond = Rc::clone(&respond);
-                let mode = self.ui_id.get();
+                let restore = Rc::clone(&restore_editor);
                 let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+                    restore();
                     respond_once(&cancel_respond, None);
-                    with_mode(mode, |mode| mode.restore_editor());
                 });
                 let selector = ExtensionSelectorComponent::new(
                     &title,
@@ -10074,18 +10094,22 @@ impl InteractiveMode {
                 timeout,
                 respond,
             } => {
+                let restore_editor = crate::modes::interactive::editor_dialog_restore::capture_editor_dialog_restore(
+                    Rc::clone(&self.editor_container),
+                    Rc::clone(&self.ui),
+                );
                 let respond = Rc::new(RefCell::new(Some(respond)));
                 let yes_respond = Rc::clone(&respond);
-                let mode = self.ui_id.get();
+                let restore = Rc::clone(&restore_editor);
                 let on_select: Rc<dyn Fn(JsString)> = Rc::new(move |option| {
+                    restore();
                     respond_once(&yes_respond, option == "Yes");
-                    with_mode(mode, |mode| mode.restore_editor());
                 });
                 let cancel_respond = Rc::clone(&respond);
-                let mode = self.ui_id.get();
+                let restore = Rc::clone(&restore_editor);
                 let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+                    restore();
                     respond_once(&cancel_respond, false);
-                    with_mode(mode, |mode| mode.restore_editor());
                 });
                 let selector = ExtensionSelectorComponent::new(
                     &pi_js_compat::js_format!("{}\n{}", title, message),
@@ -10110,18 +10134,22 @@ impl InteractiveMode {
                 secret,
                 respond,
             } => {
+                let restore_editor = crate::modes::interactive::editor_dialog_restore::capture_editor_dialog_restore(
+                    Rc::clone(&self.editor_container),
+                    Rc::clone(&self.ui),
+                );
                 let respond = Rc::new(RefCell::new(Some(respond)));
                 let submit_respond = Rc::clone(&respond);
-                let mode = self.ui_id.get();
+                let restore = Rc::clone(&restore_editor);
                 let on_submit: Rc<dyn Fn(JsString)> = Rc::new(move |value| {
+                    restore();
                     respond_once(&submit_respond, Some(value));
-                    with_mode(mode, |mode| mode.restore_editor());
                 });
                 let cancel_respond = Rc::clone(&respond);
-                let mode = self.ui_id.get();
+                let restore = Rc::clone(&restore_editor);
                 let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+                    restore();
                     respond_once(&cancel_respond, None);
-                    with_mode(mode, |mode| mode.restore_editor());
                 });
                 let input = ExtensionInputComponent::new(
                     &title,
@@ -10144,18 +10172,22 @@ impl InteractiveMode {
                 prefill,
                 respond,
             } => {
+                let restore_editor = crate::modes::interactive::editor_dialog_restore::capture_editor_dialog_restore(
+                    Rc::clone(&self.editor_container),
+                    Rc::clone(&self.ui),
+                );
                 let respond = Rc::new(RefCell::new(Some(respond)));
                 let submit_respond = Rc::clone(&respond);
-                let mode = self.ui_id.get();
+                let restore = Rc::clone(&restore_editor);
                 let on_submit: Rc<dyn Fn(JsString)> = Rc::new(move |value| {
+                    restore();
                     respond_once(&submit_respond, Some(value));
-                    with_mode(mode, |mode| mode.restore_editor());
                 });
                 let cancel_respond = Rc::clone(&respond);
-                let mode = self.ui_id.get();
+                let restore = Rc::clone(&restore_editor);
                 let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+                    restore();
                     respond_once(&cancel_respond, None);
-                    with_mode(mode, |mode| mode.restore_editor());
                 });
                 let editor = ExtensionEditorComponent::new(
                     Rc::new(InteractiveTuiHost(Rc::clone(&self.ui))),
@@ -10504,6 +10536,11 @@ impl InteractiveMode {
         let done_component = Rc::clone(&component_slot);
         let mode = self.ui_id.get();
         let overlay = options.as_ref().and_then(|options| options.overlay).unwrap_or(false);
+        let restore_slot = crate::modes::interactive::editor_dialog_restore::capture_editor_dialog_restore(
+            Rc::clone(&self.editor_container),
+            Rc::clone(&self.ui),
+        );
+        let done_restore_slot = Rc::clone(&restore_slot);
         let saved_text = self.editor().borrow().get_text();
         let done_text = saved_text.clone();
         let closed = Rc::new(Cell::new(false));
@@ -10521,8 +10558,8 @@ impl InteractiveMode {
                 if overlay {
                     mode.ui.hide_overlay();
                 } else {
-                    mode.restore_editor();
                     mode.editor().borrow_mut().set_text(&done_text);
+                    done_restore_slot();
                 }
             });
             if let Some(respond) = respond {
@@ -10557,8 +10594,8 @@ impl InteractiveMode {
                 Err(error) => {
                     with_mode(mode, |mode| {
                         if !overlay {
-                            mode.restore_editor();
                             mode.editor().borrow_mut().set_text(&saved_text);
+                            restore_slot();
                         }
                     });
                     if let Some(respond) = respond.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
@@ -11726,6 +11763,106 @@ mod ui_tests {
                 task.await.unwrap().unwrap();
             })
             .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn coordination_transcript_hides_and_restores_existing_components() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                mode.settings_mut(|settings| settings.set_hide_coordination_messages(true));
+                let message: AgentMessage = pi_js_compat::js_json::from_value(&pi_js_compat::js_json!({
+                    "role":"user", "content":"From:\n- agent: peer\n\nMessage:\ncoordination body",
+                    "inputSource":"extension", "timestamp":0,
+                }))
+                .unwrap();
+                mode.add_message_to_chat(&message, false);
+                assert!(mode.chat_container.borrow_mut().render(100).is_empty());
+                let children = mode.chat_container.borrow().children().to_vec();
+                mode.settings_mut(|settings| settings.set_hide_coordination_messages(false));
+                let frame = JsString::join(mode.chat_container.borrow_mut().render(100), "\n");
+                assert!(frame.contains("coordination body"), "{frame:?}");
+                assert_eq!(children.len(), mode.chat_container.borrow().children().len());
+                assert!(Rc::ptr_eq(&children[0], &mode.chat_container.borrow().children()[0]));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_dialog_restores_previous_editor_children_and_focus() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let previous = component(Text::new("previous panel", 0, 0));
+                let focus = component(pi_tui::Input::new(Default::default()));
+                *mode.editor_container.borrow_mut() =
+                    Container::with_children(vec![Rc::clone(&previous), Rc::clone(&focus)]);
+                mode.ui.set_focus(Some(Rc::clone(&focus)));
+                let (respond, receiver) = tokio::sync::oneshot::channel();
+                mode.handle_ui_request(UiRequest::Input {
+                    title: "nested input".into(),
+                    placeholder: None,
+                    timeout: None,
+                    secret: false,
+                    respond,
+                })
+                .await;
+                mode.ui
+                    .get_focused_component()
+                    .unwrap()
+                    .borrow_mut()
+                    .handle_input(&JsString::from("\u{1b}"));
+                assert_eq!(receiver.await.unwrap(), None);
+                let children = mode.editor_container.borrow().children().to_vec();
+                assert_eq!(children.len(), 2);
+                assert!(Rc::ptr_eq(&children[0], &previous));
+                assert!(Rc::ptr_eq(&children[1], &focus));
+                assert!(Rc::ptr_eq(&mode.ui.get_focused_component().unwrap(), &focus));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn editor_dialog_restore_matches_frozen_snapshots_and_raw_children() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        let local = tokio::task::LocalSet::new();
+        local.run_until(async {
+            let (mode, _terminal, _faux, _temp) = build_mode().await;
+            let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
+            for focus_index in [1, -1] {
+                let raw = JsString::from_utf16(vec![0xd800,b'x' as u16,0xdc00]);
+                let changed = JsString::from("changed ") + &raw;
+                let first = Rc::new(RefCell::new(Text::new(raw.clone(),0,0)));
+                let first_ref: ComponentRef = first.clone();
+                let second = component(Text::new("second",0,0));
+                let container = Rc::new(RefCell::new(Container::with_children(vec![first_ref,Rc::clone(&second)])));
+                mode.ui.set_focus((focus_index==1).then(||Rc::clone(&second)));
+                let restore = crate::modes::interactive::editor_dialog_restore::capture_editor_dialog_restore(Rc::clone(&container),Rc::clone(&mode.ui));
+                let dialog = component(Text::new("dialog",0,0));
+                *container.borrow_mut() = Container::with_children(vec![Rc::clone(&dialog)]);
+                mode.ui.set_focus(Some(dialog));
+                first.borrow_mut().set_text(changed.clone());
+                restore();
+                let mut frames = vec![container.borrow_mut().render(30)];
+                let focus = if mode.ui.get_focused_component().is_some_and(|focused|Rc::ptr_eq(&focused,&second)) {1} else {-1};
+                container.borrow_mut().clear();
+                mode.ui.set_focus(None);
+                restore();
+                frames.push(container.borrow_mut().render(30));
+                let focus_again = if mode.ui.get_focused_component().is_some_and(|focused|Rc::ptr_eq(&focused,&second)) {1} else {-1};
+                let request = pi_js_compat::js_json!({
+                    "id":"editor-restore", "module":"modes/interactive/editor-dialog-restore.ts", "operation":"editorRestore",
+                    "texts":[raw,"second"],"changedText":changed,"focusIndex":focus_index,"width":30,
+                });
+                let expected = oracle.request(&request);
+                assert_eq!(expected.get("ok"),Some(&JsValue::Bool(true)),"{expected:?}");
+                assert_eq!(pi_js_compat::js_json!({"frames":frames,"focus":focus,"focusAgain":focus_again}),expected.get("output").unwrap().clone());
+            }
+        }).await;
     }
 
     async fn build_mode() -> (
