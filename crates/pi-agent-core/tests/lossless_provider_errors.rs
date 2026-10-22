@@ -72,6 +72,100 @@ async fn native_stream_failure_reaches_agent_result_without_display_projection()
     assert_eq!(stream.result().await.unwrap_err().message(), &raw_error());
 }
 
+#[tokio::test]
+async fn agent_failure_keeps_state_listener_and_persisted_message_native() {
+    use pi_agent_core::agent::{Agent, AgentEvent, AgentOptions};
+    use std::sync::Mutex;
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(Arc::new(|_, _, _| {
+            Box::pin(async {
+                let (sender, stream) = create_assistant_message_event_stream();
+                sender.fail(StreamFailure::new(raw_error()));
+                stream
+            })
+        })),
+        ..Default::default()
+    })
+    .unwrap();
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let listener_messages = observed.clone();
+    agent.subscribe(Arc::new(move |event, _| {
+        if let AgentEvent::MessageEnd {
+            message: AgentMessage::Assistant(message),
+        } = event
+        {
+            listener_messages.lock().unwrap().push(message.error_message.clone());
+        }
+        Box::pin(async { Ok(()) })
+    }));
+    agent.prompt("start").await.unwrap();
+    assert_eq!(agent.error_message(), Some(raw_error()));
+    assert_eq!(*observed.lock().unwrap(), vec![Some(raw_error())]);
+    let wire = serde_json::to_string(agent.messages().last().unwrap()).unwrap();
+    let restored: AgentMessage = serde_json::from_str(&wire).unwrap();
+    assert_eq!(restored.as_assistant().unwrap().error_message, Some(raw_error()));
+}
+
+#[tokio::test]
+async fn compaction_retry_callbacks_keep_raw_provider_messages() {
+    use pi_agent_core::harness::compaction::generate_summary_with_usage_with_callbacks;
+    use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy};
+    #[derive(Default)]
+    struct Callbacks {
+        scheduled: Vec<JsString>,
+        finished: Vec<Option<JsString>>,
+    }
+    impl RetryCallbacks for Callbacks {
+        async fn on_retry_scheduled<'a>(&'a mut self, _: u32, _: u32, _: f64, message: &'a JsString) {
+            self.scheduled.push(message.clone());
+        }
+        async fn on_retry_finished(&mut self, _: bool, _: u32, message: Option<&JsString>) {
+            self.finished.push(message.cloned());
+        }
+    }
+    let faux = faux_provider(RegisterFauxProviderOptions::default());
+    let model = faux.get_model(None).unwrap();
+    let models = create_models(CreateModelsOptions::default());
+    models.set_provider(Arc::clone(&faux.provider));
+    let failure = faux_assistant_message(
+        "",
+        FauxAssistantMessageOptions {
+            stop_reason: Some(StopReason::Error),
+            error_message: Some(raw_error()),
+            ..Default::default()
+        },
+    );
+    faux.set_responses(vec![
+        FauxResponseStep::message(failure.clone()),
+        FauxResponseStep::message(failure),
+    ]);
+    let policy = RetryPolicy {
+        enabled: true,
+        max_retries: 1,
+        base_delay_ms: 0.0,
+    };
+    let mut callbacks = Callbacks::default();
+    let error = generate_summary_with_usage_with_callbacks(
+        &GenerateSummaryOptions {
+            current_messages: &[],
+            models: &models,
+            model: &model,
+            reserve_tokens: 100.0,
+            signal: None,
+            custom_instructions: None,
+            previous_summary: None,
+            thinking_level: None,
+            retry: Some(&policy),
+        },
+        Some(&mut callbacks),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(callbacks.scheduled, vec![raw_error()]);
+    assert_eq!(callbacks.finished, vec![Some(raw_error())]);
+    assert_eq!(error.message, JsString::from("Summarization failed: ") + raw_error());
+}
+
 #[test]
 fn persisted_provider_failure_keeps_native_units() {
     let mut message = AssistantMessage::empty("openai-responses", "openai", "probe", 0);
