@@ -7,10 +7,14 @@ Actual in-crate baseline `agents_core_drift` at `27410344`: five intended behavi
 | Boundary | Implementation | Proof |
 |---|---|---|
 | Registration API errors | Helpers/top-level registration propagate the original error in source order | RED observed; focused GREEN pending |
-| Completion-time UI lookup | Resolve current UI after dispatch settles; errors reach the existing process uncaught handler | RED observed; focused GREEN pending |
+| Completion-time UI lookup | Resolve current UI after dispatch settles; errors reach the existing process uncaught handler | Uncaught exit/message fixed; exact-stderr assertion remains RED because of an extra stale mirror diagnostic |
 | Post-construction session lookup | Fallible lookup occurs after construction and before admission; no error-to-path fallback | RED observed; focused GREEN pending |
 | Accessed profile model / unrelated fields | Raw profile getter; model registry read precedes source-equivalent model-type error; consumers project accessed fields only | Two REDs observed; focused GREEN pending |
 | Tracked-agent DB read | Queued | Unit RED-intent remains unexecuted; public integration fixture pending |
+
+### Stale mirror diagnostic — provisional DRIFT / fixture mismatch
+
+`agents-core-drift-incrate-green.log` shows an extra native `Failed to mirror lifecycle notification message_1: ...` line before the correct uncaught UI error. Existing source-only `agents-core-ui-source.log` has no mirror diagnostic. Full-stderr equality is retained as RED; the relaxed-assertion run is not acceptance proof. Native catch/report site: `mailbox_runtime.rs` lifecycle listener. Frozen listener delegates errors (`runtime.ts:2917–2934`); store catches/logs them (`multi-agent-store.ts:1173–1180`). The fixtures currently invalidate different state: native `runner.invalidate()` stales every getter, while the source case stales UI only. Frozen runner guards both UI and sessionManager (`runner.ts:813–815,833–835`). Align source lifetime fidelity and observe its stderr before classifying or changing production reporting.
 
 ## Source-backed error boundaries
 

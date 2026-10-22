@@ -310,10 +310,10 @@ fn public_background_completion_uses_live_ui_and_reports_async_getter_failure() 
                 Some(1),
                 "async UI failure must reach the process uncaught handler"
             );
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let expected_error = format!("Error: {}", expected["failure"].as_str().unwrap());
-            // Independent lifecycle observers can also report the expired context.
-            assert_eq!(stderr.lines().last(), Some(expected_error.as_str()));
+            assert_eq!(
+                String::from_utf8_lossy(&output.stderr).trim(),
+                format!("Error: {}", expected["failure"].as_str().unwrap())
+            );
         } else {
             assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         }
