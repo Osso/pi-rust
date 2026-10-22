@@ -2,6 +2,8 @@
 
 use std::sync::{Arc, LazyLock, Mutex};
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
+
 use crate::types::ProviderEnv;
 use crate::utils::provider_env::resolve_provider_env_value;
 
@@ -45,7 +47,7 @@ impl VertexAdc {
             .and_then(|env| env.get(GOOGLE_APPLICATION_CREDENTIALS))
             .filter(|path| !path.is_empty())
         {
-            return (self.file_exists)(path);
+            return (self.file_exists)(&encode_node_utf8(path));
         }
 
         let mut cached = self.cached.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -137,7 +139,7 @@ pub fn find_env_keys_with(
 }
 
 /// Get an API key for `provider` from known environment variables.
-pub fn get_env_api_key(provider: &str, env: Option<&ProviderEnv>) -> Option<String> {
+pub fn get_env_api_key(provider: &str, env: Option<&ProviderEnv>) -> Option<JsString> {
     get_env_api_key_with(provider, env, pi_js_compat::process_env::get, &DEFAULT_VERTEX_ADC)
 }
 
@@ -148,7 +150,7 @@ pub fn get_env_api_key_with(
     env: Option<&ProviderEnv>,
     process_env: impl Fn(&str) -> Option<String>,
     vertex_adc: &VertexAdc,
-) -> Option<String> {
+) -> Option<JsString> {
     if let Some(env_keys) = find_env_keys_with(provider, env, &process_env) {
         let api_key_env = if provider == "anthropic" {
             env_keys.iter().find(|key| *key != ANTHROPIC_AUTH_TOKEN_ENV)
@@ -163,11 +165,11 @@ pub fn get_env_api_key_with(
     }
 
     if provider == "google-vertex" && has_vertex_credentials(env, &process_env, vertex_adc) {
-        return Some("<authenticated>".to_owned());
+        return Some("<authenticated>".into());
     }
 
     if provider == "amazon-bedrock" && has_bedrock_credentials(env, &process_env) {
-        return Some("<authenticated>".to_owned());
+        return Some("<authenticated>".into());
     }
 
     None

@@ -187,10 +187,13 @@ pub enum SessionAffinityFormat {
     Openrouter,
 }
 
-/// `ProviderEnv`: provider-scoped environment overrides.
-pub type ProviderEnv = IndexMap<String, String>;
+/// `ProviderEnv`: provider-scoped environment overrides. Variable names are
+/// opaque scalar names; values keep exact UTF-16 until an OS/HTTP boundary.
+pub type ProviderEnv = IndexMap<String, JsString>;
 /// `ProviderHeaders`: `None` suppresses a default header of the same name.
-pub type ProviderHeaders = IndexMap<String, Option<String>>;
+/// Header names are opaque scalar names; values reach the wire through
+/// `request::header_value`.
+pub type ProviderHeaders = IndexMap<String, Option<JsString>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderNativeFormat {

@@ -784,7 +784,7 @@ impl AuthStorage {
         if !options.include_fallback {
             return Ok(None);
         }
-        Ok(pi_ai::env_api_keys::get_env_api_key(provider_id, None).map(JsString::from))
+        Ok(pi_ai::env_api_keys::get_env_api_key(provider_id, None))
     }
 }
 
