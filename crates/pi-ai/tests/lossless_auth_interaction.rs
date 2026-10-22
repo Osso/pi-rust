@@ -73,3 +73,15 @@ fn http_url_replaces_lone_units_only_when_parsing_url() {
     );
     assert_eq!(raw.units()[21], 0xd800);
 }
+
+#[tokio::test]
+async fn auth_context_encodes_raw_path_only_at_filesystem_lookup() {
+    let directory = tempfile::tempdir().unwrap();
+    let raw = JsString::from(directory.path().to_str().unwrap()) + "/" + JsString::from_utf16(vec![0xd800]);
+    std::fs::write(pi_js_compat::js_json::encode_node_utf8(&raw), b"fixture").unwrap();
+    assert!(
+        pi_ai::auth::context::default_provider_auth_context()
+            .file_exists(&raw)
+            .await
+    );
+}

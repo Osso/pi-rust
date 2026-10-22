@@ -31,12 +31,12 @@ struct TestAuthContext {
 }
 
 impl AuthContext for TestAuthContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<String>> {
+    fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
         let value = self.env.get(name).cloned();
         Box::pin(async move { value })
     }
 
-    fn file_exists(&self, path: &str) -> BoxFuture<'_, bool> {
+    fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
         let exists = self.files.iter().any(|file| file == path);
         Box::pin(async move { exists })
     }

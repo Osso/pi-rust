@@ -436,7 +436,7 @@ struct OverlayAuthContext {
 }
 
 impl AuthContext for OverlayAuthContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<String>> {
+    fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
         let value = self.env.get(name).filter(|value| !value.is_empty()).cloned();
         let base = Arc::clone(&self.base);
         let name = name.to_owned();
@@ -448,7 +448,7 @@ impl AuthContext for OverlayAuthContext {
         })
     }
 
-    fn file_exists(&self, path: &str) -> BoxFuture<'_, bool> {
+    fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
         self.base.file_exists(path)
     }
 }

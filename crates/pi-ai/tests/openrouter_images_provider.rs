@@ -12,12 +12,12 @@ struct FakeAuthContext {
 }
 
 impl AuthContext for FakeAuthContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<String>> {
+    fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
         let value = self.env.get(name).cloned();
         Box::pin(async move { value })
     }
 
-    fn file_exists(&self, _path: &str) -> BoxFuture<'_, bool> {
+    fn file_exists(&self, _path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
         Box::pin(async { false })
     }
 }

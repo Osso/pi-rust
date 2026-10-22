@@ -254,9 +254,9 @@ impl AuthType {
 
 /// Environment access for auth resolution.
 pub trait AuthContext: Send + Sync {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<String>>;
+    fn env(&self, name: &str) -> BoxFuture<'_, Option<JsString>>;
     /// Supports a leading `~`.
-    fn file_exists(&self, path: &str) -> BoxFuture<'_, bool>;
+    fn file_exists(&self, path: &JsString) -> BoxFuture<'_, bool>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

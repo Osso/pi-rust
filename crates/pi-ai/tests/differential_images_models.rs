@@ -54,11 +54,11 @@ fn ok_result(model: &ImagesModel) -> AssistantImages {
 struct NoAuthContext;
 
 impl AuthContext for NoAuthContext {
-    fn env(&self, _name: &str) -> BoxFuture<'_, Option<String>> {
+    fn env(&self, _name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
         Box::pin(async { None })
     }
 
-    fn file_exists(&self, _path: &str) -> BoxFuture<'_, bool> {
+    fn file_exists(&self, _path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
         Box::pin(async { false })
     }
 }
