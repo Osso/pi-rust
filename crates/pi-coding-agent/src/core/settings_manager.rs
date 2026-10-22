@@ -716,8 +716,8 @@ impl SettingsManager {
         settings
     }
 
-    pub fn get_agent_profile(&self, agent_type: &str) -> Option<AgentProfileSettings> {
-        let normalized = pi_js_compat::string::js_trim(agent_type);
+    pub fn get_agent_profile(&self, agent_type: &JsString) -> Option<AgentProfileSettings> {
+        let normalized = agent_type.trim();
         if normalized.is_empty() {
             return None;
         }
@@ -725,10 +725,10 @@ impl SettingsManager {
             .settings
             .get("agents")
             .and_then(Value::as_object)
-            .and_then(|agents| agents.get(normalized));
+            .and_then(|agents| agents.get(&normalized));
         match configured.filter(|value| !value.is_null()) {
             Some(value) => js_json::from_value(value).ok(),
-            None => default_agent_profile(normalized),
+            None => normalized.to_utf8().ok().as_deref().and_then(default_agent_profile),
         }
     }
 

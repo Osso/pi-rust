@@ -121,7 +121,7 @@ pub fn empty_agent(agent_id: impl Into<JsString>) -> AgentSnapshot {
         id: agent_id.clone(),
         parent_id: None,
         display_name: agent_id,
-        agent_type: "unknown".to_owned(),
+        agent_type: "unknown".into(),
         origin: None,
         lifecycle: AgentLifecycle::Failed,
         revision: 0,
@@ -132,7 +132,7 @@ pub fn empty_agent(agent_id: impl Into<JsString>) -> AgentSnapshot {
         model: None,
         account: None,
         permission: AgentPermission {
-            policy: "on-request".to_owned(),
+            policy: "on-request".into(),
             inherited_from: None,
             narrowed: true,
         },

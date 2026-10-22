@@ -4,8 +4,8 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use pi_js_compat::js_json::JsValue as Value;
 use pi_js_compat::js_json::{self, JsString, JsValue};
-use serde_json::Value;
 
 use crate::core::multi_agent_store::{
     AgentError, AgentMailboxMessage, AgentResult, AgentSnapshot, SpawnAgent, SteeringCheckpoint,
@@ -75,13 +75,13 @@ pub struct PrepareChildCommandInput {
     pub result: Option<AgentResult>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OwnedLifecycleCommandInput {
     pub agent: AgentSnapshot,
     pub ownership: MultiAgentRuntimeOwnership,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SteeringDeliveryCommandInput {
     pub agent: AgentSnapshot,
     pub ownership: MultiAgentRuntimeOwnership,
@@ -100,7 +100,7 @@ pub struct SteeringCommandInput {
     pub file_refs: Option<JsValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DetachedCancellationCommandInput {
     pub agent: AgentSnapshot,
     pub ownership: MultiAgentRuntimeOwnership,
@@ -108,7 +108,7 @@ pub struct DetachedCancellationCommandInput {
     pub reason: Option<JsString>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RecoverDeadChildCommandInput {
     pub agent: AgentSnapshot,
     pub ownership: MultiAgentRuntimeOwnership,
@@ -116,7 +116,7 @@ pub struct RecoverDeadChildCommandInput {
     pub supervisor_agent_id: Option<JsString>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FinalizeChildCommandInput {
     pub agent: AgentSnapshot,
     pub ownership: MultiAgentRuntimeOwnership,
@@ -125,7 +125,7 @@ pub struct FinalizeChildCommandInput {
     pub terminal_lifecycle: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LifecycleCommandResult {
     Ok { agent: Box<AgentSnapshot> },
     Err { error: LifecycleCommandError },
@@ -142,7 +142,7 @@ pub enum SteeringCommandResult {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RecoverDeadChildCommandResult {
     Ok { agent: Box<AgentSnapshot> },
     Err { error: RecoverDeadRuntimeError },
@@ -378,14 +378,12 @@ impl LifecycleCoordinator {
             },
         )?;
         match recovered {
-            RecoverDeadMultiAgentRuntimeResult::Ok { agent, .. } => {
-                match serde_json::from_value(Value::Object(agent)) {
-                    Ok(agent) => Ok(RecoverDeadChildCommandResult::Ok { agent: Box::new(agent) }),
-                    Err(_) => Ok(RecoverDeadChildCommandResult::Err {
-                        error: RecoverDeadRuntimeError::MutationMismatch,
-                    }),
-                }
-            }
+            RecoverDeadMultiAgentRuntimeResult::Ok { agent, .. } => match js_json::from_value(&Value::Object(agent)) {
+                Ok(agent) => Ok(RecoverDeadChildCommandResult::Ok { agent: Box::new(agent) }),
+                Err(_) => Ok(RecoverDeadChildCommandResult::Err {
+                    error: RecoverDeadRuntimeError::MutationMismatch,
+                }),
+            },
             RecoverDeadMultiAgentRuntimeResult::Err { error } => Ok(RecoverDeadChildCommandResult::Err { error }),
         }
     }
@@ -643,7 +641,7 @@ fn snapshot_from_spawn(input: &SpawnAgent, now_iso: String, agent_id: JsString) 
         current_activity: None,
         last_activity: None,
         error: None,
-        extra: serde_json::Map::new(),
+        extra: pi_js_compat::js_json::JsObject::new(),
     }
 }
 
