@@ -1,5 +1,11 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Q18 single JSON authority slice
+
+Stored agent/mailbox/request/schema JSON must use one `JsObject`/`JsValue` parser and lossless serializer, without a parallel scalar parsed object. `lossless_control_json_authority` adds source-written raw name/parentId/distinct-key metadata-patch byte preservation and native parent-request match/replacement-rejection regressions. Both are RED-intent, committed unexecuted while the coding library is blocked; no implementation or acceptance proof yet.
+
+Main decision (2026-10-22): process identity JSON is internal ASCII; not part of the lossless text authority. Preserve its existing serialized `String` carrier and SQL bindings; its escaped JSON representation is distinct from parsed human text/IDs.
+
 ## Blocking canonical JSON counterexample — current group is not accepted
 
 `repin_control_raw_json::canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim` is RED. A real frozen TS enqueue writes body `before\ud800after`; native runtime projection replaces U+D800 with U+FFFD. The original `489d4381` run also showed claim rewriting the canonical stored body; `canonical-raw-json-red.log` records both code-unit changes. Subsequent bounded status/recovery fixes below preserve the original canonical JSON, but the combined source→public regression remains OPEN.
