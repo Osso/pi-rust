@@ -10,7 +10,7 @@ Frozen source: `4f9e6f8a4`, `packages/ai/src/api/{openai-completions,openai-resp
 | Mistral SSE → content/arguments | Native parse and argument buffers; frozen ingress sanitizeSurrogates calls retained | Real loopback sanitized text/thinking and raw nested arguments |
 | Scalar protocol metadata | Exact protocol paths checked before scalar extraction; unpaired units produce stream error, not replacement/drop | Pending user classification; not full metadata parity |
 
-Raw human SDK/provider error text is a **separate unapproved content/error gap**, not opaque metadata: existing String error records/formatters and serde ProviderError payloads remain scalar. Existing error/status/cancellation semantics are retained; no full raw failure-path parity claim.
+Raw human SDK/provider errors were excluded from this ingress slice. The subsequent [human provider error slice](lossless-provider-errors.md) replaces those scalar message/payload records and records its own bounded failure-path proofs. Opaque metadata approval remains separate.
 
 No outgoing builder, shared type, core or coding-agent changes. `SdkJsonResponse.data` remains scalar: its only consumer is non-stream OpenRouter image generation, outside this text-stream slice.
 
