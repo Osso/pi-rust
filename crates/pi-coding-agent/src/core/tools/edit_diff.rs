@@ -113,12 +113,12 @@ pub fn generate_diff_string(
 pub async fn compute_edits_diff(
     path: impl Into<JsString>,
     edits: &[Edit],
-    cwd: &str,
+    cwd: impl Into<JsString>,
 ) -> Result<EditDiffOutcome, PathError> {
     let path = path.into();
     let path = &path;
 
-    let absolute_path = resolve_to_cwd(&encode_node_utf8(path), cwd)?;
+    let absolute_path = resolve_to_cwd(path, cwd)?;
     let raw_content = match read_editable_file(&absolute_path, path).await {
         Ok(content) => content,
         Err(error) => return Ok(EditDiffOutcome::Error(error)),
@@ -139,7 +139,7 @@ pub async fn compute_edit_diff(
     path: impl Into<JsString>,
     old_text: impl Into<JsString>,
     new_text: impl Into<JsString>,
-    cwd: &str,
+    cwd: impl Into<JsString>,
 ) -> Result<EditDiffOutcome, PathError> {
     let path = path.into();
     let path = &path;
@@ -155,8 +155,9 @@ pub async fn compute_edit_diff(
     compute_edits_diff(path, &edits, cwd).await
 }
 
-async fn read_editable_file(absolute_path: &str, display_path: &JsString) -> Result<String, JsString> {
-    let mut file = match tokio::fs::File::open(absolute_path).await {
+async fn read_editable_file(absolute_path: &JsString, display_path: &JsString) -> Result<String, JsString> {
+    let absolute_path = encode_node_utf8(absolute_path);
+    let mut file = match tokio::fs::File::open(&absolute_path).await {
         Ok(file) => file,
         Err(error) => {
             return Err(JsString::from("Could not edit file: ")
@@ -167,7 +168,7 @@ async fn read_editable_file(absolute_path: &str, display_path: &JsString) -> Res
     let mut bytes = Vec::new();
     match file.read_to_end(&mut bytes).await {
         Ok(_) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
-        Err(error) => Err(node_promises_read_error(&error, absolute_path).into()),
+        Err(error) => Err(node_promises_read_error(&error, &absolute_path).into()),
     }
 }
 

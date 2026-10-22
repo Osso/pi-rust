@@ -23,6 +23,18 @@ async function main() {
 			continue;
 		}
 		const calls: unknown[] = [];
+		if (input.kind === "edit") {
+			const tool = module.createEditTool(input.cwd, {
+				operations: {
+					access: async (path: string) => { calls.push(["access",path]); },
+					readFile: async (path: string) => { calls.push(["read",path]); return Buffer.from("😀"); },
+					writeFile: async (path: string, content: string) => { calls.push(["write",path,content]); },
+				},
+			});
+			const result = await tool.execute("raw-edit", input.params);
+			process.stdout.write(`${JSON.stringify({calls,result})}\n`);
+			continue;
+		}
 		if (input.kind === "read") {
 			const tool = module.createReadTool(input.cwd, {
 				operations: {

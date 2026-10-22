@@ -3,6 +3,7 @@
 //! Queued exact-text replacements with fuzzy/CRLF handling delegated to the
 //! shared `edit_diff` module.
 
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::io;
@@ -51,9 +52,9 @@ pub const EDIT_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribut
 
 /// File access used by [`EditTool`]. Override to delegate edits to a remote system.
 pub trait EditOperations: Send + Sync {
-    fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>>;
-    fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, io::Result<()>>;
-    fn access<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<()>>;
+    fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>>;
+    fn write_file<'a>(&'a self, absolute_path: &'a JsString, content: &'a JsString) -> BoxFuture<'a, io::Result<()>>;
+    fn access<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<()>>;
 }
 
 /// Local filesystem operations.
@@ -61,24 +62,27 @@ pub trait EditOperations: Send + Sync {
 pub struct LocalEditOperations;
 
 impl EditOperations for LocalEditOperations {
-    fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+    fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async move {
-            tokio::fs::read(absolute_path)
+            let absolute_path = encode_node_utf8(absolute_path);
+            tokio::fs::read(&absolute_path)
                 .await
-                .map_err(|error| io::Error::other(super::node_fs::node_fs_error(&error, "open", absolute_path)))
+                .map_err(|error| io::Error::other(super::node_fs::node_fs_error(&error, "open", &absolute_path)))
         })
     }
 
-    fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn write_file<'a>(&'a self, absolute_path: &'a JsString, content: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
-            tokio::fs::write(absolute_path, content)
+            let absolute_path = encode_node_utf8(absolute_path);
+            tokio::fs::write(&absolute_path, encode_node_utf8(content))
                 .await
-                .map_err(|error| io::Error::other(super::node_fs::node_fs_error(&error, "open", absolute_path)))
+                .map_err(|error| io::Error::other(super::node_fs::node_fs_error(&error, "open", &absolute_path)))
         })
     }
 
-    fn access<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn access<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
+            let absolute_path = encode_node_utf8(absolute_path);
             let path = std::ffi::CString::new(absolute_path)
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains a NUL byte"))?;
             rustix::fs::access(
@@ -99,17 +103,17 @@ pub struct EditToolOptions {
 
 /// Edits a single file with exact-text replacements.
 pub struct EditTool {
-    cwd: String,
+    cwd: JsString,
     parameters: SchemaValue,
     operations: Arc<dyn EditOperations>,
 }
 
 impl EditTool {
-    pub fn new(cwd: impl Into<String>) -> Self {
+    pub fn new(cwd: impl Into<JsString>) -> Self {
         Self::with_options(cwd, EditToolOptions::default())
     }
 
-    pub fn with_options(cwd: impl Into<String>, options: EditToolOptions) -> Self {
+    pub fn with_options(cwd: impl Into<JsString>, options: EditToolOptions) -> Self {
         Self {
             cwd: cwd.into(),
             parameters: edit_schema(),
@@ -247,14 +251,13 @@ fn parse_edit_input(input: &Value) -> Result<(JsString, Vec<Edit>), ToolError> {
 }
 
 async fn execute_edit(
-    cwd: &str,
+    cwd: &JsString,
     operations: Arc<dyn EditOperations>,
     params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let (path, edits) = parse_edit_input(&params)?;
-    let absolute_path =
-        resolve_to_cwd(&encode_node_utf8(&path), cwd).map_err(|error| ToolError::new(error.to_string()))?;
+    let absolute_path = resolve_to_cwd(&path, cwd).map_err(|error| ToolError::new(error.message().clone()))?;
     with_file_mutation_queue(&absolute_path, || async {
         check_aborted(signal.as_ref())?;
         if let Err(error) = operations.access(&absolute_path).await {
@@ -280,9 +283,8 @@ async fn execute_edit(
         check_aborted(signal.as_ref())?;
 
         let final_content = bom.bom + restore_line_endings(&applied.new_content, original_ending);
-        let encoded_content = encode_node_utf8(&final_content);
         operations
-            .write_file(&absolute_path, &encoded_content)
+            .write_file(&absolute_path, &final_content)
             .await
             .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
         check_aborted(signal.as_ref())?;
@@ -368,26 +370,24 @@ fn preview_to_state(preview: &EditPreview) -> Value {
     }
 }
 
-fn preview_args_key_from_state(state: &Value) -> Option<String> {
-    state
-        .get(PREVIEW_ARGS_KEY)
-        .and_then(Value::as_string)
-        .and_then(|text| text.to_utf8().ok())
+fn preview_args_key_from_state(state: &Value) -> Option<JsString> {
+    state.get(PREVIEW_ARGS_KEY).and_then(Value::as_string).cloned()
 }
 
-fn render_args_path(args: &JsValue) -> Option<String> {
+fn render_args_path(args: &JsValue) -> Option<JsString> {
     match args.get("file_path") {
-        Some(Value::Null) | None => args.get("path").and_then(Value::as_string).map(encode_node_utf8),
-        Some(Value::String(path)) => Some(encode_node_utf8(path)),
+        Some(Value::Null) | None => args.get("path").and_then(Value::as_string).cloned(),
+        Some(Value::String(path)) => Some(path.clone()),
         Some(_) => None,
     }
 }
 
-fn format_edit_call(args: &JsValue, theme: &Theme, cwd: &str) -> String {
-    let path_display = render_tool_path(render_args_path(args).as_deref(), theme, cwd, None);
-    format!(
-        "{} {path_display}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("edit"))
+fn format_edit_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> JsString {
+    let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None);
+    js_format!(
+        "{} {}",
+        theme.fg(ThemeColor::ToolTitle, &theme.bold("edit")),
+        path_display
     )
 }
 
@@ -424,8 +424,8 @@ fn get_renderable_preview_input(args: &JsValue) -> Option<(JsString, Vec<Edit>, 
     Some((path, edits, json!([{"oldText": old_text, "newText": new_text}])))
 }
 
-fn preview_args_key(path: &JsString, raw_edits: &Value) -> String {
-    serde_json::to_string(&json!({"path": path, "edits": raw_edits})).expect("preview key must serialize")
+fn preview_args_key(path: &JsString, raw_edits: &Value) -> JsString {
+    pi_js_compat::js_json::stringify_lossless(&json!({"path": path, "edits": raw_edits})).into()
 }
 
 fn edit_header_bg(preview: Option<&EditPreview>, settled_error: bool) -> ThemeBg {
@@ -457,7 +457,7 @@ fn fill_edit_call_component(
     preview: Option<&EditPreview>,
     settled_error: bool,
     theme: &Theme,
-    cwd: &str,
+    cwd: &JsString,
 ) {
     let background = edit_header_bg(preview, settled_error);
     let background_theme = theme.clone();
@@ -468,7 +468,9 @@ fn fill_edit_call_component(
     else {
         return;
     };
-    box_component.set_bg_fn(Some(Rc::new(move |text: &str| background_theme.bg(background, text))));
+    box_component.set_bg_fn(Some(Rc::new(move |text: &JsString| {
+        background_theme.bg(background, text)
+    })));
     box_component.clear();
     box_component.add_child(Rc::new(RefCell::new(Text::new(
         format_edit_call(args, theme, cwd),
@@ -480,7 +482,7 @@ fn fill_edit_call_component(
         return;
     };
     let body = match preview {
-        EditPreview::Error(error) => theme.fg(ThemeColor::Error, &encode_node_utf8(error)),
+        EditPreview::Error(error) => theme.fg(ThemeColor::Error, error),
         EditPreview::Diff { diff, .. } => render_diff(diff),
     };
     box_component.add_child(Rc::new(RefCell::new(Spacer::new(1))));
@@ -490,7 +492,7 @@ fn fill_edit_call_component(
 fn set_edit_preview(
     state: &crate::core::extensions::types::ToolRenderState,
     preview: EditPreview,
-    args_key: Option<String>,
+    args_key: Option<JsString>,
 ) -> bool {
     let current = preview_from_state(&state.get());
     let changed = match (&current, &preview) {
@@ -527,8 +529,8 @@ fn request_edit_preview(
     state: &crate::core::extensions::types::ToolRenderState,
     path: JsString,
     edits: Vec<Edit>,
-    cwd: String,
-    args_key: Option<String>,
+    cwd: JsString,
+    args_key: Option<JsString>,
     invalidate: Arc<dyn Fn() + Send + Sync>,
 ) {
     state.update(|state| {
@@ -619,7 +621,7 @@ fn format_edit_result(
     result: &AgentToolResult,
     theme: &Theme,
     is_error: bool,
-) -> Option<String> {
+) -> Option<JsString> {
     let preview_diff = match preview {
         Some(EditPreview::Diff { diff, .. }) => Some(diff),
         _ => None,
@@ -639,7 +641,7 @@ fn format_edit_result(
         if error_text.is_empty() || Some(&error_text) == preview_error {
             return None;
         }
-        return Some(theme.fg(ThemeColor::Error, &encode_node_utf8(&error_text)));
+        return Some(theme.fg(ThemeColor::Error, &error_text));
     }
 
     let result_diff = result
@@ -733,7 +735,7 @@ pub fn render_result(
 }
 
 /// `createEditToolDefinition`: the edit tool plus its renderers.
-pub fn create_edit_tool_definition(cwd: &str, options: EditToolOptions) -> ToolDefinition {
+pub fn create_edit_tool_definition(cwd: impl Into<JsString>, options: EditToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(EditTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.prompt_snippet = Some(EDIT_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
@@ -751,6 +753,6 @@ pub fn create_edit_tool_definition(cwd: &str, options: EditToolOptions) -> ToolD
 }
 
 /// `createEditTool`: the edit tool wrapped with the shared result cap.
-pub fn create_edit_tool(cwd: &str, options: EditToolOptions) -> Arc<dyn AgentTool> {
+pub fn create_edit_tool(cwd: impl Into<JsString>, options: EditToolOptions) -> Arc<dyn AgentTool> {
     wrap_agent_tool(Arc::new(EditTool::with_options(cwd, options)))
 }

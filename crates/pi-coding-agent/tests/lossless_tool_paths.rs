@@ -53,6 +53,75 @@ async fn local_write_error_matches_node_original_path_units() {
     );
 }
 
+#[derive(Default)]
+struct RecordingEdit {
+    calls: Mutex<Vec<JsValue>>,
+}
+impl pi_coding_agent::core::tools::edit::EditOperations for RecordingEdit {
+    fn access<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(pi_js_compat::js_json!(["access", path]));
+            Ok(())
+        })
+    }
+    fn read_file<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+        Box::pin(async move {
+            self.calls.lock().unwrap().push(pi_js_compat::js_json!(["read", path]));
+            Ok("😀".as_bytes().to_vec())
+        })
+    }
+    fn write_file<'a>(&'a self, path: &'a JsString, content: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(pi_js_compat::js_json!(["write", path, content]));
+            Ok(())
+        })
+    }
+}
+
+#[tokio::test]
+async fn custom_edit_receives_raw_path_and_inside_pair_replacement_content() {
+    use pi_coding_agent::core::tools::edit::{EditTool, EditToolOptions};
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(directory.path().to_str().unwrap()) + "/cwd-" + JsString::from_utf16(vec![0xd800]);
+    let params = parse_lossless(r#"{"path":"file-\udfff","edits":[{"oldText":"\ude00","newText":"x"}]}"#).unwrap();
+    let operations = Arc::new(RecordingEdit::default());
+    let tool = EditTool::with_options(
+        &cwd,
+        EditToolOptions {
+            operations: Some(operations.clone()),
+        },
+    );
+    let actual = tool
+        .execute("edit".into(), params.clone(), None, Arc::new(|_| {}), None)
+        .await
+        .unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-tool-paths-oracle.ts",
+        "packages/coding-agent/src/core/tools/edit.ts",
+    );
+    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"edit","cwd":cwd,"params":params}));
+    assert_eq!(
+        JsValue::Array(operations.calls.lock().unwrap().clone()),
+        expected["calls"]
+    );
+    let TextOrImageContent::Text(text) = &actual.content[0] else {
+        panic!("text")
+    };
+    assert_eq!(
+        &text.text,
+        expected["result"]["content"].as_array().unwrap()[0]["text"]
+            .as_string()
+            .unwrap()
+    );
+    assert_eq!(actual.details.as_ref().unwrap(), &expected["result"]["details"]);
+}
+
 struct RecordingRead {
     calls: Mutex<Vec<JsValue>>,
     bytes: Vec<u8>,
