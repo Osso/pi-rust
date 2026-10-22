@@ -387,6 +387,20 @@ async fn provider_failure_survives_jsonl_repo_close_and_reopen() {
         )
         .await
         .unwrap();
+    use pi_agent_core::harness::session::{OperationError, OperationOutcome, RecordBody, RecordQuery};
+    session
+        .append_record(RecordBody::OperationFinished {
+            id: "failed-op".into(),
+            lane: "main".into(),
+            run_id: "run".into(),
+            outcome: OperationOutcome::Failed,
+            error: Some(OperationError {
+                code: "provider_error".into(),
+                message: raw_error(),
+            }),
+        })
+        .await
+        .unwrap();
     let metadata = session.get_metadata().await.unwrap();
     drop(session);
     let restored = repo.open(&metadata).await.unwrap();
@@ -402,6 +416,11 @@ async fn provider_failure_survives_jsonl_repo_close_and_reopen() {
         panic!("persisted raw custom payload")
     };
     assert_eq!(message, &raw_payload);
+    let records = restored.find_records(RecordQuery::default()).await.unwrap();
+    let RecordBody::OperationFinished { error: Some(error), .. } = &records[0].body else {
+        panic!("persisted provider operation failure")
+    };
+    assert_eq!(error.message, raw_error());
 }
 
 #[test]

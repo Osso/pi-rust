@@ -3,6 +3,10 @@
 Rust: `crates/pi-agent-core/src/harness/session/jsonl/codec.rs`. Tests: `session_codec.rs`,
 `differential_session.rs` (codec + full file-byte comparisons).
 
+## Q18 native error persistence
+
+`lossless_provider_errors::provider_failure_survives_jsonl_repo_close_and_reopen` reproduces raw provider failure loss across append/drop/reopen: scalar root parsing first skipped the valid entry; native root parsing then exposed serde tagged/flattened buffering. Codec now parses JsValue once and decodes entry/record fields directly from that authority; no scalar preparse or alternate fallback. OperationError.message is JsString. Native custom message keys/payloads and operation failures are included in the durable-boundary fixture. Existing scalar session identity/header metadata contracts are not widened by this bounded consumer slice.
+
 ## Exports and branches
 
 | TypeScript | Rust | Tests | Notes |
