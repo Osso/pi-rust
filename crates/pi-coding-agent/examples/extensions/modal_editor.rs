@@ -2,6 +2,8 @@
 use super::editor_composition::{ComposedEditor, EditorBehavior};
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::components::custom_editor::CustomEditor;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use pi_tui::tui::Component;
 use pi_tui::utils::truncate_to_width_with;
 use pi_tui::{EditorComponent, matches_key, visible_width};
@@ -13,49 +15,50 @@ struct Modal {
     normal: bool,
 }
 impl EditorBehavior for Modal {
-    fn input(&mut self, editor: &mut CustomEditor, data: &str) -> Vec<Rc<dyn Fn()>> {
+    fn input(&mut self, editor: &mut CustomEditor, data: &JsString) -> Vec<Rc<dyn Fn()>> {
         if matches_key(data, "escape") {
             if self.normal {
-                return editor.handle_input_deferred(data);
+                return editor.handle_input_deferred(&JsString::from(data));
             }
             self.normal = true;
             return Vec::new();
         }
         if !self.normal {
-            return editor.handle_input_deferred(data);
+            return editor.handle_input_deferred(&JsString::from(data));
         }
         let sequence = match data {
-            "h" => "\x1b[D",
-            "j" => "\x1b[B",
-            "k" => "\x1b[A",
-            "l" => "\x1b[C",
-            "0" => "\x01",
-            "$" => "\x05",
-            "x" => "\x1b[3~",
-            "i" => {
+            data if data == "h" => JsString::from("\x1b[D"),
+            data if data == "j" => JsString::from("\x1b[B"),
+            data if data == "k" => JsString::from("\x1b[A"),
+            data if data == "l" => JsString::from("\x1b[C"),
+            data if data == "0" => JsString::from("\x01"),
+            data if data == "$" => JsString::from("\x05"),
+            data if data == "x" => JsString::from("\x1b[3~"),
+            data if data == "i" => {
                 self.normal = false;
                 return Vec::new();
             }
-            "a" => {
+            data if data == "a" => {
                 self.normal = false;
-                "\x1b[C"
+                JsString::from("\x1b[C")
             }
-            _ if data.encode_utf16().count() == 1 && data.chars().next().is_some_and(|c| c >= ' ') => {
+            _ if data.len() == 1 && data.units()[0] >= u16::from(b' ') => {
                 return Vec::new();
             }
-            _ => data,
+            _ => data.clone(),
         };
-        editor.handle_input_deferred(sequence)
+        editor.handle_input_deferred(&JsString::from(sequence))
     }
-    fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<String> {
+    fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<JsString> {
         let mut lines = editor.render(width);
         let label = if self.normal { " NORMAL " } else { " INSERT " };
         if let Some(last) = lines.last_mut()
-            && visible_width(last) >= label.len()
+            && visible_width(&*last) >= label.len()
         {
-            *last = format!(
-                "{}{label}",
-                truncate_to_width_with(last, width.saturating_sub(label.len()), "", false)
+            *last = js_format!(
+                "{}{}",
+                truncate_to_width_with(&*last, width.saturating_sub(label.len()), "", false),
+                label
             );
         }
         lines

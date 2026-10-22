@@ -1,4 +1,6 @@
 use futures_util::FutureExt;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 #[path = "extensions.rs"]
 mod extensions;
 #[path = "oracle.rs"]
@@ -95,14 +97,14 @@ impl ExtensionUiContext for Ui {
         });
         self.effects.lock().unwrap().push(json!(["footer", footer.render(80)]));
     }
-    fn notify(&self, message: &str, level: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, level: Option<NotifyType>) {
         self.effects.lock().unwrap().push(json!(["notify", message, level]));
     }
     fn custom<'a>(
         &'a self,
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
         Box::pin(async move {
             self.effects
                 .lock()
@@ -130,7 +132,7 @@ impl ExtensionUiContext for Ui {
             self.renders.lock().unwrap().push(record());
             for step in self.request["steps"].as_array().unwrap() {
                 if let Some(input) = step["input"].as_str() {
-                    component.handle_input(input);
+                    component.handle_input(&JsString::from(input));
                 }
                 if let Some(focused) = step["focus"].as_bool() {
                     component.set_focused(focused);
@@ -197,13 +199,13 @@ async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_
         .enumerate()
         .map(|(i, key)| {
             (
-                key.to_string(),
-                ColorValue::Text(format!(
+                JsString::from(*key),
+                ColorValue::Text(JsString::from(format!(
                     "#{:02x}{:02x}{:02x}",
                     (16 + 7 * i) % 256,
                     (32 + 11 * i) % 256,
                     (48 + 13 * i) % 256
-                )),
+                ))),
             )
         })
         .collect();
@@ -222,11 +224,11 @@ async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_
     let mut registry = ExtensionRegistry::new();
     registry.register(name, factory);
     let extension = load_extension_from_factory(
-        registry.get(name).unwrap().clone(),
-        cwd,
+        registry.get(&JsString::from(name)).unwrap().clone(),
+        &JsString::from(cwd),
         extensions::event_bus(),
         runtime.clone(),
-        name,
+        &JsString::from(name),
     )
     .await
     .unwrap();
@@ -289,7 +291,7 @@ async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_
     runner.set_ui_context(Some(ui.clone()), ExtensionMode::Tui);
     if name == "overlay-test" {
         let command = runner.get_command("overlay-test").unwrap();
-        (command.handler)(String::new(), runner.create_command_context())
+        (command.handler)(JsString::default(), runner.create_command_context())
             .await
             .unwrap();
     } else {
@@ -313,7 +315,7 @@ async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_
             base.on_action(
                 "app.clear",
                 Rc::new(move || {
-                    weak.upgrade().unwrap().borrow_mut().set_text("");
+                    weak.upgrade().unwrap().borrow_mut().set_text(&JsString::from(""));
                     true
                 }),
             );
@@ -345,7 +347,7 @@ async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_
                 }
             }
             if let Some(input) = step["input"].as_str() {
-                let callbacks = editor.borrow_mut().handle_input_deferred(input);
+                let callbacks = editor.borrow_mut().handle_input_deferred(&JsString::from(input));
                 for callback in callbacks {
                     callback();
                 }

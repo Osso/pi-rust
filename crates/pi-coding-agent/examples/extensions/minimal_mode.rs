@@ -5,8 +5,10 @@ use pi_coding_agent::core::{
     tools::{self, ToolsOptions},
 };
 use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor};
-use pi_js_compat::{number::js_number_to_string, string::js_trim};
-use serde_json::Value;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue as Value;
+use pi_js_compat::number::js_number_to_string;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 pub fn minimal_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
@@ -41,7 +43,7 @@ pub fn minimal_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         ),
     ] {
         let kind = tools::ToolName::from_name(name).expect("built-in name");
-        let mut definition = tools::create_tool_definition(kind, ".", ToolsOptions::default());
+        let mut definition = tools::create_tool_definition(kind, &JsString::from("."), ToolsOptions::default());
         definition.label = name.into();
         definition.description = description.into();
         definition.prompt_snippet = None;
@@ -60,39 +62,49 @@ pub fn minimal_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         }));
         definition.render_result = Some(Arc::new(move |result, options, theme, _| {
             let text = result.content.iter().find_map(|c| match c {
-                TextOrImageContent::Text(text) => Some(text.text.as_str()),
+                TextOrImageContent::Text(text) => Some(text.text.clone()),
                 _ => None,
             });
-            Ok(text_component(render_result(name, text, options.expanded, theme)))
+            Ok(text_component(render_result(
+                name,
+                text.as_ref(),
+                options.expanded,
+                theme,
+            )))
         }));
         pi.register_tool(definition)?;
     }
     Ok(())
 }
-fn text_component(text: String) -> pi_tui::tui::ComponentRef {
+fn text_component(text: JsString) -> pi_tui::tui::ComponentRef {
     Rc::new(RefCell::new(pi_tui::Text::new(text, 0, 0)))
 }
-fn string_arg<'a>(args: &'a Value, key: &str, default: &'a str) -> &'a str {
-    args[key].as_str().filter(|s| !s.is_empty()).unwrap_or(default)
+fn string_arg(args: &Value, key: &str, default: &str) -> JsString {
+    args[key]
+        .as_string()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| JsString::from(default))
 }
-fn shorten_path(path: &str) -> String {
+fn shorten_path(path: impl Into<JsString>) -> JsString {
+    let path = path.into();
     let home = std::env::var("HOME").unwrap_or_else(|error| panic!("HOME unavailable: {error}"));
     path.strip_prefix(&home)
-        .map_or_else(|| path.into(), |tail| format!("~{tail}"))
+        .map_or_else(|| path.clone(), |tail| js_format!("~{}", tail))
 }
 fn number_text(value: &Value) -> String {
     js_number_to_string(value.as_f64().expect("numeric tool parameter"))
 }
-fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
+fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
     use ThemeColor::{Accent, Muted, ToolOutput, ToolTitle, Warning};
     if name == "bash" {
         let command = string_arg(args, "command", "...");
         let suffix = if args["timeout"].as_f64().is_some_and(|n| n != 0.0) {
-            theme.fg(Muted, &format!(" (timeout {}s)", number_text(&args["timeout"])))
+            theme.fg(Muted, &js_format!(" (timeout {}s)", number_text(&args["timeout"])))
         } else {
-            String::new()
+            JsString::default()
         };
-        return theme.fg(ToolTitle, &theme.bold(&format!("$ {command}"))) + &suffix;
+        return theme.fg(ToolTitle, &theme.bold(&js_format!("$ {}", command))) + &suffix;
     }
     let title = theme.fg(ToolTitle, &theme.bold(name));
     let default = if ["find", "grep", "ls"].contains(&name) {
@@ -106,7 +118,7 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
     } else {
         theme.fg(Accent, &path)
     };
-    let mut output = format!("{title} {path_display}");
+    let mut output = js_format!("{} {}", title, path_display);
     match name {
         "read" if args.get("offset").is_some() || args.get("limit").is_some() => {
             let start = args["offset"].as_f64().unwrap_or(1.0);
@@ -114,58 +126,59 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
                 .as_f64()
                 .map(|limit| start + limit - 1.0)
                 .filter(|n| *n != 0.0)
-                .map(|n| format!("-{}", js_number_to_string(n)))
+                .map(|n| js_format!("-{}", js_number_to_string(n)))
                 .unwrap_or_default();
-            output += &theme.fg(Warning, &format!(":{}{end}", js_number_to_string(start)));
+            output.push_str(&theme.fg(Warning, &js_format!(":{}{}", js_number_to_string(start), end)));
         }
         "write" => {
             let count = args["content"]
-                .as_str()
+                .as_string()
                 .filter(|s| !s.is_empty())
                 .map_or(0, |s| s.split('\n').count());
             if count > 0 {
-                output += &theme.fg(Muted, &format!(" ({count} lines)"));
+                output.push_str(&theme.fg(Muted, &js_format!(" ({} lines)", count)));
             }
         }
         "find" | "grep" => {
             let pattern = string_arg(args, "pattern", "");
             let pattern = if name == "grep" {
-                format!("/{pattern}/")
+                js_format!("/{}/", pattern)
             } else {
                 pattern.into()
             };
-            output = format!(
-                "{title} {}{}",
+            output = js_format!(
+                "{} {}{}",
+                title,
                 theme.fg(Accent, &pattern),
-                theme.fg(ToolOutput, &format!(" in {path}"))
+                theme.fg(ToolOutput, &js_format!(" in {}", path))
             );
             if name == "grep"
-                && let Some(glob) = args["glob"].as_str().filter(|s| !s.is_empty())
+                && let Some(glob) = args["glob"].as_string().filter(|s| !s.is_empty())
             {
-                output += &theme.fg(ToolOutput, &format!(" ({glob})"));
+                output.push_str(&theme.fg(ToolOutput, &js_format!(" ({})", glob)));
             }
             if let Some(limit) = args.get("limit") {
                 let limit = number_text(limit);
                 let suffix = if name == "find" {
-                    format!(" (limit {limit})")
+                    js_format!(" (limit {})", limit)
                 } else {
-                    format!(" limit {limit}")
+                    js_format!(" limit {}", limit)
                 };
-                output += &theme.fg(ToolOutput, &suffix);
+                output.push_str(&theme.fg(ToolOutput, &suffix));
             }
         }
         "ls" => {
             if let Some(limit) = args.get("limit") {
-                output += &theme.fg(ToolOutput, &format!(" (limit {})", number_text(limit)));
+                output.push_str(&theme.fg(ToolOutput, &js_format!(" (limit {})", number_text(limit))));
             }
         }
         _ => {}
     }
     output
 }
-fn render_result(name: &str, text: Option<&str>, expanded: bool, theme: &Theme) -> String {
+fn render_result(name: &str, text: Option<&JsString>, expanded: bool, theme: &Theme) -> JsString {
     let Some(text) = text else {
-        return String::new();
+        return JsString::default();
     };
     if !expanded {
         if let Some(unit) = match name {
@@ -174,22 +187,22 @@ fn render_result(name: &str, text: Option<&str>, expanded: bool, theme: &Theme) 
             "ls" => Some("entries"),
             _ => None,
         } {
-            let count = js_trim(text).split('\n').filter(|line| !line.is_empty()).count();
+            let count = (text).trim().split('\n').filter(|line| !line.is_empty()).count();
             if count > 0 {
-                return theme.fg(ThemeColor::Muted, &format!(" → {count} {unit}"));
+                return theme.fg(ThemeColor::Muted, &js_format!(" → {} {}", count, unit));
             }
         }
-        return String::new();
+        return JsString::default();
     }
     if name == "write" {
         return if text.is_empty() {
-            String::new()
+            JsString::default()
         } else {
-            format!("\n{}", theme.fg(ThemeColor::Error, text))
+            js_format!("\n{}", theme.fg(ThemeColor::Error, text))
         };
     }
     if name == "edit" {
-        return format!(
+        return js_format!(
             "\n{}",
             theme.fg(
                 if text.contains("Error") || text.contains("error") {
@@ -201,12 +214,14 @@ fn render_result(name: &str, text: Option<&str>, expanded: bool, theme: &Theme) 
             )
         );
     }
-    let text = if name == "read" { text } else { js_trim(text) };
-    format!(
+    let text = if name == "read" { text.clone() } else { text.trim() };
+    js_format!(
         "\n{}",
-        text.split('\n')
-            .map(|line| theme.fg(ThemeColor::ToolOutput, line))
-            .collect::<Vec<_>>()
-            .join("\n")
+        JsString::join(
+            text.split('\n')
+                .map(|line| theme.fg(ThemeColor::ToolOutput, line))
+                .collect::<Vec<_>>(),
+            "\n"
+        )
     )
 }

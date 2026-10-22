@@ -1,6 +1,8 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -14,20 +16,26 @@ use serde_json::{Value, json};
 
 fn dark_theme() -> Arc<Theme> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
-    let theme = Arc::new(load_theme_from_path(&path, Some(ColorMode::Truecolor)).expect("built-in dark theme"));
+    let theme = Arc::new(
+        load_theme_from_path(
+            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            Some(ColorMode::Truecolor),
+        )
+        .expect("built-in dark theme"),
+    );
     set_theme_instance(Arc::clone(&theme));
     theme
 }
 
 fn context(args: Value, cwd: &str, state: ToolRenderState) -> ToolRenderContext {
     ToolRenderContext {
-        args,
+        args: JsValue::from(args),
         tool_call_id: "edit-preview-differential".to_owned(),
         invalidate: Arc::new(|| {}),
         last_component: None,
         call_component: None,
         state,
-        cwd: cwd.to_owned(),
+        cwd: JsString::from(cwd.to_owned()),
         execution_started: false,
         args_complete: true,
         is_partial: false,
@@ -37,14 +45,14 @@ fn context(args: Value, cwd: &str, state: ToolRenderState) -> ToolRenderContext 
     }
 }
 
-fn wait_for_preview(state: &ToolRenderState) -> Value {
+fn wait_for_preview(state: &ToolRenderState) -> JsValue {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let snapshot = state.get();
         if let Some(preview) = snapshot.get("preview") {
             return preview.clone();
         }
-        assert!(Instant::now() < deadline, "preview never completed: {snapshot}");
+        assert!(Instant::now() < deadline, "preview never completed: {snapshot:?}");
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -58,7 +66,7 @@ fn agent_result(value: &Value) -> AgentToolResult {
             .filter_map(|block| block.get("text").and_then(Value::as_str))
             .map(|text| TextOrImageContent::Text(TextContent::new(text.to_owned())))
             .collect(),
-        details: value.get("details").cloned(),
+        details: value.get("details").cloned().map(JsValue::from),
         is_error: None,
         terminate: None,
     }
@@ -124,12 +132,12 @@ fn edit_preview_renderers_match_the_pinned_typescript_source() {
         let args = case["args"].clone();
         let mut context = context(args.clone(), &cwd, state.clone());
 
-        let pending = render_call(&args, &theme, &context).expect("call renderer");
+        let pending = render_call(&JsValue::from(args.clone()), &theme, &context).expect("call renderer");
         let pending_lines = pending.borrow_mut().render(80);
         assert_eq!(json!(pending_lines), expected["pending"], "pending case {index}");
 
         let preview = wait_for_preview(&state);
-        let call = render_call(&args, &theme, &context).expect("call renderer");
+        let call = render_call(&JsValue::from(args.clone()), &theme, &context).expect("call renderer");
         let call_lines = call.borrow_mut().render(80);
         assert_eq!(json!(call_lines), expected["call"], "call case {index}");
 

@@ -2,6 +2,8 @@
 use indexmap::IndexSet;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor, get_settings_list_theme};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use pi_tui::{
     components::settings_list::{SettingItem, SettingsList, SettingsListOptions},
     tui::Component,
@@ -48,7 +50,8 @@ pub fn tools_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             let enabled = enabled.clone();
             Box::pin(async move {
                 if ctx.mode()? != ExtensionMode::Tui {
-                    ctx.ui()?.notify("/tools requires TUI mode", Some(NotifyType::Error));
+                    ctx.ui()?
+                        .notify(&JsString::from("/tools requires TUI mode"), Some(NotifyType::Error));
                     return Ok(());
                 }
                 let names = api.get_all_tools()?.into_iter().map(|t| t.name).collect::<Vec<_>>();
@@ -137,7 +140,7 @@ impl ToolSelector {
             self.names.len() - cursor.index
         };
         for _ in 0..steps {
-            list.handle_input(key);
+            list.handle_input(&JsString::from(key));
         }
     }
     fn list(&self) -> SettingsList {
@@ -146,8 +149,8 @@ impl ToolSelector {
             .names
             .iter()
             .map(|name| SettingItem {
-                id: name.clone(),
-                label: name.clone(),
+                id: JsString::from(name.clone()),
+                label: JsString::from(name.clone()),
                 description: None,
                 current_value: if enabled.contains(name) { "enabled" } else { "disabled" }.into(),
                 values: Some(vec!["enabled".into(), "disabled".into()]),
@@ -168,15 +171,18 @@ impl ToolSelector {
                 let names = {
                     let mut enabled = enabled.lock().unwrap();
                     if value == "enabled" {
-                        enabled.insert(id.into());
+                        enabled.insert(id.to_utf8().expect("selected tool ID must be a Unicode scalar string"));
                     } else {
-                        enabled.shift_remove(id);
+                        enabled.shift_remove(&id.to_utf8().expect("selected tool ID must be a Unicode scalar string"));
                     }
                     enabled.iter().cloned().collect::<Vec<_>>()
                 };
-                let result = api
-                    .set_active_tools(names.clone())
-                    .and_then(|()| api.append_entry("tools-config", Some(json!({"enabledTools":names}))));
+                let result = api.set_active_tools(names.clone()).and_then(|()| {
+                    api.append_entry(
+                        &JsString::from("tools-config"),
+                        Some(JsValue::from(json!({"enabledTools":names}))),
+                    )
+                });
                 if let Err(failure) = result {
                     *error.lock().unwrap() = Some(failure);
                     done.call(None);
@@ -194,7 +200,7 @@ impl ExtensionUiComponent for ToolSelector {
         let mut lines = vec![
             self.theme
                 .fg(ThemeColor::Accent, &self.theme.bold("Tool Configuration")),
-            String::new(),
+            JsString::default(),
         ];
         lines.extend(self.list().render(width));
         lines
@@ -220,5 +226,5 @@ impl ExtensionUiComponent for ToolSelector {
 #[derive(Default)]
 struct Cursor {
     index: usize,
-    navigation: Option<(String, bool)>,
+    navigation: Option<(JsString, bool)>,
 }

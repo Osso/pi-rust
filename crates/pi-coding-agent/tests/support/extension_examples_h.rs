@@ -1,4 +1,6 @@
 //! Batch H extends the shared real-runtime/oracle fixture pattern with renderer IO.
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::*;
@@ -15,11 +17,14 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
     let mut registry = ExtensionRegistry::new();
     registry.register("<example:built-in-tool-renderer>", factory);
     let extension = load_extension_from_factory(
-        registry.get("<example:built-in-tool-renderer>").unwrap().clone(),
-        cwd,
+        registry
+            .get(&JsString::from("<example:built-in-tool-renderer>"))
+            .unwrap()
+            .clone(),
+        &JsString::from(cwd),
         fixture::event_bus(),
         runtime.clone(),
-        "<example:built-in-tool-renderer>",
+        &JsString::from("<example:built-in-tool-renderer>"),
     )
     .await
     .unwrap();
@@ -35,7 +40,7 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
             .as_object()
             .unwrap()
             .iter()
-            .map(|(role, color)| (role.clone(), ColorValue::Text(color.as_str().unwrap().into())))
+            .map(|(role, color)| (JsString::from(role), ColorValue::Text(color.as_str().unwrap().into())))
             .collect::<Vec<_>>(),
         &[],
         ColorMode::Truecolor,
@@ -62,7 +67,7 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
             is_partial: item["isPartial"].as_bool().unwrap_or(false),
         };
         let context = ToolRenderContext {
-            args: item["args"].clone(),
+            args: JsValue::from(item["args"].clone()),
             tool_call_id: "fixture-call".into(),
             invalidate: Arc::new(|| {}),
             last_component: None,
@@ -80,7 +85,7 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
             let result = serde_json::from_value(result.clone()).unwrap();
             (tool.render_result.as_ref().unwrap())(&result, &options, &theme, &context).unwrap()
         } else {
-            (tool.render_call.as_ref().unwrap())(&item["args"], &theme, &context).unwrap()
+            (tool.render_call.as_ref().unwrap())(&JsValue::from(item["args"].clone()), &theme, &context).unwrap()
         };
         renders.push(
             request["widths"]
@@ -100,7 +105,7 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
         executions.push(
             match (tool.execute)(
                 "fixture-call".into(),
-                item["params"].clone(),
+                JsValue::from(item["params"].clone()),
                 None,
                 None,
                 runner.create_context(),

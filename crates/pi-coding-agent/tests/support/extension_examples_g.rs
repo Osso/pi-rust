@@ -7,6 +7,8 @@ use pi_coding_agent::core::{
     session_manager::SessionManager,
 };
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -58,35 +60,39 @@ impl ExtensionUiContext for Ui {
     fn theme(&self) -> Arc<Theme> {
         self.theme.clone()
     }
-    fn notify(&self, text: &str, level: Option<NotifyType>) {
+    fn notify(&self, text: &JsString, level: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", text, level]));
     }
-    fn set_status(&self, key: &str, text: Option<&str>) {
+    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
         self.trace.lock().unwrap().push(json!(["status", key, text]));
     }
-    fn set_widget(&self, key: &str, text: Option<&[String]>, options: Option<&ExtensionWidgetOptions>) {
+    fn set_widget(&self, key: &JsString, text: Option<&[JsString]>, options: Option<&ExtensionWidgetOptions>) {
         self.trace.lock().unwrap().push(json!(["widget", key, text, options]));
     }
     fn select<'a>(
         &'a self,
-        title: &str,
-        items: &[String],
+        title: &JsString,
+        items: &[JsString],
         _: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         self.trace.lock().unwrap().push(json!(["select", title, items]));
         let selected = self.step["selected"].as_str().map(str::to_owned);
-        Box::pin(async move { Ok(selected) })
+        Box::pin(async move { Ok(selected.map(JsString::from)) })
     }
-    fn editor<'a>(&'a self, title: &str, prefill: Option<&str>) -> BoxFuture<'a, Result<Option<String>, String>> {
+    fn editor<'a>(
+        &'a self,
+        title: &JsString,
+        prefill: Option<&JsString>,
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         self.trace.lock().unwrap().push(json!(["editor", title, prefill]));
         let result = self.step["editor"].as_str().map(str::to_owned);
-        Box::pin(async move { Ok(result) })
+        Box::pin(async move { Ok(result.map(JsString::from)) })
     }
     fn custom<'a>(
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
         let result = Arc::new(Mutex::new(None));
         let captured = result.clone();
         let context = ExtensionUiFactoryContext {
@@ -108,7 +114,7 @@ impl ExtensionUiContext for Ui {
             .cloned()
             .unwrap_or_else(|| vec![json!("\u{1b}")]);
         for key in keys {
-            component.handle_input(key.as_str().unwrap());
+            component.handle_input(&JsString::from(key.as_str().unwrap()));
             if result.lock().unwrap().is_none() && key.as_str() != Some("\u{1b}") {
                 self.trace
                     .lock()
@@ -138,11 +144,11 @@ pub async fn compare(
         }),
     );
     let extension = load_extension_from_factory(
-        factories.get(name).unwrap().clone(),
-        cwd,
+        factories.get(&JsString::from(name)).unwrap().clone(),
+        &JsString::from(cwd),
         support::event_bus(),
         runtime.clone(),
-        "<example:g>",
+        &JsString::from("<example:g>"),
     )
     .await
     .unwrap();
@@ -177,7 +183,9 @@ pub async fn compare(
             )
             .unwrap();
     }
-    let manager = Arc::new(Mutex::new(SessionManager::in_memory(Some(cwd), None).unwrap()));
+    let manager = Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(&JsString::from(cwd)), None).unwrap(),
+    ));
     let mut runner = ExtensionRunner::new(vec![extension.clone()], runtime, cwd, manager.clone(), registry, None);
     let tools = Arc::new(Mutex::new(
         serde_json::from_value::<Vec<String>>(
@@ -285,15 +293,18 @@ pub async fn compare(
         let mut m = manager.lock().unwrap();
         match item["type"].as_str().unwrap() {
             "custom" => {
-                m.append_custom_entry(item["customType"].as_str().unwrap(), item.get("data").cloned())
-                    .unwrap();
+                m.append_custom_entry(
+                    &JsString::from(item["customType"].as_str().unwrap()),
+                    item.get("data").cloned().map(JsValue::from),
+                )
+                .unwrap();
             }
             "custom_message" => {
                 m.append_custom_message_entry(
-                    item["customType"].as_str().unwrap(),
+                    &JsString::from(item["customType"].as_str().unwrap()),
                     serde_json::from_value(item["content"].clone()).unwrap(),
                     item["display"].as_bool().unwrap(),
-                    item.get("details").cloned(),
+                    item.get("details").cloned().map(JsValue::from),
                 )
                 .unwrap();
             }
@@ -305,7 +316,11 @@ pub async fn compare(
     }
     let theme = Arc::new(
         load_theme_from_path(
-            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+            &JsString::from(
+                (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                    .to_str()
+                    .expect("fixture path must be UTF-8"),
+            ),
             Some(ColorMode::Truecolor),
         )
         .unwrap(),
@@ -354,9 +369,9 @@ pub async fn compare(
             "before" => {
                 let value = runner
                     .emit_before_agent_start(
-                        "task",
+                        &JsString::from("task"),
                         None,
-                        step["prompt"].as_str().unwrap_or("base"),
+                        &JsString::from(step["prompt"].as_str().unwrap_or("base")),
                         Default::default(),
                     )
                     .await;

@@ -1,4 +1,6 @@
 //! Batch A's real-runtime transcript fixture. No provider calls or live session files.
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -77,27 +79,27 @@ impl ExtensionUiContext for CaptureUi {
             )
         }));
     }
-    fn notify(&self, message: &str, level: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, level: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", message, level]));
     }
-    fn set_status(&self, key: &str, text: Option<&str>) {
+    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
         self.trace.lock().unwrap().push(json!(["status", key, text]));
     }
     fn set_working_indicator(&self, options: Option<&WorkingIndicatorOptions>) {
         self.trace.lock().unwrap().push(json!(["indicator", options]));
     }
-    fn set_hidden_thinking_label(&self, label: Option<&str>) {
+    fn set_hidden_thinking_label(&self, label: Option<&JsString>) {
         self.trace.lock().unwrap().push(json!(["thinkingLabel", label]));
     }
-    fn set_title(&self, title: &str) {
+    fn set_title(&self, title: &JsString) {
         self.trace.lock().unwrap().push(json!(["title", title]));
     }
     fn confirm<'a>(
         &'a self,
-        title: &str,
-        message: &str,
+        title: &JsString,
+        message: &JsString,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, String>> {
+    ) -> BoxFuture<'a, Result<bool, JsString>> {
         self.trace.lock().unwrap().push(json!([
             "confirm",
             title,
@@ -120,10 +122,10 @@ impl ExtensionUiContext for CaptureUi {
     }
     fn select<'a>(
         &'a self,
-        title: &str,
-        items: &[String],
+        title: &JsString,
+        items: &[JsString],
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         self.trace.lock().unwrap().push(json!([
             "select",
             title,
@@ -135,7 +137,7 @@ impl ExtensionUiContext for CaptureUi {
             if let Some(error) = answer.get("error").and_then(Value::as_str) {
                 return Err(error.into());
             }
-            Ok(answer.as_str().map(str::to_owned))
+            Ok(answer.as_str().map(JsString::from))
         })
     }
     fn theme(&self) -> Arc<Theme> {
@@ -200,11 +202,11 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
     registry.register("<example:batch-a>", factory);
     let cwd = request["cwd"].as_str().unwrap_or("/fixture");
     let extension = load_extension_from_factory(
-        registry.get("<example:batch-a>").unwrap().clone(),
-        cwd,
+        registry.get(&JsString::from("<example:batch-a>")).unwrap().clone(),
+        &JsString::from(cwd),
         bus.clone(),
         runtime.clone(),
-        "<example:batch-a>",
+        &JsString::from("<example:batch-a>"),
     )
     .await
     .unwrap();
@@ -240,7 +242,9 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
             }
         })
         .collect();
-    let manager = Arc::new(Mutex::new(SessionManager::in_memory(Some("/fixture"), None).unwrap()));
+    let manager = Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(&JsString::from("/fixture")), None).unwrap(),
+    ));
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(Map::new())) as Arc<dyn CredentialStore>),
         models_path: Some(None),
@@ -256,7 +260,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
         let observer: ExtensionFactory = Arc::new(move |api| {
             let log = log.clone();
             let result = api.events.on(
-                "my:notification",
+                &JsString::from("my:notification"),
                 Arc::new(move |data| {
                     log.lock().unwrap().push(json!(["my:notification", data]));
                     Ok(())
@@ -265,9 +269,15 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
             Box::pin(async move { result.map(|_| ()).map_err(HandlerError::new) })
         });
         extensions.push(
-            load_extension_from_factory(observer, "/fixture", bus.clone(), runtime.clone(), "<observer:batch-a>")
-                .await
-                .unwrap(),
+            load_extension_from_factory(
+                observer,
+                &JsString::from("/fixture"),
+                bus.clone(),
+                runtime.clone(),
+                &JsString::from("<observer:batch-a>"),
+            )
+            .await
+            .unwrap(),
         );
     }
     let mut runner = ExtensionRunner::new(
@@ -281,9 +291,9 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
     let prompt = Arc::new(Mutex::new(String::new()));
     let mut context = fixture::context_actions();
     let current_prompt = prompt.clone();
-    context.get_system_prompt = Arc::new(move || current_prompt.lock().unwrap().clone());
+    context.get_system_prompt = Arc::new(move || JsString::from(current_prompt.lock().unwrap().clone()));
     let mut actions = fixture::actions();
-    let session_name = Arc::new(Mutex::new(request["name"].as_str().map(str::to_owned)));
+    let session_name = Arc::new(Mutex::new(request["name"].as_str().map(JsString::from)));
     let fixture_name = session_name.clone();
     let name = session_name.clone();
     let failure = request["actionError"].as_str().map(str::to_owned);
@@ -419,7 +429,9 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
             )
             .unwrap();
         }
-        FooterDataProvider::new(footer_root.path())
+        FooterDataProvider::new(JsString::from(
+            (footer_root.path()).to_str().expect("fixture path must be UTF-8"),
+        ))
     });
     let ui = Arc::new(CaptureUi {
         trace: trace.clone(),
@@ -551,7 +563,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                 trace.lock().unwrap().push(json!(["exec", args]));
             }
             "name" => {
-                *fixture_name.lock().unwrap() = step["value"].as_str().map(str::to_owned);
+                *fixture_name.lock().unwrap() = step["value"].as_str().map(str::to_owned).map(JsString::from);
             }
             "advance" => {
                 tokio::time::advance(std::time::Duration::from_millis(step["ms"].as_u64().unwrap())).await;
@@ -560,8 +572,11 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
 
             "bus" => {
                 assert!(
-                    bus.emit(step["channel"].as_str().unwrap(), step["data"].clone())
-                        .is_empty()
+                    bus.emit(
+                        &JsString::from(step["channel"].as_str().unwrap()),
+                        JsValue::from(step["data"].clone())
+                    )
+                    .is_empty()
                 );
             }
             "prompt" => {
@@ -569,7 +584,12 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
             }
             "before" => {
                 let result = runner
-                    .emit_before_agent_start("task", None, step["value"].as_str().unwrap(), Default::default())
+                    .emit_before_agent_start(
+                        &JsString::from("task"),
+                        None,
+                        &JsString::from(step["value"].as_str().unwrap()),
+                        Default::default(),
+                    )
                     .await;
                 trace.lock().unwrap().push(json!(["before", result]));
             }
@@ -586,7 +606,9 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     .id()
                     .unwrap()
                     .to_owned();
-                entries.append_label_change(&id, step["value"].as_str()).unwrap();
+                entries
+                    .append_label_change(&id, step["value"].as_str().map(JsString::from).as_ref())
+                    .unwrap();
             }
             "tools" => {
                 let tools: Vec<_> = runner.get_all_registered_tools().iter().map(|registered| {
@@ -632,7 +654,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     is_partial: false,
                 };
                 let context = ToolRenderContext {
-                    args: json!({}),
+                    args: pi_js_compat::js_json!({}),
                     tool_call_id: "fixture-call".into(),
                     invalidate: Arc::new(|| {}),
                     last_component: None,
@@ -662,13 +684,16 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     format!("ref: refs/heads/{}\n", step["name"].as_str().unwrap()),
                 )
                 .unwrap();
-                footer_data.as_ref().unwrap().set_cwd(dir);
+                footer_data
+                    .as_ref()
+                    .unwrap()
+                    .set_cwd(JsString::from(dir.to_str().expect("fixture path must be UTF-8")));
             }
             "tool" => {
                 let tool = runner.get_tool_definition(step["name"].as_str().unwrap()).unwrap();
                 let result = (tool.execute)(
                     "fixture-call".into(),
-                    step["params"].clone(),
+                    JsValue::from(step["params"].clone()),
                     None,
                     if request["updates"].as_bool() == Some(true) {
                         let log = trace.clone();

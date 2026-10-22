@@ -33,11 +33,11 @@ impl MarkdownTheme for Plain {
 #[test]
 fn raw_branch_and_skill_text_reaches_actual_markdown_and_box_without_encoding() {
     let foreground =
-        ["customMessageLabel", "customMessageText", "dim"].map(|name| (name.to_owned(), ColorValue::Index(0)));
+        ["customMessageLabel", "customMessageText", "dim"].map(|name| (JsString::from(name), ColorValue::Index(0)));
     let theme = Arc::new(
         Theme::new(
             &foreground,
-            &[("customMessageBg".to_owned(), ColorValue::Index(0))],
+            &[(JsString::from("customMessageBg"), ColorValue::Index(0))],
             ColorMode::Color256,
             None,
             None,
