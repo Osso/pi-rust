@@ -5,8 +5,7 @@ use pi_agent_core::{
 };
 use pi_ai::{
     request::{ProviderRequestOptions, StreamOptions, now_millis},
-    types::{AssistantContent, CacheRetention, Context, StopReason},
-    utils::uuid::uuidv7,
+    types::{AssistantContent, Context, StopReason},
 };
 use pi_coding_agent::{
     core::{
@@ -223,8 +222,6 @@ async fn complete_draft(
             signal: Some(signal),
             ..Default::default()
         },
-        cache_retention: Some(CacheRetention::None),
-        session_id: Some(JsString::from(uuidv7())),
         ..Default::default()
     };
     let result = match registry.complete(model, context, options).await {

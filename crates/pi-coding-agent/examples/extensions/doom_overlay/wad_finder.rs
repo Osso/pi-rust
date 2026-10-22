@@ -1,12 +1,10 @@
 //! Explicit native module directory replaces TS `import.meta.url`.
 //! Search/download is opt-in; errors return None, as in the pinned helper.
-use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
-use flate2::bufread::GzDecoder;
 use pi_ai::request::{Fetch, HttpRequest};
 
-const WAD_URL: &str = "https://www.gamers.org/pub/idgames/idstuff/doom/doom-1.8.wad.gz";
+const WAD_URL: &str = "https://distro.ibiblio.org/slitaz/sources/packages/d/doom1.wad";
 
 pub struct WadFinder {
     bundled: PathBuf,
@@ -41,7 +39,7 @@ impl WadFinder {
         if let Some(existing) = self.find_wad_file(None) {
             return Some(existing);
         }
-        // Source deliberately catches HTTP, stream, gzip, IWAD and write errors.
+        // Source deliberately catches HTTP, response-body and write errors.
         self.download_wad(fetch).await.ok()?;
         Some(self.bundled.clone())
     }
@@ -62,25 +60,10 @@ impl WadFinder {
         if !(200..300).contains(&response.status) {
             return Err(format!("HTTP {}", response.status));
         }
-        let mut compressed = Vec::new();
+        let mut wad = Vec::new();
         let mut body = response.body;
         while let Some(chunk) = body.next_chunk().await {
-            compressed.extend(chunk.map_err(|error| error.to_string())?);
-        }
-        let mut wad = Vec::new();
-        let mut remaining = compressed.as_slice();
-        loop {
-            let mut member = GzDecoder::new(remaining);
-            member.read_to_end(&mut wad).map_err(|error| error.to_string())?;
-            remaining = member.into_inner();
-            // Node gunzip stops at zero padding after a complete gzip member.
-            if remaining.is_empty() || remaining[0] == 0 {
-                break;
-            }
-        }
-        // Node Buffer.toString("ascii") clears the high bit, unlike UTF-8.
-        if !wad.iter().take(4).map(|byte| byte & 0x7f).eq(b"IWAD".iter().copied()) {
-            return Err("Downloaded file is not a valid IWAD".into());
+            wad.extend(chunk.map_err(|error| error.to_string())?);
         }
         std::fs::write(&self.bundled, wad).map_err(|error| error.to_string())
     }

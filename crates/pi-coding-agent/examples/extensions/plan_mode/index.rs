@@ -10,7 +10,7 @@ use utils::{TodoItem, extract_todo_items, is_safe_command, mark_completed_steps}
 
 const PLAN: &[&str] = &["read", "bash", "grep", "find", "ls", "ask_questions"];
 const NORMAL: &[&str] = &["read", "bash", "edit", "write"];
-const PLAN_CONTEXT: &str = "[PLAN MODE ACTIVE]\nYou are in plan mode - a read-only exploration mode for safe code analysis.\n\nRestrictions:\n- Built-in edit and write tools are disabled\n- Other currently active tools remain available\n- Bash is restricted to an allowlist of read-only commands\n\nAsk clarifying questions using the ask_questions tool.\nUse brave-search skill via bash for web research.\n\nCreate a detailed numbered plan under a \"Plan:\" header:\n\nPlan:\n1. First step description\n2. Second step description\n...\n\nDo NOT attempt to make changes - just describe what you would do.";
+const PLAN_CONTEXT: &str = "[PLAN MODE ACTIVE]\nYou are in plan mode - a read-only exploration mode for safe code analysis.\n\nRestrictions:\n- Built-in edit and write tools are disabled\n- Other currently active tools remain available\n- Bash is restricted to an allowlist of read-only commands\n\nAsk all user questions through ask_questions, never chat. Always specify blocking: true when planning depends on an answer, false to continue independent read-only exploration while answers arrive through the inbox. Omit options for free-text questions.\nUse brave-search skill via bash for web research.\n\nCreate a detailed numbered plan under a \"Plan:\" header:\n\nPlan:\n1. First step description\n2. Second step description\n...\n\nDo NOT attempt to make changes - just describe what you would do.";
 #[derive(Default)]
 struct State {
     enabled: bool,
