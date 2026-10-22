@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -8,20 +9,20 @@ use pi_coding_agent::supervisor::request_wake::{
 use tokio::net::UnixStream;
 use tokio_util::sync::CancellationToken;
 
-fn socket_path() -> (tempfile::TempDir, String) {
+fn socket_path() -> (tempfile::TempDir, JsString) {
     let directory = tempfile::tempdir().unwrap();
     let control_db = directory.path().join("control.sqlite").to_string_lossy().into_owned();
-    (directory, control_db)
+    (directory, control_db.into())
 }
 
-fn socket_file(control_db: &str) -> String {
-    get_supervisor_request_socket_path(control_db)
+fn socket_file(control_db: &JsString) -> String {
+    encode_node_utf8(&get_supervisor_request_socket_path(control_db))
 }
 
 #[test]
 fn derives_the_socket_path_from_the_control_database() {
     assert_eq!(
-        get_supervisor_request_socket_path("/home/osso/.pi/control.sqlite"),
+        get_supervisor_request_socket_path(&"/home/osso/.pi/control.sqlite".into()),
         "/home/osso/.pi/control.sqlite.supervisor.sock"
     );
 }
@@ -102,7 +103,10 @@ async fn refuses_to_replace_an_active_socket() {
     let error = second.start().await.expect_err("an active socket must be refused");
     assert_eq!(
         error,
-        format!("Supervisor request socket is already active: {}", socket_file(&path))
+        JsString::from(format!(
+            "Supervisor request socket is already active: {}",
+            socket_file(&path)
+        ))
     );
     first.close().await.unwrap();
 }
@@ -136,5 +140,5 @@ async fn close_resolves_pending_waiters() {
 
 #[test]
 fn notifying_a_missing_socket_is_silent() {
-    notify_supervisor_request("/tmp/pi-rust-missing-supervisor/control.sqlite");
+    notify_supervisor_request(&"/tmp/pi-rust-missing-supervisor/control.sqlite".into());
 }

@@ -15,6 +15,10 @@ Proof: behavioral socket tests in `crates/pi-coding-agent/tests/request_wake.rs`
 | Stale-socket recovery | `EADDRINUSE` + accepting socket → `Supervisor request socket is already active: <path>`; otherwise remove and rebind | `listen_with_stale_socket_recovery`; `refuses_to_replace_an_active_socket`, stale test |
 | `assertUnixSocketSupport` | Windows → `Supervisor request wake requires Unix domain sockets` | `assert_unix_socket_support` (cfg-gated; not reachable on Linux tests) |
 
+## Q18 native checkpoint
+
+Common pin: `4f9e6f8a4`. Control-DB/socket paths and errors are native `JsString`; socket binding/connection and private filesystem helpers receive Node UTF-8 only at their OS boundary. `tests/lossless_supervisor_wake.rs` covers raw path derivation and a real wake ping; existing socket tests use native contracts. Both remain unexecuted pending coding-library compilation; no new probe crate was built.
+
 ## Exclusions
 
 - The source registers a `process.once("exit")` cleanup hook; Rust removes the socket in `Drop` and `close`, which covers the same lifetime.

@@ -5,7 +5,7 @@
 //! response-reading contracts are ported here.
 
 use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::AgentMessage;
@@ -14,7 +14,7 @@ use pi_ai::request::BoxFuture;
 use pi_ai::session_resources::cleanup_session_resources;
 use pi_ai::types::{AssistantContent, StopReason};
 use pi_js_compat::js_json::{JsString, JsValue};
-use serde_json::Value;
+
 use tokio_util::sync::CancellationToken;
 
 use crate::core::agent_session::{AgentSession, AgentSessionEvent, PromptOptions};
@@ -41,7 +41,7 @@ use crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR;
 use crate::supervisor::request_wake::{SupervisorRequestWakeServer, notify_supervisor_request};
 use crate::supervisor::response_tool::{SUPERVISOR_RESPONSE_TOOL_NAME, create_supervisor_response_tool};
 use crate::supervisor::service::{RunSupervisorRequestInput, SupervisorEvaluator, run_supervisor_request};
-use crate::utils::paths::{node_basename, node_dirname, node_join, node_resolve, process_cwd, resolve_path};
+use crate::utils::paths::{node_basename, node_dirname, node_join, node_resolve};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::encode_node_utf8;
 
@@ -69,8 +69,8 @@ const SUPERVISOR_COMPACTION_INSTRUCTIONS: &str =
 /// One queued console prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupervisorConsolePrompt {
-    pub id: String,
-    pub text: String,
+    pub id: JsString,
+    pub text: JsString,
 }
 
 /// FIFO queue for console prompts.
@@ -84,7 +84,7 @@ impl SupervisorConsolePromptQueue {
         Self::default()
     }
 
-    pub fn enqueue(&mut self, text: String, id: String) {
+    pub fn enqueue(&mut self, text: JsString, id: JsString) {
         self.prompts.push_back(SupervisorConsolePrompt { id, text });
     }
 
@@ -96,23 +96,22 @@ impl SupervisorConsolePromptQueue {
 /// `createSupervisorSettingsManager`.
 pub fn create_supervisor_settings_manager() -> SettingsManager {
     let mut settings = Settings::new();
-    settings.insert("approvalPolicy".to_owned(), Value::String("auto-approve".to_owned()));
-    settings.insert("approvalPreset".to_owned(), Value::String("auto-approve".to_owned()));
-    settings.insert("sandboxProfile".to_owned(), Value::String("full-access".to_owned()));
+    settings.insert("approvalPolicy".into(), JsValue::String("auto-approve".into()));
+    settings.insert("approvalPreset".into(), JsValue::String("auto-approve".into()));
+    settings.insert("sandboxProfile".into(), JsValue::String("full-access".into()));
     SettingsManager::in_memory(settings, SettingsManagerCreateOptions { project_trusted: None })
 }
 
 /// `validateSupervisorExtensionLoad` over the diagnostic `path: error` pairs.
-pub fn validate_supervisor_extension_load(errors: &[(String, JsString)]) -> Result<(), String> {
+pub fn validate_supervisor_extension_load(errors: &[(JsString, JsString)]) -> Result<(), JsString> {
     if errors.is_empty() {
         return Ok(());
     }
-    let details = errors
-        .iter()
-        .map(|(path, error)| format!("{path}: {}", error.to_utf8_lossy()))
-        .collect::<Vec<_>>()
-        .join("; ");
-    Err(format!("Supervisor extension load failed: {details}"))
+    let details = JsString::join(
+        errors.iter().map(|(path, error)| js_format!("{}: {}", path, error)),
+        "; ",
+    );
+    Err(js_format!("Supervisor extension load failed: {}", details))
 }
 
 /// `blockSupervisorFileAccess`.
@@ -209,14 +208,14 @@ fn is_path_within_root(path: &JsString, root: &JsString) -> bool {
 
 /// `createSupervisorConsoleSnapshot`.
 pub fn create_supervisor_console_snapshot(
-    cwd: &str,
+    cwd: &JsString,
     generation: u64,
-    session_id: Option<&str>,
+    session_id: Option<&JsString>,
     branch: Vec<SessionEntry>,
 ) -> ResidentConsoleSnapshot<SessionEntry> {
     ResidentConsoleSnapshot {
         service: ResidentConsoleService::Supervisor,
-        session_id: session_id.unwrap_or(SUPERVISOR_SESSION_ID).to_owned(),
+        session_id: session_id.cloned().unwrap_or_else(|| SUPERVISOR_SESSION_ID.into()),
         cwd: cwd.to_owned(),
         generation,
         branch,
@@ -224,41 +223,40 @@ pub fn create_supervisor_console_snapshot(
 }
 
 /// `openSupervisorSession`.
-pub fn open_supervisor_session(agent_dir: &str, kb_dir: &str, control_db_path: &str) -> Result<SessionManager, String> {
-    let session_dir = Path::new(agent_dir).join("supervisor-sessions");
-    std::fs::create_dir_all(&session_dir).map_err(|error| error.to_string())?;
-    let session_dir_text = session_dir.display().to_string();
-    let suffix = format!("_{SUPERVISOR_SESSION_ID}.jsonl");
-    let mut candidates: Vec<String> = std::fs::read_dir(&session_dir)
+pub fn open_supervisor_session(
+    agent_dir: &JsString,
+    kb_dir: &JsString,
+    control_db_path: &JsString,
+) -> Result<SessionManager, JsString> {
+    let session_dir = node_join(agent_dir, "supervisor-sessions");
+    std::fs::create_dir_all(encode_node_utf8(&session_dir)).map_err(|error| error.to_string())?;
+    let suffix = js_format!("_{}.jsonl", SUPERVISOR_SESSION_ID);
+    let mut candidates: Vec<JsString> = std::fs::read_dir(encode_node_utf8(&session_dir))
         .map_err(|error| error.to_string())?
         .flatten()
         .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
+            let name = JsString::from(entry.file_name().to_string_lossy().into_owned());
             name.ends_with(&suffix).then_some(name)
         })
         .collect();
     candidates.sort();
     let session_path = candidates.last().map_or_else(
-        || session_dir.join(format!("{SUPERVISOR_SESSION_ID}.jsonl")),
-        |name| session_dir.join(name),
+        || node_join(&session_dir, js_format!("{}.jsonl", SUPERVISOR_SESSION_ID)),
+        |name| node_join(&session_dir, name),
     );
-    let mut session_manager = if session_path.exists() {
-        SessionManager::open(
-            &session_path.display().to_string(),
-            Some(&session_dir_text),
-            Some(kb_dir),
-        )
+    let mut session_manager = if Path::new(&encode_node_utf8(&session_path)).exists() {
+        SessionManager::open(&session_path, Some(&session_dir), Some(kb_dir))
     } else {
         SessionManager::create(
             kb_dir,
-            Some(&session_dir_text),
+            Some(&session_dir),
             Some(crate::core::session_manager::NewSessionOptions {
-                id: Some(SUPERVISOR_SESSION_ID.to_owned()),
+                id: Some(SUPERVISOR_SESSION_ID.into()),
                 ..Default::default()
             }),
         )
     }
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message().clone())?;
     session_manager
         .set_metadata_control_db_path(
             Some(control_db_path),
@@ -267,10 +265,10 @@ pub fn open_supervisor_session(agent_dir: &str, kb_dir: &str, control_db_path: &
                 cwd_override: None,
             },
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message().clone())?;
     if let Some(persisted_path) = session_manager.get_session_file() {
         crate::core::session_control_db::archive_session(control_db_path, persisted_path)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| error.message().clone())?;
     }
     Ok(session_manager)
 }
@@ -280,29 +278,30 @@ pub trait SupervisorSession: Send + Sync {
     fn abort(&self) -> BoxFuture<'static, Result<(), JsString>>;
     fn prompt(&self, content: JsString) -> BoxFuture<'static, Result<(), JsString>>;
     /// `None` when the source session has no `compact` method.
-    fn compact(&self, _instructions: &str) -> Option<BoxFuture<'static, Result<(), JsString>>> {
+    fn compact(&self, _instructions: &JsString) -> Option<BoxFuture<'static, Result<(), JsString>>> {
         None
     }
     /// `None` when the source session has no `getContextUsage` method.
     fn context_percent(&self) -> Option<f64> {
         None
     }
-    fn session_id(&self) -> Option<String> {
+    fn session_id(&self) -> Option<JsString> {
         None
     }
     fn get_branch(&self) -> Vec<SessionEntry>;
-    fn get_leaf_id(&self) -> Option<String>;
+    fn get_leaf_id(&self) -> Option<JsString>;
 }
 
-type ClaimNextRequest = Arc<dyn Fn(&str, &str) -> Result<Option<SupervisorRequest>, ControlDbError> + Send + Sync>;
+type ClaimNextRequest =
+    Arc<dyn Fn(&JsString, &JsString) -> Result<Option<SupervisorRequest>, ControlDbError> + Send + Sync>;
 type ProcessRequest =
-    Arc<dyn Fn(String, SupervisorRequest, Arc<dyn SupervisorSession>) -> BoxFuture<'static, ()> + Send + Sync>;
+    Arc<dyn Fn(JsString, SupervisorRequest, Arc<dyn SupervisorSession>) -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// Inputs for [`run_supervisor_request_loop`].
 pub struct RunSupervisorRequestLoopInput {
-    pub claim_token: String,
+    pub claim_token: JsString,
     pub console_prompts: Arc<Mutex<SupervisorConsolePromptQueue>>,
-    pub control_db_path: String,
+    pub control_db_path: JsString,
     pub session: Arc<dyn SupervisorSession>,
     pub signal: CancellationToken,
     pub wake_server: Arc<SupervisorRequestWakeServer>,
@@ -314,11 +313,13 @@ pub struct RunSupervisorRequestLoopInput {
 pub async fn run_supervisor_request_loop(input: RunSupervisorRequestLoopInput) -> Result<(), ControlDbError> {
     recover_supervisor_requests(&input.control_db_path)?;
     let claim_request = input.claim_next_request.unwrap_or_else(|| {
-        Arc::new(|control_db_path: &str, claim_token: &str| claim_next_supervisor_request(control_db_path, claim_token))
+        Arc::new(|control_db_path: &JsString, claim_token: &JsString| {
+            claim_next_supervisor_request(control_db_path, claim_token)
+        })
     });
     let handle_request = input.process_request.unwrap_or_else(|| {
         Arc::new(
-            |control_db_path: String, request: SupervisorRequest, session: Arc<dyn SupervisorSession>| {
+            |control_db_path: JsString, request: SupervisorRequest, session: Arc<dyn SupervisorSession>| {
                 Box::pin(async move {
                     process_supervisor_request(&control_db_path, request, session).await;
                 }) as BoxFuture<'static, ()>
@@ -351,7 +352,7 @@ pub async fn run_supervisor_request_loop(input: RunSupervisorRequestLoopInput) -
 
 /// `processSupervisorRequest`.
 pub async fn process_supervisor_request(
-    control_db_path: &str,
+    control_db_path: &JsString,
     request: SupervisorRequest,
     session: Arc<dyn SupervisorSession>,
 ) {
@@ -364,14 +365,14 @@ pub async fn process_supervisor_request(
     })
     .await;
     if let Err(error) = result
-        && let Some(claim_token) = request.claim_token.as_deref()
+        && let Some(claim_token) = request.claim_token.as_ref()
     {
         let _ = complete_supervisor_request(
             control_db_path,
             request.id,
             claim_token,
             &SupervisorResponse::Error {
-                reason: error.to_string().into(),
+                reason: error.message().clone(),
             },
         );
     }
@@ -395,8 +396,10 @@ async fn evaluate_supervisor_prompt(
         return Err("Supervisor request aborted".into());
     }
     let context_percent = session.context_percent();
-    if let (Some(percent), Some(compact)) = (context_percent, session.compact(SUPERVISOR_COMPACTION_INSTRUCTIONS))
-        && percent >= SUPERVISOR_COMPACTION_PERCENT
+    if let (Some(percent), Some(compact)) = (
+        context_percent,
+        session.compact(&SUPERVISOR_COMPACTION_INSTRUCTIONS.into()),
+    ) && percent >= SUPERVISOR_COMPACTION_PERCENT
     {
         compact.await?;
         if let Some(session_id) = session.session_id() {
@@ -414,18 +417,18 @@ async fn evaluate_supervisor_prompt(
             return Err("Supervisor request aborted".into());
         }
     }
-    read_current_supervisor_response(&session.get_branch(), previous_leaf_id.as_deref())
+    read_current_supervisor_response(&session.get_branch(), previous_leaf_id.as_ref())
 }
 
 /// `cleanupSupervisorProviderContext`.
-pub fn cleanup_supervisor_provider_context(session_id: &str) {
+pub fn cleanup_supervisor_provider_context(session_id: &JsString) {
     let _ = cleanup_session_resources(Some(session_id));
 }
 
 /// `readCurrentSupervisorResponse` over the current session branch.
 pub fn read_current_supervisor_response(
     entries: &[SessionEntry],
-    previous_leaf_id: Option<&str>,
+    previous_leaf_id: Option<&JsString>,
 ) -> Result<JsValue, JsString> {
     let previous_leaf_index = match previous_leaf_id {
         Some(previous_leaf_id) => entries
@@ -524,10 +527,10 @@ fn stop_reason_name(stop_reason: StopReason) -> &'static str {
 
 /// `createSupervisorResourceLoader`.
 pub async fn create_supervisor_resource_loader(
-    agent_dir: &str,
-    kb_dir: &str,
+    agent_dir: &JsString,
+    kb_dir: &JsString,
     settings_manager: Arc<Mutex<SettingsManager>>,
-) -> Result<Arc<DefaultResourceLoader>, String> {
+) -> Result<Arc<DefaultResourceLoader>, JsString> {
     let gate_kb_dir = kb_dir.to_owned();
     let gate: ExtensionFactory = Arc::new(move |api| {
         let gate_kb_dir = gate_kb_dir.clone();
@@ -573,7 +576,7 @@ pub async fn create_supervisor_resource_loader(
     })?;
     loader.reload().await?;
     let extensions = loader.get_extensions();
-    let errors: Vec<(String, JsString)> = extensions
+    let errors: Vec<(JsString, JsString)> = extensions
         .errors
         .iter()
         .map(|error| (error.path.clone(), error.error.clone()))
@@ -584,8 +587,8 @@ pub async fn create_supervisor_resource_loader(
 
 /// Options for [`create_supervisor_session`].
 pub struct CreateSupervisorSessionOptions {
-    pub agent_dir: String,
-    pub kb_dir: String,
+    pub agent_dir: JsString,
+    pub kb_dir: JsString,
     pub model_runtime: ModelRuntime,
     pub resource_loader: Arc<dyn ResourceLoader>,
     pub session_manager: SessionManager,
@@ -595,7 +598,7 @@ pub struct CreateSupervisorSessionOptions {
 /// `createSupervisorSession`.
 pub async fn create_supervisor_session(
     options: CreateSupervisorSessionOptions,
-) -> Result<CreateAgentSessionResult, String> {
+) -> Result<CreateAgentSessionResult, JsString> {
     let model = options
         .model_runtime
         .get_model("openai-codex", "gpt-5.6-sol")
@@ -641,7 +644,7 @@ impl SupervisorSession for AgentSession {
         })
     }
 
-    fn compact(&self, instructions: &str) -> Option<BoxFuture<'static, Result<(), JsString>>> {
+    fn compact(&self, instructions: &JsString) -> Option<BoxFuture<'static, Result<(), JsString>>> {
         let session = self.clone();
         let instructions = JsString::from(instructions);
         Some(Box::pin(async move {
@@ -657,7 +660,7 @@ impl SupervisorSession for AgentSession {
         self.get_context_usage().map(|usage| usage.percent)
     }
 
-    fn session_id(&self) -> Option<String> {
+    fn session_id(&self) -> Option<JsString> {
         Some(AgentSession::session_id(self))
     }
 
@@ -665,17 +668,17 @@ impl SupervisorSession for AgentSession {
         self.session_manager().get_branch(None)
     }
 
-    fn get_leaf_id(&self) -> Option<String> {
-        self.session_manager().get_leaf_id().map(str::to_owned)
+    fn get_leaf_id(&self) -> Option<JsString> {
+        self.session_manager().get_leaf_id().cloned()
     }
 }
 
 struct SupervisorConsoleHost {
     session: AgentSession,
-    cwd: String,
+    cwd: JsString,
     generation: u64,
     prompts: Arc<Mutex<SupervisorConsolePromptQueue>>,
-    control_db_path: String,
+    control_db_path: JsString,
 }
 
 impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for SupervisorConsoleHost {
@@ -688,7 +691,7 @@ impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for SupervisorConsoleH
         )
     }
 
-    fn enqueue_prompt(&self, text: String, id: String) -> pi_ai::request::BoxFuture<'static, Result<(), String>> {
+    fn enqueue_prompt(&self, text: JsString, id: JsString) -> pi_ai::request::BoxFuture<'static, Result<(), JsString>> {
         self.prompts
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -707,18 +710,20 @@ impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for SupervisorConsoleH
 }
 
 /// `runSupervisorService`.
-pub async fn run_supervisor_service() -> Result<(), String> {
-    let agent_dir = crate::config::get_agent_dir().display().to_string();
-    let kb_dir = pi_js_compat::process_env::get("PI_KB_DIR").unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.to_owned());
+pub async fn run_supervisor_service() -> Result<(), JsString> {
+    let agent_dir = crate::config::get_agent_dir();
+    let kb_dir = pi_js_compat::process_env::get("PI_KB_DIR")
+        .map(JsString::from)
+        .unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.into());
     let control_db_path = crate::core::session_control_db::get_control_db_path(&crate::config::get_user_state_root());
     let session_manager = open_supervisor_session(&agent_dir, &kb_dir, &control_db_path)?;
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        auth_path: Some(Path::new(&agent_dir).join("auth.json").display().to_string()),
-        models_path: Some(Some(Path::new(&agent_dir).join("models.json").display().to_string())),
+        auth_path: Some(node_join(&agent_dir, "auth.json")),
+        models_path: Some(Some(node_join(&agent_dir, "models.json"))),
         ..Default::default()
     })
     .await
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message())?;
     let settings_manager = Arc::new(Mutex::new(create_supervisor_settings_manager()));
     let resource_loader = create_supervisor_resource_loader(&agent_dir, &kb_dir, Arc::clone(&settings_manager)).await?;
     let session = create_supervisor_session(CreateSupervisorSessionOptions {
@@ -734,7 +739,7 @@ pub async fn run_supervisor_service() -> Result<(), String> {
     let wake_server = Arc::new(SupervisorRequestWakeServer::new(&control_db_path));
     let console_prompts = Arc::new(Mutex::new(SupervisorConsolePromptQueue::new()));
     let console_server = Arc::new(ResidentConsoleServer::new(ResidentConsoleServerOptions {
-        socket_path: PathBuf::from(format!("{control_db_path}.supervisor-console.sock")),
+        socket_path: js_format!("{}.supervisor-console.sock", control_db_path),
         service: ResidentConsoleService::Supervisor,
         host: Arc::new(SupervisorConsoleHost {
             session: session.clone(),
@@ -749,7 +754,7 @@ pub async fn run_supervisor_service() -> Result<(), String> {
     let signal = CancellationToken::new();
     install_stop_signals(&signal);
     let loop_result = run_supervisor_request_loop(RunSupervisorRequestLoopInput {
-        claim_token: pi_ai::utils::uuid::random_uuid(),
+        claim_token: pi_ai::utils::uuid::random_uuid().into(),
         console_prompts,
         control_db_path,
         session: Arc::new(session.clone()),
@@ -761,8 +766,8 @@ pub async fn run_supervisor_service() -> Result<(), String> {
     .await;
     console_server.close().await?;
     wake_server.close().await?;
-    session.abort().await.map_err(|error| error.message().to_utf8_lossy())?;
-    loop_result.map_err(|error| error.to_string())
+    session.abort().await.map_err(|error| error.message().clone())?;
+    loop_result.map_err(|error| error.message().clone())
 }
 
 fn install_stop_signals(signal: &CancellationToken) {

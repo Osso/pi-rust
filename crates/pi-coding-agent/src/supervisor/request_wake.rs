@@ -1,6 +1,10 @@
 //! Supervisor request wake socket (`supervisor/request-wake.ts`).
 
-use std::path::{Path, PathBuf};
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, encode_node_utf8},
+};
+use std::path::Path;
 use std::sync::Mutex;
 
 use tokio::net::{UnixListener, UnixStream};
@@ -9,17 +13,18 @@ use tokio_util::sync::CancellationToken;
 
 use crate::utils::private_paths::{create_private_directory, remove_socket_file_if_present, set_private_socket_mode};
 
-pub fn get_supervisor_request_socket_path(control_db_path: &str) -> String {
-    format!("{control_db_path}.supervisor.sock")
+pub fn get_supervisor_request_socket_path(control_db_path: &JsString) -> JsString {
+    js_format!("{}.supervisor.sock", control_db_path)
 }
 
 /// Fire-and-forget wake ping; a missing or refused socket is ignored, as in the source.
-pub fn notify_supervisor_request(control_db_path: &str) {
-    let _ = std::os::unix::net::UnixStream::connect(get_supervisor_request_socket_path(control_db_path));
+pub fn notify_supervisor_request(control_db_path: &JsString) {
+    let _ =
+        std::os::unix::net::UnixStream::connect(encode_node_utf8(&get_supervisor_request_socket_path(control_db_path)));
 }
 
 pub struct SupervisorRequestWakeServer {
-    socket_path: PathBuf,
+    socket_path: JsString,
     generation: watch::Sender<u64>,
     generation_rx: watch::Receiver<u64>,
     shutdown: CancellationToken,
@@ -27,10 +32,10 @@ pub struct SupervisorRequestWakeServer {
 }
 
 impl SupervisorRequestWakeServer {
-    pub fn new(control_db_path: &str) -> Self {
+    pub fn new(control_db_path: &JsString) -> Self {
         let (generation, generation_rx) = watch::channel(0);
         Self {
-            socket_path: PathBuf::from(get_supervisor_request_socket_path(control_db_path)),
+            socket_path: get_supervisor_request_socket_path(control_db_path),
             generation,
             generation_rx,
             shutdown: CancellationToken::new(),
@@ -38,20 +43,21 @@ impl SupervisorRequestWakeServer {
         }
     }
 
-    pub fn socket_path(&self) -> &Path {
+    pub fn socket_path(&self) -> &JsString {
         &self.socket_path
     }
 
-    pub async fn start(&self) -> Result<(), String> {
+    pub async fn start(&self) -> Result<(), JsString> {
         if self.accept_task().is_some() {
             return Ok(());
         }
         assert_unix_socket_support()?;
-        if let Some(directory) = self.socket_path.parent() {
+        let socket_path = encode_node_utf8(&self.socket_path);
+        if let Some(directory) = Path::new(&socket_path).parent() {
             create_private_directory(directory)?;
         }
         let listener = listen_with_stale_socket_recovery(&self.socket_path).await?;
-        set_private_socket_mode(&self.socket_path)?;
+        set_private_socket_mode(Path::new(&encode_node_utf8(&self.socket_path)))?;
         let generation = self.generation.clone();
         let shutdown = self.shutdown.clone();
         let task = tokio::spawn(async move {
@@ -86,12 +92,12 @@ impl SupervisorRequestWakeServer {
         }
     }
 
-    pub async fn close(&self) -> Result<(), String> {
+    pub async fn close(&self) -> Result<(), JsString> {
         self.shutdown.cancel();
         if let Some(task) = self.accept_task().take() {
             task.abort();
         }
-        remove_socket_file_if_present(&self.socket_path);
+        remove_socket_file_if_present(Path::new(&encode_node_utf8(&self.socket_path)));
         Ok(())
     }
 
@@ -113,36 +119,36 @@ impl Drop for SupervisorRequestWakeServer {
         {
             task.abort();
         }
-        remove_socket_file_if_present(&self.socket_path);
+        remove_socket_file_if_present(Path::new(&encode_node_utf8(&self.socket_path)));
     }
 }
 
-fn assert_unix_socket_support() -> Result<(), String> {
+fn assert_unix_socket_support() -> Result<(), JsString> {
     if cfg!(windows) {
-        return Err("Supervisor request wake requires Unix domain sockets".to_owned());
+        return Err("Supervisor request wake requires Unix domain sockets".into());
     }
     Ok(())
 }
 
-async fn listen_with_stale_socket_recovery(socket_path: &Path) -> Result<UnixListener, String> {
-    match UnixListener::bind(socket_path) {
+async fn listen_with_stale_socket_recovery(socket_path: &JsString) -> Result<UnixListener, JsString> {
+    match UnixListener::bind(encode_node_utf8(socket_path)) {
         Ok(listener) => Ok(listener),
         Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
             if socket_accepts_connections(socket_path).await? {
-                return Err(format!(
+                return Err(js_format!(
                     "Supervisor request socket is already active: {}",
-                    socket_path.display()
+                    socket_path
                 ));
             }
-            remove_socket_file_if_present(socket_path);
-            UnixListener::bind(socket_path).map_err(|error| error.to_string())
+            remove_socket_file_if_present(Path::new(&encode_node_utf8(socket_path)));
+            UnixListener::bind(encode_node_utf8(socket_path)).map_err(|error| JsString::from(error.to_string()))
         }
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(error.to_string().into()),
     }
 }
 
-async fn socket_accepts_connections(socket_path: &Path) -> Result<bool, String> {
-    match UnixStream::connect(socket_path).await {
+async fn socket_accepts_connections(socket_path: &JsString) -> Result<bool, JsString> {
+    match UnixStream::connect(encode_node_utf8(socket_path)).await {
         Ok(stream) => {
             drop(stream);
             Ok(true)
@@ -155,6 +161,6 @@ async fn socket_accepts_connections(socket_path: &Path) -> Result<bool, String> 
         {
             Ok(false)
         }
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(error.to_string().into()),
     }
 }
