@@ -11,6 +11,10 @@
 //! listener). Uncaught throws and panics on any thread run that handler,
 //! using a Send-able terminal restore plan. Clearing it restores the default report.
 
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, encode_node_utf8},
+};
 use std::any::Any;
 use std::cell::Cell;
 use std::sync::{Arc, Mutex};
@@ -22,7 +26,7 @@ pub const ERROR: &str = "Error";
 #[derive(Debug)]
 pub struct UncaughtError {
     pub label: &'static str,
-    pub message: String,
+    pub message: JsString,
 }
 
 /// Process-level handler installed while interactive mode owns the terminal.
@@ -58,7 +62,7 @@ pub fn process_crash_handler() -> Option<ProcessCrashHandler> {
 }
 
 /// `throw` an error that nothing catches.
-pub fn throw_uncaught(label: &'static str, message: impl Into<String>) -> ! {
+pub fn throw_uncaught(label: &'static str, message: impl Into<JsString>) -> ! {
     std::panic::panic_any(UncaughtError {
         label,
         message: message.into(),
@@ -74,20 +78,20 @@ pub fn swallow_panics(step: impl FnOnce()) {
 }
 
 /// Formats a panic payload the way Node's uncaught handler prints it.
-pub fn format_uncaught(payload: &(dyn Any + Send)) -> String {
+pub fn format_uncaught(payload: &(dyn Any + Send)) -> JsString {
     if let Some(error) = payload.downcast_ref::<UncaughtError>() {
-        return format!("{}: {}", error.label, error.message);
+        return js_format!("{}: {}", error.label, error.message);
     }
     if let Some(error) = payload.downcast_ref::<std::io::Error>() {
-        return format!("{ERROR}: {error}");
+        return format!("{ERROR}: {error}").into();
     }
     if let Some(message) = payload.downcast_ref::<&str>() {
-        return format!("{ERROR}: {message}");
+        return js_format!("{}: {}", ERROR, message);
     }
     if let Some(message) = payload.downcast_ref::<String>() {
-        return format!("{ERROR}: {message}");
+        return js_format!("{}: {}", ERROR, message);
     }
-    format!("{ERROR}: unknown panic payload")
+    js_format!("{}: unknown panic payload", ERROR)
 }
 
 /// Installs the process-level handler: print the error, exit 1 (not 101).
@@ -101,7 +105,7 @@ pub fn install_uncaught_handler() {
         {
             handler(info.payload());
         }
-        eprintln!("{}", format_uncaught(info.payload()));
+        eprintln!("{}", encode_node_utf8(&format_uncaught(info.payload())));
         std::process::exit(1);
     }));
 }

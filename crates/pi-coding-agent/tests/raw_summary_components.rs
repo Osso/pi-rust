@@ -84,11 +84,19 @@ fn raw_branch_and_skill_text_reaches_actual_markdown_and_box_without_encoding() 
         let expected = oracle.request(&json!({"operation":"summaries","units":raw.units()}));
         assert_eq!(expected["ok"], true, "{expected}");
         let actual = serde_json::to_string(&snapshots).unwrap();
-        assert_eq!(
-            parse_lossless(actual).unwrap(),
-            parse_lossless(expected["json"].as_str().unwrap()).unwrap(),
-            "raw={raw:?}"
-        );
+        let actual = parse_lossless(actual).unwrap();
+        let expected = parse_lossless(expected["json"].as_str().unwrap()).unwrap();
+        let actual = actual.as_array().unwrap();
+        let expected = expected.as_array().unwrap();
+        assert_eq!(actual.len(), expected.len());
+        for (index, (actual, expected)) in actual.iter().zip(expected).enumerate() {
+            let actual = actual.as_array().unwrap();
+            let expected = expected.as_array().unwrap();
+            assert_eq!(actual.len(), expected.len());
+            for (component, (actual, expected)) in actual.iter().zip(expected).enumerate() {
+                assert_eq!(actual, expected, "raw={raw:?} snapshot={index} component={component}");
+            }
+        }
     }
 }
 

@@ -7,7 +7,9 @@
 //! are enums, so the TypeScript `Unknown theme color` throw is unreachable for
 //! callers; a missing entry in a hand-built [`Theme`] panics instead.
 
+mod error;
 mod theme_controller;
+pub use error::ThemeError;
 
 pub use theme_controller::{InteractiveThemeController, ThemeUi};
 
@@ -379,61 +381,6 @@ pub enum ColorMode {
     Color256,
 }
 
-/// Theme loading and color-resolution failures, with TypeScript message text.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ThemeError {
-    InvalidHexColor(String),
-    InvalidColorValue(String),
-    CircularVariableReference(String),
-    VariableReferenceNotFound(String),
-    Parse { label: String, message: String },
-    Syntax { message: String },
-    Io { message: String },
-    Invalid { label: String, message: String },
-    NameWithSlash(String),
-    NotFound(String),
-    NoSourcePath(String),
-    NotInitialized,
-}
-
-impl std::fmt::Display for ThemeError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidHexColor(hex) => write!(formatter, "Invalid hex color: {hex}"),
-            Self::InvalidColorValue(color) => write!(formatter, "Invalid color value: {color}"),
-            Self::CircularVariableReference(name) => {
-                write!(formatter, "Circular variable reference detected: {name}")
-            }
-            Self::VariableReferenceNotFound(name) => write!(formatter, "Variable reference not found: {name}"),
-            Self::Parse { label, message } => write!(formatter, "Failed to parse theme {label}: {message}"),
-            Self::Syntax { message } => formatter.write_str(message),
-            Self::Io { message } => formatter.write_str(message),
-            Self::Invalid { message, .. } => formatter.write_str(message),
-            Self::NameWithSlash(name) => write!(
-                formatter,
-                "Invalid theme name \"{name}\": theme names cannot contain \"/\" because it is reserved for automatic light/dark theme settings."
-            ),
-            Self::NotFound(name) => write!(formatter, "Theme not found: {name}"),
-            Self::NoSourcePath(name) => {
-                write!(formatter, "Theme \"{name}\" does not have a source path for export")
-            }
-            Self::NotInitialized => formatter.write_str("Theme not initialized. Call initTheme() first."),
-        }
-    }
-}
-
-impl std::error::Error for ThemeError {}
-
-impl ThemeError {
-    /// Node error name: raw `JSON.parse` failures from `getBuiltinThemes` are SyntaxErrors.
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Syntax { .. } => "SyntaxError",
-            _ => crate::utils::uncaught::ERROR,
-        }
-    }
-}
-
 /// Validated (or built-in raw) theme JSON.
 #[derive(Clone, Debug)]
 pub struct ThemeJson {
@@ -450,12 +397,12 @@ pub struct ThemeJson {
 fn hex_to_rgb(hex: &str) -> Result<RgbColor, ThemeError> {
     let cleaned = hex.replacen('#', "", 1);
     if cleaned.len() != 6 {
-        return Err(ThemeError::InvalidHexColor(hex.to_owned()));
+        return Err(ThemeError::InvalidHexColor(hex.into()));
     }
     let channel = |start: usize| parse_int(&cleaned[start..start + 2], 16);
     let (r, g, b) = (channel(0), channel(2), channel(4));
     if r.is_nan() || g.is_nan() || b.is_nan() {
-        return Err(ThemeError::InvalidHexColor(hex.to_owned()));
+        return Err(ThemeError::InvalidHexColor(hex.into()));
     }
     Ok(RgbColor {
         r: r as u8,
@@ -541,7 +488,7 @@ fn fg_ansi(color: &ColorValue, mode: ColorMode) -> Result<String, ThemeError> {
             }
             ColorMode::Color256 => Ok(format!("\x1b[38;5;{}m", hex_to_256(text)?)),
         },
-        ColorValue::Text(text) => Err(ThemeError::InvalidColorValue(text.clone())),
+        ColorValue::Text(text) => Err(ThemeError::InvalidColorValue(text.into())),
     }
 }
 
@@ -556,7 +503,7 @@ fn bg_ansi(color: &ColorValue, mode: ColorMode) -> Result<String, ThemeError> {
             }
             ColorMode::Color256 => Ok(format!("\x1b[48;5;{}m", hex_to_256(text)?)),
         },
-        ColorValue::Text(text) => Err(ThemeError::InvalidColorValue(text.clone())),
+        ColorValue::Text(text) => Err(ThemeError::InvalidColorValue(text.into())),
     }
 }
 
@@ -579,10 +526,10 @@ fn resolve_var_refs(
         _ => return Ok(resolved),
     };
     if visited.contains(&reference) {
-        return Err(ThemeError::CircularVariableReference(reference));
+        return Err(ThemeError::CircularVariableReference(reference.into()));
     }
     let Some(target) = vars.get(&reference) else {
-        return Err(ThemeError::VariableReferenceNotFound(reference));
+        return Err(ThemeError::VariableReferenceNotFound(reference.into()));
     };
     visited.insert(reference);
     resolve_var_refs(target, vars, visited)
@@ -782,7 +729,7 @@ static WATCH_CONTROL: Mutex<WatchControl> = Mutex::new(WatchControl {
 
 fn read_theme_file(path: &Path) -> Result<String, ThemeError> {
     fs::read_to_string(path).map_err(|error| ThemeError::Io {
-        message: node_read_error(&error, &path.display().to_string()),
+        message: node_read_error(&error, &path.display().to_string()).into(),
     })
 }
 
@@ -800,7 +747,7 @@ fn get_builtin_themes() -> Result<Map<String, Value>, ThemeError> {
             _ => read_theme_file(&path)?,
         };
         let value: Value = pi_js_compat::js_json::parse(&content).map_err(|error| ThemeError::Syntax {
-            message: error.to_string(),
+            message: error.message().clone(),
         })?;
         builtin.insert(name.to_owned(), value);
     }
@@ -869,11 +816,11 @@ fn get_custom_theme_infos() -> Result<Vec<ThemeInfo>, ThemeError> {
         return Ok(result);
     }
     let entries = fs::read_dir(&custom_themes_dir).map_err(|error| ThemeError::Io {
-        message: node_fs_error(&error, "scandir", &custom_themes_dir.display().to_string()),
+        message: node_fs_error(&error, "scandir", &custom_themes_dir.display().to_string()).into(),
     })?;
     for entry in entries {
         let entry = entry.map_err(|error| ThemeError::Io {
-            message: node_fs_error(&error, "scandir", &custom_themes_dir.display().to_string()),
+            message: node_fs_error(&error, "scandir", &custom_themes_dir.display().to_string()).into(),
         })?;
         let file = entry.file_name().to_string_lossy().into_owned();
         if !file.ends_with(".json") {
@@ -894,7 +841,7 @@ fn get_custom_theme_infos() -> Result<Vec<ThemeInfo>, ThemeError> {
 
 fn assert_theme_name_is_valid(name: &str) -> Result<(), ThemeError> {
     if name.contains('/') {
-        return Err(ThemeError::NameWithSlash(name.to_owned()));
+        return Err(ThemeError::NameWithSlash(name.into()));
     }
     Ok(())
 }
@@ -1059,15 +1006,15 @@ fn validate_theme_json(label: &str, json: &Value) -> Result<(), ThemeError> {
         message.push_str(&other_errors.join("\n"));
     }
     Err(ThemeError::Invalid {
-        label: label.to_owned(),
-        message,
+        label: label.into(),
+        message: message.into(),
     })
 }
 
 fn invalid_theme(label: &str, path: &str, message: &str) -> ThemeError {
     ThemeError::Invalid {
-        label: label.to_owned(),
-        message: format!("Invalid theme \"{label}\":\n\n\nOther errors:\n  - {path}: {message}"),
+        label: label.into(),
+        message: format!("Invalid theme \"{label}\":\n\n\nOther errors:\n  - {path}: {message}").into(),
     }
 }
 
@@ -1102,8 +1049,8 @@ fn parse_theme_json(label: &str, json: &Value) -> Result<ThemeJson, ThemeError> 
 
 fn parse_theme_json_content(label: &str, content: &str) -> Result<ThemeJson, ThemeError> {
     let json: Value = pi_js_compat::js_json::parse(content).map_err(|error| ThemeError::Parse {
-        label: label.to_owned(),
-        message: format!("SyntaxError: {error}"),
+        label: label.into(),
+        message: js_format!("SyntaxError: {}", error.message()),
     })?;
     parse_theme_json(label, &json)
 }
@@ -1116,14 +1063,14 @@ fn load_theme_json(name: &str) -> Result<ThemeJson, ThemeError> {
     let registered = with_state(|state| state.registered.get(name).cloned());
     if let Some(registered) = registered {
         let Some(source_path) = registered.source_path.clone() else {
-            return Err(ThemeError::NoSourcePath(name.to_owned()));
+            return Err(ThemeError::NoSourcePath(name.into()));
         };
         let content = read_theme_file(&source_path)?;
         return parse_theme_json_content(&source_path.display().to_string(), &content);
     }
     let theme_path = get_custom_themes_dir().join(format!("{name}.json"));
     if !theme_path.exists() {
-        return Err(ThemeError::NotFound(name.to_owned()));
+        return Err(ThemeError::NotFound(name.into()));
     }
     let content = read_theme_file(&theme_path)?;
     parse_theme_json_content(name, &content)
@@ -1415,9 +1362,8 @@ fn process_env() -> BTreeMap<String, String> {
 /// Theme lookup used by components. An uninitialized theme is an uncaught
 /// TypeScript throw (`theme` proxy), so it reaches the process-level handler.
 pub fn current_theme() -> Arc<Theme> {
-    try_current_theme().unwrap_or_else(|error| {
-        crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
-    })
+    try_current_theme()
+        .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message()))
 }
 
 /// Fallible [`current_theme`]: `Err` when `initTheme` has not installed a theme.
@@ -1501,7 +1447,7 @@ pub fn init_theme(theme_name: Option<&str>, enable_watcher: bool) -> Result<(), 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetThemeResult {
     pub success: bool,
-    pub error: Option<String>,
+    pub error: Option<JsString>,
 }
 
 /// Switch the global theme, falling back to `dark` and reporting the failure.
@@ -1531,7 +1477,7 @@ pub fn set_theme(name: &str, enable_watcher: bool) -> Result<SetThemeResult, The
             set_global_theme(dark);
             Ok(SetThemeResult {
                 success: false,
-                error: Some(error.to_string()),
+                error: Some(error.message()),
             })
         }
     }

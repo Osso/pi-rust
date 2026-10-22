@@ -80,3 +80,9 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 
 - Theme file watcher behavior is implemented but not covered by a test (timing/filesystem events); `notify` is already a crate dependency.
 - `getThinkingBorderColor`'s `default` arm is unreachable (typed enum); `max`/`ultra` map to `thinkingMax`.
+
+## Native ThemeError values
+
+`ThemeError` remains publicly re-exported from `theme`; its existing value/formatting block lives in `theme/error.rs` for independent actual-module proof. Every error text field is `JsString`; `message()->JsString` retains raw labels/messages/names. `Display` is a Node UTF8 diagnostic projection, not text authority. `SetThemeResult.error` is `Option<JsString>` and source error propagation uses `message()`.
+
+`raw_theme_error` proves high/low/pair message assembly and explicit Display projection. Theme JSON/schema parsing and color/name input domains outside the error value remain unchanged; this proof must not be cited as complete raw Theme JSON acceptance.
