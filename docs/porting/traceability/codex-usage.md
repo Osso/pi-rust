@@ -60,3 +60,5 @@ Supersedes the bridge blocker above. Frozen lines 149–166 route trimmed `all` 
 | Fan-out, last assignment, listener failures, unsubscribe, native context and raw UTF-16 | `event_bus` request tests |
 
 Oracle uses frozen `AuthStorage.inMemory`, `isIdle: () => true`, and native fixture listeners assigning promises before emit returns. No network or live provider is used.
+
+`differential_claude_bridge_raw_utf16` sends native `JsValue` fixtures to tsx and the Rust listener: unpaired units in account labels, rejected errors, forwarded args and handled rejection; sanitization slices an astral pair at unit 300, preserving its high unit. No serde scalar or replacement projection participates.
