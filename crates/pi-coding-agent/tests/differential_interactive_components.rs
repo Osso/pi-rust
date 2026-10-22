@@ -1007,7 +1007,9 @@ impl pi_tui::components::editor::EditorFixedCell for TestFixedCell {
 
 impl ExtensionEditorHost for TestEditorHost {
     fn suspend(&self) {}
-    fn resume(&self) {}
+    fn resume(&self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+        Ok(())
+    }
     fn request_forced_render(&self) {}
 }
 
