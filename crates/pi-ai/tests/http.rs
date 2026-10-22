@@ -124,3 +124,29 @@ async fn request_builder_errors_are_not_reclassified_as_network_failures() {
         assert!(!error.message.is_empty());
     }
 }
+
+/// Headers are ByteStrings on the wire (undici): code units 0x80-0xFF are
+/// single Latin-1 bytes in both directions, never UTF-8 sequences.
+#[tokio::test]
+async fn latin1_header_values_cross_the_wire_as_single_bytes() {
+    let (url, server) = serve_once(b"HTTP/1.1 200 OK\r\nX-Label: caf\xe9\r\nContent-Length: 0\r\n\r\n").await;
+    let request = HttpRequest {
+        method: "GET".to_owned(),
+        url,
+        headers: vec![("x-label".to_owned(), "caf\u{e9}".to_owned())],
+        body: None,
+    };
+    let response = default_fetch().fetch(request, None).await.expect("fetch");
+    assert!(
+        response
+            .headers
+            .contains(&("x-label".to_owned(), "caf\u{e9}".to_owned()))
+    );
+
+    let raw_request = server.await.expect("server");
+    let needle = b"x-label: caf\xe9\r\n";
+    assert!(
+        raw_request.windows(needle.len()).any(|window| window == needle),
+        "{raw_request:?}"
+    );
+}
