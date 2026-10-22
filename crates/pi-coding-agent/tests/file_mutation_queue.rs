@@ -3,10 +3,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use pi_coding_agent::core::tools::file_mutation_queue::with_file_mutation_queue;
+use pi_js_compat::js_json::JsString;
 use tokio::sync::Barrier;
 
-fn path(name: &str) -> String {
-    std::env::temp_dir().join(name).to_string_lossy().into_owned()
+fn path(name: &str) -> JsString {
+    std::env::temp_dir().join(name).to_string_lossy().as_ref().into()
 }
 
 /// Records start/end order and tracks the peak number of concurrent operations.
@@ -124,8 +125,8 @@ async fn uses_the_same_queue_for_symlink_aliases() {
     std::os::unix::fs::symlink(&target, &alias).unwrap();
 
     let recorder = Recorder::default();
-    let target_path = target.to_string_lossy().into_owned();
-    let alias_path = alias.to_string_lossy().into_owned();
+    let target_path = JsString::from(target.to_string_lossy().as_ref());
+    let alias_path = JsString::from(alias.to_string_lossy().as_ref());
     let first = {
         let recorder = recorder.clone();
         let target_path = target_path.clone();
