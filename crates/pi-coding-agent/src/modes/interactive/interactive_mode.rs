@@ -4662,7 +4662,11 @@ impl InteractiveMode {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| cwd.clone());
         let title = match self.session.borrow().session_name() {
-            Some(name) => format!("{} - {name} - {basename}", crate::config::package_config().app_title),
+            Some(name) => format!(
+                "{} - {} - {basename}",
+                crate::config::package_config().app_title,
+                encode_node_utf8(&name.into())
+            ),
             None => format!("{} - {basename}", crate::config::package_config().app_title),
         };
         self.ui.terminal().borrow_mut().set_title(&title);

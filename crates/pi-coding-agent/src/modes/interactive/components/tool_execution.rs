@@ -47,7 +47,7 @@ pub struct ToolExecutionResult {
     pub is_error: bool,
 }
 
-fn limit_tool_output_lines(lines: &[String]) -> Vec<String> {
+fn limit_tool_output_lines(lines: &[JsString]) -> Vec<JsString> {
     if lines.len() <= MAX_TOOL_OUTPUT_LINES {
         return lines.to_vec();
     }
@@ -55,7 +55,7 @@ fn limit_tool_output_lines(lines: &[String]) -> Vec<String> {
     let tail_line_count = MAX_TOOL_OUTPUT_LINES - head_line_count;
     let hidden_line_count = lines.len() - MAX_TOOL_OUTPUT_LINES;
     let mut limited = lines[..head_line_count].to_vec();
-    limited.push(format!("... ({hidden_line_count} more lines hidden)"));
+    limited.push(format!("... ({hidden_line_count} more lines hidden)").into());
     limited.extend_from_slice(&lines[lines.len() - tail_line_count..]);
     limited
 }
@@ -81,17 +81,7 @@ pub fn limit_tool_result_content(content: &[TextOrImageContent]) -> Vec<TextOrIm
     if output_lines.len() <= MAX_TOOL_OUTPUT_LINES {
         return content.to_vec();
     }
-    let head = MAX_TOOL_OUTPUT_LINES / 2;
-    let hidden = output_lines.len() - MAX_TOOL_OUTPUT_LINES;
-    let marker = JsString::from(format!("... ({hidden} more lines hidden)"));
-    let tail_start = output_lines.len() - (MAX_TOOL_OUTPUT_LINES - head);
-    let limited_text = JsString::join(
-        output_lines[..head]
-            .iter()
-            .chain(std::iter::once(&marker))
-            .chain(output_lines[tail_start..].iter()),
-        "\n",
-    );
+    let limited_text = JsString::join(limit_tool_output_lines(&output_lines), "\n");
     content
         .iter()
         .enumerate()

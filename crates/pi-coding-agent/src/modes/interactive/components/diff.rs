@@ -35,7 +35,14 @@ fn parse_diff_line(line: &JsString) -> Option<ParsedDiffLine> {
     } else {
         return None;
     };
-    let content = line.slice(separator + 1, line.len());
+    let mut content = line.slice(separator + 1, line.len());
+    if content
+        .units()
+        .last()
+        .is_some_and(|unit| matches!(unit, 0x000a | 0x000d | 0x2028 | 0x2029))
+    {
+        content = content.slice(0, content.len() - 1);
+    }
     if content
         .units()
         .iter()
