@@ -6,6 +6,7 @@ use pi_coding_agent::modes::rpc::{
     RpcExtensionUiRequest, RpcExtensionUiRequestPayload, RpcExtensionUiResponse, RpcExtensionUiResponsePayload,
     RpcResponse, RpcSessionState, RpcSlashCommand, RpcSlashCommandSource, StreamingBehavior, WidgetPlacement,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 fn parse(line: &str) -> RpcCommand {
@@ -13,7 +14,7 @@ fn parse(line: &str) -> RpcCommand {
 }
 
 fn serialize_command(body: RpcCommandBody, id: Option<&str>) -> String {
-    serde_json::to_string(&RpcCommand::new(body, id.map(str::to_owned))).expect("command must serialize")
+    serde_json::to_string(&RpcCommand::new(body, id.map(JsString::from))).expect("command must serialize")
 }
 
 fn source_info() -> SourceInfo {
@@ -63,7 +64,7 @@ fn parses_every_prompting_command() {
     assert_eq!(
         prompt.body,
         RpcCommandBody::Prompt {
-            message: "hi".to_owned(),
+            message: "hi".into(),
             images: Some(vec![ImageContent::new("AA==", "image/png")]),
             streaming_behavior: Some(StreamingBehavior::FollowUp),
         }
@@ -72,14 +73,14 @@ fn parses_every_prompting_command() {
     assert_eq!(
         parse(r#"{"type":"steer","message":"s"}"#).body,
         RpcCommandBody::Steer {
-            message: "s".to_owned(),
+            message: "s".into(),
             images: None,
         }
     );
     assert_eq!(
         parse(r#"{"type":"follow_up","message":"f"}"#).body,
         RpcCommandBody::FollowUp {
-            message: "f".to_owned(),
+            message: "f".into(),
             images: None,
         }
     );
@@ -88,7 +89,7 @@ fn parses_every_prompting_command() {
     assert_eq!(
         parse(r#"{"type":"new_session","parentSession":"/tmp/parent.jsonl"}"#).body,
         RpcCommandBody::NewSession {
-            parent_session: Some("/tmp/parent.jsonl".to_owned()),
+            parent_session: Some("/tmp/parent.jsonl".into()),
         }
     );
     assert_eq!(
@@ -180,20 +181,18 @@ fn parses_every_session_message_and_command_query() {
     assert_eq!(
         parse(r#"{"type":"export_html","outputPath":"/tmp/out.html"}"#).body,
         RpcCommandBody::ExportHtml {
-            output_path: Some("/tmp/out.html".to_owned()),
+            output_path: Some("/tmp/out.html".into()),
         }
     );
     assert_eq!(
         parse(r#"{"type":"switch_session","sessionPath":"/tmp/s.jsonl"}"#).body,
         RpcCommandBody::SwitchSession {
-            session_path: "/tmp/s.jsonl".to_owned(),
+            session_path: "/tmp/s.jsonl".into(),
         }
     );
     assert_eq!(
         parse(r#"{"type":"fork","entryId":"e1"}"#).body,
-        RpcCommandBody::Fork {
-            entry_id: "e1".to_owned(),
-        }
+        RpcCommandBody::Fork { entry_id: "e1".into() }
     );
     assert_eq!(parse(r#"{"type":"clone"}"#).body, RpcCommandBody::Clone);
     assert_eq!(
@@ -203,7 +202,7 @@ fn parses_every_session_message_and_command_query() {
     assert_eq!(
         parse(r#"{"type":"get_entries","since":"e0"}"#).body,
         RpcCommandBody::GetEntries {
-            since: Some("e0".to_owned()),
+            since: Some("e0".into()),
         }
     );
     assert_eq!(
@@ -230,7 +229,7 @@ fn serializes_command_bodies_with_ts_field_order_and_omits_undefined_fields() {
     assert_eq!(
         serialize_command(
             RpcCommandBody::Prompt {
-                message: "hi".to_owned(),
+                message: "hi".into(),
                 images: None,
                 streaming_behavior: None,
             },
@@ -271,7 +270,7 @@ fn serializes_command_bodies_with_ts_field_order_and_omits_undefined_fields() {
     assert_eq!(
         serialize_command(
             RpcCommandBody::ExportHtml {
-                output_path: Some("/tmp/a.html".to_owned()),
+                output_path: Some("/tmp/a.html".into()),
             },
             None,
         ),
@@ -288,8 +287,8 @@ fn serializes_session_state_in_ts_field_order_and_omits_undefined_fields() {
         is_compacting: true,
         steering_mode: QueueMode::All,
         follow_up_mode: QueueMode::OneAtATime,
-        session_file: Some("/tmp/session.jsonl".to_owned()),
-        session_id: "session-1".to_owned(),
+        session_file: Some("/tmp/session.jsonl".into()),
+        session_id: "session-1".into(),
         session_name: Some("Name".to_owned()),
         auto_compaction_enabled: true,
         message_count: 3,
@@ -416,8 +415,8 @@ fn serializes_every_extension_ui_request_in_ts_field_order() {
 
     assert_eq!(
         serde_json::to_string(&request(RpcExtensionUiRequestPayload::Select {
-            title: "Pick".to_owned(),
-            options: vec!["a".to_owned(), "b".to_owned()],
+            title: "Pick".into(),
+            options: vec!["a".into(), "b".into()],
             timeout: Some(100.0),
         }))
         .expect("request must serialize"),
@@ -425,8 +424,8 @@ fn serializes_every_extension_ui_request_in_ts_field_order() {
     );
     assert_eq!(
         serde_json::to_string(&request(RpcExtensionUiRequestPayload::Confirm {
-            title: "Sure?".to_owned(),
-            message: "Continue".to_owned(),
+            title: "Sure?".into(),
+            message: "Continue".into(),
             timeout: None,
         }))
         .expect("request must serialize"),
@@ -434,8 +433,8 @@ fn serializes_every_extension_ui_request_in_ts_field_order() {
     );
     assert_eq!(
         serde_json::to_string(&request(RpcExtensionUiRequestPayload::Input {
-            title: "Name".to_owned(),
-            placeholder: Some("type".to_owned()),
+            title: "Name".into(),
+            placeholder: Some("type".into()),
             timeout: None,
         }))
         .expect("request must serialize"),
@@ -443,15 +442,15 @@ fn serializes_every_extension_ui_request_in_ts_field_order() {
     );
     assert_eq!(
         serde_json::to_string(&request(RpcExtensionUiRequestPayload::Editor {
-            title: "Edit".to_owned(),
-            prefill: Some("text".to_owned()),
+            title: "Edit".into(),
+            prefill: Some("text".into()),
         }))
         .expect("request must serialize"),
         r#"{"type":"extension_ui_request","id":"ui-1","method":"editor","title":"Edit","prefill":"text"}"#
     );
     assert_eq!(
         serde_json::to_string(&request(RpcExtensionUiRequestPayload::Notify {
-            message: "Done".to_owned(),
+            message: "Done".into(),
             notify_type: Some(NotifyType::Warning),
         }))
         .expect("request must serialize"),
@@ -459,7 +458,7 @@ fn serializes_every_extension_ui_request_in_ts_field_order() {
     );
     assert_eq!(
         serde_json::to_string(&request(RpcExtensionUiRequestPayload::SetStatus {
-            status_key: "k".to_owned(),
+            status_key: "k".into(),
             status_text: None,
         }))
         .expect("request must serialize"),
@@ -467,8 +466,8 @@ fn serializes_every_extension_ui_request_in_ts_field_order() {
     );
     assert_eq!(
         serde_json::to_string(&request(RpcExtensionUiRequestPayload::SetWidget {
-            widget_key: "w".to_owned(),
-            widget_lines: Some(vec!["line".to_owned()]),
+            widget_key: "w".into(),
+            widget_lines: Some(vec!["line".into()]),
             widget_placement: Some(WidgetPlacement::AboveEditor),
         }))
         .expect("request must serialize"),
@@ -476,14 +475,14 @@ fn serializes_every_extension_ui_request_in_ts_field_order() {
     );
     assert_eq!(
         serde_json::to_string(&request(RpcExtensionUiRequestPayload::SetTitle {
-            title: "Title".to_owned(),
+            title: "Title".into(),
         }))
         .expect("request must serialize"),
         r#"{"type":"extension_ui_request","id":"ui-1","method":"setTitle","title":"Title"}"#
     );
     assert_eq!(
         serde_json::to_string(&request(RpcExtensionUiRequestPayload::SetEditorText {
-            text: "text".to_owned(),
+            text: "text".into(),
         }))
         .expect("request must serialize"),
         r#"{"type":"extension_ui_request","id":"ui-1","method":"set_editor_text","text":"text"}"#
@@ -499,9 +498,7 @@ fn parses_every_extension_ui_response_shape() {
     assert_eq!(value.id, "ui-1");
     assert_eq!(
         value.payload,
-        RpcExtensionUiResponsePayload::Value {
-            value: "chosen".to_owned(),
-        }
+        RpcExtensionUiResponsePayload::Value { value: "chosen".into() }
     );
 
     let confirmed: RpcExtensionUiResponse =

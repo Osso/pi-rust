@@ -47,7 +47,7 @@ pub enum RpcCommandBody {
     Interrupt,
     NewSession {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        parent_session: Option<String>,
+        parent_session: Option<JsString>,
     },
 
     // State
@@ -103,19 +103,19 @@ pub enum RpcCommandBody {
     GetSessionStats,
     ExportHtml {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        output_path: Option<String>,
+        output_path: Option<JsString>,
     },
     SwitchSession {
-        session_path: String,
+        session_path: JsString,
     },
     Fork {
-        entry_id: String,
+        entry_id: JsString,
     },
     Clone,
     GetForkMessages,
     GetEntries {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        since: Option<String>,
+        since: Option<JsString>,
     },
     GetTree,
     GetLastAssistantText,
@@ -284,7 +284,7 @@ pub struct RpcCommand {
     #[serde(flatten)]
     pub body: RpcCommandBody,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    pub id: Option<JsString>,
 }
 
 impl<'de> Deserialize<'de> for RpcCommand {
@@ -297,7 +297,7 @@ impl<'de> Deserialize<'de> for RpcCommand {
 }
 
 impl RpcCommand {
-    pub const fn new(body: RpcCommandBody, id: Option<String>) -> Self {
+    pub const fn new(body: RpcCommandBody, id: Option<JsString>) -> Self {
         Self { body, id }
     }
 }
@@ -314,8 +314,8 @@ pub struct RpcSessionState {
     pub steering_mode: QueueMode,
     pub follow_up_mode: QueueMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_file: Option<String>,
-    pub session_id: String,
+    pub session_file: Option<JsString>,
+    pub session_id: JsString,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_name: Option<JsString>,
     pub auto_compaction_enabled: bool,
@@ -340,7 +340,7 @@ pub enum RpcResponseTag {
 #[serde(rename_all = "camelCase")]
 pub struct RpcResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    pub id: Option<JsString>,
     #[serde(rename = "type")]
     pub kind: RpcResponseTag,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -355,7 +355,7 @@ pub struct RpcResponse {
 
 impl RpcResponse {
     /// `success(id, command)` without a `data` field.
-    pub fn success(id: Option<String>, command: impl Into<String>) -> Self {
+    pub fn success(id: Option<JsString>, command: impl Into<String>) -> Self {
         Self {
             id,
             kind: RpcResponseTag::Response,
@@ -367,7 +367,7 @@ impl RpcResponse {
     }
 
     /// `success(id, command, data)`; `data` may be `Value::Null` to emit an explicit `null`.
-    pub fn success_with_data(id: Option<String>, command: impl Into<String>, data: JsValue) -> Self {
+    pub fn success_with_data(id: Option<JsString>, command: impl Into<String>, data: JsValue) -> Self {
         Self {
             id,
             kind: RpcResponseTag::Response,
@@ -379,13 +379,13 @@ impl RpcResponse {
     }
 
     /// `error(id, command, message)`.
-    pub fn error(id: Option<String>, command: impl Into<String>, message: impl Into<JsString>) -> Self {
+    pub fn error(id: Option<JsString>, command: impl Into<String>, message: impl Into<JsString>) -> Self {
         Self::error_optional(id, Some(command.into()), message)
     }
 
     /// `error(id, command, message)` with an absent `command` (unknown or
     /// non-string `type`), which `JSON.stringify` omits.
-    pub fn error_optional(id: Option<String>, command: Option<String>, message: impl Into<JsString>) -> Self {
+    pub fn error_optional(id: Option<JsString>, command: Option<String>, message: impl Into<JsString>) -> Self {
         Self {
             id,
             kind: RpcResponseTag::Response,
@@ -452,8 +452,8 @@ pub enum ExtensionUiRequestTag {
 #[serde(tag = "method", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RpcExtensionUiRequestPayload {
     Select {
-        title: String,
-        options: Vec<String>,
+        title: JsString,
+        options: Vec<JsString>,
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -462,8 +462,8 @@ pub enum RpcExtensionUiRequestPayload {
         timeout: Option<f64>,
     },
     Confirm {
-        title: String,
-        message: String,
+        title: JsString,
+        message: JsString,
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -472,9 +472,9 @@ pub enum RpcExtensionUiRequestPayload {
         timeout: Option<f64>,
     },
     Input {
-        title: String,
+        title: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        placeholder: Option<String>,
+        placeholder: Option<JsString>,
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -483,9 +483,9 @@ pub enum RpcExtensionUiRequestPayload {
         timeout: Option<f64>,
     },
     Editor {
-        title: String,
+        title: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        prefill: Option<String>,
+        prefill: Option<JsString>,
     },
     Notify {
         message: JsString,
@@ -493,23 +493,23 @@ pub enum RpcExtensionUiRequestPayload {
         notify_type: Option<NotifyType>,
     },
     SetStatus {
-        status_key: String,
+        status_key: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        status_text: Option<String>,
+        status_text: Option<JsString>,
     },
     SetWidget {
-        widget_key: String,
+        widget_key: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        widget_lines: Option<Vec<String>>,
+        widget_lines: Option<Vec<JsString>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         widget_placement: Option<WidgetPlacement>,
     },
     SetTitle {
-        title: String,
+        title: JsString,
     },
     #[serde(rename = "set_editor_text")]
     SetEditorText {
-        text: String,
+        text: JsString,
     },
 }
 
@@ -533,16 +533,16 @@ pub enum ExtensionUiResponseTag {
 }
 
 /// Extension UI response payload: exactly one of `value`, `confirmed`, `cancelled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum RpcExtensionUiResponsePayload {
-    Value { value: String },
+    Value { value: JsString },
     Confirmed { confirmed: bool },
     Cancelled { cancelled: bool },
 }
 
 /// A client answer to an extension UI request (`RpcExtensionUIResponse`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcExtensionUiResponse {
     #[serde(rename = "type")]
@@ -550,6 +550,33 @@ pub struct RpcExtensionUiResponse {
     pub id: String,
     #[serde(flatten)]
     pub payload: RpcExtensionUiResponsePayload,
+}
+
+// Like commands, decode the raw tree so a lone unit in `value` reaches JsString intact; the
+// variants are tried in the untagged declaration order.
+impl<'de> Deserialize<'de> for RpcExtensionUiResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        decode_ui_response(&value).map_err(serde::de::Error::custom)
+    }
+}
+
+fn decode_ui_response(value: &JsValue) -> Result<RpcExtensionUiResponse, String> {
+    use RpcExtensionUiResponsePayload as Payload;
+    let payload = if let Ok(answer) = command_field::<JsString>(value, "value") {
+        Payload::Value { value: answer }
+    } else if let Ok(confirmed) = command_field::<bool>(value, "confirmed") {
+        Payload::Confirmed { confirmed }
+    } else if let Ok(cancelled) = command_field::<bool>(value, "cancelled") {
+        Payload::Cancelled { cancelled }
+    } else {
+        return Err("data did not match any variant of untagged enum RpcExtensionUiResponsePayload".into());
+    };
+    Ok(RpcExtensionUiResponse {
+        kind: command_field(value, "type")?,
+        id: command_field(value, "id")?,
+        payload,
+    })
 }
 
 #[cfg(test)]
@@ -586,6 +613,29 @@ mod lossless_tests {
             };
             assert_eq!(text.units(), &[0xd800]);
         }
+    }
+
+    #[test]
+    fn rpc_ids_paths_and_ui_answers_decode_raw_units() {
+        let raw = pi_js_compat::js_json::parse_lossless(
+            r#"{"type":"switch_session","sessionPath":"/s/\udc00.jsonl","id":"req-\ud800"}"#,
+        )
+        .unwrap();
+        let command: RpcCommand = pi_js_compat::js_json::from_value(&raw).unwrap();
+        assert_eq!(command.id.as_ref().unwrap().units().last(), Some(&0xd800));
+        let RpcCommandBody::SwitchSession { session_path } = command.body else {
+            panic!("switch_session")
+        };
+        assert!(session_path.units().contains(&0xdc00));
+
+        let raw =
+            pi_js_compat::js_json::parse_lossless(r#"{"type":"extension_ui_response","id":"ui-1","value":"a\ud800"}"#)
+                .unwrap();
+        let response: RpcExtensionUiResponse = pi_js_compat::js_json::from_value(&raw).unwrap();
+        let RpcExtensionUiResponsePayload::Value { value } = response.payload else {
+            panic!("value answer")
+        };
+        assert_eq!(value.units(), &[u16::from(b'a'), 0xd800]);
     }
 
     #[test]

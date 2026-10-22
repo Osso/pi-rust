@@ -569,7 +569,7 @@ impl RpcClient {
 
         sync.next_request_id += 1;
         let id = format!("req_{}", sync.next_request_id);
-        let command = RpcCommand::new(body, Some(id.clone()));
+        let command = RpcCommand::new(body, Some(id.as_str().into()));
         let line = serialize_json_line(&command).map_err(|error| RpcClientError::Serialize {
             message: error.to_string(),
         })?;
@@ -682,7 +682,7 @@ impl RpcClient {
         Ok(())
     }
 
-    pub async fn new_session(&self, parent_session: Option<String>) -> Result<CancelledResult, RpcClientError> {
+    pub async fn new_session(&self, parent_session: Option<JsString>) -> Result<CancelledResult, RpcClientError> {
         let response = self.send(RpcCommandBody::NewSession { parent_session }).await?;
         response_data(response, "new_session")
     }
@@ -783,12 +783,12 @@ impl RpcClient {
         response_data(response, "get_session_stats")
     }
 
-    pub async fn export_html(&self, output_path: Option<String>) -> Result<ExportHtmlResult, RpcClientError> {
+    pub async fn export_html(&self, output_path: Option<JsString>) -> Result<ExportHtmlResult, RpcClientError> {
         let response = self.send(RpcCommandBody::ExportHtml { output_path }).await?;
         response_data(response, "export_html")
     }
 
-    pub async fn switch_session(&self, session_path: impl Into<String>) -> Result<CancelledResult, RpcClientError> {
+    pub async fn switch_session(&self, session_path: impl Into<JsString>) -> Result<CancelledResult, RpcClientError> {
         let response = self
             .send(RpcCommandBody::SwitchSession {
                 session_path: session_path.into(),
@@ -797,7 +797,7 @@ impl RpcClient {
         response_data(response, "switch_session")
     }
 
-    pub async fn fork(&self, entry_id: impl Into<String>) -> Result<ForkResult, RpcClientError> {
+    pub async fn fork(&self, entry_id: impl Into<JsString>) -> Result<ForkResult, RpcClientError> {
         let response = self
             .send(RpcCommandBody::Fork {
                 entry_id: entry_id.into(),
@@ -817,7 +817,7 @@ impl RpcClient {
         Ok(data.messages)
     }
 
-    pub async fn get_entries(&self, since: Option<String>) -> Result<EntriesResult, RpcClientError> {
+    pub async fn get_entries(&self, since: Option<JsString>) -> Result<EntriesResult, RpcClientError> {
         let response = self.send(RpcCommandBody::GetEntries { since }).await?;
         response_data(response, "get_entries")
     }

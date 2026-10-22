@@ -13,6 +13,7 @@ use pi_agent_core::agent::types::AgentEvent;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::InputSource;
 use pi_ai::utils::uuid::random_uuid;
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use serde::Serialize;
 use tokio::sync::oneshot;
@@ -83,7 +84,7 @@ struct Subscriptions {
 struct RpcState {
     session: Mutex<AgentSession>,
     runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
-    agent_dir: Option<String>,
+    agent_dir: Option<JsString>,
     dialogs: DialogBroker,
     shutdown_requested: AtomicBool,
     shutting_down: AtomicBool,
@@ -236,10 +237,7 @@ fn deserialize_command(state: &RpcState, parsed: &JsValue) -> Option<RpcCommand>
         .and_then(|text| text.to_utf8().ok());
     let type_name = type_name.as_deref();
     if type_name.is_none_or(|name| !crate::modes::rpc::rpc_types::is_known_command_type(name)) {
-        let id = parsed
-            .get("id")
-            .and_then(JsValue::as_string)
-            .and_then(|text| text.to_utf8().ok());
+        let id = parsed.get("id").and_then(JsValue::as_string).cloned();
         let label = type_name.unwrap_or("undefined");
         state.output_response(&RpcResponse::error_optional(
             id,
@@ -252,10 +250,7 @@ fn deserialize_command(state: &RpcState, parsed: &JsValue) -> Option<RpcCommand>
     match js_json::from_value::<RpcCommand>(parsed) {
         Ok(command) => Some(command),
         Err(error) => {
-            let id = parsed
-                .get("id")
-                .and_then(JsValue::as_string)
-                .and_then(|text| text.to_utf8().ok());
+            let id = parsed.get("id").and_then(JsValue::as_string).cloned();
             state.output_response(&RpcResponse::error(
                 id,
                 type_name.unwrap_or("undefined"),
@@ -461,7 +456,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
         }
         RpcCommandBody::ExportHtml { output_path } => {
             let path = session
-                .export_to_html(output_path.as_deref())
+                .export_to_html(output_path.as_ref())
                 .await
                 .map_err(|error| error.message().to_owned())?;
             Ok(Some(RpcResponse::success_with_data(
@@ -503,7 +498,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             )))
         }
         RpcCommandBody::Clone => {
-            let leaf_id = session.session_manager().get_leaf_id().map(str::to_owned);
+            let leaf_id = session.session_manager().get_leaf_id().cloned();
             let Some(leaf_id) = leaf_id else {
                 return Err("Cannot clone session: no current entry selected".into());
             };
@@ -539,12 +534,12 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             let manager = session.session_manager();
             let mut entries = manager.get_entries();
             if let Some(since) = since {
-                let Some(index) = entries.iter().position(|entry| entry.id() == Some(since.as_str())) else {
-                    return Err(format!("Entry not found: {since}").into());
+                let Some(index) = entries.iter().position(|entry| entry.id() == Some(since)) else {
+                    return Err(js_format!("Entry not found: {}", since));
                 };
                 entries = entries.into_iter().skip(index + 1).collect();
             }
-            let leaf_id = manager.get_leaf_id().map(str::to_owned);
+            let leaf_id = manager.get_leaf_id().cloned();
             let data = EntriesResponseData { entries, leaf_id };
             Ok(Some(RpcResponse::success_with_data(
                 id,
@@ -556,7 +551,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             let manager = session.session_manager();
             let data = TreeResponseData {
                 tree: manager.get_tree(),
-                leaf_id: manager.get_leaf_id().map(str::to_owned),
+                leaf_id: manager.get_leaf_id().cloned(),
             };
             Ok(Some(RpcResponse::success_with_data(
                 id,
@@ -626,7 +621,7 @@ async fn run_bash(
     session: &AgentSession,
     command: &JsString,
     exclude_from_context: Option<bool>,
-    id: Option<String>,
+    id: Option<JsString>,
 ) -> Result<BashResult, JsString> {
     let cwd = session.session_manager().get_cwd().to_owned();
     let event_result: Option<UserBashEventResult> = session
@@ -664,8 +659,8 @@ fn collect_commands(session: &AgentSession) -> Vec<RpcSlashCommand> {
     let mut commands = Vec::new();
     for command in session.extension_runner().get_registered_commands() {
         commands.push(SlashCommandInfo {
-            name: command.invocation_name,
-            description: command.description,
+            name: command.invocation_name.into(),
+            description: command.description.map(Into::into),
             source: SlashCommandSource::Extension,
             source_info: command.source_info,
         });
@@ -680,7 +675,7 @@ fn collect_commands(session: &AgentSession) -> Vec<RpcSlashCommand> {
     }
     for skill in session.resource_loader().get_skills().skills {
         commands.push(SlashCommandInfo {
-            name: format!("skill:{}", skill.name),
+            name: JsString::from("skill:") + &skill.name,
             description: Some(skill.description),
             source: SlashCommandSource::Skill,
             source_info: skill.source_info,
@@ -691,7 +686,7 @@ fn collect_commands(session: &AgentSession) -> Vec<RpcSlashCommand> {
 
 fn start_prompt(
     state: &Arc<RpcState>,
-    id: Option<String>,
+    id: Option<JsString>,
     message: JsString,
     images: Vec<pi_ai::types::ImageContent>,
     streaming_behavior: Option<StreamingBehavior>,
@@ -756,7 +751,7 @@ async fn rebind_session(state: &Arc<RpcState>) {
             control_db_path: state
                 .agent_dir
                 .as_ref()
-                .map(|_| get_control_db_path(&get_user_state_root())),
+                .map(|_| get_control_db_path(&get_user_state_root()).into()),
             command_context_actions: Some(command_context_actions(
                 Arc::new(Mutex::new(session.clone())),
                 Arc::clone(&state.runtime),
@@ -885,7 +880,7 @@ struct ForkResponseData {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ForkMessageData {
-    entry_id: String,
+    entry_id: JsString,
     text: JsString,
 }
 
@@ -894,7 +889,7 @@ struct ForkMessageData {
 struct EntriesResponseData {
     entries: Vec<SessionEntry>,
     /// `getLeafId()` returns `null` for an empty session.
-    leaf_id: Option<String>,
+    leaf_id: Option<JsString>,
 }
 
 #[derive(Serialize)]
@@ -902,7 +897,7 @@ struct EntriesResponseData {
 struct TreeResponseData {
     tree: Vec<SessionTreeNode>,
     /// `getLeafId()` returns `null` for an empty session.
-    leaf_id: Option<String>,
+    leaf_id: Option<JsString>,
 }
 
 #[derive(Serialize)]
@@ -925,13 +920,13 @@ impl RpcUiContext {
 impl ExtensionUiContext for RpcUiContext {
     fn select<'a>(
         &'a self,
-        title: &str,
-        options: &[String],
+        title: &JsString,
+        options: &[JsString],
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let state = self.state();
         let request = RpcExtensionUiRequestPayload::Select {
-            title: title.to_owned(),
+            title: title.clone(),
             options: options.to_vec(),
             timeout: opts.and_then(|opts| opts.timeout),
         };
@@ -958,14 +953,14 @@ impl ExtensionUiContext for RpcUiContext {
 
     fn confirm<'a>(
         &'a self,
-        title: &str,
-        message: &str,
+        title: &JsString,
+        message: &JsString,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, String>> {
+    ) -> BoxFuture<'a, Result<bool, JsString>> {
         let state = self.state();
         let request = RpcExtensionUiRequestPayload::Confirm {
-            title: title.to_owned(),
-            message: message.to_owned(),
+            title: title.clone(),
+            message: message.clone(),
             timeout: opts.and_then(|opts| opts.timeout),
         };
         let opts = opts.cloned();
@@ -992,14 +987,14 @@ impl ExtensionUiContext for RpcUiContext {
 
     fn input<'a>(
         &'a self,
-        title: &str,
-        placeholder: Option<&str>,
+        title: &JsString,
+        placeholder: Option<&JsString>,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let state = self.state();
         let request = RpcExtensionUiRequestPayload::Input {
-            title: title.to_owned(),
-            placeholder: placeholder.map(str::to_owned),
+            title: title.clone(),
+            placeholder: placeholder.cloned(),
             timeout: opts.and_then(|opts| opts.timeout),
         };
         let opts = opts.cloned();
@@ -1030,70 +1025,69 @@ impl ExtensionUiContext for RpcUiContext {
         output_ui_request(
             &state,
             RpcExtensionUiRequestPayload::Notify {
-                message: message.to_owned(),
+                message: message.clone(),
                 notify_type,
             },
         );
     }
 
-    fn set_status(&self, key: &str, text: Option<&str>) {
+    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
         let Some(state) = self.state() else {
             return;
         };
         output_ui_request(
             &state,
             RpcExtensionUiRequestPayload::SetStatus {
-                status_key: key.to_owned(),
-                status_text: text.map(str::to_owned),
+                status_key: key.clone(),
+                status_text: text.cloned(),
             },
         );
     }
 
-    fn set_widget(&self, key: &str, content: Option<&[String]>, options: Option<&ExtensionWidgetOptions>) {
+    fn set_widget(&self, key: &JsString, content: Option<&[JsString]>, options: Option<&ExtensionWidgetOptions>) {
         let Some(state) = self.state() else {
             return;
         };
         output_ui_request(
             &state,
             RpcExtensionUiRequestPayload::SetWidget {
-                widget_key: key.to_owned(),
-                widget_lines: content.map(<[String]>::to_vec),
+                widget_key: key.clone(),
+                widget_lines: content.map(<[JsString]>::to_vec),
                 widget_placement: options.and_then(|options| options.placement),
             },
         );
     }
 
-    fn set_title(&self, title: &str) {
+    fn set_title(&self, title: &JsString) {
         let Some(state) = self.state() else {
             return;
         };
-        output_ui_request(
-            &state,
-            RpcExtensionUiRequestPayload::SetTitle {
-                title: title.to_owned(),
-            },
-        );
+        output_ui_request(&state, RpcExtensionUiRequestPayload::SetTitle { title: title.clone() });
     }
 
-    fn paste_to_editor(&self, text: &str) {
+    fn paste_to_editor(&self, text: &JsString) {
         self.set_editor_text(text);
     }
 
-    fn set_editor_text(&self, text: &str) {
+    fn set_editor_text(&self, text: &JsString) {
         let Some(state) = self.state() else {
             return;
         };
         output_ui_request(
             &state,
-            RpcExtensionUiRequestPayload::SetEditorText { text: text.to_owned() },
+            RpcExtensionUiRequestPayload::SetEditorText { text: text.clone() },
         );
     }
 
-    fn editor<'a>(&'a self, title: &str, prefill: Option<&str>) -> BoxFuture<'a, Result<Option<String>, String>> {
+    fn editor<'a>(
+        &'a self,
+        title: &JsString,
+        prefill: Option<&JsString>,
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let state = self.state();
         let request = RpcExtensionUiRequestPayload::Editor {
-            title: title.to_owned(),
-            prefill: prefill.map(str::to_owned),
+            title: title.clone(),
+            prefill: prefill.cloned(),
         };
         Box::pin(async move {
             let Some(state) = state else {
@@ -1115,20 +1109,20 @@ impl ExtensionUiContext for RpcUiContext {
         })
     }
 
-    fn set_theme(&self, _theme: &str) -> ThemeSetResult {
+    fn set_theme(&self, _theme: &JsString) -> ThemeSetResult {
         ThemeSetResult {
             success: false,
-            error: Some("Theme switching not supported in RPC mode".to_owned()),
+            error: Some("Theme switching not supported in RPC mode".into()),
         }
     }
 
-    fn set_working_message(&self, _message: Option<&str>) {}
+    fn set_working_message(&self, _message: Option<&JsString>) {}
 
     fn set_working_visible(&self, _visible: bool) {}
 
     fn set_working_indicator(&self, _options: Option<&WorkingIndicatorOptions>) {}
 
-    fn set_hidden_thinking_label(&self, _label: Option<&str>) {}
+    fn set_hidden_thinking_label(&self, _label: Option<&JsString>) {}
 
     fn request_render(&self) {}
 }
