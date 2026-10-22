@@ -1,6 +1,9 @@
 //! Opt-in native RPC/TUI chat client. Host supplies a child embedding rpc-demo.
 //! No child is spawned until `run`; no real Pi process is required by fixtures.
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::{
     Input, TUI,
     components::{
@@ -10,7 +13,6 @@ use pi_tui::{
     terminal::Terminal,
     tui::{Component, Focusable, TuiExt},
 };
-use serde_json::{Value, json};
 use std::{cell::RefCell, collections::VecDeque, path::PathBuf, rc::Rc};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 const GREEN: &str = "\x1b[32m";
@@ -21,33 +23,37 @@ const RED: &str = "\x1b[31m";
 const DIM: &str = "\x1b[2m";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
-fn field<'a>(v: &'a Value, key: &str, default: &'a str) -> &'a str {
-    v[key].as_str().unwrap_or(default)
+fn field(v: &Value, key: &str, default: &str) -> JsString {
+    v[key].as_string().cloned().unwrap_or_else(|| JsString::from(default))
 }
-fn clipped(s: &str, n: usize) -> String {
-    String::from_utf16_lossy(&s.encode_utf16().take(n).collect::<Vec<_>>())
+fn clipped(s: impl Into<JsString>, n: usize) -> JsString {
+    let s = s.into();
+    // Existing approved OutputLog projection is held pending the Q18 user decision.
+    JsString::from(String::from_utf16_lossy(
+        &s.units().iter().copied().take(n).collect::<Vec<_>>(),
+    ))
 }
 #[derive(Default)]
 struct OutputLog {
-    lines: VecDeque<String>,
+    lines: VecDeque<JsString>,
 }
 impl OutputLog {
-    fn append(&mut self, s: impl Into<String>) {
+    fn append(&mut self, s: impl Into<JsString>) {
         self.lines.push_back(s.into());
         if self.lines.len() > 1000 {
             self.lines.pop_front();
         }
     }
-    fn raw(&mut self, s: &str) {
+    fn raw(&mut self, s: &JsString) {
         if let Some(line) = self.lines.back_mut() {
             line.push_str(s);
         } else {
             self.lines.push_back(s.into());
         }
     }
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<JsString> {
         if self.lines.is_empty() {
-            vec![String::new()]
+            vec![JsString::default()]
         } else {
             self.lines.iter().map(|s| clipped(s, width)).collect()
         }
@@ -59,20 +65,20 @@ enum Completion {
 }
 enum Dialog {
     Select {
-        title: String,
+        title: JsString,
         list: SelectList,
         completion: Completion,
     },
     Input {
-        title: String,
+        title: JsString,
         input: Input,
         completion: Completion,
     },
 }
 enum Action {
-    Submit(String),
+    Submit(JsString),
     Escape,
-    Complete(Option<String>),
+    Complete(Option<JsString>),
 }
 /// Owns real Input/SelectList components. Network and terminal events stay on the UI thread.
 pub struct RpcExtensionUi {
@@ -126,13 +132,13 @@ impl RpcExtensionUi {
             self.dots = self.dots % 3 + 1;
         }
     }
-    fn select(&mut self, title: String, options: Vec<String>, completion: Completion) {
+    fn select(&mut self, title: JsString, options: Vec<JsString>, completion: Completion) {
         let theme = SelectListTheme {
-            selected_prefix: Rc::new(|s| format!("{MAGENTA}{s}{RESET}")),
-            selected_text: Rc::new(|s| format!("{MAGENTA}{s}{RESET}")),
-            description: Rc::new(|s| format!("{DIM}{s}{RESET}")),
-            scroll_info: Rc::new(|s| format!("{DIM}{s}{RESET}")),
-            no_match: Rc::new(|s| format!("{YELLOW}{s}{RESET}")),
+            selected_prefix: Rc::new(|s| js_format!("{}{}{}", MAGENTA, s, RESET)),
+            selected_text: Rc::new(|s| js_format!("{}{}{}", MAGENTA, s, RESET)),
+            description: Rc::new(|s| js_format!("{}{}{}", DIM, s, RESET)),
+            scroll_info: Rc::new(|s| js_format!("{}{}{}", DIM, s, RESET)),
+            no_match: Rc::new(|s| js_format!("{}{}{}", YELLOW, s, RESET)),
         };
         let count = options.len().min(8);
         let items = options.into_iter().map(|s| SelectItem::new(s.clone(), s)).collect();
@@ -150,7 +156,7 @@ impl RpcExtensionUi {
             completion,
         });
     }
-    fn input(&mut self, title: String, prefill: Option<String>, completion: Completion) {
+    fn input(&mut self, title: JsString, prefill: Option<JsString>, completion: Completion) {
         let mut input = Input::new(InputOptions::default());
         if let Some(s) = prefill {
             input.set_value(s);
@@ -159,7 +165,7 @@ impl RpcExtensionUi {
         let a = self.actions.clone();
         input.on_submit = Some(Rc::new(move |s| {
             a.borrow_mut()
-                .push_back(Action::Complete((!js_trim(s).is_empty()).then(|| js_trim(s).into())))
+                .push_back(Action::Complete((!(s).trim().is_empty()).then(|| (s).trim().into())))
         }));
         let a = self.actions.clone();
         input.on_escape = Some(Rc::new(move || a.borrow_mut().push_back(Action::Complete(None))));
@@ -170,11 +176,11 @@ impl RpcExtensionUi {
             completion,
         });
     }
-    fn notify(&mut self, message: &str) {
+    fn notify(&mut self, message: &JsString) {
         self.log
-            .append(format!("{MAGENTA}{BOLD}Notification:{RESET} {message}"));
+            .append(js_format!("{}{}Notification:{} {}", MAGENTA, BOLD, RESET, message));
     }
-    fn complete(&mut self, value: Option<String>) {
+    fn complete(&mut self, value: Option<JsString>) {
         let Some(dialog) = self.dialog.take() else {
             return;
         };
@@ -185,51 +191,61 @@ impl RpcExtensionUi {
         match completion {
             Completion::Rpc { id, confirm: true } => self
                 .commands
-                .push(json!({"type":"extension_ui_response","id":id,"confirmed":value.as_deref()==Some("Yes")})),
+                .push(json!({"type":"extension_ui_response","id":id,"confirmed":value.as_ref().is_some_and(|value| value == "Yes")})),
             Completion::Rpc { id, confirm: false } => self.commands.push(match value {
                 Some(v) => json!({"type":"extension_ui_response","id":id,"value":v}),
                 None => json!({"type":"extension_ui_response","id":id,"cancelled":true}),
             }),
             Completion::Local(kind) => {
                 let message = match (kind, value) {
-                    ("select", Some(v)) => format!("You picked: {v}"),
+                    ("select", Some(v)) => js_format!("You picked: {}", v),
                     ("select", None) => "Selection cancelled".into(),
-                    ("confirm", v) => format!("Confirmed: {}", v.as_deref() == Some("Yes")),
-                    ("input", Some(v)) => format!("You entered: {v}"),
+                    ("confirm", v) => JsString::from(format!("Confirmed: {}", v.as_ref().is_some_and(|value| value == "Yes"))),
+                    ("input", Some(v)) => js_format!("You entered: {}", v),
                     ("input", None) => "Input cancelled".into(),
-                    ("editor", Some(v)) => format!("Submitted: {v}"),
+                    ("editor", Some(v)) => js_format!("Submitted: {}", v),
                     _ => "Editor cancelled".into(),
                 };
-                self.notify(&message);
+                self.notify(&JsString::from(&message));
             }
         }
     }
-    fn submit(&mut self, value: &str) {
-        let value = js_trim(value);
+    fn submit(&mut self, value: &JsString) {
+        let value = value.trim();
         if value.is_empty() {
             return;
         }
         self.prompt.set_value("");
-        match value {
-            "/select" => self.select(
+        match &value {
+            command if command == "/select" => self.select(
                 "Pick a color".into(),
-                ["Red", "Green", "Blue", "Yellow"].map(str::to_owned).to_vec(),
+                ["Red", "Green", "Blue", "Yellow"]
+                    .map(JsString::from)
+                    .to_vec()
+                    .into_iter()
+                    .map(JsString::from)
+                    .collect::<Vec<_>>(),
                 Completion::Local("select"),
             ),
-            "/confirm" => self.select(
+            command if command == "/confirm" => self.select(
                 "Are you sure?".into(),
-                ["Yes", "No"].map(str::to_owned).to_vec(),
+                ["Yes", "No"]
+                    .map(JsString::from)
+                    .to_vec()
+                    .into_iter()
+                    .map(JsString::from)
+                    .collect::<Vec<_>>(),
                 Completion::Local("confirm"),
             ),
-            "/input" => self.input("Enter your name".into(), None, Completion::Local("input")),
-            "/editor" => self.input(
+            command if command == "/input" => self.input("Enter your name".into(), None, Completion::Local("input")),
+            command if command == "/editor" => self.input(
                 "Edit text".into(),
                 Some("Hello, world!".into()),
                 Completion::Local("editor"),
             ),
             _ => self.commands.push(json!({"type":"prompt","message":value})),
         }
-        self.log.append(format!("{GREEN}{BOLD}You:{RESET} {value}"));
+        self.log.append(js_format!("{}{}You:{} {}", GREEN, BOLD, RESET, value));
     }
     fn drain_actions(&mut self) {
         loop {
@@ -254,90 +270,114 @@ impl RpcExtensionUi {
     fn extension_request(&mut self, req: &Value) {
         let id = req.get("id").cloned().unwrap_or(Value::Null);
         match field(req, "method", "") {
-            "select" => self.select(
+            matched_tag if matched_tag == "select" => self.select(
                 field(req, "title", "Select").into(),
                 req["options"]
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
+                    .filter_map(Value::as_string)
+                    .cloned()
                     .collect(),
                 Completion::Rpc { id, confirm: false },
             ),
-            "confirm" => {
-                let title = if let Some(message) = req["message"].as_str().filter(|s| !s.is_empty()) {
-                    format!("{}: {message}", field(req, "title", "undefined"))
+            matched_tag if matched_tag == "confirm" => {
+                let title = if let Some(message) = req["message"].as_string().filter(|s| !s.is_empty()) {
+                    js_format!("{}: {}", field(req, "title", "undefined"), message)
                 } else {
                     field(req, "title", "Confirm").into()
                 };
                 self.select(
-                    title,
-                    ["Yes", "No"].map(str::to_owned).to_vec(),
+                    JsString::from(title),
+                    ["Yes", "No"].map(JsString::from).to_vec(),
                     Completion::Rpc { id, confirm: true },
                 );
             }
-            "input" => {
-                let title = if let Some(p) = req["placeholder"].as_str().filter(|s| !s.is_empty()) {
-                    format!("{} ({p})", field(req, "title", "undefined"))
+            matched_tag if matched_tag == "input" => {
+                let title = if let Some(p) = req["placeholder"].as_string().filter(|s| !s.is_empty()) {
+                    js_format!("{} ({})", field(req, "title", "undefined"), p)
                 } else {
                     field(req, "title", "Input").into()
                 };
-                self.input(title, None, Completion::Rpc { id, confirm: false });
+                self.input(JsString::from(title), None, Completion::Rpc { id, confirm: false });
             }
-            "editor" => self.input(
+            matched_tag if matched_tag == "editor" => self.input(
                 field(req, "title", "Editor").into(),
-                req["prefill"].as_str().map(|s| s.replace('\n', " ")),
+                req["prefill"].as_string().map(|s| s.replace('\n', " ")),
                 Completion::Rpc { id, confirm: false },
             ),
-            "notify" => {
+            matched_tag if matched_tag == "notify" => {
                 let color = match field(req, "notifyType", "info") {
-                    "error" => RED,
-                    "warning" => YELLOW,
+                    matched_tag if matched_tag == "error" => RED,
+                    matched_tag if matched_tag == "warning" => YELLOW,
                     _ => MAGENTA,
                 };
-                self.log.append(format!(
-                    "{color}{BOLD}Notification:{RESET} {}",
+                self.log.append(js_format!(
+                    "{}{}Notification:{} {}",
+                    color,
+                    BOLD,
+                    RESET,
                     field(req, "message", "undefined")
                 ));
             }
-            "setStatus" => self.log.append(format!(
-                "{MAGENTA}{BOLD}Notification:{RESET} {DIM}[status: {}]{RESET} {}",
+            matched_tag if matched_tag == "setStatus" => self.log.append(js_format!(
+                "{}{}Notification:{} {}[status: {}]{} {}",
+                MAGENTA,
+                BOLD,
+                RESET,
+                DIM,
                 field(req, "statusKey", "undefined"),
+                RESET,
                 field(req, "statusText", "(cleared)")
             )),
-            "setWidget" => {
+            matched_tag if matched_tag == "setWidget" => {
                 if let Some(lines) = req["widgetLines"].as_array().filter(|a| !a.is_empty()) {
-                    self.log.append(format!(
-                        "{MAGENTA}{BOLD}Notification:{RESET} {DIM}[widget: {}]{RESET}",
-                        field(req, "widgetKey", "undefined")
+                    self.log.append(js_format!(
+                        "{}{}Notification:{} {}[widget: {}]{}",
+                        MAGENTA,
+                        BOLD,
+                        RESET,
+                        DIM,
+                        field(req, "widgetKey", "undefined"),
+                        RESET
                     ));
                     for line in lines {
-                        self.log
-                            .append(format!("  {DIM}{}{RESET}", line.as_str().unwrap_or("undefined")));
+                        self.log.append(js_format!(
+                            "  {}{}{}",
+                            DIM,
+                            line.as_string().cloned().unwrap_or_else(|| JsString::from("undefined")),
+                            RESET
+                        ));
                     }
                 }
             }
-            "set_editor_text" => self.prompt.set_value(field(req, "text", "")),
+            matched_tag if matched_tag == "set_editor_text" => self.prompt.set_value(field(req, "text", "")),
             _ => {}
         }
     }
     pub fn receive(&mut self, data: &Value) {
         match field(data, "type", "") {
-            "response" if !data["success"].as_bool().unwrap_or(false) => self.log.append(format!(
-                "{RED}[error]{RESET} {}: {}",
-                field(data, "command", "undefined"),
-                field(data, "error", "undefined")
-            )),
-            "agent_start" => {
+            matched_tag if matched_tag == "response" && (!data["success"].as_bool().unwrap_or(false)) => {
+                self.log.append(js_format!(
+                    "{}[error]{} {}: {}",
+                    RED,
+                    RESET,
+                    field(data, "command", "undefined"),
+                    field(data, "error", "undefined")
+                ))
+            }
+            matched_tag if matched_tag == "agent_start" => {
                 if !self.streaming {
                     self.streaming = true;
                     self.has_text = false;
                     self.dots = 1;
                 }
             }
-            "extension_ui_request" => self.extension_request(data),
-            "message_update" if data["assistantMessageEvent"]["type"] == "text_delta" => {
+            matched_tag if matched_tag == "extension_ui_request" => self.extension_request(data),
+            matched_tag
+                if matched_tag == "message_update"
+                    && (data["assistantMessageEvent"]["type"] == pi_js_compat::js_json!("text_delta")) =>
+            {
                 if !self.has_text {
                     self.has_text = true;
                     self.log.append("");
@@ -351,24 +391,29 @@ impl RpcExtensionUi {
                         self.log.append("");
                     }
                     if !part.is_empty() {
-                        self.log.raw(part);
+                        self.log.raw(&part);
                     }
                 }
             }
-            "tool_execution_start" => self
-                .log
-                .append(format!("{DIM}[tool: {}]{RESET}", field(data, "toolName", "undefined"))),
-            "tool_execution_end" => self.log.append(format!(
-                "{DIM}[result: {}...]{RESET}",
+            matched_tag if matched_tag == "tool_execution_start" => self.log.append(js_format!(
+                "{}[tool: {}]{}",
+                DIM,
+                field(data, "toolName", "undefined"),
+                RESET
+            )),
+            matched_tag if matched_tag == "tool_execution_end" => self.log.append(js_format!(
+                "{}[result: {}...]{}",
+                DIM,
                 clipped(
                     &data
                         .get("result")
-                        .map(Value::to_string)
+                        .map(pi_js_compat::js_json::stringify_lossless)
                         .unwrap_or_else(|| "undefined".into()),
                     120
-                )
+                ),
+                RESET
             )),
-            "agent_end" => {
+            matched_tag if matched_tag == "agent_end" => {
                 self.streaming = false;
                 self.log.append("");
             }
@@ -396,35 +441,37 @@ impl Focusable for RpcExtensionUi {
     }
 }
 impl Component for RpcExtensionUi {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = self.log.render(width);
         if self.streaming {
-            lines.push(format!(
+            lines.push(JsString::from(format!(
                 "{BLUE}{BOLD}Agent:{RESET} {DIM}Working{}{RESET}",
                 ".".repeat(self.dots)
-            ));
+            )));
         }
         match &mut self.dialog {
             Some(Dialog::Select { title, list, .. }) => {
-                lines.push(format!("{MAGENTA}{BOLD}{title}{RESET}"));
+                lines.push(js_format!("{}{}{}{}", MAGENTA, BOLD, &*title, RESET));
                 lines.extend(list.render(width));
-                lines.push(format!("{DIM}Up/Down, Enter to select, Esc to cancel{RESET}"));
+                lines.push(JsString::from(format!(
+                    "{DIM}Up/Down, Enter to select, Esc to cancel{RESET}"
+                )));
             }
             Some(Dialog::Input { title, input, .. }) => {
-                lines.push(format!("{MAGENTA}{BOLD}{title}{RESET}"));
+                lines.push(js_format!("{}{}{}{}", MAGENTA, BOLD, &*title, RESET));
                 lines.extend(input.render(width));
-                lines.push(format!("{DIM}Enter to submit, Esc to cancel{RESET}"));
+                lines.push(JsString::from(format!("{DIM}Enter to submit, Esc to cancel{RESET}")));
             }
             None => {
-                lines.push(format!("{GREEN}{BOLD}You:{RESET}"));
+                lines.push(JsString::from(format!("{GREEN}{BOLD}You:{RESET}")));
                 lines.extend(self.prompt.render(width));
             }
         }
-        lines
+        lines.into_iter().map(JsString::from).collect::<Vec<_>>()
     }
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         match &mut self.dialog {
-            Some(Dialog::Select { list, .. }) => list.handle_input(data),
+            Some(Dialog::Select { list, .. }) => list.handle_input(&JsString::from(data)),
             Some(Dialog::Input { input, .. }) => input.handle_input(data),
             None => self.prompt.handle_input(data),
         }
@@ -444,26 +491,26 @@ impl Component for RpcExtensionUi {
 }
 pub struct Invocation {
     pub program: PathBuf,
-    pub prefix: Vec<String>,
-    pub extension: String,
+    pub prefix: Vec<JsString>,
+    pub extension: JsString,
     pub cwd: PathBuf,
 }
 pub struct RunOutcome {
     pub code: i32,
-    pub stdout: String,
-    pub stderr: String,
+    pub stdout: JsString,
+    pub stderr: JsString,
 }
 /// Drives the real TUI and real child pipes on the caller's UI thread.
-pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) -> Result<RunOutcome, String> {
+pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) -> Result<RunOutcome, JsString> {
     let mut child = tokio::process::Command::new(invocation.program)
-        .args(invocation.prefix)
+        .args(invocation.prefix.iter().map(pi_js_compat::js_json::encode_node_utf8))
         .args([
             "--mode",
             "rpc",
             "--no-session",
             "--no-extension",
             "--extension",
-            &invocation.extension,
+            &pi_js_compat::js_json::encode_node_utf8(&invocation.extension),
         ])
         .current_dir(invocation.cwd)
         .stdin(std::process::Stdio::piped())
@@ -489,8 +536,8 @@ pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) ->
         let stderr = String::from_utf8_lossy(&errors);
         return Ok(RunOutcome {
             code: 1,
-            stdout: String::new(),
-            stderr: format!("Agent exited immediately. Stderr:\n{stderr}\n"),
+            stdout: JsString::default(),
+            stderr: JsString::from(format!("Agent exited immediately. Stderr:\n{stderr}\n")),
         });
     }
     let tui = TUI::new(terminal);
@@ -561,21 +608,21 @@ pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) ->
         }
         return Ok(RunOutcome {
             code: 0,
-            stdout: String::new(),
-            stderr: String::new(),
+            stdout: JsString::default(),
+            stderr: JsString::default(),
         });
     };
-    let stderr = String::from_utf8_lossy(&errors).into_owned();
+    let stderr = JsString::from(String::from_utf8_lossy(&errors).as_ref());
     Ok(RunOutcome {
         code: status.code().unwrap_or(0),
-        stdout: format!(
+        stdout: JsString::from(format!(
             "Agent exited with code {}\n",
             status.code().map(|c| c.to_string()).unwrap_or_else(|| "null".into())
-        ),
+        )),
         stderr: if stderr.is_empty() {
             stderr
         } else {
-            format!("{stderr}\n")
+            js_format!("{}\n", stderr)
         },
     })
 }
@@ -598,19 +645,19 @@ async fn main() {
     };
     let invocation = Invocation {
         program: program.into(),
-        prefix: args.collect(),
-        extension,
+        prefix: args.map(JsString::from).collect(),
+        extension: JsString::from(extension),
         cwd,
     };
     let terminal = Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new()));
     match run(invocation, terminal).await {
         Ok(outcome) => {
-            print!("{}", outcome.stdout);
-            eprint!("{}", outcome.stderr);
+            print!("{}", pi_js_compat::js_json::encode_node_utf8(&outcome.stdout));
+            eprint!("{}", pi_js_compat::js_json::encode_node_utf8(&outcome.stderr));
             std::process::exit(outcome.code);
         }
         Err(error) => {
-            eprintln!("{error}");
+            eprintln!("{}", pi_js_compat::js_json::encode_node_utf8(&error));
             std::process::exit(1);
         }
     }
