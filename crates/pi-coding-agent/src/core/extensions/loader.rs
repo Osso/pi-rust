@@ -4,18 +4,21 @@
 //! as factories keyed by extension id. Discovery, enabled/disabled filtering,
 //! load order, and diagnostics text follow the source loader.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use serde_json::Value;
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, JsValue, encode_node_utf8},
+};
 
 use crate::config::package_config;
 use crate::core::event_bus::{EventBus, EventBusController};
 use crate::core::pi_manifest::read_pi_manifest;
 use crate::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::core::timings::{TimingLabel, time};
-use crate::utils::paths::{PathInputOptions, resolve_path};
+use crate::utils::paths::{PathInputOptions, node_basename, node_dirname, node_join, process_cwd, resolve_path};
 
 use super::extension_runtime::{ExtensionRuntime, create_extension_runtime};
 use super::types::{
@@ -28,7 +31,7 @@ pub type ExtensionFactory = Arc<dyn Fn(&ExtensionApi) -> BoxFuture<'static, Resu
 
 #[derive(Clone)]
 struct RegisteredExtension {
-    id: String,
+    id: JsString,
     factory: ExtensionFactory,
     hidden: bool,
 }
@@ -36,7 +39,7 @@ struct RegisteredExtension {
 /// Static registry of Rust extensions.
 #[derive(Clone, Default)]
 pub struct ExtensionRegistry {
-    entries: IndexMap<String, RegisteredExtension>,
+    entries: IndexMap<JsString, RegisteredExtension>,
 }
 
 impl ExtensionRegistry {
@@ -45,7 +48,7 @@ impl ExtensionRegistry {
     }
 
     /// Register a Rust extension factory under an id such as `<first-party:goal>`.
-    pub fn register(&mut self, id: impl Into<String>, factory: ExtensionFactory) {
+    pub fn register(&mut self, id: impl Into<JsString>, factory: ExtensionFactory) {
         let id = id.into();
         self.entries.insert(
             id.clone(),
@@ -58,7 +61,7 @@ impl ExtensionRegistry {
     }
 
     /// Register a factory omitted from the startup extension list.
-    pub fn register_hidden(&mut self, id: impl Into<String>, factory: ExtensionFactory) {
+    pub fn register_hidden(&mut self, id: impl Into<JsString>, factory: ExtensionFactory) {
         let id = id.into();
         self.entries.insert(
             id.clone(),
@@ -70,19 +73,19 @@ impl ExtensionRegistry {
         );
     }
 
-    pub fn get(&self, id: &str) -> Option<&ExtensionFactory> {
+    pub fn get(&self, id: &JsString) -> Option<&ExtensionFactory> {
         self.entries.get(id).map(|entry| &entry.factory)
     }
 
-    pub fn ids(&self) -> Vec<String> {
+    pub fn ids(&self) -> Vec<JsString> {
         self.entries.keys().cloned().collect()
     }
 
     /// Load every registered factory whose id is not disabled, in registration order.
     pub async fn load_registered(
         &self,
-        disabled_extensions: &[String],
-        cwd: &str,
+        disabled_extensions: &[JsString],
+        cwd: &JsString,
         event_bus: Arc<dyn EventBus>,
         runtime: ExtensionRuntime,
     ) -> (Vec<Extension>, Vec<ExtensionLoadError>) {
@@ -126,36 +129,32 @@ fn normalize_unicode_space_options() -> PathInputOptions {
     }
 }
 
-fn resolve_against_process_cwd(input: &str, options: &PathInputOptions) -> String {
-    let process_cwd = std::env::current_dir()
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    resolve_path(input, &process_cwd, options).unwrap_or_else(|_| input.to_owned())
+fn resolve_against_process_cwd(input: &JsString, options: &PathInputOptions) -> JsString {
+    let cwd = process_cwd().expect("process cwd must be available for extension loading");
+    resolve_path(input, cwd, options).unwrap_or_else(|_| input.clone())
 }
 
-fn extension_source(extension_path: &str) -> String {
+fn extension_source(extension_path: &JsString) -> JsString {
     if extension_path.starts_with('<') && extension_path.ends_with('>') {
-        let inner = &extension_path[1..extension_path.len() - 1];
+        let inner = extension_path.slice(1, extension_path.len() - 1);
         let name = inner.split(':').next().unwrap_or_default();
         if name.is_empty() {
-            "temporary".to_owned()
+            "temporary".into()
         } else {
             name.to_owned()
         }
     } else {
-        "local".to_owned()
+        "local".into()
     }
 }
 
 /// Create an extension with empty collections.
-fn create_extension(extension_path: &str, resolved_path: &str) -> Extension {
+fn create_extension(extension_path: &JsString, resolved_path: &JsString) -> Extension {
     let source = extension_source(extension_path);
     let base_dir = if extension_path.starts_with('<') {
         None
     } else {
-        Path::new(resolved_path)
-            .parent()
-            .map(|parent| parent.to_string_lossy().into_owned())
+        Some(node_dirname(resolved_path))
     };
     Extension::new(ExtensionState {
         path: extension_path.to_owned(),
@@ -186,31 +185,31 @@ fn create_extension(extension_path: &str, resolved_path: &str) -> Extension {
 /// Create an extension from an inline Rust factory.
 pub async fn load_extension_from_factory(
     factory: ExtensionFactory,
-    cwd: &str,
+    cwd: &JsString,
     event_bus: Arc<dyn EventBus>,
     runtime: ExtensionRuntime,
-    extension_path: &str,
+    extension_path: &JsString,
 ) -> Result<Extension, HandlerError> {
     let extension = create_extension(extension_path, extension_path);
     let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options());
     let api = ExtensionApi::new(extension.clone(), runtime, resolved_cwd, event_bus);
     factory(&api).await?;
-    time(&format!("{extension_path} factory"), TimingLabel::Extensions);
+    time(&js_format!("{} factory", extension_path), TimingLabel::Extensions);
     Ok(extension)
 }
 
 /// Resolve extension entry points from a directory.
-fn resolve_extension_entries(dir: &str) -> Option<Vec<String>> {
-    let package_json_path = Path::new(dir).join("package.json");
-    if package_json_path.exists()
+fn resolve_extension_entries(dir: &JsString) -> Option<Vec<JsString>> {
+    let package_json_path = node_join(dir, "package.json");
+    if Path::new(&encode_node_utf8(&package_json_path)).exists()
         && let Some(manifest) = read_pi_manifest(&package_json_path)
         && let Some(declared) = manifest.extensions.filter(|entries| !entries.is_empty())
     {
         let mut entries = Vec::new();
         for extension_path in declared {
-            let resolved = Path::new(dir).join(&extension_path);
-            if resolved.exists() {
-                entries.push(resolved.to_string_lossy().into_owned());
+            let resolved = node_join(dir, extension_path);
+            if Path::new(&encode_node_utf8(&resolved)).exists() {
+                entries.push(resolved);
             }
         }
         if !entries.is_empty() {
@@ -218,44 +217,55 @@ fn resolve_extension_entries(dir: &str) -> Option<Vec<String>> {
         }
     }
 
-    let index_ts = Path::new(dir).join("index.ts");
-    if index_ts.exists() {
-        return Some(vec![index_ts.to_string_lossy().into_owned()]);
+    let index_ts = node_join(dir, "index.ts");
+    if Path::new(&encode_node_utf8(&index_ts)).exists() {
+        return Some(vec![index_ts]);
     }
-    let index_js = Path::new(dir).join("index.js");
-    if index_js.exists() {
-        return Some(vec![index_js.to_string_lossy().into_owned()]);
+    let index_js = node_join(dir, "index.js");
+    if Path::new(&encode_node_utf8(&index_js)).exists() {
+        return Some(vec![index_js]);
     }
     None
 }
 
-fn is_extension_file(name: &str) -> bool {
+fn is_extension_file(name: &JsString) -> bool {
     name.ends_with(".ts") || name.ends_with(".js")
 }
 
 /// Discover extension entry points one level below `dir`.
-fn discover_extensions_in_dir(dir: &str) -> Vec<String> {
-    if !Path::new(dir).exists() {
+fn discover_extensions_in_dir(dir: &JsString) -> Vec<JsString> {
+    if !Path::new(&encode_node_utf8(dir)).exists() {
         return Vec::new();
     }
-    let Ok(entries) = std::fs::read_dir(dir) else {
+    let Ok(entries) = std::fs::read_dir(encode_node_utf8(dir)) else {
         return Vec::new();
     };
     let mut discovered = Vec::new();
-    for entry in entries.flatten() {
-        let entry_path = entry.path();
-        let entry_name = entry.file_name().to_string_lossy().into_owned();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                eprintln!("Could not read extension directory entry: {error}");
+                continue;
+            }
+        };
+        // readdir returns UTF-8-decoded names; retain the original directory's units.
+        let entry_name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+        let entry_path = node_join(dir, &entry_name);
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
-            Err(_) => continue,
+            Err(error) => {
+                eprintln!("Could not stat extension directory entry: {error}");
+                continue;
+            }
         };
         let is_symlink = file_type.is_symlink();
         if (file_type.is_file() || is_symlink) && is_extension_file(&entry_name) {
-            discovered.push(entry_path.to_string_lossy().into_owned());
+            discovered.push(entry_path.clone());
             continue;
         }
         if (file_type.is_dir() || is_symlink)
-            && let Some(entries) = resolve_extension_entries(&entry_path.to_string_lossy())
+            && let Some(entries) = resolve_extension_entries(&entry_path)
         {
             discovered.extend(entries);
         }
@@ -264,13 +274,13 @@ fn discover_extensions_in_dir(dir: &str) -> Vec<String> {
 }
 
 /// Discover extension paths from project/global dirs and configured paths.
-pub fn discover_extension_paths(configured_paths: &[String], cwd: &str, agent_dir: &str) -> Vec<String> {
+pub fn discover_extension_paths(configured_paths: &[JsString], cwd: &JsString, agent_dir: &JsString) -> Vec<JsString> {
     let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options());
     let resolved_agent_dir = resolve_against_process_cwd(agent_dir, &default_path_options());
-    let mut all_paths: Vec<String> = Vec::new();
-    let mut seen: Vec<String> = Vec::new();
+    let mut all_paths: Vec<JsString> = Vec::new();
+    let mut seen: Vec<JsString> = Vec::new();
 
-    let add_paths = |paths: Vec<String>, all_paths: &mut Vec<String>, seen: &mut Vec<String>| {
+    let add_paths = |paths: Vec<JsString>, all_paths: &mut Vec<JsString>, seen: &mut Vec<JsString>| {
         for path in paths {
             let resolved = resolve_against_process_cwd(&path, &default_path_options());
             if !seen.contains(&resolved) {
@@ -280,25 +290,19 @@ pub fn discover_extension_paths(configured_paths: &[String], cwd: &str, agent_di
         }
     };
 
-    let local_ext_dir = Path::new(&resolved_cwd)
-        .join(&package_config().config_dir_name)
-        .join("extensions");
-    add_paths(
-        discover_extensions_in_dir(&local_ext_dir.to_string_lossy()),
-        &mut all_paths,
-        &mut seen,
+    let local_ext_dir = node_join(
+        node_join(&resolved_cwd, &package_config().config_dir_name),
+        "extensions",
     );
+    add_paths(discover_extensions_in_dir(&local_ext_dir), &mut all_paths, &mut seen);
 
-    let global_ext_dir = Path::new(&resolved_agent_dir).join("extensions");
-    add_paths(
-        discover_extensions_in_dir(&global_ext_dir.to_string_lossy()),
-        &mut all_paths,
-        &mut seen,
-    );
+    let global_ext_dir = node_join(&resolved_agent_dir, "extensions");
+    add_paths(discover_extensions_in_dir(&global_ext_dir), &mut all_paths, &mut seen);
 
     for configured in configured_paths {
         let resolved = resolve_against_process_cwd(configured, &normalize_unicode_space_options());
-        let resolved_path = PathBuf::from(&resolved);
+        let encoded = encode_node_utf8(&resolved);
+        let resolved_path = Path::new(&encoded);
         if resolved_path.exists() && resolved_path.is_dir() {
             if let Some(entries) = resolve_extension_entries(&resolved) {
                 add_paths(entries, &mut all_paths, &mut seen);
@@ -313,26 +317,26 @@ pub fn discover_extension_paths(configured_paths: &[String], cwd: &str, agent_di
     all_paths
 }
 
-fn first_party_extension_name(extension_path: &str) -> Option<String> {
+fn first_party_extension_name(extension_path: &JsString) -> Option<JsString> {
     let prefix = "<first-party:";
     if extension_path.starts_with(prefix) && extension_path.ends_with('>') {
-        return Some(extension_path[prefix.len()..extension_path.len() - 1].to_owned());
+        return Some(extension_path.slice(prefix.len(), extension_path.len() - 1).to_owned());
     }
     None
 }
 
 /// Inline extension name used by disabled-extension filtering.
-pub fn inline_extension_name(extension_path: &str) -> Option<String> {
+pub fn inline_extension_name(extension_path: &JsString) -> Option<JsString> {
     if let Some(name) = first_party_extension_name(extension_path) {
         return Some(name);
     }
     if extension_path.starts_with('<') && extension_path.ends_with('>') {
-        return Some(extension_path[1..extension_path.len() - 1].to_owned());
+        return Some(extension_path.slice(1, extension_path.len() - 1).to_owned());
     }
     None
 }
 
-fn disabled_names(disabled_extensions: &[String]) -> Vec<String> {
+fn disabled_names(disabled_extensions: &[JsString]) -> Vec<JsString> {
     disabled_extensions
         .iter()
         .map(|name| name.trim().to_owned())
@@ -340,15 +344,16 @@ fn disabled_names(disabled_extensions: &[String]) -> Vec<String> {
         .collect()
 }
 
-fn file_name(path: &str) -> String {
-    Path::new(path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default()
+fn file_name(path: &JsString) -> JsString {
+    node_basename(path)
 }
 
 /// Whether a filesystem extension path matches a disabled extension name.
-pub fn is_extension_path_disabled(disabled_extensions: &[String], extension_path: &str, resolved_path: &str) -> bool {
+pub fn is_extension_path_disabled(
+    disabled_extensions: &[JsString],
+    extension_path: &JsString,
+    resolved_path: &JsString,
+) -> bool {
     let disabled = disabled_names(disabled_extensions);
     if disabled.is_empty() {
         return false;
@@ -365,7 +370,7 @@ pub fn is_extension_path_disabled(disabled_extensions: &[String], extension_path
 }
 
 /// Whether an inline/first-party extension id matches a disabled extension name.
-pub fn is_extension_factory_disabled(disabled_extensions: &[String], extension_path: &str) -> bool {
+pub fn is_extension_factory_disabled(disabled_extensions: &[JsString], extension_path: &JsString) -> bool {
     let disabled = disabled_names(disabled_extensions);
     if disabled.is_empty() {
         return false;
@@ -383,8 +388,8 @@ pub fn is_extension_factory_disabled(disabled_extensions: &[String], extension_p
 impl ExtensionRegistry {
     async fn load_extension(
         &self,
-        extension_path: &str,
-        cwd: &str,
+        extension_path: &JsString,
+        cwd: &JsString,
         event_bus: Arc<dyn EventBus>,
         runtime: ExtensionRuntime,
     ) -> Result<Extension, ExtensionLoadError> {
@@ -392,10 +397,10 @@ impl ExtensionRegistry {
         let Some(factory) = self.get(&resolved_path).or_else(|| self.get(extension_path)).cloned() else {
             return Err(ExtensionLoadError {
                 path: extension_path.to_owned(),
-                error: format!("Extension does not export a valid factory function: {extension_path}").into(),
+                error: js_format!("Extension does not export a valid factory function: {}", extension_path),
             });
         };
-        time(&format!("{extension_path} module import"), TimingLabel::Extensions);
+        time(&js_format!("{} module import", extension_path), TimingLabel::Extensions);
         load_extension_from_factory(factory, cwd, event_bus, runtime, extension_path)
             .await
             .map_err(|error| ExtensionLoadError {
@@ -407,8 +412,8 @@ impl ExtensionRegistry {
     /// Load extensions from paths; load failures are collected, not thrown.
     pub async fn load_extensions(
         &self,
-        paths: &[String],
-        cwd: &str,
+        paths: &[JsString],
+        cwd: &JsString,
         event_bus: Option<Arc<dyn EventBus>>,
         runtime: Option<ExtensionRuntime>,
     ) -> LoadExtensionsResult {
@@ -436,15 +441,15 @@ impl ExtensionRegistry {
     /// Discover project/global/configured extensions and load the enabled ones.
     pub async fn discover_and_load_extensions(
         &self,
-        configured_paths: &[String],
-        cwd: &str,
-        agent_dir: &str,
+        configured_paths: &[JsString],
+        cwd: &JsString,
+        agent_dir: &JsString,
         event_bus: Option<Arc<dyn EventBus>>,
-        disabled_extensions: &[String],
+        disabled_extensions: &[JsString],
     ) -> LoadExtensionsResult {
         let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options());
         let paths = discover_extension_paths(configured_paths, cwd, agent_dir);
-        let enabled: Vec<String> = paths
+        let enabled: Vec<JsString> = paths
             .into_iter()
             .filter(|path| {
                 let resolved = resolve_against_process_cwd(path, &default_path_options());
@@ -457,8 +462,8 @@ impl ExtensionRegistry {
 
 /// `loadExtensions` over an explicit path list.
 pub async fn load_extensions(
-    paths: &[String],
-    cwd: &str,
+    paths: &[JsString],
+    cwd: &JsString,
     event_bus: Option<Arc<dyn EventBus>>,
     runtime: Option<ExtensionRuntime>,
 ) -> LoadExtensionsResult {
@@ -469,8 +474,8 @@ pub async fn load_extensions(
 
 /// Cached loading is identical for static Rust factories.
 pub async fn load_extensions_cached(
-    paths: &[String],
-    cwd: &str,
+    paths: &[JsString],
+    cwd: &JsString,
     event_bus: Option<Arc<dyn EventBus>>,
     runtime: Option<ExtensionRuntime>,
 ) -> LoadExtensionsResult {
@@ -482,9 +487,9 @@ pub fn clear_extension_cache() {}
 
 /// `discoverAndLoadExtensions` for the default registry.
 pub async fn discover_and_load_extensions(
-    configured_paths: &[String],
-    cwd: &str,
-    agent_dir: &str,
+    configured_paths: &[JsString],
+    cwd: &JsString,
+    agent_dir: &JsString,
     event_bus: Option<Arc<dyn EventBus>>,
 ) -> LoadExtensionsResult {
     ExtensionRegistry::new()
@@ -496,7 +501,7 @@ pub async fn discover_and_load_extensions(
 pub fn create_extension_api(
     extension: Extension,
     runtime: ExtensionRuntime,
-    cwd: &str,
+    cwd: &JsString,
     event_bus: Arc<dyn EventBus>,
 ) -> ExtensionApi {
     ExtensionApi::new(extension, runtime, cwd.to_owned(), event_bus)
@@ -547,10 +552,10 @@ pub fn registered_command(
 
 /// Re-exported placeholder for shortcut metadata.
 pub fn extension_shortcut(
-    shortcut: &str,
+    shortcut: &JsString,
     description: Option<String>,
     handler: crate::core::extensions::types::ContextShortcutHandler,
-    extension_path: &str,
+    extension_path: &JsString,
 ) -> ExtensionShortcut {
     ExtensionShortcut {
         shortcut: shortcut.to_owned(),
@@ -572,6 +577,6 @@ pub fn registered_tool(
 }
 
 /// Helper matching the source's manifest value type.
-pub fn manifest_extension_value(value: &Value) -> Option<String> {
-    value.as_str().map(str::to_owned)
+pub fn manifest_extension_value(value: &JsValue) -> Option<JsString> {
+    value.as_string().cloned()
 }
