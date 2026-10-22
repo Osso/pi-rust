@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use pi_agent_core::agent::AgentTool;
 use pi_coding_agent::core::tools::code_index::{OutlineTool, ReferencesTool, SymbolTool};
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 
 #[test]
 fn coding_agent_code_index_tools_match_the_pinned_typescript_source() {
@@ -30,24 +31,26 @@ fn coding_agent_code_index_tools_match_the_pinned_typescript_source() {
         "coding-agent-code-index-tools-oracle.ts",
         "packages/coding-agent/src/core/tools/code-index.ts",
     );
-    let expected = oracle.request(&json!({
+    let expected = oracle.request_lossless(&json!({
         "id": 27_700,
         "operation": "coding_agent_code_index_tools",
         "cwd": cwd,
         "cases": cases,
     }));
-    assert_eq!(expected["ok"], Value::Bool(true), "{expected}");
+    assert_eq!(expected["ok"], Value::Bool(true), "{expected:?}");
 
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let expected_results = expected["output"].as_array().expect("oracle output array");
     assert_eq!(expected_results.len(), cases.len());
     for (index, (case, expected)) in cases.iter().zip(expected_results).enumerate() {
-        let kind = case["kind"].as_str().expect("kind");
+        let kind = case["kind"].as_string().expect("kind");
         let params = case["params"].clone();
-        let tool: Arc<dyn AgentTool> = match kind {
-            "outline" => Arc::new(OutlineTool::new(&cwd)),
-            "symbol" => Arc::new(SymbolTool::new(&cwd)),
-            _ => Arc::new(ReferencesTool::new(&cwd)),
+        let tool: Arc<dyn AgentTool> = if kind == "outline" {
+            Arc::new(OutlineTool::new(&cwd))
+        } else if kind == "symbol" {
+            Arc::new(SymbolTool::new(&cwd))
+        } else {
+            Arc::new(ReferencesTool::new(&cwd))
         };
         let actual = match runtime.block_on(tool.execute(
             "code-index-differential".to_owned(),
