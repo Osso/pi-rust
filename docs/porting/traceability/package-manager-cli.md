@@ -110,3 +110,21 @@ host, the real settings manager, and the real trust store.
 - `cargo test -p pi-coding-agent --test package_command_execution` (31 tests)
 - `cargo test -p pi-coding-agent --test differential_package_manager_cli` (2 tests, 36 argument cases)
 - `cargo clippy -p pi-coding-agent --all-targets -- -D warnings`
+
+## Q18 native command flow (2026-10-22)
+
+Package command argv/source/options, captured diagnostics/help, settings/trust
+paths/callbacks, config selections, self-update plans, and effects errors use
+JsString. Only actual self-update process argv encode; model-catalog paths use
+native joins. Config self-update Result failures propagate through command flow
+and unavailable-instruction output instead of manufacturing a fallback.
+
+Command-name recognition narrows only the ASCII command enum, returning no command
+on unpaired input; the untouched native source/options continue when applicable.
+Self-update comparison uses native version-check semantics, including invalid
+semver's trimmed-string inequality fallback (not blanket no-match).
+
+Raw source/invalid-option fixture written but unexecuted. replacement-cli-2
+reached six CLI diagnostics: four old config dependencies and two local fixes
+subsequently corrected; parent native config merge is needed for final diagnostic
+proof. No runtime PASS or renewed frozen differential claim.
