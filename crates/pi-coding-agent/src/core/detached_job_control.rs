@@ -2,6 +2,8 @@
 
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 
+use pi_js_compat::js_format;
+
 use crate::core::detached_job_runner::DetachedJobOwnershipIdentity;
 use crate::core::session_control_db::{
     EnqueueStoredRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind, RuntimeMailboxStoreRef,
@@ -25,7 +27,7 @@ pub struct DetachedJobCancelCommand {
 pub struct DetachedJobStatusCommand {
     pub identity: DetachedJobOwnershipIdentity,
     pub reply_to: RuntimeMailboxAddress,
-    pub request_id: String,
+    pub request_id: JsString,
     pub mailbox_row_id: i64,
 }
 
@@ -33,7 +35,7 @@ pub struct DetachedJobStatusCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DetachedJobResponseCommand {
     pub identity: DetachedJobOwnershipIdentity,
-    pub request_id: String,
+    pub request_id: JsString,
     pub result: Option<JsValue>,
     pub error: Option<JsString>,
     pub mailbox_row_id: i64,
@@ -74,11 +76,11 @@ enum StoredCommand {
     Status {
         identity: DetachedJobOwnershipIdentity,
         reply_to: RuntimeMailboxAddress,
-        request_id: String,
+        request_id: JsString,
     },
     Response {
         identity: DetachedJobOwnershipIdentity,
-        request_id: String,
+        request_id: JsString,
         result: Option<JsValue>,
         error: Option<JsString>,
     },
@@ -94,7 +96,7 @@ impl StoredCommand {
 
 /// `claimDetachedJobRuntimeCommands`.
 pub fn claim_detached_job_runtime_commands(
-    control_db_path: &str,
+    control_db_path: &JsString,
     recipient: &RuntimeMailboxAddress,
     identity: &DetachedJobOwnershipIdentity,
 ) -> Result<Vec<DetachedJobRuntimeCommand>, ControlDbError> {
@@ -153,7 +155,7 @@ fn with_mailbox_row(command: StoredCommand, mailbox_row_id: i64) -> DetachedJobR
 pub fn enqueue_detached_job_status_request(
     input: &EnqueueDetachedJobStatusRequestInput,
 ) -> Result<i64, ControlDbError> {
-    let message_id = format!("detached-status-request:{}:{}", input.identity.job_id, input.request_id);
+    let message_id = js_format!("detached-status-request:{}:{}", input.identity.job_id, input.request_id);
     let body = pi_js_compat::js_json!({
         "command": "status",
         "identity": input.identity,
@@ -168,8 +170,8 @@ pub fn enqueue_detached_job_status_request(
             sender: input.requester_address.clone(),
             kind: RuntimeMailboxMessageKind::System,
             store_ref: RuntimeMailboxStoreRef {
-                message_id: message_id.clone().into(),
-                session_path: input.session_path.clone().into(),
+                message_id: message_id.clone(),
+                session_path: input.session_path.clone(),
             },
             message: pi_js_compat::js_json!({
                 "body": js_json::stringify_lossless(&body),
@@ -187,23 +189,23 @@ pub fn enqueue_detached_job_status_request(
 /// Input for [`enqueue_detached_job_status_request`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnqueueDetachedJobStatusRequestInput {
-    pub control_db_path: String,
+    pub control_db_path: JsString,
     pub identity: DetachedJobOwnershipIdentity,
     pub requester_address: RuntimeMailboxAddress,
-    pub request_id: String,
+    pub request_id: JsString,
     pub runner_address: RuntimeMailboxAddress,
-    pub session_path: String,
+    pub session_path: JsString,
 }
 
 /// Input for [`enqueue_detached_job_status_response`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnqueueDetachedJobStatusResponseInput {
-    pub control_db_path: String,
+    pub control_db_path: JsString,
     pub identity: DetachedJobOwnershipIdentity,
     pub reply_to: RuntimeMailboxAddress,
-    pub request_id: String,
+    pub request_id: JsString,
     pub runner_address: RuntimeMailboxAddress,
-    pub session_path: String,
+    pub session_path: JsString,
     pub status: JsValue,
 }
 
@@ -211,7 +213,7 @@ pub struct EnqueueDetachedJobStatusResponseInput {
 pub fn enqueue_detached_job_status_response(
     input: &EnqueueDetachedJobStatusResponseInput,
 ) -> Result<i64, ControlDbError> {
-    let message_id = format!("detached-status:{}:{}", input.identity.job_id, input.request_id);
+    let message_id = js_format!("detached-status:{}:{}", input.identity.job_id, input.request_id);
     let body = pi_js_compat::js_json!({
         "command": "respond",
         "identity": input.identity,
@@ -226,8 +228,8 @@ pub fn enqueue_detached_job_status_response(
             sender: input.runner_address.clone(),
             kind: RuntimeMailboxMessageKind::System,
             store_ref: RuntimeMailboxStoreRef {
-                message_id: message_id.clone().into(),
-                session_path: input.session_path.clone().into(),
+                message_id: message_id.clone(),
+                session_path: input.session_path.clone(),
             },
             message: pi_js_compat::js_json!({
                 "body": js_json::stringify_lossless(&body),
@@ -244,7 +246,7 @@ pub fn enqueue_detached_job_status_response(
 
 /// `claimDetachedJobControlCommands`.
 pub fn claim_detached_job_control_commands(
-    control_db_path: &str,
+    control_db_path: &JsString,
     recipient: &RuntimeMailboxAddress,
     identity: &DetachedJobOwnershipIdentity,
 ) -> Result<Vec<DetachedJobCancelCommand>, ControlDbError> {
@@ -263,24 +265,27 @@ fn parse_runtime_command(body: &JsString) -> Option<StoredCommand> {
     let parsed = js_json::parse_lossless(body).ok()?;
     let record = parsed.as_object()?;
     let identity = parse_identity(record.get("identity")?)?;
-    let command = scalar_text(record.get("command")?)?;
-    match command.as_str() {
-        "cancel" => Some(StoredCommand::Cancel {
+    let command = record.get("command")?.as_string()?;
+    if command == "cancel" {
+        Some(StoredCommand::Cancel {
             identity,
             reason: record.get("reason").and_then(JsValue::as_string).cloned(),
-        }),
-        "status" => Some(StoredCommand::Status {
+        })
+    } else if command == "status" {
+        Some(StoredCommand::Status {
             identity,
             reply_to: parse_mailbox_address(record.get("replyTo")?)?,
-            request_id: scalar_text(record.get("requestId")?)?,
-        }),
-        "respond" => Some(StoredCommand::Response {
+            request_id: record.get("requestId")?.as_string()?.clone(),
+        })
+    } else if command == "respond" {
+        Some(StoredCommand::Response {
             identity,
-            request_id: scalar_text(record.get("requestId")?)?,
+            request_id: record.get("requestId")?.as_string()?.clone(),
             result: record.get("result").cloned(),
             error: record.get("error").and_then(JsValue::as_string).cloned(),
-        }),
-        _ => None,
+        })
+    } else {
+        None
     }
 }
 
@@ -295,19 +300,14 @@ fn parse_mailbox_address(value: &JsValue) -> Option<RuntimeMailboxAddress> {
     Some(RuntimeMailboxAddress { agent_id, session_id })
 }
 
-/// Process and ownership metadata has a scalar Rust contract. Reject, never replace.
-fn scalar_text(value: &JsValue) -> Option<String> {
-    value.as_string()?.to_utf8().ok()
-}
-
 fn parse_identity(value: &JsValue) -> Option<DetachedJobOwnershipIdentity> {
     let record = value.as_object()?;
-    let job_id = scalar_text(record.get("jobId")?)?;
+    let job_id = record.get("jobId")?.as_string()?.clone();
     let owner = record.get("owner")?.as_object()?;
-    let owner_session_id = scalar_text(owner.get("sessionId")?)?;
+    let owner_session_id = owner.get("sessionId")?.as_string()?.clone();
     let owner_agent_id = match owner.get("agentId") {
         Some(JsValue::Null) => None,
-        Some(value @ JsValue::String(_)) => Some(scalar_text(value)?),
+        Some(JsValue::String(value)) => Some(value.clone()),
         _ => return None,
     };
     Some(DetachedJobOwnershipIdentity {
@@ -317,7 +317,7 @@ fn parse_identity(value: &JsValue) -> Option<DetachedJobOwnershipIdentity> {
             session_id: owner_session_id,
         },
         process_identity: parse_process_identity(record.get("processIdentity")?.as_object()?)?,
-        output_label: scalar_text(record.get("outputLabel")?)?,
+        output_label: record.get("outputLabel")?.as_string()?.clone(),
     })
 }
 

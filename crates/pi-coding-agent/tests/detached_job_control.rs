@@ -11,6 +11,7 @@ use pi_coding_agent::core::session_control_db::{
     RuntimeMailboxStoreRef, enqueue_runtime_mailbox_message, list_runtime_mailbox_messages,
     register_runtime_mailbox_listener, upsert_multi_agent_mailbox_message,
 };
+use pi_js_compat::js_json::{self, JsString, JsValue};
 use tempfile::TempDir;
 
 fn test_process_identity(name: &str) -> ProcessIdentity {
@@ -27,30 +28,40 @@ fn test_process_identity(name: &str) -> ProcessIdentity {
 
 fn identity() -> DetachedJobOwnershipIdentity {
     DetachedJobOwnershipIdentity {
-        job_id: "agent_1".to_owned(),
+        job_id: "agent_1".into(),
         owner: pi_coding_agent::core::session_control_db::MultiAgentRuntimeOwnerIdentity {
             agent_id: None,
-            session_id: "supervisor-1".to_owned(),
+            session_id: "supervisor-1".into(),
         },
-        output_label: "Bash output".to_owned(),
+        output_label: "Bash output".into(),
         process_identity: test_process_identity("runner-1"),
     }
 }
 
 struct Fixture {
     _directory: TempDir,
-    control_db_path: String,
+    control_db_path: JsString,
     recipient: RuntimeMailboxAddress,
-    session_path: String,
+    session_path: JsString,
 }
 
 fn fixture() -> Fixture {
     let directory = tempfile::tempdir().expect("temp dir");
-    let control_db_path = directory.path().join("control.sqlite").to_string_lossy().into_owned();
-    let session_path = directory.path().join("session.jsonl").to_string_lossy().into_owned();
+    let control_db_path = directory
+        .path()
+        .join("control.sqlite")
+        .to_string_lossy()
+        .into_owned()
+        .into();
+    let session_path = directory
+        .path()
+        .join("session.jsonl")
+        .to_string_lossy()
+        .into_owned()
+        .into();
     let recipient = RuntimeMailboxAddress {
-        agent_id: Some("agent_1".to_owned()),
-        session_id: "supervisor-1".to_owned(),
+        agent_id: Some("agent_1".into()),
+        session_id: "supervisor-1".into(),
     };
     register_runtime_mailbox_listener(
         &control_db_path,
@@ -68,13 +79,14 @@ fn fixture() -> Fixture {
     }
 }
 
-fn enqueue_control(fixture: &Fixture, message_id: &str, body: serde_json::Value) {
+fn enqueue_control(fixture: &Fixture, message_id: &str, body: JsValue) {
+    let message_id = JsString::from(message_id);
     upsert_multi_agent_mailbox_message(
         &fixture.control_db_path,
         &fixture.session_path,
-        message_id,
-        &serde_json::json!({
-            "body": serde_json::to_string(&body).expect("body"),
+        &message_id,
+        &pi_js_compat::js_json!({
+            "body": js_json::stringify_lossless(&body),
             "fromAgentId": "main",
             "id": message_id,
             "kind": "system",
@@ -90,11 +102,11 @@ fn enqueue_control(fixture: &Fixture, message_id: &str, body: serde_json::Value)
             recipient_host: None,
             sender: RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: "supervisor-1".to_owned(),
+                session_id: "supervisor-1".into(),
             },
             kind: RuntimeMailboxMessageKind::System,
             store_ref: RuntimeMailboxStoreRef {
-                message_id: message_id.to_owned(),
+                message_id,
                 session_path: fixture.session_path.clone(),
             },
         },
@@ -103,12 +115,39 @@ fn enqueue_control(fixture: &Fixture, message_id: &str, body: serde_json::Value)
 }
 
 #[test]
+fn cancellation_identity_and_reason_keep_raw_units_through_real_mailbox_claim() {
+    let fixture = fixture();
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let mut current = identity();
+    current.job_id = JsString::from("job-") + &raw;
+    current.owner.session_id = JsString::from("session-") + &raw;
+    current.owner.agent_id = Some(JsString::from("owner-") + &raw);
+    current.output_label = JsString::from("output-") + &raw;
+    current.process_identity.incarnation = Some(JsString::from("incarnation-") + &raw);
+    let reason = JsString::from("cancel-") + JsString::from_utf16(vec![0xdfff]);
+    enqueue_control(
+        &fixture,
+        "raw-control",
+        pi_js_compat::js_json!({"command":"cancel","identity":current,"reason":reason}),
+    );
+    let commands = claim_detached_job_control_commands(&fixture.control_db_path, &fixture.recipient, &current).unwrap();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].identity, current);
+    assert_eq!(commands[0].reason, Some(reason));
+    assert!(
+        list_runtime_mailbox_messages(&fixture.control_db_path)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
 fn accepts_cancellation_from_the_exact_owner_process_and_consumes_the_command() {
     let fixture = fixture();
     enqueue_control(
         &fixture,
         "message_1",
-        serde_json::json!({
+        pi_js_compat::js_json!({
             "command": "cancel",
             "identity": identity(),
             "reason": "user requested",
@@ -118,7 +157,7 @@ fn accepts_cancellation_from_the_exact_owner_process_and_consumes_the_command() 
         claim_detached_job_control_commands(&fixture.control_db_path, &fixture.recipient, &identity()).expect("claim");
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].identity, identity());
-    assert_eq!(commands[0].reason.as_deref(), Some("user requested"));
+    assert_eq!(commands[0].reason.as_ref(), Some(&JsString::from("user requested")));
     assert_eq!(commands[0].mailbox_row_id, 1);
     let messages = list_runtime_mailbox_messages(&fixture.control_db_path).expect("messages");
     // Frozen session-control-db.ts:2281-2288 deletes accepted runtime mailbox rows.
@@ -137,9 +176,9 @@ fn accepts_a_status_request_only_from_the_exact_owner_process() {
             identity: identity(),
             requester_address: RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: "supervisor-1".to_owned(),
+                session_id: "supervisor-1".into(),
             },
-            request_id: "status-1".to_owned(),
+            request_id: "status-1".into(),
             runner_address: fixture.recipient.clone(),
             session_path: fixture.session_path.clone(),
         },
@@ -156,7 +195,7 @@ fn accepts_a_status_request_only_from_the_exact_owner_process() {
         status.reply_to,
         RuntimeMailboxAddress {
             agent_id: None,
-            session_id: "supervisor-1".to_owned(),
+            session_id: "supervisor-1".into(),
         }
     );
     assert_eq!(status.request_id, "status-1");
@@ -169,7 +208,7 @@ fn accepts_a_bridge_response_only_from_the_exact_owner_process() {
     enqueue_control(
         &fixture,
         "message_1",
-        serde_json::json!({
+        pi_js_compat::js_json!({
             "command": "respond",
             "identity": identity(),
             "requestId": "request-1",
@@ -183,7 +222,7 @@ fn accepts_a_bridge_response_only_from_the_exact_owner_process() {
         panic!("expected response command");
     };
     assert_eq!(response.request_id, "request-1");
-    assert_eq!(response.result, Some(serde_json::json!({"value": 42})));
+    assert_eq!(response.result, Some(pi_js_compat::js_json!({"value": 42})));
     assert_eq!(response.error, None);
     assert_eq!(response.mailbox_row_id, 1);
 }
@@ -194,7 +233,7 @@ fn rejects_a_bridge_response_without_ownership_identity() {
     enqueue_control(
         &fixture,
         "message_1",
-        serde_json::json!({
+        pi_js_compat::js_json!({
             "command": "respond",
             "requestId": "request-1",
         }),
@@ -206,8 +245,8 @@ fn rejects_a_bridge_response_without_ownership_identity() {
     assert_eq!(messages[0].id, 1);
     assert_eq!(messages[0].status, RuntimeMailboxMessageStatus::Failed);
     assert_eq!(
-        messages[0].error.as_deref(),
-        Some("Detached job control identity mismatch")
+        messages[0].error.as_ref(),
+        Some(&JsString::from("Detached job control identity mismatch"))
     );
 }
 
@@ -219,7 +258,7 @@ fn rejects_commands_for_a_different_runner_identity() {
     enqueue_control(
         &fixture,
         "message_1",
-        serde_json::json!({
+        pi_js_compat::js_json!({
             "command": "cancel",
             "identity": other,
         }),
@@ -230,8 +269,8 @@ fn rejects_commands_for_a_different_runner_identity() {
     let messages = list_runtime_mailbox_messages(&fixture.control_db_path).expect("messages");
     assert_eq!(messages[0].status, RuntimeMailboxMessageStatus::Failed);
     assert_eq!(
-        messages[0].error.as_deref(),
-        Some("Detached job control identity mismatch")
+        messages[0].error.as_ref(),
+        Some(&JsString::from("Detached job control identity mismatch"))
     );
 }
 
@@ -244,12 +283,12 @@ fn enqueues_a_status_response_for_the_requester() {
             identity: identity(),
             reply_to: RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: "supervisor-1".to_owned(),
+                session_id: "supervisor-1".into(),
             },
-            request_id: "status-1".to_owned(),
+            request_id: "status-1".into(),
             runner_address: fixture.recipient.clone(),
             session_path: fixture.session_path.clone(),
-            status: serde_json::json!({"state": "running"}),
+            status: pi_js_compat::js_json!({"state": "running"}),
         },
     )
     .expect("enqueue");

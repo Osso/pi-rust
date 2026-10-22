@@ -51,6 +51,10 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## Detached control checkpoint (runtime pending)
+
+[Control module traceability](detached-job-control.md#q18-native-control-checkpoint): native control/session paths and request/message/identity strings; removed scalar_text/checked drops. Existing real DB fixtures migrated to JsValue/JsString and a raw cancellation identity/reason/incarnation insert/claim regression added. **Unexecuted** until real library compilation; no scaffold or acceptance claim. Owned Bash/Pyrun status/control callers continue with these native APIs.
+
 ## RuntimeProcess prerequisite
 
 Main granted native incarnation and human errors. [Module traceability](runtime-process.md#q18-native-identityerror-checkpoint) records the actual-module behavioral RED and **2/2 runner PASS** with no DB/mocked runtime. Detached control no longer drops an unpaired incarnation; remaining identity fields migrate in the control slice. Outside callers listed in `/tmp/pi-rust-repin-lossless-tools/LANE.md` as requested.
