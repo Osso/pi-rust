@@ -31,3 +31,7 @@ Tests: `crates/pi-ai/tests/auth.rs`.
 
 ## Discrepancies
 - None in resolution semantics. Typed Rust rejects non-object credential JSON and unknown `type` values instead of returning an untyped object.
+
+## Q18 native login contracts (compiler checkpoint)
+
+AuthInteraction prompt answers, prompt/event/link/choice text, credential keys, auth request key/base URL and source labels now retain `JsString`; OAuth legacy callbacks share native text. Credential serialization/deserialization uses one `JsValue` authority, no scalar serde intermediate. `lossless_auth_interaction` first reproduced scalar credential rejection (behavioral RED), then missing native prompt signature (compiler RED). Consumer propagation and real HTTP boundary proof remain pending; no completion claim.
