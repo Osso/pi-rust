@@ -8,40 +8,51 @@ use pi_ai::request::BoxFuture;
 use pi_coding_agent::cli::{DebugCommandDependencies, handle_debug_command};
 use pi_coding_agent::core::session_control_db::{get_control_db_path, write_session_health};
 use pi_coding_agent::core::session_health::{SessionCheckStatus, SessionHealthRecord};
+use pi_js_compat::js_json::JsString;
 
 struct Harness {
-    agent_dir: String,
-    control_db_path: String,
-    stdout: Mutex<Vec<String>>,
-    stderr: Mutex<Vec<String>>,
-    attachments: Mutex<Vec<(String, String)>>,
+    agent_dir: JsString,
+    control_db_path: JsString,
+    stdout: Mutex<Vec<JsString>>,
+    stderr: Mutex<Vec<JsString>>,
+    attachments: Mutex<Vec<(JsString, JsString)>>,
     fail_attach: bool,
 }
 
 impl DebugCommandDependencies for Harness {
-    fn agent_dir(&self) -> String {
+    fn agent_dir(&self) -> JsString {
         self.agent_dir.clone()
     }
 
-    fn control_db_path(&self) -> String {
+    fn control_db_path(&self) -> JsString {
         self.control_db_path.clone()
     }
 
-    fn stdout(&self, text: &str) {
-        self.stdout.lock().unwrap().push(text.to_owned());
+    fn stdout(&self, text: &JsString) {
+        self.stdout.lock().unwrap().push(text.clone());
     }
 
-    fn stderr(&self, text: &str) {
-        self.stderr.lock().unwrap().push(text.to_owned());
+    fn stderr(&self, text: &JsString) {
+        self.stderr.lock().unwrap().push(text.clone());
     }
 
-    fn attach<'a>(&'a self, socket_path: &'a str, session_id: &'a str) -> BoxFuture<'a, Result<(), String>> {
+    fn attach<'a>(
+        &'a self,
+        socket_path: &'a JsString,
+        session_id: &'a JsString,
+    ) -> BoxFuture<'a, Result<(), JsString>> {
         self.attachments
             .lock()
             .unwrap()
-            .push((socket_path.to_owned(), session_id.to_owned()));
+            .push((socket_path.clone(), session_id.clone()));
         let fail = self.fail_attach;
-        Box::pin(async move { if fail { Err("connect ENOENT".to_owned()) } else { Ok(()) } })
+        Box::pin(async move {
+            if fail {
+                Err(JsString::from("connect ENOENT"))
+            } else {
+                Ok(())
+            }
+        })
     }
 }
 
@@ -57,8 +68,8 @@ fn temp_dir(name: &str) -> PathBuf {
 
 fn make_harness(dir: &Path) -> Harness {
     Harness {
-        agent_dir: dir.display().to_string(),
-        control_db_path: get_control_db_path(dir),
+        agent_dir: JsString::from(dir.display().to_string()),
+        control_db_path: JsString::from(get_control_db_path(dir)),
         stdout: Mutex::new(Vec::new()),
         stderr: Mutex::new(Vec::new()),
         attachments: Mutex::new(Vec::new()),
@@ -82,13 +93,15 @@ fn prints_debug_command_help_successfully() {
     runtime().block_on(async {
         let dir = temp_dir("help");
         let harness = make_harness(&dir);
-        let outcome = handle_debug_command(&args(&["debug", "--help"]), &harness).await;
+        let outcome = handle_debug_command(&args(&["debug", "--help"]), &harness)
+            .await
+            .unwrap();
 
         assert!(outcome.handled);
         assert_eq!(outcome.exit_code, Some(0));
         assert_eq!(
             *harness.stdout.lock().unwrap(),
-            vec!["Usage: pi debug attach <session-id>\n"]
+            vec![JsString::from("Usage: pi debug attach <session-id>\n")]
         );
         assert!(harness.stderr.lock().unwrap().is_empty());
         std::fs::remove_dir_all(dir).unwrap();
@@ -117,15 +130,17 @@ fn attaches_to_the_debug_socket_owned_by_the_exact_live_session() {
         )
         .unwrap();
 
-        let outcome = handle_debug_command(&args(&["debug", "attach", session_id]), &harness).await;
+        let outcome = handle_debug_command(&args(&["debug", "attach", session_id]), &harness)
+            .await
+            .unwrap();
 
         assert!(outcome.handled);
         assert_eq!(outcome.exit_code, None);
         assert_eq!(
             *harness.attachments.lock().unwrap(),
             vec![(
-                dir.join("debug").join("1131255.sock").display().to_string(),
-                session_id.to_owned()
+                JsString::from(dir.join("debug").join("1131255.sock").display().to_string()),
+                JsString::from(session_id)
             )]
         );
         std::fs::remove_dir_all(dir).unwrap();
@@ -137,28 +152,34 @@ fn reports_missing_sessions_and_invalid_usage() {
     runtime().block_on(async {
         let dir = temp_dir("missing");
         let harness = make_harness(&dir);
-        let outcome = handle_debug_command(&args(&["debug", "attach", "missing-session"]), &harness).await;
+        let outcome = handle_debug_command(&args(&["debug", "attach", "missing-session"]), &harness)
+            .await
+            .unwrap();
         assert_eq!(outcome.exit_code, Some(1));
         assert_eq!(
             *harness.stderr.lock().unwrap(),
-            vec!["Session missing-session is not running.\n"]
+            vec![JsString::from("Session missing-session is not running.\n")]
         );
         assert!(harness.attachments.lock().unwrap().is_empty());
 
         let harness = make_harness(&dir);
-        let outcome = handle_debug_command(&args(&["debug"]), &harness).await;
+        let outcome = handle_debug_command(&args(&["debug"]), &harness).await.unwrap();
         assert_eq!(outcome.exit_code, Some(1));
         assert_eq!(
             *harness.stderr.lock().unwrap(),
-            vec!["Usage: pi debug attach <session-id>\n"]
+            vec![JsString::from("Usage: pi debug attach <session-id>\n")]
         );
 
         let harness = make_harness(&dir);
-        let outcome = handle_debug_command(&args(&["debug", "attach"]), &harness).await;
+        let outcome = handle_debug_command(&args(&["debug", "attach"]), &harness)
+            .await
+            .unwrap();
         assert_eq!(outcome.exit_code, Some(1));
 
         let harness = make_harness(&dir);
-        let outcome = handle_debug_command(&args(&["status", "attach", "id"]), &harness).await;
+        let outcome = handle_debug_command(&args(&["status", "attach", "id"]), &harness)
+            .await
+            .unwrap();
         assert!(!outcome.handled);
         std::fs::remove_dir_all(dir).unwrap();
     });
@@ -187,15 +208,33 @@ fn reports_attach_failures_with_the_source_message() {
         )
         .unwrap();
 
-        let outcome = handle_debug_command(&args(&["debug", "attach", session_id]), &harness).await;
+        let outcome = handle_debug_command(&args(&["debug", "attach", session_id]), &harness)
+            .await
+            .unwrap();
 
         assert_eq!(outcome.exit_code, Some(1));
         assert_eq!(
             *harness.stderr.lock().unwrap(),
-            vec![format!(
+            vec![JsString::from(format!(
                 "Could not attach to debug REPL for session {session_id}: connect ENOENT\n"
-            )]
+            ))]
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    });
+}
+
+#[test]
+fn control_db_read_failures_propagate_instead_of_reporting_not_running() {
+    runtime().block_on(async {
+        let dir = temp_dir("db-failure");
+        let mut harness = make_harness(&dir);
+        // A directory cannot be opened as the SQLite control DB, so readSessionHealth throws.
+        harness.control_db_path = JsString::from(dir.display().to_string());
+
+        let result = handle_debug_command(&args(&["debug", "attach", "some-session"]), &harness).await;
+
+        assert!(result.is_err());
+        assert!(harness.stderr.lock().unwrap().is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     });
 }
