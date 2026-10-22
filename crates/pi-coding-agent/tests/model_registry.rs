@@ -176,7 +176,7 @@ async fn compatibility_auth_includes_static_model_headers() {
     let registry = registry(storage_with(&[]), None).await;
     let mut model = test_model("ghost");
     model.provider = "missing-provider".to_owned();
-    model.headers = Some([("X-Static-Model".to_owned(), "static-value".to_owned())].into());
+    model.headers = Some([("X-Static-Model".to_owned(), JsString::from("static-value"))].into());
     match registry.get_api_key_and_headers(&model).await {
         ResolvedRequestAuth::Ok { headers, .. } => {
             let headers = headers.unwrap();
@@ -341,5 +341,5 @@ async fn registered_provider_accessors_round_trip() {
 #[tokio::test]
 async fn get_api_key_for_provider_swallows_resolution_errors() {
     let registry = registry(storage_with(&[]), None).await;
-    assert_eq!(registry.get_api_key_for_provider("unknown").await, None);
+    assert_eq!(registry.get_api_key_for_provider("unknown").await.unwrap(), None);
 }

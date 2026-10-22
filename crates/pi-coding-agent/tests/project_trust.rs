@@ -263,7 +263,7 @@ async fn ask_prompts_with_every_option_and_persists_the_choice() {
         ui.labels(),
         vec![
             "Trust".to_owned(),
-            format!("Trust parent folder ({})", s(project.parent().unwrap())),
+            pi_js_compat::js_format!("Trust parent folder ({0})", s(project.parent().unwrap())),
             "Trust (this session only)".to_owned(),
             "Do not trust".to_owned(),
             "Do not trust (this session only)".to_owned(),
@@ -332,7 +332,7 @@ async fn extensions_result(
         let extension = extension(
             &runtime,
             &s(project),
-            &format!("{}/{name}.ts", s(project)),
+            &pi_js_compat::js_format!("{0}/{1}.ts", s(project), name),
             move |api| {
                 api.on_project_trust(move |_event: ProjectTrustEvent, _ctx: ProjectTrustContext| {
                     Box::pin(async move {
@@ -401,7 +401,7 @@ async fn extension_errors_are_reported_and_resolution_continues() {
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
     let runtime = extension_runtime();
-    let path = format!("{}/broken.ts", s(&project));
+    let path = pi_js_compat::js_format!("{0}/broken.ts", s(&project));
     let extension = extension(&runtime, &s(&project), &path, |api| {
         api.on_project_trust(|_event: ProjectTrustEvent, _ctx: ProjectTrustContext| {
             Box::pin(async { Err(HandlerError::new("boom")) })
@@ -417,7 +417,7 @@ async fn extension_errors_are_reported_and_resolution_continues() {
     };
 
     let reported = Mutex::new(Vec::new());
-    let report = |message: String| reported.lock().unwrap().push(message);
+    let report = |message: JsString| reported.lock().unwrap().push(message);
     let mut requested = options(&project_path, &store, &ctx);
     requested.extensions_result = Some(&loaded);
     requested.on_extension_error = Some(&report);
@@ -425,7 +425,10 @@ async fn extension_errors_are_reported_and_resolution_continues() {
     assert!(!resolve_project_trusted(requested).await.unwrap());
     assert_eq!(
         *reported.lock().unwrap(),
-        vec![format!("Extension \"{path}\" project_trust error: boom")]
+        vec![pi_js_compat::js_format!(
+            "Extension \"{0}\" project_trust error: boom",
+            path
+        )]
     );
     assert_eq!(ui.labels().len(), 5);
 }

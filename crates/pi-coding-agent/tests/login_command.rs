@@ -95,7 +95,7 @@ impl OAuthAuth for TestOAuth {
     ) -> BoxFuture<'static, Result<pi_ai::auth::types::ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(pi_ai::auth::types::ModelAuth {
-                api_key: Some(credential.access_utf8()?),
+                api_key: Some(credential.access),
                 ..Default::default()
             })
         })
@@ -236,7 +236,7 @@ fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials() {
                         .map_err(AuthError::Failed)?;
                     Ok(OAuthCredential::new(
                         "refresh-token",
-                        format!("{typed}:{manual}:{selected}"),
+                        pi_js_compat::js_format!("{0}:{1}:{2}", typed, manual, selected),
                         pi_ai::request::now_millis() as f64 + 60_000.0,
                     ))
                 })
@@ -294,7 +294,7 @@ fn opens_browser_oauth_urls_when_requested() {
         ));
 
         let io = TestIo::new(&[]);
-        let opened: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let opened: Arc<Mutex<Vec<JsString>>> = Arc::new(Mutex::new(Vec::new()));
         let opened_by_opener = Arc::clone(&opened);
         let exit_code = run_login_command(RunLoginCommandOptions {
             model_runtime,
@@ -348,7 +348,7 @@ fn reports_browser_cli_open_failures_without_failing_the_login() {
             io: io.clone(),
             use_browser_cli: true,
             open_browser_cli_url: Some(Arc::new(|_url: JsString| {
-                Box::pin(async { Err("browser-cli open failed with exit code 2".to_owned()) })
+                Box::pin(async { Err(JsString::from("browser-cli open failed with exit code 2")) })
             })),
         })
         .await;

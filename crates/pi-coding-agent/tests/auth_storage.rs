@@ -130,8 +130,8 @@ fn credential_scoped_environment_takes_precedence_and_stays_inspectable() {
     };
     assert_eq!(api_key.key.as_ref(), Some(&JsString::from("scoped-value")));
     let env: ProviderEnv = api_key.env.expect("env is preserved");
-    assert_eq!(env.get("SCOPED_KEY").map(String::as_str), Some("scoped-value"));
-    assert_eq!(env.get("REGION").map(String::as_str), Some("test-region"));
+    assert_eq!(env.get("SCOPED_KEY").cloned(), Some(JsString::from("scoped-value")));
+    assert_eq!(env.get("REGION").cloned(), Some(JsString::from("test-region")));
 }
 
 #[test]

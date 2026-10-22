@@ -470,7 +470,10 @@ fn configured_headers_resolve_at_request_time() {
         let headers = resolve_configured_model_headers(&model, typed.as_ref(), None, None)
             .unwrap()
             .unwrap();
-        assert_eq!(headers.get("X-Custom-Header").map(String::as_str), Some("custom-value"));
+        assert_eq!(
+            headers.get("X-Custom-Header").cloned(),
+            Some(JsString::from("custom-value"))
+        );
     }
     fs::remove_dir_all(dir).unwrap();
 }
@@ -501,8 +504,8 @@ fn model_level_headers_merge_over_provider_headers() {
     let headers = resolve_configured_model_headers(&model, typed.as_ref(), None, None)
         .unwrap()
         .unwrap();
-    assert_eq!(headers.get("x-model").map(String::as_str), Some("model"));
-    assert_eq!(headers.get("x-shared").map(String::as_str), Some("model"));
+    assert_eq!(headers.get("x-model").cloned(), Some(JsString::from("model")));
+    assert_eq!(headers.get("x-shared").cloned(), Some(JsString::from("model")));
     fs::remove_dir_all(dir).unwrap();
 }
 
@@ -515,7 +518,7 @@ fn compatibility_request_config_includes_static_model_headers() {
             "openai-completions",
             "https://example.test",
         );
-        model.headers = Some([("X-Static-Model".to_owned(), "static-value".to_owned())].into());
+        model.headers = Some([("X-Static-Model".to_owned(), JsString::from("static-value"))].into());
         model
     };
     let compatibility = resolve_compatibility_request_config(&model, None, None).unwrap();

@@ -35,7 +35,7 @@ fn exact_single_references_return_borrowed_name_and_one_name_list() {
     for (value, expected_name) in cases {
         assert_eq!(
             get_config_value_env_var_name(&JsString::from(value)),
-            Some(expected_name)
+            Some(expected_name.to_owned())
         );
         assert_names(value, &[expected_name]);
         assert!(!is_command_config_value(&JsString::from(value)));

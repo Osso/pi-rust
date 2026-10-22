@@ -897,7 +897,7 @@ fn self_update_helpers_render_the_expected_lines() {
     let root = temp_dir("unavailable");
     let context = bun_binary_install_context(&root);
     let target = pi_coding_agent::config::SelfUpdatePackageTarget::new("@earendil-works/pi-coding-agent");
-    let lines = self_update_unavailable_lines(&context, None, &target, Some(&JsString::from("/usr/bin/pi")));
+    let lines = self_update_unavailable_lines(&context, None, &target, Some(&JsString::from("/usr/bin/pi"))).unwrap();
     assert_eq!(lines.len(), 4);
     assert!(lines[0].starts_with("error: "));
     assert!(lines[1].starts_with("Download from: "));
@@ -923,7 +923,7 @@ async fn run_self_update_reports_exit_codes_and_signals() {
     };
     assert_eq!(
         run_self_update(&failure).await,
-        Err("sh -c exit 3 exited with code 3".to_owned())
+        Err(JsString::from("sh -c exit 3 exited with code 3"))
     );
 
     let missing = SelfUpdateCommand {
@@ -981,7 +981,7 @@ fn model_catalog_refresh_outcome_maps_abort_and_provider_errors() {
             aborted: true,
             errors: Default::default(),
         });
-    assert_eq!(aborted, Err("Model catalog refresh timed out.".to_owned()));
+    assert_eq!(aborted, Err(JsString::from("Model catalog refresh timed out.")));
 
     let mut errors = indexmap::IndexMap::new();
     errors.insert("openai".to_owned(), pi_ai::request::CallbackError::new("boom"));
@@ -993,7 +993,9 @@ fn model_catalog_refresh_outcome_maps_abort_and_provider_errors() {
         });
     assert_eq!(
         failed,
-        Err("Could not refresh model catalogs: openai: boom; anthropic: down".to_owned())
+        Err(JsString::from(
+            "Could not refresh model catalogs: openai: boom; anthropic: down"
+        ))
     );
 
     assert_eq!(
