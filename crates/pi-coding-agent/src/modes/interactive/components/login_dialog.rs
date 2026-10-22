@@ -4,6 +4,10 @@
 //! `tokio::sync::oneshot` receiver resolved by the input submit handler; the
 //! `AbortSignal` is a `CancellationToken`.
 
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, encode_node_utf8},
+};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -24,35 +28,35 @@ use crate::utils::open_browser::open_browser;
 
 /// Rejection value for a cancelled prompt (`new Error("Login cancelled")`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LoginError(pub String);
+pub struct LoginError(pub JsString);
 
 impl std::fmt::Display for LoginError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str(&encode_node_utf8(&self.0))
     }
 }
 
 impl std::error::Error for LoginError {}
 
-type PromptReceiver = oneshot::Receiver<Result<String, LoginError>>;
+type PromptReceiver = oneshot::Receiver<Result<JsString, LoginError>>;
 
 struct LoginDialogCore {
     content: Vec<ComponentRef>,
     input: ComponentRef,
-    pending: Option<oneshot::Sender<Result<String, LoginError>>>,
+    pending: Option<oneshot::Sender<Result<JsString, LoginError>>>,
     cancellation: CancellationToken,
-    on_complete: Rc<dyn Fn(bool, Option<String>)>,
+    on_complete: Rc<dyn Fn(bool, Option<JsString>)>,
     request_render: Rc<dyn Fn()>,
 }
 
 impl LoginDialogCore {
-    fn replace_input_with_submitted_text(&mut self, value: &str) {
+    fn replace_input_with_submitted_text(&mut self, value: &JsString) {
         self.content = self
             .content
             .iter()
             .map(|child| {
                 if Rc::ptr_eq(child, &self.input) {
-                    component(Text::new(format!("> {value}"), 0, 0))
+                    component(Text::new(js_format!("> {}", value), 0, 0))
                 } else {
                     Rc::clone(child)
                 }
@@ -67,9 +71,9 @@ impl LoginDialogCore {
     fn cancel(&mut self) {
         self.cancellation.cancel();
         if let Some(sender) = self.pending.take() {
-            let _ = sender.send(Err(LoginError("Login cancelled".to_owned())));
+            let _ = sender.send(Err(LoginError("Login cancelled".into())));
         }
-        (self.on_complete)(false, Some("Login cancelled".to_owned()));
+        (self.on_complete)(false, Some("Login cancelled".into()));
     }
 
     fn request_render(&self) {
@@ -98,16 +102,16 @@ impl LoginDialogComponent {
     pub fn new(
         request_render: Rc<dyn Fn()>,
         provider_id: &str,
-        on_complete: Rc<dyn Fn(bool, Option<String>)>,
+        on_complete: Rc<dyn Fn(bool, Option<JsString>)>,
         provider_name_override: Option<&str>,
-        title_override: Option<&str>,
+        title_override: Option<&JsString>,
     ) -> Self {
         let provider_name = provider_name_override
             .filter(|name| !name.is_empty())
             .unwrap_or(provider_id);
         let title = title_override
-            .map(str::to_owned)
-            .unwrap_or_else(|| format!("Login to {provider_name}"));
+            .cloned()
+            .unwrap_or_else(|| js_format!("Login to {}", provider_name));
 
         let prefix_children = vec![
             component(dynamic_border()),
@@ -137,7 +141,7 @@ impl LoginDialogComponent {
                 .as_any_mut()
                 .and_then(|any| any.downcast_mut::<Input>())
             {
-                input_component.on_submit = Some(Rc::new(move |value: &str| {
+                input_component.on_submit = Some(Rc::new(move |value: &JsString| {
                     let mut core = submit_core.borrow_mut();
                     core.replace_input_with_submitted_text(value);
                     if let Some(sender) = core.pending.take() {
@@ -176,16 +180,16 @@ impl LoginDialogComponent {
     /// Opens the URL in the browser like the source; the content is testable
     /// through [`LoginDialogComponent::render`] only when the browser launch is
     /// acceptable to the caller.
-    pub fn show_auth(&self, url: &str, instructions: Option<&str>) {
+    pub fn show_auth(&self, url: &JsString, instructions: Option<&JsString>) {
         self.clear_content();
         self.add_content(component(Spacer::new(1)));
-        let linked_url = format!("\x1b]8;;{url}\x07{url}\x1b]8;;\x07");
+        let linked_url = js_format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, url);
         self.add_content(component(Text::new(
             with_theme(|theme| theme.fg(ThemeColor::Accent, &linked_url)),
             1,
             0,
         )));
-        let hyperlink = format!("\x1b]8;;{url}\x07{}\x1b]8;;\x07", click_hint());
+        let hyperlink = js_format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, click_hint());
         self.add_content(component(Text::new(
             with_theme(|theme| theme.fg(ThemeColor::Dim, &hyperlink)),
             1,
@@ -208,13 +212,13 @@ impl LoginDialogComponent {
         self.clear_content();
         self.add_content(component(Spacer::new(1)));
         let url = &info.verification_uri;
-        let linked_url = format!("\x1b]8;;{url}\x07{url}\x1b]8;;\x07");
+        let linked_url = js_format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, url);
         self.add_content(component(Text::new(
             with_theme(|theme| theme.fg(ThemeColor::Accent, &linked_url)),
             1,
             0,
         )));
-        let hyperlink = format!("\x1b]8;;{url}\x07{}\x1b]8;;\x07", click_hint());
+        let hyperlink = js_format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, click_hint());
         self.add_content(component(Text::new(
             with_theme(|theme| theme.fg(ThemeColor::Dim, &hyperlink)),
             1,
@@ -222,7 +226,7 @@ impl LoginDialogComponent {
         )));
         self.add_content(component(Spacer::new(1)));
         self.add_content(component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Warning, &format!("Enter code: {}", info.user_code))),
+            with_theme(|theme| theme.fg(ThemeColor::Warning, &js_format!("Enter code: {}", info.user_code))),
             1,
             0,
         )));
@@ -236,7 +240,7 @@ impl LoginDialogComponent {
     }
 
     /// Show an input for manual code/URL entry.
-    pub fn show_manual_input(&self, prompt: &str) -> PromptReceiver {
+    pub fn show_manual_input(&self, prompt: &JsString) -> PromptReceiver {
         if let Some(input) = self
             .input
             .borrow_mut()
@@ -253,7 +257,7 @@ impl LoginDialogComponent {
         )));
         self.add_content(Rc::clone(&self.input));
         self.add_content(component(Text::new(
-            format!("({})", key_hint("tui.select.cancel", "to cancel")),
+            js_format!("({})", key_hint("tui.select.cancel", "to cancel")),
             1,
             0,
         )));
@@ -262,7 +266,7 @@ impl LoginDialogComponent {
     }
 
     /// Show a prompt and wait for input, appending to the current content.
-    pub fn show_prompt(&self, message: &str, placeholder: Option<&str>) -> PromptReceiver {
+    pub fn show_prompt(&self, message: &JsString, placeholder: Option<&JsString>) -> PromptReceiver {
         self.add_content(component(Spacer::new(1)));
         self.add_content(component(Text::new(
             with_theme(|theme| theme.fg(ThemeColor::Text, message)),
@@ -271,14 +275,14 @@ impl LoginDialogComponent {
         )));
         if let Some(placeholder) = placeholder {
             self.add_content(component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("e.g., {placeholder}"))),
+                with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("e.g., {}", placeholder))),
                 1,
                 0,
             )));
         }
         self.add_content(Rc::clone(&self.input));
         self.add_content(component(Text::new(
-            format!(
+            js_format!(
                 "({} {})",
                 key_hint("tui.select.cancel", "to cancel,"),
                 key_hint("tui.select.confirm", "to submit")
@@ -299,7 +303,7 @@ impl LoginDialogComponent {
     }
 
     /// Show informational text before another login step.
-    pub fn show_details(&self, lines: &[String]) {
+    pub fn show_details(&self, lines: &[JsString]) {
         self.clear_content();
         self.add_content(component(Spacer::new(1)));
         for line in lines {
@@ -309,7 +313,7 @@ impl LoginDialogComponent {
     }
 
     /// Show provider-owned information and links.
-    pub fn show_info(&self, message: &str, links: &[AuthInfoLink], show_close_hint: bool) {
+    pub fn show_info(&self, message: &JsString, links: &[AuthInfoLink], show_close_hint: bool) {
         self.add_content(component(Spacer::new(1)));
         self.add_content(component(Text::new(
             with_theme(|theme| theme.fg(ThemeColor::Text, message)),
@@ -318,10 +322,10 @@ impl LoginDialogComponent {
         )));
         for link in links {
             let text = match &link.label {
-                Some(label) => format!("{label}: {}", link.url),
+                Some(label) => js_format!("{}: {}", label, &link.url),
                 None => link.url.clone(),
             };
-            let hyperlink = format!("\x1b]8;;{}\x07{text}\x1b]8;;\x07", link.url);
+            let hyperlink = js_format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", &link.url, text);
             self.add_content(component(Text::new(
                 with_theme(|theme| theme.fg(ThemeColor::Accent, &hyperlink)),
                 1,
@@ -331,7 +335,7 @@ impl LoginDialogComponent {
         if show_close_hint {
             self.add_content(component(Spacer::new(1)));
             self.add_content(component(Text::new(
-                format!("({})", key_hint("tui.select.cancel", "to close")),
+                js_format!("({})", key_hint("tui.select.cancel", "to close")),
                 1,
                 0,
             )));
@@ -340,7 +344,7 @@ impl LoginDialogComponent {
     }
 
     /// Show a waiting message for polling flows.
-    pub fn show_waiting(&self, message: &str) {
+    pub fn show_waiting(&self, message: &JsString) {
         self.add_content(component(Spacer::new(1)));
         self.add_content(component(Text::new(
             with_theme(|theme| theme.fg(ThemeColor::Dim, message)),
@@ -348,7 +352,7 @@ impl LoginDialogComponent {
             0,
         )));
         self.add_content(component(Text::new(
-            format!("({})", key_hint("tui.select.cancel", "to cancel")),
+            js_format!("({})", key_hint("tui.select.cancel", "to cancel")),
             1,
             0,
         )));
@@ -356,7 +360,7 @@ impl LoginDialogComponent {
     }
 
     /// Show progress text.
-    pub fn show_progress(&self, message: &str) {
+    pub fn show_progress(&self, message: &JsString) {
         self.add_content(component(Text::new(
             with_theme(|theme| theme.fg(ThemeColor::Dim, message)),
             1,
@@ -371,7 +375,7 @@ impl LoginDialogComponent {
 }
 
 impl Component for LoginDialogComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         for child in &self.prefix_children {
             lines.extend(child.borrow_mut().render(width));
@@ -386,7 +390,7 @@ impl Component for LoginDialogComponent {
         lines
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(data, "tui.select.cancel") {
             self.core.borrow_mut().cancel();

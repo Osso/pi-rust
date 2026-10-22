@@ -360,3 +360,34 @@ fn tool_execution_keeps_raw_result_and_argument_json() {
     }
     view.dispose();
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn login_dialog_keeps_raw_prompt_answer_and_display() {
+    use pi_coding_agent::modes::interactive::components::login_dialog::LoginDialogComponent;
+    init_theme();
+    let raw = JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]);
+    let mut dialog = LoginDialogComponent::new(Rc::new(|| {}), "fixture", Rc::new(|_, _| {}), None, Some(&raw));
+    let answer = dialog.show_prompt(&raw, Some(&raw));
+    assert!(JsString::join(dialog.render(120), "\n").contains(&raw));
+    dialog.handle_input(&raw);
+    dialog.handle_input(&"\r".into());
+    assert_eq!(answer.await.unwrap().unwrap(), raw);
+}
+
+#[test]
+fn oauth_selector_native_query_matches_raw_method_name() {
+    use pi_coding_agent::modes::interactive::components::oauth_selector::*;
+    init_theme();
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let mut provider = AuthSelectorProvider::new("fixture", "Fixture", pi_ai::auth::types::AuthType::ApiKey);
+    provider.method_name = Some(raw.clone());
+    let mut selector = OAuthSelectorComponent::new(
+        AuthSelectorMode::Login,
+        vec![provider],
+        Rc::new(|_, _| {}),
+        Rc::new(|| {}),
+        None,
+    );
+    selector.handle_input(&raw);
+    assert!(!JsString::join(selector.render(120), "\n").contains("No matching providers"));
+}

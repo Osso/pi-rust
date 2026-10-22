@@ -44,3 +44,32 @@ async fn api_key_login_keeps_native_prompt_answer() {
         JsString::from_utf16(vec![0xd800, 0x20, 0xdc00])
     );
 }
+
+#[test]
+fn http_header_value_has_exact_node_bytestring_errors() {
+    for (units, index, value) in [
+        (vec![0x61, 0xd800], 1, 55296),
+        (vec![0xdc00], 0, 56320),
+        (vec![0x20ac], 0, 8364),
+    ] {
+        let error = pi_ai::request::header_value(&JsString::from_utf16(units)).unwrap_err();
+        assert_eq!(error.name, "TypeError");
+        assert_eq!(
+            error.message,
+            format!(
+                "Cannot convert argument to a ByteString because the character at index {index} has a value of {value} which is greater than 255."
+            )
+        );
+    }
+    assert_eq!(pi_ai::request::header_value(&JsString::from("é")).unwrap(), "é");
+}
+
+#[test]
+fn http_url_replaces_lone_units_only_when_parsing_url() {
+    let raw = JsString::from("https://example.test/") + JsString::from_utf16(vec![0xd800, 0x2f, 0xdc00]);
+    assert_eq!(
+        pi_ai::request::request_url(&raw).unwrap(),
+        "https://example.test/%EF%BF%BD/%EF%BF%BD"
+    );
+    assert_eq!(raw.units()[21], 0xd800);
+}

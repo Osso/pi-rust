@@ -43,3 +43,7 @@ Full raw own Node error properties/stacks/causes and stderr, native errors, comm
 - Node source reads the same response bytes and EOF as native. Assertions compare top-level name/message, status, and send-vs-body event ordering; own cause objects and stderr are retained without filtering. Native cause is asserted meaningful, not compared with Node cause objects.
 - No DNS/TLS/proxy/redirect/compression error-detail equivalence claimed. Generic reqwest source-chain diagnostics beyond these observed network cases remain unproven.
 - Shared tests do not establish generator CLI output/exit/stack parity. Consumer wiring and independent final gates belong to parent integration.
+
+## Q18 auth request boundaries
+
+`request::header_value` performs one WebIDL ByteString conversion with Node-exact >255 unit index/value TypeError. `request::request_url` applies Node UTF-8/USV replacement only at WHATWG URL parse. Native auth boundary tests added to `lossless_auth_interaction`; consumer propagation blocks current execution. Prior Node probe confirmed high/low units, Euro, Latin-1 and URL/form U+FFFD bytes. Main owns routing request constructors through helpers.
