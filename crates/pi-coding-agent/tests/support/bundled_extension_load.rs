@@ -14,7 +14,8 @@ impl Harness {
         setup: impl FnOnce(&ExtensionApi) -> Result<(), HandlerError> + Send + 'static,
     ) -> Self {
         let session_manager = Arc::new(std::sync::Mutex::new(
-            SessionManager::in_memory(Some(cwd), None).expect("in-memory session manager"),
+            SessionManager::in_memory(Some(&pi_js_compat::js_json::JsString::from(cwd)), None)
+                .expect("in-memory session manager"),
         ));
         Self::load_with_session(cwd, session_manager, ui, setup).await
     }

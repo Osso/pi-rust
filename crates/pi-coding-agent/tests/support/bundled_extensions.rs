@@ -11,7 +11,8 @@ use pi_coding_agent::core::extensions::types::{
 };
 use pi_coding_agent::core::extensions::{ExtensionRunner, ExtensionRuntime, create_extension_runtime};
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 
 async fn model_registry() -> Arc<ModelRegistry> {
     let storage = Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
@@ -40,7 +41,7 @@ pub struct Calls {
         UserMessageContent,
         Option<pi_coding_agent::core::extensions::types::SendUserMessageOptions>,
     )>,
-    pub append_entry: Vec<(String, Option<Value>)>,
+    pub append_entry: Vec<(JsString, Option<Value>)>,
     pub restart: Vec<Option<pi_coding_agent::core::extensions::types::RestartOptions>>,
     pub sandbox_profile: Vec<(
         Option<pi_coding_agent::core::permissions::presets::SandboxProfileName>,
@@ -188,7 +189,7 @@ async fn load(
         Box::pin(async move { result })
     });
     let bus: Arc<dyn EventBus> = Arc::new(EventBusController::new());
-    load_extension_from_factory(factory, cwd, bus, runtime, "<test>")
+    load_extension_from_factory(factory, &JsString::from(cwd), bus, runtime, &JsString::from("<test>"))
         .await
         .expect("extension factory succeeds")
 }
@@ -254,7 +255,9 @@ pub fn context_actions(calls: &Arc<Mutex<Calls>>, control_db_path: Option<String
             restart_calls.lock().unwrap().restart.push(options);
             Box::pin(async { Ok(()) })
         }),
-        get_control_db_path: Some(Arc::new(move || control_db_path.lock().unwrap().clone())),
+        get_control_db_path: Some(Arc::new(move || {
+            control_db_path.lock().unwrap().clone().map(JsString::from)
+        })),
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: None,
         get_multi_agent_parent_session_id: None,
@@ -262,7 +265,7 @@ pub fn context_actions(calls: &Arc<Mutex<Calls>>, control_db_path: Option<String
         get_multi_agent_store: None,
         get_tool_detach_registry: None,
         compact: Arc::new(|_| {}),
-        get_system_prompt: Arc::new(String::new),
+        get_system_prompt: Arc::new(JsString::default),
         get_system_prompt_options: None,
     }
 }
@@ -314,11 +317,13 @@ pub fn calls_json(calls: &Calls) -> Value {
         .map(|(content, options)| {
             let content = match content {
                 UserMessageContent::Text(text) => Value::String(text.clone()),
-                UserMessageContent::Blocks(blocks) => serde_json::to_value(blocks).expect("blocks serialize"),
+                UserMessageContent::Blocks(blocks) => {
+                    pi_js_compat::js_json::to_value(blocks).expect("blocks serialize")
+                }
             };
             let options = options
                 .as_ref()
-                .and_then(|options| serde_json::to_value(options).ok())
+                .map(|options| pi_js_compat::js_json::to_value(options).expect("options serialize"))
                 .filter(|value| value != &Value::Null);
             json!([content, options])
         })
@@ -328,12 +333,12 @@ pub fn calls_json(calls: &Calls) -> Value {
         .iter()
         .map(|options| match options {
             Some(options) => {
-                let mut object = serde_json::Map::new();
+                let mut object = JsObject::new();
                 if let Some(notice) = &options.notice {
-                    object.insert("notice".to_owned(), Value::String(notice.clone()));
+                    object.insert("notice".into(), Value::String(notice.clone()));
                 }
                 if let Some(process) = options.process {
-                    object.insert("process".to_owned(), Value::Bool(process));
+                    object.insert("process".into(), Value::Bool(process));
                 }
                 Value::Object(object)
             }
