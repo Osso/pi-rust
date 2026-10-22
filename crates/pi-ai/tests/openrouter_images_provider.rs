@@ -14,7 +14,7 @@ struct FakeAuthContext {
 impl AuthContext for FakeAuthContext {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
         let value = self.env.get(name).cloned();
-        Box::pin(async move { value })
+        (Box::pin(async move { value })).map(pi_js_compat::js_json::JsString::from)
     }
 
     fn file_exists(&self, _path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
@@ -58,8 +58,14 @@ async fn api_key_auth_resolves_openrouter_api_key() {
         .await
         .expect("auth resolves")
         .expect("configured");
-    assert_eq!(resolved.auth.api_key.as_deref(), Some("or-key"));
-    assert_eq!(resolved.source.as_deref(), Some("OPENROUTER_API_KEY"));
+    assert_eq!(
+        resolved.auth.api_key.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("or-key"))
+    );
+    assert_eq!(
+        resolved.source.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("OPENROUTER_API_KEY"))
+    );
 }
 
 #[tokio::test]
@@ -105,7 +111,7 @@ async fn builtin_style_collection_exposes_the_openrouter_catalog() {
             .expect("configured")
             .auth
             .api_key
-            .as_deref(),
-        Some("or-key")
+            .as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("or-key"))
     );
 }

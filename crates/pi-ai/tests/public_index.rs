@@ -70,7 +70,10 @@ fn crate_root_reexports_are_usable() {
         pi_ai::parse_json_with_repair("{\"a\":1}").expect("json"),
         json!({"a": 1})
     );
-    assert_eq!(pi_ai::parse_streaming_json(Some("{\"a\":")), json!({}));
+    assert_eq!(
+        pi_ai::parse_streaming_json(Some(&pi_js_compat::js_json::JsString::from("{\"a\":"))),
+        json!({})
+    );
     assert!(pi_ai::get_overflow_patterns().len() > 1);
     assert!(!pi_ai::is_context_overflow(
         &pi_ai::AssistantMessage::empty("api", "provider", "model", 0),
@@ -83,7 +86,7 @@ fn crate_root_reexports_are_usable() {
         "api", "provider", "model", 0
     )));
     assert_eq!(
-        pi_ai::format_thrown_value(&pi_ai::ThrownValue::Text("x".to_owned())),
+        pi_ai::format_thrown_value(&pi_ai::ThrownValue::Text(("x".to_owned()).into())),
         "x"
     );
     assert_eq!(

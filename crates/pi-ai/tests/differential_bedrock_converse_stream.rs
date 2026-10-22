@@ -213,9 +213,9 @@ struct Scenario {
 
 fn default_env() -> ProviderEnv {
     let mut env = ProviderEnv::new();
-    env.insert("AWS_ACCESS_KEY_ID".to_owned(), ACCESS_KEY.to_owned());
-    env.insert("AWS_SECRET_ACCESS_KEY".to_owned(), SECRET_KEY.to_owned());
-    env.insert("AWS_REGION".to_owned(), "us-east-1".to_owned());
+    env.insert("AWS_ACCESS_KEY_ID".to_owned(), (ACCESS_KEY.to_owned()).into());
+    env.insert("AWS_SECRET_ACCESS_KEY".to_owned(), (SECRET_KEY.to_owned()).into());
+    env.insert("AWS_REGION".to_owned(), ("us-east-1".to_owned()).into());
     env
 }
 
@@ -225,7 +225,7 @@ fn model() -> Model {
         name: "Claude Opus 4.8".to_owned(),
         api: "bedrock-converse-stream".to_owned(),
         provider: "amazon-bedrock".to_owned(),
-        base_url: "https://bedrock-runtime.us-east-1.amazonaws.com".to_owned(),
+        base_url: ("https://bedrock-runtime.us-east-1.amazonaws.com".to_owned()).into(),
         reasoning: true,
         thinking_level_map: None,
         input: vec![pi_ai::types::Modality::Text, pi_ai::types::Modality::Image],
@@ -252,7 +252,7 @@ fn context() -> Context {
         system_prompt: None,
         messages: vec![Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text("hi".to_owned()),
+            content: UserContent::Text(("hi".to_owned()).into()),
             input_source: None,
             provider_native: None,
             timestamp: 0,
@@ -363,7 +363,7 @@ fn scenarios() -> Vec<Scenario> {
     });
 
     let mut cache_context = context();
-    cache_context.system_prompt = Some("You are helpful.".to_owned());
+    cache_context.system_prompt = Some(("You are helpful.".to_owned()).into());
     let mut cache_options = options();
     cache_options.cache_retention = Some(CacheRetention::Long);
     scenarios.push(Scenario {
@@ -446,7 +446,7 @@ fn scenarios() -> Vec<Scenario> {
             content: vec![
                 AssistantContent::Thinking(pi_ai::types::ThinkingContent {
                     r#type: pi_ai::types::ThinkingTag::Tag,
-                    thinking: "hmm".to_owned(),
+                    thinking: ("hmm".to_owned()).into(),
                     thinking_signature: Some("sig".to_owned()),
                     redacted: None,
                     index: None,
@@ -455,7 +455,12 @@ fn scenarios() -> Vec<Scenario> {
                 AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
                     "tool-1",
                     "lookup",
-                    json!({"q": "x", "": ""}).as_object().unwrap().clone(),
+                    pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+                        json!({"q": "x", "": ""}).as_object().unwrap().clone(),
+                    ))
+                    .as_object()
+                    .unwrap()
+                    .clone(),
                 )),
             ],
             api: "bedrock-converse-stream".to_owned(),
@@ -490,7 +495,7 @@ fn scenarios() -> Vec<Scenario> {
         }),
         Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text("   ".to_owned()),
+            content: UserContent::Text(("   ".to_owned()).into()),
             input_source: None,
             provider_native: None,
             timestamp: 0,
@@ -509,8 +514,8 @@ fn scenarios() -> Vec<Scenario> {
         .extra
         .insert("requestMetadata".to_owned(), json!({"team": "core"}));
     let mut rich_headers = pi_ai::types::ProviderHeaders::new();
-    rich_headers.insert("x-custom".to_owned(), Some("v".to_owned()));
-    rich_headers.insert("authorization".to_owned(), Some("evil".to_owned()));
+    rich_headers.insert("x-custom".to_owned(), Some(("v".to_owned()).into()));
+    rich_headers.insert("authorization".to_owned(), Some(("evil".to_owned()).into()));
     rich_options.request.headers = Some(rich_headers);
     scenarios.push(Scenario {
         name: "rich-messages",
@@ -527,7 +532,7 @@ fn scenarios() -> Vec<Scenario> {
     });
 
     let mut bearer_options = options();
-    bearer_options.request.api_key = Some("bedrock-api-key".to_owned());
+    bearer_options.request.api_key = Some(("bedrock-api-key".to_owned()).into());
     scenarios.push(Scenario {
         name: "bearer",
         model: model(),
@@ -553,7 +558,7 @@ fn scenarios() -> Vec<Scenario> {
     });
 
     let mut custom_model = model();
-    custom_model.base_url = "https://bedrock-vpc.example.com".to_owned();
+    custom_model.base_url = ("https://bedrock-vpc.example.com".to_owned()).into();
     scenarios.push(Scenario {
         name: "custom-endpoint",
         model: custom_model,
@@ -731,10 +736,10 @@ fn scenarios() -> Vec<Scenario> {
     )
     .expect("credentials file");
     let mut profile_env = ProviderEnv::new();
-    profile_env.insert("AWS_REGION".to_owned(), "us-east-1".to_owned());
+    profile_env.insert("AWS_REGION".to_owned(), ("us-east-1".to_owned()).into());
     profile_env.insert(
         "AWS_SHARED_CREDENTIALS_FILE".to_owned(),
-        credentials_file.to_string_lossy().into_owned(),
+        (credentials_file.to_string_lossy().into_owned()).into(),
     );
     let mut profile_options = StreamOptions {
         request: ProviderRequestOptions {
@@ -762,8 +767,8 @@ fn scenarios() -> Vec<Scenario> {
     });
 
     let mut skip_env = ProviderEnv::new();
-    skip_env.insert("AWS_REGION".to_owned(), "us-east-1".to_owned());
-    skip_env.insert("AWS_BEDROCK_SKIP_AUTH".to_owned(), "1".to_owned());
+    skip_env.insert("AWS_REGION".to_owned(), ("us-east-1".to_owned()).into());
+    skip_env.insert("AWS_BEDROCK_SKIP_AUTH".to_owned(), ("1".to_owned()).into());
     scenarios.push(Scenario {
         name: "skip-auth",
         model: model(),
@@ -1042,19 +1047,20 @@ fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
     );
     let credentials = AwsCredentials {
         access_key_id: if skip_auth {
-            "dummy-access-key".to_owned()
+            ("dummy-access-key".to_owned()).into()
         } else {
-            ACCESS_KEY.to_owned()
+            (ACCESS_KEY.to_owned()).into()
         },
         secret_access_key: if skip_auth {
-            "dummy-secret-key".to_owned()
+            ("dummy-secret-key".to_owned()).into()
         } else {
-            SECRET_KEY.to_owned()
+            (SECRET_KEY.to_owned()).into()
         },
-        session_token: headers
+        session_token: (headers
             .get("x-amz-security-token")
             .and_then(Value::as_str)
-            .map(str::to_owned),
+            .map(str::to_owned))
+        .map(pi_js_compat::js_json::JsString::from),
     };
     sign_request(
         "POST",
@@ -1062,7 +1068,7 @@ fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
         &mut rust_headers,
         body,
         &credentials,
-        (region, "bedrock"),
+        (&pi_js_compat::js_json::JsString::from(region), "bedrock"),
         parse_amz_date(amz_date),
     )
     .expect("sign");

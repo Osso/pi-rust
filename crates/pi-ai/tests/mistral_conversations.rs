@@ -72,7 +72,7 @@ fn model(id: &str, reasoning: bool) -> Model {
         name: "Test Model".to_owned(),
         api: "mistral-conversations".to_owned(),
         provider: "mistral".to_owned(),
-        base_url: BASE_URL.to_owned(),
+        base_url: (BASE_URL.to_owned()).into(),
         reasoning,
         thinking_level_map: None,
         input: vec![Modality::Text, Modality::Image],
@@ -97,7 +97,7 @@ fn model(id: &str, reasoning: bool) -> Model {
 fn user(text: &str) -> UserMessage {
     UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text(text.to_owned()),
+        content: UserContent::Text((text.to_owned()).into()),
         input_source: None,
         provider_native: None,
         timestamp: 1,
@@ -149,7 +149,7 @@ fn fetch_with(response: ScriptedResponse) -> (Arc<ScriptedFetch>, Arc<Mutex<Vec<
 fn options(fetch: Arc<ScriptedFetch>, api_key: &str) -> MistralOptions {
     let mut options = MistralOptions::default();
     options.stream.request.fetch = Some(fetch);
-    options.stream.request.api_key = Some(api_key.to_owned());
+    options.stream.request.api_key = Some((api_key.to_owned()).into());
     options
 }
 
@@ -183,7 +183,7 @@ async fn serializes_sdk_style_payloads_to_the_mistral_wire_format() {
         response
     });
     let mut context = context();
-    context.system_prompt = Some("Be precise".to_owned());
+    context.system_prompt = Some(("Be precise".to_owned()).into());
     context.messages = vec![pi_ai::types::Message::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![
@@ -214,7 +214,7 @@ async fn serializes_sdk_style_payloads_to_the_mistral_wire_format() {
     options.tool_choice = Some(MistralToolChoice::Function {
         name: "lookup".to_owned(),
     });
-    options.stream.session_id = Some("session-1".to_owned());
+    options.stream.session_id = Some(("session-1".to_owned()).into());
     options.stream.request.headers = Some(
         [("x-custom".to_owned(), Some("value".to_owned()))]
             .into_iter()
@@ -339,7 +339,12 @@ async fn serializes_assistant_thinking_tool_calls_and_tool_results_for_replay() 
             AssistantContent::ToolCall(ToolCall::new(
                 "abc123456",
                 "lookup",
-                json!({"query": "pi"}).as_object().unwrap().clone(),
+                pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+                    json!({"query": "pi"}).as_object().unwrap().clone(),
+                ))
+                .as_object()
+                .unwrap()
+                .clone(),
             )),
         ],
         stop_reason: StopReason::ToolUse,
@@ -459,7 +464,12 @@ async fn parses_native_thinking_text_tool_calls_and_cached_token_usage() {
             AssistantContent::ToolCall(ToolCall::new(
                 "abc123456",
                 "lookup",
-                json!({"query": "pi"}).as_object().unwrap().clone(),
+                pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+                    json!({"query": "pi"}).as_object().unwrap().clone()
+                ))
+                .as_object()
+                .unwrap()
+                .clone(),
             )),
         ]
     );
@@ -512,7 +522,7 @@ async fn honors_case_insensitive_header_overrides_and_explicit_affinity_suppress
         .collect(),
     );
     let mut options = options(fetch, "request-key");
-    options.stream.session_id = Some("automatic-affinity".to_owned());
+    options.stream.session_id = Some(("automatic-affinity".to_owned()).into());
     options.stream.request.headers = Some(
         [("authorization".to_owned(), None), ("x-affinity".to_owned(), None)]
             .into_iter()
@@ -545,7 +555,10 @@ async fn aborts_while_waiting_for_an_sse_chunk() {
     let (_, message) = collect(result).await;
 
     assert_eq!(message.stop_reason, StopReason::Aborted);
-    assert_eq!(message.error_message.as_deref(), Some("This operation was aborted"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("This operation was aborted"))
+    );
 }
 
 #[tokio::test]
@@ -562,7 +575,7 @@ async fn applies_the_request_timeout_while_waiting_for_an_sse_chunk() {
     assert!(
         message
             .error_message
-            .as_deref()
+            .as_ref()
             .unwrap_or_default()
             .to_lowercase()
             .contains("timeout")
@@ -588,8 +601,10 @@ async fn preserves_http_status_and_response_bodies_in_errors() {
 
     assert_eq!(message.stop_reason, StopReason::Error);
     assert_eq!(
-        message.error_message.as_deref(),
-        Some(r#"Mistral API error (403): {"message":"blocked by gateway"}"#)
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from(
+            r#"Mistral API error (403): {"message":"blocked by gateway"}"#
+        ))
     );
 }
 
@@ -615,7 +630,7 @@ async fn preserves_raw_mistral_finish_reasons() {
 
         assert_eq!(message.stop_reason, expected_stop, "{finish_reason}");
         assert_eq!(message.raw_stop_reason.as_deref(), Some(finish_reason));
-        assert_eq!(message.error_message.as_deref(), expected_error);
+        assert_eq!(message.error_message.as_ref(), expected_error);
     }
 }
 
@@ -627,12 +642,18 @@ async fn normalizes_invalid_tool_call_ids_for_replay() {
             AssistantContent::ToolCall(ToolCall::new(
                 "call_1|fc_1",
                 "read",
-                json!({}).as_object().unwrap().clone(),
+                pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(json!({}).as_object().unwrap().clone()))
+                    .as_object()
+                    .unwrap()
+                    .clone(),
             )),
             AssistantContent::ToolCall(ToolCall::new(
                 "abc123456",
                 "lookup",
-                json!({}).as_object().unwrap().clone(),
+                pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(json!({}).as_object().unwrap().clone()))
+                    .as_object()
+                    .unwrap()
+                    .clone(),
             )),
         ],
         stop_reason: StopReason::ToolUse,
@@ -722,7 +743,7 @@ async fn capture_reasoning_payload(model_id: &str, reasoning: Option<pi_ai::type
     let captured_clone = Arc::clone(&captured);
     let mut stream_options = SimpleStreamOptions::default();
     stream_options.stream.request.fetch = Some(fetch);
-    stream_options.stream.request.api_key = Some("fake-key".to_owned());
+    stream_options.stream.request.api_key = Some(("fake-key".to_owned()).into());
     stream_options.stream.request.on_payload = Some(Arc::new(move |payload: Value, _model: Model| {
         let captured = Arc::clone(&captured_clone);
         Box::pin(async move {
@@ -760,7 +781,7 @@ async fn selects_reasoning_controls_per_mistral_model() {
 async fn uses_the_session_id_as_prompt_cache_key_unless_disabled() {
     let (fetch, requests) = fetch_with(sse(&[terminal_event("stop")]));
     let mut stream_options = options(fetch, "test");
-    stream_options.stream.session_id = Some("session-123".to_owned());
+    stream_options.stream.session_id = Some(("session-123".to_owned()).into());
     collect(stream(model("mistral-large-latest", false), context(), stream_options)).await;
     let request = requests.lock().unwrap().first().cloned().expect("request");
     let wire: Value = serde_json::from_slice(&request.body.expect("body")).expect("wire JSON");
@@ -768,7 +789,7 @@ async fn uses_the_session_id_as_prompt_cache_key_unless_disabled() {
 
     let (fetch, requests) = fetch_with(sse(&[terminal_event("stop")]));
     let mut stream_options = options(fetch, "test");
-    stream_options.stream.session_id = Some("session-123".to_owned());
+    stream_options.stream.session_id = Some(("session-123".to_owned()).into());
     stream_options.stream.cache_retention = Some(pi_ai::types::CacheRetention::None);
     collect(stream(model("mistral-large-latest", false), context(), stream_options)).await;
     let request = requests.lock().unwrap().first().cloned().expect("request");
@@ -785,7 +806,7 @@ async fn errors_when_no_api_key_is_provided() {
     assert!(
         message
             .error_message
-            .as_deref()
+            .as_ref()
             .unwrap_or_default()
             .contains("No API key for provider: mistral")
     );
@@ -802,8 +823,10 @@ async fn errors_on_malformed_stream_events() {
     .await;
     assert_eq!(message.stop_reason, StopReason::Error);
     assert_eq!(
-        message.error_message.as_deref(),
-        Some("Invalid Mistral streaming event")
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from(
+            "Invalid Mistral streaming event"
+        ))
     );
 }
 
@@ -820,7 +843,9 @@ async fn errors_when_the_stream_ends_without_a_finish_reason() {
     .await;
     assert_eq!(message.stop_reason, StopReason::Error);
     assert_eq!(
-        message.error_message.as_deref(),
-        Some("Mistral stream ended without a finish reason")
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from(
+            "Mistral stream ended without a finish reason"
+        ))
     );
 }

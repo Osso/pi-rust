@@ -19,7 +19,7 @@ fn usage(total_tokens: f64) -> Usage {
 fn user(timestamp: i64, content: &str) -> Message {
     Message::User(UserMessage {
         role: pi_ai::types::UserRole::Tag,
-        content: UserContent::Text(content.to_owned()),
+        content: UserContent::Text((content.to_owned()).into()),
         input_source: None,
         provider_native: None,
         timestamp,
@@ -39,7 +39,7 @@ fn assistant(timestamp: i64, total_tokens: f64) -> Message {
 #[test]
 fn ignores_stale_assistant_usage_after_a_newer_message_is_inserted_before_it() {
     let context = Context {
-        system_prompt: Some("system".to_owned()),
+        system_prompt: Some(("system".to_owned()).into()),
         messages: vec![
             user(200, "summary"),
             assistant(100, 9_500.0),
@@ -125,7 +125,12 @@ fn tool_call_tokens_include_name_and_json_arguments() {
         content: vec![AssistantContent::ToolCall(ToolCall::new(
             "call_1",
             "read",
-            json!({"path": "a.txt"}).as_object().cloned().unwrap(),
+            pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+                json!({"path": "a.txt"}).as_object().cloned().unwrap(),
+            ))
+            .as_object()
+            .unwrap()
+            .clone(),
         ))],
         ..AssistantMessage::empty("anthropic-messages", "anthropic", "test", 1)
     }));
@@ -143,7 +148,7 @@ fn context_prefix_adds_system_prompt_and_tool_definitions() {
         typebox_kind: false,
     };
     let context = Context {
-        system_prompt: Some("abcd".to_owned()),
+        system_prompt: Some(("abcd".to_owned()).into()),
         messages: vec![user(1, "abcd")],
         tools: Some(vec![tool.clone()]),
     };
@@ -164,7 +169,7 @@ fn tools_added_after_the_usage_message_are_counted() {
         typebox_kind: false,
     };
     let context = Context {
-        system_prompt: Some("ignored after usage".to_owned()),
+        system_prompt: Some(("ignored after usage".to_owned()).into()),
         messages: vec![
             user(1, "hello"),
             assistant(2, 100.0),

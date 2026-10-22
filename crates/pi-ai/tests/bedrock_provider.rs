@@ -30,7 +30,7 @@ fn context() -> Context {
         system_prompt: None,
         messages: vec![pi_ai::types::Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text("hi".to_owned()),
+            content: UserContent::Text(("hi".to_owned()).into()),
             input_source: None,
             provider_native: None,
             timestamp: 0,
@@ -73,5 +73,8 @@ async fn provider_module_and_lazy_override_match_the_typescript_exports() {
         .result()
         .await
         .expect("marker result");
-    assert_eq!(message.error_message.as_deref(), Some("marker provider"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("marker provider"))
+    );
 }

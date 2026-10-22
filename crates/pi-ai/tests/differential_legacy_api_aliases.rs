@@ -110,7 +110,7 @@ fn model(case: &Case) -> Model {
         name: "Test Model".to_owned(),
         api: case.api.to_owned(),
         provider: case.provider.to_owned(),
-        base_url: case.base_url.to_owned(),
+        base_url: (case.base_url.to_owned()).into(),
         reasoning: false,
         thinking_level_map: None,
         input: vec![Modality::Text],
@@ -132,7 +132,7 @@ fn context() -> Context {
         system_prompt: None,
         messages: vec![Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text("hi".to_owned()),
+            content: UserContent::Text(("hi".to_owned()).into()),
             input_source: None,
             provider_native: None,
             timestamp: 0,
@@ -144,7 +144,7 @@ fn context() -> Context {
 fn stream_options(case: &Case, fetch: Arc<RecordingFetch>) -> StreamOptions {
     StreamOptions {
         request: ProviderRequestOptions {
-            api_key: Some(case.token.unwrap_or("test-key").to_owned()),
+            api_key: Some((case.token.unwrap_or("test-key").to_owned()).into()),
             fetch: Some(fetch as Arc<dyn pi_ai::request::Fetch>),
             ..ProviderRequestOptions::default()
         },

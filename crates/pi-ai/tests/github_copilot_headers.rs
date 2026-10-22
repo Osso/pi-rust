@@ -10,7 +10,7 @@ use serde_json::json;
 fn user_text(text: &str) -> Message {
     Message::User(UserMessage {
         role: pi_ai::types::UserRole::Tag,
-        content: UserContent::Text(text.to_owned()),
+        content: UserContent::Text((text.to_owned()).into()),
         input_source: None,
         provider_native: None,
         timestamp: 1,

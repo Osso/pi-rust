@@ -163,7 +163,7 @@ mod tests {
             name: "test".to_owned(),
             api: "openai-completions".to_owned(),
             provider: "openai".to_owned(),
-            base_url: "https://example.com".to_owned(),
+            base_url: ("https://example.com".to_owned()).into(),
             reasoning: true,
             thinking_level_map: None,
             input: vec![Modality::Text],
@@ -228,9 +228,12 @@ mod tests {
                 tools: None,
             },
             Some(&options),
-            Some("key"),
+            Some(&pi_js_compat::js_json::JsString::from("key")),
         );
-        assert_eq!(base.request.api_key.as_deref(), Some("key"));
+        assert_eq!(
+            base.request.api_key.as_ref(),
+            Some(&pi_js_compat::js_json::JsString::from("key"))
+        );
         assert_eq!(
             base.sampling_params,
             Some(JsonObject::from_iter([

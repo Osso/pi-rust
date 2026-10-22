@@ -63,7 +63,7 @@ fn options(
     OpenAICodexResponsesOptions {
         stream: StreamOptions {
             request: ProviderRequestOptions {
-                api_key: Some(mock_token()),
+                api_key: Some((mock_token()).into()),
                 fetch: Some(fetch),
                 timeout_ms,
                 ..ProviderRequestOptions::default()

@@ -18,7 +18,7 @@ fn tool(name: &str, description: &str) -> Tool {
 fn user(timestamp: i64) -> Message {
     Message::User(UserMessage {
         role: pi_ai::types::UserRole::Tag,
-        content: UserContent::Text("hello".to_owned()),
+        content: UserContent::Text(("hello".to_owned()).into()),
         input_source: None,
         provider_native: None,
         timestamp,
@@ -30,7 +30,10 @@ fn assistant_call(timestamp: i64, name: &str) -> Message {
         content: vec![AssistantContent::ToolCall(ToolCall::new(
             "call_1",
             name,
-            json!({}).as_object().cloned().unwrap(),
+            pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(json!({}).as_object().cloned().unwrap()))
+                .as_object()
+                .unwrap()
+                .clone(),
         ))],
         stop_reason: StopReason::ToolUse,
         timestamp,

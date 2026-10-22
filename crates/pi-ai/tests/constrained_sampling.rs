@@ -289,11 +289,25 @@ fn grammar_sampling_errors_are_prefixed_with_the_tool_name() {
 fn reads_and_appends_grammar_tool_input_json() {
     let arguments = json!({"payload": "abc"}).as_object().cloned().expect("object");
     assert_eq!(
-        get_grammar_tool_input("sample_tool", &arguments, "payload").expect("reads"),
+        get_grammar_tool_input(
+            "sample_tool",
+            pi_js_compat::js_json::JsValue::from(serde_json::Value::Object((&arguments).clone()))
+                .as_object()
+                .unwrap(),
+            "payload"
+        )
+        .expect("reads"),
         "abc"
     );
     let invalid = json!({"payload": 42}).as_object().cloned().expect("object");
-    let error = get_grammar_tool_input("sample_tool", &invalid, "payload").expect_err("must reject");
+    let error = get_grammar_tool_input(
+        "sample_tool",
+        pi_js_compat::js_json::JsValue::from(serde_json::Value::Object((&invalid).clone()))
+            .as_object()
+            .unwrap(),
+        "payload",
+    )
+    .expect_err("must reject");
     assert_eq!(
         error.message,
         "Grammar tool call \"sample_tool\" requires argument \"payload\" to be a string."

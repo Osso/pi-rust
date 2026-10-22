@@ -35,7 +35,7 @@ fn context() -> Context {
         system_prompt: None,
         messages: vec![Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text("hi there".to_owned()),
+            content: UserContent::Text(("hi there".to_owned()).into()),
             input_source: None,
             provider_native: None,
             timestamp: 0,
@@ -50,7 +50,7 @@ fn model(api: &str, provider: &str, id: &str) -> Model {
         name: "Test Model".to_owned(),
         api: api.to_owned(),
         provider: provider.to_owned(),
-        base_url: "https://example.test/v1".to_owned(),
+        base_url: ("https://example.test/v1".to_owned()).into(),
         reasoning: false,
         thinking_level_map: None,
         input: vec![Modality::Text],
@@ -197,7 +197,7 @@ fn dispatch_injects_env_keys_like_the_pinned_typescript_module() {
             other => panic!("unknown thinking level {other}"),
         });
         let request = ProviderRequestOptions {
-            api_key,
+            api_key: api_key.map(pi_js_compat::js_json::JsString::from),
             env,
             ..ProviderRequestOptions::default()
         };

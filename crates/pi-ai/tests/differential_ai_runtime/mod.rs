@@ -132,7 +132,7 @@ struct TestAuthContext {
 impl AuthContext for TestAuthContext {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
         let value = self.env.get(name).cloned();
-        Box::pin(async move { value })
+        (Box::pin(async move { value })).map(pi_js_compat::js_json::JsString::from)
     }
     fn file_exists(&self, _path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
         Box::pin(async { false })
@@ -265,7 +265,7 @@ async fn resolve_auth_case(case: &Value) -> Value {
         })
         .unwrap_or_default();
     let overrides = pi_ai::auth::AuthResolutionOverrides {
-        api_key: case["overrides"]["apiKey"].as_str().map(str::to_owned),
+        api_key: (case["overrides"]["apiKey"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from),
         ..Default::default()
     };
     let result = resolve_provider_auth(
@@ -376,7 +376,8 @@ async fn run_faux_case(case: &Value) -> Value {
             stop_reason: case["response"]["stopReason"]
                 .as_str()
                 .map(|reason| serde_json::from_value(json!(reason)).unwrap()),
-            error_message: case["response"]["errorMessage"].as_str().map(str::to_owned),
+            error_message: (case["response"]["errorMessage"].as_str().map(str::to_owned))
+                .map(pi_js_compat::js_json::JsString::from),
             ..Default::default()
         },
     );
@@ -396,7 +397,7 @@ async fn run_faux_case(case: &Value) -> Value {
             context,
             SimpleStreamOptions {
                 stream: StreamOptions {
-                    session_id,
+                    session_id: session_id.map(pi_js_compat::js_json::JsString::from),
                     cache_retention,
                     ..Default::default()
                 },
@@ -542,12 +543,12 @@ impl ApiKeyAuth for HeaderAuth {
         Box::pin(async {
             Ok(Some(pi_ai::auth::AuthResult {
                 auth: ModelAuth {
-                    api_key: Some("provider-key".to_owned()),
+                    api_key: Some(("provider-key".to_owned()).into()),
                     headers: Some(indexmap::IndexMap::from([
                         ("Authorization".to_owned(), Some("Bearer provider".to_owned())),
                         ("X-Shared".to_owned(), Some("provider".to_owned())),
                     ])),
-                    base_url: Some("https://resolved.test/v1".to_owned()),
+                    base_url: Some(("https://resolved.test/v1".to_owned()).into()),
                 },
                 env: Some(indexmap::IndexMap::from([
                     ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
@@ -633,7 +634,7 @@ fn compare_apply_auth(oracle: &mut oracle::TsOracle) {
                     SimpleStreamOptions {
                         stream: StreamOptions {
                             request: ProviderRequestOptions {
-                                api_key: Some("request-key".to_owned()),
+                                api_key: Some(("request-key".to_owned()).into()),
                                 headers: Some(indexmap::IndexMap::from([
                                     ("X-Request".to_owned(), Some("request".to_owned())),
                                     ("x-shared".to_owned(), Some("request".to_owned())),
@@ -643,7 +644,7 @@ fn compare_apply_auth(oracle: &mut oracle::TsOracle) {
                                     ("SHARED".to_owned(), "request".to_owned()),
                                 ])),
                                 transform_headers: Some(Arc::new(|mut headers| {
-                                    headers.insert("X-Transformed".to_owned(), Some("yes".to_owned()));
+                                    headers.insert("X-Transformed".to_owned(), Some(("yes".to_owned()).into()));
                                     Box::pin(async move { Ok(headers) })
                                 })),
                                 ..Default::default()

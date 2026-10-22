@@ -590,31 +590,48 @@ mod tests {
     #[test]
     fn azure_hosts_get_the_v1_base_path() {
         assert_eq!(
-            normalize_azure_base_url("https://example.openai.azure.com/").unwrap(),
+            normalize_azure_base_url(&pi_js_compat::js_json::JsString::from(
+                "https://example.openai.azure.com/"
+            ))
+            .unwrap(),
             "https://example.openai.azure.com/openai/v1"
         );
         assert_eq!(
-            normalize_azure_base_url("https://example.openai.azure.com/openai/v1/responses").unwrap(),
+            normalize_azure_base_url(&pi_js_compat::js_json::JsString::from(
+                "https://example.openai.azure.com/openai/v1/responses"
+            ))
+            .unwrap(),
             "https://example.openai.azure.com/openai/v1"
         );
         assert_eq!(
-            normalize_azure_base_url("https://proxy.example.com/custom").unwrap(),
+            normalize_azure_base_url(&pi_js_compat::js_json::JsString::from(
+                "https://proxy.example.com/custom"
+            ))
+            .unwrap(),
             "https://proxy.example.com/custom"
         );
     }
 
     #[test]
     fn deployment_name_map_parses_entries() {
-        let map = parse_deployment_name_map(Some(" gpt-4.1=dep-a, gpt-5=dep-b , broken"));
-        assert_eq!(map.get("gpt-4.1"), Some(&"dep-a".to_owned()));
-        assert_eq!(map.get("gpt-5"), Some(&"dep-b".to_owned()));
+        let map = parse_deployment_name_map(Some(&pi_js_compat::js_json::JsString::from(
+            " gpt-4.1=dep-a, gpt-5=dep-b , broken",
+        )));
+        assert_eq!(
+            map.get(&pi_js_compat::js_json::JsString::from("gpt-4.1")),
+            Some(&pi_js_compat::js_json::JsString::from(&"dep-a".to_owned()))
+        );
+        assert_eq!(
+            map.get(&pi_js_compat::js_json::JsString::from("gpt-5")),
+            Some(&pi_js_compat::js_json::JsString::from(&"dep-b".to_owned()))
+        );
         assert_eq!(map.len(), 2);
     }
 
     #[test]
     fn resource_name_builds_default_base_url() {
         assert_eq!(
-            build_default_base_url("example"),
+            build_default_base_url(&pi_js_compat::js_json::JsString::from("example")),
             "https://example.openai.azure.com/openai/v1"
         );
         assert_eq!(model("https://example.openai.azure.com").id, "gpt-4.1");

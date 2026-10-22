@@ -13,7 +13,7 @@ fn model(provider: &str, api: &str, id: &str, supports_images: bool) -> Model {
         name: "Test Model".to_owned(),
         api: api.to_owned(),
         provider: provider.to_owned(),
-        base_url: "https://example.invalid".to_owned(),
+        base_url: ("https://example.invalid".to_owned()).into(),
         reasoning: false,
         thinking_level_map: None,
         input: if supports_images {
@@ -52,7 +52,7 @@ fn anthropic_normalize(id: &str, _model: &Model, _source: &AssistantMessage) -> 
 fn user(timestamp: i64, content: &str) -> Message {
     Message::User(UserMessage {
         role: pi_ai::types::UserRole::Tag,
-        content: UserContent::Text(content.to_owned()),
+        content: UserContent::Text((content.to_owned()).into()),
         input_source: None,
         provider_native: None,
         timestamp,
@@ -89,7 +89,12 @@ fn tool_call(id: &str, name: &str) -> AssistantContent {
     AssistantContent::ToolCall(ToolCall::new(
         id,
         name,
-        json!({"command": "ls"}).as_object().cloned().unwrap(),
+        pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+            json!({"command": "ls"}).as_object().cloned().unwrap(),
+        ))
+        .as_object()
+        .unwrap()
+        .clone(),
     ))
 }
 
@@ -136,7 +141,14 @@ fn converts_thinking_blocks_to_text_when_the_source_model_differs() {
 
 #[test]
 fn removes_thought_signatures_when_migrating_between_models() {
-    let mut call = ToolCall::new("call_123", "bash", json!({}).as_object().cloned().unwrap());
+    let mut call = ToolCall::new(
+        "call_123",
+        "bash",
+        pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(json!({}).as_object().cloned().unwrap()))
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
     call.thought_signature = Some("encrypted".to_owned());
     let messages = vec![
         user(1, "run a command"),

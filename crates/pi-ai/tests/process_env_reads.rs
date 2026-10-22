@@ -9,5 +9,8 @@ fn provider_env_keys_observe_process_env_overlay() {
     let found = get_env_api_key("zai", None);
     process_env::remove("ZAI_API_KEY");
 
-    assert_eq!(found.as_deref(), Some("overlay-key"));
+    assert_eq!(
+        found.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("overlay-key"))
+    );
 }

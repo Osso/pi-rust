@@ -21,7 +21,7 @@ fn model() -> ImagesModel {
         name: "Gemini 3.1 Flash Image Preview".to_owned(),
         api: "openrouter-images".to_owned(),
         provider: "openrouter".to_owned(),
-        base_url: "https://openrouter.ai/api/v1".to_owned(),
+        base_url: ("https://openrouter.ai/api/v1".to_owned()).into(),
         thinking_level_map: None,
         input: vec![Modality::Text, Modality::Image],
         output: vec![Modality::Text, Modality::Image],
@@ -54,7 +54,7 @@ fn text_context() -> ImagesContext {
 fn options(api_key: &str) -> ImagesOptions {
     ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: Some(api_key.to_owned()),
+            api_key: Some((api_key.to_owned()).into()),
             ..Default::default()
         },
         ..Default::default()
@@ -64,7 +64,7 @@ fn options(api_key: &str) -> ImagesOptions {
 fn options_with_fetch(api_key: &str, fetch: Arc<dyn Fetch>) -> ImagesOptions {
     ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: Some(api_key.to_owned()),
+            api_key: Some((api_key.to_owned()).into()),
             fetch: Some(fetch),
             ..Default::default()
         },
@@ -281,8 +281,10 @@ async fn missing_api_key_returns_an_error_without_a_request() {
         .expect("generation returns a result");
     assert_eq!(output.stop_reason, ImagesStopReason::Error);
     assert_eq!(
-        output.error_message.as_deref(),
-        Some("No API key for provider: openrouter")
+        output.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from(
+            "No API key for provider: openrouter"
+        ))
     );
     assert!(fetch.requests().is_empty());
 }
@@ -294,7 +296,7 @@ async fn aborted_signal_returns_aborted_without_a_request() {
     signal.cancel();
     let options = ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: Some("test".to_owned()),
+            api_key: Some(("test".to_owned()).into()),
             fetch: Some(fetch.clone()),
             signal: Some(signal),
             ..Default::default()
@@ -305,7 +307,10 @@ async fn aborted_signal_returns_aborted_without_a_request() {
         .await
         .expect("generation returns a result");
     assert_eq!(output.stop_reason, ImagesStopReason::Aborted);
-    assert_eq!(output.error_message.as_deref(), Some("Request aborted"));
+    assert_eq!(
+        output.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("Request aborted"))
+    );
     assert!(fetch.requests().is_empty());
 }
 
@@ -317,7 +322,7 @@ async fn error_message_for(status: u16, headers: Vec<(String, String)>, body: &s
     }]);
     let options = ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: Some("test".to_owned()),
+            api_key: Some(("test".to_owned()).into()),
             fetch: Some(fetch),
             ..Default::default()
         },
@@ -382,7 +387,7 @@ async fn retries_transient_failures_when_requested() {
     ]);
     let options = ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: Some("test".to_owned()),
+            api_key: Some(("test".to_owned()).into()),
             fetch: Some(fetch.clone()),
             max_retries: Some(1.0),
             ..Default::default()
@@ -418,7 +423,7 @@ async fn on_payload_can_replace_the_request_body_and_on_response_sees_the_status
     });
     let options = ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: Some("test".to_owned()),
+            api_key: Some(("test".to_owned()).into()),
             fetch: Some(fetch.clone()),
             on_payload: Some(on_payload),
             on_response: Some(on_response),
@@ -473,7 +478,7 @@ impl Fetch for SlowFetch {
 async fn timeout_returns_the_sdk_timeout_message() {
     let options = ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: Some("test".to_owned()),
+            api_key: Some(("test".to_owned()).into()),
             fetch: Some(Arc::new(SlowFetch)),
             timeout_ms: Some(1.0),
             ..Default::default()
@@ -484,7 +489,10 @@ async fn timeout_returns_the_sdk_timeout_message() {
         .await
         .expect("generation returns a result");
     assert_eq!(output.stop_reason, ImagesStopReason::Error);
-    assert_eq!(output.error_message.as_deref(), Some("Request timed out."));
+    assert_eq!(
+        output.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("Request timed out."))
+    );
 }
 
 #[tokio::test]
@@ -505,7 +513,7 @@ async fn abort_during_body_read_returns_aborted() {
         RecordingFetch::with_abort_after_chunks(vec![ScriptedResponse::json(200, &success_body())], 0, signal.clone());
     let options = ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: Some("test".to_owned()),
+            api_key: Some(("test".to_owned()).into()),
             fetch: Some(fetch),
             signal: Some(signal),
             ..Default::default()
@@ -516,5 +524,8 @@ async fn abort_during_body_read_returns_aborted() {
         .await
         .expect("generation returns a result");
     assert_eq!(output.stop_reason, ImagesStopReason::Aborted);
-    assert_eq!(output.error_message.as_deref(), Some("Request aborted"));
+    assert_eq!(
+        output.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("Request aborted"))
+    );
 }

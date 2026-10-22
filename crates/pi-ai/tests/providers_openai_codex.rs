@@ -10,7 +10,12 @@ fn default_factory_matches_the_typescript_provider_descriptor() {
     let provider = openai_codex_provider();
     assert_eq!(provider.id(), "openai-codex");
     assert_eq!(provider.name(), "OpenAI Codex");
-    assert_eq!(provider.base_url(), Some("https://chatgpt.com/backend-api"));
+    assert_eq!(
+        provider.base_url(),
+        Some(&pi_js_compat::js_json::JsString::from(
+            "https://chatgpt.com/backend-api"
+        ))
+    );
     assert!(provider.headers().is_none());
 
     let auth = provider.auth();
@@ -38,7 +43,12 @@ fn custom_id_rewrites_the_codex_catalog_provider() {
     let provider = openai_codex_provider_with_id("openai-codex-gc", "OpenAI Codex (GlobalComix)");
     assert_eq!(provider.id(), "openai-codex-gc");
     assert_eq!(provider.name(), "OpenAI Codex (GlobalComix)");
-    assert_eq!(provider.base_url(), Some("https://chatgpt.com/backend-api"));
+    assert_eq!(
+        provider.base_url(),
+        Some(&pi_js_compat::js_json::JsString::from(
+            "https://chatgpt.com/backend-api"
+        ))
+    );
 
     let models = provider.get_models();
     let codex_catalog = models_data::provider_models("openai-codex").expect("codex catalog");

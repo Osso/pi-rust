@@ -38,7 +38,7 @@ fn compare_error_cases(oracle: &mut oracle::TsOracle, cases: Vec<ErrorCase>) {
         );
         assert_eq!(
             result["body"],
-            normalized.body.as_deref().map_or(Value::Null, |body| json!(body))
+            normalized.body.as_ref().map_or(Value::Null, |body| json!(body))
         );
         assert_eq!(result["message"], json!(normalized.message));
         assert_eq!(result["messageCarriesBody"], json!(normalized.message_carries_body));
@@ -77,7 +77,9 @@ fn compare_values(oracle: &mut oracle::TsOracle) {
         .expect("value results must be an array");
     assert_eq!(results.len(), values.len());
     for (result, value) in results.iter().zip(values.iter()) {
-        let normalized = normalize_provider_error(&ProviderErrorInput::Value(value.clone()));
+        let normalized = normalize_provider_error(&ProviderErrorInput::Value(pi_js_compat::js_json::JsValue::from(
+            value.clone(),
+        )));
         assert_eq!(result["message"], json!(normalized.message));
         assert_eq!(
             result["formatted"],
@@ -106,7 +108,11 @@ fn compare_truncation(oracle: &mut oracle::TsOracle) {
     for (result, (text, max_chars)) in results.iter().zip(cases.iter()) {
         assert_eq!(
             result["units"],
-            json!(truncate_error_text(text, *max_chars).encode_utf16().collect::<Vec<_>>()),
+            json!(
+                truncate_error_text(&pi_js_compat::js_json::JsString::from(text), *max_chars)
+                    .encode_utf16()
+                    .collect::<Vec<_>>()
+            ),
             "truncate mismatch for {text:?}"
         );
     }
@@ -151,7 +157,7 @@ fn case(error: ProviderError, prefix: Option<&str>) -> ErrorCase {
 
 fn base(message: &str) -> ProviderError {
     ProviderError {
-        message: message.to_owned(),
+        message: (message.to_owned()).into(),
         ..ProviderError::default()
     }
 }
@@ -163,7 +169,9 @@ fn error_cases() -> Vec<ErrorCase> {
         case(
             ProviderError {
                 status_code: Some(403.0),
-                body: Some(ErrorBody::Text("{\"error\":\"blocked by gateway WAF\"}".to_owned())),
+                body: Some(ErrorBody::Text(
+                    ("{\"error\":\"blocked by gateway WAF\"}".to_owned()).into(),
+                )),
                 ..base("Mistral request failed")
             },
             Some("Mistral API error"),
@@ -171,7 +179,9 @@ fn error_cases() -> Vec<ErrorCase> {
         case(
             ProviderError {
                 status: Some(403.0),
-                error: Some(json!({"error": "blocked by gateway WAF"})),
+                error: Some(pi_js_compat::js_json::JsValue::from(
+                    json!({"error": "blocked by gateway WAF"}),
+                )),
                 ..base("403 status code (no body)")
             },
             None,
@@ -179,7 +189,9 @@ fn error_cases() -> Vec<ErrorCase> {
         case(
             ProviderError {
                 status: Some(403.0),
-                error: Some(json!({"error": {"code": 403, "message": "Permission denied"}})),
+                error: Some(pi_js_compat::js_json::JsValue::from(
+                    json!({"error": {"code": 403, "message": "Permission denied"}}),
+                )),
                 ..base("{\"error\":{\"code\":403,\"message\":\"Permission denied\"}}")
             },
             Some("OpenAI API error"),
@@ -188,7 +200,9 @@ fn error_cases() -> Vec<ErrorCase> {
             ProviderError {
                 metadata_http_status_code: Some(403.0),
                 response_status_code: Some(403.0),
-                response_body: Some(ErrorBody::Text("{\"message\":\"blocked by gateway WAF\"}".to_owned())),
+                response_body: Some(ErrorBody::Text(
+                    ("{\"message\":\"blocked by gateway WAF\"}".to_owned()).into(),
+                )),
                 ..base("UnknownError")
             },
             None,
@@ -197,14 +211,19 @@ fn error_cases() -> Vec<ErrorCase> {
             ProviderError {
                 metadata_http_status_code: Some(400.0),
                 response_status_code: Some(400.0),
-                response_body: Some(ErrorBody::Json(json!(["stream", "internals"]))),
+                response_body: Some(ErrorBody::Json(pi_js_compat::js_json::JsValue::from(json!([
+                    "stream",
+                    "internals"
+                ])))),
                 ..base("Invocation of model ID is not supported.")
             },
             None,
         ),
         case(
             ProviderError {
-                response_body: Some(ErrorBody::Json(json!({"message": "schema validation failed"}))),
+                response_body: Some(ErrorBody::Json(pi_js_compat::js_json::JsValue::from(
+                    json!({"message": "schema validation failed"}),
+                ))),
                 ..base("ValidationException")
             },
             None,
@@ -212,7 +231,7 @@ fn error_cases() -> Vec<ErrorCase> {
         case(
             ProviderError {
                 status: Some(502.0),
-                error: Some(json!([])),
+                error: Some(pi_js_compat::js_json::JsValue::from(json!([]))),
                 ..base("TLS handshake failed")
             },
             None,
@@ -220,7 +239,7 @@ fn error_cases() -> Vec<ErrorCase> {
         case(
             ProviderError {
                 status: Some(403.0),
-                error: Some(json!({})),
+                error: Some(pi_js_compat::js_json::JsValue::from(json!({}))),
                 ..base("403 status code (no body)")
             },
             None,
@@ -228,7 +247,7 @@ fn error_cases() -> Vec<ErrorCase> {
         case(
             ProviderError {
                 status_code: Some(500.0),
-                body: Some(ErrorBody::Text("upstream exploded".to_owned())),
+                body: Some(ErrorBody::Text(("upstream exploded".to_owned()).into())),
                 ..base("500: upstream exploded")
             },
             None,
@@ -239,7 +258,7 @@ fn error_cases() -> Vec<ErrorCase> {
                 status: Some(503.0),
                 metadata_http_status_code: Some(504.0),
                 response_status_code: Some(505.0),
-                body: Some(ErrorBody::Text("  padded body  ".to_owned())),
+                body: Some(ErrorBody::Text(("  padded body  ".to_owned()).into())),
                 ..base("failed")
             },
             None,
@@ -247,21 +266,21 @@ fn error_cases() -> Vec<ErrorCase> {
         case(
             ProviderError {
                 status_code: Some(429.5),
-                body: Some(ErrorBody::Text("rate limited".to_owned())),
+                body: Some(ErrorBody::Text(("rate limited".to_owned()).into())),
                 ..base("failed")
             },
             Some("Provider"),
         ),
         case(
             ProviderError {
-                body: Some(ErrorBody::Text("   ".to_owned())),
+                body: Some(ErrorBody::Text(("   ".to_owned()).into())),
                 ..base("failed")
             },
             None,
         ),
         case(
             ProviderError {
-                body: Some(ErrorBody::Text("x".repeat(4050))),
+                body: Some(ErrorBody::Text(("x".repeat(4050)).into())),
                 ..base("failed")
             },
             None,
@@ -269,7 +288,7 @@ fn error_cases() -> Vec<ErrorCase> {
         case(
             ProviderError {
                 status_code: Some(0.0),
-                body: Some(ErrorBody::Text("zero status".to_owned())),
+                body: Some(ErrorBody::Text(("zero status".to_owned()).into())),
                 ..base("failed")
             },
             None,
@@ -279,7 +298,7 @@ fn error_cases() -> Vec<ErrorCase> {
     cases.push(case(
         ProviderError {
             status_code: Some(403.0),
-            body: Some(ErrorBody::Text("   trimmed body   ".to_owned())),
+            body: Some(ErrorBody::Text(("   trimmed body   ".to_owned()).into())),
             ..base("contains trimmed body")
         },
         None,
@@ -330,36 +349,39 @@ pub(crate) fn run_selection() {
     ] {
         cases.push(case(
             ProviderError {
-                body: Some(ErrorBody::Json(value.clone())),
-                error: Some(json!(["parsed"])),
-                response_body: Some(ErrorBody::Text("response".to_owned())),
+                body: Some(ErrorBody::Json(pi_js_compat::js_json::JsValue::from(value.clone()))),
+                error: Some(pi_js_compat::js_json::JsValue::from(json!(["parsed"]))),
+                response_body: Some(ErrorBody::Text(("response".to_owned()).into())),
                 ..base("failed")
             },
             Some(""),
         ));
         cases.push(case(
             ProviderError {
-                error: Some(value.clone()),
-                response_body: Some(ErrorBody::Text("response".to_owned())),
+                error: Some(pi_js_compat::js_json::JsValue::from(value.clone())),
+                response_body: Some(ErrorBody::Text(("response".to_owned()).into())),
                 ..base("failed")
             },
             Some("Provider"),
         ));
         cases.push(case(
             ProviderError {
-                response_body: Some(ErrorBody::Json(value)),
+                response_body: Some(ErrorBody::Json(pi_js_compat::js_json::JsValue::from(value))),
                 ..base("failed")
             },
             None,
         ));
     }
     for text in ["", " \t\r\n", "\u{feff}", " raw body "] {
-        for body in [ErrorBody::Text(text.to_owned()), ErrorBody::Json(json!(text))] {
+        for body in [
+            ErrorBody::Text((text.to_owned()).into()),
+            ErrorBody::Json(pi_js_compat::js_json::JsValue::from(json!(text))),
+        ] {
             cases.push(case(
                 ProviderError {
                     body: Some(body.clone()),
-                    error: Some(json!(["parsed"])),
-                    response_body: Some(ErrorBody::Text("response".to_owned())),
+                    error: Some(pi_js_compat::js_json::JsValue::from(json!(["parsed"]))),
+                    response_body: Some(ErrorBody::Text(("response".to_owned()).into())),
                     ..base("failed")
                 },
                 None,
@@ -385,7 +407,7 @@ pub(crate) fn run_selection() {
                 status,
                 metadata_http_status_code,
                 response_status_code,
-                body: Some(ErrorBody::Text("body".to_owned())),
+                body: Some(ErrorBody::Text(("body".to_owned()).into())),
                 ..base("failed")
             },
             Some(""),
@@ -411,8 +433,8 @@ pub(crate) fn run_format() {
                 for prefix in [None, Some(""), Some("Provider")] {
                     let normalized = NormalizedProviderError {
                         status,
-                        body: body.map(str::to_owned),
-                        message: "message".to_owned(),
+                        body: (body.map(str::to_owned)).map(pi_js_compat::js_json::JsString::from),
+                        message: ("message".to_owned()).into(),
                         message_carries_body: carries,
                     };
                     let encoded_status = match status {
@@ -465,7 +487,9 @@ pub(crate) fn run_utf16_boundary() {
         );
         assert_ne!(
             source_units,
-            truncate_error_text(text, *cap).encode_utf16().collect::<Vec<_>>(),
+            truncate_error_text(&pi_js_compat::js_json::JsString::from(text), *cap)
+                .encode_utf16()
+                .collect::<Vec<_>>(),
             "OPEN shared String boundary; this is not parity proof"
         );
     }
@@ -479,7 +503,7 @@ pub(crate) fn run_utf16_boundary() {
     expected.extend("... [truncated 2 chars]".encode_utf16());
     assert_eq!(source_units, expected);
     let native = normalize_provider_error(&ProviderErrorInput::Error(Box::new(ProviderError {
-        body: Some(ErrorBody::Text(text)),
+        body: Some(ErrorBody::Text((text).into())),
         ..base("failed")
     })));
     assert_ne!(

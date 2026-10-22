@@ -35,7 +35,7 @@ struct FakeAuthContext {
 impl AuthContext for FakeAuthContext {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
         let value = self.env.get(name).cloned();
-        Box::pin(async move { value })
+        (Box::pin(async move { value })).map(pi_js_compat::js_json::JsString::from)
     }
 
     fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
@@ -529,7 +529,7 @@ fn provider_dispatch_matches_ts_requests() {
         let options = SimpleStreamOptions {
             stream: StreamOptions {
                 request: ProviderRequestOptions {
-                    api_key: Some("test-key".to_owned()),
+                    api_key: Some(("test-key".to_owned()).into()),
                     fetch: Some(fetch.clone() as Arc<dyn Fetch>),
                     ..Default::default()
                 },

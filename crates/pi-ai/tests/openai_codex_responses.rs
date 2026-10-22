@@ -128,7 +128,7 @@ fn options(fetch: Arc<dyn Fetch>, transport: Transport) -> OpenAICodexResponsesO
     OpenAICodexResponsesOptions {
         stream: StreamOptions {
             request: ProviderRequestOptions {
-                api_key: Some(mock_token("acc_test")),
+                api_key: Some((mock_token("acc_test")).into()),
                 fetch: Some(fetch),
                 ..ProviderRequestOptions::default()
             },
@@ -229,7 +229,7 @@ async fn streams_sse_text_and_codex_headers() {
             pi_ai::types::AssistantContent::Text(text) => Some(&text.text),
             _ => None,
         }),
-        Some("Hello")
+        Some(&pi_js_compat::js_json::JsString::from("Hello"))
     );
 
     let requests = fetch.requests();
@@ -290,7 +290,7 @@ async fn extracts_account_id_from_unpadded_jwt_payload() {
     assert_ne!(token, padded, "fixture payload must need padding");
     let fetch = RecordingFetch::new(vec![sse_response(&text_sse("completed", None))]);
     let mut opts = options(fetch.clone(), Transport::Sse);
-    opts.stream.request.api_key = Some(token);
+    opts.stream.request.api_key = Some((token).into());
 
     let (_, result) = collect(stream(model(), context(), opts)).await;
 
@@ -466,7 +466,7 @@ async fn stream_simple_preserves_xhigh_and_clamps_minimal() {
     let simple = SimpleStreamOptions {
         stream: StreamOptions {
             request: ProviderRequestOptions {
-                api_key: Some(mock_token("acc_test")),
+                api_key: Some((mock_token("acc_test")).into()),
                 fetch: Some(fetch.clone()),
                 ..ProviderRequestOptions::default()
             },
@@ -488,7 +488,7 @@ async fn stream_simple_preserves_xhigh_and_clamps_minimal() {
     let simple = SimpleStreamOptions {
         stream: StreamOptions {
             request: ProviderRequestOptions {
-                api_key: Some(mock_token("acc_test")),
+                api_key: Some((mock_token("acc_test")).into()),
                 fetch: Some(fetch.clone()),
                 ..ProviderRequestOptions::default()
             },
@@ -736,7 +736,7 @@ use ws_server::{completed_event, start_ws_server};
 
 fn ws_model(base_url: &str) -> Model {
     let mut model = model();
-    model.base_url = base_url.to_owned();
+    model.base_url = (base_url.to_owned()).into();
     model
 }
 
@@ -749,7 +749,7 @@ fn ws_options(
     OpenAICodexResponsesOptions {
         stream: StreamOptions {
             request: ProviderRequestOptions {
-                api_key: Some(token.to_owned()),
+                api_key: Some((token.to_owned()).into()),
                 fetch: Some(fetch),
                 ..ProviderRequestOptions::default()
             },

@@ -186,7 +186,7 @@ async fn responses_one_byte_sse_preserves_deltas_and_done_records() {
         options.request.api_key = Some("fake-loopback-only".into());
         options.request.max_retries = Some(0.0);
         if api == "openai-codex-responses" {
-            options.request.api_key = Some(fake_codex_token());
+            options.request.api_key = Some((fake_codex_token()).into());
             options.transport = Some(pi_ai::types::Transport::Sse);
         }
         let oracle_model = serde_json::to_value(&model).unwrap();
@@ -404,7 +404,7 @@ async fn codex_websocket_events_keep_native_text_and_argument_units() {
         }
     });
     let mut options = pi_ai::request::StreamOptions::default();
-    options.request.api_key = Some(fake_codex_token());
+    options.request.api_key = Some((fake_codex_token()).into());
     options.request.max_retries = Some(0.0);
     options.transport = Some(pi_ai::types::Transport::Websocket);
     let mut stream = pi_ai::api::openai_codex_responses::stream(

@@ -47,7 +47,7 @@ fn context() -> Context {
         system_prompt: None,
         messages: vec![pi_ai::types::Message::User(pi_ai::types::UserMessage {
             role: Default::default(),
-            content: pi_ai::types::UserContent::Text("hello".to_owned()),
+            content: pi_ai::types::UserContent::Text(("hello".to_owned()).into()),
             input_source: None,
             provider_native: None,
             timestamp: 1,
@@ -138,8 +138,10 @@ async fn gemini_stream_simple_without_an_api_key_returns_an_error_stream() {
     .await;
     assert_eq!(message.stop_reason, pi_ai::types::StopReason::Error);
     assert_eq!(
-        message.error_message.as_deref(),
-        Some("No API key for provider: google")
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from(
+            "No API key for provider: google"
+        ))
     );
 }
 
@@ -153,8 +155,10 @@ async fn vertex_stream_simple_without_project_or_env_reports_the_typescript_mess
     .await;
     assert_eq!(message.stop_reason, pi_ai::types::StopReason::Error);
     assert_eq!(
-        message.error_message.as_deref(),
-        Some("Vertex AI requires a project ID. Set GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT or pass project in options.")
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from(
+            "Vertex AI requires a project ID. Set GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT or pass project in options."
+        ))
     );
 }
 
@@ -163,8 +167,10 @@ async fn lazy_api_wrappers_expose_the_provider_streams_contract() {
     let gemini = google_generative_ai_api();
     let message = collect(gemini.stream(gemini_model("gemini-2.5-flash"), context(), StreamOptions::default())).await;
     assert_eq!(
-        message.error_message.as_deref(),
-        Some("No API key for provider: google")
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from(
+            "No API key for provider: google"
+        ))
     );
 
     let vertex = google_vertex_api();
@@ -175,8 +181,10 @@ async fn lazy_api_wrappers_expose_the_provider_streams_contract() {
     ))
     .await;
     assert_eq!(
-        message.error_message.as_deref(),
-        Some("Vertex AI requires a project ID. Set GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT or pass project in options.")
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from(
+            "Vertex AI requires a project ID. Set GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT or pass project in options."
+        ))
     );
     assert!(!gemini.supports_fetch_deferred());
     assert!(!vertex.supports_cancel_deferred());
@@ -299,7 +307,7 @@ async fn vertex_transport_failures_are_not_retried() {
     let fetch = RecordingFetch::new(vec![ScriptedResponse::throw("TypeError", "fetch failed")]);
     let options = StreamOptions {
         request: ProviderRequestOptions {
-            api_key: Some("AIzaSyRealKey".to_owned()),
+            api_key: Some(("AIzaSyRealKey".to_owned()).into()),
             fetch: Some(fetch.clone()),
             max_retries: Some(2.0),
             ..Default::default()
@@ -313,7 +321,10 @@ async fn vertex_transport_failures_are_not_retried() {
     ))
     .await;
     assert_eq!(message.stop_reason, pi_ai::types::StopReason::Error);
-    assert_eq!(message.error_message.as_deref(), Some("fetch failed"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("fetch failed"))
+    );
     assert_eq!(fetch.requests().len(), 1);
 }
 
@@ -330,7 +341,7 @@ async fn aborted_vertex_streams_report_an_aborted_message() {
     );
     let options = StreamOptions {
         request: ProviderRequestOptions {
-            api_key: Some("AIzaSyRealKey".to_owned()),
+            api_key: Some(("AIzaSyRealKey".to_owned()).into()),
             fetch: Some(fetch),
             signal: Some(signal),
             ..Default::default()
@@ -344,5 +355,8 @@ async fn aborted_vertex_streams_report_an_aborted_message() {
     ))
     .await;
     assert_eq!(message.stop_reason, pi_ai::types::StopReason::Aborted);
-    assert_eq!(message.error_message.as_deref(), Some("This operation was aborted"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("This operation was aborted"))
+    );
 }

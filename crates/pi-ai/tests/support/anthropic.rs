@@ -76,7 +76,7 @@ pub fn stream_options(options: &Value, fetch: Arc<dyn Fetch>, signal: Option<Can
     StreamOptions {
         request: ProviderRequestOptions {
             signal,
-            api_key: options["apiKey"].as_str().map(str::to_owned),
+            api_key: (options["apiKey"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from),
             fetch: Some(fetch),
             env: env_from_json(options.get("env")),
             headers: headers_from_json(options.get("headers")),
@@ -89,7 +89,7 @@ pub fn stream_options(options: &Value, fetch: Arc<dyn Fetch>, signal: Option<Can
         max_tokens: options["maxTokens"].as_f64(),
         transport: parse::<Transport>(options.get("transport")),
         cache_retention: parse::<CacheRetention>(options.get("cacheRetention")),
-        session_id: options["sessionId"].as_str().map(str::to_owned),
+        session_id: (options["sessionId"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from),
         websocket_connect_timeout_ms: options["websocketConnectTimeoutMs"].as_f64(),
         metadata: options.get("metadata").and_then(Value::as_object).cloned(),
         extra,

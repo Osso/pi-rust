@@ -66,7 +66,8 @@ fn observed(request: &Value) -> Value {
     }
     let options = ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: option_values.get("apiKey").and_then(Value::as_str).map(str::to_owned),
+            api_key: (option_values.get("apiKey").and_then(Value::as_str).map(str::to_owned))
+                .map(pi_js_compat::js_json::JsString::from),
             headers: option_values.get("headers").and_then(headers_from_json),
             fetch: Some(fetch.clone()),
             signal: Some(signal),
