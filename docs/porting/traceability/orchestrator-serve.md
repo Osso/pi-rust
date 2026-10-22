@@ -11,3 +11,5 @@ Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
 
 ## Explicit proof gaps
 - Direct native embedding-process SIGINT/SIGTERM and Radius-enabled full serve startup/shutdown matrices remain unproven.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).

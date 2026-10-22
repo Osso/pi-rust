@@ -1,17 +1,34 @@
 # Lossless orchestrator integration
 
-Frozen source: `packages/orchestrator/src/**` at the [common pin](../source-lock.json).
+Frozen source: `packages/orchestrator/src/**` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/**`.
 
-| Boundary | Required behavior | Proof |
+## Native boundaries
+
+JS paths, ids, labels, timestamps, argv/env values, logs and errors use `JsString`; environment names remain Rust `String`. JSON records and IPC/RPC envelopes use `JsValue`/`JsObject`, `parse_lossless`, `stringify_lossless` and native serde adapters. Public errors retain native messages; internal Radius errors additionally retain HTTP status for retry classification.
+
+Shared authorities: `node_join` replaces the deleted local path joiner; `node_fs` supplies Node error messages; `header_value` performs the HTTP ByteString boundary before `pi_ai` Fetch dispatch. Native strings reach filesystem/socket/spawn or stdout/stderr only through `encode_node_utf8`. Original byte-ingress decoding stays at filesystem/pipe/socket boundaries, never projects an existing JS string to scalars.
+
+## Coverage
+
+| Module group | Exact behavior | Behavioral proof |
 |---|---|---|
-| `supervisor.ts:270-304`, `storage.ts:35-67`, `ipc/protocol.ts:129-140` | Native instance id, cwd and label retain every UTF-16 unit through spawn, persistence and IPC list; only the OS cwd boundary encodes unpaired units | `crates/pi-orchestrator/tests/lossless_ipc.rs`: regression added before implementation; baseline library fails to compile against native node_fs APIs, so behavioral execution is blocked until migration |
+| config/types/storage | Native fields and paths, config precedence, Node path normalization, unknown-record preservation, stable instance order, JSON file bytes | foundation, differential, errors; shared `node_join` |
+| ipc/protocol/client/server | Native request/response/error JSONL, number/key order, native parse errors, socket lifecycle, initial and stream frames | ipc, frame_whitespace, errors, verifier_regressions; approved coalesced-frame delta retained |
+| supervisor/handler | Native instance keys, cwd/label/session metadata, spawn/recovery/persistence/list/status/stop and stream dispatch | supervisor, lossless_ipc |
+| rpc_process | Native child request ids, responses/events/UI requests and error messages, correlation/disposal/EOF/UTF-8 boundary behavior | rpc_process, errors, frame_whitespace |
+| radius | Native credentials, machine/Pi records, HTTP body/errors, ByteString headers, registration/disconnect/retry state | radius, radius_body; fake Fetch only |
+| cli/serve | Native argv, cwd, output/log/error strings; JSONL forwarding and signal cleanup | cli, supervisor |
 
-Active scope: native JS string/JSON authorities throughout `pi-orchestrator` source and fixtures; no frozen-source edits or unrelated crate behavior changes. Verification: zero-error/warning `cargo check -p pi-orchestrator --all-targets`, then `cargo test -j4 -p pi-orchestrator`.
+## Lossless regression
 
-Foundation implementation: config paths use shared `node_join`; record fields and IPC envelopes use native `JsString`/`JsValue`; storage reads/writes lossless JSON, retaining unknown fields and UTF-16 parse-error messages. Full-crate verification pending consumer migration.
+`lossless_ipc::lone_surrogate_cwd_label_and_id_survive_spawn_persist_list_over_real_ipc` covers `supervisor.ts:270-304`, `storage.ts:35-67` and `ipc/protocol.ts:129-140`. It observes the native cwd at the injected spawn callback, launches a real Node fake child in the OS-encoded U+FFFD directory, then checks original unpaired cwd/label/id units in spawn response, persisted instances.json, and list response over real Unix IPC. Stop also resolves the unpaired instance id and removes persistence.
 
-Lifecycle/transport implementation: supervisor identity maps and callbacks retain native strings; IPC/RPC JSONL parses losslessly and encodes only at socket/stdio writes. Native paths reach OS APIs only through `encode_node_utf8`. Radius keeps credential/error/body strings native, using shared `header_value` for HTTP ByteString headers and lossless JSON HTTP bodies. Byte decoding stays at original filesystem/pipe/socket ingress boundaries, not on JS strings.
+Regression was committed before production migration. Its first invocation was blocked by 34 pre-existing library native-API compile errors; no behavioral RED execution is claimed. After migration it executes GREEN.
 
-`lossless_ipc` is GREEN: native unpaired cwd/label/id survive the injected spawn boundary, real Node fake child, stored instances.json, list and stop over actual Unix sockets. Development proof: `/tmp/pi-rust-repin-lossless-orchestrator/lossless-ipc-development-02.log`.
+## Signal-fixture synchronization
 
-Existing fixture migration: all integration targets now use native JSON/string expectations and explicit UTF-8 test-path construction; all original lifecycle, file-byte, CLI, malformed-input, stream and frozen-TS differential assertions remain. All-target compilation reached zero errors; compiler-proven unused imports removed. Full crate execution pending.
+The frozen `serve.ts:36` listening log precedes synchronous SIGTERM-handler registration at lines 59-61. Immediate signal delivery after reading stdout produced exit 143 in the existing test. The fixture now awaits a real IPC list round-trip before SIGTERM, proving setup returned to the event loop. Original exit-zero, socket-removal and log-equality assertions remain; no sleep/retry, frozen-source change or production workaround. The Rust half uses direct `shutdown()`, not a subprocess signal, so needs no symmetric signal-readiness barrier.
+
+## Proof boundary
+
+All existing fixture assertions are retained with native types; no ignored tests or compatibility shims. No live Radius/provider calls. Native OS ingress still follows existing UTF-8 decoding behavior. Detailed command/revision/result ledger and logs: `/tmp/pi-rust-repin-lossless-orchestrator/REPORT.md`.

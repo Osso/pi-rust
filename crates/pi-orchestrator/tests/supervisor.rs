@@ -295,6 +295,11 @@ async fn serve_startup_logs_and_signal_cleanup_match_frozen() {
             .unwrap();
         logs.push(line.trim_end().to_string());
     }
+    // Frozen serve.ts logs before installing signal handlers; IPC dispatch proves setup returned.
+    let ready = pi_orchestrator::ipc::client::send_ipc_request(&config.socket_path(), &json!({"type":"list"}))
+        .await
+        .expect("frozen serve must process IPC before receiving SIGTERM");
+    assert_eq!(ready["type"], json!("list_result"));
     let pid = rustix::process::Pid::from_raw(child.id().unwrap() as i32).unwrap();
     rustix::process::kill_process(pid, rustix::process::Signal::TERM).unwrap();
     let status = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())

@@ -19,3 +19,5 @@ Proof is bounded to the listed representable runtime/serialization cases; no exh
 `queued_command_survives_disconnect_like_frozen` now completes one in-flight side effect after socket close, matching frozen. `frame_whitespace.rs` proves 31 code points for both ordinary and established-stream framing vs Node trim+JSON.parse. Several already-queued commands across disconnect are not yet independently proved.
 
 Prior unconditional done claim withdrawn. Seven regression mutants (exit EOF, queue abort, four trim sites, successful-body read) were killed by behavioral failures, not compiler failures.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).

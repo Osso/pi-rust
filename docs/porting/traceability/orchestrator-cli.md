@@ -14,3 +14,5 @@ Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
 - The native CLI Serve branch is composed from tested runtime helpers, but lacks a direct embedding-process CLI serve/error exit-code differential.
 
 `rpc_stream_only_forwards_complete_jsonl_stdin_lines` additionally compares BOM-padded commands and whitespace-only frames (ECMAScript non-ASCII whitespace set) against the frozen CLI. Replacing JS trim with Rust trim is killed. Negative CLI Unicode frames are not separately proved.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).

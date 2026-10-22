@@ -12,3 +12,5 @@ Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
 
 ## Explicit proof gaps
 - Exhaustive metadata-refresh command/changed-identity matrix and Radius-failure cleanup paths remain unproven.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).

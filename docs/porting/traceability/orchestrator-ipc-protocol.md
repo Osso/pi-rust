@@ -10,3 +10,5 @@ Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
 | response interfaces/ResponseMap/ResponseFor; RpcClientMessage/RpcServerMessage/ProtocolMessage | native JSON response/event envelopes; shared coding-agent RpcCommand/RpcResponse/UI types reused, not copied; handler/stream fixtures exercise wire values |
 
 Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).

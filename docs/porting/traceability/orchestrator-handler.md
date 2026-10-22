@@ -11,3 +11,5 @@ Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
 
 ## Explicit proof gaps
 - Direct successful handleIpcRequest spawn and rpc_stream-ready dispatch branches lack dedicated frozen assertions.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).

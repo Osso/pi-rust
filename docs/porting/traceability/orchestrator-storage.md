@@ -10,3 +10,5 @@ Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
 | read/open/mkdir/rm/write failures | errors.rs compares nine real FS failure messages to frozen, including private EACCES fixtures and /dev/full ENOSPC |
 
 Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).

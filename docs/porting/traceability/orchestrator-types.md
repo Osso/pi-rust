@@ -9,3 +9,5 @@ Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
 | MachineRecord, InstanceRecord, RadiusRegistration | required/optional camelCase fields and omitted options: foundation; serialized records compared to TS storage fixtures |
 
 Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).

@@ -14,3 +14,5 @@ Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
 - Re-registration failure, coordinator disappearance and disconnect-404 branches lack complete frozen failure matrices.
 
 Successful maybePost disconnect ignores an unreadable 200 body, matching frozen (`radius_body.rs`); reverting status-only success is killed by this assertion. Registration/error bodies remain read. Heartbeat unreadable-body behavior shares the same implementation but has no new direct differential.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).

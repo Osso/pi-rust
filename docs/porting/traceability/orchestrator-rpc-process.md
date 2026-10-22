@@ -19,3 +19,5 @@ Proof is bounded to the listed representable runtime/serialization cases; no exh
 `child_exit_is_not_delayed_until_inherited_pipes_close` now notifies in 20ms vs frozen 19ms with a 900ms descendant holding both descriptors. `frame_whitespace.rs` proves 31 child-output padding cases vs Node trim+JSON.parse. Inherited-pipe pending rejection/disposal and callback mutation/reentrancy are not separately proved.
 
 Prior unconditional done claim withdrawn. Seven regression mutants (exit EOF, queue abort, four trim sites, successful-body read) were killed by behavioral failures, not compiler failures.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).
