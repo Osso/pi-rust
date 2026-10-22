@@ -22,7 +22,7 @@ pub fn build_base_options(
     model: &Model,
     context: &Context,
     options: Option<&SimpleStreamOptions>,
-    api_key: Option<&str>,
+    api_key: Option<&pi_js_compat::js_json::JsString>,
 ) -> StreamOptions {
     let stream = options.map(|options| &options.stream).cloned().unwrap_or_default();
     let sampling_params = merge_sampling_params(model, &stream);
@@ -31,7 +31,7 @@ pub fn build_base_options(
             signal: stream.request.signal.clone(),
             api_key: api_key
                 .filter(|key| !key.is_empty())
-                .map(str::to_owned)
+                .cloned()
                 .or_else(|| stream.request.api_key.clone().filter(|key| !key.is_empty())),
             fetch: stream.request.fetch.clone(),
             env: stream.request.env.clone(),

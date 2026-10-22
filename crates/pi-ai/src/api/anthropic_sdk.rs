@@ -7,6 +7,7 @@
 //! SDK-added header matches the pinned TypeScript SDK. Tests pin the
 //! host-derived values through `model.headers` for exact comparisons.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -27,14 +28,14 @@ const MESSAGES_PATH: &str = "/v1/messages";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Auth {
     None,
-    ApiKey(String),
-    Bearer(String),
+    ApiKey(JsString),
+    Bearer(JsString),
 }
 
 #[derive(Debug, Clone)]
 pub struct SdkRequest {
-    pub url: String,
-    pub headers: Vec<(String, String)>,
+    pub url: JsString,
+    pub headers: Vec<(String, JsString)>,
     pub body: String,
 }
 
@@ -62,7 +63,7 @@ pub fn build_request(
     match auth {
         Auth::None => {}
         Auth::ApiKey(api_key) => headers.set("X-Api-Key", &api_key),
-        Auth::Bearer(token) => headers.set("Authorization", &format!("Bearer {token}")),
+        Auth::Bearer(token) => headers.set("Authorization", js_format!("Bearer {}", token)),
     }
     for (name, value) in default_headers {
         match value {
@@ -82,16 +83,13 @@ pub fn build_request(
 
 /// Matches `new URL(base + path).href`: percent-encodes characters such as the
 /// `{PLACEHOLDER}` segments Cloudflare gateway base URLs carry.
-fn build_url(base_url: &str) -> String {
+fn build_url(base_url: &JsString) -> JsString {
     let joined = if base_url.ends_with('/') && MESSAGES_PATH.starts_with('/') {
-        format!("{base_url}{}", &MESSAGES_PATH[1..])
+        js_format!("{}{}", base_url, &MESSAGES_PATH[1..])
     } else {
-        format!("{base_url}{MESSAGES_PATH}")
+        js_format!("{}{}", base_url, MESSAGES_PATH)
     };
-    match reqwest::Url::parse(&joined) {
-        Ok(url) => url.to_string(),
-        Err(_) => joined,
-    }
+    joined
 }
 
 fn platform_os() -> String {
@@ -118,18 +116,18 @@ fn platform_arch() -> String {
 
 #[derive(Default)]
 struct HeaderSet {
-    entries: Vec<(String, String)>,
+    entries: Vec<(String, JsString)>,
 }
 
 impl HeaderSet {
-    fn set(&mut self, name: &str, value: &str) {
+    fn set(&mut self, name: &str, value: impl Into<JsString>) {
         self.remove(name);
-        self.entries.push((name.to_owned(), value.to_owned()));
+        self.entries.push((name.to_owned(), value.into()));
     }
 
     fn set_owned(&mut self, name: &str, value: String) {
         self.remove(name);
-        self.entries.push((name.to_owned(), value));
+        self.entries.push((name.to_owned(), value.into()));
     }
 
     fn remove(&mut self, name: &str) {
@@ -150,8 +148,13 @@ pub async fn execute(
     }
     let http_request = HttpRequest {
         method: "POST".to_owned(),
-        url: request.url.clone(),
-        headers: request.headers.clone(),
+        url: crate::request::request_url(&request.url).map_err(ProviderRequestError::Other)?,
+        headers: request
+            .headers
+            .iter()
+            .map(|(name, value)| crate::request::header_value(value).map(|value| (name.clone(), value)))
+            .collect::<Result<_, _>>()
+            .map_err(ProviderRequestError::Other)?,
         body: Some(request.body.clone().into_bytes()),
     };
     let response = match fetch.fetch(http_request, signal.clone()).await {

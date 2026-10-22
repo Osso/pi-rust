@@ -19,16 +19,16 @@ pub const OPENAI_JS_VERSION: &str = "6.40.0";
 /// Azure overrides: `api-key` auth, `api-version` query, deployment path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AzureClientConfig {
-    pub api_version: String,
+    pub api_version: JsString,
 }
 
 /// Client options passed to the SDK stand-in.
 #[derive(Clone)]
 pub struct SdkClientConfig {
-    pub api_key: String,
-    pub base_url: String,
+    pub api_key: JsString,
+    pub base_url: JsString,
     /// Merged model/options headers; `None` suppresses a default header.
-    pub default_headers: IndexMap<String, Option<String>>,
+    pub default_headers: IndexMap<String, Option<JsString>>,
     pub timeout_ms: Option<f64>,
     pub fetch: Option<Arc<dyn Fetch>>,
     pub azure: Option<AzureClientConfig>,
@@ -149,8 +149,8 @@ impl SdkClient {
             .map_err(|error| ProviderRequestError::Other(CallbackError::new(error.to_string())))?;
         let request = HttpRequest {
             method: "POST".to_owned(),
-            url: self.build_url(path),
-            headers: self.build_headers(),
+            url: self.build_url(path).map_err(ProviderRequestError::Other)?,
+            headers: self.build_headers().map_err(ProviderRequestError::Other)?,
             body: Some(body),
         };
         let fetch = self.config.fetch.clone().unwrap_or_else(crate::http::default_fetch);
@@ -176,30 +176,32 @@ impl SdkClient {
         Ok(response)
     }
 
-    fn build_url(&self, path: &str) -> String {
+    fn build_url(&self, path: &str) -> Result<String, CallbackError> {
         let joined = if self.config.base_url.ends_with('/') && path.starts_with('/') {
-            format!("{}{}", self.config.base_url, &path[1..])
+            pi_js_compat::js_format!("{}{}", self.config.base_url, &path[1..])
         } else {
-            format!("{}{}", self.config.base_url, path)
+            pi_js_compat::js_format!("{}{}", self.config.base_url, path)
         };
-        let Ok(mut url) = reqwest::Url::parse(&joined) else {
-            return joined;
-        };
+        let serialized = crate::request::request_url(&joined)?;
+        let mut url = reqwest::Url::parse(&serialized).expect("request_url already parsed URL");
         let mut query = url
             .query_pairs()
             .map(|(name, value)| (name.into_owned(), value.into_owned()))
             .collect::<Vec<_>>();
         if let Some(azure) = &self.config.azure {
-            query.push(("api-version".to_owned(), azure.api_version.clone()));
+            query.push((
+                "api-version".to_owned(),
+                pi_js_compat::js_json::encode_node_utf8(&azure.api_version),
+            ));
         }
         if !query.is_empty() {
             url.query_pairs_mut().clear().extend_pairs(query);
         }
-        url.to_string()
+        Ok(url.to_string())
     }
 
-    fn build_headers(&self) -> Vec<(String, String)> {
-        let mut headers: Vec<(String, String)> = Vec::new();
+    fn build_headers(&self) -> Result<Vec<(String, String)>, CallbackError> {
+        let mut headers: Vec<(String, JsString)> = Vec::new();
         set_header(&mut headers, "accept", "application/json");
         set_header(&mut headers, "user-agent", &format!("OpenAI/JS {OPENAI_JS_VERSION}"));
         set_header(&mut headers, "x-stainless-retry-count", "0");
@@ -222,7 +224,7 @@ impl SdkClient {
             set_header(
                 &mut headers,
                 "authorization",
-                &format!("Bearer {}", self.config.api_key),
+                pi_js_compat::js_format!("Bearer {}", self.config.api_key),
             );
         }
         for (name, value) in &self.config.default_headers {
@@ -233,22 +235,26 @@ impl SdkClient {
         }
         set_header(&mut headers, "content-type", "application/json");
         headers
+            .into_iter()
+            .map(|(name, value)| crate::request::header_value(&value).map(|value| (name, value)))
+            .collect()
     }
 }
 
-fn set_header(headers: &mut Vec<(String, String)>, name: &str, value: &str) {
+fn set_header(headers: &mut Vec<(String, JsString)>, name: &str, value: impl Into<JsString>) {
+    let value = value.into();
     let lower_name = name.to_lowercase();
     if let Some(existing) = headers
         .iter_mut()
         .find(|(existing, _)| existing.eq_ignore_ascii_case(&lower_name))
     {
-        existing.1 = value.to_owned();
+        existing.1 = value.clone();
         return;
     }
-    headers.push((lower_name, value.to_owned()));
+    headers.push((lower_name, value));
 }
 
-fn remove_header(headers: &mut Vec<(String, String)>, name: &str) {
+fn remove_header(headers: &mut Vec<(String, JsString)>, name: &str) {
     headers.retain(|(existing, _)| !existing.eq_ignore_ascii_case(name));
 }
 
@@ -661,4 +667,23 @@ pub fn json_object(entries: Vec<(&str, Value)>) -> Value {
         map.insert(key.to_owned(), value);
     }
     Value::Object(map)
+}
+
+#[cfg(test)]
+mod lossless_request_tests {
+    use super::*;
+    #[test]
+    fn sdk_rejects_raw_header_units_without_replacing_them() {
+        let client = SdkClient::new(SdkClientConfig {
+            api_key: JsString::from_utf16(vec![0xd800]),
+            base_url: "https://example.com/v1".into(),
+            default_headers: IndexMap::new(),
+            timeout_ms: None,
+            fetch: None,
+            azure: None,
+        });
+        let error = client.build_headers().unwrap_err();
+        assert_eq!(error.name, "TypeError");
+        assert!(error.message.contains("55296"));
+    }
 }
