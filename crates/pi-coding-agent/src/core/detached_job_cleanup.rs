@@ -365,13 +365,21 @@ fn detached_artifact_directory(
     if !is_path_segment(&session_name) {
         return Ok(None);
     }
-    let expected = resolve_path(&node_join(
-        node_join(node_join(artifact_root, "detached-jobs"), &session_name),
-        job_id,
-    ))?;
-    if directory_path != expected {
-        return Ok(None);
+    let session_root = node_dirname(session_path);
+    let mut owning_root = None;
+    for root in [artifact_root, &session_root] {
+        let expected = resolve_path(&node_join(
+            node_join(node_join(root, "detached-jobs"), &session_name),
+            job_id,
+        ))?;
+        if directory_path == expected {
+            owning_root = Some(root);
+            break;
+        }
     }
+    let Some(owning_root) = owning_root.filter(|root| !root.is_empty()) else {
+        return Ok(None);
+    };
     let metadata = match fs::symlink_metadata(encode_node_utf8(&directory_path)) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -383,7 +391,7 @@ fn detached_artifact_directory(
     let canonical_directory =
         fs::canonicalize(encode_node_utf8(&directory_path)).map_err(|error| JsString::from(error.to_string()))?;
     let canonical_root =
-        fs::canonicalize(encode_node_utf8(artifact_root)).map_err(|error| JsString::from(error.to_string()))?;
+        fs::canonicalize(encode_node_utf8(owning_root)).map_err(|error| JsString::from(error.to_string()))?;
     let canonical_directory = filesystem_path_text(&canonical_directory);
     let expected_canonical = node_join(
         node_join(
