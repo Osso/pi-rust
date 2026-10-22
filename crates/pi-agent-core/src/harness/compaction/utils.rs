@@ -1,4 +1,4 @@
-//! Port of `packages/agent/src/harness/compaction/utils.ts`.
+//! Port of `packages/agent-core/src/harness/compaction/utils.ts`.
 
 use indexmap::IndexSet;
 use pi_ai::types::{AssistantContent, Message, TextOrImageContent, UserContent};
@@ -41,7 +41,12 @@ pub fn extract_file_ops_from_message(message: &AgentMessage, file_ops: &mut File
         let AssistantContent::ToolCall(call) = block else {
             continue;
         };
-        let Some(path) = call.arguments.get("path").and_then(Value::as_string) else {
+        let Some(path) = call
+            .arguments
+            .get("path")
+            .and_then(Value::as_string)
+            .filter(|path| !path.is_empty())
+        else {
             continue;
         };
         match call.name.as_str() {
