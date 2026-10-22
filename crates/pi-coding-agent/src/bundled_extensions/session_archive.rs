@@ -103,16 +103,15 @@ async fn confirm_delete(ctx: &ExtensionCommandContext) -> Result<bool, HandlerEr
         .map_err(HandlerError::new)
 }
 
-async fn run_quit_action(action: QuitAction) -> Result<(), String> {
+async fn run_quit_action(action: QuitAction) -> Result<(), pi_js_compat::js_json::JsString> {
     match action {
         QuitAction::Archive(session) => archive_persisted_session(&session.db, &session.path)
             .map(|_| ())
-            .map_err(|error| format!("Failed to archive session: {error}")),
+            .map_err(|error| format!("Failed to archive session: {error}").into()),
         QuitAction::Delete(session) => match delete_session_tree(&session.path, Some(&session.db)).await {
             crate::core::session_delete::SessionDeleteResult::Success { .. } => Ok(()),
             crate::core::session_delete::SessionDeleteResult::Failure { error, .. } => {
-                // Final stderr is a Node UTF-8 output boundary; public deletion values remain UTF-16.
-                Err(format!("Failed to delete session: {}", error.to_utf8_lossy()))
+                Err(pi_js_compat::js_json::JsString::from("Failed to delete session: ") + error)
             }
         },
     }
@@ -131,7 +130,7 @@ fn register_quit_handler(pi: &ExtensionApi, pending: PendingQuitAction) -> Resul
                 return Ok(None);
             };
             if let Err(error) = run_quit_action(action).await {
-                eprintln!("{error}");
+                eprintln!("{}", pi_js_compat::js_json::encode_node_utf8(&error));
             }
             Ok(None)
         }) as crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>>

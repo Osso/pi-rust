@@ -754,7 +754,7 @@ fn inject_goal_context(
     };
     Ok(Some(BeforeAgentStartEventResult {
         message: None,
-        system_prompt: Some(JsString::from(event.system_prompt) + "\n\n" + goal_system_block(&goal)),
+        system_prompt: Some(event.system_prompt.clone() + "\n\n" + goal_system_block(&goal)),
     }))
 }
 

@@ -458,7 +458,10 @@ pub fn build_openai_request_headers(
     if let Some(api_key) = api_key
         && model.api == "openai-codex-responses"
     {
-        request_headers.push(("chatgpt-account-id".to_owned(), extract_codex_account_id(api_key)?));
+        request_headers.push((
+            "chatgpt-account-id".to_owned(),
+            js_json::encode_node_utf8(&extract_codex_account_id(api_key)?),
+        ));
         request_headers.push(("originator".into(), "pi".to_owned()));
         request_headers.push(("OpenAI-Beta".to_owned(), "responses=experimental".to_owned()));
     }
@@ -476,7 +479,7 @@ fn resolve_codex_responses_endpoint(base_url: &str) -> String {
     }
 }
 
-fn extract_codex_account_id(token: &str) -> Result<String, HandlerError> {
+fn extract_codex_account_id(token: &str) -> Result<JsString, HandlerError> {
     let failure = || HandlerError::new("Failed to extract accountId from Codex token");
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
@@ -484,13 +487,13 @@ fn extract_codex_account_id(token: &str) -> Result<String, HandlerError> {
     }
     let payload_bytes = buffer_from_base64(parts[1]);
     let payload = String::from_utf8_lossy(&payload_bytes);
-    let payload: Value = serde_json::from_str(&payload).map_err(|_| failure())?;
+    let payload = js_json::parse_lossless(payload.into_owned()).map_err(|_| failure())?;
     let auth = payload.get("https://api.openai.com/auth");
     let account_id = auth
         .and_then(|auth| auth.get("chatgpt_account_id"))
         .and_then(Value::as_string);
     match account_id {
-        Some(account_id) if !account_id.is_empty() => Ok(js_json::encode_node_utf8(account_id)),
+        Some(account_id) if !account_id.is_empty() => Ok(account_id.clone()),
         _ => Err(failure()),
     }
 }
@@ -731,7 +734,7 @@ fn convert_tool_result_message(model: &Model, tool_call_id: &str, content: &[Tex
     }
     if !model.input.contains(&Modality::Image) {
         let output = if text.is_empty() {
-            "(see attached image)".to_owned()
+            JsString::from("(see attached image)")
         } else {
             text
         };
