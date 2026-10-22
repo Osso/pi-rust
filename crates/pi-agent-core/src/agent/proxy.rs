@@ -4,7 +4,6 @@
 //! [`Fetch`] implementation (defaulting to the shared reqwest client), which
 //! keeps the proxy stream testable without stubbing globals.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use pi_ai::http::default_fetch;
@@ -192,7 +191,7 @@ pub fn stream_proxy(model: Model, context: Context, options: ProxyStreamOptions)
 struct PartialState {
     message: AssistantMessage,
     content: Vec<Option<AssistantContent>>,
-    partial_json: HashMap<usize, JsString>,
+    decoder_at_start: bool,
 }
 
 impl PartialState {
@@ -205,7 +204,7 @@ impl PartialState {
                 pi_ai::request::now_millis() as f64,
             ),
             content: Vec::new(),
-            partial_json: HashMap::new(),
+            decoder_at_start: true,
         }
     }
 
@@ -334,16 +333,21 @@ fn drain_lines(
 ) -> Result<(), JsString> {
     while let Some(line_feed) = buffer.iter().position(|byte| *byte == b'\n') {
         let line: Vec<u8> = buffer.drain(..=line_feed).collect();
-        let line = String::from_utf8_lossy(&line);
+        let line = if std::mem::take(&mut state.decoder_at_start) {
+            line.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&line)
+        } else {
+            &line
+        };
+        let line = String::from_utf8_lossy(line);
         let Some(data) = line.strip_prefix("data: ") else {
             continue;
         };
-        let data = data.trim();
+        let data = pi_js_compat::string::js_trim(data);
         if data.is_empty() {
             continue;
         }
-        let proxy_event: ProxyAssistantMessageEvent =
-            serde_json::from_str(data).map_err(|error| JsString::from(error.to_string()))?;
+        let value = pi_js_compat::js_json::parse_lossless(data).map_err(|error| error.message().clone())?;
+        let proxy_event = decode_proxy_event(&value).map_err(|error| JsString::from(error.to_string()))?;
         if let Some(event) = process_proxy_event(proxy_event, state)? {
             sender.push(event);
         }
@@ -519,16 +523,13 @@ fn process_toolcall_start(
     id: String,
     tool_name: String,
 ) -> Result<AssistantMessageEvent, String> {
+    let mut call = ToolCall::new(id, tool_name, JsObject::new());
+    call.partial_json = Some(JsString::default());
     set_slot(
         &mut state.content,
         content_index,
-        Some(AssistantContent::ToolCall(ToolCall::new(
-            id,
-            tool_name,
-            JsObject::new(),
-        ))),
+        Some(AssistantContent::ToolCall(call)),
     )?;
-    state.partial_json.insert(content_index, JsString::default());
     state.sync();
     Ok(AssistantMessageEvent::ToolCallStart {
         content_index,
@@ -541,10 +542,12 @@ fn process_toolcall_delta(
     content_index: usize,
     delta: JsString,
 ) -> Result<AssistantMessageEvent, String> {
-    let partial_json = state.partial_json.entry(content_index).or_default();
+    let call = tool_call_mut(&mut state.content, content_index, "toolcall_delta")?;
+    // Frozen += coerces the deleted property to the literal string "undefined".
+    let mut partial_json = call.partial_json.take().unwrap_or_else(|| "undefined".into());
     partial_json.push_str(delta.clone());
-    let arguments = streaming_arguments(partial_json);
-    tool_call_mut(&mut state.content, content_index, "toolcall_delta")?.arguments = arguments;
+    call.arguments = streaming_arguments(&partial_json);
+    call.partial_json = Some(partial_json);
     state.sync();
     Ok(AssistantMessageEvent::ToolCallDelta {
         content_index,
@@ -557,11 +560,11 @@ fn process_toolcall_end(
     state: &mut PartialState,
     content_index: usize,
 ) -> Result<Option<AssistantMessageEvent>, String> {
-    let Some(Some(AssistantContent::ToolCall(tool_call))) = state.content.get(content_index) else {
+    let Some(Some(AssistantContent::ToolCall(tool_call))) = state.content.get_mut(content_index) else {
         return Ok(None);
     };
+    tool_call.partial_json = None;
     let tool_call = tool_call.clone();
-    state.partial_json.remove(&content_index);
     state.sync();
     Ok(Some(AssistantMessageEvent::ToolCallEnd {
         content_index,
