@@ -119,7 +119,7 @@ impl AgentHarnessTool<ExtensionContext> for AskSupervisorTool {
             let project_id =
                 resolve_supervisor_project_for_cwd(&cwd, &DEFAULT_SUPERVISOR_KB_DIR.into()).map_err(ToolError::new)?;
             let response = request_supervisor_decision(&RequestSupervisorDecisionInput {
-                control_db_path: control_db_path.to_owned(),
+                control_db_path: control_db_path.clone(),
                 kind: SupervisorRequestKind::SupervisorAdvisory,
                 payload: advisory_payload(&params.question, params.context.as_ref()),
                 project_id: project_id.clone(),
@@ -164,7 +164,7 @@ fn assert_main_session(context: &ExtensionContext, tool_name: &str) -> Result<()
     Ok(())
 }
 
-fn require_control_db_path(context: &ExtensionContext, tool_name: &str) -> Result<String, ToolError> {
+fn require_control_db_path(context: &ExtensionContext, tool_name: &str) -> Result<JsString, ToolError> {
     context
         .control_db_path()
         .map_err(|error| ToolError::new(error.message))?

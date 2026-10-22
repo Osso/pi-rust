@@ -2445,7 +2445,7 @@ impl AgentSession {
         }
         let _ = deliver_terminal_outbox_projections(&DeliverTerminalOutboxOptions {
             artifact_root: Some(self.inner.agent_dir.clone()),
-            claim_id: self.inner.terminal_outbox_claim_id.clone(),
+            claim_id: self.inner.terminal_outbox_claim_id.clone().into(),
             control_db_path,
             now: Arc::new(crate::utils::iso_time::now_iso_string),
             store: Arc::clone(store),

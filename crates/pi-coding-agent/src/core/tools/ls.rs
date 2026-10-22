@@ -66,11 +66,12 @@ impl LsOperations for LocalLsOperations {
 
     fn is_directory<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async move {
-            let absolute_path = encode_node_utf8(absolute_path);
-            tokio::fs::metadata(&absolute_path)
+            tokio::fs::metadata(&encode_node_utf8(absolute_path))
                 .await
                 .map(|metadata| metadata.is_dir())
-                .map_err(|error| io::Error::other(super::node_fs::node_fs_error(&error, "stat", &absolute_path)))
+                .map_err(|error| {
+                    super::node_fs::operation_error(super::node_fs::node_fs_error(&error, "stat", &absolute_path))
+                })
         })
     }
 

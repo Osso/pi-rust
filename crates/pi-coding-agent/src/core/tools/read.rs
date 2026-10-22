@@ -87,10 +87,9 @@ pub struct LocalReadOperations;
 impl ReadOperations for LocalReadOperations {
     fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async move {
-            let absolute_path = encode_node_utf8(absolute_path);
-            tokio::fs::read(&absolute_path)
+            tokio::fs::read(&encode_node_utf8(absolute_path))
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "open", &absolute_path)))
+                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "open", &absolute_path)))
         })
     }
 
@@ -105,21 +104,20 @@ impl ReadOperations for LocalReadOperations {
         end: u64,
     ) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async move {
-            let absolute_path = encode_node_utf8(absolute_path);
             let length = end.saturating_sub(start);
-            let mut file = tokio::fs::File::open(&absolute_path)
+            let mut file = tokio::fs::File::open(&encode_node_utf8(absolute_path))
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "read", &absolute_path)))?;
+                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "read", &absolute_path)))?;
             file.seek(io::SeekFrom::Start(start))
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "read", &absolute_path)))?;
+                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "read", &absolute_path)))?;
             let mut buffer = vec![0; length as usize];
             let mut bytes_read = 0;
             while bytes_read < buffer.len() {
                 let read = file
                     .read(&mut buffer[bytes_read..])
                     .await
-                    .map_err(|error| io::Error::other(node_fs_error(&error, "read", &absolute_path)))?;
+                    .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "read", &absolute_path)))?;
                 if read == 0 {
                     break;
                 }
@@ -132,30 +130,27 @@ impl ReadOperations for LocalReadOperations {
 
     fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<u64>>> {
         Box::pin(async move {
-            let absolute_path = encode_node_utf8(absolute_path);
-            tokio::fs::metadata(&absolute_path)
+            tokio::fs::metadata(&encode_node_utf8(absolute_path))
                 .await
                 .map(|metadata| Some(metadata.len()))
-                .map_err(|error| io::Error::other(node_fs_error(&error, "stat", &absolute_path)))
+                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "stat", &absolute_path)))
         })
     }
 
     fn access<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
-            let absolute_path = encode_node_utf8(absolute_path);
-            tokio::fs::metadata(&absolute_path)
+            tokio::fs::metadata(&encode_node_utf8(absolute_path))
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "access", &absolute_path)))?;
+                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "access", &absolute_path)))?;
             Ok(())
         })
     }
 
     fn detect_image_mime_type<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<String>>> {
         Box::pin(async move {
-            let absolute_path = encode_node_utf8(absolute_path);
-            detect_supported_image_mime_type_from_file(std::path::Path::new(&absolute_path))
+            detect_supported_image_mime_type_from_file(std::path::Path::new(&encode_node_utf8(absolute_path)))
                 .map(|mime_type| mime_type.map(|value| value.to_owned()))
-                .map_err(|error| io::Error::other(node_fs_error(&error, "open", &absolute_path)))
+                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "open", &absolute_path)))
         })
     }
 }
