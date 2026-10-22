@@ -1,8 +1,60 @@
 //! Frozen agent-harness.ts request-option copy and patch semantics.
 
+use super::types::{AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, OptionalPatch};
+use indexmap::IndexMap;
+use pi_js_compat::js_json::JsString;
+
+impl AgentHarnessStreamOptions {
+    /// Copy request options and apply only fields explicitly supplied by the hook.
+    pub fn patched(&self, patch: Option<&AgentHarnessStreamOptionsPatch>) -> Self {
+        let Some(patch) = patch else {
+            return self.clone();
+        };
+        Self {
+            transport: patch_scalar(&self.transport, &patch.transport),
+            timeout_ms: patch_scalar(&self.timeout_ms, &patch.timeout_ms),
+            max_retries: patch_scalar(&self.max_retries, &patch.max_retries),
+            max_retry_delay_ms: patch_scalar(&self.max_retry_delay_ms, &patch.max_retry_delay_ms),
+            cache_retention: patch_scalar(&self.cache_retention, &patch.cache_retention),
+            headers: patch_map(&self.headers, &patch.headers),
+            metadata: patch_map(&self.metadata, &patch.metadata),
+        }
+    }
+}
+
+fn patch_scalar<T: Clone>(base: &Option<T>, patch: &OptionalPatch<T>) -> Option<T> {
+    match patch {
+        OptionalPatch::Unchanged => base.clone(),
+        OptionalPatch::Clear => None,
+        OptionalPatch::Set(value) => Some(value.clone()),
+    }
+}
+
+fn patch_map<T: Clone>(
+    base: &Option<IndexMap<JsString, T>>,
+    patch: &OptionalPatch<IndexMap<JsString, Option<T>>>,
+) -> Option<IndexMap<JsString, T>> {
+    let entries = match patch {
+        OptionalPatch::Unchanged => return base.clone(),
+        OptionalPatch::Clear => return None,
+        OptionalPatch::Set(entries) => entries,
+    };
+    let mut result = base.clone().unwrap_or_default();
+    for (key, value) in entries {
+        match value {
+            Some(value) => {
+                result.insert(key.clone(), value.clone());
+            }
+            None => {
+                result.shift_remove(key);
+            }
+        }
+    }
+    (!result.is_empty()).then_some(result)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::apply_stream_options_patch;
     use crate::harness::types::{AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, OptionalPatch};
     use indexmap::IndexMap;
     use pi_ai::types::{CacheRetention, Transport};
@@ -25,7 +77,7 @@ mod tests {
             cache_retention: OptionalPatch::Clear,
             ..Default::default()
         };
-        let result = apply_stream_options_patch(&base, Some(&patch));
+        let result = base.patched(Some(&patch));
         assert_eq!(result.transport, None);
         assert_eq!(result.timeout_ms, Some(-1.5));
         assert_eq!(result.max_retries, Some(3.0));
@@ -59,7 +111,7 @@ mod tests {
             ])),
             ..Default::default()
         };
-        let result = apply_stream_options_patch(&base, Some(&patch));
+        let result = base.patched(Some(&patch));
         let headers = result.headers.unwrap();
         assert_eq!(
             headers.keys().cloned().collect::<Vec<_>>(),
@@ -81,7 +133,7 @@ mod tests {
             metadata: Some(IndexMap::new()),
             ..Default::default()
         };
-        let cloned = apply_stream_options_patch(&base, None);
+        let cloned = base.patched(None);
         assert_eq!(cloned.headers, Some(IndexMap::new()));
         assert_eq!(cloned.metadata, Some(IndexMap::new()));
         let patch = AgentHarnessStreamOptionsPatch {
@@ -89,7 +141,7 @@ mod tests {
             metadata: OptionalPatch::Set(IndexMap::new()),
             ..Default::default()
         };
-        let patched = apply_stream_options_patch(&base, Some(&patch));
+        let patched = base.patched(Some(&patch));
         assert_eq!(patched.headers, None);
         assert_eq!(patched.metadata, None);
     }

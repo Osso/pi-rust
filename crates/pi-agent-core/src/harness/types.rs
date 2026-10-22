@@ -6,10 +6,8 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 
 use pi_ai::request::BoxFuture;
-use pi_ai::request::OnRetry;
 use pi_ai::types::{CacheRetention, Transport};
-use pi_js_compat::js_json::JsString;
-use serde_json::{Map, Value};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use tokio_util::sync::CancellationToken;
 
 /// Skill loaded from a `SKILL.md` file or provided by an application.
@@ -38,17 +36,15 @@ pub struct AgentHarnessResources {
 }
 
 /// Curated provider request options owned by the harness and snapshotted per turn.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct AgentHarnessStreamOptions {
     pub transport: Option<Transport>,
     pub timeout_ms: Option<f64>,
-    pub websocket_connect_timeout_ms: Option<f64>,
     pub max_retries: Option<f64>,
     pub max_retry_delay_ms: Option<f64>,
-    pub headers: Option<IndexMap<String, String>>,
-    pub metadata: Option<Map<String, Value>>,
+    pub headers: Option<IndexMap<JsString, JsString>>,
+    pub metadata: Option<JsObject>,
     pub cache_retention: Option<CacheRetention>,
-    pub on_retry: Option<OnRetry>,
 }
 
 /// Per-request option patch: `Unchanged` keeps the current value, `Clear` removes it entirely.
@@ -63,17 +59,15 @@ pub enum OptionalPatch<T> {
 /// Per-request stream option patch returned by provider hooks.
 ///
 /// Header and metadata patches delete keys mapped to `None`; `Clear` removes all entries.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct AgentHarnessStreamOptionsPatch {
-    pub transport: Option<Transport>,
-    pub timeout_ms: Option<f64>,
-    pub websocket_connect_timeout_ms: Option<f64>,
-    pub max_retries: Option<f64>,
-    pub max_retry_delay_ms: Option<f64>,
-    pub headers: OptionalPatch<IndexMap<String, Option<String>>>,
-    pub metadata: OptionalPatch<IndexMap<String, Option<Value>>>,
-    pub cache_retention: Option<CacheRetention>,
-    pub on_retry: Option<OnRetry>,
+    pub transport: OptionalPatch<Transport>,
+    pub timeout_ms: OptionalPatch<f64>,
+    pub max_retries: OptionalPatch<f64>,
+    pub max_retry_delay_ms: OptionalPatch<f64>,
+    pub headers: OptionalPatch<IndexMap<JsString, Option<JsString>>>,
+    pub metadata: OptionalPatch<IndexMap<JsString, Option<JsValue>>>,
+    pub cache_retention: OptionalPatch<CacheRetention>,
 }
 
 /// Controls how tool calls from one assistant message are executed.
