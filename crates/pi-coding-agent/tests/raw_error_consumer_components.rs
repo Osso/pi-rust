@@ -144,3 +144,33 @@ fn permission_selectors_ignore_raw_input_and_keep_scope_selection() {
     );
     assert!(JsString::join(sandbox.render(80), "\n").contains("Inherit global/project"));
 }
+
+#[test]
+fn compaction_expanded_summary_keeps_raw_units() {
+    use pi_coding_agent::{
+        core::messages::{CompactionSummaryMessage, CompactionSummaryRole},
+        modes::interactive::components::compaction_summary_message::CompactionSummaryMessageComponent,
+    };
+    init_theme();
+    let raw = JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]);
+    let mut message = CompactionSummaryMessageComponent::new(
+        CompactionSummaryMessage {
+            role: CompactionSummaryRole::CompactionSummary,
+            summary: raw.clone(),
+            tokens_before: 1234.0,
+            tokens_after: Some(500.0),
+            kept_from_previous_context_tokens: None,
+            compacted_result_tokens: None,
+            duration_ms: Some(1500.0),
+            provider_native: None,
+            timestamp: 0.0,
+        },
+        None,
+    );
+    message.set_expanded(true);
+    assert!(JsString::join(message.render(80), "\n").contains(&raw));
+    message.invalidate();
+    assert!(JsString::join(message.render(80), "\n").contains(&raw));
+    message.set_expanded(false);
+    assert!(!JsString::join(message.render(80), "\n").contains(&raw));
+}
