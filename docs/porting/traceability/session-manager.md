@@ -154,3 +154,29 @@ source discrepancy is awaiting user classification, not new-pin parity evidence.
 Raw imported common-role messages remain complete objects in the context projection;
 this proof does not establish downstream agent/provider interpretation of those raw
 objects. Main integration owns that consumer gate. Native path integration remains open.
+
+### Q18 native identity/path integration and provider payloads
+
+SessionManager's session identity, leaf/index/tree identities, paths and cwd are now
+`JsString`; pure path operations use the native Node-compatible path helpers. Encoding
+is limited to explicit filesystem/SQLite binding arguments. `SessionHeader.fields` and
+imported entry objects remain single authorities through fork/rechain/write.
+
+`lossless_session_manager_io` exercises TS-created raw paths and records → Rust load,
+lookup, tree, context, fork and append → TS reads, plus archived `.jsonl.zst` reads via
+the real internal spool worker. Its non-compaction/empty-summary mutation case reproduced
+the wrong validation order; the Rust mutation now follows the pinned source ordering.
+
+The compaction record's `provider_native` is raw `Option<Box<JsValue>>`. Context projection
+passes the object unchanged, retaining raw provider/api tags, null duration and invalid
+date serialization as null. A TS-created raw provider payload reproduced silent context
+loss before this correction. Typed `ProviderNativeContext` derivation explicitly returns
+an error for opaque surrogate-containing tags under the approved scalar-metadata gap;
+actual provider-consumer error propagation remains main-owned integration proof.
+
+User approved the collision-set fix on 2026-10-21: TS delta commit
+`6573c7139c4b1ab2215f4fb2defd717072e37cbc`; frozen source remains unchanged. Rust retains
+collision tracking and adds a deterministic whole-migration collision/payload regression.
+Earlier "awaiting classification" notes above are historical, superseded by this approval.
+Full Q18/module coverage is not claimed. Exact-module harness excludes metadata/default
+live configuration and resident listing via panic-on-use stubs; no control-DB proof.
