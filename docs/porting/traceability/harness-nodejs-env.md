@@ -1,5 +1,13 @@
 # Node execution environment traceability
 
+## Common-pin readTextLines re-port (2026-10-22)
+
+Frozen `agent-core/src/harness/env/nodejs.ts:405–434` now maps to native `env/nodejs/read_lines.rs`, not whole-file read plus truncation. `ReadTextLinesOptions.max_lines` is f64: <=0 returns before I/O, positive fractions stop at the first integer line count >= limit, NaN/Infinity read to EOF. The shared option type and JSONL header reader caller use that same authority.
+
+RED `node-lines-number-red.log` exposed the usize boundary; numeric GREEN `node-lines-number-green.log` covers 45 limit/line-ending combinations plus a missing-file negative-limit case. Two real FIFO differentials failed at the production lifetime boundary (`node-lines-{fifo,abort}-red.log`): a line limit and abort both incorrectly waited for writer EOF. Native buffered readline now stops/closes early and cancellation interrupts pending I/O with Node's exact error message. GREEN `node-lines-streaming-green.log`: three grouped tests. Tests release held FIFO writers and await native reads even on a failed assertion; no orphan work is left behind.
+
+Whole NodeExecutionEnv comparison is still in progress. Old-only renameFile/inheritEnv and cleanup-kills-children behavior below are **not common-pin contracts** and are scheduled for removal; frozen cleanup is a no-op and several concrete methods ignore interface abort arguments. Do not treat the legacy table as current parity evidence.
+
 ## Common-pin repository ordering regression
 
 Against `4f9e6f8a4` `agent-core/src/harness/env/nodejs.ts:486–504`, `differential_tree_repository` reproduces equal-timestamp JSONL listing order. RED: Rust returned raw directory enumeration order, unlike Node/libuv's native-name sorted `readdir`; `tree-repository-red2.log`. Fix: sort native directory entries before decoding/lstat, not repository metadata after enumeration. GREEN: whole memory/JSONL repository matrix and 23 `harness_env` tests (`tree-repository-green.log`). This is bounded current-pin evidence, not an upgrade of every old row below.

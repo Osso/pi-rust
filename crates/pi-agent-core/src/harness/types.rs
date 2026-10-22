@@ -438,7 +438,7 @@ impl<'a> FileContent<'a> {
 /// Options for [`FileSystem::read_text_lines`].
 #[derive(Debug, Clone, Default)]
 pub struct ReadTextLinesOptions {
-    pub max_lines: Option<usize>,
+    pub max_lines: Option<f64>,
     pub abort: Option<CancellationToken>,
 }
 
