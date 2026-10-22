@@ -10,7 +10,7 @@ Actual in-crate baseline `agents_core_drift` at `27410344`: five intended behavi
 | Completion-time UI lookup | Resolve current UI after dispatch settles; errors reach the existing process uncaught handler | GREEN at `d03f49d3`, `agents-core-ui-fidelity-green.log`; actual frozen runner observer evidence asserted |
 | Post-construction session lookup | Fallible lookup occurs after construction and before admission; no error-to-path fallback | GREEN at `4636282b`, `agents-core-drift-incrate-green.log` |
 | Accessed profile model / unrelated fields | Raw profile getter; model registry read precedes source-equivalent model-type error; consumers project accessed fields only | Both GREEN at `4636282b`, `agents-core-drift-incrate-green.log` |
-| Tracked-agent DB read | Native error wake from notification and terminal-settlement reads | Actual `cargo test -j4 -p pi-coding-agent --lib tracked_read_failure_tests::tracked_agent_read_failure_wakes_with_error_instead_of_disappearing` RED at `5456b9f1` (`wait-read-incrate-red.log`); correction committed separately, GREEN pending |
+| Tracked-agent DB read | Native error wake from notification and terminal-settlement reads | Actual `cargo test -j4 -p pi-coding-agent --lib tracked_read_failure_tests::tracked_agent_read_failure_wakes_with_error_instead_of_disappearing` RED at `5456b9f1` (`wait-read-incrate-red.log`); correction at `4cffa3fe` passes the same Cargo regression (GREEN1, `wait-read-incrate-green.log`), covering notified and terminal-settlement paths |
 
 ### Stale-context fixture fidelity
 

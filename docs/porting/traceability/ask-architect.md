@@ -2,7 +2,7 @@
 
 ## Q18 native input/details
 
-Common-pin checkpoint: message/project-path/sender ID fields retain `JsString`; lexical path validation is native, canonicalization encodes only at filesystem entry and decodes its OS result. Result details use the native serializer. `lossless_architect_input` records raw ingress/details units, unexecuted while the coding library is blocked; earlier scalar differential evidence below is not renewed acceptance.
+Common-pin checkpoint: message/project-path/sender ID fields retain `JsString`; lexical path validation is native, canonicalization encodes only at filesystem entry and decodes its OS result. Result details use the native serializer. `lossless_architect_input` records raw ingress/details units; actual Cargo GREEN1 at `37e55e61` (`native-control-boundaries-test.log`). Earlier scalar differential evidence below is not renewed acceptance.
 
 Pinned source: `packages/coding-agent/src/core/tools/ask-architect.ts` at `532f7d12`.
 
