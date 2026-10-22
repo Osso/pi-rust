@@ -1,6 +1,12 @@
 # coding-agent bash tool traceability
 
-Pinned source: `packages/coding-agent/src/core/tools/bash.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+## Common-pin metadata correction
+
+Frozen `4f9e6f8a4` `packages/coding-agent/src/core/tools/bash.ts:612–617` returns name/label/description/promptSnippet/parameters without `promptGuidelines`. Native `src/core/tools/bash.rs:69,1526–1532` retained the old PI-environment guidance and assigned it conditionally. Actual Cargo `differential_tools_index` RED at `61f810a6` (`fixture-tool-support-test.log`) reports that exact array versus frozen null. Removed the old text and assignment; environment-exposure execution behavior is unchanged. GREEN pending.
+
+## Historical mapping
+
+Source below: `packages/coding-agent/src/core/tools/bash.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`; these line mappings are not renewed common-pin parity evidence.
 
 Rust: `pi_coding_agent::core::tools::bash`.
 

@@ -66,7 +66,7 @@ const DESCRIPTION_PREFIX: &str =
 pub const BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribution =
     super::ToolSystemPromptContribution {
         snippet: "Execute bash commands (ls, grep, find, etc.)",
-        guidelines: &["You can inspect PI_* environment variables for current model and session details."],
+        guidelines: &[],
     };
 
 /// `BashToolDetachRegistry`: the shared detach registry for bash tool calls.
@@ -1519,17 +1519,9 @@ pub fn render_result(
 
 /// `createBashToolDefinition`: the bash tool plus its renderers.
 pub fn create_bash_tool_definition(cwd: impl Into<JsString>, options: BashToolOptions) -> ToolDefinition {
-    let expose_session_environment = options.expose_session_environment.unwrap_or(true);
     let tool: Arc<dyn AgentTool> = Arc::new(BashTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.prompt_snippet = Some(BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
-    definition.prompt_guidelines = expose_session_environment.then(|| {
-        BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION
-            .guidelines
-            .iter()
-            .map(|line| (*line).into())
-            .collect()
-    });
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
