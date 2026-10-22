@@ -1,9 +1,12 @@
 use pi_ai::request::BoxFuture;
+use pi_js_compat::{
+    js_json as json,
+    js_json::{JsString, JsValue as Value},
+};
 use pi_orchestrator::{
     ipc::server::{IpcRequestHandler, OnMessage, RpcStream, start_ipc_server},
     rpc_process::RpcProcessInstance,
 };
-use serde_json::{Value, json};
 use std::{
     path::PathBuf,
     sync::{
@@ -29,21 +32,21 @@ fn ts(script: &std::path::Path) -> tokio::process::Command {
 struct Handler(Arc<AtomicUsize>);
 struct Stream(OnMessage, Arc<AtomicUsize>);
 impl IpcRequestHandler for Handler {
-    fn handle(&self, r: Value) -> BoxFuture<'_, Result<Value, String>> {
+    fn handle(&self, r: Value) -> BoxFuture<'_, Result<Value, JsString>> {
         Box::pin(async move {
-            Ok(if r["type"] == "rpc_stream" {
+            Ok(if r["type"] == json!("rpc_stream") {
                 json!({"type":"rpc_ready","ok":true,"instance":{"id":"i"}})
             } else {
                 json!({"type":"list_result","ok":true,"instances":[]})
             })
         })
     }
-    fn open_rpc_stream(&self, _: &str, on: OnMessage) -> Option<Arc<dyn RpcStream>> {
+    fn open_rpc_stream(&self, _: &JsString, on: OnMessage) -> Option<Arc<dyn RpcStream>> {
         Some(Arc::new(Stream(on, self.0.clone())))
     }
 }
 impl RpcStream for Stream {
-    fn handle_request(&self, _: Value) -> BoxFuture<'_, Result<(), String>> {
+    fn handle_request(&self, _: Value) -> BoxFuture<'_, Result<(), JsString>> {
         Box::pin(async move {
             (self.0)(json!({"type":"started"}));
             tokio::time::sleep(Duration::from_millis(150)).await;
@@ -79,9 +82,12 @@ async fn bom_prefixed_ipc_matches_frozen() {
     let expected = send(&path).await;
     child.kill().await.unwrap();
     child.wait().await.unwrap();
-    let server = start_ipc_server(&path, Arc::new(Handler(Arc::new(AtomicUsize::new(0)))))
-        .await
-        .unwrap();
+    let server = start_ipc_server(
+        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        Arc::new(Handler(Arc::new(AtomicUsize::new(0)))),
+    )
+    .await
+    .unwrap();
     let actual = send(&path).await;
     server.close().await;
     println!("BOM TS={expected:?} Rust={actual:?}");
@@ -93,7 +99,7 @@ async fn queued_command_survives_disconnect_like_frozen() {
     let path = d.join("orchestrator.sock");
     let done = d.join("done");
     let script = d.join("peer.mjs");
-    std::fs::write(&script,format!("import {{writeFileSync}} from 'node:fs';import {{startIpcServer}} from '{SOURCE}/packages/orchestrator/src/ipc/server.ts';const h=async()=>({{type:'rpc_ready',ok:true,instance:{{id:'i'}}}});h.openRpcStream=(_id,response,event)=>({{async handleRequest(){{event({{type:'started'}});await new Promise(r=>setTimeout(r,150));writeFileSync({:?},'done');}},close(){{}}}});await startIpcServer(h);console.log('ready');",done.to_string_lossy())).unwrap();
+    std::fs::write(&script,format!("import {{writeFileSync}} from 'node:fs';import {{startIpcServer}} from '{SOURCE}/packages/orchestrator/src/ipc/server.ts';const h=async()=>({{type:'rpc_ready',ok:true,instance:{{id:'i'}}}});h.openRpcStream=(_id,response,event)=>({{async handleRequest(){{event({{type:'started'}});await new Promise(r=>setTimeout(r,150));writeFileSync({:?},'done');}},close(){{}}}});await startIpcServer(h);console.log('ready');",done.to_str().expect("utf-8 test path"))).unwrap();
     let mut child = ts(&script)
         .env("PI_ORCHESTRATOR_DIR", &d)
         .stdout(std::process::Stdio::piped())
@@ -128,7 +134,12 @@ async fn queued_command_survives_disconnect_like_frozen() {
     child.kill().await.unwrap();
     child.wait().await.unwrap();
     let count = Arc::new(AtomicUsize::new(0));
-    let server = start_ipc_server(&path, Arc::new(Handler(count.clone()))).await.unwrap();
+    let server = start_ipc_server(
+        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        Arc::new(Handler(count.clone())),
+    )
+    .await
+    .unwrap();
     send_and_close(&path).await;
     server.close().await;
     let actual = count.load(Ordering::SeqCst);
@@ -141,13 +152,15 @@ async fn child_exit_is_not_delayed_until_inherited_pipes_close() {
     let fake = d.join("fake.mjs");
     std::fs::write(&fake,"import {spawn} from 'node:child_process';spawn(process.execPath,['-e','setTimeout(()=>{},900)'],{stdio:['ignore',1,2]});process.exit(7);").unwrap();
     let oracle = d.join("oracle.mjs");
-    std::fs::write(&oracle,format!("import {{RpcProcessInstance}} from '{SOURCE}/packages/orchestrator/src/rpc-process.ts';RpcProcessInstance.prototype.getSpawnCommand=()=>({{command:process.execPath,args:[{:?}]}});const p=new RpcProcessInstance({{cwd:{:?}}});const start=Date.now();p.onExit(()=>console.log(Date.now()-start));",fake.to_string_lossy(),d.to_string_lossy())).unwrap();
+    std::fs::write(&oracle,format!("import {{RpcProcessInstance}} from '{SOURCE}/packages/orchestrator/src/rpc-process.ts';RpcProcessInstance.prototype.getSpawnCommand=()=>({{command:process.execPath,args:[{:?}]}});const p=new RpcProcessInstance({{cwd:{:?}}});const start=Date.now();p.onExit(()=>console.log(Date.now()-start));",fake.to_str().expect("utf-8 test path"),d.to_str().expect("utf-8 test path"))).unwrap();
     let output = ts(&oracle).output().await.unwrap();
     assert!(output.status.success());
     let expected: u128 = String::from_utf8(output.stdout).unwrap().trim().parse().unwrap();
     let mut command = tokio::process::Command::new("node");
     command.arg(&fake);
-    let process = RpcProcessInstance::spawn_command(&mut command, &d).unwrap();
+    let process =
+        RpcProcessInstance::spawn_command(&mut command, &JsString::from((&d).to_str().expect("utf-8 test path")))
+            .unwrap();
     let (send, receive) = tokio::sync::oneshot::channel();
     let send = std::sync::Mutex::new(Some(send));
     let start = std::time::Instant::now();

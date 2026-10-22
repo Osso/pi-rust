@@ -13,3 +13,5 @@ Foundation implementation: config paths use shared `node_join`; record fields an
 Lifecycle/transport implementation: supervisor identity maps and callbacks retain native strings; IPC/RPC JSONL parses losslessly and encodes only at socket/stdio writes. Native paths reach OS APIs only through `encode_node_utf8`. Radius keeps credential/error/body strings native, using shared `header_value` for HTTP ByteString headers and lossless JSON HTTP bodies. Byte decoding stays at original filesystem/pipe/socket ingress boundaries, not on JS strings.
 
 `lossless_ipc` is GREEN: native unpaired cwd/label/id survive the injected spawn boundary, real Node fake child, stored instances.json, list and stop over actual Unix sockets. Development proof: `/tmp/pi-rust-repin-lossless-orchestrator/lossless-ipc-development-02.log`.
+
+Existing fixture migration: all integration targets now use native JSON/string expectations and explicit UTF-8 test-path construction; all original lifecycle, file-byte, CLI, malformed-input, stream and frozen-TS differential assertions remain. All-target compilation reached zero errors; compiler-proven unused imports removed. Full crate execution pending.
