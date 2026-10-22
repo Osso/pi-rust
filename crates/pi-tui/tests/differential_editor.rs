@@ -10,6 +10,7 @@ mod editor_host;
 #[path = "support/oracle.rs"]
 mod oracle_support;
 
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -29,12 +30,12 @@ struct ScenarioProvider {
     mode: String,
     require_force: bool,
     should_trigger: Option<bool>,
-    trigger_characters: Vec<String>,
-    prefix: Option<String>,
+    trigger_characters: Vec<JsString>,
+    prefix: Option<JsString>,
 }
 
 impl AutocompleteProvider for ScenarioProvider {
-    fn trigger_characters(&self) -> Vec<String> {
+    fn trigger_characters(&self) -> Vec<JsString> {
         self.trigger_characters.clone()
     }
 
@@ -49,7 +50,7 @@ impl AutocompleteProvider for ScenarioProvider {
 
     fn get_suggestions(
         self: Rc<Self>,
-        lines: Vec<String>,
+        lines: Vec<JsString>,
         cursor_line: usize,
         cursor_col: usize,
         options: AutocompleteOptions,
@@ -58,9 +59,9 @@ impl AutocompleteProvider for ScenarioProvider {
             if self.require_force && !options.force {
                 return None;
             }
-            let line = lines.get(cursor_line).map_or("", String::as_str);
-            let prefix = &line[..cursor_col];
-            let match_prefix = self.prefix.as_deref().unwrap_or(prefix);
+            let line = lines.get(cursor_line).cloned().unwrap_or_default();
+            let prefix = line.slice(0, cursor_col);
+            let match_prefix = self.prefix.as_ref().unwrap_or(&prefix);
             let items: Vec<AutocompleteItem> = if self.mode == "prefix" {
                 self.items
                     .iter()
@@ -75,7 +76,7 @@ impl AutocompleteProvider for ScenarioProvider {
             }
             Some(AutocompleteSuggestions {
                 items,
-                prefix: self.prefix.clone().unwrap_or_else(|| prefix.to_string()),
+                prefix: self.prefix.clone().unwrap_or_else(|| prefix.clone()),
             })
         })
     }
@@ -86,13 +87,13 @@ impl AutocompleteProvider for ScenarioProvider {
         cursor_line: usize,
         cursor_col: usize,
         item: &AutocompleteItem,
-        prefix: &str,
+        prefix: &JsString,
     ) -> CompletionResult {
         let line = lines.get(cursor_line).cloned().unwrap_or_default();
-        let before = &line[..cursor_col - prefix.len()];
-        let after = &line[cursor_col..];
+        let before = line.slice(0, cursor_col - prefix.len());
+        let after = line.slice(cursor_col, line.len());
         let mut new_lines = lines.to_vec();
-        new_lines[cursor_line] = format!("{before}{}{after}", item.value);
+        new_lines[cursor_line] = before + &item.value + after;
         CompletionResult {
             lines: new_lines,
             cursor_line,
@@ -131,7 +132,7 @@ fn provider_from_request(request: &Value) -> Rc<dyn AutocompleteProvider> {
                 item["label"].as_str().unwrap_or_default(),
             );
             if let Some(description) = item.get("description").and_then(Value::as_str) {
-                result.description = Some(description.to_string());
+                result.description = Some(description.into());
             }
             result
         })
@@ -144,9 +145,9 @@ fn provider_from_request(request: &Value) -> Rc<dyn AutocompleteProvider> {
         trigger_characters: request
             .get("triggerCharacters")
             .and_then(Value::as_array)
-            .map(|values| values.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .map(|values| values.iter().filter_map(Value::as_str).map(JsString::from).collect())
             .unwrap_or_default(),
-        prefix: request.get("prefix").and_then(Value::as_str).map(str::to_string),
+        prefix: request.get("prefix").and_then(Value::as_str).map(JsString::from),
     })
 }
 
@@ -161,7 +162,7 @@ async fn run_local(request: &Value) -> Value {
     if prompt_prefix {
         let (host, _) = fake_host(24);
         let mut theme = EditorTheme::plain();
-        theme.prompt_prefix = Some(Rc::new(|text| text.to_string()));
+        theme.prompt_prefix = Some(Rc::new(|text| text.clone()));
         editor = Editor::new(
             host,
             theme,
@@ -177,18 +178,18 @@ async fn run_local(request: &Value) -> Value {
             },
         );
     }
-    let changes = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
-    let submissions = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let changes = Rc::new(std::cell::RefCell::new(Vec::<JsString>::new()));
+    let submissions = Rc::new(std::cell::RefCell::new(Vec::<JsString>::new()));
     let change_log = Rc::clone(&changes);
     editor.on_change = Some(Rc::new(move |text| {
-        change_log.borrow_mut().push(text.to_string());
+        change_log.borrow_mut().push(text.clone());
     }));
     let submit_log = Rc::clone(&submissions);
     editor.on_submit = Some(Rc::new(move |text| {
-        submit_log.borrow_mut().push(text.to_string());
+        submit_log.borrow_mut().push(text.clone());
     }));
 
-    let mut renders: Vec<Vec<String>> = Vec::new();
+    let mut renders: Vec<Vec<JsString>> = Vec::new();
     for operation in request["ops"].as_array().expect("ops array") {
         match operation["op"].as_str().expect("op name") {
             "input" => editor.handle_input(&pi_js_compat::js_json::JsString::from(
@@ -202,7 +203,7 @@ async fn run_local(request: &Value) -> Value {
                     .as_array()
                     .expect("history entries")
                     .iter()
-                    .map(|entry| entry.as_str().unwrap_or_default().to_string())
+                    .map(|entry| JsString::from(entry.as_str().unwrap_or_default()))
                     .collect();
                 editor.set_history(entries);
             }
@@ -225,7 +226,7 @@ async fn run_local(request: &Value) -> Value {
                 let frames = operation["frames"].as_array().map(|frames| {
                     frames
                         .iter()
-                        .map(|frame| frame.as_str().unwrap_or_default().to_string())
+                        .map(|frame| JsString::from(frame.as_str().unwrap_or_default()))
                         .collect()
                 });
                 editor

@@ -1,4 +1,5 @@
 //! Ported from `packages/tui/test/editor.test.ts` (`Paste marker atomic behavior`).
+use pi_js_compat::js_json::JsString;
 use pi_tui::tui::Component;
 
 #[path = "support/editor_host.rs"]
@@ -11,7 +12,7 @@ use editor_host::{cursor, editor, editor_with_rows, send};
 use pi_tui::components::editor::Editor;
 use pi_tui::utils::visible_width;
 
-fn paste_with_marker(editor: &mut Editor) -> String {
+fn paste_with_marker(editor: &mut Editor) -> JsString {
     let big_content = "line\n".repeat(20).trim_end().to_string();
     send(editor, &format!("\x1b[200~{big_content}\x1b[201~"));
     editor.get_text()
@@ -24,12 +25,12 @@ fn big_paste(tag: &str) -> String {
         .join("\n")
 }
 
-fn submitted_editor() -> (Editor, Rc<RefCell<String>>) {
+fn submitted_editor() -> (Editor, Rc<RefCell<JsString>>) {
     let (mut editor, _) = editor();
-    let submitted = Rc::new(RefCell::new(String::new()));
+    let submitted = Rc::new(RefCell::new(JsString::default()));
     let value = Rc::clone(&submitted);
     editor.on_submit = Some(Rc::new(move |text| {
-        *value.borrow_mut() = text.to_string();
+        *value.borrow_mut() = text.clone();
     }));
     (editor, submitted)
 }
@@ -53,7 +54,7 @@ fn treats_paste_marker_as_single_unit_for_right_arrow() {
     send(&mut editor, "\x1b[C");
     assert_eq!(cursor(&editor), (0, 1));
     send(&mut editor, "\x1b[C");
-    let marker = editor.get_text().split('B').next().unwrap()[1..].to_string();
+    let marker = editor.get_text().slice(1, editor.get_text().find('B').unwrap());
     assert_eq!(cursor(&editor), (0, 1 + marker.len()));
     send(&mut editor, "\x1b[C");
     assert_eq!(cursor(&editor), (0, 1 + marker.len() + 1));
@@ -66,7 +67,7 @@ fn treats_paste_marker_as_single_unit_for_left_arrow() {
     paste_with_marker(&mut editor);
     send(&mut editor, "B");
     send(&mut editor, "\x1b[D");
-    let marker = editor.get_text().split('B').next().unwrap()[1..].to_string();
+    let marker = editor.get_text().slice(1, editor.get_text().find('B').unwrap());
     assert_eq!(cursor(&editor), (0, 1 + marker.len()));
     send(&mut editor, "\x1b[D");
     assert_eq!(cursor(&editor), (0, 1));
@@ -80,7 +81,7 @@ fn treats_paste_marker_as_single_unit_for_backspace() {
     send(&mut editor, "A");
     paste_with_marker(&mut editor);
     send(&mut editor, "B");
-    let marker = editor.get_text().split('B').next().unwrap()[1..].to_string();
+    let marker = editor.get_text().slice(1, editor.get_text().find('B').unwrap());
     send(&mut editor, "\x01");
     send(&mut editor, "\x1b[C");
     send(&mut editor, "\x1b[C");
@@ -111,15 +112,8 @@ fn treats_paste_marker_as_single_unit_for_word_movement() {
     paste_with_marker(&mut editor);
     send(&mut editor, " ");
     send(&mut editor, "Y");
-    let marker = editor
-        .get_text()
-        .split(" Y")
-        .next()
-        .unwrap()
-        .split("X ")
-        .nth(1)
-        .unwrap()
-        .to_string();
+    let text = editor.get_text();
+    let marker = text.slice(2, text.find(" Y").unwrap());
     send(&mut editor, "\x01");
     send(&mut editor, "\x1b[1;5C");
     assert_eq!(cursor(&editor), (0, 1));
@@ -205,8 +199,8 @@ fn handles_multiple_paste_markers_in_same_line() {
     paste_with_marker(&mut editor);
     let text = editor.get_text();
     let first_end = text.find(" lines]").unwrap() + " lines]".len();
-    let first = &text[..first_end];
-    let second = &text[first_end + 1..];
+    let first = text.slice(0, first_end);
+    let second = text.slice(first_end + 1, text.len());
     assert_eq!(first.len() + 1 + second.len(), text.len());
     send(&mut editor, "\x01");
     send(&mut editor, "\x1b[C");
@@ -236,7 +230,7 @@ fn does_not_crash_when_paste_marker_is_wider_than_terminal_width() {
     let big_content = "line\n".repeat(47).trim_end().to_string();
     send(&mut editor, &format!("\x1b[200~{big_content}\x1b[201~"));
     let text = editor.get_text();
-    let marker = &text[..text.find(" lines]").unwrap() + " lines]".len()];
+    let marker = text.slice(0, text.find(" lines]").unwrap() + " lines]".len());
     assert!(visible_width(marker) > 8);
     for line in editor.render(8) {
         assert!(visible_width(&line) <= 8, "{line:?}");
@@ -361,7 +355,7 @@ fn does_not_get_stuck_moving_down_from_a_multi_visual_line_paste_marker() {
     }
     editor.render(20);
     let text = editor.get_text();
-    let marker = &text[8..text.find(" lines]").unwrap() + " lines]".len()];
+    let marker = text.slice(8, text.find(" lines]").unwrap() + " lines]".len());
     let marker_start = 8;
     let marker_end = marker_start + marker.len();
     assert!(marker.len() > 20);

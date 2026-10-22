@@ -4,6 +4,7 @@
 #[path = "support/editor_host.rs"]
 mod editor_host;
 
+use pi_js_compat::js_json::JsString;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -20,13 +21,13 @@ fn apply_completion(
     cursor_line: usize,
     cursor_col: usize,
     item: &AutocompleteItem,
-    prefix: &str,
+    prefix: &JsString,
 ) -> CompletionResult {
     let line = lines.get(cursor_line).cloned().unwrap_or_default();
-    let before = &line[..cursor_col - prefix.len()];
-    let after = &line[cursor_col..];
+    let before = line.slice(0, cursor_col - prefix.len());
+    let after = line.slice(cursor_col, line.len());
     let mut new_lines = lines.to_vec();
-    new_lines[cursor_line] = format!("{before}{}{after}", item.value);
+    new_lines[cursor_line] = before + &item.value + after;
     CompletionResult {
         lines: new_lines,
         cursor_line,
@@ -34,17 +35,17 @@ fn apply_completion(
     }
 }
 
-type SuggestionsFn = Rc<dyn Fn(Vec<String>, usize, usize, AutocompleteOptions) -> AutocompleteFuture>;
+type SuggestionsFn = Rc<dyn Fn(Vec<JsString>, usize, usize, AutocompleteOptions) -> AutocompleteFuture>;
 type ShouldTriggerFn = Rc<dyn Fn(&[String], usize, usize) -> bool>;
 
 struct MockProvider {
-    triggers: Vec<String>,
+    triggers: Vec<JsString>,
     should_trigger: Option<ShouldTriggerFn>,
     suggestions: SuggestionsFn,
 }
 
 impl AutocompleteProvider for MockProvider {
-    fn trigger_characters(&self) -> Vec<String> {
+    fn trigger_characters(&self) -> Vec<JsString> {
         self.triggers.clone()
     }
 
@@ -56,7 +57,7 @@ impl AutocompleteProvider for MockProvider {
 
     fn get_suggestions(
         self: Rc<Self>,
-        lines: Vec<String>,
+        lines: Vec<JsString>,
         cursor_line: usize,
         cursor_col: usize,
         options: AutocompleteOptions,
@@ -70,7 +71,7 @@ impl AutocompleteProvider for MockProvider {
         cursor_line: usize,
         cursor_col: usize,
         item: &AutocompleteItem,
-        prefix: &str,
+        prefix: &JsString,
     ) -> CompletionResult {
         apply_completion(lines, cursor_line, cursor_col, item, prefix)
     }
@@ -92,14 +93,15 @@ async fn settle(editor: &mut Editor) {
     editor.poll_autocomplete().await;
 }
 
-fn rendered(editor: &mut Editor) -> String {
+fn rendered(editor: &mut Editor) -> JsString {
     use pi_tui::tui::Component;
-    editor
-        .render(80)
-        .into_iter()
-        .map(|line| pi_tui::utils::strip_terminal_sequences(&line))
-        .collect::<Vec<_>>()
-        .join("\n")
+    JsString::join(
+        editor
+            .render(80)
+            .into_iter()
+            .map(|line| pi_tui::utils::strip_terminal_sequences(&line)),
+        "\n",
+    )
 }
 
 #[tokio::test]
@@ -109,11 +111,11 @@ async fn auto_applies_single_force_file_suggestion_without_showing_menu() {
         if !options.force {
             return immediate(None);
         }
-        let prefix = &lines[0][..cursor_col];
+        let prefix = lines[0].slice(0, cursor_col);
         if prefix == "Work" {
             return immediate(Some(AutocompleteSuggestions {
                 items: vec![AutocompleteItem::new("Workspace/", "Workspace/")],
-                prefix: "Work".to_string(),
+                prefix: JsString::from("Work"),
             }));
         }
         immediate(None)
@@ -138,14 +140,14 @@ async fn shows_menu_when_force_file_has_multiple_suggestions() {
         if !options.force {
             return immediate(None);
         }
-        let prefix = &lines[0][..cursor_col];
+        let prefix = lines[0].slice(0, cursor_col);
         if prefix == "src" {
             return immediate(Some(AutocompleteSuggestions {
                 items: vec![
                     AutocompleteItem::new("src/", "src/"),
                     AutocompleteItem::new("src.txt", "src.txt"),
                 ],
-                prefix: "src".to_string(),
+                prefix: JsString::from("src"),
             }));
         }
         immediate(None)
@@ -173,7 +175,7 @@ async fn keeps_suggestions_open_when_typing_in_force_mode() {
         AutocompleteItem::new("dist/", "dist/"),
     ];
     let mock = provider(Rc::new(move |lines, _line, cursor_col, options| {
-        let prefix = &lines[0][..cursor_col];
+        let prefix = lines[0].slice(0, cursor_col);
         let should_match = options.force || prefix.contains('/') || prefix.starts_with('.');
         if !should_match {
             return immediate(None);
@@ -188,7 +190,7 @@ async fn keeps_suggestions_open_when_typing_in_force_mode() {
         }
         immediate(Some(AutocompleteSuggestions {
             items: filtered,
-            prefix: prefix.to_string(),
+            prefix: prefix.clone(),
         }))
     }));
     editor.set_autocomplete_provider(mock);
@@ -215,10 +217,10 @@ async fn debounces_at_autocomplete_while_typing() {
     let counter = Rc::clone(&calls);
     let mock = provider(Rc::new(move |lines, _line, cursor_col, _options| {
         counter.set(counter.get() + 1);
-        let prefix = &lines[0][..cursor_col];
+        let prefix = lines[0].slice(0, cursor_col);
         immediate(Some(AutocompleteSuggestions {
             items: vec![AutocompleteItem::new("@main.ts", "main.ts")],
-            prefix: prefix.to_string(),
+            prefix: prefix.clone(),
         }))
     }));
     editor.set_autocomplete_provider(mock);
@@ -237,7 +239,7 @@ async fn debounces_at_autocomplete_while_typing() {
 async fn requeries_the_autocomplete_picker_when_the_cursor_moves_back_into_the_command_name() {
     let (mut editor, _) = editor();
     let mock = provider(Rc::new(|lines, _line, cursor_col, _options| {
-        let before = &lines[0][..cursor_col];
+        let before = lines[0].slice(0, cursor_col);
         if !before.starts_with('/') {
             return immediate(None);
         }
@@ -248,12 +250,12 @@ async fn requeries_the_autocomplete_picker_when_the_cursor_moves_back_into_the_c
                     AutocompleteItem::new("message", "message"),
                     AutocompleteItem::new("help", "help"),
                 ],
-                prefix: before[before.find(' ').unwrap() + 1..].to_string(),
+                prefix: before.slice(before.find(' ').unwrap() + 1, before.len()),
             }));
         }
         immediate(Some(AutocompleteSuggestions {
             items: vec![AutocompleteItem::new("cmd", "cmd")],
-            prefix: before.to_string(),
+            prefix: before.clone(),
         }))
     }));
     editor.set_autocomplete_provider(mock);
@@ -279,10 +281,10 @@ async fn debounces_hash_autocomplete_while_typing() {
     let counter = Rc::clone(&calls);
     let mock = provider(Rc::new(move |lines, _line, cursor_col, _options| {
         counter.set(counter.get() + 1);
-        let prefix = &lines[0][..cursor_col];
+        let prefix = lines[0].slice(0, cursor_col);
         immediate(Some(AutocompleteSuggestions {
             items: vec![AutocompleteItem::new("#2983", "#2983")],
-            prefix: prefix.to_string(),
+            prefix: prefix.clone(),
         }))
     }));
     editor.set_autocomplete_provider(mock);
@@ -303,14 +305,14 @@ async fn debounces_custom_trigger_characters_autocomplete_while_typing() {
     let calls = Rc::new(Cell::new(0));
     let counter = Rc::clone(&calls);
     let mock = Rc::new(MockProvider {
-        triggers: vec!["$".to_string()],
+        triggers: vec![JsString::from("$")],
         should_trigger: None,
         suggestions: Rc::new(move |lines, _line, cursor_col, _options| {
             counter.set(counter.get() + 1);
-            let prefix = &lines[0][..cursor_col];
+            let prefix = lines[0].slice(0, cursor_col);
             immediate(Some(AutocompleteSuggestions {
                 items: vec![AutocompleteItem::new("$skill-name", "skill-name")],
-                prefix: prefix.to_string(),
+                prefix: prefix.clone(),
             }))
         }),
     });
@@ -331,12 +333,12 @@ async fn resets_custom_trigger_characters_when_provider_changes() {
     let calls = Rc::new(Cell::new(0));
     let counter = Rc::clone(&calls);
     editor.set_autocomplete_provider(Rc::new(MockProvider {
-        triggers: vec!["$".to_string()],
+        triggers: vec![JsString::from("$")],
         should_trigger: None,
         suggestions: Rc::new(|_, _, _, _| {
             immediate(Some(AutocompleteSuggestions {
                 items: vec![AutocompleteItem::new("$skill-name", "skill-name")],
-                prefix: "$".to_string(),
+                prefix: JsString::from("$"),
             }))
         }),
     }));
@@ -344,7 +346,7 @@ async fn resets_custom_trigger_characters_when_provider_changes() {
         counter.set(counter.get() + 1);
         immediate(Some(AutocompleteSuggestions {
             items: vec![AutocompleteItem::new("$skill-name", "skill-name")],
-            prefix: "$".to_string(),
+            prefix: JsString::from("$"),
         }))
     })));
     send(&mut editor, "$");
@@ -367,7 +369,7 @@ async fn aborts_active_at_autocomplete_when_typing_continues() {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(500)) => Some(AutocompleteSuggestions {
                     items: vec![AutocompleteItem::new("@main.ts", "main.ts")],
-                    prefix: "@main".to_string(),
+                    prefix: JsString::from("@main"),
                 }),
                 _ = signal.cancelled() => {
                     counter.set(counter.get() + 1);
@@ -392,7 +394,7 @@ async fn aborts_active_at_autocomplete_when_typing_continues() {
 async fn hides_autocomplete_when_backspacing_slash_command_to_empty() {
     let (mut editor, _) = editor();
     let mock = provider(Rc::new(|lines, _line, cursor_col, _options| {
-        let prefix = &lines[0][..cursor_col];
+        let prefix = lines[0].slice(0, cursor_col);
         if !prefix.starts_with('/') {
             return immediate(None);
         }
@@ -400,17 +402,17 @@ async fn hides_autocomplete_when_backspacing_slash_command_to_empty() {
             AutocompleteItem::new("/model", "model"),
             AutocompleteItem::new("/help", "help"),
         ];
-        let query = &prefix[1..];
+        let query = prefix.slice(1, prefix.len());
         let filtered: Vec<AutocompleteItem> = commands
             .into_iter()
-            .filter(|item| item.value.starts_with(query))
+            .filter(|item| item.value.starts_with(&query))
             .collect();
         if filtered.is_empty() {
             return immediate(None);
         }
         immediate(Some(AutocompleteSuggestions {
             items: filtered,
-            prefix: prefix.to_string(),
+            prefix: prefix.clone(),
         }))
     }));
     editor.set_autocomplete_provider(mock);
@@ -424,11 +426,11 @@ async fn hides_autocomplete_when_backspacing_slash_command_to_empty() {
     assert!(!editor.is_showing_autocomplete());
 }
 
-async fn slash_argument_case(typed: &str, arguments: Vec<&str>, selected_exact: bool) -> String {
+async fn slash_argument_case(typed: &str, arguments: Vec<&str>, selected_exact: bool) -> JsString {
     let (mut editor, _) = editor();
-    let arguments: Vec<String> = arguments.into_iter().map(str::to_string).collect();
+    let arguments: Vec<JsString> = arguments.into_iter().map(str::to_string).collect();
     let mock = provider(Rc::new(move |lines, _line, cursor_col, _options| {
-        let before = &lines[0][..cursor_col];
+        let before = lines[0].slice(0, cursor_col);
         let Some(argument_text) = before.strip_prefix("/argtest ") else {
             return immediate(None);
         };
@@ -436,9 +438,9 @@ async fn slash_argument_case(typed: &str, arguments: Vec<&str>, selected_exact: 
             .iter()
             .filter(|value| {
                 if selected_exact {
-                    value.as_str() == argument_text || value.starts_with(argument_text)
+                    *value == argument_text || value.starts_with(&argument_text)
                 } else {
-                    value.starts_with(argument_text)
+                    value.starts_with(&argument_text)
                 }
             })
             .map(|value| AutocompleteItem::new(value.clone(), value.clone()))
@@ -448,7 +450,7 @@ async fn slash_argument_case(typed: &str, arguments: Vec<&str>, selected_exact: 
         }
         immediate(Some(AutocompleteSuggestions {
             items: filtered,
-            prefix: argument_text.to_string(),
+            prefix: argument_text.clone(),
         }))
     }));
     editor.set_autocomplete_provider(mock);
@@ -489,7 +491,7 @@ async fn selects_first_prefix_match_when_multiple_items_match() {
 async fn works_for_builtin_style_command_argument_completion_path() {
     let (mut editor, _) = editor();
     let mock = provider(Rc::new(|lines, _line, cursor_col, _options| {
-        let before = &lines[0][..cursor_col];
+        let before = lines[0].slice(0, cursor_col);
         let Some(model_text) = before.strip_prefix("/model ") else {
             return immediate(None);
         };
@@ -504,7 +506,7 @@ async fn works_for_builtin_style_command_argument_completion_path() {
         }
         immediate(Some(AutocompleteSuggestions {
             items: filtered,
-            prefix: model_text.to_string(),
+            prefix: model_text.clone(),
         }))
     }));
     editor.set_autocomplete_provider(mock);
@@ -522,11 +524,11 @@ async fn works_for_builtin_style_command_argument_completion_path() {
 async fn awaits_async_slash_command_argument_completions() {
     let (mut editor, _) = editor();
     let mock = provider(Rc::new(|lines, _line, cursor_col, _options| {
-        let before = &lines[0][..cursor_col];
+        let before = lines[0].slice(0, cursor_col);
         let Some(prefix) = before.strip_prefix("/load-skills ") else {
             return immediate(None);
         };
-        let prefix = prefix.to_string();
+        let prefix = prefix.clone();
         Box::pin(async move {
             tokio::task::yield_now().await;
             if prefix.starts_with('s') {
@@ -565,9 +567,9 @@ async fn ignores_invalid_slash_command_argument_completion_results() {
 async fn does_not_show_argument_completions_when_command_has_no_argument_completer() {
     let (mut editor, _) = editor();
     let mut help = SlashCommand::new("help");
-    help.description = Some("Show help".to_string());
+    help.description = Some(JsString::from("Show help"));
     let mut model = SlashCommand::new("model");
-    model.description = Some("Switch model".to_string());
+    model.description = Some(JsString::from("Switch model"));
     model.get_argument_completions = Some(Box::new(|_| {
         Some(vec![AutocompleteItem::new("claude-opus", "claude-opus")])
     }));
@@ -610,11 +612,11 @@ async fn does_not_trigger_autocomplete_during_single_line_paste() {
 async fn undoes_autocomplete() {
     let (mut editor, _) = editor();
     let mock = provider(Rc::new(|lines, _line, cursor_col, _options| {
-        let prefix = &lines[0][..cursor_col];
+        let prefix = lines[0].slice(0, cursor_col);
         if prefix == "di" {
             return immediate(Some(AutocompleteSuggestions {
                 items: vec![AutocompleteItem::new("dist/", "dist/")],
-                prefix: "di".to_string(),
+                prefix: JsString::from("di"),
             }));
         }
         immediate(None)
