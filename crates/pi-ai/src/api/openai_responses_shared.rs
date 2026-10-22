@@ -208,8 +208,6 @@ fn convert_tool_result_output(model: &Model, content: &[crate::types::TextOrImag
     if images.is_empty() || !model.input.contains(&crate::types::Modality::Image) {
         let text = if has_text {
             text_result
-        } else if images.is_empty() {
-            "(no tool output)".into()
         } else {
             "(see attached image)".into()
         };

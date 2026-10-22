@@ -520,7 +520,7 @@ fn differential_openai_responses_shared_stream() {
     let initial_output = || {
         json!({
             "role": "assistant", "content": [], "api": "openai-responses", "provider": "openai",
-            "model": "gpt-5.5", "usage": usage(), "stopReason": "pending", "timestamp": 1234
+            "model": "gpt-5.5", "usage": usage(), "stopReason": "stop", "timestamp": 1234
         })
     };
 

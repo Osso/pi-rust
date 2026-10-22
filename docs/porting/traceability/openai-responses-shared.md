@@ -4,6 +4,8 @@
 
 Recorded Responses/Azure oracles now reach actual frozen SDK streams. Removed source-absent rawStopReason metadata; restored input_tokens-minus-cached usage with cacheWrite0 (no native cache-write subtraction/clamp), and function-only tools with unchanged parameters/explicit strict option. RED boundaries: `responses-floor-green.log` and `responses-raw-stop-green.log` in the lane proof ledger. Whole-module parity remains unproven; historical counts below are superseded where these branches differ.
 
+DISCREPANCY preserved: frozen empty tool results without images still emit `(see attached image)` (`openai-responses-shared.ts:407`). Native's `(no tool output)` was an unapproved source correction; exact conversion scenario3 RED restored the literal frozen placeholder. Stream fixtures now initialize stop, not old pending.
+
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 
 Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.

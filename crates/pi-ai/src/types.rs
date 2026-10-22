@@ -1027,6 +1027,8 @@ pub struct OpenAICompletionsCompat {
 pub struct OpenAIResponsesCompat {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supports_developer_role: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_session_id_header: Option<bool>,
     /// Not declared by `OpenAIResponsesCompat` in the TypeScript source, but the
     /// generated `opencode` catalog carries it on an `openai-responses` model
     /// and the TS runtime preserves the property.
