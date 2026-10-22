@@ -69,7 +69,7 @@ fn require_nullable_id(value: Option<&Value>, field: &str) -> Result<Option<Stri
 }
 
 fn decode_header(line: &str) -> Result<JsonlV4Header, JsonlDecodeError> {
-    let value = normalize_js_integers(parse_object(line)?);
+    let value = parse_object(line)?;
     if !value
         .get("kind")
         .and_then(Value::as_string)
@@ -196,8 +196,8 @@ fn parse_entry_mutation(value: JsObject) -> Result<SessionMutation, JsonlDecodeE
         require_string(value.get("customType"), "customType")?;
     }
     let mut entry_fields = value;
-    entry_fields.remove("kind");
-    entry_fields.remove("lane");
+    entry_fields.shift_remove("kind");
+    entry_fields.shift_remove("lane");
     let entry = serde_json::from_str::<crate::harness::session::types::Entry>(&stringify_lossless(&Value::Object(
         entry_fields,
     )))
@@ -226,7 +226,7 @@ fn parse_record_mutation(value: JsObject) -> Result<SessionMutation, JsonlDecode
         require_string(value.get("runId"), "runId")?;
     }
     let mut record_fields = value;
-    record_fields.remove("kind");
+    record_fields.shift_remove("kind");
     let record = serde_json::from_str::<crate::harness::session::types::LaneRecord>(&stringify_lossless(
         &Value::Object(record_fields),
     ))
@@ -282,26 +282,8 @@ fn parse_label_fact(value: &JsObject, seq: i64) -> Result<SessionMutation, Jsonl
     })
 }
 
-/// JSON numbers are IEEE doubles in JavaScript, so `1.0` is the integer `1`.
-/// Rewrite integral floats in the integer-typed fields so serde's `i64` decode
-/// matches `Number.isSafeInteger`.
-fn normalize_js_integers(mut value: JsObject) -> JsObject {
-    for field in ["seq", "timestamp", "createdAt"] {
-        let Some(entry) = value.get_mut(field) else {
-            continue;
-        };
-        let Some(number) = entry.as_f64() else {
-            continue;
-        };
-        if number.fract() == 0.0 && number.abs() <= 9_007_199_254_740_991.0 {
-            *entry = Value::from(number as i64);
-        }
-    }
-    value
-}
-
 fn decode_mutation(line: &str) -> Result<SessionMutation, JsonlDecodeError> {
-    let value = normalize_js_integers(parse_object(line)?);
+    let value = parse_object(line)?;
     let seq = require_sequence(value.get("seq"))?;
     match value
         .get("kind")

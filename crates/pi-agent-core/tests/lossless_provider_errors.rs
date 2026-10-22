@@ -374,14 +374,34 @@ async fn provider_failure_survives_jsonl_repo_close_and_reopen() {
         )
         .await
         .unwrap();
+    let raw_payload: AgentMessage =
+        serde_json::from_str(r#"{"role":"raw-custom","content":"\ud800","\udfff":{"error":"\ud800!\udfff"}}"#).unwrap();
+    session
+        .append_entry(
+            EntryBody::Message {
+                id: "raw-payload".into(),
+                message: raw_payload.clone(),
+                terminate: None,
+            },
+            "main",
+        )
+        .await
+        .unwrap();
     let metadata = session.get_metadata().await.unwrap();
     drop(session);
     let restored = repo.open(&metadata).await.unwrap();
     let entries = restored.find_entries(EntryQuery::default()).await.unwrap();
-    let EntryBody::Message { message, .. } = &entries[0].body else {
+    assert_eq!(entries.len(), 2);
+    let failure = entries.iter().find(|entry| entry.id() == "failure").unwrap();
+    let EntryBody::Message { message, .. } = &failure.body else {
         panic!("persisted failure message")
     };
     assert_eq!(message.as_assistant().unwrap().error_message, Some(raw_error()));
+    let payload = entries.iter().find(|entry| entry.id() == "raw-payload").unwrap();
+    let EntryBody::Message { message, .. } = &payload.body else {
+        panic!("persisted raw custom payload")
+    };
+    assert_eq!(message, &raw_payload);
 }
 
 #[test]
