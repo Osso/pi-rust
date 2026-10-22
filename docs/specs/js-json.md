@@ -50,7 +50,7 @@ The audit has six uncertain groups (despite the brief's count of five): scanning
 
 - Migrating every serde caller globally. This slice covers the audited visible boundaries; legacy replacement behavior remains intentional compatibility at that API boundary, not a waiver for raw-file validator inputs.
 - Arbitrary-precision numbers: `JsValue::Number(f64)` deliberately uses JavaScript binary64, not arbitrary-precision JSON arithmetic.
-- Error excerpts containing split surrogate units retain existing UTF-8 replacement behavior; the legacy mutation oracle normalizes only such diagnostic strings. The new bounded lossless oracle does not normalize outputs.
+- Consumer migration beyond the shared parser: data paths must use `JsonParseError::into_message()` or `message()`, not the UTF-8 diagnostic `Display` projection.
 
 ## Shared serde (Q18, 2026-10-21)
 
@@ -59,3 +59,9 @@ The audit has six uncertain groups (despite the brief's count of five): scanning
 `pi_js_compat::js_json!` constructs the lossless AST directly; expression leaves serialize through shared lossless serde, never `serde_json::Value`. Object/array/literal syntax follows the serde_json macro.
 
 `parse_lossless` accepts native `JsString` input as well as Rust strings. Raw unmatched units inside JSON string literals retain their identity, not just escaped surrogate sequences. Parser positions and grammar operate on UTF-16 units.
+
+## Lossless parse errors (2026-10-21)
+
+`JsonParseError` stores its V8 message as `JsString`. `message(&self) -> &JsString` and `into_message(self) -> JsString` retain every UTF-16 unit, including the single offending unit of a valid surrogate pair and excerpts cut through pairs at V8's 10-unit context boundary. ASCII templates, position/line/column calculations and error selection remain unchanged. `Display` alone calls `encode_node_utf8` for the final UTF-8 diagnostic boundary.
+
+`crates/pi-js-compat/tests/support/js_json_error_units.rs` and `oracle/js-json-error-units-oracle.ts` compare actual Node `JSON.parse` SyntaxError message-unit arrays and Node UTF-8 display bytes: raw high/low tokens, split emoji token, short/head/middle/tail excerpts, both excerpt cut edges, multiline input, positioned errors, special source and end-of-input. No message normalization.
