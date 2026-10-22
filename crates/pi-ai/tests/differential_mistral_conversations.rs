@@ -60,24 +60,27 @@ fn response_chunks(scenario: &Value) -> Vec<Vec<u8>> {
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|chunk| chunk.as_str().map(str::to_owned))
+        .filter_map(|chunk| chunk.as_str().map(pi_js_compat::js_json::JsString::from))
         .collect::<Vec<_>>();
     if scenario["response"]["chunking"].as_str() == Some("bytes") {
         chunks
             .into_iter()
-            .flat_map(String::into_bytes)
+            .flat_map(|text| pi_js_compat::js_json::encode_node_utf8(&text).into_bytes())
             .map(|byte| vec![byte])
             .collect()
     } else {
-        chunks.into_iter().map(String::into_bytes).collect()
+        chunks
+            .into_iter()
+            .map(|text| pi_js_compat::js_json::encode_node_utf8(&text).into_bytes())
+            .collect()
     }
 }
 
 fn parse_headers(value: &Value) -> Option<ProviderHeaders> {
     let object = value.as_object()?;
-    let headers: indexmap::IndexMap<String, Option<String>> = object
+    let headers: indexmap::IndexMap<String, Option<pi_js_compat::js_json::JsString>> = object
         .iter()
-        .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
+        .map(|(name, value)| (name.clone(), value.as_str().map(pi_js_compat::js_json::JsString::from)))
         .collect();
     Some(headers)
 }
@@ -85,14 +88,14 @@ fn parse_headers(value: &Value) -> Option<ProviderHeaders> {
 fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions {
     let options = &scenario["options"];
     let mut stream_options = StreamOptions::default();
-    stream_options.request.api_key =
-        (options["apiKey"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from);
+    stream_options.request.api_key = (options["apiKey"].as_str().map(pi_js_compat::js_json::JsString::from))
+        .map(pi_js_compat::js_json::JsString::from);
     stream_options.request.fetch = Some(fetch);
     stream_options.request.headers = parse_headers(&options["headers"]);
     stream_options.temperature = options["temperature"].as_f64();
     stream_options.max_tokens = options["maxTokens"].as_f64();
-    stream_options.session_id =
-        (options["sessionId"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from);
+    stream_options.session_id = (options["sessionId"].as_str().map(pi_js_compat::js_json::JsString::from))
+        .map(pi_js_compat::js_json::JsString::from);
     stream_options.cache_retention = match options["cacheRetention"].as_str() {
         Some("none") => Some(pi_ai::types::CacheRetention::None),
         Some("short") => Some(pi_ai::types::CacheRetention::Short),
@@ -105,15 +108,21 @@ fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions
         }
     }
     if options["onPayload"].as_str() == Some("augment") {
-        stream_options.request.on_payload = Some(Arc::new(|payload: Value, _model: Model| {
+        stream_options.request.on_payload = Some(Arc::new(|payload: pi_js_compat::js_json::JsValue, _model: Model| {
             Box::pin(async move {
                 let mut payload = payload;
                 let object = payload.as_object_mut().expect("payload object");
-                object.insert("topP".to_owned(), json!(0.9));
-                object.insert("randomSeed".to_owned(), json!(42));
                 object.insert(
-                    "responseFormat".to_owned(),
-                    json!({
+                    ("topP".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(0.9)),
+                );
+                object.insert(
+                    ("randomSeed".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(42)),
+                );
+                object.insert(
+                    ("responseFormat".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!({
                         "type": "json_schema",
                         "jsonSchema": {
                             "name": "result",
@@ -122,12 +131,24 @@ fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions
                                 "properties": {"maxTokens": {"type": "number"}},
                             },
                         },
-                    }),
+                    })),
                 );
-                object.insert("presencePenalty".to_owned(), json!(0.1));
-                object.insert("frequencyPenalty".to_owned(), json!(0.2));
-                object.insert("parallelToolCalls".to_owned(), json!(true));
-                object.insert("safePrompt".to_owned(), json!(true));
+                object.insert(
+                    ("presencePenalty".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(0.1)),
+                );
+                object.insert(
+                    ("frequencyPenalty".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(0.2)),
+                );
+                object.insert(
+                    ("parallelToolCalls".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(true)),
+                );
+                object.insert(
+                    ("safePrompt".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(true)),
+                );
                 Ok(Some(payload))
             })
         }));

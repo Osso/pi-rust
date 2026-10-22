@@ -17,11 +17,11 @@ fn context_from_json(value: &Value) -> ImagesContext {
     serde_json::from_value(value.clone()).expect("fixture context deserializes")
 }
 
-fn headers_from_json(value: &Value) -> Option<indexmap::IndexMap<String, Option<String>>> {
+fn headers_from_json(value: &Value) -> Option<indexmap::IndexMap<String, Option<pi_js_compat::js_json::JsString>>> {
     value.as_object().map(|object| {
         object
             .iter()
-            .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
+            .map(|(name, value)| (name.clone(), value.as_str().map(pi_js_compat::js_json::JsString::from)))
             .collect()
     })
 }
@@ -66,8 +66,11 @@ fn observed(request: &Value) -> Value {
     }
     let options = ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: (option_values.get("apiKey").and_then(Value::as_str).map(str::to_owned))
-                .map(pi_js_compat::js_json::JsString::from),
+            api_key: (option_values
+                .get("apiKey")
+                .and_then(Value::as_str)
+                .map(pi_js_compat::js_json::JsString::from))
+            .map(pi_js_compat::js_json::JsString::from),
             headers: option_values.get("headers").and_then(headers_from_json),
             fetch: Some(fetch.clone()),
             signal: Some(signal),

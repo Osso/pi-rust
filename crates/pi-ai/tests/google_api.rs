@@ -113,7 +113,12 @@ fn vertex_options(env: Value, max_retries: Option<f64>, fetch: Arc<dyn pi_ai::re
                 env.as_object()
                     .expect("env object")
                     .iter()
-                    .map(|(key, value)| (key.clone(), value.as_str().unwrap_or_default().to_owned()))
+                    .map(|(key, value)| {
+                        (
+                            key.clone(),
+                            pi_js_compat::js_json::JsString::from(value.as_str().unwrap_or_default()),
+                        )
+                    })
                     .collect(),
             ),
             ..Default::default()

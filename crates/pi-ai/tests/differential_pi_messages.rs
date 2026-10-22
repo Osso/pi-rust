@@ -69,24 +69,27 @@ fn response_chunks(scenario: &Value) -> Vec<Vec<u8>> {
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|chunk| chunk.as_str().map(str::to_owned))
+        .filter_map(|chunk| chunk.as_str().map(pi_js_compat::js_json::JsString::from))
         .collect::<Vec<_>>();
     if scenario["response"]["chunking"].as_str() == Some("bytes") {
         chunks
             .into_iter()
-            .flat_map(String::into_bytes)
+            .flat_map(|text| pi_js_compat::js_json::encode_node_utf8(&text).into_bytes())
             .map(|byte| vec![byte])
             .collect()
     } else {
-        chunks.into_iter().map(String::into_bytes).collect()
+        chunks
+            .into_iter()
+            .map(|text| pi_js_compat::js_json::encode_node_utf8(&text).into_bytes())
+            .collect()
     }
 }
 
 fn parse_headers(value: &Value) -> Option<ProviderHeaders> {
     let object = value.as_object()?;
-    let headers: indexmap::IndexMap<String, Option<String>> = object
+    let headers: indexmap::IndexMap<String, Option<pi_js_compat::js_json::JsString>> = object
         .iter()
-        .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
+        .map(|(name, value)| (name.clone(), value.as_str().map(pi_js_compat::js_json::JsString::from)))
         .collect();
     Some(headers)
 }
@@ -95,7 +98,11 @@ fn parse_env(value: &Value) -> Option<ProviderEnv> {
     let object = value.as_object()?;
     let env: ProviderEnv = object
         .iter()
-        .filter_map(|(name, value)| value.as_str().map(|value| (name.clone(), value.to_owned())))
+        .filter_map(|(name, value)| {
+            value
+                .as_str()
+                .map(|value| (name.clone(), pi_js_compat::js_json::JsString::from(value)))
+        })
         .collect();
     Some(env)
 }
@@ -103,15 +110,15 @@ fn parse_env(value: &Value) -> Option<ProviderEnv> {
 fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions {
     let options = &scenario["options"];
     let mut stream_options = StreamOptions::default();
-    stream_options.request.api_key =
-        (options["apiKey"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from);
+    stream_options.request.api_key = (options["apiKey"].as_str().map(pi_js_compat::js_json::JsString::from))
+        .map(pi_js_compat::js_json::JsString::from);
     stream_options.request.fetch = Some(fetch);
     stream_options.request.headers = parse_headers(&options["headers"]);
     stream_options.request.env = parse_env(&options["env"]);
     stream_options.temperature = options["temperature"].as_f64();
     stream_options.max_tokens = options["maxTokens"].as_f64();
-    stream_options.session_id =
-        (options["sessionId"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from);
+    stream_options.session_id = (options["sessionId"].as_str().map(pi_js_compat::js_json::JsString::from))
+        .map(pi_js_compat::js_json::JsString::from);
     stream_options.cache_retention = match options["cacheRetention"].as_str() {
         Some("none") => Some(pi_ai::types::CacheRetention::None),
         Some("short") => Some(pi_ai::types::CacheRetention::Short),
@@ -128,10 +135,10 @@ fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions
         stream_options.extra.insert("debug".to_owned(), value.clone());
     }
     if options["onPayload"].as_str() == Some("replace") {
-        stream_options.request.on_payload = Some(Arc::new(|payload: Value, _model: Model| {
+        stream_options.request.on_payload = Some(Arc::new(|payload: pi_js_compat::js_json::JsValue, _model: Model| {
             Box::pin(async move {
                 let mut payload = payload;
-                payload["marker"] = json!(true);
+                payload["marker"] = pi_js_compat::js_json::JsValue::Bool(true);
                 Ok(Some(payload))
             })
         }));

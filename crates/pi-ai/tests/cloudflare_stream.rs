@@ -33,7 +33,7 @@ fn context() -> Context {
 }
 
 struct CapturingStreams {
-    captured: Arc<Mutex<Vec<String>>>,
+    captured: Arc<Mutex<Vec<pi_js_compat::js_json::JsString>>>,
 }
 
 impl ProviderStreams for CapturingStreams {
@@ -56,7 +56,7 @@ impl ProviderStreams for CapturingStreams {
 fn env(pairs: &[(&str, &str)]) -> ProviderEnv {
     pairs
         .iter()
-        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .map(|(name, value)| ((*name).to_owned(), pi_js_compat::js_json::JsString::from(*value)))
         .collect()
 }
 

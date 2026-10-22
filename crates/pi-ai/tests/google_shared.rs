@@ -96,7 +96,7 @@ fn tool_call(id: &str, name: &str, signature: Option<&str>) -> AssistantContent 
     let mut call = ToolCall::new(
         id,
         name,
-        [("command".into(), pi_js_compat::js_json::JsValue::from("ls"))]
+        [("command".into(), pi_js_compat::js_json::JsValue::String("ls".into()))]
             .into_iter()
             .collect(),
     );

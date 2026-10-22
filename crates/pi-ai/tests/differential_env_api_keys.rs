@@ -35,7 +35,12 @@ fn scoped(value: &Value) -> Option<ProviderEnv> {
     value.as_object().map(|object| {
         object
             .iter()
-            .map(|(key, value)| (key.clone(), value.as_str().expect("string").to_owned()))
+            .map(|(key, value)| {
+                (
+                    key.clone(),
+                    pi_js_compat::js_json::JsString::from(value.as_str().expect("string")),
+                )
+            })
             .collect()
     })
 }

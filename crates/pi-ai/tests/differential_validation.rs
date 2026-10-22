@@ -1168,7 +1168,7 @@ fn lossless_utf16_validation_matches_frozen_typescript() {
     let mut fixtures = Vec::new();
     for (index, string) in strings.iter().enumerate() {
         for (schema_index, schema) in schemas.iter().enumerate() {
-            let value = parse_lossless(string).unwrap();
+            let value = parse_lossless(*string).unwrap();
             fixtures.push(
                 js_json!({"name":format!("utf16-{index}-{schema_index}"), "kind":"plain",
                 "schema":{"type":"object","properties":{"value":schema},"required":["value"]},

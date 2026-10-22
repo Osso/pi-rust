@@ -6,7 +6,7 @@ use pi_ai::utils::provider_env::{get_provider_env_value, resolve_provider_env_va
 fn env(pairs: &[(&str, &str)]) -> ProviderEnv {
     pairs
         .iter()
-        .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+        .map(|(key, value)| ((*key).to_owned(), pi_js_compat::js_json::JsString::from(*value)))
         .collect()
 }
 

@@ -147,8 +147,12 @@ impl pi_ai::model_catalog_generator::CatalogFileSystem for FaultFs {
         self.native.remove(path)
     }
 }
-fn normalized_error(text: &str, root: &str, source: bool) -> String {
-    let text = text.replace(root, "<ROOT>");
+fn normalized_error(
+    text: impl Into<pi_js_compat::js_json::JsString>,
+    root: &str,
+    source: bool,
+) -> pi_js_compat::js_json::JsString {
+    let text = text.into().replace(root, "<ROOT>");
     let text = if source {
         text.replace(
             "src/models.generated.ts",
@@ -162,10 +166,9 @@ fn normalized_error(text: &str, root: &str, source: bool) -> String {
     } else {
         text
     };
-    regex::Regex::new(r"\.model-generation-[^/'\s]+")
+    pi_js_compat::js_regex::JsRegex::new(r"\.model-generation-[^/'\s]+")
         .unwrap()
         .replace_all(&text, ".model-generation-<STAGE>")
-        .into_owned()
 }
 
 #[test]

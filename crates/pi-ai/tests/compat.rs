@@ -86,7 +86,7 @@ fn fake_stream(model: &Model) -> AssistantMessageEventStream {
     stream
 }
 
-fn fake_provider(api: &str, captured: Arc<Mutex<Vec<Option<String>>>>) -> ApiProvider {
+fn fake_provider(api: &str, captured: Arc<Mutex<Vec<Option<pi_js_compat::js_json::JsString>>>>) -> ApiProvider {
     let stream_captured = Arc::clone(&captured);
     let simple_captured = Arc::clone(&captured);
     ApiProvider::new(
@@ -110,7 +110,7 @@ fn stream_options() -> StreamOptions {
 }
 
 fn scoped_env(name: &str, value: &str) -> Option<ProviderEnv> {
-    Some(indexmap::IndexMap::from([(name.to_owned(), value.to_owned())]))
+    Some(indexmap::IndexMap::from([(name.into(), value.into())]))
 }
 
 #[test]
@@ -170,7 +170,10 @@ fn registered_provider_receives_the_explicit_api_key() {
         .block_on(complete(model, context(), options))
         .expect("complete");
     assert_eq!(message.content, vec![AssistantContent::Text(TextContent::new("ok"))]);
-    assert_eq!(*captured.lock().unwrap(), vec![Some("request-key".to_owned())]);
+    assert_eq!(
+        *captured.lock().unwrap(),
+        vec![Some(pi_js_compat::js_json::JsString::from("request-key"))]
+    );
 }
 
 #[test]
@@ -192,7 +195,10 @@ fn scoped_env_key_is_injected_through_a_builtin_provider_override() {
         .unwrap()
         .block_on(complete(model, context(), options))
         .expect("complete");
-    assert_eq!(*captured.lock().unwrap(), vec![Some("env-key".to_owned())]);
+    assert_eq!(
+        *captured.lock().unwrap(),
+        vec![Some(pi_js_compat::js_json::JsString::from("env-key"))]
+    );
 }
 
 #[test]
@@ -220,7 +226,7 @@ fn explicit_key_beats_the_scoped_env_key_and_blank_keys_fall_back() {
         runtime.block_on(complete(model, context(), options)).expect("complete");
         assert_eq!(
             captured.lock().unwrap().pop(),
-            Some(Some(expected.to_owned())),
+            Some(Some(pi_js_compat::js_json::JsString::from(expected))),
             "explicit key {explicit:?}"
         );
     }
@@ -269,7 +275,10 @@ fn stream_simple_injects_the_env_key_and_keeps_reasoning_options() {
     let _ = tokio::runtime::Runtime::new().unwrap().block_on(stream.result());
     assert_eq!(
         *simple_seen.lock().unwrap(),
-        vec![(Some("env-key".to_owned()), Some(pi_ai::types::ThinkingLevel::High))]
+        vec![(
+            Some(pi_js_compat::js_json::JsString::from("env-key")),
+            Some(pi_ai::types::ThinkingLevel::High)
+        )]
     );
 }
 

@@ -104,7 +104,7 @@ async fn sse_human_error_is_persistent_and_final_exact_utf16() {
         if api == "openai-codex-responses" {
             let claims =
                 pi_js_compat::base64::btoa(br#"{"https://api.openai.com/auth":{"chatgpt_account_id":"fake-account"}}"#);
-            options.request.api_key = Some(format!("fake.{claims}.fake"));
+            options.request.api_key = Some((format!("fake.{claims}.fake")).into());
             options.transport = Some(pi_ai::types::Transport::Sse);
         }
         let context = Context {
@@ -169,7 +169,7 @@ fn options(api: &str) -> pi_ai::request::StreamOptions {
     options.request.api_key = Some(if api == "openai-codex-responses" {
         let claims =
             pi_js_compat::base64::btoa(br#"{"https://api.openai.com/auth":{"chatgpt_account_id":"fake-account"}}"#);
-        format!("fake.{claims}.fake")
+        (format!("fake.{claims}.fake")).into()
     } else {
         "fake".into()
     });

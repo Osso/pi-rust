@@ -144,7 +144,7 @@ async fn wait_for_auth_url(interaction: &TestInteraction) -> String {
             .into_iter()
             .find(|event| matches!(event, AuthEvent::AuthUrl { .. }))
         {
-            return url;
+            return pi_js_compat::js_json::encode_node_utf8(&url);
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -600,7 +600,11 @@ fn compare_radius_config(oracle: &mut oracle::TsOracle) {
     let actual = Value::Array(
         normalize_values
             .iter()
-            .map(|value| Value::String(normalize_radius_gateway_url(value)))
+            .map(|value| {
+                json!(normalize_radius_gateway_url(&pi_js_compat::js_json::JsString::from(
+                    *value
+                )))
+            })
             .collect(),
     );
     assert_eq!(actual, expected["results"], "radius URL normalization mismatch");
@@ -633,7 +637,7 @@ fn compare_radius_config(oracle: &mut oracle::TsOracle) {
     let parsed = sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&config)).expect("config");
     let actual = json!([
         serde_json::to_value(&parsed).expect("config JSON"),
-        serde_json::to_value(get_radius_models_from_config("radius", &parsed)).expect("models JSON"),
+        serde_json::to_value(get_radius_models_from_config("radius", &parsed.unwrap())).expect("models JSON"),
     ]);
     assert_eq!(actual, expected["results"], "radius config mismatch");
 }

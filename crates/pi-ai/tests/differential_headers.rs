@@ -66,7 +66,7 @@ fn header_record_order_matches_the_pinned_typescript_module() {
     let headers: Option<ProviderHeaders> = provider_request["headers"].as_object().map(|object| {
         object
             .iter()
-            .map(|(key, value)| (key.clone(), value.as_str().map(str::to_owned)))
+            .map(|(key, value)| (key.clone(), value.as_str().map(pi_js_compat::js_json::JsString::from)))
             .collect()
     });
     let record = provider_headers_to_record(headers.as_ref());
@@ -108,7 +108,7 @@ fn header_records_match_the_pinned_typescript_module() {
         let headers: Option<ProviderHeaders> = request["headers"].as_object().map(|object| {
             object
                 .iter()
-                .map(|(key, value)| (key.clone(), value.as_str().map(str::to_owned)))
+                .map(|(key, value)| (key.clone(), value.as_str().map(pi_js_compat::js_json::JsString::from)))
                 .collect()
         });
         let record = provider_headers_to_record(headers.as_ref());

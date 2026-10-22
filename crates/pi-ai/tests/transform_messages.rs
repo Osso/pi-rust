@@ -129,10 +129,10 @@ fn converts_thinking_blocks_to_text_when_the_source_model_differs() {
             .iter()
             .any(|block| matches!(block, AssistantContent::Thinking(_)))
     );
-    let texts: Vec<&str> = content
+    let texts: Vec<&pi_js_compat::js_json::JsString> = content
         .iter()
         .filter_map(|block| match block {
-            AssistantContent::Text(text) => Some(text.text.as_str()),
+            AssistantContent::Text(text) => Some(&text.text),
             _ => None,
         })
         .collect();

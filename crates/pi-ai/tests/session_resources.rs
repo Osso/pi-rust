@@ -2,10 +2,13 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::session_resources::{SessionResourceCleanup, cleanup_session_resources, register_session_resource_cleanup};
 
-fn recorder(marker: &'static str, calls: Arc<Mutex<Vec<Option<String>>>>) -> SessionResourceCleanup {
+fn recorder(
+    marker: &'static str,
+    calls: Arc<Mutex<Vec<Option<pi_js_compat::js_json::JsString>>>>,
+) -> SessionResourceCleanup {
     Box::new(move |session_id| {
         if session_id == Some(&pi_js_compat::js_json::JsString::from(marker)) {
-            calls.lock().unwrap().push(session_id.map(str::to_owned));
+            calls.lock().unwrap().push(session_id.cloned());
         }
         Ok(())
     })
@@ -22,7 +25,10 @@ fn invokes_registered_cleanups_with_the_session_id() {
 
     assert_eq!(
         calls.lock().unwrap().as_slice(),
-        &[Some(marker.to_owned()), Some(marker.to_owned())]
+        &[
+            Some(pi_js_compat::js_json::JsString::from(marker)),
+            Some(pi_js_compat::js_json::JsString::from(marker))
+        ]
     );
 }
 
@@ -40,7 +46,7 @@ fn unregister_stops_invocations() {
 
 #[test]
 fn passes_a_missing_session_id_as_none() {
-    let observed: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let observed: Arc<Mutex<Vec<Option<pi_js_compat::js_json::JsString>>>> = Arc::new(Mutex::new(Vec::new()));
     let calls = Arc::clone(&observed);
     // The registry is process-global; parallel tests call it with their own markers.
     let _registration = register_session_resource_cleanup(Box::new(move |session_id| {
@@ -58,13 +64,13 @@ fn passes_a_missing_session_id_as_none() {
 #[test]
 fn aggregates_cleanup_errors() {
     let marker = "session-resources-errors";
-    let _first = register_session_resource_cleanup(Box::new(|session_id| {
+    let _first = register_session_resource_cleanup(Box::new(move |session_id| {
         if session_id == Some(&pi_js_compat::js_json::JsString::from(marker)) {
             return Err("first failure".into());
         }
         Ok(())
     }));
-    let _second = register_session_resource_cleanup(Box::new(|session_id| {
+    let _second = register_session_resource_cleanup(Box::new(move |session_id| {
         if session_id == Some(&pi_js_compat::js_json::JsString::from(marker)) {
             return Err("second failure".into());
         }

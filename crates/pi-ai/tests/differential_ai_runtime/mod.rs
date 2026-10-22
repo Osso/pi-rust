@@ -132,7 +132,7 @@ struct TestAuthContext {
 impl AuthContext for TestAuthContext {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
         let value = self.env.get(name).cloned();
-        (Box::pin(async move { value })).map(pi_js_compat::js_json::JsString::from)
+        Box::pin(async move { value.map(pi_js_compat::js_json::JsString::from) })
     }
     fn file_exists(&self, _path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
         Box::pin(async { false })
@@ -161,7 +161,7 @@ impl OAuthAuth for IdentityOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access_utf8()?),
+                api_key: Some(credential.access),
                 headers: None,
                 base_url: None,
             })
@@ -545,14 +545,14 @@ impl ApiKeyAuth for HeaderAuth {
                 auth: ModelAuth {
                     api_key: Some(("provider-key".to_owned()).into()),
                     headers: Some(indexmap::IndexMap::from([
-                        ("Authorization".to_owned(), Some("Bearer provider".to_owned())),
-                        ("X-Shared".to_owned(), Some("provider".to_owned())),
+                        ("Authorization".into(), Some("Bearer provider".into())),
+                        ("X-Shared".into(), Some("provider".into())),
                     ])),
                     base_url: Some(("https://resolved.test/v1".to_owned()).into()),
                 },
                 env: Some(indexmap::IndexMap::from([
-                    ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
-                    ("SHARED".to_owned(), "provider".to_owned()),
+                    ("PROVIDER_ONLY".into(), "provider".into()),
+                    ("SHARED".into(), "provider".into()),
                 ])),
                 source: None,
             }))
@@ -602,8 +602,8 @@ fn compare_apply_auth(oracle: &mut oracle::TsOracle) {
     let captured = Arc::new(Mutex::new(None));
     let mut model: Model = serde_json::from_value(model_json("p1", "m1")).unwrap();
     model.headers = Some(indexmap::IndexMap::from([
-        ("x-model".to_owned(), "model".to_owned()),
-        ("x-shared".to_owned(), "model".to_owned()),
+        ("x-model".into(), "model".into()),
+        ("x-shared".into(), "model".into()),
     ]));
     let provider = create_provider(CreateProviderOptions {
         id: "p1".to_owned(),
@@ -636,12 +636,12 @@ fn compare_apply_auth(oracle: &mut oracle::TsOracle) {
                             request: ProviderRequestOptions {
                                 api_key: Some(("request-key".to_owned()).into()),
                                 headers: Some(indexmap::IndexMap::from([
-                                    ("X-Request".to_owned(), Some("request".to_owned())),
-                                    ("x-shared".to_owned(), Some("request".to_owned())),
+                                    ("X-Request".into(), Some("request".into())),
+                                    ("x-shared".into(), Some("request".into())),
                                 ])),
                                 env: Some(indexmap::IndexMap::from([
-                                    ("REQUEST_ONLY".to_owned(), "request".to_owned()),
-                                    ("SHARED".to_owned(), "request".to_owned()),
+                                    ("REQUEST_ONLY".into(), "request".into()),
+                                    ("SHARED".into(), "request".into()),
                                 ])),
                                 transform_headers: Some(Arc::new(|mut headers| {
                                     headers.insert("X-Transformed".to_owned(), Some(("yes".to_owned()).into()));

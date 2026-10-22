@@ -107,33 +107,44 @@ fn auth_from_request(value: &Value) -> Option<AuthResult> {
     let auth = value.get("auth")?.as_object()?;
     Some(AuthResult {
         auth: ModelAuth {
-            api_key: (auth.get("apiKey").and_then(Value::as_str).map(str::to_owned))
-                .map(pi_js_compat::js_json::JsString::from),
+            api_key: (auth
+                .get("apiKey")
+                .and_then(Value::as_str)
+                .map(pi_js_compat::js_json::JsString::from))
+            .map(pi_js_compat::js_json::JsString::from),
             headers: auth.get("headers").and_then(headers_from_value),
-            base_url: (auth.get("baseUrl").and_then(Value::as_str).map(str::to_owned))
-                .map(pi_js_compat::js_json::JsString::from),
+            base_url: (auth
+                .get("baseUrl")
+                .and_then(Value::as_str)
+                .map(pi_js_compat::js_json::JsString::from))
+            .map(pi_js_compat::js_json::JsString::from),
         },
         env: auth.get("env").and_then(env_from_value),
         source: None,
     })
 }
 
-fn headers_from_value(value: &Value) -> Option<indexmap::IndexMap<String, Option<String>>> {
+fn headers_from_value(value: &Value) -> Option<indexmap::IndexMap<String, Option<pi_js_compat::js_json::JsString>>> {
     let object = value.as_object()?;
     Some(
         object
             .iter()
-            .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
+            .map(|(name, value)| (name.clone(), value.as_str().map(pi_js_compat::js_json::JsString::from)))
             .collect(),
     )
 }
 
-fn env_from_value(value: &Value) -> Option<indexmap::IndexMap<String, String>> {
+fn env_from_value(value: &Value) -> Option<indexmap::IndexMap<String, pi_js_compat::js_json::JsString>> {
     let object = value.as_object()?;
     Some(
         object
             .iter()
-            .map(|(name, value)| (name.clone(), value.as_str().expect("string").to_owned()))
+            .map(|(name, value)| {
+                (
+                    name.clone(),
+                    pi_js_compat::js_json::JsString::from(value.as_str().expect("string")),
+                )
+            })
             .collect(),
     )
 }
@@ -199,8 +210,11 @@ fn observed(request: &Value) -> Value {
         "generate" => {
             let mut options = ImagesOptions::default();
             if let Some(option_values) = request.get("options").and_then(Value::as_object) {
-                options.request.api_key = (option_values.get("apiKey").and_then(Value::as_str).map(str::to_owned))
-                    .map(pi_js_compat::js_json::JsString::from);
+                options.request.api_key = (option_values
+                    .get("apiKey")
+                    .and_then(Value::as_str)
+                    .map(pi_js_compat::js_json::JsString::from))
+                .map(pi_js_compat::js_json::JsString::from);
                 options.request.headers = option_values.get("headers").and_then(headers_from_value);
                 options.request.env = option_values.get("env").and_then(env_from_value);
             }

@@ -144,7 +144,7 @@ impl ErrorCase {
 fn body_value(body: &ErrorBody) -> Value {
     match body {
         ErrorBody::Text(text) => json!(text),
-        ErrorBody::Json(value) => value.clone(),
+        ErrorBody::Json(value) => json!(value),
     }
 }
 
@@ -319,7 +319,7 @@ pub(crate) fn run_trim() {
             .map(|space| {
                 case(
                     ProviderError {
-                        body: Some(ErrorBody::Text(format!("{space}body{space}"))),
+                        body: Some(ErrorBody::Text((format!("{space}body{space}")).into())),
                         ..base("failed")
                     },
                     None,

@@ -82,8 +82,8 @@ fn provider_headers(value: Option<&Value>) -> Option<ProviderHeaders> {
                     name.clone(),
                     match value {
                         Value::Null => None,
-                        Value::String(value) => Some(value.clone()),
-                        other => Some(other.to_string()),
+                        Value::String(value) => Some(pi_js_compat::js_json::JsString::from(value)),
+                        other => Some(pi_js_compat::js_json::JsString::from(other.to_string())),
                     },
                 )
             })
@@ -117,7 +117,12 @@ fn stream_options(
     if let Some(env) = stream.get("env").and_then(Value::as_object) {
         request.env = Some(
             env.iter()
-                .map(|(key, value)| (key.clone(), value.as_str().unwrap_or("").to_owned()))
+                .map(|(key, value)| {
+                    (
+                        key.clone(),
+                        pi_js_compat::js_json::JsString::from(value.as_str().unwrap_or("")),
+                    )
+                })
                 .collect::<indexmap::IndexMap<_, _>>(),
         );
     }

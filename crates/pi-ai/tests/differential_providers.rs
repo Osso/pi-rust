@@ -35,11 +35,14 @@ struct FakeAuthContext {
 impl AuthContext for FakeAuthContext {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
         let value = self.env.get(name).cloned();
-        (Box::pin(async move { value })).map(pi_js_compat::js_json::JsString::from)
+        Box::pin(async move { value.map(pi_js_compat::js_json::JsString::from) })
     }
 
     fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
-        let exists = self.files.iter().any(|file| file == path);
+        let exists = self
+            .files
+            .iter()
+            .any(|file| pi_js_compat::js_json::JsString::from(file) == *path);
         Box::pin(async move { exists })
     }
 }
@@ -297,10 +300,10 @@ fn prompt_json(kind: &AuthPromptKind) -> Value {
                     .iter()
                     .map(|option| {
                         let mut value = Map::new();
-                        value.insert("id".to_owned(), Value::String(option.id.clone()));
-                        value.insert("label".to_owned(), Value::String(option.label.clone()));
+                        value.insert("id".to_owned(), json!(option.id));
+                        value.insert("label".to_owned(), json!(option.label));
                         if let Some(description) = &option.description {
-                            value.insert("description".to_owned(), Value::String(description.clone()));
+                            value.insert("description".to_owned(), json!(description));
                         }
                         Value::Object(value)
                     })
@@ -310,12 +313,17 @@ fn prompt_json(kind: &AuthPromptKind) -> Value {
     }
 }
 
-fn prompt_entry(kind: &str, message: &str, placeholder: &Option<String>, options: Option<Vec<Value>>) -> Value {
+fn prompt_entry(
+    kind: &str,
+    message: &pi_js_compat::js_json::JsString,
+    placeholder: &Option<pi_js_compat::js_json::JsString>,
+    options: Option<Vec<Value>>,
+) -> Value {
     let mut value = Map::new();
     value.insert("type".to_owned(), Value::String(kind.to_owned()));
-    value.insert("message".to_owned(), Value::String(message.to_owned()));
+    value.insert("message".to_owned(), json!(message));
     if let Some(placeholder) = placeholder {
-        value.insert("placeholder".to_owned(), Value::String(placeholder.clone()));
+        value.insert("placeholder".to_owned(), json!(placeholder));
     }
     if let Some(options) = options {
         value.insert("options".to_owned(), Value::Array(options));
@@ -408,7 +416,7 @@ fn cloudflare_model_resolution_matches_ts() {
 
     for (case, ts_result) in cases.iter().zip(ts_results) {
         let model: Model = serde_json::from_value(case["model"].clone()).expect("model");
-        let env: Option<indexmap::IndexMap<String, String>> = case
+        let env: Option<indexmap::IndexMap<String, pi_js_compat::js_json::JsString>> = case
             .get("env")
             .filter(|value| value.as_object().is_some_and(|object| !object.is_empty()))
             .map(|value| string_map(value).into_iter().collect());

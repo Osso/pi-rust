@@ -47,7 +47,12 @@ fn provider_env_resolution_matches_the_pinned_typescript_module() {
         let scoped: Option<ProviderEnv> = request["env"].as_object().map(|object| {
             object
                 .iter()
-                .map(|(key, value)| (key.clone(), value.as_str().expect("string").to_owned()))
+                .map(|(key, value)| {
+                    (
+                        key.clone(),
+                        pi_js_compat::js_json::JsString::from(value.as_str().expect("string")),
+                    )
+                })
                 .collect()
         });
         let value = resolve_provider_env_value(request["name"].as_str().expect("name"), scoped.as_ref(), |name| {

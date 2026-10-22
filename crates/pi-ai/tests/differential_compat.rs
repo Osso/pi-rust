@@ -88,7 +88,7 @@ fn fake_stream(model: &Model) -> AssistantMessageEventStream {
     stream
 }
 
-type Seen = Arc<Mutex<Vec<(Option<String>, Option<ThinkingLevel>)>>>;
+type Seen = Arc<Mutex<Vec<(Option<pi_js_compat::js_json::JsString>, Option<ThinkingLevel>)>>>;
 
 fn fake_provider(api: &str, seen: Seen) -> ApiProvider {
     let stream_seen = Arc::clone(&seen);
@@ -183,7 +183,12 @@ fn dispatch_injects_env_keys_like_the_pinned_typescript_module() {
         let api_key = options["apiKey"].as_str().map(str::to_owned);
         let env = options["env"].as_object().map(|env| {
             env.iter()
-                .map(|(name, value)| (name.clone(), value.as_str().expect("env value").to_owned()))
+                .map(|(name, value)| {
+                    (
+                        name.clone(),
+                        pi_js_compat::js_json::JsString::from(value.as_str().expect("env value")),
+                    )
+                })
                 .collect::<ProviderEnv>()
         });
         let reasoning = options["reasoning"].as_str().map(|level| match level {
