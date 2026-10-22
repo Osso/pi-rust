@@ -35,14 +35,20 @@ pub fn claude_memory_enrich_extension(pi: &ExtensionApi) -> Result<(), HandlerEr
                     return Ok(None);
                 };
 
-                match run_enrich(&command, &prompt, ctx.signal()?).await {
+                match run_enrich(
+                    &command,
+                    &pi_js_compat::js_json::encode_node_utf8(&prompt),
+                    ctx.signal()?,
+                )
+                .await
+                {
                     Ok(Some(additional_context)) => Ok(Some(BeforeAgentStartEventResult {
                         message: None,
                         system_prompt: Some(append_enrichment(&event.system_prompt, &additional_context)),
                     })),
                     Ok(None) => Ok(None),
                     Err(error) => {
-                        eprintln!("claude-memory-enrich: {}", error.message);
+                        eprintln!("claude-memory-enrich: {error}");
                         Ok(None)
                     }
                 }

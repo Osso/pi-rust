@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::harness::ThinkingLevel;
-use regex::Regex;
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 
 use crate::core::agent_session::thinking_level_from_model;
 use crate::core::extensions::types::{
@@ -74,10 +74,10 @@ fn is_child_runtime(ctx: &ExtensionContext) -> Result<bool, HandlerError> {
     Ok(ctx.multi_agent_agent_id()?.is_some() || ctx.multi_agent_requires_agent_id()?)
 }
 
-pub fn parse_multi_agent_mode(value: &str) -> Option<MultiAgentMode> {
-    match value {
-        "proactive" => Some(MultiAgentMode::Proactive),
-        "explicit" => Some(MultiAgentMode::Explicit),
+pub fn parse_multi_agent_mode(value: impl Into<JsString>) -> Option<MultiAgentMode> {
+    match value.into() {
+        value if value == "proactive" => Some(MultiAgentMode::Proactive),
+        value if value == "explicit" => Some(MultiAgentMode::Explicit),
         _ => None,
     }
 }
@@ -98,9 +98,9 @@ pub fn format_effort_levels(levels: &[ThinkingLevel]) -> String {
     levels.iter().map(|level| level.as_str()).collect::<Vec<_>>().join(", ")
 }
 
-pub fn find_selected_effort(levels: &[ThinkingLevel], effort: &str) -> Option<ThinkingLevel> {
-    let requested = effort.to_lowercase();
-    levels.iter().copied().find(|level| level.as_str() == requested)
+pub fn find_selected_effort(levels: &[ThinkingLevel], effort: impl Into<JsString>) -> Option<ThinkingLevel> {
+    let requested = effort.into().to_lowercase();
+    levels.iter().copied().find(|level| requested == level.as_str())
 }
 
 fn clear_editor(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
@@ -122,7 +122,7 @@ fn restore_delegation_mode(state: &DelegationState, ctx: &ExtensionContext) -> R
             .data
             .as_ref()
             .and_then(|data| data.get("mode"))
-            .and_then(serde_json::Value::as_str)
+            .and_then(JsValue::as_string)
             .and_then(parse_multi_agent_mode)
         else {
             continue;
@@ -135,7 +135,7 @@ fn restore_delegation_mode(state: &DelegationState, ctx: &ExtensionContext) -> R
 fn persist_delegation_mode(pi: &ExtensionApi, state: &DelegationState) -> Result<(), HandlerError> {
     pi.append_entry(
         DELEGATION_MODE_ENTRY,
-        Some(serde_json::json!({ "mode": state.mode().as_str() })),
+        Some(serde_json::json!({ "mode": state.mode().as_str() }).into()),
     )
 }
 
@@ -156,23 +156,34 @@ pub fn policy_text(mode: MultiAgentMode) -> String {
     format!("{POLICY_START}{}{POLICY_END}", mode.policy())
 }
 
-pub fn remove_delegation_policy(system_prompt: &str) -> String {
-    let pattern = Regex::new(&format!(
-        r"\n*{}[\s\S]*?{}\n*",
-        regex::escape(POLICY_START),
-        regex::escape(POLICY_END)
-    ))
-    .expect("static delegation policy pattern");
-    pi_js_compat::string::js_trim_end(&pattern.replace_all(system_prompt, "")).to_owned()
+pub fn remove_delegation_policy(system_prompt: &JsString) -> JsString {
+    let mut prompt = system_prompt.clone();
+    let mut offset = 0;
+    while let Some(start) = prompt.find_from(POLICY_START, offset) {
+        let Some(end) = prompt.find_from(POLICY_END, start + POLICY_START.len()) else {
+            break;
+        };
+        let mut begin = start;
+        while begin > 0 && prompt.units()[begin - 1] == 10 {
+            begin -= 1;
+        }
+        let mut end = end + POLICY_END.len();
+        while end < prompt.len() && prompt.units()[end] == 10 {
+            end += 1;
+        }
+        prompt.replace_range(begin..end, "");
+        offset = begin;
+    }
+    prompt.trim_end()
 }
 
-pub fn inject_delegation_policy(system_prompt: &str, mode: MultiAgentMode) -> String {
+pub fn inject_delegation_policy(system_prompt: &JsString, mode: MultiAgentMode) -> JsString {
     let base_prompt = remove_delegation_policy(system_prompt);
-    let policy = policy_text(mode);
+    let policy = JsString::from(policy_text(mode));
     if base_prompt.is_empty() {
         policy
     } else {
-        format!("{base_prompt}\n\n{policy}")
+        base_prompt + "\n\n" + policy
     }
 }
 
@@ -202,7 +213,8 @@ fn set_delegation_mode(
     clear_editor(ctx)
 }
 
-fn show_invalid_mode(ctx: &ExtensionCommandContext, requested_mode: &str) -> Result<(), HandlerError> {
+fn show_invalid_mode(ctx: &ExtensionCommandContext, requested_mode: &JsString) -> Result<(), HandlerError> {
+    let requested_mode = encode_node_utf8(requested_mode);
     ctx.ui()?.notify(
         &format!("Invalid multi-agent mode \"{requested_mode}\". Available: proactive, explicit"),
         Some(NotifyType::Warning),
@@ -224,7 +236,7 @@ async fn select_delegation_mode(ctx: &ExtensionCommandContext) -> Result<Option<
 }
 
 pub async fn handle_delegation_command(
-    args: &str,
+    args: &JsString,
     ctx: &ExtensionCommandContext,
     pi: &ExtensionApi,
     state: &DelegationState,
@@ -238,7 +250,7 @@ pub async fn handle_delegation_command(
         return Ok(());
     }
 
-    let requested_mode = pi_js_compat::string::js_trim(args).to_lowercase();
+    let requested_mode = args.trim().to_lowercase();
     let mode = if requested_mode.is_empty() {
         select_delegation_mode(ctx).await?
     } else {
@@ -285,9 +297,10 @@ fn set_effort(
 
 fn show_invalid_effort(
     ctx: &ExtensionCommandContext,
-    requested_effort: &str,
+    requested_effort: &JsString,
     levels: &[ThinkingLevel],
 ) -> Result<(), HandlerError> {
+    let requested_effort = encode_node_utf8(requested_effort);
     ctx.ui()?.notify(
         &format!(
             "Invalid effort \"{requested_effort}\". Available: {}",
@@ -314,7 +327,7 @@ async fn select_effort(
 }
 
 pub async fn handle_effort_command(
-    args: &str,
+    args: &JsString,
     ctx: &ExtensionCommandContext,
     pi: &ExtensionApi,
     state: &DelegationState,
@@ -325,7 +338,7 @@ pub async fn handle_effort_command(
         return Ok(());
     };
 
-    let requested_effort = pi_js_compat::string::js_trim(args).to_owned();
+    let requested_effort = args.trim();
     let selected_effort = if requested_effort.is_empty() {
         select_effort(ctx, &levels).await?
     } else {

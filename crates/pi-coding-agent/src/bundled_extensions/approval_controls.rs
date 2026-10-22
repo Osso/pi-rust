@@ -17,7 +17,7 @@ pub fn approval_controls_extension(pi: &ExtensionApi) -> Result<(), HandlerError
         "approvals",
         Some("Select approval preset".to_owned()),
         None,
-        Arc::new(|_args: String, ctx: ExtensionCommandContext| {
+        Arc::new(|_args: pi_js_compat::js_json::JsString, ctx: ExtensionCommandContext| {
             Box::pin(async move {
                 ctx.show_approval_selector()?;
                 clear_editor(&ctx)?;
@@ -31,14 +31,17 @@ pub fn approval_controls_extension(pi: &ExtensionApi) -> Result<(), HandlerError
         "sandbox",
         Some("Select or set sandbox profile".to_owned()),
         None,
-        Arc::new(|args: String, ctx: ExtensionCommandContext| {
+        Arc::new(|args: pi_js_compat::js_json::JsString, ctx: ExtensionCommandContext| {
             Box::pin(async move { handle_sandbox_command(&args, &ctx).await })
         }),
     )
     .map_err(HandlerError::new)
 }
 
-async fn handle_sandbox_command(args: &str, ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
+async fn handle_sandbox_command(
+    args: &pi_js_compat::js_json::JsString,
+    ctx: &ExtensionCommandContext,
+) -> Result<(), HandlerError> {
     if args.trim().is_empty() {
         ctx.show_sandbox_selector()?;
         clear_editor(ctx)?;
@@ -67,8 +70,8 @@ fn clear_editor(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
     Ok(())
 }
 
-fn parse_sandbox_selection(args: &str) -> Option<SandboxCommandSelection> {
-    let normalized = args.trim().to_lowercase();
+fn parse_sandbox_selection(args: &pi_js_compat::js_json::JsString) -> Option<SandboxCommandSelection> {
+    let normalized = args.trim().to_lowercase().to_utf8().ok()?;
     let mut parts = normalized.split_whitespace();
     let profile_argument = parts.next()?;
     let scope_argument = parts.next()?;

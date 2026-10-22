@@ -21,10 +21,10 @@ enum QuitAction {
 
 fn read_current_session_and_notify(
     command: &str,
-    args: &str,
+    args: &pi_js_compat::js_json::JsString,
     ctx: &ExtensionCommandContext,
 ) -> Result<Option<CurrentSession>, HandlerError> {
-    if !pi_js_compat::string::js_trim(args).is_empty() {
+    if !args.trim().is_empty() {
         ctx.ui()?
             .notify(&format!("Usage: /{command}"), Some(NotifyType::Warning));
         return Ok(None);
@@ -141,7 +141,7 @@ fn register_quit_handler(pi: &ExtensionApi, pending: PendingQuitAction) -> Resul
 
 async fn execute_session_command(
     command: &str,
-    args: &str,
+    args: &pi_js_compat::js_json::JsString,
     ctx: ExtensionCommandContext,
     pending: PendingQuitAction,
 ) -> Result<(), HandlerError> {

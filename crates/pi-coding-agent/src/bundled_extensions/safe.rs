@@ -53,36 +53,38 @@ pub fn safe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         "safe",
         Some("Restrict tool calls to web_search and ask_questions for this session.".to_owned()),
         Some(completions),
-        Arc::new(move |args: String, ctx: ExtensionCommandContext| {
-            let enabled = Arc::clone(&command_enabled);
-            Box::pin(async move {
-                let action = parse_safe_command(if args.is_empty() { "status" } else { &args });
-                let Some(action) = action else {
-                    ctx.ui()?.notify("Usage: /safe on|off|status", Some(NotifyType::Error));
-                    return Ok(());
-                };
+        Arc::new(
+            move |args: pi_js_compat::js_json::JsString, ctx: ExtensionCommandContext| {
+                let enabled = Arc::clone(&command_enabled);
+                Box::pin(async move {
+                    let action = parse_safe_command(if args.is_empty() { "status".into() } else { args });
+                    let Some(action) = action else {
+                        ctx.ui()?.notify("Usage: /safe on|off|status", Some(NotifyType::Error));
+                        return Ok(());
+                    };
 
-                if action == "status" {
-                    ctx.ui()?
-                        .notify(safe_mode_status(enabled.load(Ordering::SeqCst)), Some(NotifyType::Info));
-                    return Ok(());
-                }
+                    if action == "status" {
+                        ctx.ui()?
+                            .notify(safe_mode_status(enabled.load(Ordering::SeqCst)), Some(NotifyType::Info));
+                        return Ok(());
+                    }
 
-                let next = action == "on";
-                enabled.store(next, Ordering::SeqCst);
-                update_safe_status(&ctx, next)?;
-                ctx.ui()?.notify(
-                    if next {
-                        "Safe mode enabled"
-                    } else {
-                        "Safe mode disabled"
-                    },
-                    Some(NotifyType::Info),
-                );
-                ctx.ui()?.set_editor_text("");
-                Ok(())
-            })
-        }),
+                    let next = action == "on";
+                    enabled.store(next, Ordering::SeqCst);
+                    update_safe_status(&ctx, next)?;
+                    ctx.ui()?.notify(
+                        if next {
+                            "Safe mode enabled"
+                        } else {
+                            "Safe mode disabled"
+                        },
+                        Some(NotifyType::Info),
+                    );
+                    ctx.ui()?.set_editor_text("");
+                    Ok(())
+                })
+            },
+        ),
     )
     .map_err(HandlerError::new)
 }
@@ -97,9 +99,9 @@ fn update_safe_status(ctx: &ExtensionContext, enabled: bool) -> Result<(), Handl
     Ok(())
 }
 
-fn parse_safe_command(args: &str) -> Option<&'static str> {
+fn parse_safe_command(args: pi_js_compat::js_json::JsString) -> Option<&'static str> {
     let value = args.trim();
-    SAFE_COMMAND_ACTIONS.into_iter().find(|action| *action == value)
+    SAFE_COMMAND_ACTIONS.into_iter().find(|action| value == *action)
 }
 
 fn block_disallowed_tool(event: &ToolCallEvent, enabled: bool) -> Option<ToolCallEventResult> {
@@ -108,7 +110,7 @@ fn block_disallowed_tool(event: &ToolCallEvent, enabled: bool) -> Option<ToolCal
     }
     Some(ToolCallEventResult {
         block: Some(true),
-        reason: Some(format!("Safe mode blocks tool: {}", event.tool_name.as_str())),
+        reason: Some(format!("Safe mode blocks tool: {}", event.tool_name.as_str()).into()),
         ..Default::default()
     })
 }
