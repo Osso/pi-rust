@@ -352,7 +352,7 @@ pub enum OperationOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OperationError {
     pub code: String,
-    pub message: String,
+    pub message: JsString,
 }
 
 /// Why compaction summary generation started.

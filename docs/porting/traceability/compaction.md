@@ -6,6 +6,10 @@ Rust: `crates/pi-agent-core/src/harness/compaction/mod.rs`. Tests: `compaction.r
 
 Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
+## Q18 native human-error consumer proof
+
+Against frozen `4f9e6f8a4`, `lossless_provider_errors` proves raw failed/aborted provider completions retain native UTF16 with exact `Summarization failed: ` prefix and aborted identity, plus retry scheduled/finished callbacks. CompactionError.message is JsString; only Display encodes. Earlier module evidence below retains its original pin and is not upgraded by this bounded proof.
+
 ## Exported surface
 
 | TypeScript | Rust | Tests |

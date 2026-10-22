@@ -16,6 +16,8 @@ use std::sync::{Arc, Mutex};
 use pi_ai::request::BoxFuture;
 use tokio_util::sync::CancellationToken;
 
+use pi_js_compat::js_json::JsString;
+
 use crate::config;
 use crate::core::extensions::types::LoadExtensionsResult;
 use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
@@ -102,8 +104,8 @@ pub enum PackageAction {
 /// Result of the ported portion of `handlePackageCommand`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandOutcome {
-    pub stdout: Vec<String>,
-    pub stderr: Vec<pi_js_compat::js_json::JsString>,
+    pub stdout: Vec<JsString>,
+    pub stderr: Vec<JsString>,
     pub exit_code: Option<i32>,
     pub action: Option<PackageAction>,
     pub project_trust_override: Option<bool>,
@@ -139,11 +141,10 @@ fn config_command_usage() -> String {
 }
 
 /// `printConfigCommandHelp` text, including the trailing newline from `console.log`.
-pub fn config_command_help() -> String {
+pub fn config_command_help() -> JsString {
     let chalk = Chalk::stdout();
     let text = format!(
-        "{}
-  {}
+        "\n  {}
 
 Open the resource configuration TUI to enable or disable package resources.
 Without -l, starts in global settings (~/{}/agent/settings.json).
@@ -154,16 +155,15 @@ Options:
   -a, --approve     Trust project-local files for this command with -l
   -na, --no-approve Ignore project-local files for this command with -l
 ",
-        chalk.bold("Usage:"),
         config_command_usage(),
         config_dir_name(),
         config_dir_name(),
     );
-    text
+    chalk.bold("Usage:") + text
 }
 
 /// `printPackageCommandHelp` text, including the trailing newline from `console.log`.
-pub fn package_command_help(command: PackageCommand) -> String {
+pub fn package_command_help(command: PackageCommand) -> JsString {
     let chalk = Chalk::stdout();
     let app_name = app_name();
     let config_dir_name = config_dir_name();
@@ -241,7 +241,7 @@ Options:
             package_command_usage(command)
         ),
     };
-    format!("{}\n  {body}", chalk.bold("Usage:"))
+    chalk.bold("Usage:") + "\n  " + body
 }
 
 /// `parsePackageCommand`.
@@ -601,12 +601,12 @@ pub fn handle_config_command(args: &[String]) -> Option<CommandOutcome> {
 }
 
 /// `list` output text for configured packages.
-pub fn format_package_list(packages: &[crate::core::package_manager::ConfiguredPackage]) -> String {
+pub fn format_package_list(packages: &[crate::core::package_manager::ConfiguredPackage]) -> JsString {
     let chalk = Chalk::stdout();
     if packages.is_empty() {
         return chalk.dim("No packages installed.");
     }
-    let mut lines: Vec<String> = Vec::new();
+    let mut lines: Vec<JsString> = Vec::new();
     let user_packages: Vec<_> = packages
         .iter()
         .filter(|package| package.scope == crate::core::package_manager::InstalledScope::User)
@@ -616,13 +616,13 @@ pub fn format_package_list(packages: &[crate::core::package_manager::ConfiguredP
         .filter(|package| package.scope == crate::core::package_manager::InstalledScope::Project)
         .collect();
 
-    let format_package = |package: &crate::core::package_manager::ConfiguredPackage, lines: &mut Vec<String>| {
+    let format_package = |package: &crate::core::package_manager::ConfiguredPackage, lines: &mut Vec<JsString>| {
         let display = if package.filtered {
             format!("{} (filtered)", package.source)
         } else {
             package.source.clone()
         };
-        lines.push(format!("  {display}"));
+        lines.push(format!("  {display}").into());
         if let Some(installed_path) = &package.installed_path {
             lines.push(chalk.dim(&format!("    {installed_path}")));
         }
@@ -636,18 +636,18 @@ pub fn format_package_list(packages: &[crate::core::package_manager::ConfiguredP
     }
     if !project_packages.is_empty() {
         if !user_packages.is_empty() {
-            lines.push(String::new());
+            lines.push(JsString::default());
         }
         lines.push(chalk.bold("Project packages:"));
         for package in &project_packages {
             format_package(package, &mut lines);
         }
     }
-    lines.join("\n")
+    JsString::join(lines, "\n")
 }
 
 /// `reportProjectTrustWarnings`.
-pub fn report_project_trust_warnings(warnings: &[String]) -> Vec<String> {
+pub fn report_project_trust_warnings(warnings: &[String]) -> Vec<JsString> {
     let chalk = Chalk::stderr();
     warnings
         .iter()
@@ -818,22 +818,20 @@ pub async fn create_command_settings_manager(
 }
 
 /// `reportSettingsErrors`.
-pub fn report_settings_errors(store: &Arc<SettingsManagerStore>, context: &str) -> Vec<String> {
+pub fn report_settings_errors(store: &Arc<SettingsManagerStore>, context: &str) -> Vec<JsString> {
     let errors = store.with(|manager| manager.drain_errors());
     let chalk = Chalk::stderr();
     let mut lines = Vec::new();
     for error in errors {
-        lines.push(chalk.yellow(&format!(
-            "Warning ({context}, {} settings): {}",
-            error.scope.as_str(),
-            error.message
-        )));
+        lines.push(chalk.yellow(
+            JsString::from(format!("Warning ({context}, {} settings): ", error.scope.as_str())) + error.message,
+        ));
     }
     lines
 }
 
 /// `reportProjectTrustWarnings`.
-pub fn report_project_trust_warnings_lines(warnings: &[String]) -> Vec<String> {
+pub fn report_project_trust_warnings_lines(warnings: &[String]) -> Vec<JsString> {
     let chalk = Chalk::stderr();
     warnings
         .iter()
@@ -844,7 +842,7 @@ pub fn report_project_trust_warnings_lines(warnings: &[String]) -> Vec<String> {
 const MODEL_CATALOG_REFRESH_TIMEOUT_MS: u64 = 15_000;
 
 /// `refreshModelCatalogs`.
-pub async fn refresh_model_catalogs(agent_dir: &str) -> Result<(), pi_js_compat::js_json::JsString> {
+pub async fn refresh_model_catalogs(agent_dir: &str) -> Result<(), JsString> {
     let signal = CancellationToken::new();
     let timeout_signal = signal.clone();
     let timer = tokio::spawn(async move {
@@ -856,10 +854,7 @@ pub async fn refresh_model_catalogs(agent_dir: &str) -> Result<(), pi_js_compat:
     result
 }
 
-async fn refresh_model_catalogs_inner(
-    agent_dir: &str,
-    signal: CancellationToken,
-) -> Result<(), pi_js_compat::js_json::JsString> {
+async fn refresh_model_catalogs_inner(agent_dir: &str, signal: CancellationToken) -> Result<(), JsString> {
     let agent_dir_path = std::path::Path::new(agent_dir);
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         auth_path: Some(agent_dir_path.join("auth.json").display().to_string()),
@@ -883,22 +878,17 @@ async fn refresh_model_catalogs_inner(
 }
 
 /// Post-processing of a catalog refresh: timeout, provider errors, success.
-pub fn model_catalog_refresh_outcome(
-    result: pi_ai::models::ModelsRefreshResult,
-) -> Result<(), pi_js_compat::js_json::JsString> {
+pub fn model_catalog_refresh_outcome(result: pi_ai::models::ModelsRefreshResult) -> Result<(), JsString> {
     if result.aborted {
         return Err("Model catalog refresh timed out.".into());
     }
     if !result.errors.is_empty() {
-        let details: Vec<pi_js_compat::js_json::JsString> = result
+        let details: Vec<JsString> = result
             .errors
             .iter()
-            .map(|(provider, error)| pi_js_compat::js_json::JsString::from(provider.as_str()) + ": " + &error.message)
+            .map(|(provider, error)| JsString::from(provider.as_str()) + ": " + &error.message)
             .collect();
-        return Err(
-            pi_js_compat::js_json::JsString::from("Could not refresh model catalogs: ")
-                + pi_js_compat::js_json::JsString::join(details, "; "),
-        );
+        return Err(JsString::from("Could not refresh model catalogs: ") + JsString::join(details, "; "));
     }
     Ok(())
 }
@@ -919,7 +909,7 @@ pub fn self_update_plan(
     force: bool,
     release: &LatestPiRelease,
     current_version: &str,
-) -> (SelfUpdatePlan, Option<String>) {
+) -> (SelfUpdatePlan, Option<JsString>) {
     let package_name = release
         .package_name
         .clone()
@@ -961,7 +951,7 @@ pub async fn get_self_update_plan(
     fetch: &dyn pi_ai::request::Fetch,
     current_version: &str,
     force: bool,
-) -> Result<(SelfUpdatePlan, Option<String>), String> {
+) -> Result<(SelfUpdatePlan, Option<JsString>), String> {
     let release = get_latest_pi_release(
         fetch,
         current_version,
@@ -995,24 +985,25 @@ pub fn self_update_unavailable_lines(
     npm_command: Option<&[String]>,
     target: &config::SelfUpdatePackageTarget,
     entrypoint: Option<&str>,
-) -> Vec<String> {
+) -> Vec<JsString> {
     let package_name = config::package_config().package_name.clone();
     let mut lines = vec![
         format!(
             "error: {} cannot self-update this installation.",
             config::package_config().app_name
-        ),
-        config::get_self_update_unavailable_instruction(context, &package_name, npm_command, Some(target)),
+        )
+        .into(),
+        config::get_self_update_unavailable_instruction(context, &package_name, npm_command, Some(target)).into(),
     ];
     if let Some(entrypoint) = entrypoint {
-        lines.push(String::new());
-        lines.push(format!("Location of pi executable: {entrypoint}"));
+        lines.push(JsString::default());
+        lines.push(format!("Location of pi executable: {entrypoint}").into());
     }
     lines
 }
 
 /// `printSelfUpdateFallback` stderr line.
-pub fn self_update_fallback_line(command: &config::SelfUpdateCommand) -> String {
+pub fn self_update_fallback_line(command: &config::SelfUpdateCommand) -> JsString {
     Chalk::stderr().dim(&format!(
         "If this keeps failing, run this command yourself: {}",
         command.display
@@ -1020,7 +1011,7 @@ pub fn self_update_fallback_line(command: &config::SelfUpdateCommand) -> String 
 }
 
 /// `printPnpmSelfUpdateMetadataHint` stderr lines.
-pub fn pnpm_self_update_metadata_hint_lines() -> Vec<String> {
+pub fn pnpm_self_update_metadata_hint_lines() -> Vec<JsString> {
     let chalk = Chalk::stderr();
     vec![
         chalk.yellow("If pnpm reports missing package versions, its cached registry metadata may be stale."),
@@ -1032,14 +1023,14 @@ pub fn pnpm_self_update_metadata_hint_lines() -> Vec<String> {
 }
 
 /// `printSelfUpdateNote` stdout lines, including the surrounding blank lines.
-pub fn self_update_note_lines(note: &str, columns: Option<usize>) -> Vec<String> {
+pub fn self_update_note_lines(note: &str, columns: Option<usize>) -> Vec<JsString> {
     let trimmed_note = note.trim();
     if trimmed_note.is_empty() {
         return Vec::new();
     }
     let width = columns.unwrap_or(80).max(20);
     let chalk = Chalk::stdout();
-    let mut lines = vec![String::new(), chalk.bold(&chalk.yellow("Update note"))];
+    let mut lines = vec![JsString::default(), chalk.bold(&chalk.yellow("Update note"))];
     let mut markdown = pi_tui::Markdown::new(
         trimmed_note,
         0,
@@ -1048,12 +1039,12 @@ pub fn self_update_note_lines(note: &str, columns: Option<usize>) -> Vec<String>
         None,
         pi_tui::MarkdownOptions::default(),
     );
-    let rendered: Vec<String> = pi_tui::Component::render(&mut markdown, width)
+    let rendered: Vec<JsString> = pi_tui::Component::render(&mut markdown, width)
         .into_iter()
-        .map(|line| line.trim_end().to_owned())
+        .map(|line| JsString::from(line.trim_end()))
         .collect();
     lines.extend(rendered);
-    lines.push(String::new());
+    lines.push(JsString::default());
     lines
 }
 
@@ -1061,60 +1052,60 @@ pub fn self_update_note_lines(note: &str, columns: Option<usize>) -> Vec<String>
 struct SelfUpdateNoteMarkdownTheme;
 
 impl pi_tui::MarkdownTheme for SelfUpdateNoteMarkdownTheme {
-    fn heading(&self, text: &str) -> String {
+    fn heading(&self, text: &JsString) -> JsString {
         let chalk = Chalk::stdout();
         chalk.bold(&chalk.yellow(text))
     }
 
-    fn link(&self, text: &str) -> String {
+    fn link(&self, text: &JsString) -> JsString {
         Chalk::stdout().cyan(text)
     }
 
-    fn link_url(&self, text: &str) -> String {
+    fn link_url(&self, text: &JsString) -> JsString {
         Chalk::stdout().dim(text)
     }
 
-    fn code(&self, text: &str) -> String {
+    fn code(&self, text: &JsString) -> JsString {
         Chalk::stdout().yellow(text)
     }
 
-    fn code_block(&self, text: &str) -> String {
+    fn code_block(&self, text: &JsString) -> JsString {
         Chalk::stdout().dim(text)
     }
 
-    fn code_block_border(&self, text: &str) -> String {
+    fn code_block_border(&self, text: &JsString) -> JsString {
         Chalk::stdout().dim(text)
     }
 
-    fn quote(&self, text: &str) -> String {
+    fn quote(&self, text: &JsString) -> JsString {
         Chalk::stdout().dim(text)
     }
 
-    fn quote_border(&self, text: &str) -> String {
+    fn quote_border(&self, text: &JsString) -> JsString {
         Chalk::stdout().dim(text)
     }
 
-    fn hr(&self, text: &str) -> String {
+    fn hr(&self, text: &JsString) -> JsString {
         Chalk::stdout().dim(text)
     }
 
-    fn list_bullet(&self, text: &str) -> String {
+    fn list_bullet(&self, text: &JsString) -> JsString {
         Chalk::stdout().yellow(text)
     }
 
-    fn bold(&self, text: &str) -> String {
+    fn bold(&self, text: &JsString) -> JsString {
         Chalk::stdout().bold(text)
     }
 
-    fn italic(&self, text: &str) -> String {
+    fn italic(&self, text: &JsString) -> JsString {
         Chalk::stdout().italic(text)
     }
 
-    fn strikethrough(&self, text: &str) -> String {
+    fn strikethrough(&self, text: &JsString) -> JsString {
         Chalk::stdout().strikethrough(text)
     }
 
-    fn underline(&self, text: &str) -> String {
+    fn underline(&self, text: &JsString) -> JsString {
         Chalk::stdout().underline(text)
     }
 }
@@ -1199,10 +1190,7 @@ pub trait PackageCommandEffects {
         &'a self,
         options: CreateCommandSettingsOptions,
     ) -> LocalBoxFuture<'a, Result<CommandSettings, String>>;
-    fn refresh_model_catalogs<'a>(
-        &'a self,
-        agent_dir: &'a str,
-    ) -> LocalBoxFuture<'a, Result<(), pi_js_compat::js_json::JsString>>;
+    fn refresh_model_catalogs<'a>(&'a self, agent_dir: &'a str) -> LocalBoxFuture<'a, Result<(), JsString>>;
     fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, String>>;
     fn run_self_update<'a>(&'a self, command: &'a config::SelfUpdateCommand) -> LocalBoxFuture<'a, Result<(), String>>;
     fn select_config<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), String>>;
@@ -1255,9 +1243,7 @@ pub async fn execute_package_command(
         match effects.refresh_model_catalogs(&effects.agent_dir()).await {
             Ok(()) => outcome.stdout.push(chalk_out.green("Model catalogs refreshed")),
             Err(message) => {
-                outcome
-                    .stderr
-                    .push(chalk_err.red(pi_js_compat::js_json::JsString::from("Error: ") + message));
+                outcome.stderr.push(chalk_err.red(JsString::from("Error: ") + message));
                 outcome.exit_code = Some(1);
             }
         }
@@ -1369,8 +1355,8 @@ pub async fn execute_package_command(
     Ok(Some(outcome))
 }
 
-fn progress_buffer() -> (PackageProgressSink, Arc<Mutex<Vec<String>>>) {
-    let lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+fn progress_buffer() -> (PackageProgressSink, Arc<Mutex<Vec<JsString>>>) {
+    let lines: Arc<Mutex<Vec<JsString>>> = Arc::new(Mutex::new(Vec::new()));
     let sink_lines = Arc::clone(&lines);
     let chalk = Chalk::stdout();
     let sink: PackageProgressSink = Arc::new(move |message: String| {
@@ -1379,7 +1365,7 @@ fn progress_buffer() -> (PackageProgressSink, Arc<Mutex<Vec<String>>>) {
     (sink, lines)
 }
 
-fn drain_progress(lines: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
+fn drain_progress(lines: &Arc<Mutex<Vec<JsString>>>) -> Vec<JsString> {
     lines.lock().unwrap().drain(..).collect()
 }
 
@@ -1631,10 +1617,7 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
         Box::pin(async move { create_command_settings_manager(options, self.extensions_loader.as_ref()).await })
     }
 
-    fn refresh_model_catalogs<'a>(
-        &'a self,
-        agent_dir: &'a str,
-    ) -> LocalBoxFuture<'a, Result<(), pi_js_compat::js_json::JsString>> {
+    fn refresh_model_catalogs<'a>(&'a self, agent_dir: &'a str) -> LocalBoxFuture<'a, Result<(), JsString>> {
         Box::pin(refresh_model_catalogs(agent_dir))
     }
 

@@ -1,23 +1,23 @@
 //! Port of `packages/agent/src/harness/session/jsonl/codec.ts`.
 
 use pi_ai::types::JsonObject;
-use serde_json::{Map, Value};
+use pi_js_compat::js_json::{JsObject, JsValue as Value};
 
 use crate::harness::session::jsonl::types::{HeaderKind, JsonlSessionMetadata, JsonlV4Header};
 use crate::harness::session::types::{
-    EntryType, JsonlDecodeError, JsonlDecodeKind, OperationKind, RecordType, SessionError, SessionErrorCode,
-    SessionMutation,
+    Entry, EntryBody, EntryType, JsonlDecodeError, JsonlDecodeKind, OperationKind, OptionalValue, RecordType,
+    SessionError, SessionErrorCode, SessionMutation,
 };
 
 fn syntax_error(message: impl Into<String>) -> JsonlDecodeError {
     JsonlDecodeError::new(JsonlDecodeKind::Syntax, message)
 }
 
-fn schema_error(message: impl Into<String>) -> JsonlDecodeError {
+pub(super) fn schema_error(message: impl Into<String>) -> JsonlDecodeError {
     JsonlDecodeError::new(JsonlDecodeKind::Schema, message)
 }
 
-fn parse_object(line: &str) -> Result<Map<String, Value>, JsonlDecodeError> {
+fn parse_object(line: &str) -> Result<JsObject, JsonlDecodeError> {
     let value: Value = serde_json::from_str(line).map_err(|_| syntax_error("is not valid JSON"))?;
     match value {
         Value::Object(object) => Ok(object),
@@ -25,9 +25,9 @@ fn parse_object(line: &str) -> Result<Map<String, Value>, JsonlDecodeError> {
     }
 }
 
-fn require_string(value: Option<&Value>, field: &str) -> Result<String, JsonlDecodeError> {
+pub(super) fn require_string(value: Option<&Value>, field: &str) -> Result<String, JsonlDecodeError> {
     match value {
-        Some(Value::String(text)) => Ok(text.clone()),
+        Some(Value::String(text)) => text.to_utf8().map_err(|_| schema_error(format!("has invalid {field}"))),
         _ => Err(schema_error(format!("has invalid {field}"))),
     }
 }
@@ -60,14 +60,21 @@ fn require_timestamp(value: Option<&Value>) -> Result<i64, JsonlDecodeError> {
 fn require_nullable_id(value: Option<&Value>, field: &str) -> Result<Option<String>, JsonlDecodeError> {
     match value {
         Some(Value::Null) => Ok(None),
-        Some(Value::String(text)) => Ok(Some(text.clone())),
+        Some(Value::String(text)) => text
+            .to_utf8()
+            .map(Some)
+            .map_err(|_| schema_error(format!("has invalid {field}"))),
         _ => Err(schema_error(format!("has invalid {field}"))),
     }
 }
 
 fn decode_header(line: &str) -> Result<JsonlV4Header, JsonlDecodeError> {
-    let value = normalize_js_integers(parse_object(line)?);
-    if value.get("kind").and_then(Value::as_str) != Some("header") {
+    let value = parse_object(line)?;
+    if !value
+        .get("kind")
+        .and_then(Value::as_string)
+        .is_some_and(|kind| kind == "header")
+    {
         return Err(schema_error("is not a header"));
     }
     if value.get("version").and_then(Value::as_f64) != Some(4.0) {
@@ -91,22 +98,24 @@ fn decode_header(line: &str) -> Result<JsonlV4Header, JsonlDecodeError> {
     })
 }
 
-fn decode_optional_string(
-    value: &Map<String, Value>,
-    key: &str,
-    message: &str,
-) -> Result<Option<String>, JsonlDecodeError> {
+fn decode_optional_string(value: &JsObject, key: &str, message: &str) -> Result<Option<String>, JsonlDecodeError> {
     match value.get(key) {
         None => Ok(None),
-        Some(Value::String(text)) => Ok(Some(text.clone())),
+        Some(Value::String(text)) => text.to_utf8().map(Some).map_err(|_| schema_error(message)),
         Some(_) => Err(schema_error(message)),
     }
 }
 
-fn decode_metadata(value: &Map<String, Value>) -> Result<Option<JsonObject>, JsonlDecodeError> {
+fn decode_metadata(value: &JsObject) -> Result<Option<JsonObject>, JsonlDecodeError> {
     match value.get("metadata") {
         None => Ok(None),
-        Some(Value::Object(object)) => Ok(Some(object.clone())),
+        Some(metadata @ Value::Object(_)) => metadata
+            .to_serde()
+            .map_err(|_| schema_error("has invalid metadata"))?
+            .as_object()
+            .cloned()
+            .map(Some)
+            .ok_or_else(|| schema_error("has invalid metadata")),
         Some(_) => Err(schema_error("has invalid metadata")),
     }
 }
@@ -138,7 +147,7 @@ pub fn metadata_from_header(header: &JsonlV4Header, path: String, modified_at: f
     }
 }
 
-fn known_entry_type(value: &str) -> Option<EntryType> {
+pub(super) fn known_entry_type(value: &str) -> Option<EntryType> {
     match value {
         "message" => Some(EntryType::Message),
         "model_change" => Some(EntryType::ModelChange),
@@ -166,31 +175,99 @@ fn known_record_type(value: &str) -> Option<RecordType> {
     }
 }
 
-fn parse_entry_mutation(value: Map<String, Value>) -> Result<SessionMutation, JsonlDecodeError> {
+fn parse_entry_mutation(value: JsObject) -> Result<SessionMutation, JsonlDecodeError> {
     let lane = match value.get("lane") {
         None => None,
-        Some(Value::String(lane)) => Some(lane.clone()),
+        Some(Value::String(lane)) => Some(lane.to_utf8().map_err(|_| schema_error("has invalid lane"))?),
         Some(_) => return Err(schema_error("has invalid lane")),
     };
-    let _id = require_string(value.get("id"), "id")?;
+    let id = require_string(value.get("id"), "id")?;
     let entry_type = require_string(value.get("type"), "entry type")?;
     let entry_type =
         known_entry_type(&entry_type).ok_or_else(|| schema_error(format!("has unknown entry type {entry_type}")))?;
-    let _ = entry_type;
-    let _ = require_nullable_id(value.get("parentId"), "parentId")?;
-    let _ = require_timestamp(value.get("timestamp"))?;
-    if value.get("type").and_then(Value::as_str) == Some("custom") {
+    let parent_id = require_nullable_id(value.get("parentId"), "parentId")?;
+    let timestamp = require_timestamp(value.get("timestamp"))?;
+    if value
+        .get("type")
+        .and_then(Value::as_string)
+        .is_some_and(|kind| kind == "custom")
+    {
         require_string(value.get("customType"), "customType")?;
     }
-    let mut entry_fields = value;
-    entry_fields.remove("kind");
-    entry_fields.remove("lane");
-    let entry = serde_json::from_value::<crate::harness::session::types::Entry>(Value::Object(entry_fields))
-        .map_err(|error| schema_error(error.to_string()))?;
+    let entry = Entry {
+        body: decode_entry_body(&value, entry_type, id)?,
+        parent_id,
+        seq: require_sequence(value.get("seq"))?,
+        timestamp,
+    };
     Ok(SessionMutation::Entry { lane, entry })
 }
 
-fn parse_record_mutation(value: Map<String, Value>) -> Result<SessionMutation, JsonlDecodeError> {
+pub(super) fn decode_field<T: serde::de::DeserializeOwned>(value: &JsObject, key: &str) -> Result<T, JsonlDecodeError> {
+    pi_js_compat::js_json::from_value(value.get(key).unwrap_or(&Value::Null))
+        .map_err(|error| schema_error(format!("has invalid {key}: {error}")))
+}
+
+pub(super) fn decode_optional_payload(value: &JsObject, key: &str) -> OptionalValue {
+    match value.get(key) {
+        None => OptionalValue::Missing,
+        Some(payload) => OptionalValue::Present(payload.clone()),
+    }
+}
+
+pub(super) fn decode_entry_body(value: &JsObject, kind: EntryType, id: String) -> Result<EntryBody, JsonlDecodeError> {
+    Ok(match kind {
+        EntryType::Message => EntryBody::Message {
+            id,
+            message: decode_field(value, "message")?,
+            terminate: decode_field(value, "terminate")?,
+        },
+        EntryType::ModelChange => EntryBody::ModelChange {
+            id,
+            provider: decode_field(value, "provider")?,
+            model_id: decode_field(value, "modelId")?,
+        },
+        EntryType::ThinkingLevelChange => EntryBody::ThinkingLevelChange {
+            id,
+            thinking_level: decode_field(value, "thinkingLevel")?,
+        },
+        EntryType::ActiveToolsChange => EntryBody::ActiveToolsChange {
+            id,
+            active_tool_names: decode_field(value, "activeToolNames")?,
+        },
+        EntryType::Compaction => decode_compaction_entry(value, id)?,
+        EntryType::BranchSummary => decode_branch_summary_entry(value, id)?,
+        EntryType::Custom => EntryBody::Custom {
+            id,
+            custom_type: decode_field(value, "customType")?,
+            data: decode_optional_payload(value, "data"),
+        },
+    })
+}
+
+fn decode_compaction_entry(value: &JsObject, id: String) -> Result<EntryBody, JsonlDecodeError> {
+    Ok(EntryBody::Compaction {
+        id,
+        summary: decode_field(value, "summary")?,
+        tokens_before: decode_field(value, "tokensBefore")?,
+        retained_tail: decode_field(value, "retainedTail")?,
+        duration_ms: decode_field(value, "durationMs")?,
+        details: decode_optional_payload(value, "details"),
+        usage: decode_field(value, "usage")?,
+    })
+}
+
+fn decode_branch_summary_entry(value: &JsObject, id: String) -> Result<EntryBody, JsonlDecodeError> {
+    Ok(EntryBody::BranchSummary {
+        id,
+        from_id: decode_field(value, "fromId")?,
+        summary: decode_field(value, "summary")?,
+        details: decode_optional_payload(value, "details"),
+        usage: decode_field(value, "usage")?,
+    })
+}
+
+fn parse_record_mutation(value: JsObject) -> Result<SessionMutation, JsonlDecodeError> {
     let _id = require_string(value.get("id"), "id")?;
     let _lane = require_string(value.get("lane"), "lane")?;
     let record_type = require_string(value.get("type"), "record type")?;
@@ -210,14 +287,15 @@ fn parse_record_mutation(value: Map<String, Value>) -> Result<SessionMutation, J
     if record_type == RecordType::OperationFinished {
         require_string(value.get("runId"), "runId")?;
     }
-    let mut record_fields = value;
-    record_fields.remove("kind");
-    let record = serde_json::from_value::<crate::harness::session::types::LaneRecord>(Value::Object(record_fields))
-        .map_err(|error| schema_error(error.to_string()))?;
+    let record = crate::harness::session::types::LaneRecord {
+        body: super::codec_records::decode_record_body(&value, record_type)?,
+        seq: require_sequence(value.get("seq"))?,
+        timestamp: require_timestamp(value.get("timestamp"))?,
+    };
     Ok(SessionMutation::Record { record })
 }
 
-fn parse_lane_mutation(value: &Map<String, Value>, seq: i64) -> Result<SessionMutation, JsonlDecodeError> {
+fn parse_lane_mutation(value: &JsObject, seq: i64) -> Result<SessionMutation, JsonlDecodeError> {
     Ok(SessionMutation::Lane {
         seq,
         lane: require_string(value.get("lane"), "lane")?,
@@ -225,18 +303,23 @@ fn parse_lane_mutation(value: &Map<String, Value>, seq: i64) -> Result<SessionMu
     })
 }
 
-fn parse_fact_mutation(value: &Map<String, Value>, seq: i64) -> Result<SessionMutation, JsonlDecodeError> {
-    match value.get("fact").and_then(Value::as_str) {
+fn parse_fact_mutation(value: &JsObject, seq: i64) -> Result<SessionMutation, JsonlDecodeError> {
+    match value
+        .get("fact")
+        .and_then(Value::as_string)
+        .and_then(|kind| kind.to_utf8().ok())
+        .as_deref()
+    {
         Some("name") => parse_name_fact(value, seq),
         Some("label") => parse_label_fact(value, seq),
         _ => Err(schema_error("has unknown fact type")),
     }
 }
 
-fn parse_name_fact(value: &Map<String, Value>, seq: i64) -> Result<SessionMutation, JsonlDecodeError> {
+fn parse_name_fact(value: &JsObject, seq: i64) -> Result<SessionMutation, JsonlDecodeError> {
     let name = match value.get("name") {
         None => None,
-        Some(Value::String(name)) => Some(name.clone()),
+        Some(Value::String(name)) => Some(name.to_utf8().map_err(|_| schema_error("has invalid name"))?),
         Some(_) => return Err(schema_error("has invalid name")),
     };
     Ok(SessionMutation::Fact {
@@ -245,10 +328,10 @@ fn parse_name_fact(value: &Map<String, Value>, seq: i64) -> Result<SessionMutati
     })
 }
 
-fn parse_label_fact(value: &Map<String, Value>, seq: i64) -> Result<SessionMutation, JsonlDecodeError> {
+fn parse_label_fact(value: &JsObject, seq: i64) -> Result<SessionMutation, JsonlDecodeError> {
     let label = match value.get("label") {
         None => None,
-        Some(Value::String(label)) => Some(label.clone()),
+        Some(Value::String(label)) => Some(label.to_utf8().map_err(|_| schema_error("has invalid label"))?),
         Some(_) => return Err(schema_error("has invalid label")),
     };
     Ok(SessionMutation::Fact {
@@ -260,28 +343,15 @@ fn parse_label_fact(value: &Map<String, Value>, seq: i64) -> Result<SessionMutat
     })
 }
 
-/// JSON numbers are IEEE doubles in JavaScript, so `1.0` is the integer `1`.
-/// Rewrite integral floats in the integer-typed fields so serde's `i64` decode
-/// matches `Number.isSafeInteger`.
-fn normalize_js_integers(mut value: Map<String, Value>) -> Map<String, Value> {
-    for field in ["seq", "timestamp", "createdAt"] {
-        let Some(entry) = value.get_mut(field) else {
-            continue;
-        };
-        let Some(number) = entry.as_f64() else {
-            continue;
-        };
-        if number.fract() == 0.0 && number.abs() <= 9_007_199_254_740_991.0 {
-            *entry = Value::from(number as i64);
-        }
-    }
-    value
-}
-
 fn decode_mutation(line: &str) -> Result<SessionMutation, JsonlDecodeError> {
-    let value = normalize_js_integers(parse_object(line)?);
+    let value = parse_object(line)?;
     let seq = require_sequence(value.get("seq"))?;
-    match value.get("kind").and_then(Value::as_str) {
+    match value
+        .get("kind")
+        .and_then(Value::as_string)
+        .and_then(|kind| kind.to_utf8().ok())
+        .as_deref()
+    {
         Some("entry") => parse_entry_mutation(value),
         Some("record") => parse_record_mutation(value),
         Some("lane") => parse_lane_mutation(&value, seq),

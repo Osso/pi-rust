@@ -1,5 +1,7 @@
 # model-runtime
 
+Q18 native error consumer contracts: ModelRuntimeError::Message, CredentialSynchronizationError.cause, get_error, availability errors and lazy-stream auth callback failures use JsString. resolve_error_message reads native Models/Callback fields, not Display. `tests/lossless_provider_errors.rs` contains native auth/callback proof fixtures; currently blocked by concurrent coding-library dependencies, not runtime parity evidence.
+
 Source: `packages/coding-agent/src/core/model-runtime.ts` (795 lines).
 Rust: `crates/pi-coding-agent/src/core/model_runtime.rs`.
 Tests: `crates/pi-coding-agent/tests/model_runtime.rs` (ports

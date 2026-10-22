@@ -1,6 +1,7 @@
 //! Port of `packages/agent/src/harness/session/jsonl.ts`.
 
 pub mod codec;
+mod codec_records;
 pub mod errors;
 pub mod repo;
 pub mod storage;
