@@ -1,8 +1,8 @@
-# RegExp diagnostics and limits — RED corpus
+# RegExp diagnostics and approved limits
 
 Authority: exact oracle Node `v26.11.1`, V8 `14.6.202.34-node.37`; no network/source download. Printable diagnostic strings extracted from the executable around `Nothing to repeat` / `Unterminated group` / `Invalid regular expression`. Binary hash and extracted neighbors: `/tmp/pi-rust-repin-lossless-interactive/v8-regexp-binary-reasons.json`.
 
-`crates/pi-js-compat/tests/regexp_diagnostics.rs` sends 66 fixtures to actual Node RegExp through `oracle/regexp-diagnostics-oracle.mjs`, then compares acceptance and complete UTF-16 error messages with native JsRegex. **Intentionally RED, not ignored**: 65 mismatches before any diagnostic mapping. The test prints its complete lossless corpus for artifact capture. No production behavior changed, no assertions weakened, no mapping guessed.
+`crates/pi-js-compat/tests/regexp_diagnostics.rs` sends 66 fixtures to actual Node RegExp through `oracle/regexp-diagnostics-oracle.mjs`, then compares acceptance and complete UTF-16 error messages with native JsRegex. Historical **RED, not ignored** checkpoint295988b4: 65 mismatches before any diagnostic mapping. The test prints its complete lossless corpus for artifact capture. No production behavior changed, no assertions weakened, no mapping guessed.
 
 ## Coverage / stop condition
 
@@ -14,4 +14,12 @@ Authority: exact oracle Node `v26.11.1`, V8 `14.6.202.34-node.37`; no network/so
 
 Full corpus and exact pinned messages: `/tmp/pi-rust-repin-lossless-interactive/regexp-diagnostic-corpus.json`; compact summary `regexp-diagnostic-summary.json`; command output `test-regexp-diagnostics-red.log`.
 
-Parent paused diagnostic implementation for a user-owned wording/limit decision. Until resolved, session-selector-search remains open: filtered-ID differentials do not prove its exported parseSearchQuery.error text. A wording deviation cannot by itself establish parity for the two accepted-by-Node/rejected-by-regress limit cases.
+## Approved contract and GREEN proof (2026-10-22)
+
+AGENTS.md records user approval: invalid-pattern reason text may differ from V8, classification must match; regress depth/loop limits are an explicit gap. The corpus test now asserts valid/invalid classification plus the frozen diagnostic prefix, omitting only approved reason wording. The two named resource-limit fixtures explicitly assert their Node-accepted/native-rejected gap, rather than being ignored or silently filtered.
+
+`JsRegexError` owns a raw JsString message. Shared `js_regex/error.rs` is the only constructor of `Invalid regular expression: /<src>/<flags>: <reason>`; invalid flags receive the frozen constructor-flags prefix. Duplicate/unknown/u+v flags are rejected; both u and v select Unicode input mode. The former bwrap scanner and established exact reason mappings moved here; context-sensitive cases outside the proved subset retain the approved engine wording. Node-ignore and bwrap no longer maintain private diagnostic builders; session search reads the raw shared message without Display projection.
+
+`test-regexp-classification-prefix-red.log` RED68 prefix/classification failures; `test-regexp-native-error-red.log` missing raw message API. `test-regexp-classification-green-1.log` GREEN2/2:72 scalar cases (including invalid flags and two explicit limit gaps), plus raw high/low/pair pattern-prefix cases. Original 66-case reason corpus remains preserved above as historical evidence, not a current failing gate.
+
+Existing exact bwrap assertions are unchanged: `test-bwrap-worker-shared-regex-green.log`8/8 includes 13 invalid patterns ×2 flag modes with complete error-unit equality, proving retained mapped reasons and raw prefix fidelity. `test-differential-bwrap-shared-regex-green.log`4/4; `test-node-ignore-shared-regex-green.log`2/2. All logs live in the artifact directory. No bwrap_extension integration target exists in this checkout; actual worker and differential_bwrap suites were run.
