@@ -20,6 +20,41 @@ pub const fn placeholder_count(template: &str) -> usize {
     count
 }
 
+/// A value `js_format!` can interpolate without taking ownership of it.
+pub trait FormatArgument {
+    fn to_js_string(&self) -> JsString;
+}
+
+impl FormatArgument for JsString {
+    fn to_js_string(&self) -> JsString {
+        self.clone()
+    }
+}
+
+impl FormatArgument for str {
+    fn to_js_string(&self) -> JsString {
+        self.into()
+    }
+}
+
+impl FormatArgument for String {
+    fn to_js_string(&self) -> JsString {
+        self.into()
+    }
+}
+
+impl FormatArgument for char {
+    fn to_js_string(&self) -> JsString {
+        (*self).into()
+    }
+}
+
+impl<T: FormatArgument + ?Sized> FormatArgument for &T {
+    fn to_js_string(&self) -> JsString {
+        (**self).to_js_string()
+    }
+}
+
 #[doc(hidden)]
 pub fn format_template<const N: usize>(template: &str, arguments: [JsString; N]) -> JsString {
     let mut arguments = arguments.into_iter();
@@ -33,8 +68,8 @@ pub fn format_template<const N: usize>(template: &str, arguments: [JsString; N])
     output
 }
 
-/// Builds a [`JsString`] from a template whose `{}` placeholders take values
-/// convertible with `Into<JsString>`. There are no format specs or escapes.
+/// Builds a [`JsString`] from a template whose `{}` placeholders take
+/// [`FormatArgument`] values by reference. There are no format specs or escapes.
 #[macro_export]
 macro_rules! js_format {
     ($template:literal $(, $argument:expr)* $(,)?) => {{
@@ -46,7 +81,7 @@ macro_rules! js_format {
         };
         $crate::js_format::format_template(
             $template,
-            [$($crate::js_json::JsString::from($argument)),*],
+            [$($crate::js_format::FormatArgument::to_js_string(&$argument)),*],
         )
     }};
 }
@@ -60,6 +95,21 @@ mod tests {
         let lone = JsString::from_utf16(vec![0xd83d]);
         let formatted = js_format!("<{}|{}>", &lone, "x");
         assert_eq!(formatted.units(), [0x3c, 0xd83d, 0x7c, 0x78, 0x3e]);
+    }
+
+    #[test]
+    fn borrows_field_arguments() {
+        struct Row {
+            path: JsString,
+            id: String,
+        }
+        let row = Row {
+            path: JsString::from_utf16(vec![0xdc00]),
+            id: "7".to_owned(),
+        };
+        let formatted = js_format!("{}#{}", row.path, row.id);
+        assert_eq!(formatted.units(), [0xdc00, 0x23, 0x37]);
+        assert_eq!(row.id, "7");
     }
 
     #[test]
