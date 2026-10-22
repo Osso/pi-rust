@@ -28,10 +28,7 @@ fn field(v: &Value, key: &str, default: &str) -> JsString {
 }
 fn clipped(s: impl Into<JsString>, n: usize) -> JsString {
     let s = s.into();
-    // Existing approved OutputLog projection is held pending the Q18 user decision.
-    JsString::from(String::from_utf16_lossy(
-        &s.units().iter().copied().take(n).collect::<Vec<_>>(),
-    ))
+    s.slice(0, n.min(s.len()))
 }
 #[derive(Default)]
 struct OutputLog {

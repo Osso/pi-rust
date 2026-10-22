@@ -346,10 +346,8 @@ async fn check_renderers(running: bool, ties: bool) {
     error["errorMessage"] = json!("failed");
     renders.push(json!({"result":{"content":[],"details":{"mode":"parallel","results":[error,row]}},"expanded":true}));
     renders.push(json!({"result":{"content":[{"type":"text","text":"no details"}]},"expanded":false}));
-    let expected = ts.request(&json!({"cwd":temp.path(),"renders":renders}));
-    // Native-only approved String projection: TS measures the unpaired code unit
-    // before padding, whereas Text receives U+FFFD at the native boundary.
     renders.push(json!({"args":{"agent":"scout","task":format!("{}🚀", "a".repeat(59))}}));
+    let expected: JsValue = ts.request(&pi_js_compat::js_json!({"cwd":temp.path(),"renders":renders}));
     let theme = pi_coding_agent::modes::interactive::theme::Theme::new(
         &[
             "toolTitle",
@@ -411,10 +409,6 @@ async fn check_renderers(running: bool, ties: bool) {
             .iter()
             .map(|s| pi_coding_agent::utils::ansi::strip_ansi(s))
             .collect::<Vec<_>>();
-        if i == renders.len() - 1 {
-            assert!(actual.iter().any(|line| line.contains('\u{fffd}')));
-        } else {
-            assert_eq!(json!(actual), expected["renders"][i], "render {i}");
-        }
+        assert_eq!(pi_js_compat::js_json!(actual), expected["renders"][i], "render {i}");
     }
 }

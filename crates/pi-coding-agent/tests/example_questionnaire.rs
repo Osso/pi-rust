@@ -69,8 +69,8 @@ async fn questionnaire_single_multi_answers_tabs_cancel_rendering_and_defaults_m
     let result=harness::compare("questionnaire",example::questionnaire_extension,json!({"params":{"questions":[one]},"widths":[30],"steps":[{"input":"\x1b[B"},{"input":"\r"},{"inputUnits":[55296]},{"invalidate":true},{"input":"\r"}]})).await;
     assert_eq!(
         result["result"]["details"]["answers"][0]["label"],
-        pi_js_compat::js_json!("\u{fffd}")
+        pi_js_compat::js_json!(pi_js_compat::js_json::JsString::from_utf16(vec![0xd800]))
     );
     harness::compare("questionnaire", example::questionnaire_extension, json!({"params":{"questions":[one]},"widths":[24],"steps":[{"input":"\r"}],"renderCases":[{"content":[],"details":{"questions":[],"answers":[{"id":"manual","value":"v","label":"No index","wasCustom":false}],"cancelled":false}}]})).await;
-    harness::compare("questionnaire", example::questionnaire_extension, json!({"params":{"questions":[one]},"widths":[1],"steps":[{"input":"\x1b[B"},{"input":"\r"},{"input":"🚀"}],"sourceError":{"name":"RangeError","message":"Maximum call stack size exceeded"}})).await;
+    harness::compare("questionnaire", example::questionnaire_extension, json!({"params":{"questions":[one]},"widths":[1],"steps":[{"input":"\x1b[B"},{"input":"\r"},{"input":"🚀"}],"sourceError":{"name":"TypeError","message":"Cannot read properties of null (reading 'cancelled')"}})).await;
 }

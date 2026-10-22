@@ -53,5 +53,5 @@ The non-editor branches are not shipped independently: the assignment requires w
 
 - Ledger: `/tmp/pi-rust-ext-examples-m/ledger.md`. Both compile probes are archived outside the repository; neither remains as a failing test or production stub.
 - No GREEN, differential, or mutation proof: implementation stopped before production changes. No node/tsx/pi binary, oracle, model, or live state was invoked. Only the two authorized targeted Cargo commands were used for API evidence.
-- No new dependencies or semantic deviations. Native embedding, value/order/error parity, omission of JS stack frames and String-boundary U+FFFD remain the required contract for the eventual port.
+- No new dependencies or semantic deviations. Native embedding, value/order/error parity, omission of JS stack frames remain the required contract. The October 22, 2026 decision requires exact UTF-16, superseding the former String-boundary U+FFFD exception; [current form evidence](extension-examples-n.md#exact-form-oracle-units-2026-10-22).
 - Follow-up requires core APIs first, then full RED→GREEN key-driven differential and mutation proofs for each module. Main owns the core slice; this batch does not alter shared host APIs.
