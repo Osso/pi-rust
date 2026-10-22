@@ -137,7 +137,8 @@ async fn peek_http_headers(stream: &tokio::net::TcpStream) -> BTreeMap<String, S
     let mut buffer = vec![0_u8; 16 * 1024];
     loop {
         let read = stream.peek(&mut buffer).await.expect("peek handshake");
-        let text = String::from_utf8_lossy(&buffer[..read]);
+        // Handshake headers are ByteStrings: decode each wire byte as one Latin-1 unit.
+        let text: String = buffer[..read].iter().copied().map(char::from).collect();
         if let Some(end) = text.find("\r\n\r\n") {
             return parse_http_headers(&text[..end]);
         }

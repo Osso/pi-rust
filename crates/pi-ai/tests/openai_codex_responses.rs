@@ -874,6 +874,33 @@ async fn websocket_cache_is_scoped_to_the_authenticated_account() {
     reset_openai_codex_websocket_debug_stats(Some(&"shared-session".into()));
 }
 
+/// Node `http` writes header values as Latin-1 bytes; 0x80-0xFF units are valid single bytes.
+#[tokio::test]
+async fn websocket_handshake_sends_latin1_header_values_as_single_bytes() {
+    let fetch = RecordingFetch::new(Vec::new());
+    let server = start_ws_server(Arc::new(|_, _| completed_event("resp", Some("ok"), None))).await;
+    let mut options = ws_options(
+        fetch,
+        Transport::WebsocketCached,
+        Some("latin1-session"),
+        &mock_token("acc"),
+    );
+    options.stream.request.headers = Some(indexmap::IndexMap::from([(
+        "x-label".to_owned(),
+        Some("caf\u{e9}".into()),
+    )]));
+    collect(stream(ws_model(&server.url), context(), options)).await;
+
+    let connections = server.records.connections.lock().unwrap();
+    assert_eq!(connections.len(), 1);
+    assert_eq!(
+        connections[0].headers.get("x-label").map(String::as_str),
+        Some("caf\u{e9}")
+    );
+    close_openai_codex_websocket_sessions(Some(&"latin1-session".into()));
+    reset_openai_codex_websocket_debug_stats(Some(&"latin1-session".into()));
+}
+
 #[tokio::test]
 async fn closing_sessions_sends_debug_close_frame_to_cached_sockets() {
     let fetch = RecordingFetch::new(Vec::new());
