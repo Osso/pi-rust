@@ -4,6 +4,7 @@ mod oracle;
 use std::{cell::RefCell, rc::Rc};
 
 use pi_coding_agent::modes::interactive::components::{
+    custom_editor::{CustomEditor, CustomEditorOptions},
     extension_editor::{ExtensionEditorComponent, ExtensionEditorHost},
     extension_input::{ExtensionInputComponent, ExtensionInputOptions},
     extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions},
@@ -38,6 +39,42 @@ impl ExtensionEditorHost for EditorHost {
         panic!("external editor not requested")
     }
     fn request_forced_render(&self) {}
+}
+
+#[test]
+fn custom_editor_native_history_input_and_shortcuts_match_frozen_source() {
+    let mut oracle = oracle::TsOracle::spawn("raw-coding-tui-oracle.ts", "packages/coding-agent/src");
+    for raw in [
+        JsString::from_utf16(vec![0xd800]),
+        JsString::from_utf16(vec![0xdc00]),
+        JsString::from("😀"),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let expected =
+            oracle.request(&json!({"operation":"custom-editor","units":raw.units(),"directory":directory.path()}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        let mut editor = CustomEditor::new(
+            Rc::new(EditorHost),
+            pi_tui::components::editor::EditorTheme::plain(),
+            pi_coding_agent::core::keybindings::KeybindingsManager::new(Default::default(), None),
+            CustomEditorOptions::default(),
+        )
+        .unwrap();
+        editor.set_text(&raw);
+        editor.add_to_history_without_persistence(&raw);
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let shortcut_seen = Rc::clone(&seen);
+        editor.on_extension_shortcut = Some(Rc::new(move |data| {
+            shortcut_seen.borrow_mut().push(data.clone());
+            false
+        }));
+        editor.handle_input(&raw);
+        let actual = serde_json::to_string(&(editor.get_text(), editor.get_history(), seen.borrow().clone())).unwrap();
+        assert_eq!(
+            parse_lossless(actual).unwrap(),
+            parse_lossless(expected["json"].as_str().unwrap()).unwrap()
+        );
+    }
 }
 
 #[test]

@@ -1,5 +1,9 @@
 # components/custom-editor.ts
 
+## Native representation checkpoint
+
+Editor text/history, prompt-history paths/filter, shortcut input and action map keys, render/input and EditorComponent callbacks use `JsString`. Legacy history files decode at IO and parse with `parse_lossless`; no early scalar authority. Frozen source differential for high/low/pair values covers in-memory history, input and extension-shortcut callback units (`raw_extension_dialogs`). Actual CustomEditor/Editor modules run with no DB path; database functions are uncalled dependency fixtures, so this is not persistence/migration proof. Private real-file legacy JSON test covers raw strings/non-string filtering. The pre-existing void EditorComponent history adapter still discards persistence errors; propagation is not proven by this representation checkpoint.
+
 Source: `coding-agent/src/modes/interactive/components/custom-editor.ts`
 Rust: `crates/pi-coding-agent/src/modes/interactive/components/custom_editor.rs`
 
