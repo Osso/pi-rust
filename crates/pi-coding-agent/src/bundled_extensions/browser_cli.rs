@@ -284,6 +284,6 @@ fn format_browser_cli_failure(index: usize, result: &BrowserCliCommandExecution)
     format!("browser-cli command {} exited with code {exit_code}{detail}", index + 1)
 }
 
-fn spawn_error_message(command: &str, error: &std::io::Error) -> String {
-    node_spawn_error_message("spawn", command, error)
+fn spawn_error_message(command: &str, error: &std::io::Error) -> pi_js_compat::js_json::JsString {
+    node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from(command), error)
 }

@@ -263,7 +263,11 @@ fn should_detach(options: &PyrunRunnerOptions) -> bool {
 }
 
 fn spawn_error(command: &str, error: &std::io::Error) -> PyrunRunnerError {
-    PyrunRunnerError::new(node_spawn_error_message("spawn", command, error))
+    PyrunRunnerError::new(node_spawn_error_message(
+        "spawn",
+        &pi_js_compat::js_json::JsString::from(command),
+        error,
+    ))
 }
 
 impl PyrunRunnerClient {

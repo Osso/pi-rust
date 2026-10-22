@@ -33,6 +33,20 @@ fn spawn_error(path: &Path) -> std::io::Error {
 }
 
 #[test]
+fn spawn_error_message_preserves_unpaired_command_units() {
+    use pi_js_compat::js_json::{JsString, encode_node_utf8};
+    let directory = temp_dir();
+    let command = JsString::from(directory.path().to_str().unwrap()) + "/" + JsString::from_utf16(vec![0xd800]);
+    let error = Command::new(encode_node_utf8(&command))
+        .spawn()
+        .expect_err("missing executable");
+    assert_eq!(
+        node_spawn_error_message("spawn", &command, &error),
+        JsString::from("spawn ") + command + " ENOENT"
+    );
+}
+
+#[test]
 fn reports_enoent_for_a_missing_executable() {
     let dir = temp_dir();
     let missing = dir.path().join("missing");
@@ -41,7 +55,7 @@ fn reports_enoent_for_a_missing_executable() {
     assert_eq!(error.raw_os_error(), Some(2));
     assert_eq!(node_error_code(&error), "ENOENT");
     assert_eq!(
-        node_spawn_error_message("spawn", "missing", &error),
+        node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("missing"), &error),
         "spawn missing ENOENT"
     );
 }
@@ -55,7 +69,11 @@ fn reports_eacces_for_a_non_executable_file() {
     assert_eq!(error.raw_os_error(), Some(13));
     assert_eq!(node_error_code(&error), "EACCES");
     assert_eq!(
-        node_spawn_error_message("spawn", "not-executable", &error),
+        node_spawn_error_message(
+            "spawn",
+            &pi_js_compat::js_json::JsString::from("not-executable"),
+            &error
+        ),
         "spawn not-executable EACCES"
     );
 }
@@ -69,7 +87,10 @@ fn reports_etxtbsy_while_the_script_is_open_for_writing() {
 
     assert_eq!(error.raw_os_error(), Some(26));
     assert_eq!(node_error_code(&error), "ETXTBSY");
-    assert_eq!(node_spawn_error_message("spawn", "busy", &error), "spawn busy ETXTBSY");
+    assert_eq!(
+        node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("busy"), &error),
+        "spawn busy ETXTBSY"
+    );
     assert!(node_fs_error(&error, "open", "busy").starts_with("ETXTBSY: "));
 }
 
@@ -83,7 +104,7 @@ fn reports_enotdir_when_a_path_component_is_a_file() {
     assert_eq!(error.raw_os_error(), Some(20));
     assert_eq!(node_error_code(&error), "ENOTDIR");
     assert_eq!(
-        node_spawn_error_message("spawn", "child", &error),
+        node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("child"), &error),
         "spawn child ENOTDIR"
     );
     assert!(node_fs_error(&error, "open", "child").starts_with("ENOTDIR: "));

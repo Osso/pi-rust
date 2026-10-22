@@ -39,18 +39,18 @@ const EMBEDDED_LIGHT_THEME: &str = include_str!("../theme/light.json");
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigError {
     label: &'static str,
-    message: String,
+    message: pi_js_compat::js_json::JsString,
 }
 
 impl ConfigError {
-    fn new(message: impl Into<String>) -> Self {
+    fn new(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self {
             label: ERROR,
             message: message.into(),
         }
     }
 
-    fn syntax(message: impl Into<String>) -> Self {
+    fn syntax(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self {
             label: "SyntaxError",
             message: message.into(),
@@ -65,7 +65,7 @@ impl ConfigError {
 
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -807,7 +807,7 @@ fn spawn_failure(
     if !require_success {
         return Ok(None);
     }
-    let reason = node_spawn_error_message("spawnSync", command, &error);
+    let reason = node_spawn_error_message("spawnSync", &pi_js_compat::js_json::JsString::from(command), &error);
     Err(ConfigError::new(format!(
         "Failed to run {}: {reason}",
         display_command(command, args)

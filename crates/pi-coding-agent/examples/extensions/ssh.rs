@@ -42,10 +42,13 @@ impl Remote {
         quote(&self.path(path))
     }
     async fn run(&self, command: String) -> io::Result<Vec<u8>> {
-        let output = command_for(&self.host, &command)
-            .output()
-            .await
-            .map_err(|error| io::Error::other(node_spawn_error_message("spawn", "ssh", &error)))?;
+        let output = command_for(&self.host, &command).output().await.map_err(|error| {
+            io::Error::other(node_spawn_error_message(
+                "spawn",
+                &pi_js_compat::js_json::JsString::from("ssh"),
+                &error,
+            ))
+        })?;
         if !output.status.success() {
             let code = output.status.code().map_or_else(|| "null".into(), |n| n.to_string());
             return Err(io::Error::other(format!(
@@ -140,9 +143,13 @@ impl BashOperations for Remote {
     ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
         Box::pin(async move {
             let command = format!("cd {} && {command}", self.quote_path(cwd));
-            let mut child = command_for(&self.host, &command)
-                .spawn()
-                .map_err(|error| ToolError::new(node_spawn_error_message("spawn", "ssh", &error)))?;
+            let mut child = command_for(&self.host, &command).spawn().map_err(|error| {
+                ToolError::new(node_spawn_error_message(
+                    "spawn",
+                    &pi_js_compat::js_json::JsString::from("ssh"),
+                    &error,
+                ))
+            })?;
             let stdout = child.stdout.take().expect("piped stdout");
             let stderr = child.stderr.take().expect("piped stderr");
             let output = async {

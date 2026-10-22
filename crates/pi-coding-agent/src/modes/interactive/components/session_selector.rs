@@ -1579,7 +1579,7 @@ async fn delete_session_file(session_path: &str) -> DeleteResult {
             Some(output.status)
         }
         Err(error) => {
-            let message = node_spawn_error_message("spawnSync", "trash", error);
+            let message = node_spawn_error_message("spawnSync", &pi_js_compat::js_json::JsString::from("trash"), error);
             trash_error = Some(format!("trash: {}", slice_chars(&message, 200)));
             None
         }

@@ -51,3 +51,14 @@ existed in `child_process.rs`; the fix exposes it and deletes the ad-hoc maps.
 
 - Focused cases: 6 (output/status, post-exit writes, quiet descendant, signal, spawn failure, sync spawn).
 - Errno mapping: 6 behavioral cases in `tests/errno_codes.rs` (ENOENT, EACCES, ETXTBSY, ENOTDIR; pyrun and bwrap spawn paths).
+
+## Q18 native spawn error contract (2026-10-22)
+
+`node_spawn_error_message(prefix: &str, command: &JsString, error: &io::Error)`
+returns `JsString`. The command is inserted natively into errno text; process
+argv encoding is not reused for diagnostics. `spawn_error_message_preserves_unpaired_command_units`
+uses a real failed spawn at the encoded filesystem path then checks original
+command units in the native error. Written but unexecuted: coding compilation
+blocks errno_codes. Literal command/direct wrapper call sites construct native
+strings; wrappers and ConfigError message contracts widen, never encode at an
+intermediate error adapter. Main/204/209 own downstream scalar consumer fallout.

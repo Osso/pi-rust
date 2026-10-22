@@ -1082,8 +1082,8 @@ fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedPr
     inner.sync.lock().expect("sync state poisoned").active_generation = Some(generation);
 }
 
-fn spawn_error_message(error: &std::io::Error) -> String {
-    node_spawn_error_message("spawn", "node", error)
+fn spawn_error_message(error: &std::io::Error) -> pi_js_compat::js_json::JsString {
+    node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("node"), error)
 }
 
 async fn read_stderr(inner: Arc<ClientInner>, mut reader: impl AsyncRead + Unpin) {
