@@ -1,6 +1,5 @@
 //! Port of `packages/ai/src/providers/anthropic.ts`.
 
-use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 
 use crate::api::anthropic_messages_lazy::anthropic_messages_api;
