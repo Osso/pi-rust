@@ -4,12 +4,66 @@ mod oracle;
 use std::{cell::RefCell, rc::Rc};
 
 use pi_coding_agent::modes::interactive::components::{
+    extension_editor::{ExtensionEditorComponent, ExtensionEditorHost},
     extension_input::{ExtensionInputComponent, ExtensionInputOptions},
     extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions},
 };
 use pi_js_compat::js_json::{JsString, parse_lossless};
 use pi_tui::tui::Component;
 use serde_json::json;
+
+struct EditorHost;
+
+impl pi_tui::components::editor::EditorHost for EditorHost {
+    fn terminal_rows(&self) -> usize {
+        24
+    }
+    fn request_render(&self) {}
+    fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        Rc::new(Self)
+    }
+}
+impl pi_tui::components::editor::EditorFixedCell for EditorHost {
+    fn place(&self, _: i64, _: i64) {}
+    fn clear(&self) {}
+    fn update(&self, _: &JsString) -> bool {
+        false
+    }
+}
+impl ExtensionEditorHost for EditorHost {
+    fn suspend(&self) {
+        panic!("external editor not requested")
+    }
+    fn resume(&self) {
+        panic!("external editor not requested")
+    }
+    fn request_forced_render(&self) {}
+}
+
+#[test]
+fn extension_editor_preserves_raw_prefill_and_submission() {
+    for raw in [
+        JsString::from_utf16(vec![0xd800]),
+        JsString::from_utf16(vec![0xdc00]),
+        JsString::from("😀"),
+    ] {
+        let submitted = Rc::new(RefCell::new(Vec::new()));
+        let output = Rc::clone(&submitted);
+        let mut editor = ExtensionEditorComponent::new(
+            Rc::new(EditorHost),
+            pi_coding_agent::core::keybindings::KeybindingsManager::new(Default::default(), None),
+            &raw,
+            Some(&raw),
+            Rc::new(move |value| output.borrow_mut().push(value)),
+            Rc::new(|| {}),
+            Default::default(),
+            Some("unused".into()),
+        );
+        assert!(editor.render(40).iter().any(|line| line.contains(&raw)));
+        editor.handle_input(&"\r".into());
+        assert_eq!(*submitted.borrow(), vec![raw]);
+    }
+}
 
 #[test]
 fn native_extension_dialog_rendering_and_callbacks_match_frozen_source() {

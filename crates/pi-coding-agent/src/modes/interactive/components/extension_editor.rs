@@ -2,6 +2,8 @@
 
 use std::rc::Rc;
 
+use pi_js_compat::{js_format, js_json::JsString};
+
 use pi_tui::components::editor::{Editor, EditorHost, EditorOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
@@ -43,7 +45,7 @@ pub struct ExtensionEditorComponent {
     editor: ComponentRef,
     tui: Rc<dyn ExtensionEditorHost>,
     keybindings: AppKeybindingsManager,
-    external_editor_command: String,
+    external_editor_command: JsString,
     on_cancel: Rc<dyn Fn()>,
     focused: bool,
 }
@@ -53,22 +55,30 @@ impl ExtensionEditorComponent {
     pub fn new(
         tui: Rc<dyn ExtensionEditorHost>,
         keybindings: AppKeybindingsManager,
-        title: &str,
-        prefill: Option<&str>,
-        on_submit: Rc<dyn Fn(String)>,
+        title: &JsString,
+        prefill: Option<&JsString>,
+        on_submit: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
         options: EditorOptions,
-        external_editor_command: Option<String>,
+        external_editor_command: Option<JsString>,
     ) -> Self {
         let external_editor_command = external_editor_command
             .filter(|command| !command.is_empty())
-            .or_else(|| pi_js_compat::process_env::get("VISUAL").filter(|value| !value.is_empty()))
-            .or_else(|| pi_js_compat::process_env::get("EDITOR").filter(|value| !value.is_empty()))
+            .or_else(|| {
+                pi_js_compat::process_env::get("VISUAL")
+                    .filter(|value| !value.is_empty())
+                    .map(Into::into)
+            })
+            .or_else(|| {
+                pi_js_compat::process_env::get("EDITOR")
+                    .filter(|value| !value.is_empty())
+                    .map(Into::into)
+            })
             .unwrap_or_else(|| {
                 if cfg!(target_os = "windows") {
-                    "notepad".to_owned()
+                    "notepad".into()
                 } else {
-                    "nano".to_owned()
+                    "nano".into()
                 }
             });
 
@@ -88,13 +98,13 @@ impl ExtensionEditorComponent {
             editor.set_text(prefill);
         }
         let submit = Rc::clone(&on_submit);
-        editor.on_submit = Some(Rc::new(move |text: &str| submit(text.to_owned())));
+        editor.on_submit = Some(Rc::new(move |text: &JsString| submit(text.to_owned())));
         let editor = component(editor);
         container.add_child(Rc::clone(&editor));
 
         container.add_child(component(Spacer::new(1)));
         container.add_child(component(Text::new(
-            format!(
+            js_format!(
                 "{}  {}  {}  {}",
                 key_hint("tui.select.confirm", "submit"),
                 key_hint("tui.input.newLine", "newline"),
@@ -118,7 +128,7 @@ impl ExtensionEditorComponent {
         }
     }
 
-    fn editor_text(&mut self) -> String {
+    fn editor_text(&mut self) -> JsString {
         self.editor
             .borrow_mut()
             .as_any_mut()
@@ -127,7 +137,7 @@ impl ExtensionEditorComponent {
             .unwrap_or_default()
     }
 
-    fn set_editor_text(&mut self, text: &str) {
+    fn set_editor_text(&mut self, text: &JsString) {
         if let Some(editor) = self
             .editor
             .borrow_mut()
@@ -155,11 +165,11 @@ impl ExtensionEditorComponent {
 }
 
 impl Component for ExtensionEditorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(data, "tui.select.cancel") {
             (self.on_cancel)();
