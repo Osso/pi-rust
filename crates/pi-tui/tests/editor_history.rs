@@ -299,7 +299,7 @@ fn limits_reverse_search_rendering_to_20_rows_while_keeping_all_matches_navigabl
     let rendered = JsString::join(render_plain(&mut editor, 60), "\n");
     let visible = rendered
         .split('\n')
-        .filter(|line| line.as_bytes().get(1) == Some(&b' ') && line[2..].starts_with("match "))
+        .filter(|line| line.units().get(1) == Some(&32) && line.slice(2, line.len()).starts_with("match "))
         .count();
     assert_eq!(visible, 20, "{rendered:?}");
     assert!(rendered.contains("1/25"));
