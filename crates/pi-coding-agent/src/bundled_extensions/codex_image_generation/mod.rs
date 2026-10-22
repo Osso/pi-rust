@@ -12,8 +12,11 @@ use pi_ai::types::{
     Context, ImageContent, Model, ProviderEnv, ProviderHeaders, TextContent, TextOrImageContent, UserContent,
     UserMessage, UserRole,
 };
-use pi_js_compat::string::js_trim;
-use serde_json::{Value, json};
+use pi_js_compat::{
+    js_json,
+    js_json::{JsString, JsValue as Value},
+};
+use serde_json::json as schema_json;
 use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError, ToolDefinition};
@@ -23,7 +26,7 @@ const DEFAULT_IMAGE_GENERATION_TIMEOUT_MS: u64 = 300_000;
 
 #[derive(Clone)]
 pub struct ImageGenerationRequest {
-    pub prompt: String,
+    pub prompt: JsString,
     pub model: Model,
     pub api_key: Option<String>,
     pub headers: Option<ProviderHeaders>,
@@ -48,6 +51,21 @@ pub fn is_openai_hosted_image_generation_model(model: Option<&Model>) -> bool {
     })
 }
 
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn hosted_payload_keeps_raw_content_and_tool_arguments() {
+        let payload = pi_js_compat::js_json::parse_lossless(
+            r#"{"input":"\ud800","tools":[{"type":"function","name":"keep","parameters":{"label":"\udc00"}}]}"#,
+        )
+        .unwrap();
+        let changed = add_image_generation_tool_to_payload(&payload).unwrap();
+        assert_eq!(changed["input"], payload["input"]);
+        assert_eq!(changed["tools"][0], payload["tools"][0]);
+    }
+}
+
 pub fn add_image_generation_tool_to_payload(payload: &Value) -> Option<Value> {
     let object = payload.as_object()?;
     let tools = object
@@ -65,23 +83,23 @@ pub fn add_image_generation_tool_to_payload(payload: &Value) -> Option<Value> {
             return None;
         }
         let mut updated = object.clone();
-        updated.insert("tools".to_owned(), Value::Array(tools_without_function));
+        updated.insert("tools".into(), Value::Array(tools_without_function));
         return Some(Value::Object(updated));
     }
     let mut updated_tools = tools_without_function;
-    updated_tools.push(json!({"type": "image_generation", "output_format": "png"}));
+    updated_tools.push(js_json!({"type": "image_generation", "output_format": "png"}));
     let mut updated = object.clone();
-    updated.insert("tools".to_owned(), Value::Array(updated_tools));
+    updated.insert("tools".into(), Value::Array(updated_tools));
     Some(Value::Object(updated))
 }
 
 fn is_hosted_image_generation_tool(value: &Value) -> bool {
-    value.get("type").and_then(Value::as_str) == Some("image_generation")
+    value.get("type").and_then(Value::as_string) == Some(&JsString::from("image_generation"))
 }
 
 fn is_function_image_generation_tool(value: &Value) -> bool {
-    value.get("type").and_then(Value::as_str) == Some("function")
-        && value.get("name").and_then(Value::as_str) == Some("image_gen")
+    value.get("type").and_then(Value::as_string) == Some(&JsString::from("function"))
+        && value.get("name").and_then(Value::as_string) == Some(&JsString::from("image_gen"))
 }
 
 fn combined_signal(
@@ -114,7 +132,12 @@ async fn execute_image_generation(
     run_generation: &RunImageGeneration,
     timeout_ms: u64,
 ) -> Result<ImageContent, HandlerError> {
-    let prompt = js_trim(params.get("prompt").and_then(Value::as_str).unwrap_or_default());
+    let prompt = params
+        .get("prompt")
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_default()
+        .trim();
     if prompt.is_empty() {
         return Err(HandlerError::new("image_gen prompt is required"));
     }
@@ -173,7 +196,7 @@ async fn run_hosted_image_generation(request: ImageGenerationRequest) -> Result<
         ),
         messages: vec![pi_ai::types::Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text(request.prompt.clone()),
+            content: UserContent::Text(request.prompt.clone().into()),
             input_source: None,
             provider_native: None,
             timestamp: crate::core::compaction::now_millis(),
@@ -228,7 +251,7 @@ pub fn create_image_generation_tool_definition(options: &ImageGenerationToolOpti
         ]),
         approval_required: Some(true),
         approval_kind: None,
-        parameters: json!({
+        parameters: schema_json!({
             "type": "object",
             "required": ["prompt"],
             "properties": {

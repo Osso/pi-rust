@@ -3,7 +3,8 @@
 use std::sync::{Arc, Mutex};
 
 use pi_ai::types::Model;
-use serde_json::{Map, Value};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
+use serde_json::Value;
 
 use crate::core::extensions::types::{
     BeforeProviderRequestEvent, BoxFuture, ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError,
@@ -72,18 +73,21 @@ pub fn supports_fast_mode(model: Option<&Model>) -> bool {
     model.is_some_and(|model| model.provider == "openai-codex" || model.provider == "openai-codex-gc")
 }
 
-pub fn requested_fast_mode(args: &str, current_tier: Option<FastServiceTier>) -> Option<RequestedFastMode> {
-    let requested = pi_js_compat::string::js_trim(args).to_lowercase();
+pub fn requested_fast_mode(
+    args: impl Into<JsString>,
+    current_tier: Option<FastServiceTier>,
+) -> Option<RequestedFastMode> {
+    let requested = args.into().trim().to_lowercase();
     if requested.is_empty() {
         return Some(match current_tier {
             None => RequestedFastMode::Tier(FastServiceTier::Priority),
             Some(_) => RequestedFastMode::Off,
         });
     }
-    match requested.as_str() {
-        "on" => Some(RequestedFastMode::Tier(FastServiceTier::Priority)),
-        "ultra" => Some(RequestedFastMode::Tier(FastServiceTier::Ultrafast)),
-        "off" => Some(RequestedFastMode::Off),
+    match &requested {
+        value if value == "on" => Some(RequestedFastMode::Tier(FastServiceTier::Priority)),
+        value if value == "ultra" => Some(RequestedFastMode::Tier(FastServiceTier::Ultrafast)),
+        value if value == "off" => Some(RequestedFastMode::Off),
         _ => None,
     }
 }
@@ -123,14 +127,14 @@ pub enum PersistedServiceTier {
     Tier(FastServiceTier),
 }
 
-fn parse_persisted_service_tier(data: &Value) -> Option<PersistedServiceTier> {
+fn parse_persisted_service_tier(data: &JsValue) -> Option<PersistedServiceTier> {
     let object = data.as_object()?;
     match object.get("serviceTier") {
-        Some(Value::Null) => Some(PersistedServiceTier::Null),
-        Some(Value::String(value)) if value == PRIORITY_SERVICE_TIER => {
+        Some(JsValue::Null) => Some(PersistedServiceTier::Null),
+        Some(JsValue::String(value)) if value == PRIORITY_SERVICE_TIER => {
             Some(PersistedServiceTier::Tier(FastServiceTier::Priority))
         }
-        Some(Value::String(value)) if value == ULTRAFAST_SERVICE_TIER => {
+        Some(JsValue::String(value)) if value == ULTRAFAST_SERVICE_TIER => {
             Some(PersistedServiceTier::Tier(FastServiceTier::Ultrafast))
         }
         _ => None,
@@ -147,7 +151,7 @@ pub fn read_persisted_fast_mode(ctx: &ExtensionContext) -> Result<Option<Persist
         if custom.custom_type != FAST_MODE_ENTRY {
             continue;
         }
-        let data = custom.data.clone().unwrap_or(Value::Null);
+        let data = custom.data.clone().unwrap_or(JsValue::Null);
         if let Some(tier) = parse_persisted_service_tier(&data) {
             return Ok(Some(tier));
         }
@@ -175,19 +179,19 @@ fn configured_service_tier(settings: &serde_json::Map<String, Value>) -> Option<
 }
 
 fn persist_fast_mode(pi: &ExtensionApi, authority: &FastModeAuthority) -> Result<(), HandlerError> {
-    let mut data = Map::new();
+    let mut data = JsObject::new();
     data.insert(
-        "serviceTier".to_owned(),
+        "serviceTier".into(),
         match authority.service_tier() {
-            Some(tier) => Value::String(tier.as_str().to_owned()),
-            None => Value::Null,
+            Some(tier) => JsValue::from(tier.as_str()),
+            None => JsValue::Null,
         },
     );
-    pi.append_entry(FAST_MODE_ENTRY, Some(Value::Object(data)))
+    pi.append_entry(FAST_MODE_ENTRY, Some(JsValue::Object(data)))
 }
 
 pub async fn handle_fast_command(
-    args: &str,
+    args: impl Into<JsString>,
     ctx: &ExtensionCommandContext,
     pi: &ExtensionApi,
     authority: &FastModeAuthority,
@@ -283,13 +287,13 @@ pub fn codex_fast_extension(pi: &ExtensionApi, options: &CodexFastOptions) -> Re
         let authority = authority.clone();
         move |event: BeforeProviderRequestEvent,
               ctx: ExtensionContext|
-              -> BoxFuture<'static, Result<Option<Value>, HandlerError>> {
+              -> BoxFuture<'static, Result<Option<JsValue>, HandlerError>> {
             let authority = authority.clone();
             Box::pin(async move {
                 if authority.service_tier().is_none() || !supports_fast_mode(ctx.model()?.as_ref()) {
                     return Ok(None);
                 }
-                let Value::Object(mut payload) = event.payload else {
+                let JsValue::Object(mut payload) = event.payload else {
                     ctx.ui()?.notify(
                         "Fast mode skipped: provider payload is not an object",
                         Some(NotifyType::Warning),
@@ -297,16 +301,10 @@ pub fn codex_fast_extension(pi: &ExtensionApi, options: &CodexFastOptions) -> Re
                     return Ok(None);
                 };
                 payload.insert(
-                    "service_tier".to_owned(),
-                    Value::String(
-                        authority
-                            .service_tier()
-                            .expect("checked service tier")
-                            .as_str()
-                            .to_owned(),
-                    ),
+                    "service_tier".into(),
+                    JsValue::String(authority.service_tier().expect("checked service tier").as_str().into()),
                 );
-                Ok(Some(Value::Object(payload)))
+                Ok(Some(JsValue::Object(payload)))
             })
         }
     })

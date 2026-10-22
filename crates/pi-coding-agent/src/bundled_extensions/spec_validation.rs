@@ -36,7 +36,7 @@ pub fn spec_validation_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
                     return Err(HandlerError::new("/spec-validation is blocked while a task is running"));
                 }
 
-                api.send_user_message(UserMessageContent::Text(SPEC_VALIDATION_PROMPT.to_owned()), None)?;
+                api.send_user_message(UserMessageContent::Text(SPEC_VALIDATION_PROMPT.to_owned().into()), None)?;
                 ctx.ui()?.set_editor_text("");
                 Ok(())
             })
