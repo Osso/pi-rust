@@ -845,12 +845,12 @@ impl DefaultResourceLoader {
             .package_manager
             .resolve(None)
             .await
-            .map_err(|error| JsString::from(error.to_string()))?;
+            .map_err(|error| error.message().clone())?;
         let cli_paths = self
             .package_manager
             .resolve_extension_sources(&self.additional_extension_paths, false, true)
             .await
-            .map_err(|error| JsString::from(error.to_string()))?;
+            .map_err(|error| error.message().clone())?;
 
         let mut metadata_by_path: IndexMap<JsString, PathMetadata> = IndexMap::new();
         let enabled_extensions = enabled_paths(&resolved_paths.extensions, &mut metadata_by_path);
@@ -1086,12 +1086,12 @@ impl DefaultResourceLoader {
             .package_manager
             .resolve(None)
             .await
-            .map_err(|error| JsString::from(error.to_string()))?;
+            .map_err(|error| error.message().clone())?;
         let cli_extension_paths = self
             .package_manager
             .resolve_extension_sources(&self.additional_extension_paths, false, true)
             .await
-            .map_err(|error| JsString::from(error.to_string()))?;
+            .map_err(|error| error.message().clone())?;
         let enabled_extensions = resolved_paths
             .extensions
             .iter()
