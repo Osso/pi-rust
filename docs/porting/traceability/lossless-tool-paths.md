@@ -53,7 +53,7 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 ## Supervisor path-utils caller
 
-Removed `path.to_utf8_lossy()` before native read/general path resolution in `supervisor/main.rs`. The subsequent `resolve_existing_path`/containment helper remains outside the path-utils-call-only ownership and is still scalar/compiler-blocked. Main was asked to migrate that lexical/realpath chain; no premature encoding shim added. No runtime security-policy proof from this adaptation.
+Removed `path.to_utf8_lossy()` before native read/general path resolution in `supervisor/main.rs`. Main subsequently granted the containment chain. `block_supervisor_file_access` accepts native roots; `resolve_existing_path` keeps resolved missing suffixes native, encoding only exists/canonicalize calls, and decodes the existing prefix returned by realpath. Containment compares native units. The helper now uses frozen `path.resolve`, not the old Rust-only home-expanding generic resolver. A unit test asserts an OS-replaced existing prefix plus distinct raw missing suffix; `supervisor-path-red.log` is compiler-blocked in pi-ai (12 errors), not runtime RED/PASS. No runtime security-policy proof yet.
 
 ## CLI file-processor checkpoint
 

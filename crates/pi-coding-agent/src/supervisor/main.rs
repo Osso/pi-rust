@@ -41,7 +41,9 @@ use crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR;
 use crate::supervisor::request_wake::{SupervisorRequestWakeServer, notify_supervisor_request};
 use crate::supervisor::response_tool::{SUPERVISOR_RESPONSE_TOOL_NAME, create_supervisor_response_tool};
 use crate::supervisor::service::{RunSupervisorRequestInput, SupervisorEvaluator, run_supervisor_request};
-use crate::utils::paths::{process_cwd, resolve_path};
+use crate::utils::paths::{node_basename, node_dirname, node_join, node_resolve, process_cwd, resolve_path};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::encode_node_utf8;
 
 pub const SUPERVISOR_SESSION_ID: &str = "supervisor";
 pub const SUPERVISOR_COMPACTION_PERCENT: f64 = 75.0;
@@ -114,7 +116,12 @@ pub fn validate_supervisor_extension_load(errors: &[(String, JsString)]) -> Resu
 }
 
 /// `blockSupervisorFileAccess`.
-pub fn block_supervisor_file_access(kb_dir: &str, tool_name: &str, input: &JsValue) -> Option<BeforeToolCallResult> {
+pub fn block_supervisor_file_access(
+    kb_dir: impl Into<JsString>,
+    tool_name: &str,
+    input: &JsValue,
+) -> Option<BeforeToolCallResult> {
+    let kb_dir = kb_dir.into();
     if !SUPERVISOR_TOOL_NAMES.contains(&tool_name) {
         return None;
     }
@@ -122,15 +129,15 @@ pub fn block_supervisor_file_access(kb_dir: &str, tool_name: &str, input: &JsVal
         return Some(supervisor_file_access_block());
     };
     let resolved = if tool_name == "read" {
-        crate::core::tools::path_utils::resolve_read_path(path, kb_dir)
+        crate::core::tools::path_utils::resolve_read_path(path, &kb_dir)
     } else {
-        crate::core::tools::path_utils::resolve_to_cwd(path, kb_dir)
+        crate::core::tools::path_utils::resolve_to_cwd(path, &kb_dir)
     };
     let Ok(resolved_path) = resolved else {
         return Some(supervisor_file_access_block());
     };
     let within = resolve_existing_path(&resolved_path)
-        .zip(resolve_existing_path(kb_dir))
+        .zip(resolve_existing_path(&kb_dir))
         .is_some_and(|(path, root)| is_path_within_root(&path, &root));
     if within {
         None
@@ -154,34 +161,50 @@ fn supervisor_file_access_block() -> BeforeToolCallResult {
     }
 }
 
-fn resolve_existing_path(path: &str) -> Option<String> {
-    let resolved = resolve_path(path, &process_cwd(), &Default::default()).ok()?;
-    let mut suffix: Vec<String> = Vec::new();
-    let mut existing = PathBuf::from(&resolved);
-    while !existing.exists() {
-        let parent = existing.parent()?.to_path_buf();
+#[cfg(test)]
+mod lossless_path_tests {
+    use super::*;
+
+    #[test]
+    fn realpath_encodes_existing_prefix_but_keeps_missing_suffix_units() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = JsString::from(directory.path().to_str().unwrap()) + "/root-" + JsString::from_utf16(vec![0xd800]);
+        let disk = pi_js_compat::js_json::encode_node_utf8(&root);
+        std::fs::create_dir(&disk).unwrap();
+        let suffix = JsString::from("/missing-") + JsString::from_utf16(vec![0xdfff]);
+        let actual = resolve_existing_path(&(root.clone() + &suffix)).unwrap();
+        let canonical = std::fs::canonicalize(disk).unwrap().to_string_lossy().into_owned();
+        assert_eq!(actual, JsString::from(canonical) + &suffix);
+        assert!(is_path_within_root(&actual, &resolve_existing_path(&root).unwrap()));
+        assert!(!is_path_within_root(
+            &(JsString::from("/outside-") + JsString::from_utf16(vec![0xdfff])),
+            &resolve_existing_path(&root).unwrap()
+        ));
+    }
+}
+
+fn resolve_existing_path(path: &JsString) -> Option<JsString> {
+    let resolved = node_resolve("", path).ok()?;
+    let mut suffix = Vec::new();
+    let mut existing = resolved.clone();
+    while !Path::new(&encode_node_utf8(&existing)).exists() {
+        let parent = node_dirname(&existing);
         if parent == existing {
             return Some(resolved);
         }
-        suffix.insert(
-            0,
-            existing
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-        );
+        suffix.push(node_basename(&existing));
         existing = parent;
     }
-    let canonical = std::fs::canonicalize(&existing).ok()?;
-    let mut result = canonical;
-    for component in suffix {
-        result.push(component);
+    let canonical = std::fs::canonicalize(encode_node_utf8(&existing)).ok()?;
+    let mut result = JsString::from(canonical.to_string_lossy().into_owned());
+    for component in suffix.into_iter().rev() {
+        result = node_join(result, component);
     }
-    Some(result.display().to_string())
+    Some(result)
 }
 
-fn is_path_within_root(path: &str, root: &str) -> bool {
-    path == root || path.starts_with(&format!("{root}{}", std::path::MAIN_SEPARATOR))
+fn is_path_within_root(path: &JsString, root: &JsString) -> bool {
+    path == root || path.starts_with(js_format!("{}{}", root, std::path::MAIN_SEPARATOR))
 }
 
 /// `createSupervisorConsoleSnapshot`.
