@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use pi_agent_core::agent::AgentTool;
 use pi_coding_agent::core::tools::read::ReadTool;
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 
 #[test]
 fn coding_agent_read_tool_matches_the_pinned_typescript_source() {
@@ -54,13 +55,13 @@ fn coding_agent_read_tool_matches_the_pinned_typescript_source() {
         "coding-agent-read-tool-oracle.ts",
         "packages/coding-agent/src/core/tools/read.ts",
     );
-    let expected = oracle.request(&json!({
+    let expected = oracle.request_lossless(&json!({
         "id": 27_200,
         "operation": "coding_agent_read_tool",
         "cwd": cwd,
         "cases": cases,
     }));
-    assert_eq!(expected["ok"], Value::Bool(true), "{expected}");
+    assert_eq!(expected["ok"], Value::Bool(true), "{expected:?}");
 
     let tool = ReadTool::new(&cwd);
     let runtime = tokio::runtime::Runtime::new().expect("runtime");

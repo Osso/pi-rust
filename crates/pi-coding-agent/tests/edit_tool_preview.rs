@@ -16,13 +16,20 @@ use pi_coding_agent::modes::interactive::components::tool_execution::{
     ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
 };
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, ThemeBg, load_theme_from_path, set_theme_instance};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 use pi_tui::Component;
 use pi_tui::utils::strip_terminal_sequences;
-use serde_json::{Value, json};
 
 fn theme() -> Arc<Theme> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
-    let theme = Arc::new(load_theme_from_path(&path, Some(ColorMode::Truecolor)).expect("built-in dark theme"));
+    let theme = Arc::new(
+        load_theme_from_path(
+            &JsString::from(path.to_str().expect("utf-8 theme path")),
+            Some(ColorMode::Truecolor),
+        )
+        .expect("built-in dark theme"),
+    );
     set_theme_instance(Arc::clone(&theme));
     theme
 }
@@ -30,12 +37,12 @@ fn theme() -> Arc<Theme> {
 fn context(args: Value, cwd: &str, state: ToolRenderState) -> ToolRenderContext {
     ToolRenderContext {
         args,
-        tool_call_id: "preview-call".to_owned(),
+        tool_call_id: "preview-call".into(),
         invalidate: Arc::new(|| {}),
         last_component: None,
         call_component: None,
         state,
-        cwd: cwd.to_owned(),
+        cwd: cwd.into(),
         execution_started: false,
         args_complete: true,
         is_partial: false,
@@ -45,12 +52,8 @@ fn context(args: Value, cwd: &str, state: ToolRenderState) -> ToolRenderContext 
     }
 }
 
-fn plain(lines: &[String]) -> String {
-    lines
-        .iter()
-        .map(|line| strip_terminal_sequences(line))
-        .collect::<Vec<_>>()
-        .join("\n")
+fn plain(lines: &[JsString]) -> JsString {
+    JsString::join(lines.iter().map(strip_terminal_sequences), "\n")
 }
 
 fn wait_for_preview(state: &ToolRenderState) -> Value {
@@ -60,14 +63,14 @@ fn wait_for_preview(state: &ToolRenderState) -> Value {
         if let Some(preview) = snapshot.get("preview") {
             return preview.clone();
         }
-        assert!(Instant::now() < deadline, "preview never completed: {snapshot}");
+        assert!(Instant::now() < deadline, "preview never completed: {snapshot:?}");
         std::thread::sleep(Duration::from_millis(10));
     }
 }
 
-fn result(content: &str, details: Option<Value>, is_error: bool) -> AgentToolResult {
+fn result(content: impl Into<JsString>, details: Option<Value>, is_error: bool) -> AgentToolResult {
     AgentToolResult {
-        content: vec![TextOrImageContent::Text(TextContent::new(content.to_owned()))],
+        content: vec![TextOrImageContent::Text(TextContent::new(content))],
         details,
         is_error: Some(is_error),
         terminate: None,
@@ -93,14 +96,14 @@ fn edit_call_renders_the_pending_header_then_the_on_disk_preview() {
     );
 
     let preview = wait_for_preview(&state);
-    let preview_diff = preview["diff"].as_str().expect("diff").to_owned();
+    let preview_diff = preview["diff"].as_string().expect("diff").to_owned();
 
     let rendered = edit_render_call(&args, &theme, &context).expect("call renderer");
     let rendered_lines = rendered.borrow_mut().render(80);
     let text = plain(&rendered_lines);
-    assert!(text.contains("edit note.txt"), "{text}");
-    assert!(text.contains("-1 hello world"), "{text}");
-    assert!(text.contains("+1 goodbye world"), "{text}");
+    assert!(text.contains("edit note.txt"), "{text:?}");
+    assert!(text.contains("-1 hello world"), "{text:?}");
+    assert!(text.contains("+1 goodbye world"), "{text:?}");
     assert!(
         rendered_lines
             .iter()
@@ -138,7 +141,7 @@ fn edit_preview_errors_render_in_the_call_header_and_suppress_duplicate_result_t
 
     let _ = edit_render_call(&args, &theme, &context).expect("call renderer");
     let preview = wait_for_preview(&state);
-    let preview_error = preview["error"].as_str().expect("error").to_owned();
+    let preview_error = preview["error"].as_string().expect("error").to_owned();
 
     let rendered = edit_render_call(&args, &theme, &context).expect("call renderer");
     let rendered_lines = rendered.borrow_mut().render(80);
@@ -193,7 +196,7 @@ fn edit_args_change_discards_the_previous_preview() {
     assert_eq!(reset_text.trim(), "edit note.txt");
 
     let preview = wait_for_preview(&state);
-    assert!(preview["diff"].as_str().expect("diff").contains("+1 hello earth"));
+    assert!(preview["diff"].as_string().expect("diff").contains("+1 hello earth"));
 }
 
 #[test]
@@ -231,8 +234,8 @@ fn edit_settled_result_reconstructs_the_preview_without_complete_args() {
 
     let settled = edit_render_call(&args, &theme, &context).expect("call renderer");
     let text = plain(&settled.borrow_mut().render(80));
-    assert!(text.contains("-1 hello world"), "{text}");
-    assert!(text.contains("+1 goodbye world"), "{text}");
+    assert!(text.contains("-1 hello world"), "{text:?}");
+    assert!(text.contains("+1 goodbye world"), "{text:?}");
 }
 
 #[test]
@@ -273,7 +276,7 @@ fn bash_call_records_the_start_and_result_records_the_end() {
         &context,
     );
     let partial_text = plain(&partial.borrow_mut().render(80));
-    assert!(partial_text.contains("Elapsed "), "{partial_text}");
+    assert!(partial_text.contains("Elapsed "), "{partial_text:?}");
     assert!(state.get().get("endedAt").is_none());
 
     let final_result = pi_coding_agent::core::tools::bash::render_result(
@@ -288,7 +291,7 @@ fn bash_call_records_the_start_and_result_records_the_end() {
     let ended_at = state.get()["endedAt"].as_f64().expect("endedAt recorded");
     assert!(ended_at >= started_at + 1000.0);
     let final_text = plain(&final_result.borrow_mut().render(80));
-    assert!(final_text.contains("Took "), "{final_text}");
+    assert!(final_text.contains("Took "), "{final_text:?}");
 }
 
 #[test]
@@ -298,7 +301,7 @@ fn edit_settled_result_rebuilds_the_rendered_call_component() {
     let cwd = temp.path().to_string_lossy().into_owned();
     std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
     let args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
-    let definition = create_edit_tool_definition(&cwd, Default::default());
+    let definition = create_edit_tool_definition(&JsString::from(&cwd), Default::default());
     let mut component = ToolExecutionComponent::new(
         "edit",
         "edit-call",
@@ -306,7 +309,7 @@ fn edit_settled_result_rebuilds_the_rendered_call_component() {
         ToolExecutionOptions::default(),
         Some(definition),
         Arc::new(|| {}),
-        &cwd,
+        JsString::from(&cwd),
     );
 
     let pending = plain(&component.render(80));
@@ -326,7 +329,7 @@ fn edit_settled_result_rebuilds_the_rendered_call_component() {
     );
 
     let settled = plain(&component.render(80));
-    assert!(settled.contains("-1 hello world"), "{settled}");
-    assert!(settled.contains("+1 goodbye world"), "{settled}");
-    assert!(!settled.contains("Successfully replaced"), "{settled}");
+    assert!(settled.contains("-1 hello world"), "{settled:?}");
+    assert!(settled.contains("+1 goodbye world"), "{settled:?}");
+    assert!(!settled.contains("Successfully replaced"), "{settled:?}");
 }
