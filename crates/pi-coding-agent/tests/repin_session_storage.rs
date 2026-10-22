@@ -152,7 +152,7 @@ async fn export_uses_read_only_stale_archive_and_legacy_source() {
 mod tool_context;
 #[tokio::test]
 async fn persisted_history_tool_recovers_source_compacted_ancestor() {
-    use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
     use std::sync::{Arc, Mutex};
     configure_worker();

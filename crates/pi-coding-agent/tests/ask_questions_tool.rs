@@ -4,8 +4,8 @@ mod oracle;
 #[path = "support/tool_context.rs"]
 mod tool_context;
 use futures_util::FutureExt;
-use pi_agent_core::AgentHarnessTool;
 use pi_ai::request::BoxFuture;
+use pi_coding_agent::core::extensions::types::ContextTool;
 use pi_coding_agent::core::extensions::types::*;
 use pi_coding_agent::core::session_control_db::{get_control_db_path, list_runtime_mailbox_messages};
 use pi_coding_agent::core::tools::ask_questions::AskQuestionsTool;

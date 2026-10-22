@@ -3,8 +3,9 @@
 use pi_js_compat::js_json::{JsString, JsValue};
 use std::sync::OnceLock;
 
+use crate::core::extensions::types::ContextTool;
 use pi_agent_core::{
-    AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
+    AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use serde::Deserialize;
@@ -56,7 +57,7 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-impl AgentHarnessTool<ExtensionContext> for EndTurnTool {
+impl ContextTool<ExtensionContext> for EndTurnTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -103,7 +104,7 @@ impl AgentHarnessTool<ExtensionContext> for EndTurnTool {
 /// `createEndTurnToolDefinition()`.
 pub fn create_end_turn_tool_definition() -> crate::core::extensions::types::ToolDefinition {
     let mut definition =
-        crate::core::extensions::wrapper::harness_tool_definition(std::sync::Arc::new(EndTurnTool::new()));
+        crate::core::extensions::wrapper::context_tool_definition(std::sync::Arc::new(EndTurnTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition

@@ -531,6 +531,38 @@ async fn run_scenario(name: &str) -> Value {
             )
             .await
         }
+        "steering_error" | "follow_up_error" => {
+            let mut cfg = config();
+            let hook: pi_agent_core::agent::MessageQueueHook =
+                Arc::new(|| Box::pin(async { Err(pi_agent_core::agent::AgentError::new("queue hook failed")) }));
+            if name == "steering_error" {
+                cfg.get_steering_messages = Some(hook);
+            } else {
+                cfg.get_follow_up_messages = Some(hook);
+            }
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let captured = events.clone();
+            let emit: pi_agent_core::agent::AgentEventSink = Arc::new(move |event| {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push(normalized(serde_json::to_value(event).unwrap()));
+                Box::pin(async { Ok(()) })
+            });
+            let result = pi_agent_core::agent::run_agent_loop(
+                vec![AgentMessage::User(user("work"))],
+                context(Vec::new(), Vec::new(), ""),
+                cfg,
+                emit,
+                None,
+                Some(recording_stream_fn(
+                    requests.clone(),
+                    vec![Script::message(text_assistant("answer"))],
+                )),
+            )
+            .await;
+            json!({"events":events.lock().unwrap().clone(),"error":result.unwrap_err().message(),"requests":requests.lock().unwrap().clone()})
+        }
         "steering" => {
             let polls = Arc::new(AtomicUsize::new(0));
             let mut cfg = config();
@@ -538,9 +570,9 @@ async fn run_scenario(name: &str) -> Value {
                 let polls = Arc::clone(&polls);
                 Box::pin(async move {
                     if polls.fetch_add(1, Ordering::SeqCst) == 1 {
-                        vec![AgentMessage::User(user("interrupt"))]
+                        Ok(vec![AgentMessage::User(user("interrupt"))])
                     } else {
-                        Vec::new()
+                        Ok(Vec::new())
                     }
                 })
             }));
@@ -563,9 +595,9 @@ async fn run_scenario(name: &str) -> Value {
                 let polls = Arc::clone(&polls);
                 Box::pin(async move {
                     if polls.fetch_add(1, Ordering::SeqCst) == 0 {
-                        vec![AgentMessage::User(user("follow up"))]
+                        Ok(vec![AgentMessage::User(user("follow up"))])
                     } else {
-                        Vec::new()
+                        Ok(Vec::new())
                     }
                 })
             }));
@@ -647,7 +679,7 @@ async fn run_scenario(name: &str) -> Value {
                     let steering_polls = Arc::clone(&steering_polls);
                     Box::pin(async move {
                         steering_polls.fetch_add(1, Ordering::SeqCst);
-                        Vec::new()
+                        Ok(Vec::new())
                     })
                 }))
             };
@@ -657,7 +689,7 @@ async fn run_scenario(name: &str) -> Value {
                     let follow_up_polls = Arc::clone(&follow_up_polls);
                     Box::pin(async move {
                         follow_up_polls.fetch_add(1, Ordering::SeqCst);
-                        vec![AgentMessage::User(user("stays queued"))]
+                        Ok(vec![AgentMessage::User(user("stays queued"))])
                     })
                 }))
             };
@@ -1135,7 +1167,6 @@ fn first_difference(path: &str, actual: &Value, expected: &Value) -> Option<Stri
 }
 
 pub async fn run_differential() {
-    let mut oracle = oracle::TsOracle::spawn("agent-loop-oracle.ts", "packages/agent-core/src/agent-loop.ts");
     let scenarios = [
         "text",
         "tools",
@@ -1173,6 +1204,15 @@ pub async fn run_differential() {
         "listener_agent_end_agent",
         "tool_result_cap",
     ];
+    compare_scenarios(&scenarios).await;
+}
+
+pub async fn run_queue_rejection_differential() {
+    compare_scenarios(&["steering_error", "follow_up_error"]).await;
+}
+
+async fn compare_scenarios(scenarios: &[&str]) {
+    let mut oracle = oracle::TsOracle::spawn("agent-loop-oracle.ts", "packages/agent-core/src/agent-loop.ts");
     for scenario in scenarios {
         let response = oracle.request(&json!({"id": scenario, "scenario": scenario}));
         assert_eq!(response["ok"], json!(true), "oracle failed for {scenario}: {response}");

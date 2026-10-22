@@ -53,7 +53,7 @@ mod steering {
         cfg.get_steering_messages = Some(Arc::new(move || {
             let poll = polls.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {
-                if poll == 1 {
+                Ok(if poll == 1 {
                     vec![
                         UserMessage {
                             role: UserRole::Tag,
@@ -66,7 +66,7 @@ mod steering {
                     ]
                 } else {
                     vec![]
-                }
+                })
             })
         }));
         let turns = Arc::new(AtomicUsize::new(0));

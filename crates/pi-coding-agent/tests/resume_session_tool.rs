@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use pi_agent_core::AgentHarnessTool;
+use pi_coding_agent::core::extensions::types::ContextTool;
 use pi_coding_agent::core::extensions::{ExtensionContext, SwitchSessionCallback};
 use pi_coding_agent::core::session_control_db::{WritableSessionMetadata, get_control_db_path, write_session_metadata};
 use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager};

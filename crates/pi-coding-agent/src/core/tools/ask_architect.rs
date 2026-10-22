@@ -3,8 +3,9 @@
 use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use std::sync::{Arc, OnceLock};
 
+use crate::core::extensions::types::ContextTool;
 use pi_agent_core::{
-    AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
+    AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use pi_tui::tui::ComponentRef;
@@ -14,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::result::text_result;
 use crate::core::extensions::types::{ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
-use crate::core::extensions::wrapper::harness_tool_definition;
+use crate::core::extensions::wrapper::context_tool_definition;
 use crate::core::session_control_db::{PostArchitectRequestInput, post_architect_request};
 use crate::core::session_manager::lock_session_manager;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
@@ -90,7 +91,7 @@ fn resolve_project_path(project_path: Option<&JsString>, session_cwd: &JsString)
     Ok(canonical_path.to_string_lossy().as_ref().into())
 }
 
-impl AgentHarnessTool<ExtensionContext> for AskArchitectTool {
+impl ContextTool<ExtensionContext> for AskArchitectTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -183,7 +184,7 @@ pub fn render_result(
 
 /// `createAskArchitectToolDefinition()`.
 pub fn create_ask_architect_tool_definition() -> ToolDefinition {
-    let mut definition = harness_tool_definition(Arc::new(AskArchitectTool::new()));
+    let mut definition = context_tool_definition(Arc::new(AskArchitectTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.render_call = Some(crate::core::extensions::types::infallible_render_call(render_call));

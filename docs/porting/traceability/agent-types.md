@@ -14,6 +14,7 @@ Evidence/exclusions: [slice-1 ledger](agent-core-api-repin.md). Status todo: sha
 | ShouldStopAfterTurnContext, PrepareNextTurnContext | struct and alias | replaced-context prompt/restoration tests |
 | AgentLoopTurnUpdate | optional context/model/thinking_level | prepare_next_turn differential and behavior tests |
 | AgentLoopConfig | named fields + nested SimpleStreamOptions | forwarded request/queue/hook tests; stop hook has context only |
+| Queue message callbacks | `MessageQueueHook` returns `Result<Vec<AgentMessage>, AgentError>` | frozen steering/follow-up rejection differentials; native-unit event-boundary regression |
 | CustomAgentMessages, AgentMessage | declaration merging becomes Custom(JsonObject); standard enum variants | agent_types.rs standard/custom round trips |
 | AgentState | owned snapshot, access through Agent methods | state and pending insertion-order tests; reference semantics gap |
 | AgentToolResult | content/details/is_error/terminate | serde result tests; removed usage/added_tool_names; coding consumer migrations |
