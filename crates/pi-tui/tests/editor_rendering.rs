@@ -1,5 +1,6 @@
 //! Ported from `packages/tui/test/editor.test.ts` (`Scroll indicators`,
 //! `Grapheme-aware text wrapping`).
+use pi_js_compat::js_json::JsString;
 use pi_tui::tui::Component;
 
 #[path = "support/editor_host.rs"]
@@ -9,17 +10,18 @@ use editor_host::{editor, editor_with_rows, plain_theme, send};
 use pi_tui::components::editor::{Editor, EditorOptions};
 use pi_tui::utils::{strip_terminal_sequences, visible_width};
 
-fn content_lines(lines: &[String]) -> Vec<String> {
+fn content_lines(lines: &[JsString]) -> Vec<JsString> {
     lines[1..lines.len() - 1]
         .iter()
-        .map(|line| strip_terminal_sequences(line).trim().to_string())
+        .map(|line| strip_terminal_sequences(line).trim())
         .collect()
 }
 
 #[test]
 fn matches_frozen_top_resets_and_untruncated_bottom_indicator() {
     let width = 10;
-    let border_color: pi_tui::components::StyleFn = std::rc::Rc::new(|text: &str| format!("\x1b[35m{text}\x1b[39m"));
+    let border_color: pi_tui::components::StyleFn =
+        std::rc::Rc::new(|text: &JsString| JsString::from("\x1b[35m") + text + "\x1b[39m");
     let (host, _) = editor_host::fake_host(24);
     let mut theme = plain_theme();
     theme.border_color = std::rc::Rc::clone(&border_color);
@@ -41,7 +43,7 @@ fn matches_frozen_top_resets_and_untruncated_bottom_indicator() {
     assert!(strip_terminal_sequences(bottom).starts_with("─── ↓"));
     assert_eq!(*top, "\x1b[35m─── ↑ 9\x1b[0m...\x1b[0m\x1b[39m");
     // Frozen source leaves bottom indicators overwidth; Q2 records this source bug.
-    assert_eq!(*bottom, border_color("─── ↓ 4 more "));
+    assert_eq!(*bottom, border_color(&"─── ↓ 4 more ".into()));
     for line in &lines[..lines.len() - 1] {
         assert_eq!(visible_width(line), width, "line exceeds width: {line:?}");
     }
@@ -51,7 +53,7 @@ fn matches_frozen_top_resets_and_untruncated_bottom_indicator() {
 fn renders_an_optional_prompt_prefix_before_the_first_input_line() {
     let (host, _) = editor_host::fake_host(24);
     let mut theme = plain_theme();
-    theme.prompt_prefix = Some(std::rc::Rc::new(|text| format!("\x1b[36m{text}\x1b[0m")));
+    theme.prompt_prefix = Some(std::rc::Rc::new(|text| JsString::from("\x1b[36m") + text + "\x1b[0m"));
     let mut editor = Editor::new(host, theme, EditorOptions::default());
     editor.set_text("hello");
     let lines = editor.render(12);
@@ -169,7 +171,7 @@ fn shows_cursor_at_end_of_line_before_wrap_and_wraps_on_next_char() {
 fn reports_prompt_column_after_editor_padding() {
     let (host, _) = editor_host::fake_host(24);
     let mut theme = plain_theme();
-    theme.prompt_prefix = Some(std::rc::Rc::new(|text| text.to_string()));
+    theme.prompt_prefix = Some(std::rc::Rc::new(|text| text.clone()));
     let mut editor = Editor::new(
         host,
         theme,
@@ -186,7 +188,7 @@ fn reports_prompt_column_after_editor_padding() {
 fn keeps_prompt_cell_at_the_first_wrapped_editor_row() {
     let (host, state) = editor_host::fake_host(24);
     let mut theme = plain_theme();
-    theme.prompt_prefix = Some(std::rc::Rc::new(|text| text.to_string()));
+    theme.prompt_prefix = Some(std::rc::Rc::new(|text| text.clone()));
     let mut editor = Editor::new(host, theme, EditorOptions::default());
     editor.set_text("a long line that wraps across multiple editor rows");
     let rendered = editor.render(20);
@@ -203,7 +205,7 @@ fn keeps_prompt_cell_at_the_first_wrapped_editor_row() {
 fn does_not_write_a_prompt_cell_when_vertical_scrolling_hides_the_prompt() {
     let (host, state) = editor_host::fake_host(10);
     let mut theme = plain_theme();
-    theme.prompt_prefix = Some(std::rc::Rc::new(|text| text.to_string()));
+    theme.prompt_prefix = Some(std::rc::Rc::new(|text| text.clone()));
     let mut editor = Editor::new(host, theme, EditorOptions::default());
     editor.set_text(
         &(0..20)
@@ -223,7 +225,7 @@ fn does_not_write_a_prompt_cell_when_vertical_scrolling_hides_the_prompt() {
 fn stops_fixed_cell_writes_after_screen_origin_is_cleared() {
     let (host, state) = editor_host::fake_host(24);
     let mut theme = plain_theme();
-    theme.prompt_prefix = Some(std::rc::Rc::new(|text| text.to_string()));
+    theme.prompt_prefix = Some(std::rc::Rc::new(|text| text.clone()));
     let mut editor = Editor::new(host, theme, EditorOptions::default());
     editor.render(40);
     editor.set_screen_origin(2, 1);

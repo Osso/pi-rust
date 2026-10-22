@@ -104,7 +104,7 @@ pub fn editor() -> (Editor, Rc<RefCell<FakeHostState>>) {
     editor_with_rows(24)
 }
 
-pub fn send(editor: &mut Editor, input: &str) {
+pub fn send(editor: &mut Editor, input: impl Into<JsString>) {
     editor.handle_input(&input.into());
 }
 
