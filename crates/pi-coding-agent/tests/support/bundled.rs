@@ -27,7 +27,7 @@ use pi_coding_agent::core::settings_manager::{Settings, SettingsManager};
 use pi_coding_agent::modes::interactive::theme::{
     current_theme_if_initialized, load_theme_from_path, set_theme_instance,
 };
-use serde_json::Value;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 
 use super::support;
 
@@ -79,35 +79,40 @@ impl HttpBody for StubBody {
     }
 }
 
-type AppendEntryAction = Arc<dyn Fn(&str, Option<Value>) -> Result<(), HandlerError> + Send + Sync>;
+type AppendEntryAction = Arc<dyn Fn(&JsString, Option<Value>) -> Result<(), HandlerError> + Send + Sync>;
 
 #[derive(Default)]
 pub struct RecordingUi {
-    pub notifications: Mutex<Vec<(String, Option<NotifyType>)>>,
-    pub statuses: Mutex<BTreeMap<String, Option<String>>>,
-    pub status_calls: Mutex<Vec<(String, Option<String>)>>,
-    pub editor_texts: Mutex<Vec<String>>,
-    pub select_result: Mutex<Option<String>>,
-    pub select_calls: Mutex<Vec<(String, Vec<String>)>>,
+    pub notifications: Mutex<Vec<(JsString, Option<NotifyType>)>>,
+    pub statuses: Mutex<BTreeMap<JsString, Option<JsString>>>,
+    pub status_calls: Mutex<Vec<(JsString, Option<JsString>)>>,
+    pub editor_texts: Mutex<Vec<JsString>>,
+    pub select_result: Mutex<Option<JsString>>,
+    pub select_calls: Mutex<Vec<(JsString, Vec<JsString>)>>,
     pub confirm_result: Mutex<bool>,
     pub footer_factories: Mutex<Vec<ExtensionUiFooterFactory>>,
 }
 
 impl RecordingUi {
-    pub fn notifications(&self) -> Vec<(String, Option<NotifyType>)> {
+    pub fn notifications(&self) -> Vec<(JsString, Option<NotifyType>)> {
         self.notifications.lock().unwrap().clone()
     }
 
-    pub fn last_notification(&self) -> Option<(String, Option<NotifyType>)> {
+    pub fn last_notification(&self) -> Option<(JsString, Option<NotifyType>)> {
         self.notifications.lock().unwrap().last().cloned()
     }
 
-    pub fn status(&self, key: &str) -> Option<String> {
-        self.statuses.lock().unwrap().get(key).cloned().unwrap_or(None)
+    pub fn status(&self, key: &str) -> Option<JsString> {
+        self.statuses
+            .lock()
+            .unwrap()
+            .get(&JsString::from(key))
+            .cloned()
+            .flatten()
     }
 
     pub fn select_result(&self, value: Option<&str>) {
-        *self.select_result.lock().unwrap() = value.map(str::to_owned);
+        *self.select_result.lock().unwrap() = value.map(JsString::from);
     }
 
     pub fn confirm_result(&self, value: bool) {
@@ -118,10 +123,10 @@ impl RecordingUi {
 impl ExtensionUiContext for RecordingUi {
     fn select<'a>(
         &'a self,
-        title: &str,
-        options: &[String],
+        title: &JsString,
+        options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let title = title.to_owned();
         let options = options.to_vec();
         self.select_calls.lock().unwrap().push((title, options));
@@ -131,28 +136,28 @@ impl ExtensionUiContext for RecordingUi {
 
     fn confirm<'a>(
         &'a self,
-        _title: &str,
-        _message: &str,
+        _title: &JsString,
+        _message: &JsString,
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, String>> {
+    ) -> BoxFuture<'a, Result<bool, JsString>> {
         let result = *self.confirm_result.lock().unwrap();
         Box::pin(async move { Ok(result) })
     }
 
-    fn notify(&self, message: &str, notify_type: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
         self.notifications
             .lock()
             .unwrap()
             .push((message.to_owned(), notify_type));
     }
 
-    fn set_status(&self, key: &str, text: Option<&str>) {
-        let value = text.map(str::to_owned);
+    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
+        let value = text.cloned();
         self.statuses.lock().unwrap().insert(key.to_owned(), value.clone());
         self.status_calls.lock().unwrap().push((key.to_owned(), value));
     }
 
-    fn set_editor_text(&self, text: &str) {
+    fn set_editor_text(&self, text: &JsString) {
         self.editor_texts.lock().unwrap().push(text.to_owned());
     }
 
@@ -167,27 +172,27 @@ impl ExtensionUiContext for RecordingUi {
 pub struct RecordedActions {
     pub messages: Mutex<Vec<CustomMessagePayload>>,
     pub user_messages: Mutex<Vec<(UserMessageContent, Option<SendUserMessageOptions>)>>,
-    pub entries: Mutex<Vec<(String, Option<Value>)>>,
+    pub entries: Mutex<Vec<(JsString, Option<Value>)>>,
 }
 
 pub struct HarnessOptions {
-    pub cwd: String,
+    pub cwd: JsString,
     pub session_manager: SharedSessionManager,
     pub model: Option<Model>,
     pub thinking_level: ThinkingLevel,
     pub settings: Option<Settings>,
-    pub auth: Option<serde_json::Map<String, Value>>,
+    pub auth: Option<JsObject>,
     pub context_usage: Option<ExtensionContextUsage>,
-    pub multi_agent_agent_id: Option<String>,
+    pub multi_agent_agent_id: Option<JsString>,
     pub multi_agent_requires_agent_id: bool,
 }
 
 impl HarnessOptions {
     pub fn new(cwd: &str) -> Self {
         Self {
-            cwd: cwd.to_owned(),
+            cwd: cwd.into(),
             session_manager: Arc::new(Mutex::new(
-                SessionManager::in_memory(Some(cwd), None).expect("in-memory session manager"),
+                SessionManager::in_memory(Some(&JsString::from(cwd)), None).expect("in-memory session manager"),
             )),
             model: None,
             thinking_level: ThinkingLevel::Off,
@@ -212,7 +217,7 @@ fn ensure_theme() {
         return;
     }
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
-    let theme = load_theme_from_path(&path, None).expect("dark theme fixture");
+    let theme = load_theme_from_path(&JsString::from(path.to_string_lossy()), None).expect("dark theme fixture");
     set_theme_instance(Arc::new(theme));
 }
 
@@ -305,7 +310,7 @@ pub async fn model_registry() -> Arc<ModelRegistry> {
     support::model_registry().await
 }
 
-async fn model_registry_with(auth: Option<serde_json::Map<String, Value>>) -> Arc<ModelRegistry> {
+async fn model_registry_with(auth: Option<JsObject>) -> Arc<ModelRegistry> {
     let Some(auth) = auth else {
         return support::model_registry().await;
     };
@@ -330,7 +335,7 @@ pub fn test_model(reasoning: bool) -> Model {
         name: "Reasoner".to_owned(),
         api: "openai-codex-responses".to_owned(),
         provider: "openai-codex".to_owned(),
-        base_url: "https://example.test".to_owned(),
+        base_url: "https://example.test".into(),
         reasoning,
         thinking_level_map: Some(thinking_level_map),
         input: vec![pi_ai::types::Modality::Text],
