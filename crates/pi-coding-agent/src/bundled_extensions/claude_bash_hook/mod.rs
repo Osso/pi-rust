@@ -167,7 +167,7 @@ pub async fn review_tool_with_claude_bash_hook(
     };
 
     let mut tool_input = event.input.clone();
-    tool_input.insert("cwd".into(), Value::String(cwd.to_owned()).into());
+    tool_input.insert("cwd".into(), Value::String(cwd.to_owned().into()).into());
     let hook_input = json!({
         "access_mode": "supervised",
         "approval_policy": "on-request",

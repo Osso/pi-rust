@@ -211,7 +211,8 @@ async fn run_hosted_web_search(request: WebSearchRequest) -> Result<JsString, St
     let context = Context {
         system_prompt: Some(
             "You are a web search tool. Search the web and return concise, source-backed findings for the query."
-                .to_owned(),
+                .to_owned()
+                .into(),
         ),
         messages: vec![pi_ai::types::Message::User(UserMessage {
             role: UserRole::Tag,

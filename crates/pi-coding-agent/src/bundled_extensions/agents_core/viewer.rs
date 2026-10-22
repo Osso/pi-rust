@@ -248,7 +248,9 @@ fn is_persisted_agent_snapshot(value: &Value) -> bool {
     };
     candidate.get("id").is_some_and(Value::is_string)
         && candidate.get("lifecycle").is_some_and(Value::is_string)
-        && candidate.get("revision").is_some_and(Value::is_number)
+        && candidate
+            .get("revision")
+            .is_some_and(|value| matches!(value, Value::Number(_)))
 }
 
 fn agent_viewer_result(

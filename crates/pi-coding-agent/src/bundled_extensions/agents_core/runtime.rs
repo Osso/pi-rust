@@ -165,15 +165,14 @@ pub fn format_agent_status(agent: &AgentSnapshot) -> JsString {
     let error_message = agent
         .error
         .as_ref()
-        .map(|error| pi_js_compat::string::js_trim(&error.message))
+        .map(|error| error.message.trim())
         .unwrap_or_default();
     if !error_message.is_empty() {
-        return format!(
-            "{} is {}: {error_message}",
+        return JsString::from(format!(
+            "{} is {}: ",
             agent.display_name,
             lifecycle_name(agent.lifecycle)
-        )
-        .into();
+        )) + error_message;
     }
     format!("{} is {}.", agent.display_name, lifecycle_name(agent.lifecycle)).into()
 }

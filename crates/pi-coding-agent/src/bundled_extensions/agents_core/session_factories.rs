@@ -380,7 +380,9 @@ fn resolve_inherited_leaf_selection(
     if let Some(active_tool_call_id) = active_tool_call_id
         && js_trim(active_tool_call_id).is_empty()
     {
-        return Err("Cannot inherit context: active tool call identity must be non-empty".to_owned());
+        return Err("Cannot inherit context: active tool call identity must be non-empty"
+            .to_owned()
+            .into());
     }
     let Some(active_tool_call_id) = active_tool_call_id else {
         return Ok(leaf_id.map_or(ForkEntrySelection::All, |id| ForkEntrySelection::From(id.to_owned())));
@@ -692,7 +694,9 @@ fn open_attached_session_manager(
     options: &SharedProductionSessionOptions,
 ) -> Result<SessionManager, JsString> {
     if input.session_path.is_empty() {
-        return Err("Cannot resume attached session without a session path".to_owned());
+        return Err("Cannot resume attached session without a session path"
+            .to_owned()
+            .into());
     }
     if !Path::new(&input.session_path).exists() {
         return Err(format!("Child agent transcript does not exist: {}", input.session_path));

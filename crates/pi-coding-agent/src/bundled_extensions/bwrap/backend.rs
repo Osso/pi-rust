@@ -109,28 +109,47 @@ fn build_bwrap_arguments(
     options: &BwrapInvocationOptions,
     cwd: &str,
     sandbox_env: &IndexMap<String, String>,
-) -> Vec<String> {
-    let mut arguments = build_bwrap_base_arguments();
+) -> Vec<pi_js_compat::js_json::JsString> {
+    let mut arguments = build_bwrap_base_arguments()
+        .into_iter()
+        .map(pi_js_compat::js_json::JsString::from)
+        .collect::<Vec<_>>();
     for (key, value) in sandbox_env {
-        arguments.push("--setenv".to_owned());
-        arguments.push(key.clone());
-        arguments.push(value.clone());
+        arguments.push("--setenv".into());
+        arguments.push(key.into());
+        arguments.push(value.into());
     }
     for system_path in READ_ONLY_SYSTEM_PATHS {
         if Path::new(system_path).exists() {
-            arguments.extend(["--ro-bind".to_owned(), system_path.to_owned(), system_path.to_owned()]);
+            arguments.extend(
+                ["--ro-bind", system_path, system_path]
+                    .into_iter()
+                    .map(pi_js_compat::js_json::JsString::from),
+            );
         }
     }
     for path in REQUIRED_SYSTEM_SYMLINKS {
-        arguments.extend(build_resolved_read_only_mount_arguments(path, cwd));
+        arguments.extend(
+            build_resolved_read_only_mount_arguments(path, cwd)
+                .into_iter()
+                .map(pi_js_compat::js_json::JsString::from),
+        );
     }
     for path in options.extra_read_only_paths.as_deref().unwrap_or_default() {
-        arguments.extend(build_read_only_mount_arguments(path, cwd));
+        arguments.extend(
+            build_read_only_mount_arguments(path, cwd)
+                .into_iter()
+                .map(pi_js_compat::js_json::JsString::from),
+        );
     }
-    arguments.extend(build_workspace_mount_arguments(cwd, options.profile));
-    arguments.push("--chdir".to_owned());
-    arguments.push(cwd.to_owned());
-    arguments.push("--".to_owned());
+    arguments.extend(
+        build_workspace_mount_arguments(cwd, options.profile)
+            .into_iter()
+            .map(pi_js_compat::js_json::JsString::from),
+    );
+    arguments.push("--chdir".into());
+    arguments.push(cwd.into());
+    arguments.push("--".into());
     arguments.extend(options.command.iter().cloned());
     arguments
 }
@@ -358,11 +377,15 @@ pub fn create_bwrap_runner_command(input: BwrapRunnerCommandOptions) -> Result<B
     let mut extra_read_only_paths = input.extra_read_only_paths.unwrap_or_default();
     extra_read_only_paths.extend(runner_read_only_paths(
         &runner_command,
-        &input.runner_args,
+        &input
+            .runner_args
+            .iter()
+            .map(pi_js_compat::js_json::encode_node_utf8)
+            .collect::<Vec<_>>(),
         input.runner_env.as_ref(),
         &input.cwd,
     ));
-    let mut command = vec![runner_command];
+    let mut command = vec![pi_js_compat::js_json::JsString::from(runner_command)];
     command.extend(input.runner_args.iter().cloned());
     let invocation = build_bwrap_invocation(&BwrapInvocationOptions {
         bwrap_command: input.bwrap_command,

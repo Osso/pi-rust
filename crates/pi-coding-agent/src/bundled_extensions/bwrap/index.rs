@@ -102,13 +102,13 @@ fn build_sandbox_worker_invocation(
     payload: &Map,
 ) -> Result<crate::bundled_extensions::bwrap::backend::BwrapInvocation, String> {
     let mut worker_payload = payload.clone();
-    worker_payload.insert("workspace".into(), Value::String(params.cwd.clone()));
+    worker_payload.insert("workspace".into(), Value::String(params.cwd.clone().into()));
     let worker = worker_path();
     let command = vec![
         worker.clone(),
         BWRAP_FS_WORKER_MODE.to_owned(),
         operation.to_owned(),
-        Value::Object(worker_payload).to_string(),
+        js_json::stringify_lossless(&Value::Object(worker_payload)).into(),
     ];
     let extra_read_only_paths = vec![
         Path::new(&worker)
@@ -137,7 +137,7 @@ async fn run_json_in_sandbox(
     let invocation = build_sandbox_worker_invocation(params, operation, &payload)?;
     let mut command = Command::new(&invocation.command);
     command
-        .args(&invocation.argv)
+        .args(invocation.argv.iter().map(encode_node_utf8))
         .env_clear()
         .envs(&invocation.env)
         .stdin(Stdio::null())
@@ -207,7 +207,7 @@ fn run_sandbox_operation<'a>(
 
 fn path_payload(path: &str) -> Map {
     let mut payload = Map::new();
-    payload.insert("path".into(), Value::String(path.to_owned()));
+    payload.insert("path".into(), Value::String(path.into()));
     payload
 }
 
@@ -221,9 +221,13 @@ impl ReadOperations for SandboxReadOperations {
             let value = run_sandbox_operation(&self.params, "readFile", path_payload(absolute_path), None)
                 .await
                 .map_err(std::io::Error::other)?;
-            Ok(pi_js_compat::base64::buffer_from_base64(
-                value.get("data").and_then(Value::as_string).unwrap_or_default(),
-            ))
+            Ok(pi_js_compat::base64::buffer_from_base64(&encode_node_utf8(
+                &value
+                    .get("data")
+                    .and_then(Value::as_string)
+                    .cloned()
+                    .unwrap_or_default(),
+            )))
         })
     }
 
@@ -240,14 +244,18 @@ impl ReadOperations for SandboxReadOperations {
         Box::pin(async move {
             let mut payload = Map::new();
             payload.insert("end".into(), json!(end));
-            payload.insert("path".into(), Value::String(absolute_path.to_owned()));
+            payload.insert("path".into(), Value::String(absolute_path.into()));
             payload.insert("start".into(), json!(start));
             let value = run_sandbox_operation(&self.params, "readRange", payload, None)
                 .await
                 .map_err(std::io::Error::other)?;
-            Ok(pi_js_compat::base64::buffer_from_base64(
-                value.get("data").and_then(Value::as_string).unwrap_or_default(),
-            ))
+            Ok(pi_js_compat::base64::buffer_from_base64(&encode_node_utf8(
+                &value
+                    .get("data")
+                    .and_then(Value::as_string)
+                    .cloned()
+                    .unwrap_or_default(),
+            )))
         })
     }
 
@@ -296,8 +304,8 @@ impl WriteOperations for SandboxWriteOperations {
     fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, std::io::Result<()>> {
         Box::pin(async move {
             let mut payload = Map::new();
-            payload.insert("content".into(), Value::String(content.to_owned()));
-            payload.insert("path".into(), Value::String(absolute_path.to_owned()));
+            payload.insert("content".into(), Value::String(content.into()));
+            payload.insert("path".into(), Value::String(absolute_path.into()));
             run_sandbox_operation(&self.params, "writeFile", payload, None)
                 .await
                 .map(|_| ())
@@ -365,7 +373,13 @@ impl LsOperations for SandboxLsOperations {
             Ok(value
                 .get("entries")
                 .and_then(Value::as_array)
-                .map(|entries| entries.iter().filter_map(Value::as_string).map(str::to_owned).collect())
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(Value::as_string)
+                        .map(encode_node_utf8)
+                        .collect()
+                })
                 .unwrap_or_default())
         })
     }
@@ -398,25 +412,31 @@ impl FindOperations for SandboxFindOperations {
     ) -> BoxFuture<'a, std::io::Result<Vec<String>>> {
         Box::pin(async move {
             let mut payload = Map::new();
-            payload.insert("cwd".into(), Value::String(cwd.to_owned()));
+            payload.insert("cwd".into(), Value::String(cwd.into()));
             payload.insert("limit".into(), json!(limit));
-            payload.insert("pattern".into(), Value::String(pattern.to_owned()));
+            payload.insert("pattern".into(), Value::String(pattern.into()));
             let value = run_sandbox_operation(&self.params, "find", payload, None)
                 .await
                 .map_err(std::io::Error::other)?;
             Ok(value
                 .get("results")
                 .and_then(Value::as_array)
-                .map(|results| results.iter().filter_map(Value::as_string).map(str::to_owned).collect())
+                .map(|results| {
+                    results
+                        .iter()
+                        .filter_map(Value::as_string)
+                        .map(encode_node_utf8)
+                        .collect()
+                })
                 .unwrap_or_default())
         })
     }
 }
 
-fn build_grep_notices(details: &Map, truncation: &pi_agent_core::harness::utils::TruncationResult) -> Vec<String> {
+fn build_grep_notices(details: &Map, truncation: &crate::core::tools::truncate::TruncationResult) -> Vec<String> {
     let mut notices = Vec::new();
     if let Some(limit) = details.get("matchLimitReached") {
-        notices.push(format!("{limit} matches limit reached"));
+        notices.push(format!("{} matches limit reached", js_json::stringify_lossless(limit)));
     }
     if details.get("linesTruncated").and_then(Value::as_bool) == Some(true) {
         notices.push("long lines truncated".to_owned());
@@ -435,11 +455,15 @@ async fn execute_sandboxed_grep(
     input: &Value,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, String> {
-    let search_path = input.get("path").and_then(Value::as_string).unwrap_or(".");
+    let search_path = input
+        .get("path")
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_else(|| ".".into());
     let mut payload = Map::new();
     for key in ["context", "glob", "ignoreCase"] {
         if let Some(value) = input.get(key).filter(|value| !value.is_null()) {
-            payload.insert(key.to_owned(), value.clone());
+            payload.insert(key.into(), value.clone());
         }
     }
     payload.insert(
@@ -458,8 +482,12 @@ async fn execute_sandboxed_grep(
         payload.insert("pattern".into(), value.clone());
     }
     let result = run_sandbox_operation(params, "grep", payload, signal).await?;
-    let text = result.get("text").and_then(Value::as_string).unwrap_or_default();
-    let truncation = pi_agent_core::harness::utils::truncate_head(
+    let text = result
+        .get("text")
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_default();
+    let truncation = crate::core::tools::truncate::truncate_head(
         text,
         pi_agent_core::harness::utils::TruncationOptions {
             max_lines: usize::MAX,
@@ -481,7 +509,7 @@ async fn execute_sandboxed_grep(
     let text = if notices.is_empty() {
         truncation.content
     } else {
-        format!("{}\n\n[{}]", truncation.content, notices.join(". "))
+        truncation.content + "\n\n[" + JsString::join(notices, ". ") + "]"
     };
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
@@ -747,9 +775,9 @@ fn register_before_agent_start_handler(pi: &ExtensionApi) -> Result<(), String> 
                 profile.as_str()
             );
             let system_prompt = if event.system_prompt.contains(&local_line) {
-                event.system_prompt.replacen(&local_line, &sandbox_line, 1)
+                { let mut prompt = event.system_prompt.clone(); let start = prompt.find(&local_line).expect("line found"); prompt.replace_range(start..start + local_line.len(), &sandbox_line); prompt }
             } else {
-                format!("{}\n\n{sandbox_line}", event.system_prompt)
+                event.system_prompt.clone() + format!("\n\n{sandbox_line}")
             };
             Ok(Some(crate::core::extensions::types::BeforeAgentStartEventResult {
                 message: None,

@@ -207,8 +207,8 @@ fn launch_foreground_pyrun_runner(
             foreground_completion_path: foreground_completion_path.clone(),
             params: create_canonical_pyrun_eval_params(&input.params, &eval_context, input.pi_bridge_enabled),
             runner_address: crate::core::session_control_db::RuntimeMailboxAddress {
-                agent_id: Some(job_id.clone()),
-                session_id: lock_session_manager(&session).get_session_id().to_owned(),
+                agent_id: Some(job_id.clone().into()),
+                session_id: lock_session_manager(&session).get_session_id().to_owned().into(),
             },
             runner_options: input.runner_options.clone(),
             runner_process_identity: process_identity.clone(),

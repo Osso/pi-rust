@@ -192,7 +192,8 @@ async fn run_hosted_image_generation(request: ImageGenerationRequest) -> Result<
     let context = Context {
         system_prompt: Some(
             "Generate the requested image. Use the hosted image generation tool and return the generated image."
-                .to_owned(),
+                .to_owned()
+                .into(),
         ),
         messages: vec![pi_ai::types::Message::User(UserMessage {
             role: UserRole::Tag,

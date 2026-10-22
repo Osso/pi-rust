@@ -10,21 +10,21 @@ pub fn abort_agent_handle_safely(store: &MultiAgentStore, agent_id: &str) {
 
 pub fn create_failed_mailbox_message(
     body: &pi_js_compat::js_json::JsString,
-    from_agent_id: &str,
+    from_agent_id: impl Into<pi_js_compat::js_json::JsString>,
     kind: MailboxMessageKindValue,
-    to_agent_id: &str,
+    to_agent_id: impl Into<pi_js_compat::js_json::JsString>,
 ) -> AgentMailboxMessage {
     let timestamp = "1970-01-01T00:00:00.000Z".to_owned();
     AgentMailboxMessage {
-        extra: serde_json::Map::new(),
-        id: String::new(),
+        extra: pi_js_compat::js_json::JsObject::new(),
+        id: String::new().into(),
         thread_id: None,
-        from_agent_id: from_agent_id.to_owned(),
-        to_agent_id: to_agent_id.to_owned(),
+        from_agent_id: from_agent_id.into(),
+        to_agent_id: to_agent_id.into(),
         kind,
         status: MailboxMessageStatusValue::Failed,
-        created_at: timestamp.clone(),
-        updated_at: timestamp,
+        created_at: timestamp.clone().into(),
+        updated_at: Some(timestamp.into()),
         body: Some(body.to_owned()),
         file_refs: None,
         target_checkpoint: None,

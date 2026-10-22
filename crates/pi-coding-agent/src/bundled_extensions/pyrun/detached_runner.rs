@@ -638,12 +638,12 @@ fn pyrun_settlement_outcome(settlement: &PyrunSettlement) -> DetachedJobOutcome 
         }
         return DetachedJobOutcome::Completed {
             exit_code: None,
-            summary: Some("Pyrun evaluation completed.".to_owned()),
+            summary: Some("Pyrun evaluation completed.".to_owned().into()),
         };
     }
     if let Some(cancel) = &settlement.cancel {
         return DetachedJobOutcome::Aborted {
-            reason: Some(cancel.reason.clone().unwrap_or_else(|| "cancelled".to_owned())),
+            reason: Some(cancel.reason.clone().unwrap_or_else(|| "cancelled".to_owned().into())),
         };
     }
     DetachedJobOutcome::Failed {

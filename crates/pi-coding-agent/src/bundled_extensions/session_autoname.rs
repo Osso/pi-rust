@@ -369,7 +369,7 @@ pub fn build_title_context(exchange: &FirstExchange) -> Context {
         "\n",
     );
     Context {
-        system_prompt: Some(TITLE_SYSTEM_PROMPT.to_owned()),
+        system_prompt: Some(TITLE_SYSTEM_PROMPT.to_owned().into()),
         messages: vec![Message::User(UserMessage {
             role: UserRole::Tag,
             content: UserContent::Text(content.into()),

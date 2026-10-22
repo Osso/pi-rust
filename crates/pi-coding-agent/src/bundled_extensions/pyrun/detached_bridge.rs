@@ -189,8 +189,8 @@ fn persist_bridge_message(input: PersistBridgeMessageInput) -> Result<(), String
             sender: input.sender,
             kind: RuntimeMailboxMessageKind::System,
             store_ref: RuntimeMailboxStoreRef {
-                message_id: input.message_id,
-                session_path: input.session_path,
+                message_id: input.message_id.into(),
+                session_path: input.session_path.into(),
             },
             message: Value::Object(message),
             updated_at: None,

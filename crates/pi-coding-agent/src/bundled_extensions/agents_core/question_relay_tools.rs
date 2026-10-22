@@ -161,8 +161,8 @@ async fn wait_for_answer(
 ) -> Result<Option<RuntimeMailboxMessage>, HandlerError> {
     let message_id = answer_message_id(&inbox.agent_id, request_id);
     let recipient = RuntimeMailboxAddress {
-        agent_id: Some(inbox.agent_id.clone()),
-        session_id: inbox.session_id.clone(),
+        agent_id: Some(inbox.agent_id.clone().into()),
+        session_id: inbox.session_id.clone().into(),
     };
     loop {
         if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
@@ -224,16 +224,14 @@ fn delivered_answer_result(
     use pi_js_compat::js_json::{self, JsString, JsValue};
     let parsed = js_json::parse_lossless(&delivered.body).map_err(handler)?;
     let JsValue::Object(answer) = parsed else {
-        return Err(handler(format!(
-            "Malformed question answer {}",
-            delivered.store_ref.message_id
-        )));
+        return Err(HandlerError::new(
+            JsString::from("Malformed question answer ") + &delivered.store_ref.message_id,
+        ));
     };
     if answer.get(&JsString::from("type")) != Some(&JsValue::String(JsString::from("ask_questions_answer"))) {
-        return Err(handler(format!(
-            "Malformed question answer {}",
-            delivered.store_ref.message_id
-        )));
+        return Err(HandlerError::new(
+            JsString::from("Malformed question answer ") + &delivered.store_ref.message_id,
+        ));
     }
     let answers = answer.get(&JsString::from("answers"));
     let text = format_answer_payload(answers)?;
@@ -361,8 +359,8 @@ fn answer_question(
     let session = ctx.session_manager()?;
     let sender_session_id = lock_session_manager(&session).get_session_id().to_owned();
     enqueue_stored_runtime_mailbox_message(&persistence.control_db_path, &EnqueueStoredRuntimeMailboxMessageInput {
-        recipient_host:None, recipient:RuntimeMailboxAddress { agent_id:Some(params.agent_id.clone()), session_id }, sender:RuntimeMailboxAddress { agent_id:ctx.multi_agent_agent_id()?, session_id:sender_session_id }, kind:RuntimeMailboxMessageKind::Reply,
-        message:json!({"body":js_json::stringify_lossless(&answer),"id":message_id,"kind":"reply","status":"pending","fromAgentId":caller_id.unwrap(),"toAgentId":params.agent_id}), store_ref:RuntimeMailboxStoreRef { message_id, session_path:persistence.session_path }, updated_at:None
+        recipient_host:None, recipient:RuntimeMailboxAddress { agent_id:Some(params.agent_id.clone().into()), session_id }, sender:RuntimeMailboxAddress { agent_id:ctx.multi_agent_agent_id()?.map(JsString::from), session_id:sender_session_id.into() }, kind:RuntimeMailboxMessageKind::Reply,
+        message:raw_json!({"body":js_json::stringify_lossless(&answer),"id":message_id,"kind":"reply","status":"pending","fromAgentId":caller_id.unwrap(),"toAgentId":params.agent_id}), store_ref:RuntimeMailboxStoreRef { message_id, session_path:persistence.session_path.into() }, updated_at:None
     }).map_err(handler)?;
     Ok(tool_result(
         format!("Answered {} (request {}).", target.display_name, params.request_id),

@@ -40,7 +40,7 @@ pub fn with_supervisor_review_status(
             match review_goal(input).await {
                 Ok(response) => Ok(response),
                 Err(error) => Ok(GoalSupervisorResponse::Error {
-                    reason: supervisor_review_error_reason(&error.to_string()),
+                    reason: supervisor_review_error_reason(&error.to_string()).into(),
                 }),
             }
         }) as BoxFuture<'static, Result<GoalSupervisorResponse, HandlerError>>

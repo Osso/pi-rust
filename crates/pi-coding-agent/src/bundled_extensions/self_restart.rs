@@ -70,7 +70,7 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 
 fn restart_options() -> RestartOptions {
     RestartOptions {
-        notice: Some(RESTART_NOTICE.to_owned()),
+        notice: Some(RESTART_NOTICE.to_owned().into()),
         process: Some(true),
     }
 }

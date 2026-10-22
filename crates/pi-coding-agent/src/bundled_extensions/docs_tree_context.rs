@@ -45,7 +45,7 @@ pub fn docs_tree_context_extension(pi: &ExtensionApi) -> Result<(), HandlerError
                 };
                 Ok(Some(BeforeAgentStartEventResult {
                     message: None,
-                    system_prompt: Some(insert_after_user_rules(&event.system_prompt, &context)),
+                    system_prompt: Some(insert_after_user_rules(&event.system_prompt, &context).into()),
                 }))
             })
         },

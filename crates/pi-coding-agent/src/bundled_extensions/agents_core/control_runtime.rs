@@ -227,8 +227,8 @@ pub fn request_agent_steering(
             agent: current.clone(),
             ownership: authority.ownership,
             recipient: crate::core::session_control_db::RuntimeMailboxAddress {
-                agent_id: Some(current.id.clone()),
-                session_id: authority.target_session_id,
+                agent_id: Some(current.id.clone().into()),
+                session_id: authority.target_session_id.into(),
             },
             from_agent_id: binding
                 .actor_agent_id
