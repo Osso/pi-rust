@@ -15,8 +15,7 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, ThinkingContent, ToolCall, Usage,
 };
 use pi_coding_agent::core::extensions::types::{
-    CustomMessageContent, CustomMessageValue, MarkdownTransformContext, MarkdownTransformer, MessageRenderOptions,
-    RenderShell, ToolDefinition,
+    CustomMessageContent, CustomMessageValue, MarkdownTransformer, MessageRenderOptions, RenderShell, ToolDefinition,
 };
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::core::messages::{CompactionSummaryMessage, CompactionSummaryRole};

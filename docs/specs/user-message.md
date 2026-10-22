@@ -4,10 +4,10 @@ Match frozen `4f9e6f8a4` `coding-agent/src/modes/interactive/components/user-mes
 
 ## What it must do
 
-- [ ] Render the source Markdown box, output padding and OSC133 markers exactly.
-- [ ] In-transit messages use dim text and a muted sending row; returning to normal removes both effects. Reapplying the same state does not change output.
-- [ ] Preserve raw UTF-16 text through state changes, padding and invalidation.
-- [ ] Expose only frozen constructor inputs: text, optional Markdown theme and output padding.
+- [x] Render the source Markdown box, output padding and OSC133 markers exactly.
+- [x] In-transit messages use dim text and a muted sending row; returning to normal removes both effects. Reapplying the same state does not change output.
+- [x] Preserve raw UTF-16 text through state changes, padding and invalidation.
+- [x] Expose only frozen constructor inputs: text, optional Markdown theme and output padding.
 
 ## How it works
 
@@ -25,7 +25,7 @@ Match frozen `4f9e6f8a4` `coding-agent/src/modes/interactive/components/user-mes
 
 ## Known gaps (current cycle)
 
-- [ ] Post-commit targeted execution pending.
+- [x] Post-commit 437ed5c9 targeted differential1, raw21 and native2 pass; see traceability.
 
 ## Out of scope
 

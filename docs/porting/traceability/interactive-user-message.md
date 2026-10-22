@@ -16,7 +16,7 @@ Frozen `4f9e6f8a4`, `coding-agent/src/modes/interactive/components/user-message.
 
 Artifacts `/tmp/pi-rust-repin-lossless-interactive/`:
 - `q13-user-transit-red.log`: actual frozen comparison fails (missing dim and sending row).
-- GREEN transition/raw/native proofs pending post-commit execution.
+- Post-commit 437ed5c9 GREEN: `q13-user-differential_interactive_components-green.log`1/1 (five transitions + five variants), `q13-user-raw_error_consumer_components-green.log`21/21, `q13-user-interactive_components_c-green.log`2/2. The unused transformer-context import was then removed; it does not change covered behavior.
 
 No Markdown transformer surface exists in this frozen module. The native ignored compatibility argument and obsolete oracle transformer construction are removed, not retained as a fallback. Text, styles, OSC composition and output stay `JsString`; raw test now crosses normal/in-transit/normal and padding/invalidation transitions. No scalar projection.
 
