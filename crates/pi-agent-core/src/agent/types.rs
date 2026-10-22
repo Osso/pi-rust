@@ -284,11 +284,11 @@ pub type AgentToolUpdateCallback = Arc<dyn Fn(AgentToolResult) + Send + Sync>;
 /// Tool definition used by the agent runtime.
 pub trait AgentTool: Send + Sync {
     fn name(&self) -> &str;
-    fn description(&self) -> &str;
+    fn description(&self) -> JsString;
     /// JSON Schema for the tool arguments (TypeBox `TSchema` in TypeScript).
     fn parameters(&self) -> &Value;
     /// Human-readable label for UI display.
-    fn label(&self) -> &str;
+    fn label(&self) -> JsString;
     fn constrained_sampling(&self) -> Option<ConstrainedSampling> {
         None
     }

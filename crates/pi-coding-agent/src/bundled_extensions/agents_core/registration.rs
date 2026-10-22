@@ -309,8 +309,8 @@ pub(super) fn tool_definition(
 ) -> ToolDefinition {
     ToolDefinition {
         name: name.to_owned(),
-        label: label.to_owned(),
-        description: description.to_owned(),
+        label: label.into(),
+        description: description.into(),
         prompt_snippet: None,
         prompt_guidelines,
         approval_required: Some(false),

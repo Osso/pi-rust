@@ -244,16 +244,16 @@ impl AgentTool for TestTool {
         &self.name
     }
 
-    fn description(&self) -> &str {
-        &self.description
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        self.description.clone().into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        &self.label
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        self.label.clone().into()
     }
 
     fn execution_mode(&self) -> Option<pi_agent_core::harness::ToolExecutionMode> {

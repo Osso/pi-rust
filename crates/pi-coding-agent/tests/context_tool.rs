@@ -12,8 +12,8 @@ impl ContextTool<Value> for EchoTool {
         "echo"
     }
 
-    fn description(&self) -> &str {
-        "Echo the context"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "Echo the context".into()
     }
 
     fn parameters(&self) -> &Value {
@@ -21,8 +21,8 @@ impl ContextTool<Value> for EchoTool {
         PARAMETERS.get_or_init(|| json!({"type": "object", "properties": {}}))
     }
 
-    fn label(&self) -> &str {
-        "Echo"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "Echo".into()
     }
 
     fn execute(

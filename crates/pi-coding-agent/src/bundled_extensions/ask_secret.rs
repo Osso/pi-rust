@@ -75,8 +75,8 @@ pub fn create_ask_secret_tool_definition(options: AskSecretToolOptions) -> ToolD
 
     ToolDefinition {
         name: "ask_secret".to_owned(),
-        label: "Ask Secret".to_owned(),
-        description: "Prompt for browser credentials and provision them directly into the Secrets Broker without returning secret values.".to_owned(),
+        label: "Ask Secret".into(),
+        description: "Prompt for browser credentials and provision them directly into the Secrets Broker without returning secret values.".into(),
         prompt_snippet: Some(
             "Provision browser credentials through a hidden interactive prompt and the typed Secrets Broker path."
                 .into(),

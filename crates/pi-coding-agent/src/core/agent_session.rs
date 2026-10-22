@@ -165,7 +165,7 @@ pub enum StreamingBehavior {
 #[derive(Clone)]
 pub struct ToolDefinition {
     pub name: String,
-    pub description: String,
+    pub description: JsString,
     pub parameters: Value,
     pub prompt_snippet: Option<JsString>,
     pub prompt_guidelines: Vec<JsString>,
@@ -235,7 +235,7 @@ fn builtin_source_info(name: &str) -> crate::core::source_info::SourceInfo {
 #[serde(rename_all = "camelCase")]
 pub struct ToolInfo {
     pub name: String,
-    pub description: String,
+    pub description: JsString,
     pub parameters: Value,
     pub prompt_guidelines: Vec<JsString>,
     pub source_info: crate::core::source_info::SourceInfo,
@@ -7199,7 +7199,7 @@ fn extension_tool_definition_for_html(definition: ToolDefinition) -> crate::core
     // HTML exporter falls back to structured rendering for those tools.
     crate::core::extensions::types::ToolDefinition {
         name: definition.name.clone(),
-        label: definition.name,
+        label: definition.name.into(),
         description: definition.description,
         prompt_snippet: definition.prompt_snippet,
         prompt_guidelines: Some(definition.prompt_guidelines),

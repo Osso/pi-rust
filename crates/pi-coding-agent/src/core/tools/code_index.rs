@@ -253,16 +253,16 @@ impl AgentTool for OutlineTool {
         "outline"
     }
 
-    fn description(&self) -> &str {
-        "Show a structural outline for a file or directory using the external code-index CLI. Output is truncated to 10KB."
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "Show a structural outline for a file or directory using the external code-index CLI. Output is truncated to 10KB.".into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        "outline"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "outline".into()
     }
 
     fn execute(
@@ -337,16 +337,16 @@ impl AgentTool for SymbolTool {
         "symbol"
     }
 
-    fn description(&self) -> &str {
-        "Find symbol definitions by name using the external code-index CLI. Output is truncated to 10KB."
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "Find symbol definitions by name using the external code-index CLI. Output is truncated to 10KB.".into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        "symbol"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "symbol".into()
     }
 
     fn execute(
@@ -408,16 +408,16 @@ impl AgentTool for ReferencesTool {
         "references"
     }
 
-    fn description(&self) -> &str {
-        "Find structural references to a symbol using the external code-index CLI. Output is truncated to 10KB."
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "Find structural references to a symbol using the external code-index CLI. Output is truncated to 10KB.".into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        "references"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "references".into()
     }
 
     fn execute(

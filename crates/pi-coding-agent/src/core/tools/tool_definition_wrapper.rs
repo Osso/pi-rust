@@ -147,16 +147,16 @@ impl AgentTool for DefinitionTool {
         &self.definition.name
     }
 
-    fn description(&self) -> &str {
-        &self.definition.description
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        self.definition.description.clone()
     }
 
     fn parameters(&self) -> &Value {
         &self.definition.parameters
     }
 
-    fn label(&self) -> &str {
-        &self.definition.label
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        self.definition.label.clone()
     }
 
     fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
@@ -258,7 +258,7 @@ impl AgentTool for CappedTool {
         self.inner.name()
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> pi_js_compat::js_json::JsString {
         self.inner.description()
     }
 
@@ -266,7 +266,7 @@ impl AgentTool for CappedTool {
         self.inner.parameters()
     }
 
-    fn label(&self) -> &str {
+    fn label(&self) -> pi_js_compat::js_json::JsString {
         self.inner.label()
     }
 

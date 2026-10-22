@@ -41,16 +41,16 @@ impl AgentTool for EndTurnAgentTool {
         "end_turn"
     }
 
-    fn description(&self) -> &str {
-        "End the current model turn. Provide a concise reason explaining why the turn is finished."
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "End the current model turn. Provide a concise reason explaining why the turn is finished.".into()
     }
 
     fn parameters(&self) -> &Value {
         pi_coding_agent::core::tools::end_turn::parameters()
     }
 
-    fn label(&self) -> &str {
-        "end_turn"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "end_turn".into()
     }
 
     fn execution_mode(&self) -> Option<pi_agent_core::harness::types::ToolExecutionMode> {
@@ -219,7 +219,7 @@ async fn build_runtime(
     let end_turn = pi_coding_agent::core::agent_session::ToolDefinition {
         name: "end_turn".to_owned(),
         description: "End the current model turn. Provide a concise reason explaining why the turn is finished."
-            .to_owned(),
+            .into(),
         parameters: pi_coding_agent::core::tools::end_turn::parameters().clone(),
         prompt_snippet: Some("End the current model turn with a required reason".into()),
         prompt_guidelines: vec![

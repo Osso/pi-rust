@@ -40,7 +40,7 @@ pub fn format_tool_inventory(tools: &[ToolInfo], active_tool_names: &[String]) -
             .into(),
             name: tool.name.as_str().into(),
             source: source_label(tool),
-            description: truncate_description(&tool.description.as_str().into()),
+            description: truncate_description(&tool.description),
         })
         .collect();
 

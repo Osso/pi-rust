@@ -24,11 +24,11 @@ impl AgentTool for LosslessTool {
     fn name(&self) -> &str {
         "probe"
     }
-    fn description(&self) -> &str {
-        "probe"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        pi_js_compat::js_json::JsString::from_utf16(vec![0xd800, 0x61])
     }
-    fn label(&self) -> &str {
-        "probe"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        pi_js_compat::js_json::JsString::from_utf16(vec![0xdc00, 0x62])
     }
     fn parameters(&self) -> &Value {
         &self.schema
@@ -66,6 +66,9 @@ async fn agent_loop_keeps_tool_text_details_and_arguments_through_message_wire_r
     let scripted = Arc::new(Mutex::new(VecDeque::from([tool_use, done])));
     let stream_fn: StreamFn = Arc::new(move |_: Model, context: Context, _: SimpleStreamOptions| {
         assert_eq!(context.system_prompt.as_ref().unwrap().units(), &[0xd800]);
+        let tool = &context.tools.as_ref().unwrap()[0];
+        assert_eq!(tool.description.units(), &[0xd800, 0x61]);
+        assert_eq!(tool.label.as_ref().unwrap().units(), &[0xdc00, 0x62]);
         let message = scripted.lock().unwrap().pop_front().expect("two model turns");
         Box::pin(async move {
             let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
