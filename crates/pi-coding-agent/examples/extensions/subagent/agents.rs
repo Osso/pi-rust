@@ -1,21 +1,24 @@
 //! Opt-in subagent discovery. `agent_dir` is the host's resolved private/configured agent directory.
 use pi_coding_agent::utils::frontmatter::parse_frontmatter;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue as Value;
 use pi_js_compat::string::js_trim;
 use serde::Serialize;
-use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentConfig {
-    pub name: String,
-    pub description: String,
+    pub name: JsString,
+    pub description: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<String>>,
+    pub tools: Option<Vec<JsString>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    pub system_prompt: String,
-    pub source: String,
+    pub model: Option<JsString>,
+    pub system_prompt: JsString,
+    pub source: JsString,
     pub file_path: PathBuf,
 }
 #[derive(Debug, Serialize)]
@@ -25,7 +28,7 @@ pub struct AgentDiscoveryResult {
     pub project_agents_dir: Option<PathBuf>,
 }
 
-pub fn discover_agents(cwd: &Path, scope: &str, agent_dir: &Path) -> Result<AgentDiscoveryResult, String> {
+pub fn discover_agents(cwd: &Path, scope: &JsString, agent_dir: &Path) -> Result<AgentDiscoveryResult, JsString> {
     let project_agents_dir = cwd
         .ancestors()
         .map(|dir| dir.join(pi_coding_agent::config::config_dir_name()).join("agents"))
@@ -53,7 +56,7 @@ fn merge_agents(target: &mut Vec<AgentConfig>, incoming: Vec<AgentConfig>) {
         }
     }
 }
-fn load_agents(dir: &Path, source: &str) -> Result<Vec<AgentConfig>, String> {
+fn load_agents(dir: &Path, source: &str) -> Result<Vec<AgentConfig>, JsString> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Ok(Vec::new());
     };
@@ -74,21 +77,21 @@ fn load_agents(dir: &Path, source: &str) -> Result<Vec<AgentConfig>, String> {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
-        let parsed = parse_frontmatter(&String::from_utf8_lossy(&bytes)).map_err(|e| e.to_string())?;
+        let parsed =
+            parse_frontmatter(&JsString::from(String::from_utf8_lossy(&bytes).as_ref())).map_err(|e| e.to_string())?;
         let f = parsed.frontmatter;
         let (Some(name), Some(description)) = (
-            f["name"].as_str().filter(|s| !s.is_empty()),
-            f["description"].as_str().filter(|s| !s.is_empty()),
+            f["name"].as_string().filter(|s| !s.is_empty()),
+            f["description"].as_string().filter(|s| !s.is_empty()),
         ) else {
             continue;
         };
         let tools = f["tools"]
-            .as_str()
+            .as_string()
             .map(|s| {
                 s.split(',')
-                    .map(js_trim)
+                    .map(|text| text.trim())
                     .filter(|s| !s.is_empty())
-                    .map(str::to_owned)
                     .collect::<Vec<_>>()
             })
             .filter(|v| !v.is_empty());
@@ -96,7 +99,7 @@ fn load_agents(dir: &Path, source: &str) -> Result<Vec<AgentConfig>, String> {
             name: name.into(),
             description: description.into(),
             tools,
-            model: f["model"].as_str().map(str::to_owned),
+            model: f["model"].as_string().cloned(),
             system_prompt: parsed.body,
             source: source.into(),
             file_path: path,
@@ -113,5 +116,5 @@ pub fn format_agent_list(agents: &[AgentConfig], max_items: i64) -> Value {
     } else {
         (max_items as usize).min(agents.len())
     };
-    json!({"text":agents[..end].iter().map(|a| format!("{} ({}): {}",a.name,a.source,a.description)).collect::<Vec<_>>().join("; "), "remaining":agents.len()-end})
+    json!({"text":JsString::join(agents[..end].iter().map(|a| js_format!("{} ({}): {}", a.name, a.source, a.description)), "; "), "remaining":agents.len()-end})
 }

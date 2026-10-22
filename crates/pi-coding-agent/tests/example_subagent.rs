@@ -70,7 +70,7 @@ async fn runner(
                 agent.clone(),
                 subagent::Invocation {
                     program: program.clone(),
-                    prefix: prefix.clone(),
+                    prefix: prefix.clone().into_iter().map(JsString::from).collect::<Vec<_>>(),
                 },
             );
             Box::pin(async move { result })
@@ -119,10 +119,10 @@ async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
     let tool = runner.get_tool_definition("subagent").unwrap();
     assert_eq!(tool.label, "Subagent");
     // The companion exported helper remains usable by native embedders.
-    let discovered = subagent::agents::discover_agents(temp.path(), "user", &agent).unwrap();
+    let discovered = subagent::agents::discover_agents(temp.path(), &JsString::from("user"), &agent).unwrap();
     assert_eq!(
         subagent::agents::format_agent_list(&discovered.agents, 1)["remaining"],
-        1
+        pi_js_compat::js_json!(1)
     );
     let mut ts = oracle::TsOracle::spawn_with_environment(
         "example-subagent-oracle.ts",
