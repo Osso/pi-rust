@@ -21,7 +21,7 @@ use super::{
 };
 use crate::core::runtime_process::{is_verified_pi_runtime_process, read_process_identity};
 use crate::core::session_health::{SessionHealthRecord, empty_session_health, end_session_health};
-use pi_js_compat::js_json::{self, JsString, JsValue};
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 
 const UPSERT_RUNTIME_MAILBOX_LISTENER_SQL: &str = "
 	INSERT INTO runtime_mailbox_listeners (
@@ -58,8 +58,8 @@ pub fn enqueue_runtime_mailbox_message(
     let result = with_control_db(control_db_path, |db| route_runtime_mailbox_message(db, input))?;
     if input
         .recipient_host
-        .as_deref()
-        .is_none_or(|host| host == gethostname::gethostname().to_string_lossy())
+        .as_ref()
+        .is_none_or(|host| host == &JsString::from(gethostname::gethostname().to_string_lossy().as_ref()))
     {
         notify_runtime_mailbox_listener(result.listener.as_ref());
     }
@@ -193,8 +193,8 @@ pub fn enqueue_stored_runtime_mailbox_message(
     })?;
     if input
         .recipient_host
-        .as_deref()
-        .is_none_or(|host| host == gethostname::gethostname().to_string_lossy())
+        .as_ref()
+        .is_none_or(|host| host == &JsString::from(gethostname::gethostname().to_string_lossy().as_ref()))
     {
         notify_runtime_mailbox_listener(result.listener.as_ref());
     }

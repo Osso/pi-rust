@@ -4,10 +4,11 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use pi_js_compat::js_json::{self, JsString, JsValue};
 use serde_json::Value;
 
 use crate::core::multi_agent_store::{
-    AgentError, AgentFileReference, AgentMailboxMessage, AgentResult, AgentSnapshot, SpawnAgent, SteeringCheckpoint,
+    AgentError, AgentMailboxMessage, AgentResult, AgentSnapshot, SpawnAgent, SteeringCheckpoint,
 };
 use crate::core::runtime_process::ProcessIdentity;
 use crate::core::session_control_db::RuntimeMailboxAddress;
@@ -87,16 +88,16 @@ pub struct SteeringDeliveryCommandInput {
     pub message_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SteeringCommandInput {
     pub agent: AgentSnapshot,
     pub ownership: MultiAgentRuntimeOwnership,
     pub recipient: RuntimeMailboxAddress,
     pub from_agent_id: String,
-    pub body: String,
+    pub body: JsString,
     pub target_checkpoint: Option<SteeringCheckpoint>,
-    pub thread_id: Option<String>,
-    pub file_refs: Option<Vec<AgentFileReference>>,
+    pub thread_id: Option<JsString>,
+    pub file_refs: Option<JsValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,7 +105,7 @@ pub struct DetachedCancellationCommandInput {
     pub agent: AgentSnapshot,
     pub ownership: MultiAgentRuntimeOwnership,
     pub output_label: String,
-    pub reason: Option<String>,
+    pub reason: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,7 +131,7 @@ pub enum LifecycleCommandResult {
     Err { error: LifecycleCommandError },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SteeringCommandResult {
     Ok {
         agent: Box<AgentSnapshot>,
@@ -425,17 +426,15 @@ impl LifecycleCoordinator {
                     error: input
                         .error
                         .as_ref()
-                        .map(serde_json::to_value)
+                        .map(js_json::to_value)
                         .transpose()
-                        .ok()
-                        .flatten(),
+                        .map_err(|error| ControlDbError::new(error.to_string()))?,
                     result: input
                         .result
                         .as_ref()
-                        .map(serde_json::to_value)
+                        .map(js_json::to_value)
                         .transpose()
-                        .ok()
-                        .flatten(),
+                        .map_err(|error| ControlDbError::new(error.to_string()))?,
                 },
                 updated_at,
             },
@@ -570,7 +569,7 @@ impl LifecycleCoordinator {
         )?;
         match result {
             crate::core::session_control_db::agents::CommitMultiAgentLifecycleMutationResult::Ok { agent } => {
-                match serde_json::from_value(Value::Object(agent)) {
+                match js_json::from_value(&JsValue::Object(agent)) {
                     Ok(agent) => Ok(LifecycleCommandResult::Ok { agent: Box::new(agent) }),
                     Err(_) => Ok(LifecycleCommandResult::Err {
                         error: LifecycleCommandError::MutationMismatch,

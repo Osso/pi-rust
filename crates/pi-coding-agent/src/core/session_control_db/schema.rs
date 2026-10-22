@@ -1023,7 +1023,7 @@ pub(crate) fn add_runtime_mailbox_routing(
     assert_runtime_mailbox_routing(message, input)?;
     let mut routed = message.clone();
     if let Some(host) = input.recipient_host.as_ref().filter(|host| !host.is_empty()) {
-        routed.insert("recipientHost".into(), JsValue::String(host.clone().into()));
+        routed.insert("recipientHost".into(), JsValue::String(host.clone()));
     }
     routed.insert(
         "recipientSessionId".into(),
@@ -1078,10 +1078,11 @@ pub(crate) fn assert_runtime_mailbox_routing(
     };
     let input_host = input
         .recipient_host
-        .as_deref()
+        .as_ref()
         .filter(|host| !host.is_empty())
-        .unwrap_or(&host);
-    let same_host = previous_host == &text(input_host);
+        .cloned()
+        .unwrap_or_else(|| host.into());
+    let same_host = previous_host == &JsValue::String(input_host);
     if same_recipient && same_sender && same_kind && same_host {
         return Ok(());
     }

@@ -453,7 +453,7 @@ pub struct ContactParentInput {
 #[serde(rename_all = "camelCase")]
 pub struct SendMailboxMessageInput {
     pub body: JsString,
-    pub to_agent_id: String,
+    pub to_agent_id: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -464,7 +464,7 @@ pub struct SendMailboxMessageInput {
 #[serde(rename_all = "camelCase")]
 pub struct RecordOutboundSessionMessageInput {
     pub from_agent_id: String,
-    pub to_agent_id: String,
+    pub to_agent_id: JsString,
     pub body: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<JsString>,
@@ -573,7 +573,7 @@ pub enum MailboxMessageCommandResult {
     },
     TargetNotFound {
         current: Box<AgentSnapshot>,
-        target_id: String,
+        target_id: JsString,
     },
     StaleRevision {
         current: Box<AgentSnapshot>,
@@ -1650,12 +1650,16 @@ impl MultiAgentStore {
         &self,
         input: &SendMailboxMessageInput,
     ) -> Result<MailboxMessageCommandResult, MultiAgentStoreError> {
-        let target = self.lock().agents.get(&input.to_agent_id).cloned();
+        let target = input
+            .to_agent_id
+            .to_utf8()
+            .ok()
+            .and_then(|id| self.lock().agents.get(&id).cloned());
         let main_thread = self.create_main_thread_snapshot();
         let Some(target) = target else {
             return Ok(MailboxMessageCommandResult::TargetNotFound {
                 current: Box::new(main_thread),
-                target_id: input.to_agent_id.clone().into(),
+                target_id: input.to_agent_id.clone(),
             });
         };
         if !is_main_thread_child(&target) {
@@ -1713,11 +1717,15 @@ impl MultiAgentStore {
         if let Some(result) = check_revision(&current, expected_revision) {
             return Ok(result);
         }
-        let target = self.lock().agents.get(&input.to_agent_id).cloned();
+        let target = input
+            .to_agent_id
+            .to_utf8()
+            .ok()
+            .and_then(|id| self.lock().agents.get(&id).cloned());
         let Some(target) = target else {
             return Ok(MailboxMessageCommandResult::TargetNotFound {
                 current: Box::new(copy_agent(&current)),
-                target_id: input.to_agent_id.clone().into(),
+                target_id: input.to_agent_id.clone(),
             });
         };
         if !self.can_send_direct_message(&current.id, &target.id) {
@@ -1776,7 +1784,7 @@ impl MultiAgentStore {
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             thread_id: input.thread_id.clone(),
-            to_agent_id: input.to_agent_id.clone().into(),
+            to_agent_id: input.to_agent_id.clone(),
             updated_at: Some(timestamp.into()),
             target_checkpoint: None,
             error: None,
@@ -2419,12 +2427,8 @@ fn is_terminal_lifecycle(lifecycle: AgentLifecycle) -> bool {
     )
 }
 
-pub fn format_inactive_agent_selection_message(agent: &AgentSnapshot) -> String {
-    format!(
-        "Agent is not active: {} ({})",
-        agent.display_name,
-        lifecycle_name(agent.lifecycle)
-    )
+pub fn format_inactive_agent_selection_message(agent: &AgentSnapshot) -> JsString {
+    JsString::from("Agent is not active: ") + &agent.display_name + format!(" ({})", lifecycle_name(agent.lifecycle))
 }
 
 pub fn lifecycle_name(lifecycle: AgentLifecycle) -> &'static str {
@@ -2479,8 +2483,8 @@ fn format_completion_notification_body(agent: &AgentNode) -> JsString {
         .map(JsString::trim)
         .filter(|summary| !summary.is_empty());
     let body = match summary {
-        Some(summary) => JsString::from(format!("{} completed: ", agent.display_name)) + summary,
-        None => JsString::from(format!("{} completed.", agent.display_name)),
+        Some(summary) => agent.display_name.clone() + " completed: " + summary,
+        None => agent.display_name.clone() + " completed.",
     };
     append_agent_duration(body, agent.result.as_ref().and_then(|result| result.duration_ms))
 }
@@ -2492,8 +2496,8 @@ fn format_failure_notification_body(agent: &AgentNode) -> JsString {
         .map(|error| error.message.trim())
         .filter(|message| !message.is_empty());
     let body = match error_message {
-        Some(message) => JsString::from(format!("{} failed: ", agent.display_name)) + message,
-        None => JsString::from(format!("{} failed.", agent.display_name)),
+        Some(message) => agent.display_name.clone() + " failed: " + message,
+        None => agent.display_name.clone() + " failed.",
     };
     append_agent_duration(body, agent.result.as_ref().and_then(|result| result.duration_ms))
 }
@@ -2511,7 +2515,7 @@ fn append_agent_duration(body: JsString, duration_ms: Option<i64>) -> JsString {
 }
 
 fn format_waiting_for_input_notification_body(agent: &AgentNode) -> JsString {
-    format!("{} is waiting for input.", agent.display_name).into()
+    agent.display_name.clone() + " is waiting for input."
 }
 
 fn restore_agent_snapshot(agent: AgentNode) -> AgentNode {

@@ -1,5 +1,6 @@
 //! Shared channel messages and cursors.
 
+use pi_js_compat::js_json::encode_node_utf8;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::mailbox::{has_deliverable_runtime_mailbox_message, is_lifecycle_notification_payload};
@@ -25,8 +26,8 @@ pub fn post_shared_channel_message(
 				VALUES (?, ?, ?, ?)
 				",
             params![
-                input.sender.session_id.to_utf8_lossy(),
-                input.sender.agent_id,
+                encode_node_utf8(&input.sender.session_id),
+                input.sender.agent_id.as_ref().map(encode_node_utf8),
                 body,
                 now
             ],
