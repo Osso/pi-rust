@@ -19,6 +19,23 @@ fn parse_diff_line(line: &JsString) -> Option<ParsedDiffLine> {
     if prefix != u16::from(b'+') && prefix != u16::from(b'-') && !is_js_whitespace_unit(prefix) {
         return None;
     }
+    let separator = find_diff_separator(units)?;
+    let content = line.slice(separator + 1, line.len());
+    if content
+        .units()
+        .iter()
+        .any(|unit| matches!(unit, 0x000a | 0x000d | 0x2028 | 0x2029))
+    {
+        return None;
+    }
+    Some(ParsedDiffLine {
+        prefix,
+        line_num: line.slice(1, separator),
+        content,
+    })
+}
+
+fn find_diff_separator(units: &[u16]) -> Option<usize> {
     let whitespace_end = 1 + units[1..]
         .iter()
         .take_while(|unit| is_js_whitespace_unit(**unit))
@@ -35,26 +52,7 @@ fn parse_diff_line(line: &JsString) -> Option<ParsedDiffLine> {
     } else {
         return None;
     };
-    let content = line.slice(separator + 1, line.len());
-    if content
-        .units()
-        .last()
-        .is_some_and(|unit| matches!(unit, 0x000a | 0x000d | 0x2028 | 0x2029))
-    {
-        content = content.slice(0, content.len() - 1);
-    }
-    if content
-        .units()
-        .iter()
-        .any(|unit| matches!(unit, 0x000a | 0x000d | 0x2028 | 0x2029))
-    {
-        return None;
-    }
-    Some(ParsedDiffLine {
-        prefix,
-        line_num: line.slice(1, separator),
-        content,
-    })
+    Some(separator)
 }
 
 fn replace_tabs(text: &JsString) -> JsString {

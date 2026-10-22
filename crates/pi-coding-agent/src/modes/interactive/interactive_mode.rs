@@ -443,9 +443,11 @@ fn agent_sender(message: &JsString) -> Option<JsString> {
         if start > 0 && !is_line_end(units[start - 1]) {
             continue;
         }
-        let Some(line) = message.slice(start, message.len()).strip_prefix("- agent:") else {
+        const PREFIX: &[u16] = &[45, 32, 97, 103, 101, 110, 116, 58];
+        if !units[start..].starts_with(PREFIX) {
             continue;
-        };
+        }
+        let line = message.slice(start + PREFIX.len(), message.len());
         let trimmed = line.trim_start();
         let end = trimmed
             .units()
@@ -454,6 +456,9 @@ fn agent_sender(message: &JsString) -> Option<JsString> {
             .unwrap_or(trimmed.len());
         if end > 0 {
             return Some(trimmed.slice(0, end).trim());
+        }
+        if line.units().iter().any(|unit| !is_line_end(*unit)) {
+            return Some(JsString::default());
         }
     }
     None
@@ -8589,7 +8594,7 @@ impl InteractiveMode {
             self.show_error("Usage: /name <name>");
             return;
         }
-        if let Err(error) = self.session.borrow().set_session_name(&name.into()) {
+        if let Err(error) = self.session.borrow().set_session_name(&JsString::from(name)) {
             self.show_error(&(JsString::from("Failed to set session name: ") + error.message()));
             return;
         }

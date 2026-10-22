@@ -1365,15 +1365,16 @@ mod bash_operation_tests {
     use crate::core::sdk::{CreateAgentSessionOptions, create_agent_session};
     use crate::core::session_manager::SessionManager;
     use crate::core::tools::bash::{BashExecOptions, BashExecResult, BashOperations};
+    use pi_js_compat::js_json::JsString;
 
     struct RecordingOperations {
-        commands: Arc<Mutex<Vec<String>>>,
+        commands: Arc<Mutex<Vec<JsString>>>,
     }
 
     impl BashOperations for RecordingOperations {
         fn exec<'a>(
             &'a self,
-            command: &'a str,
+            command: &'a JsString,
             _cwd: &'a str,
             options: BashExecOptions,
         ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
@@ -1452,16 +1453,15 @@ mod bash_operation_tests {
         .await
         .expect("session");
 
-        let bash = run_bash(&result.session, &"echo hi".into(), None, None)
-            .await
-            .expect("bash");
+        let command = JsString::from("echo ") + JsString::from_utf16(vec![0xd800]);
+        let bash = run_bash(&result.session, &command, None, None).await.expect("bash");
         assert_eq!(bash.output, "from extension\n");
         assert_eq!(
             commands
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .as_slice(),
-            ["echo hi"]
+            [command]
         );
     }
 }

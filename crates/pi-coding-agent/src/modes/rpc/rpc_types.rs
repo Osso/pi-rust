@@ -566,6 +566,29 @@ mod lossless_tests {
     }
 
     #[test]
+    fn rpc_command_content_fields_decode_raw_units() {
+        for (kind, field) in [
+            ("prompt", "message"),
+            ("steer", "message"),
+            ("follow_up", "message"),
+            ("bash", "command"),
+            ("set_session_name", "name"),
+        ] {
+            let raw = pi_js_compat::js_json!({"type": kind, field: JsString::from_utf16(vec![0xd800])});
+            let command: RpcCommand = pi_js_compat::js_json::from_value(&raw).unwrap();
+            let text = match command.body {
+                RpcCommandBody::Prompt { message, .. }
+                | RpcCommandBody::Steer { message, .. }
+                | RpcCommandBody::FollowUp { message, .. } => message,
+                RpcCommandBody::Bash { command, .. } => command,
+                RpcCommandBody::SetSessionName { name } => name,
+                _ => panic!("unexpected command"),
+            };
+            assert_eq!(text.units(), &[0xd800]);
+        }
+    }
+
+    #[test]
     fn rpc_prompt_and_error_keep_unpaired_utf16_on_wire() {
         let raw = pi_js_compat::js_json::parse_lossless(r#"{"type":"prompt","message":"\ud800"}"#).unwrap();
         let command: RpcCommand = pi_js_compat::js_json::from_value(&raw).unwrap();
