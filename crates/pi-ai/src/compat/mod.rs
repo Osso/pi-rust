@@ -32,7 +32,6 @@ pub use crate::api::mistral_conversations::mistral_conversations_api;
 pub use crate::api::openai_codex_responses::openai_codex_responses_api;
 pub use crate::api::openai_completions::open_ai_completions_api;
 pub use crate::api::openai_responses::open_ai_responses_api;
-pub use crate::api::pi_messages::pi_messages_api;
 pub use crate::bedrock_provider::bedrock_converse_stream_api;
 pub use crate::env_api_keys::*;
 pub use crate::image_models::*;
@@ -187,7 +186,6 @@ fn builtin_apis() -> Vec<(&'static str, Arc<dyn ProviderStreams>)> {
         ("google-vertex", Arc::new(google_vertex_api())),
         ("mistral-conversations", Arc::new(mistral_conversations_api())),
         ("bedrock-converse-stream", Arc::new(bedrock_converse_stream_api())),
-        ("pi-messages", Arc::new(pi_messages_api())),
     ]
 }
 

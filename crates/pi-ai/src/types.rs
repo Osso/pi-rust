@@ -21,7 +21,7 @@ pub type ImagesApi = String;
 pub type ImagesProviderId = String;
 pub type JsonObject = Map<String, Value>;
 
-pub const KNOWN_APIS: [&str; 10] = [
+pub const KNOWN_APIS: [&str; 9] = [
     "openai-completions",
     "mistral-conversations",
     "openai-responses",
@@ -31,7 +31,6 @@ pub const KNOWN_APIS: [&str; 10] = [
     "bedrock-converse-stream",
     "google-generative-ai",
     "google-vertex",
-    "pi-messages",
 ];
 
 pub const KNOWN_IMAGES_APIS: [&str; 1] = ["openrouter-images"];
