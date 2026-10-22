@@ -14,6 +14,10 @@ Contract: [lossless content](../../specs/lossless-content.md). Frozen source: `4
 | Questions / mailbox / session name | raw contracts and consumers integrated; see checkpoints below | compilation and runtime acceptance pending | compiler-blocked; no end-to-end PASS |
 | Provider ingress | [SSE and Codex WebSocket](lossless-provider-ingress.md) merged at `5909f149` | human errors, scalar metadata and non-stream images remain gaps | six sandbox tests PASS at lane executable revision; not parent integration acceptance |
 
+## Session-name lookup checkpoint
+
+Resume name selection, in-memory comparisons and not-found labels retain `JsString`. Metadata ID/name lookup accepts native strings, appends the source ID upper bound natively and encodes only query bindings. `metadata_name_lookup_encodes_only_at_sql_binding` covers two distinct raw names colliding at the source SQL boundary; the resume-name unit case covers native query/error units. `metadata-lookup-red.jsonl` and `resume-name-red.jsonl` remain compiler-blocked, with no runtime PASS. Resume ID/path normalization still has earlier encoding holes; this checkpoint does not approve them.
+
 ## Shared-channel input checkpoint
 
 The channel tool and `PostSharedChannelMessageInput.body` retain `JsString` through source trimming. Only the SQLite binding encodes Node UTF-8; reading that SQL TEXT returns the source-replaced string. `shared_channel_encodes_raw_body_only_at_sql_binding` checks unchanged input plus stored output; `shared-channel-red.jsonl` is compiler-blocked, with no runtime PASS.

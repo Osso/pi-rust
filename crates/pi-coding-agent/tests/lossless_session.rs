@@ -4,6 +4,31 @@ use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
+fn metadata_name_lookup_encodes_only_at_sql_binding() {
+    use pi_coding_agent::core::session_control_db::find_active_session_metadata_by_name;
+    use pi_coding_agent::core::session_manager::{SessionManager, SetMetadataControlDbPathOptions};
+    use pi_js_compat::js_json::JsString;
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap();
+    let db = directory.path().join("control.sqlite");
+    let db = db.to_str().unwrap();
+    for unit in [0xd800, 0xdfff] {
+        let mut manager = SessionManager::create(root, Some(root), None).unwrap();
+        manager
+            .set_metadata_control_db_path(Some(db), SetMetadataControlDbPathOptions::default())
+            .unwrap();
+        manager
+            .set_session_name(Some(&JsString::from_utf16(vec![unit])))
+            .unwrap();
+    }
+    let name = JsString::from_utf16(vec![0xd800]);
+    let rows = find_active_session_metadata_by_name(db, &name).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| row.name.as_deref() == Some("�")));
+    assert_eq!(name.units(), &[0xd800]);
+}
+
+#[test]
 fn shared_channel_encodes_raw_body_only_at_sql_binding() {
     use pi_coding_agent::core::session_control_db::{
         PostSharedChannelMessageInput, RuntimeMailboxAddress, list_shared_channel_messages_after,
