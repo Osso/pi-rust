@@ -184,19 +184,29 @@ impl JsString {
 
     /// JavaScript-style lowercase preserves unmatched UTF-16 units as context boundaries.
     pub fn to_lowercase(&self) -> Self {
+        self.map_scalar_runs(str::to_lowercase)
+    }
+
+    /// JavaScript-style uppercase (full case mapping) preserving unmatched UTF-16 units.
+    pub fn to_uppercase(&self) -> Self {
+        self.map_scalar_runs(str::to_uppercase)
+    }
+
+    /// Applies `map` to each run of valid scalars; lone surrogates pass through and split runs.
+    fn map_scalar_runs(&self, map: fn(&str) -> String) -> Self {
         let mut output = Self::default();
         let mut chunk = String::new();
         for decoded in char::decode_utf16(self.0.iter().copied()) {
             match decoded {
                 Ok(character) => chunk.push(character),
                 Err(error) => {
-                    output.push_str(chunk.to_lowercase());
+                    output.push_str(map(&chunk));
                     chunk.clear();
                     output.push_unit(error.unpaired_surrogate());
                 }
             }
         }
-        output.push_str(chunk.to_lowercase());
+        output.push_str(map(&chunk));
         output
     }
 
