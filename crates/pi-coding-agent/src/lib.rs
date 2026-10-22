@@ -386,4 +386,3 @@ pub use pi_agent_core::harness::types::ToolExecutionMode;
 pub use pi_ai::auth::resolve::AuthResolutionOverrides;
 pub use pi_tui::components::dynamic_border::DynamicBorder;
 pub use pi_tui::keybindings::Keybinding;
-pub use pi_tui::tui::TuiMode;

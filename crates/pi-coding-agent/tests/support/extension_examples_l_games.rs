@@ -50,9 +50,6 @@ impl ExtensionUiTuiBackend for Backend {
     fn terminal_columns(&self) -> usize {
         80
     }
-    fn mode(&self) -> pi_tui::tui::TuiMode {
-        pi_tui::tui::TuiMode::Regular
-    }
 }
 // Drive inputs through the real TUI release filter, not directly into the game.
 #[derive(Default)]

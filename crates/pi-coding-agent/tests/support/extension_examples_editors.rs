@@ -16,7 +16,7 @@ use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme};
 use pi_tui::components::editor::{EditorFixedCell, EditorTheme};
-use pi_tui::tui::{TuiMode, TuiRenderer};
+use pi_tui::tui::TuiRenderer;
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -57,9 +57,6 @@ impl ExtensionUiTuiBackend for Backend {
     }
     fn terminal_columns(&self) -> usize {
         80
-    }
-    fn mode(&self) -> TuiMode {
-        TuiMode::Regular
     }
 }
 fn tui() -> ExtensionUiTui {

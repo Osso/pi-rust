@@ -646,9 +646,6 @@ impl ExtensionUiTuiBackend for FixtureTui {
     fn terminal_columns(&self) -> usize {
         40
     }
-    fn mode(&self) -> pi_tui::tui::TuiMode {
-        pi_tui::tui::TuiMode::Regular
-    }
 }
 fn fixture_theme() -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
     use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme};

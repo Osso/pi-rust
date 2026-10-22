@@ -13,7 +13,7 @@ use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme};
 use pi_tui::components::editor::EditorFixedCell;
-use pi_tui::tui::{FixedCell, TuiMode, TuiRenderer};
+use pi_tui::tui::{FixedCell, TuiRenderer};
 use serde_json::{Map, Value, json};
 use std::{
     rc::Rc,
@@ -61,9 +61,7 @@ impl ExtensionUiTuiBackend for Backend {
     fn terminal_columns(&self) -> usize {
         80
     }
-    fn mode(&self) -> TuiMode {
-        TuiMode::Regular
-    }
+
     fn show_overlay(
         &self,
         _: Box<dyn ExtensionUiComponent>,

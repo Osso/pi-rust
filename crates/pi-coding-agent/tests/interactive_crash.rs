@@ -197,16 +197,12 @@ fn sighup_restart_failure_restores_the_terminal_and_exits_one() {
     assert!(restore < banner, "the terminal is restored before the report");
 }
 
-fn assert_worker_crash(kind: &str, fullscreen: bool) {
+fn assert_worker_crash(kind: &str) {
     let fixture = fixture();
     let trigger = fixture._temp.path().join("panic-now");
     let mut environment = agent_environment(&fixture);
     environment.push(("PI_RUST_CRASH_TRIGGER".to_owned(), trigger.display().to_string()));
     environment.push(("PI_RUST_CRASH_WORKER".to_owned(), kind.to_owned()));
-    if fullscreen {
-        std::fs::write(fixture.agent_dir.join("settings.json"), r#"{"tuiMode":"fullscreen"}"#)
-            .expect("fullscreen settings");
-    }
     let mut child = pty::spawn(
         &std::env::current_exe().expect("test executable"),
         &["--ignored", "--exact", "worker_panic_child", "--nocapture"],
@@ -214,12 +210,7 @@ fn assert_worker_crash(kind: &str, fullscreen: bool) {
         &fixture.work,
     );
     let original = child.initial_termios();
-    let ready = if fullscreen {
-        "bwrap: full access"
-    } else {
-        "Ctrl+C twice to exit"
-    };
-    child.wait_for(ready, Duration::from_secs(20));
+    child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
     // A DA reply without Kitty support enables modifyOtherKeys.
     child.write_input("\x1b[?1;2c");
     child.wait_for("\x1b[>4;2m", Duration::from_secs(5));
@@ -244,32 +235,28 @@ fn assert_worker_crash(kind: &str, fullscreen: bool) {
             "missing restore {sequence:?}; output:\n{text}"
         );
     }
-    if fullscreen {
-        assert!(text[..banner].contains("\x1b[?1049l"), "must leave alternate screen");
-        assert!(text[..banner].contains("\x1b[?7h"), "must restore autowrap");
-    }
     assert!(text[banner..].contains("Error: worker boom"), "worker payload: {text}");
     assert_eq!(child.termios(), original, "restore original cooked mode");
 }
 
 #[test]
 fn extension_thread_panic_restores_the_terminal() {
-    assert_worker_crash("thread", false);
+    assert_worker_crash("thread");
 }
 
 #[test]
 fn dead_terminal_error_on_a_worker_exits_129_without_restoring() {
-    assert_worker_crash("dead", false);
+    assert_worker_crash("dead");
 }
 
 #[test]
 fn blocking_pool_panic_restores_the_terminal() {
-    assert_worker_crash("blocking", false);
+    assert_worker_crash("blocking");
 }
 
 #[test]
 fn tokio_worker_panic_restores_the_frozen_terminal() {
-    assert_worker_crash("task", false);
+    assert_worker_crash("task");
 }
 
 #[test]

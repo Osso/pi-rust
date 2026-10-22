@@ -17,7 +17,6 @@ use pi_coding_agent::core::extensions::types::{
 };
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme};
-use pi_tui::tui::TuiMode;
 use serde_json::{Value, json};
 
 const WIDTHS: [usize; 5] = [0, 1, 16, 80, 200];
@@ -53,9 +52,6 @@ impl ExtensionUiTuiBackend for Terminal {
     }
     fn terminal_columns(&self) -> usize {
         80
-    }
-    fn mode(&self) -> TuiMode {
-        TuiMode::Regular
     }
 }
 

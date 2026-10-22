@@ -106,9 +106,7 @@ impl ExtensionUiTuiBackend for Terminal {
     fn terminal_columns(&self) -> usize {
         120
     }
-    fn mode(&self) -> pi_tui::tui::TuiMode {
-        pi_tui::tui::TuiMode::Regular
-    }
+
     fn show_overlay(
         &self,
         component: Box<dyn ExtensionUiComponent>,
