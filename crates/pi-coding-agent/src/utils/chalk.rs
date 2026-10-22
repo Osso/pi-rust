@@ -368,10 +368,10 @@ fn iterm_level(env: &BTreeMap<String, String>) -> Level {
     let major = env
         .get("TERM_PROGRAM_VERSION")
         .and_then(|version| version.split('.').next())
-        .and_then(parse_int)
-        .unwrap_or(0);
+        .map(|version| pi_js_compat::number::parse_int(&version.encode_utf16().collect::<Vec<_>>(), 10))
+        .unwrap_or(0.0);
 
-    if major >= 3 { Level::Ansi16m } else { Level::Ansi256 }
+    if major >= 3.0 { Level::Ansi16m } else { Level::Ansi256 }
 }
 
 fn term_name_level(term: &str) -> Option<Level> {
