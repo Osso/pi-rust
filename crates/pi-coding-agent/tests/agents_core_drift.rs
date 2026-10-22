@@ -93,13 +93,13 @@ async fn public_registration_propagates_late_tool_failure_instead_of_returning_s
     let captured_api = captured.clone();
     let _extension = load_extension_from_factory(
         Arc::new(move |pi| {
-            *captured_api.lock().unwrap() = Some(pi);
+            *captured_api.lock().unwrap() = Some(pi.clone());
             Box::pin(async { Ok(()) })
         }),
         &JsString::from("/fixture"),
         support::event_bus(),
         runtime.clone(),
-        "<drift-registration>",
+        &JsString::from("<drift-registration>"),
     )
     .await
     .unwrap();
