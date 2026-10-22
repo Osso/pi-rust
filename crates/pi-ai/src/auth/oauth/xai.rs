@@ -181,7 +181,7 @@ fn parse_device_code(body: &Value) -> Result<XaiDeviceCode, CallbackError> {
 
 fn credentials_from_token_response(
     body: &Value,
-    previous_refresh_token: Option<&str>,
+    previous_refresh_token: Option<&pi_js_compat::js_json::JsString>,
     now: f64,
 ) -> Result<OAuthCredential, CallbackError> {
     let access = required_string(body, "access_token")?;

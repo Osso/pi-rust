@@ -39,7 +39,7 @@ const JWT_CLAIM_PATH: &str = "https://api.openai.com/auth";
 
 pub struct OpenAICodexOAuth {
     runtime: OAuthRuntime,
-    callback_host: String,
+    callback_host: JsString,
 }
 
 impl OpenAICodexOAuth {
@@ -49,11 +49,11 @@ impl OpenAICodexOAuth {
 
     pub fn with_runtime(runtime: OAuthRuntime) -> Self {
         let callback_host =
-            get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None).unwrap_or_else(|| "127.0.0.1".to_owned());
+            get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None).unwrap_or_else(|| "127.0.0.1".into());
         Self { runtime, callback_host }
     }
 
-    pub fn with_callback_host(mut self, host: impl Into<String>) -> Self {
+    pub fn with_callback_host(mut self, host: impl Into<JsString>) -> Self {
         self.callback_host = host.into();
         self
     }
@@ -428,7 +428,7 @@ fn settle_local(sender: &Arc<Mutex<Option<oneshot::Sender<Option<String>>>>>, va
     }
 }
 
-async fn start_local_server(host: &str, state: String) -> LocalServer {
+async fn start_local_server(host: &JsString, state: String) -> LocalServer {
     let (sender, receiver) = oneshot::channel();
     let settle = Arc::new(Mutex::new(Some(sender)));
     let handler_settle = Arc::clone(&settle);
@@ -471,7 +471,7 @@ async fn start_local_server(host: &str, state: String) -> LocalServer {
 
 async fn login_browser(
     runtime: &OAuthRuntime,
-    callback_host: &str,
+    callback_host: &JsString,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
     let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes));
@@ -539,7 +539,7 @@ async fn login_browser(
     }
 
     let code = match result {
-        Some(code) => Some(code),
+        Some(code) => Some(JsString::from(code)),
         None => match manual.and_then(Result::ok).filter(|input| !input.is_empty()) {
             Some(input) => match resolve_manual_code(&input, &state) {
                 Ok(code) => code,
@@ -588,7 +588,7 @@ fn resolve_manual_code(input: &JsString, expected_state: &str) -> Result<Option<
 
 async fn login_openai_codex(
     runtime: &OAuthRuntime,
-    callback_host: &str,
+    callback_host: &JsString,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
     let method = interaction

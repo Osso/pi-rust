@@ -33,7 +33,7 @@ const EXPIRY_SKEW_MS: f64 = 5.0 * 60.0 * 1000.0;
 
 pub struct AnthropicOAuth {
     runtime: OAuthRuntime,
-    callback_host: String,
+    callback_host: JsString,
 }
 
 impl AnthropicOAuth {
@@ -43,11 +43,11 @@ impl AnthropicOAuth {
 
     pub fn with_runtime(runtime: OAuthRuntime) -> Self {
         let callback_host =
-            get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None).unwrap_or_else(|| "127.0.0.1".to_owned());
+            get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None).unwrap_or_else(|| "127.0.0.1".into());
         Self { runtime, callback_host }
     }
 
-    pub fn with_callback_host(mut self, host: impl Into<String>) -> Self {
+    pub fn with_callback_host(mut self, host: impl Into<JsString>) -> Self {
         self.callback_host = host.into();
         self
     }
@@ -122,7 +122,7 @@ fn settle_wait(sender: &Arc<Mutex<Option<oneshot::Sender<Option<CallbackCode>>>>
 }
 
 async fn start_anthropic_callback_server(
-    host: &str,
+    host: &JsString,
     expected_state: String,
 ) -> Result<(CallbackServer, CallbackWait), CallbackError> {
     let (sender, receiver) = oneshot::channel();
@@ -247,7 +247,7 @@ fn credential_from_token(
 
 async fn login_anthropic(
     runtime: &OAuthRuntime,
-    callback_host: &str,
+    callback_host: &JsString,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
     let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes));
