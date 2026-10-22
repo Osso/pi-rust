@@ -16,6 +16,8 @@ Source: `packages/ai/src/api/openai-responses-shared.ts`.
 Rust: `crates/pi-ai/src/api/openai_responses_shared.rs`.
 Tests: `crates/pi-ai/tests/openai_responses_shared.rs` (7 behavioral), `crates/pi-ai/tests/differential_openai_responses_shared.rs` (3 differential suites: 12 conversion scenarios, 7 tool scenarios, 12 push-time stream scenarios) against the pinned TS module.
 
+Current bounded proof at9f327aad: all3 shared differentials (conversion12, tools7, stream12 scenarios) and7 behavioral tests pass; Responses20 and Azure10 recorded SDK scenarios pass in the same invocation (`responses-shared-current-green.log`). No assertion normalization was added to waive these removals. Obsolete option/API fields and producer validation remain open; no whole-module completion claim.
+
 ## Representation
 - Request bodies and SSE events are `JsValue`; this preserves TypeScript key order and omitted-vs-null distinctions without inventing wire structs for the OpenAI SDK types.
 - `ResponsesEventSource` abstracts the event iterator; production uses the SDK SSE decoder, tests use `VecResponsesEventSource`.
