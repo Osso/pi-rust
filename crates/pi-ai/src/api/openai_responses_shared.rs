@@ -870,41 +870,6 @@ fn get_or_create_slot(
     create_slot(slots, output_index, item, output, sender)
 }
 
-fn backfill_reasoning_signatures(
-    response_output: &[JsValue],
-    reasoning_blocks_by_id: &BTreeMap<String, usize>,
-    output: &mut AssistantMessage,
-) {
-    for item in response_output {
-        if item.get("type").and_then(ingress_metadata_text).as_deref() != Some("reasoning") {
-            continue;
-        }
-        let Some(encrypted_content) = item.get("encrypted_content").filter(|value| is_truthy(value)) else {
-            continue;
-        };
-        let Some(id) = item.get("id").and_then(ingress_metadata_text) else {
-            continue;
-        };
-        let Some(content_index) = reasoning_blocks_by_id.get(&id) else {
-            continue;
-        };
-        let AssistantContent::Thinking(block) = &mut output.content[*content_index] else {
-            continue;
-        };
-        let Some(signature) = block.thinking_signature.as_deref() else {
-            continue;
-        };
-        let Ok(JsValue::Object(mut stored)) = pi_js_compat::js_json::parse_lossless(signature) else {
-            continue;
-        };
-        if stored.get("encrypted_content").is_some_and(is_truthy) {
-            continue;
-        }
-        stored.insert("encrypted_content".into(), encrypted_content.clone());
-        block.thinking_signature = Some(pi_js_compat::js_json::stringify_lossless(&JsValue::Object(stored)));
-    }
-}
-
 fn emit_text_delta(
     sender: &AssistantMessageEventSender,
     content_index: usize,
@@ -953,11 +918,9 @@ fn finalize_response(
     output: &mut AssistantMessage,
     model: &Model,
     options: Option<&OpenAIResponsesStreamOptions>,
-    reasoning_blocks_by_id: &BTreeMap<String, usize>,
 ) -> Result<(), String> {
     let empty = Vec::new();
     let response_output = response.get("output").and_then(JsValue::as_array).unwrap_or(&empty);
-    backfill_reasoning_signatures(response_output, reasoning_blocks_by_id, output);
 
     if let Some(id) = response
         .get("id")
@@ -1148,7 +1111,6 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
     let mut saw_terminal_response_event = false;
     let mut saw_hosted_web_search_call = false;
     let mut output_slots: BTreeMap<Option<u64>, Slot> = BTreeMap::new();
-    let mut reasoning_blocks_by_id: BTreeMap<String, usize> = BTreeMap::new();
 
     loop {
         let event = match source.next_event().await {
@@ -1338,9 +1300,6 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                             };
                             block.thinking_signature = Some(pi_js_compat::js_json::stringify_lossless(&item));
                         }
-                        if let Some(id) = item.get("id").and_then(ingress_metadata_text).as_deref() {
-                            reasoning_blocks_by_id.insert(id.to_owned(), content_index);
-                        }
                         let content = match &output.content[content_index] {
                             AssistantContent::Thinking(block) => block.thinking.clone(),
                             _ => String::new().into(),
@@ -1423,7 +1382,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
             "response.completed" => {
                 saw_terminal_response_event = true;
                 let response = event.get("response").cloned().unwrap_or(JsValue::Null);
-                finalize_response(&response, output, model, options, &reasoning_blocks_by_id)
+                finalize_response(&response, output, model, options)
                     .map_err(|error| ResponsesStreamFailure::Message(error.into()))?;
             }
             "response.incomplete" => {
@@ -1439,7 +1398,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                     ));
                 }
                 saw_terminal_response_event = true;
-                finalize_response(&response, output, model, options, &reasoning_blocks_by_id)
+                finalize_response(&response, output, model, options)
                     .map_err(|error| ResponsesStreamFailure::Message(error.into()))?;
             }
             "error" => {
