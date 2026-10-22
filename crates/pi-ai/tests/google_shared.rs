@@ -47,7 +47,6 @@ fn assistant(content: Vec<AssistantContent>, provider: &str, api: &str, id: &str
         diagnostics: None,
         usage: Default::default(),
         stop_reason: StopReason::ToolUse,
-        deferred: None,
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,

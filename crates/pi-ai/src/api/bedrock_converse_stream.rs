@@ -373,10 +373,6 @@ async fn drive(
         return Err(BedrockError::abort("Request was aborted"));
     }
     match output.stop_reason {
-        StopReason::Pending => {
-            Err(BedrockError::stream("Bedrock stream ended without a stop reason")
-                .with_request_id(request_id.as_deref()))
-        }
         StopReason::Error | StopReason::Aborted => Err(BedrockError::stream(
             output
                 .error_message

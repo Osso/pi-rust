@@ -39,6 +39,20 @@ fn assistant_wire() -> Value {
 }
 
 #[test]
+fn frozen_stop_reason_types_exclude_old_pending_and_deferred_variants() {
+    for tag in ["pending", "deferred"] {
+        assert!(serde_json::from_value::<StopReason>(json!(tag)).is_err(), "{tag}");
+        assert!(serde_json::from_value::<DoneReason>(json!(tag)).is_err(), "{tag}");
+    }
+}
+
+#[test]
+fn empty_stream_message_starts_with_frozen_stop_reason() {
+    let message = AssistantMessage::empty("anthropic-messages", "anthropic", "test", 0);
+    assert_eq!(message.stop_reason, StopReason::Stop);
+}
+
+#[test]
 fn assistant_message_round_trips_exact_wire_shape() {
     let message: Message = round_trip(&assistant_wire());
     let Message::Assistant(assistant) = message else {
@@ -245,7 +259,7 @@ fn assistant_message_defaults_omit_optional_fields() {
             "role": "assistant", "content": [], "api": "openai-responses", "provider": "openai", "model": "gpt-6",
             "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
                       "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}},
-            "stopReason": "pending", "timestamp": 42
+            "stopReason": "stop", "timestamp": 42
         })
     );
 }

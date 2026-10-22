@@ -76,53 +76,6 @@ impl pi_ai::request::Fetch for CaptureRequest {
     }
 }
 
-#[tokio::test]
-async fn pi_messages_http_json_and_payload_callback_keep_utf16_escapes() {
-    use pi_ai::types::{Context, Message, Model};
-    use pi_js_compat::js_json::{JsString, JsValue};
-    let message: ToolResultMessage = serde_json::from_str(r#"{"role":"toolResult","toolCallId":"call","toolName":"probe","content":[{"type":"text","text":"\ud800"}],"details":{"x":"\udfff"},"isError":false,"timestamp":1}"#).unwrap();
-    let model: Model = serde_json::from_value(serde_json::json!({
-        "id":"probe", "name":"probe", "api":"pi-messages", "provider":"probe", "baseUrl":"https://provider.invalid/v1", "reasoning":false, "input":["text"],
-        "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":10000, "maxTokens":1000
-    })).unwrap();
-    let fetch = std::sync::Arc::new(CaptureRequest::default());
-    let mut options = pi_ai::api::pi_messages::PiMessagesOptions::default();
-    options.stream.request.fetch = Some(fetch.clone());
-    options.stream.request.api_key = Some("test".into());
-    options.stream.request.max_retries = Some(0.0);
-    options.stream.request.on_payload = Some(std::sync::Arc::new(|mut payload, _| {
-        Box::pin(async move {
-            payload
-                .as_object_mut()
-                .unwrap()
-                .insert("callback".into(), JsValue::String(JsString::from_utf16(vec![0xdfff])));
-            Ok(Some(payload))
-        })
-    }));
-    let mut stream = pi_ai::api::pi_messages::stream(
-        model,
-        Context {
-            system_prompt: None,
-            messages: vec![Message::ToolResult(message)],
-            tools: None,
-        },
-        options,
-    );
-    while stream.next().await.is_some() {}
-    let requests = fetch.0.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    let body = std::str::from_utf8(requests[0].body.as_ref().unwrap()).unwrap();
-    assert!(body.contains(r#""text":"\ud800""#));
-    assert!(body.contains(r#""details":{"x":"\udfff"}"#));
-    assert!(body.contains(r#""callback":"\udfff""#));
-    let mut oracle = oracle::TsOracle::spawn(
-        "lossless-content-oracle.ts",
-        "packages/ai/src/utils/sanitize-unicode.ts",
-    );
-    let reference = oracle.request(&serde_json::json!({"wire":body}));
-    assert_eq!(reference["wire"], body);
-}
-
 #[test]
 fn user_and_thinking_content_round_trip_lone_surrogate_units() {
     for source in [

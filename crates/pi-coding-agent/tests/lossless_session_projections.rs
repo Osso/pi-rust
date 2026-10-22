@@ -33,7 +33,6 @@ fn assistant_message(text: &str, timestamp: i64, usage: Usage) -> AgentMessage {
         diagnostics: None,
         usage,
         stop_reason: StopReason::Stop,
-        deferred: None,
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,

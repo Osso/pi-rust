@@ -1331,8 +1331,7 @@ fn done_reason(stop_reason: StopReason) -> Option<DoneReason> {
         StopReason::Stop => Some(DoneReason::Stop),
         StopReason::Length => Some(DoneReason::Length),
         StopReason::ToolUse => Some(DoneReason::ToolUse),
-        StopReason::Deferred => Some(DoneReason::Deferred),
-        StopReason::Pending | StopReason::Error | StopReason::Aborted => None,
+        StopReason::Error | StopReason::Aborted => None,
     }
 }
 

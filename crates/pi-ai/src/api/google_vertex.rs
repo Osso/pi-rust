@@ -197,7 +197,7 @@ async fn run(
         .await
         .map_err(|error| error.message)?;
 
-    let reason = completed_reason(output, signal, "Google Vertex stream ended without a finish reason")?;
+    let reason = completed_reason(output, signal)?;
     sender.push(AssistantMessageEvent::Done {
         reason,
         message: output.clone(),

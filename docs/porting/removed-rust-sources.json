@@ -1,4 +1,5 @@
 [
+  "ai/src/api/pi-messages.ts",
   "client/",
   "coding-agent/src/client/",
   "coding-agent/src/extensions/index.ts",

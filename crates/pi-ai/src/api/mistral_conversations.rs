@@ -212,9 +212,6 @@ async fn produce_stream(
     if user_aborted(options) {
         return Err(MistralError::message("Request was aborted"));
     }
-    if output.stop_reason == StopReason::Pending {
-        return Err(MistralError::message("Mistral stream ended without a finish reason"));
-    }
     if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {
         return Err(MistralError::message(
             output
@@ -257,8 +254,7 @@ fn done_reason(reason: StopReason) -> Option<DoneReason> {
         StopReason::Stop => Some(DoneReason::Stop),
         StopReason::Length => Some(DoneReason::Length),
         StopReason::ToolUse => Some(DoneReason::ToolUse),
-        StopReason::Deferred => Some(DoneReason::Deferred),
-        StopReason::Pending | StopReason::Error | StopReason::Aborted => None,
+        StopReason::Error | StopReason::Aborted => None,
     }
 }
 

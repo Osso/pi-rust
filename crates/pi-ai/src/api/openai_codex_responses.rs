@@ -334,8 +334,6 @@ fn done_reason(stop_reason: StopReason) -> Result<DoneReason, String> {
         StopReason::Stop => Ok(DoneReason::Stop),
         StopReason::Length => Ok(DoneReason::Length),
         StopReason::ToolUse => Ok(DoneReason::ToolUse),
-        StopReason::Deferred => Ok(DoneReason::Deferred),
-        StopReason::Pending => Err("Codex stream ended without a stop reason".to_owned()),
         StopReason::Error | StopReason::Aborted => Err("An unknown error occurred".to_owned()),
     }
 }
@@ -886,9 +884,6 @@ fn extract_account_id(token: &JsString) -> Result<String, CodexStreamError> {
 
 fn assert_successful_output(output: &AssistantMessage) -> Result<(), CodexStreamError> {
     match output.stop_reason {
-        StopReason::Pending => Err(CodexStreamError::Transport(
-            "Codex stream ended without a stop reason".to_owned().into(),
-        )),
         StopReason::Error | StopReason::Aborted => Err(CodexStreamError::Transport(
             output
                 .error_message

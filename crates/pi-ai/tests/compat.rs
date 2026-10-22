@@ -14,7 +14,7 @@ use pi_ai::types::{
 };
 use pi_ai::utils::event_stream::{AssistantMessageEventStream, create_assistant_message_event_stream};
 
-const BUILTIN_APIS: [&str; 10] = [
+const BUILTIN_APIS: [&str; 9] = [
     "anthropic-messages",
     "openai-completions",
     "openai-responses",
@@ -24,7 +24,6 @@ const BUILTIN_APIS: [&str; 10] = [
     "google-vertex",
     "mistral-conversations",
     "bedrock-converse-stream",
-    "pi-messages",
 ];
 
 /// The api registry is process-global; serialize tests that mutate it.

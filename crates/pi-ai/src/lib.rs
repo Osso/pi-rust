@@ -42,7 +42,6 @@ pub use crate::api::mistral_conversations::MistralOptions;
 pub use crate::api::openai_codex_responses::{OpenAICodexResponsesOptions, OpenAICodexWebSocketDebugStats};
 pub use crate::api::openai_completions::OpenAICompletionsOptions;
 pub use crate::api::openai_responses::OpenAIResponsesOptions;
-pub use crate::api::pi_messages::{PiMessagesEvent, PiMessagesOptions, PiMessagesRewriteImpact};
 pub use crate::auth::context::*;
 pub use crate::auth::credential_store::*;
 pub use crate::auth::helpers::*;

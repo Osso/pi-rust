@@ -1,3 +1,11 @@
+## Q4 common-pin status (2026-10-22)
+
+Partial. Frozen `types.ts:407` has only stop/length/toolUse/error/aborted. Frozen provider initializers (`api/anthropic-messages.ts:490`, `openai-completions.ts:174`, `openai-responses.ts:110`, `azure-openai-responses.ts:89`, `openai-codex-responses.ts:250`, `google-generative-ai.ts:75`, `google-vertex.ts:92`, `bedrock-converse-stream.ts:127`, `mistral-conversations.ts:148`) initialize stop, not pending. `AssistantMessage::empty` now matches. RED new initial-reason regression; GREEN 15 type tests. `/tmp/pi-rust-repin-delta-ai/ledger.md`, revision `18487b42` + initial-stop slice.
+
+Removed old-only `StopReason::Pending/Deferred`, `DoneReason::Deferred`, and `AssistantMessage.deferred` per frozen `types.ts:407–438`; whole frozen package search found no renamed DeferredHandle/fetchDeferred/cancelDeferred equivalent. Stream producer terminal matches, supervisor/print labels, imported assistant construction and fixtures adapted; proxy's temporary fail-fast wildcard removed (frozen proxy.ts:345–352). RED variant regression → GREEN 16 types tests. Persisted pending/deferred records remain raw, including old deferred handles/unknown fields: `lossless_session_persistence::old_pending_and_deferred_stop_tags_load_and_save_as_frozen_raw_records` compares actual frozen parse/serialization and file round-trip bytes, GREEN 1. Ledger: `/tmp/pi-rust-repin-delta-ai/ledger.md`, revision `bc681593` + stop-reason slice.
+
+Deferred request interfaces, constrained sampling and other pre-repin exports below remain pending deletion, not new-pin parity evidence. The historical mapping below is retained only for migration inventory.
+
 # ai types + event stream traceability
 
 Sources: `packages/ai/src/types.ts`, `packages/ai/src/utils/event-stream.ts`.

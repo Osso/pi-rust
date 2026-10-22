@@ -56,7 +56,6 @@ fn assistant(content: Vec<AssistantContent>, stop_reason: StopReason) -> AgentMe
         diagnostics: None,
         usage: Usage::default(),
         stop_reason,
-        deferred: None,
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,

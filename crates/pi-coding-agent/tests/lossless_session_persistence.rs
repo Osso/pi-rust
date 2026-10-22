@@ -85,6 +85,33 @@ fn v1_migration_uses_target_record_identity_at_the_time_of_mutation() {
 }
 
 #[test]
+fn old_pending_and_deferred_stop_tags_load_and_save_as_frozen_raw_records() {
+    use pi_coding_agent::core::session_tool_output::serialize_session_entry_for_persistence;
+    let content = concat!(
+        "{\"type\":\"session\",\"version\":3,\"id\":\"s\",\"timestamp\":\"2026-10-22T00:00:00.000Z\",\"cwd\":\"/tmp\"}\n",
+        "{\"type\":\"message\",\"id\":\"p\",\"parentId\":null,\"timestamp\":\"t\",\"message\":{\"role\":\"assistant\",\"content\":[],\"stopReason\":\"pending\",\"deferred\":{\"id\":\"old-handle\"},\"extra\":\"keep\"}}\n",
+        "{\"type\":\"message\",\"id\":\"d\",\"parentId\":\"p\",\"timestamp\":\"t\",\"message\":{\"role\":\"assistant\",\"content\":[],\"stopReason\":\"deferred\",\"deferred\":{\"id\":\"old-handle-2\"}}}\n"
+    );
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-session-records-oracle.mjs",
+        "packages/coding-agent/src/core/session-manager.ts",
+    );
+    let expected = source.request(&serde_json::json!({"id": 91040, "operation": "serialize", "content": content}));
+    assert_eq!(expected["ok"], true, "{expected:?}");
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("raw.jsonl");
+    std::fs::write(&path, content).unwrap();
+    let loaded = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<String> = parse_session_entries(loaded)
+        .iter()
+        .map(serialize_session_entry_for_persistence)
+        .collect();
+    assert_eq!(serde_json::json!(lines), expected["output"]);
+    std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+}
+
+#[test]
 fn persistence_serializer_keeps_raw_header() {
     use pi_coding_agent::core::session_tool_output::serialize_session_entry_for_persistence;
     let line = r#"{"type":"session","id":"\ud800","timestamp":"\udfff","cwd":null,"\ud800":{"extra":"\udfff"}}"#;

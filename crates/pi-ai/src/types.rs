@@ -21,7 +21,7 @@ pub type ImagesApi = String;
 pub type ImagesProviderId = String;
 pub type JsonObject = Map<String, Value>;
 
-pub const KNOWN_APIS: [&str; 10] = [
+pub const KNOWN_APIS: [&str; 9] = [
     "openai-completions",
     "mistral-conversations",
     "openai-responses",
@@ -31,7 +31,6 @@ pub const KNOWN_APIS: [&str; 10] = [
     "bedrock-converse-stream",
     "google-generative-ai",
     "google-vertex",
-    "pi-messages",
 ];
 
 pub const KNOWN_IMAGES_APIS: [&str; 1] = ["openrouter-images"];
@@ -530,23 +529,20 @@ pub struct Usage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum StopReason {
-    Pending,
     Stop,
     Length,
     ToolUse,
     Error,
     Aborted,
-    Deferred,
 }
 
-/// `Extract<StopReason, "stop" | "length" | "toolUse" | "deferred">`.
+/// `Extract<StopReason, "stop" | "length" | "toolUse">`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DoneReason {
     Stop,
     Length,
     ToolUse,
-    Deferred,
 }
 
 /// `Extract<StopReason, "aborted" | "error">`.
@@ -630,8 +626,6 @@ pub struct AssistantMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<Vec<AssistantMessageDiagnostic>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub deferred: Option<DeferredHandle>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<pi_js_compat::js_json::JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_stop_reason: Option<String>,
@@ -640,7 +634,7 @@ pub struct AssistantMessage {
 }
 
 impl AssistantMessage {
-    /// Empty `pending` message with zero usage, the shape providers start streaming from.
+    /// Empty message with zero usage and the frozen providers' initial `stop` reason.
     pub fn empty(
         api: impl Into<Api>,
         provider: impl Into<ProviderId>,
@@ -658,8 +652,7 @@ impl AssistantMessage {
             image_generation_result: None,
             diagnostics: None,
             usage: Usage::default(),
-            stop_reason: StopReason::Pending,
-            deferred: None,
+            stop_reason: StopReason::Stop,
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,

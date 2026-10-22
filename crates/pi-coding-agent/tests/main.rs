@@ -68,7 +68,6 @@ fn create_session(cwd: &str, session_dir: &str, text: &str) -> SessionManager {
             diagnostics: None,
             usage: Usage::default(),
             stop_reason: StopReason::Stop,
-            deferred: None,
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,

@@ -24,9 +24,6 @@ fn assert_type_paths() {
     type_of::<pi_ai::OpenAICodexWebSocketDebugStats>(None);
     type_of::<pi_ai::OpenAICompletionsOptions>(None);
     type_of::<pi_ai::OpenAIResponsesOptions>(None);
-    type_of::<pi_ai::PiMessagesEvent>(None);
-    type_of::<pi_ai::PiMessagesOptions>(None);
-    type_of::<pi_ai::PiMessagesRewriteImpact>(None);
     type_of::<Arc<dyn pi_ai::AuthContext>>(None);
     type_of::<Arc<dyn pi_ai::CredentialStore>>(None);
     type_of::<Arc<dyn pi_ai::OAuthAuth>>(None);
@@ -144,7 +141,7 @@ fn base_reexports_the_compat_surface() {
         .iter()
         .map(|provider| provider.api().to_owned())
         .collect();
-    assert_eq!(apis.len(), 10);
+    assert_eq!(apis.len(), 9);
     assert!(pi_ai::base::get_model("openai", "gpt-5").is_some());
     assert!(pi_ai::base::get_providers().contains(&"openai-codex".to_owned()));
     let _ = pi_ai::base::faux_text("x");

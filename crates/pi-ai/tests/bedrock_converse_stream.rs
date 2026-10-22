@@ -603,7 +603,6 @@ async fn converts_replayed_messages_and_documents() {
             diagnostics: None,
             usage: Default::default(),
             stop_reason: StopReason::ToolUse,
-            deferred: None,
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,

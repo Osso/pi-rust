@@ -1329,13 +1329,9 @@ fn generated_tool_call_id(name: &str) -> String {
 pub(crate) fn completed_reason(
     output: &AssistantMessage,
     signal: Option<&CancellationToken>,
-    pending_message: &str,
 ) -> Result<DoneReason, String> {
     if signal.is_some_and(CancellationToken::is_cancelled) {
         return Err("Request was aborted".to_owned());
-    }
-    if output.stop_reason == StopReason::Pending {
-        return Err(pending_message.to_owned());
     }
     if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {
         return Err(match &output.raw_stop_reason {
@@ -1347,8 +1343,7 @@ pub(crate) fn completed_reason(
         StopReason::Stop => Ok(DoneReason::Stop),
         StopReason::Length => Ok(DoneReason::Length),
         StopReason::ToolUse => Ok(DoneReason::ToolUse),
-        StopReason::Deferred => Ok(DoneReason::Deferred),
-        StopReason::Pending | StopReason::Error | StopReason::Aborted => Err("An unknown error occurred".to_owned()),
+        StopReason::Error | StopReason::Aborted => Err("An unknown error occurred".to_owned()),
     }
 }
 

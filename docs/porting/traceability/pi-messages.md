@@ -1,77 +1,9 @@
-# pi-messages.ts
+# pi-messages — removed at common pin
 
-Source: `packages/ai/src/api/pi-messages.ts` (pinned revision).
-Rust: `crates/pi-ai/src/api/pi_messages.rs`.
-Tests: `crates/pi-ai/tests/pi_messages.rs`,
-`crates/pi-ai/tests/differential_pi_messages.rs`.
+Frozen `4f9e6f8a4`: `packages/ai/src/api/pi-messages.ts` absent. Whole frozen package search for `piMessagesApi`, `streamPiMessages`, and `pi-messages` returns no matches; no moved/renamed equivalent. Frozen `types.ts` KnownApi and `compat.ts` builtin registry exclude it.
 
-## Exports
+Deleted Rust API, standalone and differential tests, oracle, public/root/compat exports and builtin registration. Removed module-specific lossless HTTP test, retaining shared lossless tests for frozen-backed APIs. Registered builtin APIs now number nine in source order: RED registry assertion → GREEN 10 compat tests. Public index tests adapted for removed exports/registry count, not weakened to permit drift.
 
-| TypeScript | Rust | Tests |
-| --- | --- | --- |
-| `PiMessagesOptions` (`reasoning`, `toolChoice`, `debug`) | `PiMessagesOptions`, `PiMessagesToolChoice`; `from_stream_options` parses `StreamOptions::extra` | request tests, differential scenarios 0/11/12 |
-| `PiMessagesRewriteImpact` | `PiMessagesRewriteImpact` | rewrite-diagnostic test, differential scenarios 2/3 |
-| `PiMessagesEvent` | `PiMessagesEvent` (tagged enum, `toolcall_*` wire tags) | all behavioral tests, differential |
-| `PiMessagesResponseError` | `PiMessagesResponseError` | backend-error test, differential scenarios 4/5 |
-| `stream` | `stream` + `PiMessagesApi::stream` (`ProviderStreams`) | behavioral tests, differential 13 scenarios |
-| `streamSimple` | `stream_simple` + `PiMessagesApi::stream_simple` | debug/onResponse test, differential scenario 11 |
-| `piMessagesApi` (lazy wrapper) | `pi_messages_api()` returning `LazyApi` | compile-time `ProviderStreams` use |
+No coding-agent consumer imports this API. Old-only Radius config still emits its API tag and will be removed in its own module deletion slice; it does not load/dispatch the removed implementation. No migration or fallback added. Deletion inventory: [removed sources](../removed-rust-sources.json).
 
-## Branches
-
-| Source branch | Rust | Tests |
-| --- | --- | --- |
-| missing/empty API key | `produce_stream` key check | `errors_when_no_api_key_is_provided` |
-| URL `<baseUrl>/messages` + `?debug=1` | `messages_url` | request assertions, differential scenario 8 |
-| payload `{model, context, options}` with undefined omission | `build_payload`, `build_payload_options` | request test, differential |
-| `resolveCacheRetention` (`option`, `PI_CACHE_RETENTION=long`) | `resolve_cache_retention` | differential scenarios 12/13 |
-| `onPayload` replacement | `on_payload` callback | differential scenario 9 |
-| header assembly + `providerHeadersToRecord` null filtering | `build_headers` | request test, differential scenario 12 |
-| `onResponse` | `on_response` callback | debug/onResponse test |
-| non-2xx response error (message, code, diagnostics) | `create_response_error` | backend-error test, differential scenarios 4/5 |
-| missing body | not representable: `HttpResponse::body` is mandatory | explicit gap |
-| SSE `\r\n` normalization, `\n\n` framing, `data:` line, `[DONE]` | `produce_stream` loop, `parse_event` | all behavioral tests, differential bytewise scenario |
-| incremental UTF-8 decoding | `Utf8StreamDecoder` | differential bytewise scenario |
-| terminal `done`/`error` handling | `EventConverter::convert` | text/tool test, server error test |
-| rewrite diagnostic append | `append_rewrite_diagnostic` | rewrite test, differential 2/3 |
-| response-failure diagnostic append | `create_error_event` | backend-error test |
-| no terminal event | `produce_stream` end check | end-without-terminal test, differential 6 |
-| abort signal | `cancelled` select + `create_error_event` | abort test |
-| text/thinking/tool-call conversion (start/delta/end, streaming JSON) | `EventConverter` methods | text/tool test, thinking differential scenario 1 |
-| content index assignment | `set_block` (ordered indices) | differential scenario 0 |
-
-## Differential normalizations
-
-- `timestamp`/`timestampMs` → `0` (clock-derived).
-- `stack` removed (environment-derived).
-- Object key order is preserved by the oracle and the Rust `canonical` pass; request
-  bodies are compared as the exact captured `JSON.stringify` text.
-- Event/message object key order is not asserted: TypeScript builds the message with
-  the object literal `{role, content, api, provider, model, usage, stopReason,
-  timestamp}` and then appends optional fields in code-path order. `AssistantMessage`
-  serializes the base fields in that literal order; the `done` and SSE `error` paths
-  match. `createErrorEvent` places `errorMessage` before `timestamp`, which a single
-  struct order cannot reproduce; that path's key order is a residual gap. The port's
-  protocol layer models producer-specific order explicitly.
-- JSON parser error text for malformed `data:` payloads is the V8 `SyntaxError` message from `pi_js_compat::js_json` and is compared byte-for-byte.
-- integral numbers canonicalized to integers.
-- extra fields the converter spreads into events but that are not part of
-  `AssistantMessageEvent` are stripped: `contentSignature`/`redacted` on
-  `text_end`/`thinking_end`, `id`/`toolName` on `toolcall_start`. The same values
-  remain on the partial message blocks.
-
-## Gaps / discrepancies
-
-- `HttpResponse` has no optional body, so the "response has no body" branch is
-  unrepresentable.
-- `HttpResponse` gained `status_text` for `Response.statusText`; the reqwest
-  default fetch uses the canonical reason phrase.
-- TypeScript assigns content blocks by array index, which can create sparse
-  arrays; Rust rejects an out-of-order start index instead of representing holes.
-- `Error.stack` is not representable.
-- `truncateDiagnosticString` counts UTF-16 code units in TypeScript; Rust counts
-  characters (8192) because lone surrogates cannot be represented.
-- `ToolCall.arguments` is a JSON object; non-object streaming JSON becomes `{}`.
-- The emitted `text_end`/`thinking_end`/`toolcall_start` events carry only the
-  declared `AssistantMessageEvent` fields; TypeScript's spread also carries the
-  backend event's extra fields (see normalizations).
+Proof/revision ledger: `/tmp/pi-rust-repin-delta-ai/ledger.md`, revision `76b33dd2` + deletion slice.
