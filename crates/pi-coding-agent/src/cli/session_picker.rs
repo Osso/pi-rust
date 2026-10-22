@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{TryRecvError, channel};
 use std::time::Duration;
 
-use pi_js_compat::JsString;
+use pi_js_compat::js_json::JsString;
 use pi_tui::terminal::Terminal;
 use pi_tui::tui::{Component, ComponentRef, Focusable, TuiExt};
 

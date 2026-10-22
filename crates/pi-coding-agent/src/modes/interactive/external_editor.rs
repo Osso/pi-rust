@@ -38,13 +38,18 @@ pub fn edit_in_external_editor(options: &ExternalEditorOptions) -> Result<Extern
             JsString::from(node_fs_error(
                 &error,
                 "mkdtemp",
-                &std::env::temp_dir().display().to_string(),
+                &JsString::from(std::env::temp_dir().display().to_string()),
             ))
         })?;
     set_private_directory_permissions(directory.path())?;
     let file_path = directory.path().join("prompt.md");
-    std::fs::write(&file_path, encode_node_utf8(&options.content))
-        .map_err(|error| JsString::from(node_fs_error(&error, "open", &file_path.display().to_string())))?;
+    std::fs::write(&file_path, encode_node_utf8(&options.content)).map_err(|error| {
+        JsString::from(node_fs_error(
+            &error,
+            "open",
+            &JsString::from(file_path.display().to_string()),
+        ))
+    })?;
     let _ = std::io::stdout().write_all(
         encode_node_utf8(&js_format!(
             "Launching external editor: {}\nPi will resume when the editor exits.\n",
@@ -61,8 +66,12 @@ pub fn edit_in_external_editor(options: &ExternalEditorOptions) -> Result<Extern
         return Ok(ExternalEditorResult::Failed);
     }
 
-    let content = std::fs::read(&file_path)
-        .map_err(|error| JsString::from(node_read_error(&error, &file_path.display().to_string())))?;
+    let content = std::fs::read(&file_path).map_err(|error| {
+        JsString::from(node_read_error(
+            &error,
+            &JsString::from(file_path.display().to_string()),
+        ))
+    })?;
     let content = String::from_utf8_lossy(&content);
     Ok(ExternalEditorResult::Complete {
         content: content.strip_suffix('\n').unwrap_or(&content).into(),
@@ -74,8 +83,13 @@ fn set_private_directory_permissions(path: &std::path::Path) -> Result<(), JsStr
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
-            .map_err(|error| JsString::from(node_fs_error(&error, "chmod", &path.display().to_string())))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).map_err(|error| {
+            JsString::from(node_fs_error(
+                &error,
+                "chmod",
+                &JsString::from(path.display().to_string()),
+            ))
+        })?;
     }
     #[cfg(not(unix))]
     let _ = path;

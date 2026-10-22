@@ -729,7 +729,7 @@ fn read_theme_file(path: &JsString) -> Result<JsString, ThemeError> {
     fs::read(&encoded_path)
         .map(|bytes| JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
         .map_err(|error| ThemeError::Io {
-            message: node_read_error(&error, &encoded_path).into(),
+            message: node_read_error(&error, path).into(),
         })
 }
 
@@ -815,11 +815,21 @@ fn get_custom_theme_infos() -> Result<Vec<ThemeInfo>, ThemeError> {
         return Ok(result);
     }
     let entries = fs::read_dir(&custom_themes_dir).map_err(|error| ThemeError::Io {
-        message: node_fs_error(&error, "scandir", &custom_themes_dir.display().to_string()).into(),
+        message: node_fs_error(
+            &error,
+            "scandir",
+            &JsString::from(custom_themes_dir.display().to_string()),
+        )
+        .into(),
     })?;
     for entry in entries {
         let entry = entry.map_err(|error| ThemeError::Io {
-            message: node_fs_error(&error, "scandir", &custom_themes_dir.display().to_string()).into(),
+            message: node_fs_error(
+                &error,
+                "scandir",
+                &JsString::from(custom_themes_dir.display().to_string()),
+            )
+            .into(),
         })?;
         let file = entry.file_name().to_string_lossy().into_owned();
         if !file.ends_with(".json") {
