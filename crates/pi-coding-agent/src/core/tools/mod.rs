@@ -42,6 +42,8 @@ pub struct ToolSystemPromptContribution {
 use std::sync::Arc;
 
 use pi_agent_core::agent::AgentTool;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 
 use crate::core::extensions::types::ToolDefinition;
 use crate::core::tools::tool_definition_wrapper::{ToolContextFactory, wrap_definition};
@@ -141,7 +143,7 @@ pub const ALL_TOOL_NAMES: [ToolName; 19] = ToolName::ALL;
 /// pattern shared by the coordination tool renderers.
 pub(crate) fn render_text_component(
     context: &crate::core::extensions::types::ToolRenderContext,
-    text: String,
+    text: JsString,
 ) -> pi_tui::tui::ComponentRef {
     if let Some(component) = &context.last_component
         && let Some(text_component) = component
@@ -156,7 +158,7 @@ pub(crate) fn render_text_component(
 }
 
 /// Join text content blocks with newlines, ignoring images.
-pub(crate) fn tool_result_text(result: &pi_agent_core::AgentToolResult) -> String {
+pub(crate) fn tool_result_text(result: &pi_agent_core::AgentToolResult) -> JsString {
     let text = pi_js_compat::js_json::JsString::join(
         result.content.iter().filter_map(|content| match content {
             pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
@@ -164,24 +166,24 @@ pub(crate) fn tool_result_text(result: &pi_agent_core::AgentToolResult) -> Strin
         }),
         "\n",
     );
-    pi_js_compat::js_json::encode_node_utf8(&text)
+    text
 }
 
 /// `\n${theme.fg(isError ? "error" : "toolOutput", output)}` or empty.
 pub(crate) fn render_tool_output(
     result: &pi_agent_core::AgentToolResult,
     theme: &crate::modes::interactive::theme::Theme,
-) -> String {
+) -> JsString {
     let output = tool_result_text(result);
     if output.is_empty() {
-        return String::new();
+        return JsString::default();
     }
     let color = if result.is_error == Some(true) {
         crate::modes::interactive::theme::ThemeColor::Error
     } else {
         crate::modes::interactive::theme::ThemeColor::ToolOutput
     };
-    format!("\n{}", theme.fg(color, &output))
+    js_format!("\n{}", theme.fg(color, &output))
 }
 
 /// Per-tool option overrides (`ToolsOptions` in `tools/index.ts`).
@@ -198,7 +200,7 @@ pub struct ToolsOptions {
 }
 
 /// `createAllToolDefinitions`: every built-in definition in source order.
-pub fn create_all_tool_definitions(cwd: &str, options: ToolsOptions) -> Vec<(ToolName, ToolDefinition)> {
+pub fn create_all_tool_definitions(cwd: &JsString, options: ToolsOptions) -> Vec<(ToolName, ToolDefinition)> {
     ToolName::ALL
         .into_iter()
         .map(|name| (name, create_tool_definition(name, cwd, options.clone())))
@@ -206,7 +208,7 @@ pub fn create_all_tool_definitions(cwd: &str, options: ToolsOptions) -> Vec<(Too
 }
 
 /// `createToolDefinition`: one built-in definition by name.
-pub fn create_tool_definition(name: ToolName, cwd: &str, options: ToolsOptions) -> ToolDefinition {
+pub fn create_tool_definition(name: ToolName, cwd: &JsString, options: ToolsOptions) -> ToolDefinition {
     match name {
         ToolName::Read => read::create_read_tool_definition(cwd, options.read.unwrap_or_default()),
         ToolName::Bash => bash::create_bash_tool_definition(cwd, options.bash.unwrap_or_default()),
@@ -239,7 +241,7 @@ pub fn create_tool_definition(name: ToolName, cwd: &str, options: ToolsOptions) 
 }
 
 /// `createCodingToolDefinitions`.
-pub fn create_coding_tool_definitions(cwd: &str, options: ToolsOptions) -> Vec<ToolDefinition> {
+pub fn create_coding_tool_definitions(cwd: &JsString, options: ToolsOptions) -> Vec<ToolDefinition> {
     [ToolName::Read, ToolName::Bash, ToolName::Edit, ToolName::Write]
         .into_iter()
         .map(|name| create_tool_definition(name, cwd, options.clone()))
@@ -247,7 +249,7 @@ pub fn create_coding_tool_definitions(cwd: &str, options: ToolsOptions) -> Vec<T
 }
 
 /// `createReadOnlyToolDefinitions`.
-pub fn create_read_only_tool_definitions(cwd: &str, options: ToolsOptions) -> Vec<ToolDefinition> {
+pub fn create_read_only_tool_definitions(cwd: &JsString, options: ToolsOptions) -> Vec<ToolDefinition> {
     [
         ToolName::Read,
         ToolName::Grep,
@@ -268,7 +270,7 @@ pub fn create_read_only_tool_definitions(cwd: &str, options: ToolsOptions) -> Ve
 /// `undefined` when no factory is supplied; the typed Rust API requires it.
 pub fn create_tool(
     name: ToolName,
-    cwd: &str,
+    cwd: &JsString,
     options: ToolsOptions,
     context_factory: &ToolContextFactory,
 ) -> Arc<dyn AgentTool> {
@@ -299,7 +301,7 @@ pub fn create_tool(
 
 /// `createCodingTools`.
 pub fn create_coding_tools(
-    cwd: &str,
+    cwd: &JsString,
     options: ToolsOptions,
     context_factory: &ToolContextFactory,
 ) -> Vec<Arc<dyn AgentTool>> {
@@ -311,7 +313,7 @@ pub fn create_coding_tools(
 
 /// `createReadOnlyTools`.
 pub fn create_read_only_tools(
-    cwd: &str,
+    cwd: &JsString,
     options: ToolsOptions,
     context_factory: &ToolContextFactory,
 ) -> Vec<Arc<dyn AgentTool>> {
@@ -331,7 +333,7 @@ pub fn create_read_only_tools(
 
 /// `createAllTools`: every built-in tool in source order.
 pub fn create_all_tools(
-    cwd: &str,
+    cwd: &JsString,
     options: ToolsOptions,
     context_factory: &ToolContextFactory,
 ) -> Vec<(ToolName, Arc<dyn AgentTool>)> {
