@@ -3,6 +3,18 @@ use std::sync::Arc;
 use pi_coding_agent::cli::session_picker::{SelectSessionOutcome, ValidateSelection};
 use pi_js_compat::js_json::JsString;
 
+fn initialize_theme() {
+    use pi_coding_agent::modes::interactive::theme::{
+        ColorMode, ColorValue, REQUIRED_COLORS, Theme, set_theme_instance,
+    };
+    let colors: Vec<_> = REQUIRED_COLORS
+        .iter()
+        .map(|name| (JsString::from(*name), ColorValue::Index(0)))
+        .collect();
+    let theme = Theme::new(&colors, &colors, ColorMode::Color256, None, None).unwrap();
+    set_theme_instance(Arc::new(theme));
+}
+
 #[test]
 fn picker_selection_and_validation_retain_unpaired_path_units() {
     let path = JsString::from_utf16(vec![0x2f, 0xd800, 0x2f, 0xdc00]);
@@ -31,6 +43,7 @@ fn search_tokens_and_regex_keep_unpaired_units() {
 
 #[test]
 fn session_selector_renders_raw_name_and_returns_original_path() {
+    initialize_theme();
     use pi_coding_agent::core::{keybindings::KeybindingsManager, session_manager::SessionInfo};
     use pi_coding_agent::modes::interactive::components::{
         session_selector::SessionList,
@@ -65,6 +78,7 @@ fn session_selector_renders_raw_name_and_returns_original_path() {
 
 #[test]
 fn tree_label_editor_keeps_units_through_input_and_render() {
+    initialize_theme();
     use pi_coding_agent::modes::interactive::components::tree_selector::LabelInput;
     use pi_tui::Component;
     let label = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
