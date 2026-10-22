@@ -347,6 +347,17 @@ impl rusqlite::ToSql for JsString {
     }
 }
 
+/// `node:sqlite` reads TEXT through V8's UTF-8 decoder, replacing invalid sequences with U+FFFD.
+#[cfg(feature = "rusqlite")]
+impl rusqlite::types::FromSql for JsString {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        match value {
+            rusqlite::types::ValueRef::Text(bytes) => Ok(JsString::from(String::from_utf8_lossy(bytes).as_ref())),
+            _ => Err(rusqlite::types::FromSqlError::InvalidType),
+        }
+    }
+}
+
 /// Insertion-ordered storage. Use `object_entries_lossless` for JavaScript enumeration order.
 pub type JsObject = IndexMap<JsString, JsValue>;
 
@@ -1177,5 +1188,16 @@ mod sqlite_tests {
         let text = JsString::from_utf16(vec![0x61, 0xd800, 0xd83d, 0xde00]);
         let stored: String = db.query_row("SELECT ?", [&text], |row| row.get(0)).expect("bound text");
         assert_eq!(stored, "a\u{fffd}\u{1f600}");
+    }
+
+    #[test]
+    fn reads_text_like_node_sqlite() {
+        let db = rusqlite::Connection::open_in_memory().expect("database");
+        let read: JsString = db
+            .query_row("SELECT CAST(x'61ff62' AS TEXT)", [], |row| row.get(0))
+            .expect("read text");
+        assert_eq!(read, "a\u{fffd}b");
+        let integer = db.query_row("SELECT 1", [], |row| row.get::<_, JsString>(0));
+        assert!(matches!(integer, Err(rusqlite::Error::InvalidColumnType(..))));
     }
 }
