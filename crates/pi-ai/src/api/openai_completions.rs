@@ -1100,7 +1100,6 @@ pub fn build_params(
         }
     } else if compat.thinking_format == ThinkingFormat::Qwen && model.reasoning {
         params.insert("enable_thinking".into(), JsValue::Bool(effort.is_some()));
-        insert_nullish_reasoning_effort(&mut params, model, effort, compat.supports_reasoning_effort);
     } else if compat.thinking_format == ThinkingFormat::QwenChatTemplate && model.reasoning {
         params.insert(
             "chat_template_kwargs".into(),
