@@ -8,33 +8,32 @@ use pi_coding_agent::core::tools::bash::{
     BashDetachOptions, BashDetachedResult, BashExecOptions, BashExecResult, BashOperations, BashTool, BashToolOptions,
     DetachedJobArtifacts, create_local_bash_operations,
 };
-use serde_json::json;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use tokio_util::sync::CancellationToken;
 
-fn execute(tool: &BashTool, params: serde_json::Value) -> Result<AgentToolResult, String> {
+fn execute(tool: &BashTool, params: JsValue) -> Result<AgentToolResult, JsString> {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     runtime
-        .block_on(tool.execute("call".to_owned(), params, None, Arc::new(|_result| {}), None))
+        .block_on(tool.execute("call".to_owned(), json!(params), None, Arc::new(|_result| {}), None))
         .map_err(|error| error.message)
 }
 
-fn text(result: &AgentToolResult) -> String {
-    result
-        .content
-        .iter()
-        .filter_map(|entry| match entry {
+fn text(result: &AgentToolResult) -> JsString {
+    JsString::join(
+        result.content.iter().filter_map(|entry| match entry {
             TextOrImageContent::Text(text) => Some(text.text.clone()),
             TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }),
+        "\n",
+    )
 }
 
 #[test]
 fn executes_simple_commands() {
     let temp = tempfile::tempdir().expect("temp dir");
     let result = execute(
-        &BashTool::new(temp.path().to_string_lossy()),
+        &BashTool::new(temp.path().to_str().expect("utf-8 test path")),
         json!({"command": "echo 'test output'"}),
     )
     .expect("bash result");
@@ -46,28 +45,28 @@ fn executes_simple_commands() {
 fn reports_non_zero_exit_codes() {
     let temp = tempfile::tempdir().expect("temp dir");
     let error = execute(
-        &BashTool::new(temp.path().to_string_lossy()),
+        &BashTool::new(temp.path().to_str().expect("utf-8 test path")),
         json!({"command": "exit 1"}),
     )
     .expect_err("exit 1");
-    assert!(error.contains("Command exited with code 1"), "{error}");
+    assert!(error.contains("Command exited with code 1"), "{error:?}");
 }
 
 #[test]
 fn respects_the_timeout() {
     let temp = tempfile::tempdir().expect("temp dir");
     let error = execute(
-        &BashTool::new(temp.path().to_string_lossy()),
+        &BashTool::new(temp.path().to_str().expect("utf-8 test path")),
         json!({"command": "sleep 5", "timeout": 1}),
     )
     .expect_err("timeout");
-    assert!(error.contains("Command timed out after 1 seconds"), "{error}");
+    assert!(error.contains("Command timed out after 1 seconds"), "{error:?}");
 }
 
 #[test]
 fn rejects_invalid_timeouts() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let tool = BashTool::new(temp.path().to_string_lossy());
+    let tool = BashTool::new(temp.path().to_str().expect("utf-8 test path"));
     let error = execute(&tool, json!({"command": "true", "timeout": 0})).expect_err("zero timeout");
     assert_eq!(error, "Invalid timeout: must be a finite number of seconds");
     let error = execute(&tool, json!({"command": "true", "timeout": 2_147_484})).expect_err("large timeout");
@@ -78,30 +77,30 @@ fn rejects_invalid_timeouts() {
 fn reports_missing_working_directories() {
     let missing = "/this/directory/definitely/does/not/exist/12345";
     let error = execute(&BashTool::new(missing), json!({"command": "echo test"})).expect_err("missing cwd");
-    assert!(error.contains("Working directory does not exist"), "{error}");
+    assert!(error.contains("Working directory does not exist"), "{error:?}");
 }
 
 #[test]
 fn reports_shell_spawn_failures_and_custom_shell_errors() {
     let temp = tempfile::tempdir().expect("temp dir");
     let tool = BashTool::with_options(
-        temp.path().to_string_lossy(),
+        temp.path().to_str().expect("utf-8 test path"),
         BashToolOptions {
-            shell_path: Some("/nonexistent-shell-path-xyz123".to_owned()),
+            shell_path: Some("/nonexistent-shell-path-xyz123".to_owned().into()),
             ..Default::default()
         },
     );
     let error = execute(&tool, json!({"command": "echo test"})).expect_err("bad shell");
-    assert!(error.contains("Custom shell path not found"), "{error}");
+    assert!(error.contains("Custom shell path not found"), "{error:?}");
 }
 
 #[test]
 fn prepends_the_command_prefix() {
     let temp = tempfile::tempdir().expect("temp dir");
     let tool = BashTool::with_options(
-        temp.path().to_string_lossy(),
+        temp.path().to_str().expect("utf-8 test path"),
         BashToolOptions {
-            command_prefix: Some("export TEST_VAR=hello".to_owned()),
+            command_prefix: Some("export TEST_VAR=hello".to_owned().into()),
             ..Default::default()
         },
     );
@@ -115,12 +114,14 @@ fn local_operations_stream_output_and_inherit_the_environment() {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let chunks = Arc::new(std::sync::Mutex::new(Vec::new()));
     let captured = Arc::clone(&chunks);
-    let mut env = std::env::vars().collect::<BTreeMap<_, _>>();
-    env.insert("TEST_LOCAL_BASH_OPS".to_owned(), "from-local-ops".to_owned());
+    let mut env = std::env::vars()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect::<BTreeMap<_, _>>();
+    env.insert(JsString::from("TEST_LOCAL_BASH_OPS"), JsString::from("from-local-ops"));
     let result = runtime
         .block_on(create_local_bash_operations(None).exec(
-            "echo $TEST_LOCAL_BASH_OPS",
-            &temp.path().to_string_lossy(),
+            &JsString::from("echo $TEST_LOCAL_BASH_OPS"),
+            &JsString::from(temp.path().to_str().expect("utf-8 test path")),
             BashExecOptions {
                 on_data: Arc::new(move |data| captured.lock().expect("chunks").extend_from_slice(data)),
                 signal: None,
@@ -144,8 +145,8 @@ struct ScriptedOperations {
 impl BashOperations for ScriptedOperations {
     fn exec<'a>(
         &'a self,
-        _command: &'a str,
-        _cwd: &'a str,
+        _command: &'a JsString,
+        _cwd: &'a JsString,
         options: BashExecOptions,
     ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
         Box::pin(async move {
@@ -174,7 +175,7 @@ fn timeout_and_abort_errors_include_the_full_output_path() {
     ] {
         let temp = tempfile::tempdir().expect("temp dir");
         let tool = BashTool::with_options(
-            temp.path().to_string_lossy(),
+            temp.path().to_str().expect("utf-8 test path"),
             BashToolOptions {
                 operations: Some(Arc::new(ScriptedOperations {
                     lines: 3000,
@@ -185,15 +186,16 @@ fn timeout_and_abort_errors_include_the_full_output_path() {
             },
         );
         let error = execute(&tool, json!({"command": "chatty-fail"})).expect_err("scripted failure");
-        assert!(error.contains(expected), "{error}");
-        assert!(error.contains("[Showing lines "), "{error}");
-        assert!(error.contains("Full output: "), "{error}");
+        assert!(error.contains(expected), "{error:?}");
+        assert!(error.contains("[Showing lines "), "{error:?}");
+        assert!(error.contains("Full output: "), "{error:?}");
+        let path_start = error.find("Full output: ").expect("full output marker") + "Full output: ".len();
         let path = error
-            .split("Full output: ")
-            .nth(1)
-            .and_then(|rest| rest.split(']').next())
+            .slice(path_start, error.len())
+            .split(']')
+            .next()
             .expect("full output path");
-        let full_output = std::fs::read_to_string(path).expect("full output file");
+        let full_output = std::fs::read_to_string(encode_node_utf8(&path)).expect("full output file");
         assert!(full_output.contains("1\n2\n3"));
         assert!(full_output.contains("2998\n2999\n3000"));
     }
@@ -203,7 +205,7 @@ fn timeout_and_abort_errors_include_the_full_output_path() {
 fn trailing_newline_does_not_add_a_truncated_line() {
     let temp = tempfile::tempdir().expect("temp dir");
     let tool = BashTool::with_options(
-        temp.path().to_string_lossy(),
+        temp.path().to_str().expect("utf-8 test path"),
         BashToolOptions {
             operations: Some(Arc::new(ScriptedOperations {
                 lines: 4000,
@@ -218,10 +220,10 @@ fn trailing_newline_does_not_add_a_truncated_line() {
     assert_eq!(details["truncation"]["totalLines"], json!(4000));
     assert_eq!(details["truncation"]["outputLines"], json!(2000));
     let output = text(&result);
-    assert!(output.starts_with("2001\n"), "{output}");
+    assert!(output.starts_with("2001\n"), "{output:?}");
     assert!(
         output.contains("[Showing lines 2001-4000 of 4000. Full output: "),
-        "{output}"
+        "{output:?}"
     );
 }
 
@@ -230,7 +232,7 @@ fn decodes_utf8_characters_split_across_chunks() {
     let temp = tempfile::tempdir().expect("temp dir");
     let euro = "€\n".as_bytes().to_vec();
     let tool = BashTool::with_options(
-        temp.path().to_string_lossy(),
+        temp.path().to_str().expect("utf-8 test path"),
         BashToolOptions {
             operations: Some(Arc::new(SplitBytes { bytes: euro })),
             ..Default::default()
@@ -247,8 +249,8 @@ struct SplitBytes {
 impl BashOperations for SplitBytes {
     fn exec<'a>(
         &'a self,
-        _command: &'a str,
-        _cwd: &'a str,
+        _command: &'a JsString,
+        _cwd: &'a JsString,
         options: BashExecOptions,
     ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
         Box::pin(async move {
@@ -268,8 +270,8 @@ fn coalesces_streaming_updates() {
     impl BashOperations for Chatty {
         fn exec<'a>(
             &'a self,
-            _command: &'a str,
-            _cwd: &'a str,
+            _command: &'a JsString,
+            _cwd: &'a JsString,
             options: BashExecOptions,
         ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
             Box::pin(async move {
@@ -285,7 +287,7 @@ fn coalesces_streaming_updates() {
     }
     let temp = tempfile::tempdir().expect("temp dir");
     let tool = BashTool::with_options(
-        temp.path().to_string_lossy(),
+        temp.path().to_str().expect("utf-8 test path"),
         BashToolOptions {
             operations: Some(Arc::new(Chatty)),
             ..Default::default()
@@ -297,7 +299,7 @@ fn coalesces_streaming_updates() {
     let result = runtime
         .block_on(tool.execute(
             "call".to_owned(),
-            json!({"command": "chatty"}),
+            json!(json!({"command": "chatty"})),
             None,
             Arc::new(move |_result| {
                 counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -316,9 +318,9 @@ fn abort_signal_reports_command_aborted() {
     token.cancel();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let error = runtime
-        .block_on(BashTool::new(temp.path().to_string_lossy()).execute(
+        .block_on(BashTool::new(temp.path().to_str().expect("utf-8 test path")).execute(
             "call".to_owned(),
-            json!({"command": "echo hi"}),
+            json!(json!({"command": "echo hi"})),
             Some(token),
             Arc::new(|_result| {}),
             None,
@@ -333,8 +335,8 @@ fn detached_output_keeps_the_truncation_footer() {
     impl BashOperations for Detaching {
         fn exec<'a>(
             &'a self,
-            _command: &'a str,
-            _cwd: &'a str,
+            _command: &'a JsString,
+            _cwd: &'a JsString,
             options: BashExecOptions,
         ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
             Box::pin(async move {
@@ -343,8 +345,8 @@ fn detached_output_keeps_the_truncation_footer() {
                 Ok(BashExecResult {
                     exit_code: None,
                     detached: Some(BashDetachedResult {
-                        job_id: "background".to_owned(),
-                        message: "Background job started".to_owned(),
+                        job_id: "background".to_owned().into(),
+                        message: "Background job started".to_owned().into(),
                         log_path: None,
                     }),
                 })
@@ -353,7 +355,7 @@ fn detached_output_keeps_the_truncation_footer() {
     }
     let temp = tempfile::tempdir().expect("temp dir");
     let tool = BashTool::with_options(
-        temp.path().to_string_lossy(),
+        temp.path().to_str().expect("utf-8 test path"),
         BashToolOptions {
             operations: Some(Arc::new(Detaching)),
             ..Default::default()
@@ -363,11 +365,11 @@ fn detached_output_keeps_the_truncation_footer() {
     let output = text(&result);
     assert!(
         output.contains("[Showing lines 1477-2500 of 2500 (10.0KB limit). Full output: "),
-        "{output}"
+        "{output:?}"
     );
     assert!(
         output.contains("Command moved to background as job background. Background job started"),
-        "{output}"
+        "{output:?}"
     );
     assert_eq!(result.details.expect("details")["backgroundJobId"], json!("background"));
 }
@@ -378,14 +380,19 @@ fn local_operations_remove_artifacts_when_not_detached() {
     let directory = temp.path().join("job");
     std::fs::create_dir_all(&directory).expect("artifact directory");
     let artifacts = DetachedJobArtifacts {
-        directory: directory.to_string_lossy().into_owned(),
-        output_path: directory.join("output.log").to_string_lossy().into_owned(),
+        directory: directory.to_str().expect("utf-8 test path").to_owned().into(),
+        output_path: directory
+            .join("output.log")
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned()
+            .into(),
     };
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let result = runtime
         .block_on(create_local_bash_operations(None).exec(
-            "true",
-            &temp.path().to_string_lossy(),
+            &JsString::from("true"),
+            &JsString::from(temp.path().to_str().expect("utf-8 test path")),
             BashExecOptions {
                 on_data: Arc::new(|_| {}),
                 signal: None,
@@ -410,16 +417,21 @@ fn local_operations_detach_uses_the_default_result() {
     let directory = temp.path().join("job");
     std::fs::create_dir_all(&directory).expect("artifact directory");
     let artifacts = DetachedJobArtifacts {
-        directory: directory.to_string_lossy().into_owned(),
-        output_path: directory.join("output.log").to_string_lossy().into_owned(),
+        directory: directory.to_str().expect("utf-8 test path").to_owned().into(),
+        output_path: directory
+            .join("output.log")
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned()
+            .into(),
     };
     let detach_signal = CancellationToken::new();
     detach_signal.cancel();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let result = runtime
         .block_on(create_local_bash_operations(None).exec(
-            "sleep 0.2",
-            &temp.path().to_string_lossy(),
+            &JsString::from("sleep 0.2"),
+            &JsString::from(temp.path().to_str().expect("utf-8 test path")),
             BashExecOptions {
                 on_data: Arc::new(|_| {}),
                 signal: None,
@@ -445,8 +457,13 @@ fn detach_keeps_the_timeout_active() {
     let directory = temp.path().join("job");
     std::fs::create_dir_all(&directory).expect("artifact directory");
     let artifacts = DetachedJobArtifacts {
-        directory: directory.to_string_lossy().into_owned(),
-        output_path: directory.join("output.log").to_string_lossy().into_owned(),
+        directory: directory.to_str().expect("utf-8 test path").to_owned().into(),
+        output_path: directory
+            .join("output.log")
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned()
+            .into(),
     };
     let marker = temp.path().join("alive.txt");
     let detach_signal = CancellationToken::new();
@@ -454,8 +471,8 @@ fn detach_keeps_the_timeout_active() {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let result = runtime
         .block_on(create_local_bash_operations(None).exec(
-            &format!("sleep 0.5; echo alive > {}", marker.to_string_lossy()),
-            &temp.path().to_string_lossy(),
+            &pi_js_compat::js_format!("sleep 0.5; echo alive > {}", marker.to_str().expect("utf-8 test path")),
+            &JsString::from(temp.path().to_str().expect("utf-8 test path")),
             BashExecOptions {
                 on_data: Arc::new(|_| {}),
                 signal: None,
@@ -482,8 +499,8 @@ fn finishes_without_an_extra_update() {
     impl BashOperations for OneChunk {
         fn exec<'a>(
             &'a self,
-            _command: &'a str,
-            _cwd: &'a str,
+            _command: &'a JsString,
+            _cwd: &'a JsString,
             options: BashExecOptions,
         ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
             Box::pin(async move {
@@ -497,7 +514,7 @@ fn finishes_without_an_extra_update() {
     }
     let temp = tempfile::tempdir().expect("temp dir");
     let tool = BashTool::with_options(
-        temp.path().to_string_lossy(),
+        temp.path().to_str().expect("utf-8 test path"),
         BashToolOptions {
             operations: Some(Arc::new(OneChunk)),
             ..Default::default()
@@ -509,7 +526,7 @@ fn finishes_without_an_extra_update() {
     runtime
         .block_on(tool.execute(
             "call".to_owned(),
-            json!({"command": "one-chunk"}),
+            json!(json!({"command": "one-chunk"})),
             None,
             Arc::new(move |result| {
                 captured.lock().expect("updates lock").push(result);
@@ -530,8 +547,8 @@ fn does_not_emit_updates_after_completion() {
     impl BashOperations for TwoChunks {
         fn exec<'a>(
             &'a self,
-            _command: &'a str,
-            _cwd: &'a str,
+            _command: &'a JsString,
+            _cwd: &'a JsString,
             options: BashExecOptions,
         ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
             Box::pin(async move {
@@ -546,7 +563,7 @@ fn does_not_emit_updates_after_completion() {
     }
     let temp = tempfile::tempdir().expect("temp dir");
     let tool = BashTool::with_options(
-        temp.path().to_string_lossy(),
+        temp.path().to_str().expect("utf-8 test path"),
         BashToolOptions {
             operations: Some(Arc::new(TwoChunks)),
             ..Default::default()
@@ -558,7 +575,7 @@ fn does_not_emit_updates_after_completion() {
     runtime
         .block_on(tool.execute(
             "call".to_owned(),
-            json!({"command": "two-chunks"}),
+            json!(json!({"command": "two-chunks"})),
             None,
             Arc::new(move |_result| {
                 counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);

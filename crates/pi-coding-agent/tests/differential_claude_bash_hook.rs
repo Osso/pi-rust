@@ -5,6 +5,7 @@ mod executable_script;
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::path::PathBuf;
 
 use oracle::TsOracle;
@@ -12,7 +13,8 @@ use pi_coding_agent::bundled_extensions::claude_bash_hook::{
     ClaudeBashHookOptions, ClaudeBashHookReviewResult, review_tool_with_claude_bash_hook,
 };
 use pi_coding_agent::core::extensions::types::{ToolCallEvent, ToolName};
-use serde_json::{Value, json};
+use pi_js_compat::js_json::JsValue as Value;
+use pi_js_compat::{js_json, js_json as json};
 
 const SOURCE: &str = "packages/coding-agent/extensions/claude-bash-hook/src/index.ts";
 
@@ -28,9 +30,12 @@ fn result_value(result: ClaudeBashHookReviewResult) -> Value {
     }
 }
 
-fn write_script(dir: &std::path::Path, name: &str, output: &str) -> PathBuf {
+fn write_script(dir: &std::path::Path, name: &str, output: &JsString) -> PathBuf {
     let path = dir.join(name);
-    executable_script::write_executable_script(&path, &format!("#!/bin/sh\nprintf '%s' '{output}'\n"));
+    executable_script::write_executable_script(
+        &path,
+        &encode_node_utf8(&pi_js_compat::js_format!("#!/bin/sh\nprintf '%s' '{}'\n", output)),
+    );
     path
 }
 
@@ -52,8 +57,8 @@ async fn differential_claude_bash_hook() {
 
     let mut ts = TsOracle::spawn("claude-bash-hook-oracle.ts", SOURCE);
     let response = ts.request(&json!({"id": 1, "operation": "cases", "cases": cases}));
-    assert_eq!(response["ok"], true, "oracle failed: {response}");
-    let expected: Vec<Value> = serde_json::from_value(response["output"]["results"].clone()).expect("oracle results");
+    assert_eq!(response["ok"], json!(true), "oracle failed: {response:?}");
+    let expected: Vec<Value> = js_json::from_value(&response["output"]["results"].clone()).expect("oracle results");
 
     let dir = tempfile::tempdir().expect("temp dir");
     let mut actual = Vec::new();
@@ -61,19 +66,25 @@ async fn differential_claude_bash_hook() {
         let script = write_script(
             dir.path(),
             &format!("hook-{index}.sh"),
-            case.get("output").and_then(Value::as_str).unwrap_or_default(),
+            case.get("output").and_then(Value::as_string).expect("fixture output"),
         );
         let event = ToolCallEvent {
-            tool_name: ToolName::parse(case["toolName"].as_str().expect("tool name")),
+            tool_name: ToolName::parse(
+                &case["toolName"]
+                    .as_string()
+                    .expect("tool name")
+                    .to_utf8()
+                    .expect("scalar fixture tool name"),
+            ),
             tool_call_id: "test-call".to_owned(),
             bypass_permissions: false,
             input: case["input"].as_object().cloned().expect("input object"),
         };
         let result = review_tool_with_claude_bash_hook(
             &event,
-            "/repo",
+            &JsString::from("/repo"),
             &ClaudeBashHookOptions {
-                command: Some(script.display().to_string()),
+                command: Some(script.to_str().expect("utf-8 test path").to_owned()),
                 timeout_ms: None,
             },
         )

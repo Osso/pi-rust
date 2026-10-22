@@ -14,7 +14,8 @@ use pi_coding_agent::bundled_extensions::claude_bash_hook::{
 };
 use pi_coding_agent::core::extensions::types::{ApprovalReviewerResult, ToolCallEvent, ToolName};
 use pi_coding_agent::core::extensions::{Extension, create_extension_runtime};
-use serde_json::{Value, json};
+use pi_js_compat::js_json::{JsString, JsValue as Value};
+use pi_js_compat::{js_json, js_json as json};
 
 struct TestDir {
     dir: tempfile::TempDir,
@@ -57,7 +58,7 @@ fn event(tool_name: &str, input: Value) -> ToolCallEvent {
 
 fn options(command: &Path) -> ClaudeBashHookOptions {
     ClaudeBashHookOptions {
-        command: Some(command.display().to_string()),
+        command: Some(command.to_str().expect("utf-8 test path").to_owned()),
         timeout_ms: None,
     }
 }
@@ -74,7 +75,7 @@ async fn reviews_pyrun_eval_with_the_hook() {
 
     let result = review_tool_with_claude_bash_hook(
         &event("pyrun_eval", json!({"code": "print(1 + 1)"})),
-        "/repo",
+        &JsString::from("/repo"),
         &options(&script),
     )
     .await
@@ -82,7 +83,7 @@ async fn reviews_pyrun_eval_with_the_hook() {
 
     assert_eq!(result, ClaudeBashHookReviewResult::Allow { updated_input: None });
     let payload: Value =
-        serde_json::from_str(&std::fs::read_to_string(capture).expect("captured input")).expect("json");
+        js_json::parse_lossless(&std::fs::read_to_string(capture).expect("captured input")).expect("json");
     assert_eq!(
         payload,
         json!({
@@ -106,10 +107,13 @@ async fn maps_updated_input_and_bash_tool_names() {
         Some(&capture),
     );
 
-    let result =
-        review_tool_with_claude_bash_hook(&event("bash", json!({"command": "ls"})), "/repo", &options(&script))
-            .await
-            .expect("review");
+    let result = review_tool_with_claude_bash_hook(
+        &event("bash", json!({"command": "ls"})),
+        &JsString::from("/repo"),
+        &options(&script),
+    )
+    .await
+    .expect("review");
 
     let ClaudeBashHookReviewResult::Allow {
         updated_input: Some(updated_input),
@@ -117,11 +121,14 @@ async fn maps_updated_input_and_bash_tool_names() {
     else {
         panic!("expected allow with updated input");
     };
-    assert_eq!(updated_input.get("command").and_then(Value::as_str), Some("ls -la"));
+    assert_eq!(
+        updated_input.get("command").and_then(Value::as_string),
+        Some(&JsString::from("ls -la"))
+    );
     let payload: Value =
-        serde_json::from_str(&std::fs::read_to_string(capture).expect("captured input")).expect("json");
-    assert_eq!(payload["tool_name"], "Bash");
-    assert_eq!(payload["tool_input"]["cwd"], "/repo");
+        js_json::parse_lossless(&std::fs::read_to_string(capture).expect("captured input")).expect("json");
+    assert_eq!(payload["tool_name"], json!("Bash"));
+    assert_eq!(payload["tool_input"]["cwd"], json!("/repo"));
 }
 
 #[tokio::test]
@@ -132,21 +139,21 @@ async fn maps_deny_block_and_ask_decisions() {
             "deny.sh",
             r#"{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"nope"}}"#,
             ClaudeBashHookReviewResult::Deny {
-                reason: "nope".to_owned(),
+                reason: "nope".to_owned().into(),
             },
         ),
         (
             "block.sh",
             r#"{"hookSpecificOutput":{"permissionDecision":"block"}}"#,
             ClaudeBashHookReviewResult::Deny {
-                reason: "Blocked by claude-bash-hook".to_owned(),
+                reason: "Blocked by claude-bash-hook".to_owned().into(),
             },
         ),
         (
             "ask.sh",
             r#"{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"confirm?"}}"#,
             ClaudeBashHookReviewResult::Ask {
-                reason: "confirm?".to_owned(),
+                reason: "confirm?".to_owned().into(),
             },
         ),
         (
@@ -156,10 +163,13 @@ async fn maps_deny_block_and_ask_decisions() {
         ),
     ] {
         let script = dir.script(name, output);
-        let result =
-            review_tool_with_claude_bash_hook(&event("bash", json!({"command": "ls"})), "/repo", &options(&script))
-                .await
-                .expect("review");
+        let result = review_tool_with_claude_bash_hook(
+            &event("bash", json!({"command": "ls"})),
+            &JsString::from("/repo"),
+            &options(&script),
+        )
+        .await
+        .expect("review");
         assert_eq!(result, expected);
     }
 }
@@ -174,10 +184,13 @@ async fn ignores_malformed_or_missing_hook_output() {
         ("no-specific.sh", r#"{"other":true}"#),
     ] {
         let script = dir.script(name, output);
-        let result =
-            review_tool_with_claude_bash_hook(&event("bash", json!({"command": "ls"})), "/repo", &options(&script))
-                .await
-                .expect("review");
+        let result = review_tool_with_claude_bash_hook(
+            &event("bash", json!({"command": "ls"})),
+            &JsString::from("/repo"),
+            &options(&script),
+        )
+        .await
+        .expect("review");
         assert_eq!(result, ClaudeBashHookReviewResult::Unavailable);
     }
 }
@@ -199,9 +212,10 @@ async fn skips_unreviewable_tools_and_inputs() {
         ("pyrun_eval", json!({})),
         ("pyrun_eval", json!({"code": ""})),
     ] {
-        let result = review_tool_with_claude_bash_hook(&event(tool_name, input), "/repo", &options(&script))
-            .await
-            .expect("review");
+        let result =
+            review_tool_with_claude_bash_hook(&event(tool_name, input), &JsString::from("/repo"), &options(&script))
+                .await
+                .expect("review");
         assert_eq!(result, ClaudeBashHookReviewResult::Unavailable);
     }
     assert!(!capture.exists(), "hook must not run for unreviewable calls");
@@ -213,9 +227,13 @@ async fn missing_hook_binary_is_unavailable() {
         command: Some("/definitely/not/a/hook".to_owned()),
         timeout_ms: None,
     };
-    let result = review_tool_with_claude_bash_hook(&event("bash", json!({"command": "ls"})), "/repo", &options)
-        .await
-        .expect("review");
+    let result = review_tool_with_claude_bash_hook(
+        &event("bash", json!({"command": "ls"})),
+        &JsString::from("/repo"),
+        &options,
+    )
+    .await
+    .expect("review");
     assert_eq!(result, ClaudeBashHookReviewResult::Unavailable);
 }
 
@@ -255,7 +273,7 @@ async fn registers_an_approval_reviewer() {
     assert_eq!(
         result,
         Some(ApprovalReviewerResult::Deny {
-            reason: "blocked".to_owned()
+            reason: "blocked".to_owned().into()
         })
     );
 }

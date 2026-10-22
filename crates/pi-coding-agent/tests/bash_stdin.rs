@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -19,20 +20,24 @@ fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let chunks = Arc::new(std::sync::Mutex::new(Vec::new()));
     let captured = Arc::clone(&chunks);
-    let operations = create_local_bash_operations(Some(shell_relative));
+    let operations = create_local_bash_operations(Some(&JsString::from(shell_relative)));
     let command = "name='World'; echo \"Hello, ${name}!\"";
     let result = runtime
-        .block_on(operations.exec(
-            command,
-            &temp.path().to_string_lossy(),
-            BashExecOptions {
-                on_data: Arc::new(move |data| captured.lock().expect("chunks").extend_from_slice(data)),
-                signal: None,
-                timeout: None,
-                env: std::env::vars().collect::<BTreeMap<_, _>>(),
-                detach: None,
-            },
-        ))
+        .block_on(
+            operations.exec(
+                &JsString::from(command),
+                &JsString::from(temp.path().to_str().expect("utf-8 test path")),
+                BashExecOptions {
+                    on_data: Arc::new(move |data| captured.lock().expect("chunks").extend_from_slice(data)),
+                    signal: None,
+                    timeout: None,
+                    env: std::env::vars()
+                        .map(|(key, value)| (key.into(), value.into()))
+                        .collect::<BTreeMap<_, _>>(),
+                    detach: None,
+                },
+            ),
+        )
         .expect("stdin shell");
     std::env::set_current_dir(original_cwd).expect("restore cwd");
     assert_eq!(result.exit_code, Some(0));
