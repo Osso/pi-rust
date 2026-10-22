@@ -41,7 +41,7 @@ pub struct Calls {
         UserMessageContent,
         Option<pi_coding_agent::core::extensions::types::SendUserMessageOptions>,
     )>,
-    pub append_entry: Vec<(JsJsString, Option<Value>)>,
+    pub append_entry: Vec<(JsString, Option<Value>)>,
     pub restart: Vec<Option<pi_coding_agent::core::extensions::types::RestartOptions>>,
     pub sandbox_profile: Vec<(
         Option<pi_coding_agent::core::permissions::presets::SandboxProfileName>,
