@@ -11,15 +11,30 @@ Contract: [lossless content](../../specs/lossless-content.md). Frozen source: `4
 | Explicit provider sanitation | frozen per-call-site drop behavior | broad provider regressions pending | pinned `sanitize-unicode.ts` compared against Rust on the same message units |
 | Node UTF-8 stream/path/process boundary | shared `encode_node_utf8` | consumer migration pending | distinct high/low-unit replacement test; original authority unchanged |
 | Agent loop / core custom messages and summaries | lossless execution/hook arguments, result/details, custom AST and summary strings | coding-agent consumers and persisted JSONL integration pending | `lossless_agent`: two sandbox cases, including pinned TS JSON reread |
-| Questions / mailbox / session name | downstream migration pending | no end-to-end claim | not yet proven |
+| Questions / mailbox / session name | raw contracts and consumers integrated; see checkpoints below | compilation and runtime acceptance pending | compiler-blocked; no end-to-end PASS |
+| Provider ingress | [SSE and Codex WebSocket](lossless-provider-ingress.md) merged at `5909f149` | human errors, scalar metadata and non-stream images remain gaps | six sandbox tests PASS at lane executable revision; not parent integration acceptance |
+
+## Custom glob input checkpoint
+
+`FindOperations::glob` receives `&JsString`; the tool and sandbox payload no longer encode pattern units before matching. `custom_find_operation_receives_original_pattern_units` covers the actual custom-operation callback. `find-pattern-red.jsonl` remains compiler-blocked, not a behavioral RED or PASS. Matcher runtime proof is a separate dependency.
 
 ## Custom IO error checkpoint
 
-Sandbox operation traits retain raw `HandlerError` inside `io::Error`; filesystem tools extract that original message rather than using its terminal Display conversion. Edit/ls prefixes concatenate native units. `custom_write_operation_error_keeps_raw_units` exercises the actual tool/operation boundary; `raw-io-red.jsonl` is compiler-blocked, not a behavioral RED or PASS. Shared native OS error formatting remains unchanged.
+Main commits `a380bc0a`, `48d9bbe7`, `7830910b`, `5c22e53e` integrate raw `HandlerError` recovery across read/write/edit/find/ls, native `JsString` SessionManagerError, and coordinated callbacks/steering. Sandbox operation traits retain the original error inside `io::Error`; tools recover its raw message instead of Display-encoding it. Edit/ls prefixes concatenate native units. `custom_write_operation_error_keeps_raw_units` targets the actual operation boundary; `raw-io-red.jsonl` is compiler-blocked, not behavioral RED or PASS. Shared native OS error formatting remains unchanged.
 
 ## Session callback integration checkpoint
 
-Session-info extension events and notification callbacks use `JsString`; interactive notification queues and RPC payloads preserve it until actual terminal output. Detached completion errors retain the same raw authority as their agent snapshot. New `lossless_session` regressions cover raw names and callback units, but remain compiler-blocked; `parent-integration-red.log` records 423 errors before bundled integration. No runtime PASS claimed.
+The main commits above preserve `SessionInfoChangedEvent.name` and `ExtensionUiContext.notify` as `JsString` through RPC payloads and the interactive notification queue. Detached completion errors retain their snapshot's raw authority. All new parent `lossless_session` tests remain compiler-blocked; `parent-integration-red.log` records an earlier 423-error checkpoint, not current acceptance. No runtime PASS or full lossless UI claim.
+
+### Merged lane checkpoints
+
+- Provider `5909f149`: `final-ingress-green.log` records **6/6 sandbox PASS** at executable revision `1b01dc97` (later lane changes docs only), exercising actual one-byte SSE and Codex WebSocket. Frozen provider differentials cover SSE; Mistral retains its explicit source sanitizer sites. [Ingress traceability](lossless-provider-ingress.md) retains human-error, unapproved scalar-metadata and non-stream-image gaps.
+- Runtime `e3ce34c3`: raw `AgentDetails` error/result, terminal/cancellation `JsObject` mutation/replay and `WritableSessionMetadata.name` reach explicit Node UTF-8 encoding at SQL binds. Library/test probes report zero owned errors or warnings but exit 101 on external errors; tests never execute. This is compiler-only evidence, not runtime acceptance. [Runtime/mailbox traceability](lossless-runtime-mailbox.md) records behavioral targets; final report: `/tmp/pi-rust-repin-lossless-core-runtime/REPORT.md`.
+- Bundled `553ed154`: raw notification callbacks and parser/llama error chains integrated. Final lane library probe remains blocked (83 errors, seven owned primary locations); added tests are compiler-blocked. Report: `/tmp/pi-rust-repin-lossless-bundled/REPORT.md`. These lane-local counts do not describe the current merged tree.
+
+### Unapproved TUI boundary gap
+
+Frozen `Component.render(width): string[]` retains UTF-16 through composition until `terminal.write(buffer)`. Rust `Component::render -> Vec<String>` and scalar Text storage/cache/render cannot retain lone units. Encoding at Text/notification construction is premature, **not** the actual source terminal boundary; it is not approved. Raw input/cursor, width/wrap/slice, style and frame propagation also remain open. Exact investigation: `/tmp/pi-rust-repin-raw-tui-boundary.md`. Scalar metadata restrictions likewise remain unapproved; retaining them during integration grants no approval. These checkpoints establish neither Q18 nor full-port acceptance.
 
 ## Development proof ledger
 
@@ -74,7 +89,7 @@ Core consumer propagation checkpoint (compiler-RED): session summary/details/cus
 
 Permission/error propagation checkpoint: MCP permission responses, updated input and raw bash allow-rule content retain JsValue/JsString. Rule persistence uses lossless JSON; schemas/settings-manager callers retain their existing typed boundary. ToolError/AgentError and native extension HandlerError messages retain JsString; Display alone uses Node UTF-8 encoding. `tool-errors-red.jsonl` reproduces the scalar-only error constructor compile failure; `core-error-migrate-1.jsonl` compiles the new focused core target. Tool migration remains WIP, including the prior temporary checked edit adapter.
 
-Question/display contract checkpoint (compiler-RED): question labels/text and selected answers retain JsString; panel output and metadata retain JsValue, with terminal-only Node encoding. ExtensionUiDone/custom and ToolRenderState now use JsValue; loader/session error payloads retain JsString. Truncation keeps whole-line units, slices grep lines by UTF-16 units, and decodes byte-limited suffixes only at the frozen Buffer boundary. `questions-red.jsonl` and `truncation-red.jsonl` record blocked focused-target compilation. The new source-faithful coding truncate implementation no longer re-exports the scalar-only harness copy. Core tool implementations and parent mailbox/supervisor integration remain WIP; no workspace-success claim.
+Question/display contract checkpoint (compiler-RED): question labels/text and selected answers retain JsString; panel output and metadata retain JsValue. This does not prove terminal-only encoding: the unapproved scalar TUI rendering gap above remains open. ExtensionUiDone/custom and ToolRenderState now use JsValue; loader/session error payloads retain JsString. Truncation keeps whole-line units, slices grep lines by UTF-16 units, and decodes byte-limited suffixes only at the frozen Buffer boundary. `questions-red.jsonl` and `truncation-red.jsonl` record blocked focused-target compilation. The new source-faithful coding truncate implementation no longer re-exports the scalar-only harness copy. Core tool implementations and parent mailbox/supervisor integration remain WIP; no workspace-success claim.
 
 Search helper checkpoint: JsString lowercase preserves unmatched UTF-16 units as Unicode context boundaries, supporting raw-unit history matching without a scalar projection. `lowercase-red.log` records missing API compilation; `lowercase-green.log`: two sandbox cases pass (raw units/Greek final sigma and unsigned-number bounds). Full search-tool integration remains compiler-RED.
 

@@ -56,7 +56,7 @@ pub trait FindOperations: Send + Sync {
     /// Custom glob implementation; only called when [`FindOperations::supports_glob`] is true.
     fn glob<'a>(
         &'a self,
-        pattern: &'a str,
+        pattern: &'a JsString,
         cwd: &'a str,
         ignore: &'a [String],
         limit: usize,
@@ -207,7 +207,7 @@ async fn execute_find(
         check_aborted(signal.as_ref())?;
         let results = custom
             .glob(
-                &encode_node_utf8(&input.pattern),
+                &input.pattern,
                 &search_path,
                 &["**/node_modules/**".to_owned(), "**/.git/**".to_owned()],
                 effective_limit,

@@ -3,6 +3,63 @@ use pi_coding_agent::core::session_manager::{FileEntry, SessionEntry, parse_sess
 use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
+#[tokio::test]
+async fn custom_find_operation_receives_original_pattern_units() {
+    use pi_agent_core::agent::types::AgentTool;
+    use pi_ai::request::BoxFuture;
+    use pi_coding_agent::core::tools::find::{FindOperations, FindTool, FindToolOptions};
+    use pi_js_compat::js_json::JsString;
+    use std::{
+        io,
+        sync::{Arc, Mutex},
+    };
+
+    struct FindPattern(Mutex<Option<JsString>>);
+    impl FindOperations for FindPattern {
+        fn exists<'a>(&'a self, _path: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+            Box::pin(async { Ok(true) })
+        }
+        fn supports_glob(&self) -> bool {
+            true
+        }
+        fn glob<'a>(
+            &'a self,
+            pattern: &'a JsString,
+            _cwd: &'a str,
+            _ignore: &'a [String],
+            _limit: usize,
+        ) -> BoxFuture<'a, io::Result<Vec<String>>> {
+            *self.0.lock().unwrap() = Some(pattern.clone());
+            Box::pin(async { Ok(vec!["hit.txt".into()]) })
+        }
+    }
+    let operations = Arc::new(FindPattern(Mutex::new(None)));
+    let tool = FindTool::with_options(
+        "/tmp",
+        FindToolOptions {
+            operations: Some(operations.clone()),
+        },
+    );
+    let result = tool
+        .execute(
+            "raw-pattern".into(),
+            parse_lossless(r#"{"pattern":"*\ud800\udfff\ud800"}"#).unwrap(),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        operations.0.lock().unwrap().as_ref().unwrap().units(),
+        &[0x2a, 0xd800, 0xdfff, 0xd800]
+    );
+    assert_eq!(
+        result.content[0],
+        pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new("hit.txt"))
+    );
+}
+
 #[test]
 fn session_manager_error_retains_native_message_before_display() {
     use pi_coding_agent::core::session_manager::SessionManagerError;
