@@ -1,45 +1,38 @@
-# components/custom-editor.ts
+# `components/custom-editor.ts`
 
-## Native representation checkpoint
+Authority: whole 138-line [common-pin](../source-lock.json) module; [contract](../../specs/custom-editor.md).
+Rust: `crates/pi-coding-agent/src/modes/interactive/components/custom_editor.rs`.
 
-Editor text/history, prompt-history paths/filter, shortcut input and action map keys, render/input and EditorComponent callbacks use `JsString`. Legacy history files decode at IO and parse with `parse_lossless`; no early scalar authority. Frozen source differential for high/low/pair values covers in-memory history, input and extension-shortcut callback units (`raw_extension_dialogs`). Actual CustomEditor/Editor modules run with no DB path; database functions are uncalled dependency fixtures, so this is not persistence/migration proof. Private real-file legacy JSON test covers raw strings/non-string filtering. The pre-existing void EditorComponent history adapter still discards persistence errors; propagation is not proven by this representation checkpoint.
-
-Source: `coding-agent/src/modes/interactive/components/custom-editor.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/custom_editor.rs`
-
-Tests: `interactive_components_c.rs::custom_editor_*` (key routing, history persistence,
-legacy migration, filtering). Rendering differential now runs through the [native editor examples](extension-examples-editors.md) with real pinned CustomEditor/Editor/TUI; history behavior is process/DB-bound and covered by behavioral tests.
-
-| Symbol / branch | Rust item | Proof |
+| Export / branch | Rust representation | Proof |
 |---|---|---|
-| `CustomEditor extends Editor` | `CustomEditor` wrapper (delegates render/input) | behavior tests |
-| `constructor` history load (`readOrMigratePromptHistory`) | `new` -> `load_prompt_history` | persistence test |
-| `legacyPromptHistoryPath` JSON array filter/slice(0,100) | `read_legacy_prompt_history` | legacy migration test |
-| `promptHistoryFilter` | `PromptHistoryFilter` | filter test |
-| `onAction` | `on_action` | interrupt/exit tests |
-| `addToHistory` + persist newest when changed | `add_to_history` | persistence test |
-| `addToHistoryWithoutPersistence` | `add_to_history_without_persistence` | API surface |
-| `onExtensionShortcut` first | `on_extension_shortcut` | API surface |
-| `app.clipboard.pasteImage` -> `onPasteImage` | `Component::handle_input` | API surface |
-| `app.interrupt` (skip when autocomplete shown) | `Component::handle_input` | interrupt test |
-| `app.exit` only when text empty | `Component::handle_input` | exit test |
-| history previous/next forwarded before app actions | `Component::handle_input` | code path |
-| remaining actions iterate in insertion order, `!== false` | `IndexMap` + `bool` handler | action tests |
-| callbacks run while the editor is live | `collect_input_callbacks` returns matched callbacks; `EditorHandle::handle_input` runs them after the `RefCell` borrow drops | `interactive_mode_starts_the_tui_and_exits_on_double_ctrl_c` (ctrl+c clear re-enters the editor) |
+| `CustomEditorOptions`; constructor DB truthiness | native options; empty DB path normalized to absent | `differential_custom_editor::empty_control_db_option_does_not_open_a_database` reproduces unwanted legacy import RED→GREEN |
+| `CustomEditor extends Editor` | owned Editor plus native delegating `Component`, `Focusable`, `EditorComponent`, and `editor[_mut]` access | existing editor examples 7/7 compare actual frozen Editor/CustomEditor/TUI, render/input/focus; raw input/history/shortcut 1/1 |
+| `onAction`, Map insertion order/replacement; remaining handler `!== false` | `IndexMap<JsString, Rc<dyn Fn() -> bool>>`; bool normalizes the source handled predicate | dedicated frozen action differential; four false-return cases RED→GREEN, replacement retains its insertion slot |
+| extension shortcut before all app checks | deferred callback; resume rechecks actual editor state | mounted `AnyEditorHandle` callback re-entry RED→GREEN; shortcut consumes before paste/action, or changes text before empty-exit check |
+| paste consumes with/without callback | `dispatch_consumed` | frozen cases with callback and without; callback re-entry |
+| interrupt dynamic/registered/no handler; autocomplete | `dispatch_app_binding`; registered return ignored | frozen routing; actual combined autocomplete opens, first Escape cancels without callback, second invokes dynamic escape; native existing interrupt test |
+| exit empty/nonempty; dynamic/registered/no callback | same dispatch branch | frozen false-return exit/dynamic exit; existing nonempty suppression + empty exit |
+| remaining handlers fall through to next match/base Editor | `dispatch_action` plus `EditorInput::Callback`/`Resume` | 14 frozen routing scenarios include ordered text mutations, raw units, two false handlers then base insertion, and later true consumption |
+| `addToHistory`, `recordNewestHistoryEntry`, `sameHistory` | inherited memory update, native history comparison, typed DB error | real frozen DB differential: trim, duplicate/empty no-op, cap, filtered migration, normal write, reopen; failed-write memory mutation and duplicate retry match frozen |
+| `addToHistoryWithoutPersistence` | inherited memory-only update | memory-only entry absent after DB reopen in frozen differential |
+| `loadPromptHistory`, legacy read/filter/slice, constructor filter | real file + real control DB, shared lossless JSON parse | raw legacy high unit plus 100-entry cap/filter differential; 8 legacy cases: absent/missing/directory/malformed/non-array/empty/non-string/invalid UTF-8 |
+| history SQLite projection | existing `JsString` `ToSql`/`FromSql`; no new codec | exact stored hex and reopened history match frozen: JSON migration stores ED A0 80; direct lone-unit binding stores EF BF BD; malformed TEXT reads through shared Node decoder |
+| inherited method failure propagates | `EditorComponent::add_to_history -> Result<(), EditorHistoryError>` | SQL-abort trigger: frozen inherited-method differential; native real message render throws, selected-agent steering catches/reports/restores submitted text (2 tests) |
 
-## Gaps
+## Native callback protocol
 
-- `addToHistory` and the constructor return `Result` where the source throws on control-DB errors.
-- `onExtensionShortcut` still runs inline (it reports whether it consumed the key); it is not
-  wired by `InteractiveMode` yet, so it cannot re-enter the editor.
-- App action handlers return `bool` (`true` = handled); the source treats any value other than
-  `false` as handled.
-- Rendering delegates to the ported `Editor`; example differentials provide a private terminal-backed TUI.
+`EditorInput` is Complete, Callback, or Resume. `AnyEditorHandle` runs callbacks outside its `RefCell` borrow, then resumes under a fresh borrow; direct Component input drives the same protocol. Modal, rainbow and border-status composed editors retain their base CustomEditor downcast surface. Rainbow's post-input work follows the complete continuation chain, not merely its first callback. The old `Vec<Fn()>` path is replaced, not retained as a fallback.
 
-## Discrepancies
+`actionHandlers` consumers were audited in the frozen coding-agent tree. Only `CustomEditor.onAction` inserts, and interactive-mode copies handlers during editor replacement; no built-in handler deletes/reinserts entries during iteration or relies on shared map identity. Owned callback values follow the general approval. Registration replaces in place. Public Rust handlers represent the literal-false predicate as `bool`, not arbitrary JS return objects.
 
-None found.
+## Retained frozen behavior / scope
 
-## Factory-built editors
+A failed history write leaves memory changed; retrying the same newest text skips persistence. Tests retain that ordering. Generic `ExtensionUiTuiBackend` is unchanged. Parent-owned final independent/readability gates remain separate from targeted lane evidence. Rendering/inherited Editor internals and interactive-mode as a whole retain their own traceability and approved proof boundaries.
 
-`CustomEditor::as_focusable_mut` exposes its existing Focusable implementation. The interactive `AnyEditorHandle` forwards focus through the editor component. Factory-built real editors receive input, render the cursor marker, and inherit submit callbacks (`extension_ui_factory_builds_real_custom_editor`).
+## Proof ledger
+
+Artifacts: `/tmp/pi-rust-repin-lossless-interactive/`.
+
+- RED: `test-custom-editor-red-2.log` (lost false fallthrough, mounted shortcut borrow panic); `test-custom-editor-empty-path-red.log` (empty path migration); `test-custom-editor-history-persistence-red.log` (ignored inherited failure); `test-custom-editor-green-2.log` (raw migrated SQL TEXT rejected on reopen).
+- GREEN: `test-custom-editor-green-4.log` (7 dedicated tests); `test-custom-editor-history-boundaries-green-3.log` (2 real host failure boundaries); `test-custom-editor-examples-green-1.log` (7 examples); `test-custom-editor-existing-green-1.log` (4 native history/routing); `test-custom-editor-raw-green-1.log` (1 raw native differential).
+- These are scoped implementation proofs. Formatting changes do not invalidate them. Later relevant production changes require new scoped proof; final all-target check recorded separately by checkpoint SHA.

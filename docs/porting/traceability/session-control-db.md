@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Q13 prompt-history SQLite read boundary
+
+`read_prompt_history_rows` and `read_latest_prompt_history_entry` now request `JsString` through the existing shared Node SQLite `FromSql` implementation instead of requiring valid UTF-8 `String`. Actual frozen legacy migration uses lossless JSON and SQLite `json_extract`, so a migrated lone high unit stores ED A0 80; direct lone-unit string binding stores EF BF BD. Those two write boundaries remain unchanged. A real DB differential asserts complete stored hex bytes, first-load native units, later inserts and reopened history; the first migrated row is raw, exercising both latest-entry and full-history reads. RED was an actual rusqlite invalid-UTF-8 conversion error; shared `FromSql` makes source/native reopen and stored bytes equal. See [CustomEditor proof](interactive-custom-editor.md). This bounded correction does not establish whole control-DB parity.
+
 ## Q18 incoming content SQL boundary
 
 `enqueue_incoming_message` now accepts native content; `IncomingControlMessage.content` and the claimed/delivered DTO retain `JsString`. SQLite's native `ToSql`/`FromSql` boundary matches Node TEXT encoding, rather than pre-repairing the input. `lossless_incoming_content` reproduces actual DTO rejection at `81c32624`, then compares native producer/claim and real stored content to the frozen source for isolated high/low units, a valid pair and NUL. Completion/failure transitions remain covered. Actual Cargo GREEN58 at `6759cfaa` across incoming content/error, control command, control differential and session-control DB (`incoming-content-incrate-green-2.log`), zero warnings. The temporary ASCII-only differential adapter is removed. Status tags and internal serialized identities remain scalar, not human content.

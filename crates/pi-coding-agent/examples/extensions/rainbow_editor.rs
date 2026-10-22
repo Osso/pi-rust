@@ -3,6 +3,7 @@ use super::editor_composition::{ComposedEditor, EditorBehavior};
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::components::custom_editor::CustomEditor;
 use pi_js_compat::js_json::JsString;
+use pi_tui::editor_component::EditorInput;
 use pi_tui::{Component, EditorComponent};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -65,22 +66,21 @@ impl Rainbow {
     }
 }
 impl EditorBehavior for Rainbow {
-    fn input(&mut self, editor: &mut CustomEditor, data: &JsString) -> Vec<Rc<dyn Fn()>> {
-        let mut callbacks = editor.handle_input_deferred(&JsString::from(data));
-        if callbacks.is_empty() {
+    fn input(&mut self, editor: &mut CustomEditor, data: &JsString) -> EditorInput {
+        let input = editor.handle_input_deferred(data);
+        if matches!(input, EditorInput::Complete) {
             self.update_animation(&editor.get_text());
-        } else {
-            // App callbacks may re-enter the mounted editor; inspect text after they run.
-            let owner = self.owner.clone();
-            callbacks.push(Rc::new(move || {
-                if let Some(owner) = owner.upgrade() {
-                    let mut owner = owner.borrow_mut();
-                    let text = owner.editor.get_text();
-                    owner.behavior.update_animation(&text);
-                }
-            }));
+            return input;
         }
-        callbacks
+        // Inspect text only after every callback and base-editor continuation.
+        let owner = self.owner.clone();
+        input.then(move || {
+            if let Some(owner) = owner.upgrade() {
+                let mut owner = owner.borrow_mut();
+                let text = owner.editor.get_text();
+                owner.behavior.update_animation(&text);
+            }
+        })
     }
     fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<JsString> {
         let cycle = self.frame.load(Ordering::SeqCst) % 20;

@@ -344,10 +344,8 @@ async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_
                 }
             }
             if let Some(input) = step["input"].as_str() {
-                let callbacks = editor.borrow_mut().handle_input_deferred(&JsString::from(input));
-                for callback in callbacks {
-                    callback();
-                }
+                let input = editor.borrow_mut().handle_input_deferred(&JsString::from(input));
+                input.run(|resume| resume(&mut *editor.borrow_mut()));
             }
             if let Some(focused) = step["focus"].as_bool() {
                 editor.borrow_mut().as_focusable_mut().unwrap().set_focused(focused);

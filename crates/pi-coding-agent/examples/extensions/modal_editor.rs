@@ -4,6 +4,7 @@ use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::components::custom_editor::CustomEditor;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
+use pi_tui::editor_component::EditorInput;
 use pi_tui::tui::Component;
 use pi_tui::utils::truncate_to_width_with;
 use pi_tui::{EditorComponent, matches_key, visible_width};
@@ -15,13 +16,13 @@ struct Modal {
     normal: bool,
 }
 impl EditorBehavior for Modal {
-    fn input(&mut self, editor: &mut CustomEditor, data: &JsString) -> Vec<Rc<dyn Fn()>> {
+    fn input(&mut self, editor: &mut CustomEditor, data: &JsString) -> EditorInput {
         if matches_key(data, "escape") {
             if self.normal {
                 return editor.handle_input_deferred(&JsString::from(data));
             }
             self.normal = true;
-            return Vec::new();
+            return EditorInput::Complete;
         }
         if !self.normal {
             return editor.handle_input_deferred(&JsString::from(data));
@@ -36,14 +37,14 @@ impl EditorBehavior for Modal {
             data if data == "x" => JsString::from("\x1b[3~"),
             data if data == "i" => {
                 self.normal = false;
-                return Vec::new();
+                return EditorInput::Complete;
             }
             data if data == "a" => {
                 self.normal = false;
                 JsString::from("\x1b[C")
             }
             _ if data.len() == 1 && data.units()[0] >= u16::from(b' ') => {
-                return Vec::new();
+                return EditorInput::Complete;
             }
             _ => data.clone(),
         };

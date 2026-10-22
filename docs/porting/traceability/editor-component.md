@@ -14,7 +14,7 @@ default-implemented methods.
 | `handleInput(data)` | inherited `Component::handle_input` | all input tests |
 | `onSubmit?` | `Editor::on_submit` (concrete editor field) | submit tests |
 | `onChange?` | `Editor::on_change` | change-callback assertions |
-| `addToHistory?(text)` | default `add_to_history` | history tests |
+| `addToHistory?(text)` | `add_to_history -> Result<(), EditorHistoryError>`; default and plain Editor return success, persistent CustomEditor propagates native message | history tests; real SQLite-abort frozen differential and native uncaught/caught host boundaries ([proof](interactive-custom-editor.md)) |
 | `insertTextAtCursor?(text)` | default `insert_text_at_cursor` | insert-text tests |
 | `getExpandedText?()` | default `get_expanded_text` (falls back to `get_text`) | paste expansion tests |
 | `setAutocompleteProvider?(provider)` | default `set_autocomplete_provider` | autocomplete tests |
@@ -22,6 +22,8 @@ default-implemented methods.
 | `setPaddingX?(padding)` | default `set_padding_x` | padding tests |
 | `setAutocompleteMaxVisible?(maxVisible)` | default `set_autocomplete_max_visible` | differential autocomplete options |
 | `setWorking?` / `setWorkingIndicator?` / `setScreenOrigin?` / `clearScreenOrigin?` | default no-ops + `supports_working_prompt` opt-in; `Editor` overrides all four | `crates/pi-coding-agent/tests/interactive_workflows.rs` (working-editor) |
+
+Rust-only deferred input uses `EditorInput::{Complete, Callback, Resume}`: host callbacks run after releasing editor borrows and continuation resumes against the same concrete/composed editor. Direct and native-composed input share this protocol; there is no old callback-vector alternate path. Frozen false-return fallthrough and reentrant callback mutations are proved by [CustomEditor](interactive-custom-editor.md).
 
 Typed Rust exclusions: callbacks are `Option<Rc<dyn Fn(&str)>>` fields rather
 than assignable properties. Optional methods cannot be distinguished from
