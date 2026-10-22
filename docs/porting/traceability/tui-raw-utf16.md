@@ -199,3 +199,13 @@ items with trailing quotes. Source behavioral RED exposed negative internal
 `cursorCol - prefix.length`: native JS slice counts from the line end, whereas old
 Rust saturated to zero. The raw implementation now retains that exact source behavior,
 including duplicated-prefix text; no TS fix/delta or new numeric gap. Matrix GREEN.
+
+Autocomplete command proof compares raw descriptions/hints, partial surrogate query
+prefixes, slash command results, argument callback inputs/results, and file-trigger
+predicates: four corpora × three queries. Filesystem proof creates isolated real
+replacement-encoded OS directories, then compares frozen suggestions for native high
+surrogate path prefixes and repeated parent segments. Native prefixes/candidate values
+retain the original high unit across actual FS calls. Source differential RED exposed
+old Rust path normalization collapsing repeated `..`; native normalization now retains
+each parent segment like Node POSIX path.join, and the actual FS fixture is GREEN.
+This repairs a Rust discrepancy, not source code. fd argv/cancellation raw proof pending.

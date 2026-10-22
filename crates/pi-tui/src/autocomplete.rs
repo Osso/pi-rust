@@ -1,6 +1,6 @@
 //! Combined slash-command and file-path autocomplete.
 //!
-//! Ported from `packages/tui/src/autocomplete.ts`. Cursor positions are UTF-8
+//! Ported from `packages/tui/src/autocomplete.ts`. Cursor positions are UTF-16
 //! code-unit offsets, including positions inside surrogate pairs.
 //! Path handling reproduces Node's POSIX `path.join`/`dirname`/`basename`
 //! normalization, and fd is invoked with the same argument order as the source.
@@ -833,7 +833,7 @@ fn normalize_path(path: &JsString) -> JsString {
                 Some(last) if last != ".." => {
                     segments.pop();
                 }
-                Some(_) => {}
+                Some(_) => segments.push(JsString::from("..")),
                 None if !is_absolute => segments.push(JsString::from("..")),
                 None => {}
             }

@@ -39,7 +39,15 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "autocomplete_apply") {
+			} else if (request.operation === "autocomplete_commands") {
+                output = await captureAutocompleteCommands(source,native(request.units));
+            } else if (request.operation === "autocomplete_files") {
+                const module = await import(pathToFileURL(path.join(source, "autocomplete.ts")).href);
+                const provider = new module.CombinedAutocompleteProvider([], request.base, null);
+                const prefix = native(request.units);
+                const result = await provider.getSuggestions([prefix],0,prefix.length,{signal:new AbortController().signal});
+                output = result ? [result.items.map((item: {value:string;label:string;description?:string}) => [item.value,item.label,item.description ?? null]),result.prefix] : null;
+            } else if (request.operation === "autocomplete_apply") {
                 const module = await import(pathToFileURL(path.join(source, "autocomplete.ts")).href);
                 const provider = new module.CombinedAutocompleteProvider([], ".", null);
                 const item = native(request.item);
@@ -248,4 +256,18 @@ async function captureSettings(source: string, raw: string, width: number, searc
         renders.push(list.render(width));
     }
     return [renders, changes, cancelled, list.selectedIndex];
+}
+
+async function captureAutocompleteCommands(source: string, raw: string): Promise<unknown> {
+    const module = await import(pathToFileURL(path.join(source, "autocomplete.ts")).href);
+    const captured: string[] = [];
+    const command = { name: raw + "cmd", description: raw + "description", argumentHint: raw + "hint", getArgumentCompletions: (argument: string) => { captured.push(argument); return [{ value: raw + "arg", label: raw + "arglabel" }]; } };
+    const provider = new module.CombinedAutocompleteProvider([command,{name:raw + "other"}], ".", null);
+    const results: unknown[] = [];
+    for (const query of ["/" + raw.slice(0,1),"/" + raw + "cmd","/" + raw + "cmd " + raw + " arg"]) {
+        const result = await provider.getSuggestions([query],0,query.length,{signal:new AbortController().signal});
+        const suggestions = result ? [result.items.map((item: {value:string;label:string;description?:string}) => [item.value,item.label,item.description ?? null]),result.prefix] : null;
+        results.push([suggestions,provider.shouldTriggerFileCompletion([query],0,query.length)]);
+    }
+    return [results,captured];
 }
