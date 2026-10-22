@@ -217,7 +217,8 @@ fn ensure_theme() {
         return;
     }
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
-    let theme = load_theme_from_path(&JsString::from(path.to_string_lossy()), None).expect("dark theme fixture");
+    let theme = load_theme_from_path(&JsString::from(path.to_str().expect("utf-8 manifest path")), None)
+        .expect("dark theme fixture");
     set_theme_instance(Arc::new(theme));
 }
 
