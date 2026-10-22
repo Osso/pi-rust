@@ -958,7 +958,7 @@ struct RuntimeMailboxRegistration {
     pid: u32,
     recipient: RuntimeMailboxAddress,
     runtime_instance_id: String,
-    session_path: Option<String>,
+    session_path: Option<JsString>,
 }
 
 struct RuntimeMailboxRegistrationSnapshot {
@@ -977,7 +977,7 @@ pub fn register_runtime_mailbox_listener(
     control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
     pid: u32,
-    session_path: Option<&str>,
+    session_path: Option<&JsString>,
     options: RuntimeMailboxRegistrationOptions,
 ) -> Result<(), ControlDbError> {
     let control_db_path = control_db_path.into();
@@ -990,7 +990,7 @@ pub fn register_runtime_mailbox_listener(
         options,
         pid,
         recipient: recipient.clone(),
-        session_path: session_path.map(str::to_owned),
+        session_path: session_path.cloned(),
     };
     with_control_db(&control_db_path, |db| {
         for _ in 0..RUNTIME_MAILBOX_REGISTRATION_MAX_ATTEMPTS {
