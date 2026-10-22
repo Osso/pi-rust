@@ -2,6 +2,8 @@
 
 Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
 
+Current runtime evidence: [fixture proof ledger](lossless-tools-fixtures.md#further-bounded-fixture-groups) records runner-process, manifest, bridge, extension, frozen differential and detached evaluation Cargo execution. The table and checkpoint narrative below are historical migration records; their compilation-blocked/pending-runtime statements are superseded by that ledger, not present blockers. Unlisted branches and the local slash-command raw regression still require their own proof.
+
 | Surface | Native coverage | Proof |
 |---|---|---|
 | `detached-bridge.ts` request/response DTOs, persistence and validation | Methods, command/protocol, request/tool/job/session IDs, DB/session paths and errors preserve UTF-16 units | `tests/lossless_pyrun.rs::persisted_bridge_request_retains_raw_method_ids_and_params`; pending coding-library compilation, not runtime evidence |
