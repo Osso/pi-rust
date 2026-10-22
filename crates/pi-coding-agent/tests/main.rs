@@ -81,7 +81,7 @@ fn create_session(cwd: &str, session_dir: &str, text: &str) -> SessionManager {
 fn settings_manager(cwd: &str, agent_dir: &Path) -> SettingsManager {
     SettingsManager::create(
         &JsString::from(cwd),
-        Some(agent_dir),
+        Some(&JsString::from(agent_dir.to_str().expect("UTF-8 temp path"))),
         SettingsManagerCreateOptions {
             project_trusted: Some(false),
         },
@@ -267,7 +267,7 @@ fn session_paths_resolve_locally_globally_and_by_prefix() {
     assert_eq!(listed.len(), 1, "cwd={project_a} sessions={listed:?}");
 
     let resolved = resolve_session_path(
-        &session_id[..6],
+        &session_id.slice(0, 6),
         &JsString::from(&project_a),
         Some(&JsString::from(&session_dir)),
         None,
@@ -505,7 +505,7 @@ async fn create_session_manager_honors_help_in_memory_and_session_ids() {
 async fn cli_action_wrappers_map_errors_to_exit_codes() {
     assert_eq!(run_cli_action_or_report_error(|| async { Ok(()) }).await, 0);
     assert_eq!(
-        run_cli_action_or_report_error(|| async { Err("boom".to_owned()) }).await,
+        run_cli_action_or_report_error(|| async { Err(JsString::from("boom")) }).await,
         1
     );
 
@@ -516,7 +516,7 @@ async fn cli_action_wrappers_map_errors_to_exit_codes() {
     assert_eq!(outcome.exit_code, None);
 
     let outcome = run_interactive_action_or_report_terminal_error(
-        || async { Err("SetRawMode failed with errno: 5".to_owned()) },
+        || async { Err(JsString::from("SetRawMode failed with errno: 5")) },
         None,
     )
     .await
@@ -525,8 +525,8 @@ async fn cli_action_wrappers_map_errors_to_exit_codes() {
     assert_eq!(outcome.exit_code, Some(1));
 
     let error =
-        run_interactive_action_or_report_terminal_error(|| async { Err("other failure".to_owned()) }, None).await;
-    assert_eq!(error, Err("other failure".to_owned()));
+        run_interactive_action_or_report_terminal_error(|| async { Err(JsString::from("other failure")) }, None).await;
+    assert_eq!(error, Err(JsString::from("other failure")));
 }
 
 #[test]
