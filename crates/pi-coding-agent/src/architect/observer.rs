@@ -4,7 +4,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::utils::uuid::random_uuid;
-use pi_js_compat::locale_compare;
+use pi_js_compat::collator::locale_compare_utf16;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use serde::{Deserialize, Serialize};
 
 use crate::core::session_control_db::{
@@ -19,13 +20,13 @@ pub const ARCHITECT_SESSION_ID: &str = "architect";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchitectSessionSnapshot {
-    pub cwd: String,
+    pub cwd: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub goal_json: Option<String>,
-    pub id: String,
+    pub goal_json: Option<JsString>,
+    pub id: JsString,
     pub is_subagent: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<JsString>,
 }
 
 /// Channel message carrying one architect request.
@@ -67,7 +68,7 @@ pub type ArchitectSnapshotReader = Arc<dyn Fn() -> Result<ArchitectSnapshot, Con
 /// `snapshotArchitectSessions`: copies and sorts by id.
 pub fn snapshot_architect_sessions(metadata: &[ArchitectSessionSnapshot]) -> Vec<ArchitectSessionSnapshot> {
     let mut sessions = metadata.to_vec();
-    sessions.sort_by(|left, right| locale_compare(&left.id, &right.id));
+    sessions.sort_by(|left, right| locale_compare_utf16(left.id.units(), right.id.units()));
     sessions
 }
 
@@ -84,8 +85,8 @@ pub fn create_architect_observation(
             sessions: sessions.to_vec(),
         });
     }
-    let unchanged = previous
-        .is_some_and(|previous| serde_json::to_value(&previous.sessions).ok() == serde_json::to_value(sessions).ok());
+    // `JSON.stringify(previous.sessions) === JSON.stringify(sessions)`: same fields in the same order.
+    let unchanged = previous.is_some_and(|previous| previous.sessions == sessions);
     if unchanged {
         return None;
     }
@@ -97,11 +98,12 @@ pub fn create_architect_observation(
 }
 
 /// `readArchitectSnapshot`: bounded live main sessions from `control.sqlite`.
-pub fn read_architect_snapshot(control_db_path: &str) -> Result<ArchitectSnapshot, ControlDbError> {
-    if !Path::new(control_db_path).exists() {
+pub fn read_architect_snapshot(control_db_path: &JsString) -> Result<ArchitectSnapshot, ControlDbError> {
+    let fs_path = encode_node_utf8(control_db_path);
+    if !Path::new(&fs_path).exists() {
         return Ok(ArchitectSnapshot::default());
     }
-    let db = create_read_only_sqlite_database(control_db_path)?;
+    let db = create_read_only_sqlite_database(&fs_path)?;
     configure_read_only_sqlite_database(&db, 5_000)?;
     let result = (|| {
         let mut statement = db.prepare(
@@ -158,35 +160,35 @@ pub fn read_architect_snapshot(control_db_path: &str) -> Result<ArchitectSnapsho
 }
 
 fn read_and_claim_architect_snapshot(
-    control_db_path: &str,
-    claim_token: &str,
+    control_db_path: &JsString,
+    claim_token: &JsString,
 ) -> Result<ArchitectSnapshot, ControlDbError> {
     let snapshot = read_architect_snapshot(control_db_path)?;
     Ok(ArchitectSnapshot {
-        requests: claim_pending_architect_requests(control_db_path, claim_token, 20)?,
+        requests: claim_pending_architect_requests(control_db_path.clone(), claim_token, 20)?,
         sessions: snapshot.sessions,
     })
 }
 
 /// `ArchitectObserver`.
 pub struct ArchitectObserver {
-    claim_token: String,
-    control_db_path: String,
+    claim_token: JsString,
+    control_db_path: JsString,
     read_snapshot: ArchitectSnapshotReader,
     state: Mutex<ArchitectObserverState>,
 }
 
 impl ArchitectObserver {
-    pub fn new(control_db_path: &str, read_snapshot: Option<ArchitectSnapshotReader>) -> Self {
-        let claim_token = random_uuid();
+    pub fn new(control_db_path: &JsString, read_snapshot: Option<ArchitectSnapshotReader>) -> Self {
+        let claim_token = JsString::from(random_uuid());
         let read_snapshot = read_snapshot.unwrap_or_else(|| {
-            let control_db_path = control_db_path.to_owned();
+            let control_db_path = control_db_path.clone();
             let claim_token = claim_token.clone();
             Arc::new(move || read_and_claim_architect_snapshot(&control_db_path, &claim_token))
         });
         Self {
             claim_token,
-            control_db_path: control_db_path.to_owned(),
+            control_db_path: control_db_path.clone(),
             read_snapshot,
             state: Mutex::new(ArchitectObserverState::default()),
         }
@@ -207,12 +209,12 @@ impl ArchitectObserver {
     }
 
     pub fn renew_requests(&self, request_ids: &[i64]) -> Result<(), ControlDbError> {
-        renew_architect_request_claims(&self.control_db_path, request_ids, &self.claim_token)
+        renew_architect_request_claims(self.control_db_path.clone(), request_ids, &self.claim_token)
     }
 
-    pub fn complete_request(&self, request_id: i64, sender_session_id: &str) -> Result<(), ControlDbError> {
+    pub fn complete_request(&self, request_id: i64, sender_session_id: &JsString) -> Result<(), ControlDbError> {
         complete_architect_request(
-            &self.control_db_path,
+            self.control_db_path.clone(),
             request_id,
             &self.claim_token,
             Some(sender_session_id),

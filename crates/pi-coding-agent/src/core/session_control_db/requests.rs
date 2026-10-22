@@ -21,8 +21,8 @@ pub struct ArchitectRequest {
     pub id: i64,
     pub sender_session_id: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub project_cwd: Option<String>,
-    pub body: String,
+    pub project_cwd: Option<JsString>,
+    pub body: JsString,
     pub status: ArchitectRequestStatus,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -37,8 +37,8 @@ pub struct ArchitectRequest {
 #[serde(rename_all = "camelCase")]
 pub struct PostArchitectRequestInput {
     pub sender_session_id: JsString,
-    pub project_cwd: String,
-    pub body: String,
+    pub project_cwd: JsString,
+    pub body: JsString,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -252,8 +252,8 @@ pub struct PostSupervisorRequestInput {
 type ArchitectRequestRow = (
     i64,
     JsString,
-    Option<String>,
-    String,
+    Option<JsString>,
+    JsString,
     String,
     String,
     Option<String>,
@@ -292,7 +292,7 @@ pub fn post_architect_request(
     input: &PostArchitectRequestInput,
 ) -> Result<i64, ControlDbError> {
     let control_db_path = control_db_path.into();
-    let body = pi_js_compat::string::js_trim(&input.body);
+    let body = input.body.trim();
     if body.is_empty() {
         return Err(ControlDbError::new("Architect request body must be non-empty"));
     }

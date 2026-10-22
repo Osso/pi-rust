@@ -57,14 +57,21 @@ pub enum ResidentSessionError {
     Path(PathError),
 }
 
+impl ResidentSessionError {
+    /// The thrown `Error.message`, keeping unmatched UTF-16 units.
+    pub fn message(&self) -> JsString {
+        match self {
+            Self::PathArgument(error) => error.message.clone(),
+            Self::Filesystem(error) => JsString::from(error.message.as_str()),
+            Self::ControlDb(error) => error.message().clone(),
+            Self::Path(error) => error.message().clone(),
+        }
+    }
+}
+
 impl fmt::Display for ResidentSessionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::PathArgument(error) => formatter.write_str(&error.message.to_utf8_lossy()),
-            Self::Filesystem(error) => formatter.write_str(&error.message),
-            Self::ControlDb(error) => error.fmt(formatter),
-            Self::Path(error) => formatter.write_str(&error.message().to_utf8_lossy()),
-        }
+        formatter.write_str(&encode_node_utf8(&self.message()))
     }
 }
 
@@ -193,7 +200,7 @@ fn find_live_resident_session_path(
     if !is_pi_runtime_process_alive(listener.pid) {
         return Ok(None);
     }
-    let session_path = resolve_path(&path)?;
+    let session_path = resolve_path(&JsString::from(path))?;
     Ok(
         (node_dirname(session_path.clone()) == resolve_path(session_dir)? && session_path.ends_with(".jsonl"))
             .then_some(session_path),

@@ -1,8 +1,8 @@
 //! Port of `packages/coding-agent/src/architect/main.ts`.
 //!
-//! Agent-session creation and the resident console server are blocked on the agent-session and
-//! extension slices; the queue, snapshot, settings, multi-agent store, gating, cycle, and loop
-//! contracts are ported here.
+//! Gap: the pinned service builds `AuthStorage` + `ModelRegistry` for `createAgentSession`; the Rust
+//! SDK still takes a `ModelRuntime`, so the service resolves the model through it until the SDK
+//! re-pin lands.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,6 +11,8 @@ use std::time::Duration;
 
 use pi_agent_core::harness::types::BeforeToolCallResult;
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, JsValue};
 use pi_js_compat::number::parse_number;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -33,6 +35,7 @@ use crate::core::resident_console_transport::{
     ResidentConsoleHost, ResidentConsoleServer, ResidentConsoleServerOptions, ResidentConsoleService,
     ResidentConsoleSnapshot, Unsubscribe,
 };
+use crate::core::resident_session::{ResidentRole, prepare_resident_session_file};
 use crate::core::resource_loader::{InlineExtension, RulesScope};
 use crate::core::sdk::{CreateAgentSessionOptions, create_agent_session};
 use crate::core::session_control_db::{archive_session, get_control_db_path};
@@ -56,8 +59,8 @@ pub const ARCHITECT_EXCLUDED_TOOL_NAMES: [&str; 5] = [
 /// One queued console prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchitectConsolePrompt {
-    pub id: String,
-    pub text: String,
+    pub id: JsString,
+    pub text: JsString,
 }
 
 /// FIFO queue that wakes a waiting Architect loop when a prompt arrives.
@@ -72,7 +75,7 @@ impl ArchitectConsolePromptQueue {
         Self::default()
     }
 
-    pub fn enqueue(&self, text: String, id: String) {
+    pub fn enqueue(&self, text: JsString, id: JsString) {
         self.prompts
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -109,15 +112,15 @@ impl ArchitectConsolePromptQueue {
 
 /// `createArchitectConsoleSnapshot`.
 pub fn create_architect_console_snapshot(
-    cwd: &str,
+    cwd: &JsString,
     generation: u64,
-    session_id: Option<&str>,
+    session_id: Option<&JsString>,
     branch: Vec<SessionEntry>,
 ) -> ResidentConsoleSnapshot<SessionEntry> {
     ResidentConsoleSnapshot {
         service: ResidentConsoleService::Architect,
-        session_id: session_id.unwrap_or(ARCHITECT_SESSION_ID).to_owned(),
-        cwd: cwd.to_owned(),
+        session_id: session_id.cloned().unwrap_or_else(|| ARCHITECT_SESSION_ID.into()),
+        cwd: cwd.clone(),
         generation,
         branch,
     }
@@ -126,19 +129,16 @@ pub fn create_architect_console_snapshot(
 /// `createArchitectSettingsManager`.
 pub fn create_architect_settings_manager() -> SettingsManager {
     let mut settings = Settings::new();
-    settings.insert(
-        "sandboxProfile".to_owned(),
-        serde_json::Value::String("read-only".to_owned()),
-    );
+    settings.insert("sandboxProfile".into(), JsValue::String("read-only".into()));
     SettingsManager::in_memory(settings, SettingsManagerCreateOptions { project_trusted: None })
 }
 
 /// `createArchitectMultiAgentStore`.
 pub fn create_architect_multi_agent_store(
     session_manager: &mut SessionManager,
-    control_db_path: Option<&str>,
-) -> Result<MultiAgentStore, String> {
-    let control_db_path = control_db_path.map_or_else(get_control_db_path_default, str::to_owned);
+    control_db_path: Option<&JsString>,
+) -> Result<MultiAgentStore, JsString> {
+    let control_db_path = control_db_path.cloned().unwrap_or_else(get_control_db_path_default);
     session_manager
         .set_metadata_control_db_path(
             Some(&control_db_path),
@@ -147,34 +147,37 @@ pub fn create_architect_multi_agent_store(
                 cwd_override: None,
             },
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message().clone())?;
     if let Some(session_path) = session_manager.get_session_file() {
-        archive_session(&control_db_path, session_path).map_err(|error| error.to_string())?;
+        archive_session(&control_db_path, session_path).map_err(|error| error.message().clone())?;
     }
     MultiAgentStore::from_session_manager(session_manager, MultiAgentStoreOptions::default())
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.message().clone())
 }
 
-fn get_control_db_path_default() -> String {
-    let state_root = crate::config::get_user_state_root();
-    get_control_db_path(&state_root)
+/// `getControlDbPath()`: derived from the process state root, so it is well-formed text.
+fn get_control_db_path_default() -> JsString {
+    JsString::from(get_control_db_path(&crate::config::get_user_state_root()))
 }
 
 /// `completeSentArchitectRequest`.
 pub trait ArchitectRequestCompleter {
-    fn complete_request(&self, request_id: i64, sender_session_id: &str) -> Result<(), String>;
+    fn complete_request(&self, request_id: i64, sender_session_id: &JsString) -> Result<(), JsString>;
 }
 
 impl ArchitectRequestCompleter for ArchitectObserver {
-    fn complete_request(&self, request_id: i64, sender_session_id: &str) -> Result<(), String> {
-        ArchitectObserver::complete_request(self, request_id, sender_session_id).map_err(|error| error.to_string())
+    fn complete_request(&self, request_id: i64, sender_session_id: &JsString) -> Result<(), JsString> {
+        ArchitectObserver::complete_request(self, request_id, sender_session_id)
+            .map_err(|error| error.message().clone())
     }
 }
 
+/// `completeSentArchitectRequest`. The id suffix is parsed with `Number`; a suffix with an unpaired
+/// surrogate is not numeric, so it is `NaN` there and no request here.
 pub fn complete_sent_architect_request(
     observer: &dyn ArchitectRequestCompleter,
     input: &SentArchitectMessage,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     if input.to_agent_id != "main" {
         return Ok(());
     }
@@ -201,9 +204,9 @@ fn is_safe_integer(value: f64) -> bool {
 /// One outbound session message observed by the mailbox extension.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SentArchitectMessage {
-    pub thread_id: Option<pi_js_compat::js_json::JsString>,
-    pub to_agent_id: pi_js_compat::js_json::JsString,
-    pub to_session_id: String,
+    pub thread_id: Option<JsString>,
+    pub to_agent_id: JsString,
+    pub to_session_id: JsString,
 }
 
 /// `blockArchitectGlobalBroadcast`.
@@ -222,28 +225,28 @@ pub fn block_architect_global_broadcast(tool_name: &str) -> Option<BeforeToolCal
 
 /// Observer surface used by the cycle.
 pub trait ArchitectCycleObserver {
-    fn observe(&self) -> Result<Option<crate::architect::observer::ArchitectObservation>, String>;
-    fn renew_requests(&self, _request_ids: &[i64]) -> Result<(), String> {
+    fn observe(&self) -> Result<Option<crate::architect::observer::ArchitectObservation>, JsString>;
+    fn renew_requests(&self, _request_ids: &[i64]) -> Result<(), JsString> {
         Ok(())
     }
 }
 
 impl ArchitectCycleObserver for ArchitectObserver {
-    fn observe(&self) -> Result<Option<crate::architect::observer::ArchitectObservation>, String> {
-        ArchitectObserver::observe(self).map_err(|error| error.to_string())
+    fn observe(&self) -> Result<Option<crate::architect::observer::ArchitectObservation>, JsString> {
+        ArchitectObserver::observe(self).map_err(|error| error.message().clone())
     }
 
-    fn renew_requests(&self, request_ids: &[i64]) -> Result<(), String> {
-        ArchitectObserver::renew_requests(self, request_ids).map_err(|error| error.to_string())
+    fn renew_requests(&self, request_ids: &[i64]) -> Result<(), JsString> {
+        ArchitectObserver::renew_requests(self, request_ids).map_err(|error| error.message().clone())
     }
 }
 
 /// `runArchitectCycle`.
-pub async fn run_architect_cycle<O, P, PFut>(observer: Arc<O>, prompt: P) -> Result<(), String>
+pub async fn run_architect_cycle<O, P, PFut>(observer: Arc<O>, prompt: P) -> Result<(), JsString>
 where
     O: ArchitectCycleObserver + Send + Sync + 'static,
-    P: Fn(String) -> PFut,
-    PFut: std::future::Future<Output = Result<(), String>>,
+    P: Fn(JsString) -> PFut,
+    PFut: std::future::Future<Output = Result<(), JsString>>,
 {
     let Some(observation) = observer.observe()? else {
         return Ok(());
@@ -262,7 +265,7 @@ where
             }
         }))
     };
-    let result = prompt(build_architect_prompt(&observation)).await;
+    let result = prompt(build_architect_prompt(&observation).into()).await;
     if let Some(task) = renew_task {
         task.abort();
     }
@@ -303,8 +306,8 @@ pub async fn wait_for_architect_interval(signal: &CancellationToken) {
 
 /// Console server surface used by the service loop.
 pub trait ArchitectConsoleServer {
-    fn start(&self) -> BoxFuture<'static, Result<(), String>>;
-    fn close(&self) -> BoxFuture<'static, Result<(), String>>;
+    fn start(&self) -> BoxFuture<'static, Result<(), JsString>>;
+    fn close(&self) -> BoxFuture<'static, Result<(), JsString>>;
 }
 
 /// `runArchitectServiceLoop`.
@@ -314,11 +317,11 @@ pub async fn run_architect_service_loop<O, P, PFut>(
     prompt: P,
     prompt_queue: Arc<ArchitectConsolePromptQueue>,
     signal: CancellationToken,
-) -> Result<(), String>
+) -> Result<(), JsString>
 where
     O: ArchitectCycleObserver + Send + Sync + 'static,
-    P: Fn(String) -> PFut,
-    PFut: std::future::Future<Output = Result<(), String>>,
+    P: Fn(JsString) -> PFut,
+    PFut: std::future::Future<Output = Result<(), JsString>>,
 {
     if let Some(console_server) = &console_server {
         console_server.start().await?;
@@ -347,15 +350,15 @@ where
 
 /// Input for [`create_architect_console_server`].
 pub struct CreateArchitectConsoleServerInput {
-    pub control_db_path: String,
-    pub cwd: String,
+    pub control_db_path: JsString,
+    pub cwd: JsString,
     pub generation: u64,
     pub prompt_queue: Arc<ArchitectConsolePromptQueue>,
     pub session: AgentSession,
 }
 
 struct ArchitectConsoleHost {
-    cwd: String,
+    cwd: JsString,
     generation: u64,
     prompt_queue: Arc<ArchitectConsolePromptQueue>,
     session: AgentSession,
@@ -390,7 +393,7 @@ pub fn create_architect_console_server(
     input: CreateArchitectConsoleServerInput,
 ) -> ResidentConsoleServer<SessionEntry, AgentSessionEvent> {
     ResidentConsoleServer::new(ResidentConsoleServerOptions {
-        socket_path: std::path::PathBuf::from(format!("{}.architect-console.sock", input.control_db_path)),
+        socket_path: js_format!("{}.architect-console.sock", input.control_db_path),
         service: ResidentConsoleService::Architect,
         host: Arc::new(ArchitectConsoleHost {
             cwd: input.cwd,
@@ -415,72 +418,62 @@ impl SharedArchitectConsoleServer {
 }
 
 impl ArchitectConsoleServer for SharedArchitectConsoleServer {
-    fn start(&self) -> BoxFuture<'static, Result<(), String>> {
+    fn start(&self) -> BoxFuture<'static, Result<(), JsString>> {
         let server = Arc::clone(&self.server);
         Box::pin(async move { server.start().await })
     }
 
-    fn close(&self) -> BoxFuture<'static, Result<(), String>> {
+    fn close(&self) -> BoxFuture<'static, Result<(), JsString>> {
         let server = Arc::clone(&self.server);
         Box::pin(async move { server.close().await })
     }
 }
 
-/// `runArchitectService`.
-pub async fn run_architect_service() -> Result<(), String> {
-    let agent_dir = crate::config::get_agent_dir().display().to_string();
-    let cwd = pi_js_compat::process_env::get("HOME").unwrap_or_else(|| {
-        std::env::current_dir()
-            .map(|path| path.display().to_string())
-            .unwrap_or_default()
-    });
-    let session_dir = std::path::Path::new(&agent_dir).join("architect-sessions");
-    std::fs::create_dir_all(&session_dir).map_err(|error| error.to_string())?;
-    let suffix = format!("_{ARCHITECT_SESSION_ID}.jsonl");
-    let mut candidates: Vec<String> = std::fs::read_dir(&session_dir)
-        .map_err(|error| error.to_string())?
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            name.ends_with(&suffix).then_some(name)
-        })
-        .collect();
-    candidates.sort();
-    let session_dir_text = session_dir.display().to_string();
-    let session_path = candidates.last().map_or_else(
-        || session_dir.join(format!("{ARCHITECT_SESSION_ID}.jsonl")),
-        |name| session_dir.join(name),
-    );
-    let mut session_manager = if session_path.exists() {
-        SessionManager::open(&session_path.display().to_string(), Some(&session_dir_text), Some(&cwd))
+/// `openArchitectSession`.
+pub fn open_architect_session(
+    agent_dir: &JsString,
+    cwd: &JsString,
+    control_db_path: &JsString,
+) -> Result<SessionManager, JsString> {
+    let prepared = prepare_resident_session_file(agent_dir, ResidentRole::Architect, control_db_path)
+        .map_err(|error| error.message())?;
+    let session_dir = Some(&prepared.session_dir);
+    if std::path::Path::new(&pi_js_compat::js_json::encode_node_utf8(&prepared.session_path)).exists() {
+        SessionManager::open(&prepared.session_path, session_dir, Some(cwd))
     } else {
         SessionManager::create(
-            &cwd,
-            Some(&session_dir_text),
+            cwd,
+            session_dir,
             Some(crate::core::session_manager::NewSessionOptions {
-                id: Some(ARCHITECT_SESSION_ID.to_owned()),
+                id: Some(ARCHITECT_SESSION_ID.into()),
                 ..Default::default()
             }),
         )
     }
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message().clone())
+}
+
+/// `runArchitectService`.
+pub async fn run_architect_service() -> Result<(), JsString> {
+    let agent_dir = JsString::from(crate::config::get_agent_dir().display().to_string());
+    // `process.env.HOME ?? process.cwd()`.
+    let cwd = match pi_js_compat::process_env::get("HOME") {
+        Some(home) => JsString::from(home),
+        None => crate::utils::paths::process_cwd().map_err(|error| error.message().clone())?,
+    };
+    let control_db_path = get_control_db_path_default();
+    let mut session_manager = open_architect_session(&agent_dir, &cwd, &control_db_path)?;
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        auth_path: Some(std::path::Path::new(&agent_dir).join("auth.json").display().to_string()),
-        models_path: Some(Some(
-            std::path::Path::new(&agent_dir)
-                .join("models.json")
-                .display()
-                .to_string(),
-        )),
+        auth_path: Some(crate::utils::paths::node_join(agent_dir.clone(), "auth.json")),
+        models_path: Some(Some(crate::utils::paths::node_join(agent_dir.clone(), "models.json"))),
         ..Default::default()
     })
     .await
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| JsString::from(error.to_string()))?;
     let model = model_runtime
         .get_model("openai-codex", "gpt-5.6-sol")
-        .ok_or_else(|| "Pi Architect requires openai-codex/gpt-5.6-sol".to_owned())?;
+        .ok_or_else(|| JsString::from("Pi Architect requires openai-codex/gpt-5.6-sol"))?;
     let settings_manager = Arc::new(Mutex::new(create_architect_settings_manager()));
-    let control_db_path = get_control_db_path(&crate::config::get_user_state_root());
     let store = Arc::new(create_architect_multi_agent_store(
         &mut session_manager,
         Some(&control_db_path),
@@ -495,7 +488,7 @@ pub async fn run_architect_service() -> Result<(), String> {
                 &SentArchitectMessage {
                     thread_id: message.thread_id.clone(),
                     to_agent_id: message.to_agent_id.clone(),
-                    to_session_id: to_session_id.to_owned(),
+                    to_session_id: to_session_id.clone(),
                 },
             )
             .map_err(HandlerError::new)
@@ -509,13 +502,13 @@ pub async fn run_architect_service() -> Result<(), String> {
     });
 
     let architect_factory: ExtensionFactory = Arc::new(move |api| {
-        let result = (|| -> Result<(), String> {
+        let result = (|| -> Result<(), JsString> {
             register_architect_project_spec_tool(api)?;
             api.on_before_agent_start(|event: BeforeAgentStartEvent, _context: ExtensionContext| {
                 Box::pin(async move {
                     Ok(Some(BeforeAgentStartEventResult {
                         message: None,
-                        system_prompt: Some(format!("{}\n\n{ARCHITECT_SYSTEM_PROMPT}", event.system_prompt)),
+                        system_prompt: Some(js_format!("{}\n\n{}", event.system_prompt, ARCHITECT_SYSTEM_PROMPT)),
                     }))
                 }) as BoxFuture<'static, Result<Option<BeforeAgentStartEventResult>, HandlerError>>
             })?;
@@ -531,7 +524,7 @@ pub async fn run_architect_service() -> Result<(), String> {
                     )
                 }) as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>
             });
-            api.register_tool_gate(gate)
+            api.register_tool_gate(gate).map_err(JsString::from)
         })();
         Box::pin(async move { result.map_err(HandlerError::new) })
     });
@@ -542,15 +535,15 @@ pub async fn run_architect_service() -> Result<(), String> {
         disable_runtime_coordination_inbound: true,
         extension_factories: vec![
             InlineExtension::Factory {
-                extension_path: Some("<first-party:agents-mailbox>".to_owned()),
+                extension_path: Some("<first-party:agents-mailbox>".into()),
                 factory: mailbox_factory,
             },
             InlineExtension::Factory {
-                extension_path: Some("<first-party:bwrap>".to_owned()),
+                extension_path: Some("<first-party:bwrap>".into()),
                 factory: bwrap_extension_factory(BwrapExtensionOptions::default()),
             },
             InlineExtension::Factory {
-                extension_path: Some("<architect>".to_owned()),
+                extension_path: Some("<architect>".into()),
                 factory: architect_factory,
             },
         ],
@@ -596,13 +589,13 @@ pub async fn run_architect_service() -> Result<(), String> {
     );
     install_architect_stop_signals(stop);
     let prompt_session = session.clone();
-    let prompt = move |content: String| {
+    let prompt = move |content: JsString| {
         let session = prompt_session.clone();
         async move {
             session
                 .prompt(&content, PromptOptions::default())
                 .await
-                .map_err(|error| error.message().to_utf8_lossy())
+                .map_err(|error| error.message().clone())
         }
     };
     run_architect_service_loop(
