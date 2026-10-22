@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_ai::auth::oauth::load::{
@@ -53,7 +54,7 @@ async fn loader_registry_defaults_overrides_and_bun_registration() {
     assert_eq!(
         load_radius_oauth(RadiusOAuthOptions {
             name: "Radius".to_owned(),
-            gateway: "radius.example".to_owned(),
+            gateway: ("radius.example".to_owned()).into(),
         })
         .name(),
         "Radius"
@@ -65,8 +66,8 @@ async fn loader_registry_defaults_overrides_and_bun_registration() {
         .await
         .expect("github copilot flow is ported");
     assert_eq!(
-        auth.base_url.as_deref(),
-        Some("https://api.individual.githubcopilot.com")
+        auth.base_url.as_ref(),
+        Some(&JsString::from("https://api.individual.githubcopilot.com"))
     );
 
     register_bundled_oauth_flow_loaders(OAuthFlowLoaders {
@@ -93,7 +94,7 @@ async fn loader_registry_defaults_overrides_and_bun_registration() {
     assert_eq!(
         load_radius_oauth(RadiusOAuthOptions {
             name: "Radius".to_owned(),
-            gateway: "https://radius.example".to_owned(),
+            gateway: ("https://radius.example".to_owned()).into(),
         })
         .name(),
         "custom-radius"

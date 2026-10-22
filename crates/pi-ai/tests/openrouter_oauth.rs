@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::time::Duration;
 
 use pi_ai::auth::oauth::openrouter::OpenRouterOAuth;
@@ -21,7 +22,7 @@ fn verifier() -> String {
     .verifier
 }
 
-async fn wait_for_auth_url(interaction: &TestInteraction) -> String {
+async fn wait_for_auth_url(interaction: &TestInteraction) -> JsString {
     for _ in 0..200 {
         if let Some(AuthEvent::AuthUrl { url, .. }) = interaction
             .events()
@@ -125,7 +126,9 @@ async fn callback_exchange_failures_reach_the_page_and_the_login() {
     let error = login.await.expect("task").expect_err("exchange failure");
     assert_eq!(
         error.detail(),
-        Some("OpenRouter OAuth key exchange failed (HTTP 403): invalid code")
+        Some(&JsString::from(
+            "OpenRouter OAuth key exchange failed (HTTP 403): invalid code"
+        ))
     );
 }
 
@@ -150,7 +153,7 @@ async fn empty_manual_input_fails_without_a_token_request() {
     let interaction = TestInteraction::new(vec![PromptAnswer::Text("   ".to_owned())]);
 
     let error = oauth.login(interaction).await.expect_err("missing code");
-    assert_eq!(error.detail(), Some("Missing authorization code"));
+    assert_eq!(error.detail(), Some(&JsString::from("Missing authorization code")));
     assert!(recorded_requests(&fetch).is_empty());
 }
 
@@ -167,5 +170,5 @@ async fn refresh_is_identity_and_to_auth_uses_the_key() {
         .expect("refresh");
     assert_eq!(refreshed, credential);
     let auth = oauth.to_auth(credential).await.expect("auth");
-    assert_eq!(auth.api_key.as_deref(), Some("token"));
+    assert_eq!(auth.api_key.as_ref(), Some(&JsString::from("token")));
 }
