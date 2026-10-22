@@ -178,7 +178,7 @@ fn branch_summary_messages(
     }
     vec![create_branch_summary_message(
         summary,
-        &JsString::from(from_id),
+        &pi_js_compat::js_json::JsString::from(from_id),
         timestamp,
     )]
 }
