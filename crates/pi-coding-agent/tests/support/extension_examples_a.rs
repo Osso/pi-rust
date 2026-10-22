@@ -620,6 +620,9 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     &entry,
                     &EntryRenderOptions {
                         expanded: step["expanded"].as_bool().unwrap(),
+                        session_id: "fixture".into(),
+                        request_render: std::rc::Rc::new(|| false),
+                        register_cleanup: std::rc::Rc::new(|_| {}),
                     },
                     &theme,
                 )

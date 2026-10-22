@@ -1,42 +1,20 @@
 # components/custom-entry.ts
 
-Source: `coding-agent/src/modes/interactive/components/custom-entry.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/custom_entry.rs`
+Frozen: `4f9e6f8a4`, `packages/coding-agent/src/modes/interactive/components/custom-entry.ts:1–89`.
+Rust: `crates/pi-coding-agent/src/modes/interactive/components/custom_entry.rs`.
 
-Tests: `interactive_components_c.rs::custom_entry_*`, differential `customEntry`/`customEntryEmpty`.
-
-| Symbol / branch | Rust item | Proof |
+| Frozen symbol / branch | Rust | Proof |
 |---|---|---|
-| `CustomEntryComponent` | `CustomEntryComponent` | behavioral + differential |
-| `hasContent` | `has_content` | both differential cases |
-| `setExpanded` rebuild only on change | `set_expanded` | differential expanded/false |
-| `invalidate` rebuild | `Component::invalidate` | rebuild path |
-| renderer returns a component -> spacer + component | `rebuild` | differential |
-| renderer returns `undefined` -> no content | `Option` -> early return | `customEntryEmpty` |
+| options/sessionId/requestRender, 12–22, 49–58 | `CustomEntryComponentOptions`, `EntryRenderOptions` | `differential_custom_entry::custom_entry_replacement_cleanup_and_disposal_match_frozen` (present/empty output) |
+| constructor/hasContent/setExpanded, 24–40 | `new`, `has_content`, `set_expanded` | same differential; repeated identical expansion does not rebuild |
+| invalidate children then rebuild, 42–45 | `Component::invalidate` | exact generation/invalidation event sequence in same differential |
+| per-generation cleanup Set, 50, 56 | shared insertion-ordered callback list, Rc identity deduplication | registering the identical callback twice retires it once |
+| renderer exception box, 60–68 | `catch_panics`, `renderer_error_component` | `custom_entry_renderer_error_matches_frozen`: exact ANSI/UTF-16 rows including unpaired D800/DC00 |
+| replacement invocation before old cleanup/disposal, 70–78 | `rebuild`, `dispose_rendered_component` | exact three-generation event order, present/empty output |
+| cleanup then optional child disposal, 81–88; explicit clear, 47–50 | `dispose_rendered_component`, `Component::dispose` | double disposal is idempotent; empty renderer still owns cleanup; render after disposal empty |
+| raw entry payload | `CustomEntry`, `JsString` output | `raw_leaf_components::custom_entry_renderer_keeps_native_payload_when_expanded` |
+| mounted scoped callback, interactive-mode.ts:4777–4801 | weak component identity + chat region binding; dispose invisible entries | `render_region_container` capture-terminal proof covers region writes/retirement; mode integration has all-target compile proof, not a whole-mode TS differential |
 
-## Gaps
+Development proof: `/tmp/pi-rust-repin-lossless-interactive/test-custom-entry-renderer-red.log` (uncaught renderer panic before implementation), `test-custom-entry-lifecycle-red.log` (missing options/disposal), `test-scoped-entry-green-4.log` (2/2 entry differential tests).
 
-- The source catches renderer exceptions and renders a themed error box. Rust renderers
-  return `Option<ComponentRef>` and cannot throw; a panicking renderer is a bug, so the
-  catch path is not representable (typed API exclusion).
-
-## Discrepancies
-
-None found.
-
-## Q18 native render lines (2026-10-22)
-
-Component render output is Vec<JsString>; entry data and renderer output already
-use the native authority. raw_leaf_components checks raw payload in collapsed
-and expanded renderer output. Written but unexecuted while coding compilation
-is blocked. No common-pin whole-module parity claim.
-
-### re-pin gap: lifecycle contract absent (frozen 4f9e6f8a4 custom-entry.ts)
-
-Source `packages/coding-agent/src/modes/interactive/components/custom-entry.ts`:
-options/requestRender/sessionId at lines12–22 and constructor32; disposal58–61;
-EntryRenderOptions requestRender/sessionId/registerCleanup67–74; renderer-error
-fallback76–86; replacement-before-cleanup ordering89–96; cleanup/component
-disposal101–109. Rust lacks these contracts. Parent explicitly assigned this as
-a separate RED-first re-pin slice after library compilation, not a Q18 fix or
-approved semantic parity deviation.
+No newly approved deviations. Rust-native renderers report native throws through `UncaughtError`; optional component disposal is represented by the approved default no-op trait hook. Generic extension TUI render routing is unchanged.

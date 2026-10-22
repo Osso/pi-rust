@@ -72,9 +72,15 @@ pub fn throw_uncaught(label: &'static str, message: impl Into<JsString>) -> ! {
 /// `try { step } catch {}`: runs `step` and discards a panic from it. The
 /// hook runs before unwinding, so it must know the panic is expected.
 pub fn swallow_panics(step: impl FnOnce()) {
+    let _ = catch_panics(step);
+}
+
+/// Catch a renderer throw without invoking the process-level uncaught handler.
+pub fn catch_panics<T>(step: impl FnOnce() -> T) -> Result<T, Box<dyn Any + Send>> {
     let previous = SWALLOWING.replace(true);
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(step));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(step));
     SWALLOWING.set(previous);
+    result
 }
 
 /// Formats a panic payload the way Node's uncaught handler prints it.

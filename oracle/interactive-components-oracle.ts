@@ -147,6 +147,32 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return { renders, previews, submitted };
 	},
+	customEntryLifecycle: (api, request) => {
+		const events: unknown[] = [];
+		let generation = 0;
+		const component = new api.CustomEntryComponent({ customType: request.customType }, (_entry: any, options: any) => {
+			const current = ++generation;
+			events.push(["build", current, options.expanded, options.sessionId]);
+			if (!request.throws) events.push(["requested", options.requestRender()]);
+			const cleanup = () => events.push(["cleanup", current]);
+			options.registerCleanup(cleanup);
+			options.registerCleanup(cleanup);
+			if (request.throws) throw new Error(String.fromCharCode(...request.errorUnits));
+			if (request.empty) return undefined;
+			return { render: () => [`generation ${current}`], invalidate: () => events.push(["invalidate", current]), dispose: () => events.push(["dispose", current]) };
+		}, { sessionId: request.sessionId, requestRender: () => { events.push(["request"]); return true; } });
+		const frames = [component.render(request.width)];
+		if (!request.throws) {
+			component.setExpanded(true);
+			frames.push(component.render(request.width));
+			component.setExpanded(true);
+			component.invalidate();
+			frames.push(component.render(request.width));
+		}
+		component.dispose();
+		component.dispose();
+		return { frames: frames.map(lines => lines.map(line => Array.from({ length: line.length }, (_, i) => line.charCodeAt(i)))), events, hasContent: component.hasContent(), retired: component.render(request.width) };
+	},
 	customEntry: async (api, request, sourceRoot) => {
 		const tuiModule = (await import(pathToFileURL(`${sourceRoot}/../../tui/src/index.ts`).href)) as Api;
 		const entry = {
@@ -159,7 +185,7 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		};
 		const component = new api.CustomEntryComponent(entry, (value: any, options: any) => {
 			return new tuiModule.Text(`custom ${value.customType} expanded=${options.expanded}`, 0, 0);
-		});
+		}, { sessionId: "fixture", requestRender: () => false });
 		component.setExpanded(request.expanded);
 		return { lines: component.render(request.width), hasContent: component.hasContent() };
 	},
@@ -172,7 +198,7 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			parentId: null,
 			timestamp: "2026-01-01T00:00:00.000Z",
 		};
-		const component = new api.CustomEntryComponent(entry, () => undefined);
+		const component = new api.CustomEntryComponent(entry, () => undefined, { sessionId: "fixture", requestRender: () => false });
 		return { lines: component.render(request.width), hasContent: component.hasContent() };
 	},
 	customMessage: async (api, request, sourceRoot) => {
@@ -419,6 +445,52 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			});
 		}
 		return footer.render(request.width);
+	},
+	renderRegionContainer: (api, request) => {
+		const retired: number[] = [];
+		const children = [0, 1, 2].map(id => ({ render: () => [`child ${id}`], invalidate: () => {}, dispose: () => retired.push(id) }));
+		// An unstarted TUI cannot repaint a region. Screen-write success is tested with a real capture terminal.
+		const container = new api.RenderRegionContainer({ createRenderRegion: () => ({ place: () => {}, clear: () => {}, tryRender: () => false, dispose: () => {} }) });
+		const results: unknown[] = [];
+		container.addChild(children[0]);
+		results.push(container.requestChildRender(children[0]));
+		container.trackScopedChild(children[0]);
+		container.trackScopedChild(children[0]);
+		container.trackScopedChild(children[1]);
+		results.push(container.requestChildRender(children[1]));
+		results.push(container.requestChildRender(children[0]));
+		results.push(container.render(request.width));
+		container.place({ row: 3, col: 1, width: request.width, height: 1 });
+		results.push(container.requestChildRender(children[0]));
+		container.removeChild(children[0]);
+		container.removeChild(children[0]);
+		results.push(container.requestChildRender(children[0]));
+		container.addChild(children[2]);
+		results.push(container.render(request.width));
+		container.clear();
+		container.clear();
+		results.push(container.render(request.width));
+		return { results, retired };
+	},
+	rootCompositor: (api, request) => {
+		let height = request.sizes[0];
+		let events: unknown[] = [];
+		const rect = (value: any) => [value.row, value.col, value.width, value.height];
+		const component = (label: string) => ({ render: () => [label], invalidate: () => {} });
+		const onLayout = (label: string) => (layout: any) => events.push([label, rect(layout)]);
+		const root = api.createInteractiveRootCompositor({
+			getHeight: () => height, header: component("header"), loadedResources: component("resources"),
+			chat: component("chat"), onChatLayout: onLayout("chat"), transcriptTail: component("tail"), pendingMessages: component("pending"),
+			onTranscriptTailLayout: (layout: any) => events.push(["tail", rect(layout.rect), layout.flowEndRow, layout.bottomRow, layout.bottomHeight, layout.viewportHeight]),
+			status: component("status"), onStatusLayout: onLayout("status"), widgetAbove: component("above"),
+			onWidgetAboveLayout: request.widgetLayout ? onLayout("above") : undefined,
+			editor: component("editor"), onEditorLayout: onLayout("editor"), widgetBelow: component("below"), footer: component("footer"),
+		});
+		return request.sizes.map((size: number) => {
+			height = size;
+			events = [];
+			return { frame: root.render(request.width), events };
+		});
 	},
 	editorRestore: async (api, request, sourceRoot) => {
 		const tui = await import(pathToFileURL(`${sourceRoot}/../../tui/src/index.ts`).href);

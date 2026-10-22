@@ -302,6 +302,8 @@ fn interactive_root_compositor_preserves_order_and_reports_layouts() {
         editor: component(editor),
         widget_below: component(widget_below),
         footer: component(footer),
+        on_chat_layout: Rc::new(|_| {}),
+        on_widget_above_layout: None,
         on_status_layout: Rc::new(|_| {}),
         on_editor_layout,
     });
