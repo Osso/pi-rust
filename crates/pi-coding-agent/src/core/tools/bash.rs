@@ -4,6 +4,8 @@
 //! abort mapping, tail truncation with a full-output spill file, and the
 //! runner-owned detach path backed by the detached job lifecycle controller.
 
+use crate::utils::paths::{node_is_absolute, node_join};
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -20,7 +22,6 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_js_compat::number::js_number_to_string;
-use pi_js_compat::string::{js_trim, js_trim_end};
 use pi_tui::Text;
 use pi_tui::tui::{Component, ComponentRef, Container};
 use pi_tui::utils::truncate_to_width_with;
@@ -77,16 +78,16 @@ pub use crate::core::detached_job_runner::DetachedJobArtifacts;
 /// A command that moved to the background.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BashDetachedResult {
-    pub job_id: String,
-    pub message: String,
-    pub log_path: Option<String>,
+    pub job_id: JsString,
+    pub message: JsString,
+    pub log_path: Option<JsString>,
 }
 
 /// Detach request passed to [`BashOperations::exec`].
 #[derive(Clone)]
 pub struct BashDetachOptions {
     pub artifacts: Option<DetachedJobArtifacts>,
-    pub job_id: Option<String>,
+    pub job_id: Option<JsString>,
     pub signal: CancellationToken,
 }
 
@@ -94,8 +95,8 @@ pub struct BashDetachOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BashSpawnContext {
     pub command: JsString,
-    pub cwd: String,
-    pub env: BTreeMap<String, String>,
+    pub cwd: JsString,
+    pub env: BTreeMap<JsString, JsString>,
 }
 
 /// `BashSpawnHook`.
@@ -104,8 +105,8 @@ pub type BashSpawnHook = Arc<dyn Fn(BashSpawnContext) -> BashSpawnContext + Send
 /// Session metadata exposed as `PI_*` environment variables.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BashSessionEnvironment {
-    pub session_id: String,
-    pub session_file: Option<String>,
+    pub session_id: JsString,
+    pub session_file: Option<JsString>,
     pub provider: Option<String>,
     pub model: Option<String>,
     pub reasoning_level: Option<String>,
@@ -137,7 +138,7 @@ pub struct BashExecOptions {
     pub on_data: BashDataCallback,
     pub signal: Option<CancellationToken>,
     pub timeout: Option<f64>,
-    pub env: BTreeMap<String, String>,
+    pub env: BTreeMap<JsString, JsString>,
     pub detach: Option<BashDetachOptions>,
 }
 
@@ -146,7 +147,7 @@ pub trait BashOperations: Send + Sync {
     fn exec<'a>(
         &'a self,
         command: &'a JsString,
-        cwd: &'a str,
+        cwd: &'a JsString,
         options: BashExecOptions,
     ) -> BoxFuture<'a, Result<BashExecResult, ToolError>>;
 }
@@ -154,7 +155,7 @@ pub trait BashOperations: Send + Sync {
 /// Local shell execution.
 #[derive(Debug, Default, Clone)]
 pub struct LocalBashOperations {
-    shell_path: Option<String>,
+    shell_path: Option<JsString>,
 }
 
 impl LocalBashOperations {
@@ -162,7 +163,7 @@ impl LocalBashOperations {
         Self::default()
     }
 
-    pub fn with_shell_path(shell_path: impl Into<String>) -> Self {
+    pub fn with_shell_path(shell_path: impl Into<JsString>) -> Self {
         Self {
             shell_path: Some(shell_path.into()),
         }
@@ -170,7 +171,7 @@ impl LocalBashOperations {
 }
 
 /// Resolves the shell, validates the working directory, and runs the command.
-pub fn create_local_bash_operations(shell_path: Option<&str>) -> LocalBashOperations {
+pub fn create_local_bash_operations(shell_path: Option<&JsString>) -> LocalBashOperations {
     match shell_path {
         Some(shell_path) => LocalBashOperations::with_shell_path(shell_path),
         None => LocalBashOperations::new(),
@@ -198,27 +199,28 @@ impl BashOperations for LocalBashOperations {
     fn exec<'a>(
         &'a self,
         command: &'a JsString,
-        cwd: &'a str,
+        cwd: &'a JsString,
         options: BashExecOptions,
     ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
-        Box::pin(async move { exec_local(self.shell_path.as_deref(), command, cwd, options).await })
+        Box::pin(async move { exec_local(self.shell_path.as_ref(), command, cwd, options).await })
     }
 }
 
 async fn exec_local(
-    shell_path: Option<&str>,
+    shell_path: Option<&JsString>,
     command: &JsString,
-    cwd: &str,
+    cwd: &JsString,
     options: BashExecOptions,
 ) -> Result<BashExecResult, ToolError> {
     let timeout_ms = resolve_timeout_ms(options.timeout)?;
     if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
         return Err(ToolError::new("aborted"));
     }
-    let shell_config = get_shell_config(shell_path).map_err(|error| ToolError::new(error.to_string()))?;
-    if tokio::fs::metadata(cwd).await.is_err() {
-        return Err(ToolError::new(format!(
-            "Working directory does not exist: {cwd}\nCannot execute bash commands."
+    let shell_config = get_shell_config(shell_path).map_err(|error| ToolError::new(error.message().clone()))?;
+    if tokio::fs::metadata(encode_node_utf8(cwd)).await.is_err() {
+        return Err(ToolError::new(js_format!(
+            "Working directory does not exist: {}\nCannot execute bash commands.",
+            cwd
         )));
     }
 
@@ -231,18 +233,24 @@ async fn exec_local(
         None => None,
     };
 
-    let mut command_builder = tokio::process::Command::new(resolve_shell_executable(&shell_config.shell, cwd));
-    command_builder.current_dir(cwd);
+    let mut command_builder =
+        tokio::process::Command::new(encode_node_utf8(&resolve_shell_executable(&shell_config.shell, cwd)));
+    command_builder.current_dir(encode_node_utf8(cwd));
     if command_from_stdin {
-        command_builder.args(&shell_config.args);
+        command_builder.args(shell_config.args.iter().map(encode_node_utf8));
         command_builder.stdin(Stdio::piped());
     } else {
-        command_builder.args(&shell_config.args);
+        command_builder.args(shell_config.args.iter().map(encode_node_utf8));
         command_builder.arg(encode_node_utf8(command));
         command_builder.stdin(Stdio::null());
     }
     command_builder.env_clear();
-    command_builder.envs(&options.env);
+    command_builder.envs(
+        options
+            .env
+            .iter()
+            .map(|(name, value)| (encode_node_utf8(name), encode_node_utf8(value))),
+    );
     command_builder.stdout(match &output_file {
         Some(file) => Stdio::from(file.try_clone().map_err(|error| ToolError::new(error.to_string()))?),
         None => Stdio::piped(),
@@ -256,7 +264,7 @@ async fn exec_local(
 
     let mut child = command_builder
         .spawn()
-        .map_err(|error| ToolError::new(format!("spawn {} {}", shell_config.shell, node_error_code(&error))))?;
+        .map_err(|error| ToolError::new(js_format!("spawn {} {}", shell_config.shell, node_error_code(&error))))?;
     let child_pid = child.id();
     if let Some(pid) = child_pid {
         track_detached_child_pid(pid);
@@ -314,8 +322,8 @@ async fn exec_local(
                     });
                 }
                 detached = Some(BashDetachedResult {
-                    job_id: "background".to_owned(),
-                    message: "Background job started".to_owned(),
+                    job_id: "background".into(),
+                    message: "Background job started".into(),
                     log_path: None,
                 });
                 None
@@ -350,7 +358,7 @@ async fn exec_local(
         untrack_detached_child_pid(pid);
     }
     if let Some(artifacts) = options.detach.as_ref().and_then(|detach| detach.artifacts.as_ref()) {
-        let _ = std::fs::remove_dir_all(&artifacts.directory);
+        let _ = std::fs::remove_dir_all(encode_node_utf8(&artifacts.directory));
     }
     if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
         return Err(ToolError::new("aborted"));
@@ -372,22 +380,23 @@ async fn exec_local(
     })
 }
 
-fn resolve_shell_executable(shell: &str, cwd: &str) -> String {
-    if Path::new(shell).is_absolute() || !shell.contains(['/', '\\']) {
-        return shell.to_owned();
+fn resolve_shell_executable(shell: &JsString, cwd: &JsString) -> JsString {
+    if node_is_absolute(shell) || (!shell.contains('/') && !shell.contains('\\')) {
+        shell.clone()
+    } else {
+        node_join(cwd, shell)
     }
-    Path::new(cwd).join(shell).to_string_lossy().into_owned()
 }
 
-fn open_output_file(path: &str) -> Result<std::fs::File, ToolError> {
+fn open_output_file(path: &JsString) -> Result<std::fs::File, ToolError> {
     use std::os::unix::fs::OpenOptionsExt;
     std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .mode(0o600)
-        .open(path)
-        .map_err(|error| ToolError::new(format!("open {path} {}", node_error_code(&error))))
+        .open(encode_node_utf8(path))
+        .map_err(|error| ToolError::new(js_format!("open {} {}", path, node_error_code(&error))))
 }
 
 fn spawn_reader<R>(mut reader: R, on_data: BashDataCallback) -> tokio::task::JoinHandle<()>
@@ -405,7 +414,7 @@ where
     })
 }
 
-fn spawn_output_poller(path: String, on_data: BashDataCallback) -> DurableOutputPoller {
+fn spawn_output_poller(path: JsString, on_data: BashDataCallback) -> DurableOutputPoller {
     let offset = Arc::new(AtomicU64::new(0));
     let poll_offset = Arc::clone(&offset);
     let poll_path = path.clone();
@@ -419,7 +428,7 @@ fn spawn_output_poller(path: String, on_data: BashDataCallback) -> DurableOutput
 }
 
 struct DurableOutputPoller {
-    path: String,
+    path: JsString,
     offset: Arc<AtomicU64>,
     task: tokio::task::JoinHandle<()>,
 }
@@ -430,8 +439,8 @@ impl DurableOutputPoller {
     }
 }
 
-fn poll_durable_output(path: &str, offset: &AtomicU64, on_data: &BashDataCallback) {
-    let Ok(bytes) = std::fs::read(path) else {
+fn poll_durable_output(path: &JsString, offset: &AtomicU64, on_data: &BashDataCallback) {
+    let Ok(bytes) = std::fs::read(encode_node_utf8(path)) else {
         return;
     };
     loop {
@@ -470,9 +479,9 @@ pub struct BashToolOptions {
     /// Custom shell execution. Default: local shell.
     pub operations: Option<Arc<dyn BashOperations>>,
     /// Prefix prepended to every command on its own line.
-    pub command_prefix: Option<String>,
+    pub command_prefix: Option<JsString>,
     /// Shell executable override for local execution.
-    pub shell_path: Option<String>,
+    pub shell_path: Option<JsString>,
     /// Whether to expose `PI_*` session environment variables. Default: true.
     pub expose_session_environment: Option<bool>,
     /// Hook to adjust command, cwd, or env before execution.
@@ -489,12 +498,12 @@ pub struct BashToolOptions {
 
 /// Executes shell commands.
 pub struct BashTool {
-    cwd: String,
+    cwd: JsString,
     parameters: SchemaValue,
     operations: Arc<dyn BashOperations>,
     custom_operations: bool,
-    command_prefix: Option<String>,
-    shell_path: Option<String>,
+    command_prefix: Option<JsString>,
+    shell_path: Option<JsString>,
     expose_session_environment: bool,
     spawn_hook: Option<BashSpawnHook>,
     session_environment: Option<BashSessionEnvironmentProvider>,
@@ -504,16 +513,16 @@ pub struct BashTool {
 }
 
 impl BashTool {
-    pub fn new(cwd: impl Into<String>) -> Self {
+    pub fn new(cwd: impl Into<JsString>) -> Self {
         Self::with_options(cwd, BashToolOptions::default())
     }
 
-    pub fn with_options(cwd: impl Into<String>, options: BashToolOptions) -> Self {
+    pub fn with_options(cwd: impl Into<JsString>, options: BashToolOptions) -> Self {
         let custom_operations = options.operations.is_some();
         let shell_path = options.shell_path.clone();
         let operations = options
             .operations
-            .unwrap_or_else(|| Arc::new(create_local_bash_operations(options.shell_path.as_deref())));
+            .unwrap_or_else(|| Arc::new(create_local_bash_operations(options.shell_path.as_ref())));
         Self {
             cwd: cwd.into(),
             parameters: bash_schema(),
@@ -617,8 +626,8 @@ impl AgentTool for BashTool {
 struct BashExecutionOptions {
     operations: Arc<dyn BashOperations>,
     custom_operations: bool,
-    command_prefix: Option<String>,
-    shell_path: Option<String>,
+    command_prefix: Option<JsString>,
+    shell_path: Option<JsString>,
     expose_session_environment: bool,
     spawn_hook: Option<BashSpawnHook>,
     session_environment: Option<BashSessionEnvironmentProvider>,
@@ -629,7 +638,7 @@ struct BashExecutionOptions {
 
 fn resolve_spawn_context(
     command: JsString,
-    cwd: &str,
+    cwd: &JsString,
     spawn_hook: Option<&BashSpawnHook>,
     expose_session_environment: bool,
     session_environment: Option<&BashSessionEnvironmentProvider>,
@@ -642,7 +651,7 @@ fn resolve_spawn_context(
         "PI_MODEL",
         "PI_REASONING_LEVEL",
     ] {
-        env.remove(name);
+        env.remove(&JsString::from(name));
     }
     if expose_session_environment && let Some(session) = session_environment.and_then(|provider| provider()) {
         env.insert("PI_SESSION_ID".into(), session.session_id);
@@ -650,11 +659,11 @@ fn resolve_spawn_context(
             env.insert("PI_SESSION_FILE".into(), session_file);
         }
         if let (Some(provider), Some(model)) = (session.provider, session.model) {
-            env.insert("PI_PROVIDER".into(), provider);
-            env.insert("PI_MODEL".into(), model);
+            env.insert("PI_PROVIDER".into(), provider.into());
+            env.insert("PI_MODEL".into(), model.into());
         }
         if let Some(reasoning_level) = session.reasoning_level {
-            env.insert("PI_REASONING_LEVEL".into(), reasoning_level);
+            env.insert("PI_REASONING_LEVEL".into(), reasoning_level.into());
         }
     }
     let base = BashSpawnContext {
@@ -669,7 +678,7 @@ fn resolve_spawn_context(
 }
 
 async fn execute_bash(
-    cwd: &str,
+    cwd: &JsString,
     options: BashExecutionOptions,
     tool_call_id: String,
     params: JsValue,
@@ -722,7 +731,7 @@ async fn execute_bash(
     let env = spawn_context.env.clone();
     let command = spawn_context.command.clone();
     let output = Arc::new(Mutex::new(OutputAccumulator::new(OutputAccumulatorOptions {
-        temp_file_prefix: "pi-bash".to_owned(),
+        temp_file_prefix: "pi-bash".into(),
         ..OutputAccumulatorOptions::default()
     })));
     let throttle = Arc::new(UpdateThrottle::new(on_update));
@@ -783,7 +792,7 @@ async fn execute_bash(
     }
 
     accepting_output.store(false, Ordering::SeqCst);
-    let snapshot = finish_output(&output, &throttle);
+    let snapshot = finish_output(&output, &throttle)?;
     match result {
         Ok(result) if result.detached.is_some() => {
             let detached = result.detached.expect("detached result");
@@ -836,10 +845,10 @@ impl ToolDetachHandle for BashDetachHandle {
 
 struct RunnerOwnedOptions {
     detach: BashDetachOptions,
-    env: BTreeMap<String, String>,
+    env: BTreeMap<JsString, JsString>,
     lifecycle: Arc<DetachedJobLifecycleController>,
     on_data: BashDataCallback,
-    shell_path: Option<String>,
+    shell_path: Option<JsString>,
     signal: Option<CancellationToken>,
     timeout: Option<f64>,
     tool_call_id: String,
@@ -852,10 +861,11 @@ struct BashRunnerResult {
 
 async fn execute_runner_owned_bash(
     command: &JsString,
-    cwd: &str,
+    cwd: &JsString,
     options: RunnerOwnedOptions,
 ) -> Result<BashRunnerResult, ToolError> {
-    let shell = get_shell_config(options.shell_path.as_deref()).map_err(|error| ToolError::new(error.to_string()))?;
+    let shell =
+        get_shell_config(options.shell_path.as_ref()).map_err(|error| ToolError::new(error.message().clone()))?;
     if shell.command_transport == CommandTransport::Stdin {
         return Err(ToolError::new(
             "Detached Bash runner does not support stdin shell transport",
@@ -864,7 +874,7 @@ async fn execute_runner_owned_bash(
     if let Some(restored) = wait_for_restored_bash_job(&options).await? {
         return Ok(restored);
     }
-    let mut args = shell.args.iter().map(JsString::from).collect::<Vec<_>>();
+    let mut args = shell.args.clone();
     args.push(command.clone());
     let runner = options
         .lifecycle
@@ -914,11 +924,11 @@ async fn wait_for_restored_bash_job(options: &RunnerOwnedOptions) -> Result<Opti
         .and_then(|file_refs| {
             file_refs
                 .iter()
-                .find(|file_ref| file_ref.label.as_deref() == Some("Bash output"))
+                .find(|file_ref| file_ref.label.as_ref().is_some_and(|label| label == "Bash output"))
                 .map(|file_ref| file_ref.path.clone())
         });
     if let Some(output_path) = output_path
-        && let Ok(output) = std::fs::read(&output_path)
+        && let Ok(output) = std::fs::read(encode_node_utf8(&output_path))
     {
         (options.on_data)(&output);
     }
@@ -960,7 +970,7 @@ fn format_timeout_seconds(timeout: f64) -> String {
 
 async fn observe_foreground_bash_runner(
     runner: crate::core::detached_job_runner::LaunchedDetachedBashJob,
-    cwd: &str,
+    cwd: &JsString,
     options: &RunnerOwnedOptions,
 ) -> Result<BashRunnerResult, ToolError> {
     let mut output_offset = 0_u64;
@@ -988,7 +998,7 @@ fn forward_bash_runner_output(
     output_offset: u64,
     on_data: &BashDataCallback,
 ) -> u64 {
-    let Ok(output) = std::fs::read(&runner.artifacts.output_path) else {
+    let Ok(output) = std::fs::read(encode_node_utf8(&runner.artifacts.output_path)) else {
         return output_offset;
     };
     if output.len() as u64 <= output_offset {
@@ -1021,8 +1031,8 @@ fn settle_foreground_bash_runner(
     if is_process_identity_alive(&runner.process_identity) {
         return Ok(None);
     }
-    let runner_error_path = format!("{}.runner-error", runner.manifest_path);
-    if let Ok(message) = std::fs::read_to_string(&runner_error_path) {
+    let runner_error_path = js_format!("{}.runner-error", runner.manifest_path);
+    if let Ok(message) = std::fs::read_to_string(encode_node_utf8(&runner_error_path)) {
         return Err(ToolError::new(message.trim().to_owned()));
     }
     if aborted {
@@ -1031,11 +1041,11 @@ fn settle_foreground_bash_runner(
     Err(ToolError::new("Detached Bash runner exited without producing a result"))
 }
 
-fn read_foreground_bash_completion(path: &str) -> Result<Option<DetachedBashForegroundCompletion>, ToolError> {
-    if !Path::new(path).exists() {
+fn read_foreground_bash_completion(path: &JsString) -> Result<Option<DetachedBashForegroundCompletion>, ToolError> {
+    if !Path::new(&encode_node_utf8(path)).exists() {
         return Ok(None);
     }
-    let data = std::fs::read_to_string(path).map_err(|error| ToolError::new(error.to_string()))?;
+    let data = std::fs::read_to_string(encode_node_utf8(path)).map_err(|error| ToolError::new(error.to_string()))?;
     let value = pi_js_compat::js_json::parse_lossless(&data).map_err(|error| ToolError::new(error.to_string()))?;
     pi_js_compat::js_json::from_value(&value)
         .map(Some)
@@ -1044,7 +1054,7 @@ fn read_foreground_bash_completion(path: &str) -> Result<Option<DetachedBashFore
 
 fn activate_detached_bash_runner(
     runner: &crate::core::detached_job_runner::LaunchedDetachedBashJob,
-    cwd: &str,
+    cwd: &JsString,
     options: &RunnerOwnedOptions,
 ) -> Result<Option<(DetachedJobOwnership, BashRunnerResult)>, ToolError> {
     if !is_process_identity_alive(&runner.process_identity) {
@@ -1077,7 +1087,7 @@ fn activate_detached_bash_runner(
             exit_code: None,
             detached: Some(BashDetachedResult {
                 job_id: runner.job_id.clone(),
-                message: format!("Detached bash command as background job {}.", runner.job_id),
+                message: format!("Detached bash command as background job {}.", runner.job_id).into(),
                 log_path: Some(runner.artifacts.output_path.clone()),
             }),
         },
@@ -1091,7 +1101,7 @@ fn terminate_foreground_bash_runner(pid: u32) {
 fn finish_output(
     output: &Arc<Mutex<OutputAccumulator>>,
     throttle: &Arc<UpdateThrottle>,
-) -> super::output_accumulator::OutputSnapshot {
+) -> Result<super::output_accumulator::OutputSnapshot, ToolError> {
     let mut accumulator = output.lock().expect("output lock");
     accumulator.finish();
     throttle.mark_finished();
@@ -1101,18 +1111,20 @@ fn finish_output(
     if throttle.take_dirty() {
         throttle.emit_snapshot(&snapshot);
     }
-    let _ = accumulator.close_temp_file();
-    snapshot
+    accumulator
+        .close_temp_file()
+        .map_err(|error| ToolError::new(super::node_fs::node_fs_error(&error, "close", "")))?;
+    Ok(snapshot)
 }
 
 fn format_output(
     output: &Arc<Mutex<OutputAccumulator>>,
     snapshot: &super::output_accumulator::OutputSnapshot,
     empty_text: &str,
-) -> (String, Option<Value>) {
+) -> (JsString, Option<Value>) {
     let truncation = &snapshot.truncation;
     let mut text = if snapshot.content.is_empty() {
-        empty_text.to_owned()
+        JsString::from(empty_text)
     } else {
         snapshot.content.clone()
     };
@@ -1123,30 +1135,39 @@ fn format_output(
             pi_js_compat::js_json::to_value(truncation).expect("truncation metadata must serialize"),
         );
         if let Some(path) = &snapshot.full_output_path {
-            details.insert("fullOutputPath".into(), Value::String(path.clone().into()));
+            details.insert("fullOutputPath".into(), Value::String(path.clone()));
         }
         let start_line = truncation.total_lines - truncation.output_lines + 1;
         let end_line = truncation.total_lines;
-        let full_output_path = snapshot.full_output_path.clone().unwrap_or_default();
-        if truncation.last_line_partial {
-            let last_line_bytes = output.lock().expect("output lock").last_line_bytes();
-            text.push_str(&format!(
-                "\n\n[Showing last {} of line {end_line} (line is {}). Full output: {full_output_path}]",
+        let path = snapshot.full_output_path.clone().unwrap_or_default();
+        let notice = if truncation.last_line_partial {
+            let last_bytes = output.lock().expect("output lock").last_line_bytes();
+            js_format!(
+                "\n\n[Showing last {} of line {} (line is {}). Full output: {}]",
                 format_size(truncation.output_bytes),
-                format_size(last_line_bytes)
-            ));
+                end_line.to_string(),
+                format_size(last_bytes),
+                path
+            )
         } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
-            text.push_str(&format!(
-                "\n\n[Showing lines {start_line}-{end_line} of {}. Full output: {full_output_path}]",
-                truncation.total_lines
-            ));
+            js_format!(
+                "\n\n[Showing lines {}-{} of {}. Full output: {}]",
+                start_line.to_string(),
+                end_line.to_string(),
+                truncation.total_lines.to_string(),
+                path
+            )
         } else {
-            text.push_str(&format!(
-                "\n\n[Showing lines {start_line}-{end_line} of {} ({} limit). Full output: {full_output_path}]",
-                truncation.total_lines,
-                format_size(DEFAULT_MAX_BYTES)
-            ));
-        }
+            js_format!(
+                "\n\n[Showing lines {}-{} of {} ({} limit). Full output: {}]",
+                start_line.to_string(),
+                end_line.to_string(),
+                truncation.total_lines.to_string(),
+                format_size(DEFAULT_MAX_BYTES),
+                path
+            )
+        };
+        text.push_str(notice);
     }
     (text, (!details.is_empty()).then_some(Value::Object(details)))
 }
@@ -1167,7 +1188,7 @@ fn format_detached_output(
     detached: BashDetachedResult,
 ) -> AgentToolResult {
     let (text, _) = format_output(output, &snapshot, "");
-    let text = js_trim_end(&text).to_owned();
+    let text = text.trim_end();
     let mut details = Map::new();
     details.insert("backgroundJobId".into(), Value::String(detached.job_id.clone().into()));
     if let Some(log_path) = &detached.log_path {
@@ -1176,9 +1197,10 @@ fn format_detached_output(
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(append_status(
             &text,
-            &format!(
+            js_format!(
                 "Command moved to background as job {}. {}",
-                detached.job_id, detached.message
+                detached.job_id,
+                detached.message
             ),
         )))],
         details: Some(Value::Object(details)),
@@ -1286,29 +1308,28 @@ impl UpdateThrottle {
 // Renderers
 // ============================================================================
 
-fn format_bash_call(args: &JsValue) -> String {
+fn format_bash_call(args: &JsValue) -> JsString {
     let theme = current_theme();
-    let command = str_value(args.get("command"));
     let timeout = args.get("timeout").and_then(Value::as_f64);
-    let timeout_suffix = match timeout {
+    let suffix = match timeout {
         Some(timeout) if timeout != 0.0 && !timeout.is_nan() => theme.fg(
             ThemeColor::Muted,
-            &format!(" (timeout {}s)", js_number_to_string(timeout)),
+            format!(" (timeout {}s)", js_number_to_string(timeout)),
         ),
-        _ => String::new(),
+        _ => JsString::default(),
     };
-    let command_display = match command {
+    let command = match str_value(args.get("command")) {
         None => invalid_arg_text(&theme),
         Some(command) if command.is_empty() => theme.fg(ThemeColor::ToolOutput, "..."),
         Some(command) => command,
     };
-    format!(
-        "{}{timeout_suffix}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold(&format!("$ {command_display}")))
+    js_format!(
+        "{}{}",
+        theme.fg(ThemeColor::ToolTitle, theme.bold(js_format!("$ {}", command))),
+        suffix
     )
 }
 
-/// `renderCall` for the bash tool.
 pub fn render_call(args: &JsValue, _theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     if context.execution_started {
         context.state.update(|state| {
@@ -1324,11 +1345,9 @@ pub fn render_call(args: &JsValue, _theme: &Theme, context: &ToolRenderContext) 
 }
 
 const BASH_PREVIEW_LINES: usize = 5;
-
 fn format_duration(ms: f64) -> String {
     format!("{:.1}s", ms / 1000.0)
 }
-
 fn now_millis() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1336,34 +1355,29 @@ fn now_millis() -> f64 {
         .unwrap_or_default()
 }
 
-/// Collapsed bash output: the last `BASH_PREVIEW_LINES` visual lines plus a hint.
 struct BashPreviewComponent {
-    styled_output: String,
+    styled_output: JsString,
     theme: Theme,
 }
-
 impl Component for BashPreviewComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let preview = truncate_to_visual_lines(&self.styled_output, BASH_PREVIEW_LINES, width, 0);
+        let mut lines = vec![JsString::default()];
         if preview.skipped_count > 0 {
-            let hint = format!(
+            let hint = js_format!(
                 "{} {}{}",
                 self.theme.fg(
                     ThemeColor::Muted,
-                    &format!("... ({} earlier lines,", preview.skipped_count)
+                    format!("... ({} earlier lines,", preview.skipped_count)
                 ),
                 key_hint("app.tools.expand", "to expand"),
                 self.theme.fg(ThemeColor::Muted, ")")
             );
-            let mut lines = vec![String::new(), truncate_to_width_with(&hint, width, "...", false)];
-            lines.extend(preview.visual_lines);
-            return lines;
+            lines.push(truncate_to_width_with(&hint, width, "...", false));
         }
-        let mut lines = vec![String::new()];
         lines.extend(preview.visual_lines);
         lines
     }
-
     fn wants_input(&self) -> bool {
         false
     }
@@ -1372,107 +1386,87 @@ impl Component for BashPreviewComponent {
 fn truncation_details(result: &AgentToolResult) -> Option<TruncationResult> {
     result
         .details
-        .as_ref()
-        .and_then(|details| details.get("truncation"))
-        .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok())
+        .as_ref()?
+        .get("truncation")
+        .and_then(|value| pi_js_compat::js_json::from_value(value).ok())
 }
-
-fn full_output_path(result: &AgentToolResult) -> Option<String> {
-    result
-        .details
-        .as_ref()
-        .and_then(|details| details.get("fullOutputPath"))
-        .and_then(Value::as_string)
-        .map(encode_node_utf8)
+fn full_output_path(result: &AgentToolResult) -> Option<JsString> {
+    result.details.as_ref()?.get("fullOutputPath")?.as_string().cloned()
 }
-
 fn strip_truncation_footer(
-    output: &str,
+    output: &JsString,
     truncation: Option<&TruncationResult>,
-    full_output_path: Option<&str>,
-) -> String {
-    let Some(full_output_path) = full_output_path else {
-        return output.to_owned();
+    path: Option<&JsString>,
+) -> JsString {
+    let Some(path) = path else {
+        return output.clone();
     };
     if !truncation.is_some_and(|truncation| truncation.truncated) || !output.ends_with(']') {
-        return output.to_owned();
+        return output.clone();
     }
-    let Some(footer_start) = output.rfind("\n\n[") else {
-        return output.to_owned();
+    let marker = JsString::from("\n\n[");
+    let Some(start) = output
+        .units()
+        .windows(marker.len())
+        .rposition(|units| units == marker.units())
+    else {
+        return output.clone();
     };
-    if !output[footer_start..].contains(full_output_path) {
-        return output.to_owned();
+    if !output.slice(start, output.len()).contains(path) {
+        return output.clone();
     }
-    js_trim_end(&output[..footer_start]).to_owned()
+    output.slice(0, start).trim_end()
 }
-
-fn format_truncation_warnings(truncation: Option<&TruncationResult>, full_output_path: Option<&str>) -> Option<String> {
-    if !truncation.is_some_and(|truncation| truncation.truncated) && full_output_path.is_none() {
+fn format_truncation_warnings(truncation: Option<&TruncationResult>, path: Option<&JsString>) -> Option<JsString> {
+    if !truncation.is_some_and(|truncation| truncation.truncated) && path.is_none() {
         return None;
     }
     let mut warnings = Vec::new();
-    if let Some(full_output_path) = full_output_path {
-        warnings.push(format!("Full output: {full_output_path}"));
+    if let Some(path) = path {
+        warnings.push(js_format!("Full output: {}", path));
     }
     if let Some(truncation) = truncation.filter(|truncation| truncation.truncated) {
-        if truncation.truncated_by == Some(TruncatedBy::Lines) {
-            warnings.push(format!(
+        warnings.push(if truncation.truncated_by == Some(TruncatedBy::Lines) {
+            format!(
                 "Truncated: showing {} of {} lines",
                 truncation.output_lines, truncation.total_lines
-            ));
+            )
+            .into()
         } else {
-            warnings.push(format!(
+            format!(
                 "Truncated: {} lines shown ({} limit)",
                 truncation.output_lines,
                 format_size(truncation.max_bytes)
-            ));
-        }
+            )
+            .into()
+        });
     }
-    Some(warnings.join(". "))
+    Some(JsString::join(warnings, ". "))
 }
-
-/// `renderResult` for the bash tool.
-pub fn render_result(
-    result: &AgentToolResult,
+fn append_bash_output(component: &mut Container, output: &JsString, options: &ToolRenderResultOptions, theme: &Theme) {
+    if output.is_empty() {
+        return;
+    }
+    let styled = JsString::join(
+        output.split('\n').map(|line| theme.fg(ThemeColor::ToolOutput, line)),
+        "\n",
+    );
+    let body: ComponentRef = if options.expanded {
+        Rc::new(RefCell::new(Text::new(js_format!("\n{}", styled), 0, 0)))
+    } else {
+        Rc::new(RefCell::new(BashPreviewComponent {
+            styled_output: styled,
+            theme: theme.clone(),
+        }))
+    };
+    component.add_child(body);
+}
+fn append_bash_duration(
+    component: &mut Container,
     options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    let mut component = Container::new();
-    let truncation = truncation_details(result);
-    let full_output_path = full_output_path(result);
-
-    let output = js_trim(&get_text_output(Some(result), context.show_images)).to_owned();
-    let output = if !options.is_partial {
-        strip_truncation_footer(&output, truncation.as_ref(), full_output_path.as_deref())
-    } else {
-        output
-    };
-
-    if !output.is_empty() {
-        let styled_output = output
-            .split('\n')
-            .map(|line| theme.fg(ThemeColor::ToolOutput, line))
-            .collect::<Vec<_>>()
-            .join("\n");
-        if options.expanded {
-            component.add_child(Rc::new(RefCell::new(Text::new(format!("\n{styled_output}"), 0, 0))));
-        } else {
-            component.add_child(Rc::new(RefCell::new(BashPreviewComponent {
-                styled_output,
-                theme: theme.clone(),
-            })));
-        }
-    }
-
-    if let Some(warnings) = format_truncation_warnings(truncation.as_ref(), full_output_path.as_deref()) {
-        component.add_child(Rc::new(RefCell::new(Text::new(
-            format!("\n{}", theme.fg(ThemeColor::Warning, &format!("[{warnings}]"))),
-            0,
-            0,
-        ))));
-    }
-
+) {
     if !options.is_partial || context.is_error {
         context.state.update(|state| {
             if let Value::Object(state) = state
@@ -1483,27 +1477,48 @@ pub fn render_result(
         });
     }
     let state = context.state.get();
-    if let Some(started_at) = state.get("startedAt").and_then(Value::as_f64) {
-        let ended_at = state.get("endedAt").and_then(Value::as_f64).unwrap_or_else(now_millis);
+    if let Some(start) = state.get("startedAt").and_then(Value::as_f64) {
+        let end = state.get("endedAt").and_then(Value::as_f64).unwrap_or_else(now_millis);
         let label = if options.is_partial { "Elapsed" } else { "Took" };
         component.add_child(Rc::new(RefCell::new(Text::new(
-            format!(
+            js_format!(
                 "\n{}",
-                theme.fg(
-                    ThemeColor::Muted,
-                    &format!("{label} {}", format_duration(ended_at - started_at))
-                )
+                theme.fg(ThemeColor::Muted, format!("{label} {}", format_duration(end - start)))
             ),
             0,
             0,
         ))));
     }
-
+}
+pub fn render_result(
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    let mut component = Container::new();
+    let truncation = truncation_details(result);
+    let path = full_output_path(result);
+    let output = get_text_output(Some(result), context.show_images).trim();
+    let output = if options.is_partial {
+        output
+    } else {
+        strip_truncation_footer(&output, truncation.as_ref(), path.as_ref())
+    };
+    append_bash_output(&mut component, &output, options, theme);
+    if let Some(warnings) = format_truncation_warnings(truncation.as_ref(), path.as_ref()) {
+        component.add_child(Rc::new(RefCell::new(Text::new(
+            js_format!("\n{}", theme.fg(ThemeColor::Warning, js_format!("[{}]", warnings))),
+            0,
+            0,
+        ))));
+    }
+    append_bash_duration(&mut component, options, theme, context);
     Rc::new(RefCell::new(component))
 }
 
 /// `createBashToolDefinition`: the bash tool plus its renderers.
-pub fn create_bash_tool_definition(cwd: &str, options: BashToolOptions) -> ToolDefinition {
+pub fn create_bash_tool_definition(cwd: impl Into<JsString>, options: BashToolOptions) -> ToolDefinition {
     let expose_session_environment = options.expose_session_environment.unwrap_or(true);
     let tool: Arc<dyn AgentTool> = Arc::new(BashTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
@@ -1521,6 +1536,6 @@ pub fn create_bash_tool_definition(cwd: &str, options: BashToolOptions) -> ToolD
 }
 
 /// `createBashTool`: the bash tool wrapped with the shared result cap.
-pub fn create_bash_tool(cwd: &str, options: BashToolOptions) -> Arc<dyn AgentTool> {
+pub fn create_bash_tool(cwd: impl Into<JsString>, options: BashToolOptions) -> Arc<dyn AgentTool> {
     wrap_agent_tool(Arc::new(BashTool::with_options(cwd, options)))
 }

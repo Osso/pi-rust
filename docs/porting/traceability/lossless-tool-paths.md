@@ -51,6 +51,12 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## Bash propagation checkpoint (compiler-boundary only)
+
+Bash tool cwd, custom operations/spawn hooks, environment keys/values, command prefix, shell override and detached message/log-path/job-id fields are native. Local spawn/argv/environment and filesystem calls alone encode. Session IDs/files are native; approved scalar provider/model/reasoning metadata converts once into native env values. Call/result/preview/footer/warning rendering remains native through actual components. `finish_output` now returns close failures instead of dropping them; source close formatting uses the shared Node helper.
+
+`lossless_bash.rs` records a custom hook/exec raw cwd/command/env test, **not executed yet**. `bash-detached-check.jsonl` probes the then-current in-progress source: 13 Bash primary diagnostics (12 scalar detached API dependencies, one constant prefix conversion fixed after the probe), not runtime proof. Detached chain remains pending, so no Bash acceptance. Outside callers: bwrap/backend.rs BashOperations implementation, AgentSession/SDK BashSessionEnvironment construction, bash option/operation tests. Main owns external production adapters; this lane owns dedicated tests.
+
 ## Output accumulator checkpoint
 
 OutputSnapshot.content/full_output_path, retained tail text, temp-file prefix and configured/persisted paths are native. Removed the checked `truncation.content.to_utf8().expect(...)` projection. Decoded process bytes enter the native tail; byte counts and rolling tail clipping retain the frozen explicit Buffer boundary. Temp paths encode only at File::create. `accumulator-red.log`: compiler RED. `accumulator-green.log`: **1/1 actual-module test PASS, zero warnings**, original raw configured path remains in the snapshot while actual disk bytes/path match Node encoding.
