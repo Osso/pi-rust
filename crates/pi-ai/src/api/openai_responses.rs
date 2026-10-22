@@ -210,10 +210,7 @@ pub fn build_params(
         params.insert("service_tier".into(), JsValue::String(service_tier.clone().into()));
     }
     if let Some(tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
-        params.insert(
-            "tools".into(),
-            convert_responses_tools(tools, None).map_err(|error| error.message)?,
-        );
+        params.insert("tools".into(), convert_responses_tools(tools, None));
     }
     if let Some(tool_choice) = &options.tool_choice {
         params.insert("tool_choice".into(), tool_choice.clone().into());

@@ -231,10 +231,7 @@ pub fn build_params(
         params.insert("temperature".into(), js_number_value(temperature).into());
     }
     if let Some(tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
-        params.insert(
-            "tools".into(),
-            convert_responses_tools(tools, None).map_err(|error| error.message)?,
-        );
+        params.insert("tools".into(), convert_responses_tools(tools, None));
     }
 
     if model.reasoning {

@@ -1,12 +1,12 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use oracle::TsOracle;
 use pi_ai::api::openai_responses_shared::{
-    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, ResponsesDeferredToolsMode, VecResponsesEventSource,
-    convert_responses_messages, convert_responses_tools, process_responses_stream,
+    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, VecResponsesEventSource, convert_responses_messages,
+    convert_responses_tools, process_responses_stream,
 };
 use pi_ai::types::{AssistantMessage, Context, Model, Tool};
 use pi_ai::utils::event_stream::create_assistant_message_event_stream;
@@ -49,54 +49,14 @@ fn assistant(content: Value, api: &str, provider: &str, model_id: &str) -> Value
 }
 
 fn convert_options(value: &Value) -> ConvertResponsesMessagesOptions {
-    let grammar = value
-        .get("grammarToolInputProperties")
-        .and_then(Value::as_object)
-        .map(|properties| {
-            properties
-                .iter()
-                .map(|(name, property)| (name.clone(), property.as_str().unwrap_or("").to_owned()))
-                .collect::<indexmap::IndexMap<_, _>>()
-        });
-    let deferred_tools = value.get("deferredTools").and_then(Value::as_object).map(|tools| {
-        tools
-            .iter()
-            .map(|(name, tool)| {
-                (
-                    name.clone(),
-                    serde_json::from_value::<Tool>(tool.clone()).expect("deferred tool"),
-                )
-            })
-            .collect::<BTreeMap<_, _>>()
-    });
-    let deferred_tools_mode = value
-        .get("deferredToolsMode")
-        .and_then(Value::as_str)
-        .map(|mode| match mode {
-            "additional-tools" => ResponsesDeferredToolsMode::AdditionalTools,
-            _ => ResponsesDeferredToolsMode::ToolSearch,
-        });
-    let tool_options = value.get("toolOptions").map(|options| ConvertResponsesToolsOptions {
-        strict: options.get("strict").map(|strict| strict.as_bool()),
-        supports_strict_mode: options.get("supportsStrictMode").and_then(Value::as_bool),
-        supports_openai_grammar_tools: options.get("supportsOpenAIGrammarTools").and_then(Value::as_bool),
-        defer_loading: options.get("deferLoading").and_then(Value::as_bool),
-    });
     ConvertResponsesMessagesOptions {
         include_system_prompt: value.get("includeSystemPrompt").and_then(Value::as_bool),
-        grammar_tool_input_properties: grammar,
-        deferred_tools,
-        deferred_tools_mode,
-        tool_options,
     }
 }
 
 fn convert_tools_options(value: &Value) -> ConvertResponsesToolsOptions {
     ConvertResponsesToolsOptions {
         strict: value.get("strict").map(|strict| strict.as_bool()),
-        supports_strict_mode: value.get("supportsStrictMode").and_then(Value::as_bool),
-        supports_openai_grammar_tools: value.get("supportsOpenAIGrammarTools").and_then(Value::as_bool),
-        defer_loading: value.get("deferLoading").and_then(Value::as_bool),
     }
 }
 
@@ -143,8 +103,7 @@ fn compare_tools(oracle: &mut TsOracle, id: i64, tools: &Value, options: &Value)
     );
     let parsed_tools: Vec<Tool> = serde_json::from_value(tools.clone()).expect("tools");
     let parsed_options = convert_tools_options(options);
-    let actual = convert_responses_tools(&parsed_tools, Some(&parsed_options))
-        .unwrap_or_else(|error| pi_js_compat::js_json::JsValue::from(json!({"error": error.message})));
+    let actual = convert_responses_tools(&parsed_tools, Some(&parsed_options));
     assert_eq!(
         actual,
         pi_js_compat::js_json::JsValue::from(expected),
@@ -179,20 +138,7 @@ fn compare_stream(
     let mut parsed_output: AssistantMessage = serde_json::from_value(output.clone()).expect("output");
     let event_values = events.as_array().expect("events").clone();
     let mut source = VecResponsesEventSource::new(event_values);
-    let options = options.map(
-        |options| pi_ai::api::openai_responses_shared::OpenAIResponsesStreamOptions {
-            grammar_tool_input_properties: options
-                .get("grammarToolInputProperties")
-                .and_then(Value::as_object)
-                .map(|properties| {
-                    properties
-                        .iter()
-                        .map(|(name, property)| (name.clone(), property.as_str().unwrap_or("").to_owned()))
-                        .collect()
-                }),
-            ..Default::default()
-        },
-    );
+    let options = options.map(|_| pi_ai::api::openai_responses_shared::OpenAIResponsesStreamOptions::default());
     let (sender, mut stream) = create_assistant_message_event_stream();
     let result = block_on(process_responses_stream(
         &mut source,
