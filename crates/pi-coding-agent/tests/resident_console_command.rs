@@ -73,6 +73,7 @@ fn snapshot(cwd: &str, branch: Vec<SessionEntry>) -> ResidentConsoleSnapshot<Ses
         session_id: "session-1".into(),
         cwd: cwd.into(),
         generation: 7,
+        identity: None,
         branch,
     }
 }

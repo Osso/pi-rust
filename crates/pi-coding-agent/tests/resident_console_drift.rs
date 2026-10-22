@@ -67,6 +67,7 @@ impl ResidentConsoleHost<JsValue, JsValue> for Host {
             session_id: "s".into(),
             cwd: "/cwd".into(),
             generation: 1,
+            identity: None,
             branch: vec![],
         }
     }
