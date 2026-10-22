@@ -123,6 +123,83 @@ async function executeFacadeOperation(
 	}
 }
 
+async function exerciseRepository(
+	request: Request,
+	sourceUrl: URL,
+): Promise<unknown> {
+	const cwd = request.cwd as string;
+	const jsonl = request.mode === "jsonl";
+	const module = await import(
+		new URL(jsonl ? "./jsonl-repo.ts" : "./memory-repo.ts", sourceUrl).href
+	);
+	const { NodeExecutionEnv } = await import(
+		new URL("../env/nodejs.ts", sourceUrl).href
+	);
+	const repo = jsonl
+		? new module.JsonlSessionRepo({
+				fs: new NodeExecutionEnv({ cwd: request.root }),
+				sessionsRoot: join(request.root!, "sessions"),
+			})
+		: new module.InMemorySessionRepo();
+	const options = (id: string) => ({ id, ...(jsonl ? { cwd } : {}) });
+	const snapshot = async (session: any) => ({
+		metadata: await session.getMetadata(),
+		entries: await session.getEntries(),
+		leaf: await session.getLeafId(),
+	});
+	const empty = await repo.list();
+	const source = await repo.create(options("source"));
+	for (const entry of request.entries ?? [])
+		await source.getStorage().appendEntry(entry);
+	const metadata = await source.getMetadata();
+	const original = await snapshot(source);
+	const forks = [];
+	for (const [id, entryId, position] of [
+		["all", undefined, "before"],
+		["before", "child", "before"],
+		["at", "custom", "at"],
+		["invalid", "custom", "before"],
+		["missing", "missing", "at"],
+		["empty", "", "before"],
+	]) {
+		try {
+			forks.push(
+				await snapshot(
+					await repo.fork(metadata, { ...options(id!), entryId, position }),
+				),
+			);
+		} catch (error) {
+			forks.push({ error: errorValue(error) });
+		}
+	}
+	const reopened = await snapshot(await repo.open(metadata));
+	const listed = await repo.list();
+	const filtered = await repo.list({ cwd });
+	await repo.delete(metadata);
+	await repo.delete(metadata);
+	let missing;
+	try {
+		await repo.open(metadata);
+	} catch (error) {
+		missing = errorValue(error);
+	}
+	const afterDelete = await repo.list();
+	const replaced = await snapshot(await repo.create(options("all")));
+	const afterReplace = await repo.list();
+	return {
+		empty,
+		original,
+		forks,
+		reopened,
+		listed,
+		filtered,
+		missing,
+		afterDelete,
+		replaced,
+		afterReplace,
+	};
+}
+
 async function main(): Promise<void> {
 	const sourceUrl = pathToFileURL(process.argv[2]!);
 	const [sessions, memory, jsonl, env, forks, uuid] = await Promise.all([
@@ -137,7 +214,9 @@ async function main(): Promise<void> {
 		try {
 			const request = JSON.parse(JSON.parse(line).wire) as Request;
 			let result: unknown;
-			if (request.kind === "uuidSamples") {
+			if (request.kind === "repository") {
+				result = await exerciseRepository(request, sourceUrl);
+			} else if (request.kind === "uuidSamples") {
 				result = Array.from({ length: Number(request.count) }, () =>
 					uuid.uuidv7(),
 				);
