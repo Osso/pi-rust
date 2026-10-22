@@ -661,7 +661,7 @@ where
             async move {
                 future.await.map_err(|error| match error.status {
                     Some(status) => ProviderRequestError::Provider(ProviderError {
-                        message: error.message.into(),
+                        message: error.message,
                         status: Some(status),
                         headers: ProviderErrorHeaders::new(),
                         body: None,

@@ -1172,7 +1172,7 @@ async fn fetch_sse_with_retries(
 
         let info = parse_error_response(response.status, &response.status_text, &error_text)?;
         return Err(CodexStreamError::Transport(
-            info.friendly_message.unwrap_or(info.message).into(),
+            info.friendly_message.unwrap_or(info.message),
         ));
     }
 

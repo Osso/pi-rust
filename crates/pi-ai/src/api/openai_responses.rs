@@ -441,7 +441,7 @@ async fn run_stream(
     let compat = get_compat(model);
     let grammar_tool_input_properties =
         create_grammar_tool_input_properties(context.tools.as_deref(), compat.supports_openai_grammar_tools)
-            .map_err(|error| Failure::Message(error.message.into()))?;
+            .map_err(|error| Failure::Message(error.message))?;
     let client = create_client(model, context, &api_key, stream_options, cache_session_id, &compat);
     let params = build_params(
         model,

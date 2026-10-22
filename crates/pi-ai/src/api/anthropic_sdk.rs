@@ -219,11 +219,11 @@ fn status_error(status: u16, text: &pi_js_compat::js_json::JsString, headers: &[
         error_headers.insert(name, value);
     }
     ProviderError {
-        message: message.into(),
+        message,
         status: Some(f64::from(status)),
         headers: error_headers,
         body,
-        inner_error: inner_error.map(|error| Box::new(error.into())),
+        inner_error: inner_error.map(Box::new),
     }
 }
 

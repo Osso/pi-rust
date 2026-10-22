@@ -39,6 +39,7 @@ impl RetryCallbacks for Recorder {
         error_message: &'a pi_js_compat::js_json::JsString,
     ) -> impl Future<Output = ()> + Send + 'a {
         let events = Arc::clone(&self.events);
+        let error_message = error_message.to_utf8().unwrap();
         async move {
             events
                 .lock()

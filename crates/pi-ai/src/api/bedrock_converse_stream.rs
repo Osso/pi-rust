@@ -271,7 +271,7 @@ async fn run_stream(
     } else {
         StopReason::Error
     };
-    output.error_message = Some(format_bedrock_error(&error).into());
+    output.error_message = Some(format_bedrock_error(&error));
     if output.stop_reason == StopReason::Error {
         append_bedrock_failure_diagnostic(&mut output, &error);
     }

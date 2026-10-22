@@ -622,7 +622,7 @@ fn create_error_event(model: &Model, error: &PiMessagesError, aborted: bool) -> 
     } else {
         StopReason::Error
     };
-    message.error_message = Some(error.message().into());
+    message.error_message = Some(error.message());
 
     if !aborted && let PiMessagesError::Response(response) = error {
         let diagnostic = create_assistant_message_diagnostic(
@@ -933,8 +933,8 @@ fn parse_event(raw: &str) -> Result<Option<PiMessagesEvent>, PiMessagesError> {
         .map(|line| line[5..].trim());
     match data {
         Some(data) if !data.is_empty() && data != "[DONE]" => {
-            let value = pi_js_compat::js_json::parse(data)
-                .map_err(|error| PiMessagesError::Message(error.to_string().into()))?;
+            let value =
+                pi_js_compat::js_json::parse(data).map_err(|error| PiMessagesError::Message(error.into_message()))?;
             serde_json::from_value(value)
                 .map(Some)
                 .map_err(|error| PiMessagesError::Message(error.to_string().into()))

@@ -69,7 +69,7 @@ async fn run_generate_images(model: ImagesModel, context: ImagesContext, options
             apply_response(&mut output, &data, &model);
             output
         }
-        Err(message) => fail(&mut output, &options, message.into()),
+        Err(message) => fail(&mut output, &options, message),
     }
 }
 
@@ -88,7 +88,7 @@ fn fail(
     } else {
         ImagesStopReason::Error
     };
-    output.error_message = Some(message.into());
+    output.error_message = Some(message);
     output.clone()
 }
 

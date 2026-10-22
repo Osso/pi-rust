@@ -372,7 +372,7 @@ async fn run_stream(
     };
     let grammar_tool_input_properties =
         create_grammar_tool_input_properties(context.tools.as_deref(), supports_grammar)
-            .map_err(|error| Failure::Message(error.message.into()))?;
+            .map_err(|error| Failure::Message(error.message))?;
     let params = build_params(
         model,
         context,
