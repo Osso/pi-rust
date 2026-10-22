@@ -121,8 +121,8 @@ fn resolved_bindings_include_every_definition_in_order() {
     let resolved = keybindings.get_resolved_bindings();
     let ids: Vec<JsString> = resolved.iter().map(|(id, _)| id.clone()).collect();
 
-    assert_eq!(ids.first().copied(), Some("tui.editor.cursorUp"));
-    assert_eq!(ids.last().copied(), Some("tui.select.cancel"));
+    assert_eq!(ids.first().unwrap(), "tui.editor.cursorUp");
+    assert_eq!(ids.last().unwrap(), "tui.select.cancel");
     assert_eq!(
         resolved
             .iter()
