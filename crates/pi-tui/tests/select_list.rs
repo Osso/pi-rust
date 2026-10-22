@@ -127,11 +127,11 @@ fn up_and_down_wrap_and_notify_selection_change() {
         sink.borrow_mut().push(item.value.clone());
     }));
 
-    list.handle_input("\x1b[A");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x1b[A"));
     assert_eq!(list.selected_index(), 2);
-    list.handle_input("\x1b[B");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x1b[B"));
     assert_eq!(list.selected_index(), 0);
-    list.handle_input("\x1b[B");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x1b[B"));
     assert_eq!(list.selected_index(), 1);
 
     assert_eq!(*changes.borrow(), vec!["three", "one", "two"]);
@@ -150,9 +150,9 @@ fn confirm_and_cancel_invoke_callbacks() {
         cancel_events.borrow_mut().push("cancel".to_string());
     }));
 
-    list.handle_input("\r");
-    list.handle_input("\x1b");
-    list.handle_input("\x03");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\r"));
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x1b"));
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x03"));
 
     assert_eq!(*events.borrow(), vec!["select:one", "cancel", "cancel"]);
 }
@@ -164,7 +164,7 @@ fn filtering_resets_selection_and_reports_no_match() {
     assert_eq!(list.get_selected_item().unwrap().value, "alpha");
 
     list.set_selected_index(1);
-    list.handle_input("\x1b[A");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\x1b[A"));
     assert_eq!(list.selected_index(), 0);
 
     list.set_filter("zzz");

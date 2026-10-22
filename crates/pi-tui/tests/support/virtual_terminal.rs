@@ -9,6 +9,7 @@
 //! graphemes. Kitty/OSC/APC sequences are ignored, as xterm does for the parts
 //! the TUI tests assert on.
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -354,7 +355,7 @@ pub struct VirtualTerminal {
     columns: usize,
     rows: usize,
     emulator: Emulator,
-    writes: Vec<String>,
+    writes: Vec<JsString>,
     events: Vec<TerminalEvent>,
     kitty_protocol_active: bool,
     capture_cursor_writes: bool,
@@ -374,7 +375,7 @@ impl VirtualTerminal {
     }
 
     pub fn send_input(&mut self, data: &str) {
-        self.events.push(TerminalEvent::Input(data.to_string()));
+        self.events.push(TerminalEvent::Input(data.into()));
     }
 
     pub fn resize(&mut self, columns: usize, rows: usize) {
@@ -392,13 +393,13 @@ impl VirtualTerminal {
 
     fn emit(&mut self, data: &str) {
         if self.capture_cursor_writes {
-            self.writes.push(data.to_string());
+            self.writes.push(data.into());
         }
         self.emulator.feed(data);
     }
 
-    pub fn writes(&self) -> String {
-        self.writes.concat()
+    pub fn writes(&self) -> JsString {
+        JsString::join(self.writes.iter(), "")
     }
 
     pub fn clear_writes(&mut self) {
@@ -453,9 +454,10 @@ impl Terminal for VirtualTerminal {
 
     fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
 
-    fn write(&mut self, data: &str) {
-        self.writes.push(data.to_string());
-        self.emulator.feed(data);
+    fn write(&mut self, data: &JsString) {
+        self.writes.push(data.clone());
+        // The emulator consumes bytes as a real terminal would after Node UTF-8 output.
+        self.emulator.feed(&encode_node_utf8(data));
     }
 
     fn columns(&self) -> usize {
@@ -498,8 +500,8 @@ impl Terminal for VirtualTerminal {
         self.emit("\x1b[2J\x1b[H");
     }
 
-    fn set_title(&mut self, title: &str) {
-        self.emit(&format!("\x1b]0;{title}\x07"));
+    fn set_title(&mut self, title: &JsString) {
+        self.write(&(JsString::from("\x1b]0;") + title + "\x07"));
     }
 
     fn set_progress(&mut self, _active: bool) {}

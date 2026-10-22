@@ -339,7 +339,7 @@ fn select_list_render_and_callbacks_match_typescript() {
             match step["kind"].as_str().unwrap() {
                 "filter" => list.set_filter(step["filter"].as_str().unwrap()),
                 "index" => list.set_selected_index(step["index"].as_i64().unwrap() as isize),
-                "key" => list.handle_input(step["data"].as_str().unwrap()),
+                "key" => list.handle_input(&pi_js_compat::js_json::JsString::from(step["data"].as_str().unwrap())),
                 "render" => snapshots.push(list.render(step["width"].as_u64().unwrap() as usize)),
                 other => panic!("unsupported select-list step: {other}"),
             }
@@ -505,7 +505,7 @@ fn cancellable_loader_matches_typescript() {
         let mut snapshots = Vec::new();
         for step in case["steps"].as_array().unwrap() {
             match step["kind"].as_str().unwrap() {
-                "key" => loader.handle_input(step["data"].as_str().unwrap()),
+                "key" => loader.handle_input(&pi_js_compat::js_json::JsString::from(step["data"].as_str().unwrap())),
                 "render" => snapshots.push(loader.render(step["width"].as_u64().unwrap() as usize)),
                 "setMessage" => loader.set_message(step["message"].as_str().unwrap()),
                 other => panic!("unsupported cancellable-loader step: {other}"),

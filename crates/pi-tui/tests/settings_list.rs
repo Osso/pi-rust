@@ -32,15 +32,15 @@ fn list(changes: Rc<RefCell<Vec<(String, String)>>>, enable_search: bool) -> Set
 fn space_activates_during_search_and_multi_character_input_strips_spaces() {
     let changes = Rc::new(RefCell::new(Vec::new()));
     let mut list = list(Rc::clone(&changes), true);
-    list.handle_input("TUI");
-    list.handle_input(" ");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("TUI"));
+    list.handle_input(&pi_js_compat::js_json::JsString::from(" "));
     assert_eq!(
         *changes.borrow(),
         vec![("tui-mode".to_string(), "fullscreen".to_string())]
     );
-    list.handle_input(" mo de");
+    list.handle_input(&pi_js_compat::js_json::JsString::from(" mo de"));
     assert!(list.render(80)[0].contains("TUImode"));
-    list.handle_input("\r");
+    list.handle_input(&pi_js_compat::js_json::JsString::from("\r"));
     assert_eq!(
         *changes.borrow(),
         vec![
@@ -55,7 +55,7 @@ fn keeps_space_as_a_change_shortcut_before_a_search_query_is_entered() {
     let changes = Rc::new(RefCell::new(Vec::new()));
     let mut list = list(Rc::clone(&changes), true);
 
-    list.handle_input(" ");
+    list.handle_input(&pi_js_compat::js_json::JsString::from(" "));
 
     assert_eq!(
         *changes.borrow(),

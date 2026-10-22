@@ -5,6 +5,7 @@
 
 #![allow(dead_code)]
 
+use pi_js_compat::js_json::JsString;
 use pi_tui::components::markdown::MarkdownTheme;
 
 #[derive(Clone, Copy)]
@@ -64,87 +65,88 @@ pub const BG_BLUE: Style = Style {
 
 /// Applies a chalk style chain, including chalk's embedded close-code re-open
 /// and per-line close/re-open behavior.
-pub fn apply(styles: &[Style], text: &str) -> String {
+pub fn apply(styles: &[Style], text: impl Into<JsString>) -> JsString {
+    let text = text.into();
     if text.is_empty() || styles.is_empty() {
-        return text.to_string();
+        return text;
     }
     let open_all: String = styles.iter().map(|style| style.open).collect();
     let close_all: String = styles.iter().rev().map(|style| style.close).collect();
-    let mut styled = text.to_string();
+    let mut styled = text;
     if styled.contains('\u{1b}') {
         for style in styles.iter().rev() {
             styled = styled.replace(style.close, &format!("{}{}", style.close, style.open));
         }
     }
     styled = encase_newlines(&styled, &close_all, &open_all);
-    format!("{open_all}{styled}{close_all}")
+    JsString::from(open_all) + styled + close_all
 }
 
-fn encase_newlines(text: &str, close: &str, open: &str) -> String {
+fn encase_newlines(text: &JsString, close: &str, open: &str) -> JsString {
     if !text.contains('\n') {
-        return text.to_string();
+        return text.clone();
     }
-    let mut result = String::new();
+    let mut result = JsString::default();
     let mut start = 0;
-    for (index, _) in text.match_indices('\n') {
-        let carriage = index > 0 && text.as_bytes()[index - 1] == b'\r';
+    for (index, _) in text.units().iter().enumerate().filter(|(_, unit)| **unit == 10) {
+        let carriage = index > 0 && text.units()[index - 1] == 13;
         let end = if carriage { index - 1 } else { index };
-        result.push_str(&text[start..end]);
+        result.push_str(text.slice(start, end));
         result.push_str(close);
         if carriage {
-            result.push('\r');
+            result.push_str("\r");
         }
-        result.push('\n');
+        result.push_str("\n");
         result.push_str(open);
         start = index + 1;
     }
-    result.push_str(&text[start..]);
+    result.push_str(text.slice(start, text.len()));
     result
 }
 
 pub struct ChalkTheme;
 
 impl MarkdownTheme for ChalkTheme {
-    fn heading(&self, text: &str) -> String {
+    fn heading(&self, text: &JsString) -> JsString {
         apply(&[BOLD, CYAN], text)
     }
-    fn link(&self, text: &str) -> String {
+    fn link(&self, text: &JsString) -> JsString {
         apply(&[BLUE], text)
     }
-    fn link_url(&self, text: &str) -> String {
+    fn link_url(&self, text: &JsString) -> JsString {
         apply(&[DIM], text)
     }
-    fn code(&self, text: &str) -> String {
+    fn code(&self, text: &JsString) -> JsString {
         apply(&[YELLOW], text)
     }
-    fn code_block(&self, text: &str) -> String {
+    fn code_block(&self, text: &JsString) -> JsString {
         apply(&[GREEN], text)
     }
-    fn code_block_border(&self, text: &str) -> String {
+    fn code_block_border(&self, text: &JsString) -> JsString {
         apply(&[DIM], text)
     }
-    fn quote(&self, text: &str) -> String {
+    fn quote(&self, text: &JsString) -> JsString {
         apply(&[ITALIC], text)
     }
-    fn quote_border(&self, text: &str) -> String {
+    fn quote_border(&self, text: &JsString) -> JsString {
         apply(&[DIM], text)
     }
-    fn hr(&self, text: &str) -> String {
+    fn hr(&self, text: &JsString) -> JsString {
         apply(&[DIM], text)
     }
-    fn list_bullet(&self, text: &str) -> String {
+    fn list_bullet(&self, text: &JsString) -> JsString {
         apply(&[CYAN], text)
     }
-    fn bold(&self, text: &str) -> String {
+    fn bold(&self, text: &JsString) -> JsString {
         apply(&[BOLD], text)
     }
-    fn italic(&self, text: &str) -> String {
+    fn italic(&self, text: &JsString) -> JsString {
         apply(&[ITALIC], text)
     }
-    fn strikethrough(&self, text: &str) -> String {
+    fn strikethrough(&self, text: &JsString) -> JsString {
         apply(&[STRIKETHROUGH], text)
     }
-    fn underline(&self, text: &str) -> String {
+    fn underline(&self, text: &JsString) -> JsString {
         apply(&[UNDERLINE], text)
     }
 }

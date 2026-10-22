@@ -191,7 +191,9 @@ async fn run_local(request: &Value) -> Value {
     let mut renders: Vec<Vec<String>> = Vec::new();
     for operation in request["ops"].as_array().expect("ops array") {
         match operation["op"].as_str().expect("op name") {
-            "input" => editor.handle_input(operation["data"].as_str().unwrap_or_default()),
+            "input" => editor.handle_input(&pi_js_compat::js_json::JsString::from(
+                operation["data"].as_str().unwrap_or_default(),
+            )),
             "setText" => editor.set_text(operation["text"].as_str().unwrap_or_default()),
             "insertText" => editor.insert_text_at_cursor(operation["text"].as_str().unwrap_or_default()),
             "addHistory" => editor.add_to_history(operation["text"].as_str().unwrap_or_default()),

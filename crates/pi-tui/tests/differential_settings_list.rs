@@ -97,7 +97,7 @@ fn execute_case(case: &Value) -> Value {
     let mut snapshots = Vec::new();
     for step in case["steps"].as_array().unwrap() {
         match step["kind"].as_str().unwrap() {
-            "key" => list.handle_input(step["data"].as_str().unwrap()),
+            "key" => list.handle_input(&pi_js_compat::js_json::JsString::from(step["data"].as_str().unwrap())),
             "render" => snapshots.push(list.render(step["width"].as_u64().unwrap() as usize)),
             "updateValue" => list.update_value(step["id"].as_str().unwrap(), step["value"].as_str().unwrap()),
             other => panic!("unsupported settings step: {other}"),

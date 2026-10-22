@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 #[path = "support/virtual_terminal.rs"]
 mod virtual_terminal;
 
@@ -15,14 +16,14 @@ struct RenderCounter {
 }
 
 impl Component for RenderCounter {
-    fn render(&mut self, _width: usize) -> Vec<String> {
+    fn render(&mut self, _width: usize) -> Vec<JsString> {
         self.renders.set(self.renders.get() + 1);
-        vec!["unrelated".to_string()]
+        vec!["unrelated".into()]
     }
 }
 
 fn identity() -> pi_tui::components::StyleFn {
-    Rc::new(|text: &str| text.to_string())
+    Rc::new(|text: &JsString| text.clone())
 }
 
 #[test]
@@ -74,11 +75,11 @@ fn empty_frames_hide_the_indicator_and_disable_animation() {
 fn single_frame_indicator_renders_verbatim_without_animation() {
     let mut loader = Loader::new(
         Rc::new(|| {}),
-        Rc::new(|text: &str| format!("<{text}>")),
+        Rc::new(|text: &JsString| JsString::from("<") + text + ">"),
         identity(),
         "Working",
         Some(LoaderIndicatorOptions {
-            frames: Some(vec!["*".to_string()]),
+            frames: Some(vec!["*".into()]),
             interval_ms: Some(10),
         }),
     );
@@ -91,11 +92,11 @@ fn single_frame_indicator_renders_verbatim_without_animation() {
 fn styled_frames_and_messages_apply_callbacks() {
     let mut loader = Loader::new(
         Rc::new(|| {}),
-        Rc::new(|text: &str| format!("<{text}>")),
-        Rc::new(|text: &str| format!("{{{text}}}")),
+        Rc::new(|text: &JsString| JsString::from("<") + text + ">"),
+        Rc::new(|text: &JsString| JsString::from("{") + text + "}"),
         "Working",
         Some(LoaderIndicatorOptions {
-            frames: Some(vec!["a".to_string(), "b".to_string()]),
+            frames: Some(vec!["a".into(), "b".into()]),
             interval_ms: Some(10),
         }),
     );
