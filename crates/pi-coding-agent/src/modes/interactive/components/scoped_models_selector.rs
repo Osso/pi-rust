@@ -114,7 +114,6 @@ struct ModelItem {
 pub struct ModelsConfig {
     pub all_models: Vec<Model>,
     pub enabled_model_ids: EnabledIds,
-    pub refresh_status: Option<JsString>,
 }
 
 pub struct ModelsCallbacks {
@@ -139,7 +138,6 @@ pub struct ScopedModelsSelectorComponent {
     callbacks: ModelsCallbacks,
     max_visible: usize,
     is_dirty: bool,
-    refresh_status_text: Option<ComponentRef>,
     focused: bool,
     prefix_children: Vec<ComponentRef>,
     suffix_children: Vec<ComponentRef>,
@@ -160,7 +158,6 @@ impl ScopedModelsSelectorComponent {
             callbacks,
             max_visible: 8,
             is_dirty: false,
-            refresh_status_text: None,
             focused: false,
             prefix_children: Vec::new(),
             suffix_children: Vec::new(),
@@ -192,56 +189,15 @@ impl ScopedModelsSelectorComponent {
             )),
             component(Spacer::new(1)),
         ];
-        let mut suffix_children = vec![component(Spacer::new(1))];
-        if let Some(refresh_status) = &config.refresh_status {
-            let status = component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!("  {}", refresh_status))),
-                0,
-                0,
-            ));
-            selector.refresh_status_text = Some(Rc::clone(&status));
-            suffix_children.push(status);
-        }
-        suffix_children.push(Rc::clone(&selector.footer_text));
-        suffix_children.push(component(dynamic_border()));
-        selector.suffix_children = suffix_children;
+        selector.suffix_children = vec![
+            component(Spacer::new(1)),
+            Rc::clone(&selector.footer_text),
+            component(dynamic_border()),
+        ];
 
         selector.set_footer_text(selector.get_footer_text());
         selector.update_list();
         selector
-    }
-
-    pub fn update_models(&mut self, models: &[Model], enabled_model_ids: Option<EnabledIds>) {
-        let selected_id = self
-            .filtered_items
-            .get(self.selected_index)
-            .map(|item| item.full_id.clone());
-        if let Some(enabled_ids) = enabled_model_ids {
-            self.enabled_ids = enabled_ids;
-        }
-        self.models_by_id.clear();
-        self.all_ids.clear();
-        for model in models {
-            let full_id = js_format!("{}/{}", model.provider, model.id);
-            self.models_by_id.push((full_id.clone(), model.clone()));
-            self.all_ids.push(full_id);
-        }
-        self.refresh();
-        if let Some(selected_id) = selected_id
-            && let Some(index) = self.filtered_items.iter().position(|item| item.full_id == selected_id)
-        {
-            self.selected_index = index;
-            self.update_list();
-        }
-    }
-
-    pub fn set_refresh_status(&self, message: &JsString, kind: RefreshStatusKind) {
-        if let Some(status) = &self.refresh_status_text {
-            set_text(
-                status,
-                with_theme(|theme| theme.fg(kind.color(), &js_format!("  {}", message))),
-            );
-        }
     }
 
     fn model_for(&self, id: &JsString) -> Option<&Model> {
@@ -490,23 +446,6 @@ impl ScopedModelsSelectorComponent {
         self.is_dirty = true;
         self.refresh();
         self.notify_change();
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RefreshStatusKind {
-    Muted,
-    Success,
-    Warning,
-}
-
-impl RefreshStatusKind {
-    fn color(self) -> ThemeColor {
-        match self {
-            Self::Muted => ThemeColor::Muted,
-            Self::Success => ThemeColor::Success,
-            Self::Warning => ThemeColor::Warning,
-        }
     }
 }
 

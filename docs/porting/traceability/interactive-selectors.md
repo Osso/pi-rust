@@ -104,7 +104,7 @@ Sources (all under `packages/coding-agent/src/modes/interactive/`):
 | `AuthSelectorProvider`, `formatAuthSelectorProviderType` | `AuthSelectorProvider` (+ `with_api_key_auth`/`with_oauth_auth`), `format_auth_selector_provider_type(AuthType)` |
 | `OAuthSelectorComponent` | `OAuthSelectorComponent::{new, get_search_input}`; `AuthSelectorMode` |
 | `LoginDialogComponent` | `LoginDialogComponent::{new, signal, show_auth, show_device_code, show_manual_input, show_prompt, show_details, show_info, show_waiting, show_progress, get_input}`; `LoginError` |
-| `ScopedModelsSelectorComponent` | `ScopedModelsSelectorComponent::{new, update_models, set_refresh_status, get_search_input}`; `ModelsConfig`, `ModelsCallbacks`, `EnabledIds`, `RefreshStatusKind` |
+| `ScopedModelsSelectorComponent` | `ScopedModelsSelectorComponent::{new, get_search_input}`; `ModelsConfig`, `ModelsCallbacks`, `EnabledIds` ([common-pin reconciliation](interactive-scoped-models-selector.md)) |
 
 ## Branches
 

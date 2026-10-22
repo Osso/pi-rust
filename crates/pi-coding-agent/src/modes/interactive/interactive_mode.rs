@@ -52,7 +52,7 @@ use crate::core::extensions::types::{
 };
 use crate::core::footer_data_provider::{ContextUsage, FooterDataProvider, FooterSessionOverride};
 use crate::core::keybindings::KeybindingsManager;
-use crate::core::model_resolver::{ModelScopeCode, resolve_model_scope_from_models};
+use crate::core::model_resolver::resolve_model_scope_from_models;
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore, lifecycle_name};
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::runtime_message_markers::is_duplicate_turn_assistant_message;
@@ -89,7 +89,7 @@ use crate::modes::interactive::components::sandbox_selector::{
     SandboxScope, SandboxSelectorComponent, SandboxSelectorOptions, SandboxSelectorSelection,
 };
 use crate::modes::interactive::components::scoped_models_selector::{
-    EnabledIds, ModelsCallbacks, ModelsConfig, RefreshStatusKind, ScopedModelsSelectorComponent,
+    EnabledIds, ModelsCallbacks, ModelsConfig, ScopedModelsSelectorComponent,
 };
 use crate::modes::interactive::components::session_selector::{
     ProgressCallback, RenameSessionFn, SessionListLoader, SessionSelectorComponent,
@@ -1687,43 +1687,6 @@ impl Component for SharedContainer {
 
     fn invalidate(&mut self) {
         self.0.borrow_mut().invalidate();
-    }
-}
-
-/// Adapter mounting the scoped-models selector while its async refresh mutates it.
-pub struct SharedScopedModelsSelector(pub Rc<RefCell<ScopedModelsSelectorComponent>>);
-
-impl Component for SharedScopedModelsSelector {
-    fn render(&mut self, width: usize) -> Vec<JsString> {
-        self.0.borrow_mut().render(width)
-    }
-
-    fn handle_input(&mut self, data: &JsString) {
-        self.0.borrow_mut().handle_input(data);
-    }
-
-    fn wants_input(&self) -> bool {
-        self.0.borrow().wants_input()
-    }
-
-    fn invalidate(&mut self) {
-        self.0.borrow_mut().invalidate();
-    }
-
-    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
-        Some(self)
-    }
-}
-
-impl Focusable for SharedScopedModelsSelector {
-    fn focused(&self) -> bool {
-        self.0.try_borrow().map(|selector| selector.focused()).unwrap_or(false)
-    }
-
-    fn set_focused(&mut self, focused: bool) {
-        if let Ok(mut selector) = self.0.try_borrow_mut() {
-            selector.set_focused(focused);
-        }
     }
 }
 
@@ -7615,31 +7578,8 @@ impl InteractiveMode {
             return;
         }
 
-        let configured_patterns = self.settings(|settings| settings.get_enabled_models());
         let session_scoped_models = session.scoped_models();
-        let configured_enabled_ids = {
-            let configured_patterns = configured_patterns.clone();
-            Rc::new(move |models: &[Model]| -> EnabledIds {
-                let patterns = configured_patterns.as_ref()?;
-                if patterns.is_empty() {
-                    return None;
-                }
-                let resolved = resolve_model_scope_from_models(patterns, models);
-                let mut ids: Vec<JsString> = resolved
-                    .scoped_models
-                    .iter()
-                    .map(|scoped| js_format!("{}/{}", scoped.model.provider, scoped.model.id))
-                    .collect();
-                for diagnostic in &resolved.diagnostics {
-                    if diagnostic.code == ModelScopeCode::NoMatch && !ids.contains(&diagnostic.pattern) {
-                        ids.push(diagnostic.pattern.clone());
-                    }
-                }
-                Some(ids)
-            })
-        };
-
-        let current_enabled_ids: EnabledIds = if !session_scoped_models.is_empty() {
+        let current_enabled_ids = if !session_scoped_models.is_empty() {
             Some(
                 session_scoped_models
                     .iter()
@@ -7647,172 +7587,53 @@ impl InteractiveMode {
                     .collect(),
             )
         } else {
-            configured_enabled_ids(&available_models)
+            self.settings(|settings| settings.get_enabled_models())
+                .filter(|patterns| !patterns.is_empty())
+                .map(|patterns| {
+                    resolve_model_scope_from_models(&patterns, &available_models)
+                        .scoped_models
+                        .iter()
+                        .map(|scoped| js_format!("{}/{}", scoped.model.provider, scoped.model.id))
+                        .collect()
+                })
         };
-
-        let available_models_cell = Rc::new(RefCell::new(available_models.clone()));
-        let available_model_ids_cell = Rc::new(RefCell::new(
-            available_models
-                .iter()
-                .map(|model| js_format!("{}/{}", model.provider, model.id))
-                .collect::<Vec<JsString>>(),
-        ));
-        let current_enabled = Rc::new(RefCell::new(current_enabled_ids.clone()));
-        let selection_changed = Rc::new(Cell::new(false));
-        let disposed = Rc::new(Cell::new(false));
-        let timed_out = Rc::new(Cell::new(false));
-        let abort = tokio_util::sync::CancellationToken::new();
-
         let mode_id = self.ui_id.get();
-        let update_session_models: Rc<dyn Fn(EnabledIds)> = {
-            let session = session.clone();
-            let available_models_cell = Rc::clone(&available_models_cell);
-            let available_model_ids_cell = Rc::clone(&available_model_ids_cell);
-            let current_enabled = Rc::clone(&current_enabled);
-            Rc::new(move |enabled_ids: EnabledIds| {
-                *current_enabled.borrow_mut() = enabled_ids.clone();
-                let models = available_models_cell.borrow().clone();
-                let available_ids = available_model_ids_cell.borrow().clone();
-                let has_enabled_available = enabled_ids
-                    .as_ref()
-                    .is_some_and(|ids| ids.iter().any(|id| available_ids.contains(&JsString::from(id))));
-                let all_available_enabled = enabled_ids
-                    .as_ref()
-                    .is_some_and(|ids| available_ids.iter().all(|id| ids.contains(id)));
-                if let Some(ids) = &enabled_ids
-                    && has_enabled_available
-                    && !all_available_enabled
-                {
-                    let resolved = resolve_model_scope_from_models(ids, &models);
-                    session.set_scoped_models(resolved.scoped_models);
-                } else {
-                    session.set_scoped_models(Vec::new());
-                }
+        let available_model_count = available_models.len();
+        let callback_models = available_models.clone();
+        let callbacks = ModelsCallbacks {
+            on_change: Rc::new(move |enabled_ids: EnabledIds| {
+                let scoped_models = match enabled_ids {
+                    Some(ids) if !ids.is_empty() && ids.len() < available_model_count => {
+                        resolve_model_scope_from_models(&ids, &callback_models).scoped_models
+                    }
+                    _ => Vec::new(),
+                };
+                session.set_scoped_models(scoped_models);
                 with_mode(mode_id, |mode| {
                     mode.update_available_provider_count();
                     mode.ui.request_render();
                 });
-            })
+            }),
+            on_persist: Rc::new(move |enabled_ids| {
+                with_mode(mode_id, |mode| {
+                    mode.persist_enabled_models_for_selector(enabled_ids, available_model_count);
+                });
+            }),
+            on_cancel: Rc::new(move || {
+                with_mode(mode_id, |mode| {
+                    mode.restore_editor();
+                    mode.ui.request_render();
+                });
+            }),
         };
-
-        let callbacks = ModelsCallbacks {
-            on_change: {
-                let selection_changed = Rc::clone(&selection_changed);
-                let update_session_models = Rc::clone(&update_session_models);
-                Rc::new(move |enabled_ids: EnabledIds| {
-                    selection_changed.set(true);
-                    update_session_models(enabled_ids);
-                })
-            },
-            on_persist: {
-                let available_models_cell = Rc::clone(&available_models_cell);
-                Rc::new(move |enabled_ids: EnabledIds| {
-                    let available_model_count = available_models_cell.borrow().len();
-                    with_mode(mode_id, |mode| {
-                        mode.persist_enabled_models_for_selector(enabled_ids, available_model_count);
-                    });
-                })
-            },
-            on_cancel: {
-                let disposed = Rc::clone(&disposed);
-                let abort = abort.clone();
-                Rc::new(move || {
-                    disposed.set(true);
-                    abort.cancel();
-                    with_mode(mode_id, |mode| {
-                        mode.restore_editor();
-                        mode.ui.request_render();
-                    });
-                })
-            },
-        };
-
-        let selector = Rc::new(RefCell::new(ScopedModelsSelectorComponent::new(
+        let selector = ScopedModelsSelectorComponent::new(
             ModelsConfig {
-                all_models: available_models.clone(),
+                all_models: available_models,
                 enabled_model_ids: current_enabled_ids,
-                refresh_status: Some(JsString::from("Refreshing model catalogs…")),
             },
             callbacks,
-        )));
-        self.show_selector(component(SharedScopedModelsSelector(Rc::clone(&selector))));
-        self.dispose_active_selector();
-        *self.active_selector_dispose.borrow_mut() = Some(Rc::new({
-            let disposed = Rc::clone(&disposed);
-            let abort = abort.clone();
-            move || {
-                disposed.set(true);
-                abort.cancel();
-            }
-        }));
-
-        let timeout_task = {
-            let abort = abort.clone();
-            let timed_out = Rc::clone(&timed_out);
-            tokio::task::spawn_local(async move {
-                tokio::time::sleep(Duration::from_secs(15)).await;
-                timed_out.set(true);
-                abort.cancel();
-            })
-        };
-        let result = runtime
-            .refresh(pi_ai::models::ModelsRefreshOptions {
-                signal: Some(abort),
-                ..Default::default()
-            })
-            .await;
-        timeout_task.abort();
-        if disposed.get() {
-            return;
-        }
-
-        let refreshed_models = runtime.get_available_snapshot();
-        *available_models_cell.borrow_mut() = refreshed_models.clone();
-        *available_model_ids_cell.borrow_mut() = refreshed_models
-            .iter()
-            .map(|model| js_format!("{}/{}", model.provider, model.id))
-            .collect();
-        let refreshed_enabled_ids = if !selection_changed.get() && session_scoped_models.is_empty() {
-            configured_enabled_ids(&refreshed_models)
-        } else {
-            None
-        };
-        let update_enabled_ids =
-            (!selection_changed.get() && session_scoped_models.is_empty()).then(|| refreshed_enabled_ids.clone());
-        if !selection_changed.get() && session_scoped_models.is_empty() {
-            *current_enabled.borrow_mut() = refreshed_enabled_ids.clone();
-        }
-        selector
-            .borrow_mut()
-            .update_models(&refreshed_models, update_enabled_ids);
-        if let Some(enabled_ids) = current_enabled.borrow().clone() {
-            update_session_models(Some(enabled_ids));
-        }
-
-        let (message, kind) = match &result {
-            Ok(result) if result.aborted && timed_out.get() => (
-                JsString::from("Model refresh timed out; showing cached models."),
-                RefreshStatusKind::Warning,
-            ),
-            Ok(result) if !result.errors.is_empty() => {
-                let providers = JsString::join(result.errors.keys().map(JsString::from), ", ");
-                (
-                    js_format!("Could not refresh {}; showing cached models.", providers),
-                    RefreshStatusKind::Warning,
-                )
-            }
-            Ok(_) => (JsString::from("Model catalogs refreshed."), RefreshStatusKind::Success),
-            Err(_) if timed_out.get() => (
-                JsString::from("Model refresh timed out; showing cached models."),
-                RefreshStatusKind::Warning,
-            ),
-            Err(error) => (
-                js_format!("Could not refresh model catalogs: {}", error.message()),
-                RefreshStatusKind::Warning,
-            ),
-        };
-        selector.borrow().set_refresh_status(&message, kind);
-        with_mode(mode_id, |mode| mode.ui.request_render());
+        );
+        self.show_selector(component(selector));
     }
 
     async fn handle_model_command(&self, search_term: Option<JsString>) {
