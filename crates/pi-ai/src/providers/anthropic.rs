@@ -66,7 +66,10 @@ impl ApiKeyAuth for AnthropicApiKeyAuth {
             check_aborted(&input.signal)?;
             if let Some(auth_token) = auth_token {
                 let mut headers = ProviderHeaders::new();
-                headers.insert("Authorization".into(), Some(format!("Bearer {auth_token}")));
+                headers.insert(
+                    "Authorization".into(),
+                    Some(pi_js_compat::js_format!("Bearer {}", auth_token)),
+                );
                 return Ok(Some(AuthResult {
                     auth: ModelAuth {
                         api_key: None,

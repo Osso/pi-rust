@@ -141,7 +141,6 @@ fn resolve_azure_config(
         .as_ref()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
-        .map(str::to_owned)
         .or_else(|| {
             get_provider_env_value("AZURE_OPENAI_BASE_URL", env)
                 .map(|value| value.trim().to_owned())
@@ -206,7 +205,7 @@ pub fn build_params(
     options: &AzureOpenAIResponsesOptions,
     stream_options: &StreamOptions,
     deployment_name: &JsString,
-    grammar_tool_input_properties: &IndexMap<String, JsString>,
+    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Result<JsValue, String> {
     let messages = convert_responses_messages(
         model,
