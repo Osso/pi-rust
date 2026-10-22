@@ -172,7 +172,7 @@ async fn request_oauth_token(
     signal: CancellationToken,
 ) -> Result<OAuthCredential, RadiusRequestError> {
     let request = form_request(
-        &crate::request::request_url(&js_format!("{}/v1/oauth/token", gateway)).map_err(RadiusRequestError::from)?,
+        &crate::request::request_url(&js_format!("{}/v1/oauth/token", gateway)).map_err(RadiusRequestError::Other)?,
         form_encode(pairs),
         true,
     );
