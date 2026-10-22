@@ -186,7 +186,8 @@ fn legacy_and_unicode_canonicalization_matches_node_for_literals_classes_ranges_
         "packages/coding-agent/extensions/bwrap/src/fs-worker.cjs",
     );
     let patterns = [
-        "s", "[s]", "[a-z]", "[S-Z]", "(.)\\1", "(s)\\1", "k", "[k]", "(k)\\1", "i", "[i]", "([i])\\1",
+        "s", "[s]", "[a-z]", "[S-Z]", "(.)\\1", "(s)\\1", "k", "[k]", "(k)\\1", "i", "[i]", "([i])\\1", "\\w", "\\W",
+        "[\\w]", "[^s]",
     ];
     let mut texts: Vec<JsString> = ["ſ", "sſ", "Sſ", "K", "kK", "KK", "ı", "iı", "Iı", "s", "k", "i", "µΜ"]
         .into_iter()
