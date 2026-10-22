@@ -162,6 +162,7 @@ async function main(): Promise<void> {
 		const bytes = scripted.frames && scripted.frames.length > 0
 			? Buffer.concat(scripted.frames.map(encodeFrameSpec))
 			: Buffer.from(scripted.text ?? "", "utf8");
+		response.sendDate = false;
 		response.writeHead(scripted.status, Object.fromEntries(scripted.headers));
 		for (const chunk of splitBytes(bytes, scripted.chunkSizes)) response.write(chunk);
 		response.end();
