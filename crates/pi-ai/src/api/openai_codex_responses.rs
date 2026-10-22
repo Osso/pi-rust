@@ -827,15 +827,15 @@ fn build_websocket_headers(
     additional_headers: Option<&crate::types::ProviderHeaders>,
     account_id: &str,
     token: &str,
-    request_id: &str,
+    request_id: &JsString,
 ) -> IndexMap<String, String> {
     let mut headers = build_base_codex_headers(init_headers, additional_headers, account_id, token);
     delete_header(&mut headers, "accept");
     delete_header(&mut headers, "content-type");
     delete_header(&mut headers, "openai-beta");
     set_header(&mut headers, "openai-beta", OPENAI_BETA_RESPONSES_WEBSOCKETS);
-    set_header(&mut headers, "x-client-request-id", request_id);
-    set_header(&mut headers, "session-id", request_id);
+    set_header(&mut headers, "x-client-request-id", &encode_node_utf8(request_id));
+    set_header(&mut headers, "session-id", &encode_node_utf8(request_id));
     headers
 }
 
@@ -1715,15 +1715,15 @@ impl WsLease {
     }
 }
 
-type WebSocketSessionCache = BTreeMap<String, BTreeMap<String, Arc<Mutex<CacheEntry>>>>;
+type WebSocketSessionCache = BTreeMap<JsString, BTreeMap<String, Arc<Mutex<CacheEntry>>>>;
 
 fn websocket_session_cache() -> &'static Mutex<WebSocketSessionCache> {
     static CACHE: OnceLock<Mutex<WebSocketSessionCache>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
-fn websocket_debug_stats_store() -> &'static Mutex<BTreeMap<String, OpenAICodexWebSocketDebugStats>> {
-    static STATS: OnceLock<Mutex<BTreeMap<String, OpenAICodexWebSocketDebugStats>>> = OnceLock::new();
+fn websocket_debug_stats_store() -> &'static Mutex<BTreeMap<JsString, OpenAICodexWebSocketDebugStats>> {
+    static STATS: OnceLock<Mutex<BTreeMap<JsString, OpenAICodexWebSocketDebugStats>>> = OnceLock::new();
     STATS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 

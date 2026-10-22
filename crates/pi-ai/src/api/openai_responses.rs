@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/api/openai-responses.ts` (+ `.lazy.ts`).
 
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::{JsObject, JsValue};
 use std::collections::BTreeMap;
 use std::sync::Arc;
