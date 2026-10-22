@@ -28,7 +28,7 @@ pub fn openai_codex_provider_with_id(id: &str, name: &str) -> Arc<dyn Provider> 
     create_provider(CreateProviderOptions {
         id: id.to_owned(),
         name: Some(name.to_owned()),
-        base_url: Some(BASE_URL.to_owned()),
+        base_url: Some(BASE_URL.into()),
         headers: None,
         auth: codex_auth(),
         models: codex_models(id),

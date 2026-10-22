@@ -1,6 +1,7 @@
 //! Port of `packages/ai/src/api/openrouter-images.ts`.
 
 use indexmap::IndexMap;
+use pi_js_compat::js_json::JsString;
 
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
