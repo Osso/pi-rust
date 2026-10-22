@@ -516,18 +516,37 @@ fn resolve_child_agent_profile(agent: &AgentSnapshot, ctx: &ExtensionContext) ->
         .as_ref()
         .and_then(|model| model.thinking_level.as_deref())
         .and_then(parse_thinking_level);
-    let tools = ctx
+    let profile = ctx
         .settings_manager()
         .map_err(|error| error.message)?
-        .and_then(|settings| settings.lock().expect("settings").get_agent_profile(&agent.agent_type))
-        .and_then(|profile| profile.tools)
-        .map(|tools| tools.iter().map(provider_tool_name).collect::<Result<Vec<_>, _>>())
+        .and_then(|settings| settings.lock().expect("settings").get_agent_profile(&agent.agent_type));
+    let tools = profile
+        .as_ref()
+        .and_then(|profile| profile.get("tools"))
+        .filter(|value| pi_js_compat::js_json::is_truthy(value))
+        .map(read_profile_tool_names)
         .transpose()?;
     Ok(ChildAgentProfile {
         model: configured_model,
         thinking_level,
         tools,
     })
+}
+
+fn read_profile_tool_names(value: &JsValue) -> Result<Vec<String>, JsString> {
+    let names: Vec<JsString> = match value {
+        JsValue::Array(_) => {
+            pi_js_compat::js_json::from_value(value).map_err(|error| JsString::from(error.to_string()))?
+        }
+        JsValue::String(text) => char::decode_utf16(text.units().iter().copied())
+            .map(|unit| match unit {
+                Ok(character) => JsString::from(character),
+                Err(error) => JsString::from_utf16(vec![error.unpaired_surrogate()]),
+            })
+            .collect(),
+        _ => return Err("tools is not iterable".into()),
+    };
+    names.iter().map(provider_tool_name).collect()
 }
 
 /// Tool names are provider-opaque names (approved scalar metadata, 2026-10-21): a profile tool

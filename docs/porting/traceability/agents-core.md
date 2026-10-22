@@ -9,7 +9,7 @@ Actual in-crate baseline `agents_core_drift` at `27410344`: five intended behavi
 | Registration API errors | Helpers/top-level registration propagate the original error in source order | RED observed; focused GREEN pending |
 | Completion-time UI lookup | Resolve current UI after dispatch settles; errors reach the existing process uncaught handler | RED observed; focused GREEN pending |
 | Post-construction session lookup | Fallible lookup occurs after construction and before admission; no error-to-path fallback | RED observed; focused GREEN pending |
-| Accessed profile model / unrelated fields | Queued | RED: factory reached on numeric model; Fresh became Inherit with unrelated malformed tools |
+| Accessed profile model / unrelated fields | Raw profile getter; model registry read precedes source-equivalent model-type error; consumers project accessed fields only | Two REDs observed; focused GREEN pending |
 | Tracked-agent DB read | Queued | Unit RED-intent remains unexecuted; public integration fixture pending |
 
 ## Source-backed error boundaries
