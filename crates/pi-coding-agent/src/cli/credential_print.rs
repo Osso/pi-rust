@@ -1,5 +1,6 @@
 //! Credential printing (`cli/credential-print.ts`).
 
+use pi_js_compat::js_json::JsString;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
@@ -37,11 +38,11 @@ impl CredentialPrintKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CredentialPrintError {
     Command(AuthCommandError),
-    Runtime(String),
+    Runtime(JsString),
 }
 
 impl CredentialPrintError {
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         match self {
             Self::Command(error) => error.message(),
             Self::Runtime(message) => message,
@@ -55,7 +56,7 @@ impl CredentialPrintError {
 
 impl Display for CredentialPrintError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.message())
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(self.message()))
     }
 }
 
@@ -67,7 +68,7 @@ impl From<AuthCommandError> for CredentialPrintError {
     }
 }
 
-fn command_error(message: impl Into<String>) -> CredentialPrintError {
+fn command_error(message: impl Into<JsString>) -> CredentialPrintError {
     CredentialPrintError::Command(AuthCommandError::new(message))
 }
 
@@ -126,7 +127,7 @@ async fn credential_types(
     model_runtime
         .list_credentials(AuthOperationOptions::new(signal))
         .await
-        .map_err(|error| CredentialPrintError::Runtime(error.to_string()))
+        .map_err(|error| CredentialPrintError::Runtime(JsString::from(error.to_string())))
 }
 
 fn credential_type(credential_types: &[CredentialInfo], provider_id: &str) -> Option<CredentialType> {
@@ -176,7 +177,7 @@ fn explicit_provider(
     let resolved = resolve_cli_model(
         &ResolveCliModelOptions {
             cli_provider: Some(provider_id.clone()),
-            cli_model: Some(cli_model.to_owned()),
+            cli_model: Some(cli_model.into()),
             cli_thinking: None,
         },
         model_runtime,
@@ -186,9 +187,11 @@ fn explicit_provider(
             id: provider_id,
             model: Some(model),
         }),
-        _ => Err(command_error(resolved.error.unwrap_or_else(|| {
-            "Unable to resolve the requested provider/model".to_owned()
-        }))),
+        _ => {
+            Err(command_error(resolved.error.unwrap_or_else(|| {
+                "Unable to resolve the requested provider/model".into()
+            })))
+        }
     }
 }
 
@@ -205,7 +208,7 @@ fn matching_providers(
             let resolved = resolve_cli_model(
                 &ResolveCliModelOptions {
                     cli_provider: Some(provider.id().to_owned()),
-                    cli_model: Some(cli_model.to_owned()),
+                    cli_model: Some(cli_model.into()),
                     cli_thinking: None,
                 },
                 model_runtime,
@@ -215,7 +218,7 @@ fn matching_providers(
             }
             if resolved
                 .warning
-                .as_deref()
+                .as_ref()
                 .is_some_and(|warning| warning.contains(CUSTOM_MODEL_ID_WARNING))
             {
                 return None;

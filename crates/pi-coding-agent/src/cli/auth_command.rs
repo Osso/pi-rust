@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
 use pi_ai::auth::types::AuthResult;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 use super::args::Args;
 
@@ -73,11 +74,11 @@ impl AuthCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthCommandError {
-    message: String,
+    message: JsString,
 }
 
 impl AuthCommandError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
@@ -87,14 +88,14 @@ impl AuthCommandError {
         "Error"
     }
 
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         &self.message
     }
 }
 
 impl Display for AuthCommandError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 

@@ -77,7 +77,7 @@ pub async fn check_provider_auth(
         let resolved = resolve_cli_model(
             &ResolveCliModelOptions {
                 cli_provider: provider.clone(),
-                cli_model: Some(cli_model.to_owned()),
+                cli_model: Some(cli_model.into()),
                 cli_thinking: None,
             },
             model_runtime,
@@ -86,7 +86,7 @@ pub async fn check_provider_auth(
             return Err(AuthCommandError::new(
                 resolved
                     .error
-                    .unwrap_or_else(|| format!("Unable to resolve model \"{cli_model}\"")),
+                    .unwrap_or_else(|| format!("Unable to resolve model \"{cli_model}\"").into()),
             ));
         }
         provider = resolved.model.map(|model| model.provider);

@@ -39,9 +39,9 @@ fn parse(values: &[&str]) -> pi_coding_agent::cli::args::Args {
     parse_args(&values.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>())
 }
 
-fn command_message(error: &CredentialPrintError) -> &str {
+fn command_message(error: &CredentialPrintError) -> String {
     assert!(error.is_command_error(), "expected a command error, got {error:?}");
-    error.message()
+    error.message().to_utf8().expect("fixture messages are well-formed")
 }
 
 #[test]

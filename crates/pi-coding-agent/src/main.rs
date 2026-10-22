@@ -989,8 +989,7 @@ pub async fn run_auth_command(args: &[String], exit_code: &mut i32) -> bool {
         Ok(Some(command)) => command,
         Ok(None) => return false,
         Err(error) => {
-            let message = error.message();
-            console_error(&Chalk::stderr().red(&format!("Error: {message}")));
+            console_error(Chalk::stderr().red(js_format!("Error: {}", error.message())));
             *exit_code = 1;
             return true;
         }
@@ -1048,13 +1047,13 @@ async fn run_auth_command_inner(command: &AuthCommand, parsed: &Args, exit_code:
             Some(timeout.token()),
         )
         .await
-        .map_err(|error| error.message().to_owned())?;
+        .map_err(|error| error.message().clone())?;
         console_log(&credential);
         return Ok(());
     }
 
     let requested_auth = validate_auth_command_args(parsed, command.kind())
-        .map_err(|error: AuthCommandError| error.message().to_owned())?;
+        .map_err(|error: AuthCommandError| error.message().clone())?;
     run_auth_check_command(command, parsed, &requested_auth, exit_code).await;
     Ok(())
 }
