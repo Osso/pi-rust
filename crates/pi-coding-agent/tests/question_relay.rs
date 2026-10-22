@@ -351,7 +351,14 @@ async fn mailbox_body_and_remote_host_are_literal_and_unknown_local_sessions_are
             .await
             .unwrap();
         assert_eq!(result.is_error, Some(true));
-        assert!(format!("{:?}", result.content).contains(reason));
+        let text = JsString::join(
+            result.content.iter().filter_map(|content| match content {
+                pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
+                pi_ai::types::TextOrImageContent::Image(_) => None,
+            }),
+            "\n",
+        );
+        assert!(text.contains(reason), "{text:?}");
     }
     assert_eq!(
         list_runtime_mailbox_messages(&f.db).unwrap().len(),
