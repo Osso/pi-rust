@@ -1,5 +1,6 @@
 //! Port of `packages/coding-agent/test/session-directory.test.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_coding_agent::core::session_control_db::WritableSessionMetadata;
@@ -37,10 +38,10 @@ impl Fixture {
         write_session_metadata(
             &self.control_db_path,
             &WritableSessionMetadata {
-                session_path: session_path.clone(),
-                id: id.to_owned(),
-                cwd: overrides.cwd.unwrap_or("/repo/default").to_owned(),
-                name: overrides.name.map(str::to_owned),
+                session_path: session_path.clone().into(),
+                id: id.to_owned().into(),
+                cwd: overrides.cwd.unwrap_or("/repo/default").to_owned().into(),
+                name: overrides.name.map(JsString::from),
                 parent_session_path: None,
                 archived_at: None,
                 is_archived: None,
@@ -49,10 +50,14 @@ impl Fixture {
                 model_provider: None,
                 model_id: None,
                 thinking_level: None,
-                created_at: "2026-01-01T00:00:00.000Z".to_owned(),
-                modified_at: overrides.modified_at.unwrap_or("2026-01-01T00:10:00.000Z").to_owned(),
+                created_at: "2026-01-01T00:00:00.000Z".to_owned().into(),
+                modified_at: overrides
+                    .modified_at
+                    .unwrap_or("2026-01-01T00:10:00.000Z")
+                    .to_owned()
+                    .into(),
                 message_count: 1,
-                first_message: "hello".to_owned(),
+                first_message: "hello".to_owned().into(),
             },
         )
         .expect("write metadata");
@@ -60,7 +65,7 @@ impl Fixture {
             write_session_goal(
                 &self.control_db_path,
                 &session_path,
-                Some(&format!("{{\"objective\":\"{goal}\"}}")),
+                Some(&format!("{{\"objective\":\"{goal}\"}}").into()),
             )
             .expect("write goal");
         }
@@ -71,10 +76,10 @@ impl Fixture {
             &self.control_db_path,
             &RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: session_id.to_owned(),
+                session_id: session_id.to_owned().into(),
             },
             pid,
-            session_path,
+            session_path.map(JsString::from).as_ref(),
             Default::default(),
         )
         .expect("register listener");
@@ -132,14 +137,15 @@ fn lists_sessions_with_purpose_metadata_and_live_pid_health() {
     );
     fixture.register_listener("session-a", std::process::id(), None);
 
-    let sessions = list_sessions(&fixture.control_db_path, &options(fixed_now())).expect("list sessions");
+    let sessions =
+        list_sessions(&JsString::from(&fixture.control_db_path), &options(fixed_now())).expect("list sessions");
 
     assert_eq!(sessions.len(), 1);
     let entry = &sessions[0];
     assert_eq!(entry.session_id, "session-a");
-    assert_eq!(entry.name.as_deref(), Some("Alpha"));
-    assert_eq!(entry.goal.as_deref(), Some("ship feature"));
-    assert_eq!(entry.cwd.as_deref(), Some("/repo/a"));
+    assert_eq!(entry.name.clone(), Some(JsString::from("Alpha")));
+    assert_eq!(entry.goal.clone(), Some(JsString::from("ship feature")));
+    assert_eq!(entry.cwd.clone(), Some(JsString::from("/repo/a")));
     assert_eq!(entry.pid, Some(std::process::id()));
     assert_eq!(entry.check_status, SessionCheckStatus::Ok);
     assert!(entry.eligible_to_receive);
@@ -154,7 +160,7 @@ fn does_not_claim_listener_ownership_while_listing_another_live_process() {
 
     let mut list_options = options(fixed_now());
     list_options.is_runtime_process_alive = Some(always_alive());
-    list_sessions(&fixture.control_db_path, &list_options).expect("list sessions");
+    list_sessions(&JsString::from(&fixture.control_db_path), &list_options).expect("list sessions");
 
     let listeners = list_runtime_mailbox_listeners(&fixture.control_db_path).expect("listeners");
     assert_eq!(listeners.len(), 1);
@@ -164,7 +170,7 @@ fn does_not_claim_listener_ownership_while_listing_another_live_process() {
         listeners[0].session_path.as_deref(),
         Some("/sessions/session-owned.jsonl")
     );
-    let health = read_session_health(&fixture.control_db_path, "session-owned")
+    let health = read_session_health(&fixture.control_db_path, &JsString::from("session-owned"))
         .expect("health")
         .expect("row");
     assert_eq!(health.pid, Some(111));
@@ -183,12 +189,13 @@ fn keeps_sticky_dead_sessions_skipped_until_generation_advances() {
     health.last_checked_at = Some("2026-01-01T00:01:00.000Z".to_owned());
     write_session_health(&fixture.control_db_path, &health).expect("write health");
 
-    let first = list_sessions(&fixture.control_db_path, &options(fixed_now())).expect("first list");
+    let first = list_sessions(&JsString::from(&fixture.control_db_path), &options(fixed_now())).expect("first list");
     assert_eq!(first[0].check_status, SessionCheckStatus::Dead);
     assert!(!first[0].eligible_to_receive);
 
     fixture.register_listener("session-dead", std::process::id(), None);
-    let after_restart = list_sessions(&fixture.control_db_path, &options(fixed_now())).expect("second list");
+    let after_restart =
+        list_sessions(&JsString::from(&fixture.control_db_path), &options(fixed_now())).expect("second list");
     assert_eq!(after_restart[0].check_status, SessionCheckStatus::Ok);
     assert!(after_restart[0].eligible_to_receive);
     assert_eq!(after_restart[0].agent_generation, 2);
@@ -209,7 +216,7 @@ fn does_not_revive_an_unbound_historical_session_from_a_reused_live_pid() {
 
     let mut list_options = options(eleven_minutes_from_now());
     list_options.is_runtime_process_alive = Some(always_alive());
-    let sessions = list_sessions(&fixture.control_db_path, &list_options).expect("list");
+    let sessions = list_sessions(&JsString::from(&fixture.control_db_path), &list_options).expect("list");
 
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].pid, None);
@@ -226,7 +233,7 @@ fn expires_a_fresh_binding_when_its_pid_no_longer_belongs_to_a_pi_runtime() {
 
     let mut list_options = options(fixed_now());
     list_options.is_runtime_process_alive = Some(never_alive());
-    let sessions = list_sessions(&fixture.control_db_path, &list_options).expect("list");
+    let sessions = list_sessions(&JsString::from(&fixture.control_db_path), &list_options).expect("list");
 
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].pid, None);
@@ -247,7 +254,7 @@ fn expires_a_stale_binding_when_its_pid_no_longer_belongs_to_a_pi_runtime() {
 
     let mut list_options = options(eleven_minutes_from_now());
     list_options.is_runtime_process_alive = Some(never_alive());
-    let sessions = list_sessions(&fixture.control_db_path, &list_options).expect("list");
+    let sessions = list_sessions(&JsString::from(&fixture.control_db_path), &list_options).expect("list");
 
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].pid, None);
@@ -268,7 +275,7 @@ fn rejects_a_future_dated_heartbeat_when_its_pid_is_not_a_pi_runtime() {
 
     let mut list_options = options(fixed_now());
     list_options.is_runtime_process_alive = Some(never_alive());
-    let sessions = list_sessions(&fixture.control_db_path, &list_options).expect("list");
+    let sessions = list_sessions(&JsString::from(&fixture.control_db_path), &list_options).expect("list");
 
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].pid, None);
@@ -288,7 +295,11 @@ fn does_not_abort_a_stale_supervisor_store_while_its_process_is_still_alive() {
     fixture.write_session("session-stale-live", SessionOverrides::default());
     fixture.register_listener("session-stale-live", std::process::id(), None);
 
-    let sessions = list_sessions(&fixture.control_db_path, &options(eleven_minutes_from_now())).expect("list");
+    let sessions = list_sessions(
+        &JsString::from(&fixture.control_db_path),
+        &options(eleven_minutes_from_now()),
+    )
+    .expect("list");
 
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].pid, Some(std::process::id()));
@@ -314,9 +325,9 @@ fn retires_stale_listeners_while_listing() {
     let mut list_options = options(eleven_minutes_from_now());
     let live_pid = std::process::id() + 1;
     list_options.is_runtime_process_alive = Some(Arc::new(move |pid| pid == live_pid));
-    list_sessions(&fixture.control_db_path, &list_options).expect("list");
+    list_sessions(&JsString::from(&fixture.control_db_path), &list_options).expect("list");
 
-    let stale = read_session_health(&fixture.control_db_path, "session-stale")
+    let stale = read_session_health(&fixture.control_db_path, &JsString::from("session-stale"))
         .expect("health")
         .expect("row");
     assert_eq!(stale.pid, None);
@@ -336,7 +347,7 @@ fn excludes_ended_sessions_when_include_ended_is_false() {
     let mut list_options = options(fixed_now());
     list_options.include_ended = Some(false);
     assert!(
-        list_sessions(&fixture.control_db_path, &list_options)
+        list_sessions(&JsString::from(&fixture.control_db_path), &list_options)
             .expect("list")
             .is_empty()
     );
@@ -364,10 +375,10 @@ fn keeps_global_inventory_on_the_current_main_session_binding() {
 
     let mut list_options = options(fixed_now());
     list_options.include_ended = Some(false);
-    let sessions = list_sessions(&fixture.control_db_path, &list_options).expect("list");
-    let ids: Vec<_> = sessions.iter().map(|entry| entry.session_id.as_str()).collect();
+    let sessions = list_sessions(&JsString::from(&fixture.control_db_path), &list_options).expect("list");
+    let ids: Vec<_> = sessions.iter().map(|entry| entry.session_id.clone()).collect();
     assert_eq!(ids, vec!["session-current"]);
-    let health = read_session_health(&fixture.control_db_path, "session-historical")
+    let health = read_session_health(&fixture.control_db_path, &JsString::from("session-historical"))
         .expect("health")
         .expect("row");
     assert_eq!(health.pid, None);
@@ -399,12 +410,12 @@ fn uses_session_path_as_the_deterministic_tie_break_for_duplicate_metadata() {
 
     let mut list_options = options(fixed_now());
     list_options.include_ended = Some(false);
-    let sessions = list_sessions(&fixture.control_db_path, &list_options).expect("list");
+    let sessions = list_sessions(&JsString::from(&fixture.control_db_path), &list_options).expect("list");
 
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].session_id, "session-live");
     assert_eq!(sessions[0].session_path, "/sessions/z-current.jsonl");
-    assert_eq!(sessions[0].cwd.as_deref(), Some("/repo/current"));
+    assert_eq!(sessions[0].cwd.clone(), Some(JsString::from("/repo/current")));
 }
 
 #[test]
@@ -431,12 +442,12 @@ fn broadcasts_only_to_the_newest_main_session_listener_for_a_shared_live_pid() {
     let mut directory_options = options(now);
     directory_options.is_runtime_process_alive = Some(always_alive());
     let sent = broadcast_to_sessions(
-        &fixture.control_db_path,
+        &JsString::from(&fixture.control_db_path),
         &BroadcastSessionsInput {
-            message: "please restart".to_owned(),
+            message: "please restart".to_owned().into(),
             filters: None,
-            sender_session_id: "sender-session".to_owned(),
-            sender_session_path: "/sessions/sender.jsonl".to_owned(),
+            sender_session_id: "sender-session".to_owned().into(),
+            sender_session_path: "/sessions/sender.jsonl".to_owned().into(),
             sender_agent_id: None,
         },
         &directory_options,
@@ -456,17 +467,17 @@ fn broadcasts_only_to_the_newest_main_session_listener_for_a_shared_live_pid() {
     assert_eq!(messages[0].recipient.session_id, "session-current");
 
     let filtered = broadcast_to_sessions(
-        &fixture.control_db_path,
+        &JsString::from(&fixture.control_db_path),
         &BroadcastSessionsInput {
-            message: "please restart again".to_owned(),
+            message: "please restart again".to_owned().into(),
             filters: Some(BroadcastSessionFilters {
-                session_ids: Some(vec!["session-historical".to_owned()]),
+                session_ids: Some(vec!["session-historical".to_owned().into()]),
                 cwd: None,
                 name: None,
                 status: None,
             }),
-            sender_session_id: "sender-session".to_owned(),
-            sender_session_path: "/sessions/sender.jsonl".to_owned(),
+            sender_session_id: "sender-session".to_owned().into(),
+            sender_session_path: "/sessions/sender.jsonl".to_owned().into(),
             sender_agent_id: None,
         },
         &directory_options,
@@ -508,12 +519,12 @@ fn broadcasts_once_to_a_session_with_multiple_metadata_paths() {
     fixture.register_listener("session-live", std::process::id(), None);
 
     let results = broadcast_to_sessions(
-        &fixture.control_db_path,
+        &JsString::from(&fixture.control_db_path),
         &BroadcastSessionsInput {
-            message: "please restart".to_owned(),
+            message: "please restart".to_owned().into(),
             filters: None,
-            sender_session_id: "sender-session".to_owned(),
-            sender_session_path: "/sessions/sender.jsonl".to_owned(),
+            sender_session_id: "sender-session".to_owned().into(),
+            sender_session_path: "/sessions/sender.jsonl".to_owned().into(),
             sender_agent_id: None,
         },
         &options(fixed_now()),
@@ -551,17 +562,17 @@ fn matches_broadcast_filters_against_the_newest_metadata_entry() {
     fixture.register_listener("session-live", std::process::id(), None);
 
     let results = broadcast_to_sessions(
-        &fixture.control_db_path,
+        &JsString::from(&fixture.control_db_path),
         &BroadcastSessionsInput {
-            message: "please restart".to_owned(),
+            message: "please restart".to_owned().into(),
             filters: Some(BroadcastSessionFilters {
                 session_ids: None,
-                cwd: Some("/repo/old".to_owned()),
+                cwd: Some("/repo/old".to_owned().into()),
                 name: None,
                 status: None,
             }),
-            sender_session_id: "sender-session".to_owned(),
-            sender_session_path: "/sessions/sender.jsonl".to_owned(),
+            sender_session_id: "sender-session".to_owned().into(),
+            sender_session_path: "/sessions/sender.jsonl".to_owned().into(),
             sender_agent_id: None,
         },
         &options(fixed_now()),
@@ -604,17 +615,17 @@ fn broadcasts_only_to_eligible_matching_current_sessions() {
     let mut directory_options = options(fixed_now());
     directory_options.is_runtime_process_alive = Some(always_alive());
     let results = broadcast_to_sessions(
-        &fixture.control_db_path,
+        &JsString::from(&fixture.control_db_path),
         &BroadcastSessionsInput {
-            message: "please restart".to_owned(),
+            message: "please restart".to_owned().into(),
             filters: Some(BroadcastSessionFilters {
-                session_ids: Some(vec!["session-live".to_owned()]),
+                session_ids: Some(vec!["session-live".to_owned().into()]),
                 cwd: None,
                 name: None,
                 status: None,
             }),
-            sender_session_id: "sender-session".to_owned(),
-            sender_session_path: "/sessions/sender.jsonl".to_owned(),
+            sender_session_id: "sender-session".to_owned().into(),
+            sender_session_path: "/sessions/sender.jsonl".to_owned().into(),
             sender_agent_id: None,
         },
         &directory_options,
@@ -640,7 +651,7 @@ fn broadcasts_only_to_eligible_matching_current_sessions() {
     let messages = list_runtime_mailbox_messages(&fixture.control_db_path).expect("messages");
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].recipient.session_id, "session-live");
-    let health = read_session_health(&fixture.control_db_path, "session-live")
+    let health = read_session_health(&fixture.control_db_path, &JsString::from("session-live"))
         .expect("health")
         .expect("row");
     assert_eq!(health.check_status, SessionCheckStatus::Ok);
@@ -650,12 +661,12 @@ fn broadcasts_only_to_eligible_matching_current_sessions() {
 fn broadcast_rejects_an_empty_message() {
     let fixture = Fixture::new();
     let error = broadcast_to_sessions(
-        &fixture.control_db_path,
+        &JsString::from(&fixture.control_db_path),
         &BroadcastSessionsInput {
-            message: "   ".to_owned(),
+            message: "   ".to_owned().into(),
             filters: None,
-            sender_session_id: "sender-session".to_owned(),
-            sender_session_path: "/sessions/sender.jsonl".to_owned(),
+            sender_session_id: "sender-session".to_owned().into(),
+            sender_session_path: "/sessions/sender.jsonl".to_owned().into(),
             sender_agent_id: None,
         },
         &options(fixed_now()),

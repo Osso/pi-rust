@@ -1,5 +1,6 @@
 //! Differential coverage for the `ask-secret` and `browser-cli` bundled extensions.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/bundled_extension_load.rs"]
 mod load_support;
 #[path = "support/oracle.rs"]
@@ -13,7 +14,7 @@ use pi_coding_agent::bundled_extensions::ask_secret::{AskSecretToolOptions, crea
 use pi_coding_agent::bundled_extensions::browser_cli::{
     BrowserCliCommandResult, BrowserCliCommandRunner, BrowserCliExtensionOptions, create_browser_cli_tool_definition,
 };
-use serde_json::json;
+use pi_js_compat::js_json as json;
 use support::{Harness, RecordingUi, calls_json};
 use tokio_util::sync::CancellationToken;
 
@@ -21,7 +22,7 @@ fn oracle_for(module: &str) -> oracle::TsOracle {
     oracle::TsOracle::spawn("bundled-extensions-oracle.ts", module)
 }
 
-fn valid_params() -> serde_json::Value {
+fn valid_params() -> pi_js_compat::js_json::JsValue {
     json!({
         "record": "browser/rei-capital-one.json",
         "usernameSelector": "#usernameInputField",
@@ -49,7 +50,11 @@ async fn ask_secret_matches_typescript() {
              "inputs": [null]}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let steps = response["output"]["steps"].as_array().unwrap();
 
     let harness = Harness::load("/tmp", Arc::new(RecordingUi::default()), |api| {
@@ -79,9 +84,9 @@ async fn ask_secret_matches_typescript() {
         confirmed: std::sync::Mutex::new(false),
         calls: harness.calls.clone(),
         inputs: std::sync::Mutex::new(
-            ["rei-user".to_owned(), "super-secret".to_owned()]
+            [JsString::from("rei-user"), JsString::from("super-secret")]
                 .into_iter()
-                .map(Some)
+                .map(|text| Some(JsString::from(text)))
                 .collect(),
         ),
     });
@@ -94,7 +99,11 @@ async fn ask_secret_matches_typescript() {
     assert_eq!(calls_json(&harness.take_calls()), steps[1]["calls"]);
     assert_eq!(
         recorded.lock().unwrap().as_slice(),
-        &[(valid_params(), "rei-user".to_owned(), "super-secret".to_owned())]
+        &[(
+            valid_params(),
+            JsString::from("rei-user"),
+            JsString::from("super-secret")
+        )]
     );
 
     let non_tui = create_ask_secret_tool_definition(AskSecretToolOptions {
@@ -126,7 +135,10 @@ async fn ask_secret_matches_typescript() {
     )
     .await
     .unwrap_err();
-    assert_eq!(error.message, steps[3]["error"]["message"]);
+    assert_eq!(
+        pi_js_compat::js_json::JsValue::String(error.message),
+        steps[3]["error"]["message"]
+    );
 
     let cancelled_ui = Arc::new(RecordingUi {
         confirmed: std::sync::Mutex::new(false),
@@ -170,7 +182,11 @@ async fn browser_cli_matches_typescript() {
             ]}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let steps = response["output"]["steps"].as_array().unwrap();
 
     let harness = Harness::load("/tmp", Arc::new(RecordingUi::default()), |api| {
@@ -212,7 +228,7 @@ async fn browser_cli_matches_typescript() {
             .lock()
             .unwrap()
             .run_command
-            .push((executable, args.clone(), signal.is_some()));
+            .push((executable.into(), args.clone(), signal.is_some()));
         let next = queue_for_runner.lock().unwrap().remove(0);
         Box::pin(async move { Ok(next) })
     });
@@ -235,20 +251,23 @@ async fn browser_cli_matches_typescript() {
         &[
             (
                 "browser-cli".to_owned(),
-                vec!["click".to_owned(), "[gc-testing-id='generate-report-btn']".to_owned()],
+                vec![
+                    JsString::from("click"),
+                    JsString::from("[gc-testing-id='generate-report-btn']")
+                ],
                 false
             ),
             (
                 "browser-cli".to_owned(),
-                vec!["wait".to_owned(), "3000".to_owned()],
+                vec![JsString::from("wait"), JsString::from("3000")],
                 false
             ),
             (
                 "browser-cli".to_owned(),
                 vec![
-                    "get".to_owned(),
-                    "text".to_owned(),
-                    "[gc-testing-id='reporting-screen']".to_owned()
+                    JsString::from("get"),
+                    JsString::from("text"),
+                    JsString::from("[gc-testing-id='reporting-screen']")
                 ],
                 false
             )
@@ -283,7 +302,10 @@ async fn browser_cli_matches_typescript() {
     )
     .await
     .unwrap_err();
-    assert_eq!(error.message, steps[2]["error"]["message"]);
+    assert_eq!(
+        pi_js_compat::js_json::JsValue::String(error.message),
+        steps[2]["error"]["message"]
+    );
 }
 
 #[tokio::test]

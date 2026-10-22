@@ -1,5 +1,6 @@
 //! Differential: `supervisor/main.ts` request loop against the pinned TypeScript module.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -23,13 +24,15 @@ use pi_coding_agent::supervisor::main::{
     run_supervisor_request_loop,
 };
 use pi_coding_agent::supervisor::request_wake::SupervisorRequestWakeServer;
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsObject as Map;
+use pi_js_compat::js_json::JsValue as Value;
 use tokio_util::sync::CancellationToken;
 
 const SOURCE_MODULE: &str = "packages/coding-agent/src/supervisor/main.ts";
 
-fn normalize_session_file(path: &str) -> Vec<Value> {
-    let content = std::fs::read_to_string(path).expect("session file");
+fn normalize_session_file(path: &JsString) -> Vec<Value> {
+    let content = std::fs::read_to_string(path.to_utf8().expect("utf-8 test path")).expect("session file");
     content
         .lines()
         .filter(|line| !line.is_empty())
@@ -51,16 +54,16 @@ fn normalize_entry(value: &mut Value) {
         Value::Object(object) => {
             for (key, child) in object.iter_mut() {
                 if key == "id" || key == "parentId" || key == "toolCallId" {
-                    *child = Value::String("<id>".to_owned());
+                    *child = Value::String("<id>".to_owned().into());
                 } else if key == "timestamp" {
-                    *child = Value::String("<timestamp>".to_owned());
+                    *child = Value::String("<timestamp>".to_owned().into());
                 } else if key == "cwd" {
-                    *child = Value::String("<cwd>".to_owned());
+                    *child = Value::String("<cwd>".to_owned().into());
                 } else if matches!(
-                    key.as_str(),
+                    key.to_utf8().expect("fixture field name").as_str(),
                     "input" | "output" | "cacheRead" | "cacheWrite" | "totalTokens"
                 ) {
-                    *child = Value::String("<number>".to_owned());
+                    *child = Value::String("<number>".to_owned().into());
                 } else {
                     normalize_entry(child);
                 }
@@ -96,9 +99,9 @@ async fn run_rust(dir: &str) -> Value {
         faux_assistant_message(
             FauxContent::Blocks(vec![faux_tool_call(
                 "supervisor_response",
-                serde_json::Map::from_iter([
-                    ("kind".to_owned(), Value::String("approve".to_owned())),
-                    ("reason".to_owned(), Value::String("ok".to_owned())),
+                pi_js_compat::js_json::JsObject::from_iter([
+                    (JsString::from("kind"), Value::String("approve".to_owned().into())),
+                    (JsString::from("reason"), Value::String("ok".to_owned().into())),
                 ]),
                 Some("call-1".to_owned()),
             )]),
@@ -110,7 +113,7 @@ async fn run_rust(dir: &str) -> Value {
         .into(),
     ]);
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::new()))),
+        credentials: Some(Arc::new(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()))),
         models_path: Some(None),
         refresh_on_create: Some(false),
         ..Default::default()
@@ -119,24 +122,24 @@ async fn run_rust(dir: &str) -> Value {
     .expect("runtime");
     runtime.register_native_provider(Arc::clone(&faux.provider));
     let mut manager = SessionManager::create(
-        dir,
-        Some(&session_dir),
+        &JsString::from(dir),
+        Some(&JsString::from(session_dir)),
         Some(NewSessionOptions {
-            id: Some("supervisor".to_owned()),
+            id: Some("supervisor".to_owned().into()),
             ..Default::default()
         }),
     )
     .expect("session manager");
     manager
-        .set_metadata_control_db_path(Some(&control_db_path), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db_path)), Default::default())
         .expect("metadata control db");
     post_supervisor_request(
         &control_db_path,
         &pi_coding_agent::core::session_control_db::PostSupervisorRequestInput {
-            sender_session_id: "requester".to_owned(),
-            project_id: "pi".to_owned(),
+            sender_session_id: "requester".to_owned().into(),
+            project_id: "pi".to_owned().into(),
             kind: SupervisorRequestKind::ApprovalReview,
-            payload: Map::from_iter([("toolName".to_owned(), Value::String("read".to_owned()))]),
+            payload: Map::from_iter([(JsString::from("toolName"), Value::String("read".to_owned().into()))]),
             deadline_at: "2099-01-01T00:00:00.000Z".to_owned(),
         },
     )
@@ -144,8 +147,8 @@ async fn run_rust(dir: &str) -> Value {
     let session_file = manager.get_session_file().expect("session file").to_owned();
     let session = Arc::new(
         create_supervisor_session(CreateSupervisorSessionOptions {
-            agent_dir: dir.to_owned(),
-            kb_dir: dir.to_owned(),
+            agent_dir: dir.to_owned().into(),
+            kb_dir: dir.to_owned().into(),
             model_runtime: runtime,
             resource_loader: StaticResourceLoader::new(),
             session_manager: manager,
@@ -156,13 +159,13 @@ async fn run_rust(dir: &str) -> Value {
         .session,
     );
     let signal = CancellationToken::new();
-    let wake_server = Arc::new(SupervisorRequestWakeServer::new(&control_db_path));
+    let wake_server = Arc::new(SupervisorRequestWakeServer::new(&JsString::from(&control_db_path)));
     wake_server.start().await.expect("wake server");
     let process_signal = signal.clone();
     run_supervisor_request_loop(RunSupervisorRequestLoopInput {
-        claim_token: "claim-token".to_owned(),
+        claim_token: "claim-token".to_owned().into(),
         console_prompts: Arc::new(Mutex::new(SupervisorConsolePromptQueue::new())),
-        control_db_path: control_db_path.clone(),
+        control_db_path: control_db_path.clone().into(),
         session: session.clone(),
         signal: signal.clone(),
         wake_server: Arc::clone(&wake_server),
@@ -214,7 +217,11 @@ async fn supervisor_request_loop_matches_typescript() {
         "operation": "supervisor-request-loop",
         "dir": ts_dir.path().display().to_string()
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let ts = &response["output"];
     assert_eq!(rust["controlRows"], ts["controlRows"]);
     assert_eq!(rust["session"], ts["session"]);

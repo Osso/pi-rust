@@ -1,5 +1,6 @@
 //! Differential coverage for the `run-plan` bundled extension.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/bundled_extension_commands.rs"]
 mod command_support;
 #[path = "support/oracle.rs"]
@@ -12,8 +13,8 @@ use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::types::ExtensionContextActions;
 use pi_coding_agent::core::session_manager::SessionManager;
+use pi_js_compat::js_json as json;
 use pi_js_compat::process_env;
-use serde_json::json;
 use support::{Harness, RecordingUi, calls_json};
 use tempfile::TempDir;
 
@@ -21,7 +22,7 @@ fn oracle_for(module: &str) -> oracle::TsOracle {
     oracle::TsOracle::spawn("bundled-extensions-oracle.ts", module)
 }
 
-fn plan_env() -> serde_json::Value {
+fn plan_env() -> pi_js_compat::js_json::JsValue {
     json!({
         "PLAN_FILE": process_env::get("PLAN_FILE"),
         "PLAN_PATH": process_env::get("PLAN_PATH"),
@@ -33,7 +34,7 @@ fn plan_env() -> serde_json::Value {
 #[tokio::test]
 async fn run_plan_matches_typescript() {
     let temp = TempDir::new().expect("temp dir");
-    let cwd = temp.path().to_string_lossy().into_owned();
+    let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     let plan_path = temp.path().join("PLAN.md");
     let alt_path = temp.path().join("ALT.md");
     fs::write(
@@ -48,7 +49,7 @@ async fn run_plan_matches_typescript() {
     let entries = json!([{
         "type": "custom",
         "customType": "run-plan:active",
-        "data": {"file": "PLAN.md", "path": plan_path.to_string_lossy()}
+        "data": {"file": "PLAN.md", "path": plan_path.to_str().expect("utf-8 test path")}
     }]);
     let response = oracle.request(&json!({
         "id": 1,
@@ -69,7 +70,11 @@ async fn run_plan_matches_typescript() {
             {"op": "event", "name": "agent_end", "event": {}, "cwd": cwd}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let steps = response["output"]["steps"].as_array().unwrap();
 
     let previous_dir = std::env::current_dir().unwrap();
@@ -78,7 +83,7 @@ async fn run_plan_matches_typescript() {
     let harness = Harness::load_full(
         &cwd,
         Arc::new(std::sync::Mutex::new(
-            SessionManager::in_memory(Some(&cwd), None).unwrap(),
+            SessionManager::in_memory(Some(&JsString::from(&cwd)), None).unwrap(),
         )),
         Arc::new(RecordingUi::default()),
         None,
@@ -109,7 +114,10 @@ async fn run_plan_matches_typescript() {
     assert_eq!(calls_json(&harness.take_calls()), steps[7]["calls"]);
 
     let error = harness.run_command("run-plan", "MISSING.md").await.unwrap_err();
-    assert_eq!(error.message, steps[8]["error"]["message"]);
+    assert_eq!(
+        pi_js_compat::js_json::JsValue::String(error.message),
+        steps[8]["error"]["message"]
+    );
 
     let mut idle_runner = harness.runner.clone();
     idle_runner.bind_core(
@@ -121,18 +129,21 @@ async fn run_plan_matches_typescript() {
         None,
     );
     let handler = harness.command("run-plan").handler;
-    let error = handler("".to_owned(), idle_runner.create_command_context())
+    let error = handler("".to_owned().into(), idle_runner.create_command_context())
         .await
         .unwrap_err();
-    assert_eq!(error.message, steps[9]["error"]["message"]);
+    assert_eq!(
+        pi_js_compat::js_json::JsValue::String(error.message),
+        steps[9]["error"]["message"]
+    );
     assert_eq!(calls_json(&harness.take_calls()), steps[9]["calls"]);
 
     process_env::clear();
-    let mut restored_manager = SessionManager::in_memory(Some(&cwd), None).unwrap();
+    let mut restored_manager = SessionManager::in_memory(Some(&JsString::from(&cwd)), None).unwrap();
     restored_manager
         .append_custom_entry(
-            "run-plan:active",
-            Some(json!({"file": "PLAN.md", "path": plan_path.to_string_lossy()})),
+            &JsString::from("run-plan:active"),
+            Some(json!({"file": "PLAN.md", "path": plan_path.to_str().expect("utf-8 test path")})),
         )
         .unwrap();
     let restored = Harness::load_full(
@@ -152,10 +163,11 @@ async fn run_plan_matches_typescript() {
     std::env::set_current_dir(previous_dir).unwrap();
 }
 
-async fn emit_agent_end(harness: &Harness, event: serde_json::Value) {
-    let event: pi_coding_agent::core::extensions::types::AgentEndEvent =
-        serde_json::from_value(json!({"messages": [], "sessionContinuation": event.get("sessionContinuation")}))
-            .unwrap();
+async fn emit_agent_end(harness: &Harness, event: pi_js_compat::js_json::JsValue) {
+    let event: pi_coding_agent::core::extensions::types::AgentEndEvent = pi_js_compat::js_json::from_value(
+        &json!({"messages": [], "sessionContinuation": event.get("sessionContinuation")}),
+    )
+    .unwrap();
     let handler = harness.extension.read().handlers.agent_end[0].clone();
     handler.call(event, harness.context()).await.unwrap();
 }
@@ -185,13 +197,19 @@ fn find_next_plan_item_skips_checked_items() {
     )
     .unwrap();
     assert_eq!(
-        pi_coding_agent::bundled_extensions::run_plan::find_next_plan_item(&path.to_string_lossy()).unwrap(),
-        Some("First open item".to_owned())
+        pi_coding_agent::bundled_extensions::run_plan::find_next_plan_item(&JsString::from(
+            path.to_str().expect("utf-8 test path")
+        ))
+        .unwrap(),
+        Some(JsString::from("First open item"))
     );
 
     fs::write(&path, "- [x] Done item\n* [X] Also done\n").unwrap();
     assert_eq!(
-        pi_coding_agent::bundled_extensions::run_plan::find_next_plan_item(&path.to_string_lossy()).unwrap(),
+        pi_coding_agent::bundled_extensions::run_plan::find_next_plan_item(&JsString::from(
+            path.to_str().expect("utf-8 test path")
+        ))
+        .unwrap(),
         None
     );
 }

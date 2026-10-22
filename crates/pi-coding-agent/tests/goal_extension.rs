@@ -4,6 +4,7 @@
 //! `packages/coding-agent/test/goal-extension.test.ts` against the real
 //! `ExtensionRunner` boundary.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -34,16 +35,17 @@ use pi_coding_agent::core::extensions::{
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager, lock_session_manager};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 use serde_json::Map;
-use serde_json::{Value, json};
 
 #[derive(Default)]
 struct Records {
     user_messages: Vec<UserMessageContent>,
     messages: Vec<CustomMessagePayload>,
-    entries: Vec<(String, Option<Value>)>,
-    statuses: Vec<(String, Option<String>)>,
-    notifications: Vec<(String, Option<NotifyType>)>,
+    entries: Vec<(JsString, Option<Value>)>,
+    statuses: Vec<(JsString, Option<JsString>)>,
+    notifications: Vec<(JsString, Option<NotifyType>)>,
     call_tools: Vec<(String, Value)>,
 }
 
@@ -52,7 +54,7 @@ struct TestUi {
 }
 
 impl ExtensionUiContext for TestUi {
-    fn notify(&self, message: &str, notify_type: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
         self.records
             .lock()
             .unwrap()
@@ -60,12 +62,12 @@ impl ExtensionUiContext for TestUi {
             .push((message.to_owned(), notify_type));
     }
 
-    fn set_status(&self, key: &str, text: Option<&str>) {
+    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
         self.records
             .lock()
             .unwrap()
             .statuses
-            .push((key.to_owned(), text.map(str::to_owned)));
+            .push((key.to_owned(), text.cloned()));
     }
 }
 
@@ -150,7 +152,7 @@ fn context_actions() -> ExtensionContextActions {
         get_multi_agent_store: None,
         get_tool_detach_registry: None,
         compact: Arc::new(|_| {}),
-        get_system_prompt: Arc::new(String::new),
+        get_system_prompt: Arc::new(JsString::default),
         get_system_prompt_options: None,
     }
 }
@@ -165,7 +167,7 @@ fn temp_dir(name: &str) -> String {
             .as_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
-    dir.to_string_lossy().into_owned()
+    dir.to_str().expect("utf-8 test path").to_owned()
 }
 
 async fn harness(name: &str, default_decision: GoalSupervisorResponse) -> Harness {
@@ -206,10 +208,18 @@ async fn harness(name: &str, default_decision: GoalSupervisorResponse) -> Harnes
                     Result<(), pi_coding_agent::core::extensions::types::HandlerError>,
                 >
         });
-    let extension = load_extension_from_factory(factory, &cwd, event_bus(), runtime.clone(), "goal")
-        .await
-        .unwrap();
-    let session = Arc::new(Mutex::new(SessionManager::in_memory(Some(&cwd), None).unwrap()));
+    let extension = load_extension_from_factory(
+        factory,
+        &JsString::from(&cwd),
+        event_bus(),
+        runtime.clone(),
+        &JsString::from("goal"),
+    )
+    .await
+    .unwrap();
+    let session = Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(&JsString::from(&cwd)), None).unwrap(),
+    ));
     let registry = model_registry().await;
     let mut runner = ExtensionRunner::new(
         vec![extension],
@@ -295,7 +305,7 @@ fn assistant_message(text: &str, stop_reason: &str) -> pi_agent_core::agent::Age
         "stopReason": stop_reason,
         "timestamp": 1
     });
-    serde_json::from_value(value).unwrap()
+    pi_js_compat::js_json::from_value(&value).unwrap()
 }
 
 impl Harness {
@@ -309,7 +319,7 @@ impl Harness {
     async fn run_command(&self, args: &str) {
         let command = self.runner.get_command("goal").expect("goal command");
         let ctx = self.runner.create_command_context();
-        (command.handler)(args.to_owned(), ctx).await.unwrap();
+        (command.handler)(args.to_owned().into(), ctx).await.unwrap();
     }
 
     async fn run_tool(&self, params: Value) -> AgentToolResult {
@@ -331,12 +341,14 @@ impl Harness {
     }
 
     async fn run_input(&self, text: &str) {
-        self.runner.emit_input(text, None, InputSource::Interactive, None).await;
+        self.runner
+            .emit_input(&JsString::from(text), None, InputSource::Interactive, None)
+            .await;
     }
 
     async fn run_end_turn(&self, reason: &str, is_error: bool) {
-        let mut input = serde_json::Map::new();
-        input.insert("reason".to_owned(), Value::String(reason.to_owned()));
+        let mut input = pi_js_compat::js_json::JsObject::new();
+        input.insert(JsString::from("reason"), Value::String(reason.to_owned().into()));
         let _ = self
             .runner
             .emit_tool_result(ToolResultEvent {
@@ -352,16 +364,18 @@ impl Harness {
     }
 }
 
-fn text_of(result: &AgentToolResult) -> String {
-    result
-        .content
-        .iter()
-        .filter_map(|item| match item {
-            TextOrImageContent::Text(text) => Some(text.text.as_str()),
-            TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+fn text_of(result: &AgentToolResult) -> JsString {
+    JsString::join(
+        result
+            .content
+            .iter()
+            .filter_map(|item| match item {
+                TextOrImageContent::Text(text) => Some(text.text.clone()),
+                TextOrImageContent::Image(_) => None,
+            })
+            .collect::<Vec<_>>(),
+        "\n",
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -374,7 +388,7 @@ fn parses_goal_args_like_the_command_parser() {
     assert_eq!(
         parse_goal_args("set ship the thing"),
         ParseGoalArgsResult::Parsed(ParsedGoalArgs::Set {
-            objective: "ship the thing".to_owned()
+            objective: "ship the thing".to_owned().into()
         })
     );
     assert_eq!(
@@ -424,21 +438,21 @@ fn parses_goal_json_and_drops_invalid_fields() {
     .unwrap();
     assert_eq!(goal.objective, "ship it");
     assert_eq!(goal.continuation_turns, Some(2.0));
-    assert_eq!(goal.pause_reason.as_deref(), Some("blocked"));
+    assert_eq!(goal.pause_reason.clone(), Some(JsString::from("blocked")));
     assert_eq!(goal.review_evidence.unwrap().len(), 2);
 
     assert!(parse_goal(&json!({"branch": "main", "createdAt": "x"})).is_none());
     assert!(parse_goal(&json!({"objective": "x", "createdAt": "x"})).is_none());
-    assert!(parse_goal_json("not json").is_none());
+    assert!(parse_goal_json(&JsString::from("not json")).is_none());
     assert!(parse_goal(&json!(["x"])).is_none());
 }
 
 #[test]
 fn presents_goal_status_and_system_block() {
     let goal = Goal {
-        objective: "ship it".to_owned(),
-        branch: "main".to_owned(),
-        created_at: "2026-01-01T00:00:00.000Z".to_owned(),
+        objective: "ship it".to_owned().into(),
+        branch: "main".to_owned().into(),
+        created_at: "2026-01-01T00:00:00.000Z".to_owned().into(),
         completed_at: None,
         completion_reason: None,
         continuation_turns: Some(3.0),
@@ -454,7 +468,7 @@ fn presents_goal_status_and_system_block() {
         "<goal>\nLong-running objective: ship it\n(set on main at 2026-01-01T00:00:00.000Z)\nContinuation turns used: 3\n\nKeep working toward this objective across turns until it is achieved.\nWhen it is achieved, call the manage_goal tool with action \"complete\".\nDo not call manage_goal with action set for this objective; it is already active.\nIf you cannot make further progress, say what is blocking it rather than stopping silently.\n</goal>"
     );
     let paused = Goal {
-        paused_at: Some("2026-01-02T00:00:00.000Z".to_owned()),
+        paused_at: Some("2026-01-02T00:00:00.000Z".to_owned().into()),
         pause_reason: None,
         ..goal
     };
@@ -465,15 +479,21 @@ fn presents_goal_status_and_system_block() {
 #[test]
 fn deduplicates_restated_goal_scope() {
     assert_eq!(
-        deduplicate_current_goal_scope("Ship A; Ship B", "Ship A"),
+        deduplicate_current_goal_scope(&JsString::from("Ship A; Ship B"), &JsString::from("Ship A")),
         "Ship A; Ship B"
     );
     assert_eq!(
-        deduplicate_current_goal_scope("Ship A; Ship A; Ship B", "Ship A"),
+        deduplicate_current_goal_scope(&JsString::from("Ship A; Ship A; Ship B"), &JsString::from("Ship A")),
         "Ship A; Ship B"
     );
-    assert_eq!(deduplicate_current_goal_scope("Ship A", "Ship A"), "Ship A");
-    assert_eq!(deduplicate_current_goal_scope("other", "Ship A"), "other");
+    assert_eq!(
+        deduplicate_current_goal_scope(&JsString::from("Ship A"), &JsString::from("Ship A")),
+        "Ship A"
+    );
+    assert_eq!(
+        deduplicate_current_goal_scope(&JsString::from("other"), &JsString::from("Ship A")),
+        "other"
+    );
 }
 
 #[test]
@@ -512,8 +532,8 @@ async fn registers_manage_goal_and_goal_command_without_budget_fields() {
     let harness = harness(
         "register",
         GoalSupervisorResponse::Continue {
-            instructions: "continue".to_owned(),
-            reason: "work remains".to_owned(),
+            instructions: "continue".to_owned().into(),
+            reason: "work remains".to_owned().into(),
         },
     )
     .await;
@@ -537,8 +557,8 @@ async fn sets_goal_from_command_and_continues_when_idle() {
     let harness = harness(
         "command-set",
         GoalSupervisorResponse::Continue {
-            instructions: "continue".to_owned(),
-            reason: "work remains".to_owned(),
+            instructions: "continue".to_owned().into(),
+            reason: "work remains".to_owned().into(),
         },
     )
     .await;
@@ -552,16 +572,16 @@ async fn sets_goal_from_command_and_continues_when_idle() {
     assert_eq!(
         records.user_messages,
         vec![UserMessageContent::Text(
-            "Continue working toward the active goal.".to_owned()
+            "Continue working toward the active goal.".to_owned().into()
         )]
     );
     assert_eq!(
         records.statuses.last().unwrap(),
-        &("goal".to_owned(), Some("goal: Ship it".to_owned()))
+        &("goal".into(), Some("goal: Ship it".into()))
     );
     assert_eq!(
         records.notifications.last().unwrap(),
-        &("Goal set — starting work".to_owned(), Some(NotifyType::Info))
+        &("Goal set — starting work".into(), Some(NotifyType::Info))
     );
 }
 
@@ -570,8 +590,8 @@ async fn rejects_bare_and_reserved_objectives() {
     let harness = harness(
         "reject",
         GoalSupervisorResponse::Continue {
-            instructions: "continue".to_owned(),
-            reason: "work remains".to_owned(),
+            instructions: "continue".to_owned().into(),
+            reason: "work remains".to_owned().into(),
         },
     )
     .await;
@@ -580,7 +600,7 @@ async fn rejects_bare_and_reserved_objectives() {
     assert_eq!(
         harness.records.lock().unwrap().notifications.last().unwrap(),
         &(
-            "Use /goal set <objective> to set a goal".to_owned(),
+            "Use /goal set <objective> to set a goal".into(),
             Some(NotifyType::Error)
         )
     );
@@ -595,8 +615,8 @@ async fn rejects_objectives_longer_than_ten_thousand_utf16_units() {
     let harness = harness(
         "long",
         GoalSupervisorResponse::Continue {
-            instructions: "continue".to_owned(),
-            reason: "work remains".to_owned(),
+            instructions: "continue".to_owned().into(),
+            reason: "work remains".to_owned().into(),
         },
     )
     .await;
@@ -620,8 +640,8 @@ async fn injects_the_running_objective_into_the_system_prompt() {
     let harness = harness(
         "inject",
         GoalSupervisorResponse::Continue {
-            instructions: "continue".to_owned(),
-            reason: "work remains".to_owned(),
+            instructions: "continue".to_owned().into(),
+            reason: "work remains".to_owned().into(),
         },
     )
     .await;
@@ -629,9 +649,9 @@ async fn injects_the_running_objective_into_the_system_prompt() {
     let combined = harness
         .runner
         .emit_before_agent_start(
-            "prompt",
+            &JsString::from("prompt"),
             None,
-            "base prompt",
+            &JsString::from("base prompt"),
             pi_coding_agent::core::system_prompt::BuildSystemPromptOptions::default(),
         )
         .await
@@ -647,8 +667,10 @@ async fn continues_after_agent_end_with_supervisor_instructions() {
     let harness = harness(
         "agent-end",
         GoalSupervisorResponse::Continue {
-            instructions: "Continue working toward this objective until it is achieved: Ship it".to_owned(),
-            reason: "work remains".to_owned(),
+            instructions: "Continue working toward this objective until it is achieved: Ship it"
+                .to_owned()
+                .into(),
+            reason: "work remains".to_owned().into(),
         },
     )
     .await;
@@ -665,7 +687,7 @@ async fn continues_after_agent_end_with_supervisor_instructions() {
     assert_eq!(
         records.messages[0].content,
         pi_coding_agent::core::extensions::types::CustomMessageContent::Text(
-            "<supervisor-instruction>\nContinue working toward this objective until it is achieved: Ship it\n</supervisor-instruction>".to_owned()
+            "<supervisor-instruction>\nContinue working toward this objective until it is achieved: Ship it\n</supervisor-instruction>".to_owned().into()
         )
     );
 }
@@ -675,8 +697,8 @@ async fn pause_requires_reason_and_resume_clears_paused_state() {
     let harness = harness(
         "pause",
         GoalSupervisorResponse::Continue {
-            instructions: "continue".to_owned(),
-            reason: "work remains".to_owned(),
+            instructions: "continue".to_owned().into(),
+            reason: "work remains".to_owned().into(),
         },
     )
     .await;
@@ -690,7 +712,7 @@ async fn pause_requires_reason_and_resume_clears_paused_state() {
     assert_eq!(text_of(&result), "Goal paused: blocked");
     let goal = harness.stored_goal().unwrap();
     assert!(goal.paused_at.is_some());
-    assert_eq!(goal.pause_reason.as_deref(), Some("blocked"));
+    assert_eq!(goal.pause_reason.clone(), Some(JsString::from("blocked")));
 
     let result = harness.run_tool(json!({"action": "resume"})).await;
     assert_eq!(text_of(&result), "Goal resumed: Ship it");
@@ -704,7 +726,7 @@ async fn completion_requires_a_report_and_marks_the_goal_complete() {
     let harness = harness(
         "complete",
         GoalSupervisorResponse::Complete {
-            reason: "verified".to_owned(),
+            reason: "verified".to_owned().into(),
         },
     )
     .await;
@@ -720,7 +742,7 @@ async fn completion_requires_a_report_and_marks_the_goal_complete() {
     assert_eq!(text_of(&result), "Goal marked complete: tests pass");
     let goal = harness.stored_goal().unwrap();
     assert!(goal.completed_at.is_some());
-    assert_eq!(goal.completion_reason.as_deref(), Some("tests pass"));
+    assert_eq!(goal.completion_reason.clone(), Some(JsString::from("tests pass")));
 }
 
 #[tokio::test]
@@ -728,7 +750,7 @@ async fn review_evidence_accumulates_and_is_sent_to_completion_review() {
     let harness = harness(
         "evidence",
         GoalSupervisorResponse::Complete {
-            reason: "verified".to_owned(),
+            reason: "verified".to_owned().into(),
         },
     )
     .await;
@@ -743,13 +765,13 @@ async fn review_evidence_accumulates_and_is_sent_to_completion_review() {
     assert_eq!(
         evidence[0],
         pi_coding_agent::bundled_extensions::goal::goal_types::GoalReviewEvidenceEvent::User {
-            text: "hello".to_owned()
+            text: "hello".to_owned().into()
         }
     );
     assert_eq!(
         evidence[1],
         pi_coding_agent::bundled_extensions::goal::goal_types::GoalReviewEvidenceEvent::EndTurn {
-            reason: "step done".to_owned()
+            reason: "step done".to_owned().into()
         }
     );
 
@@ -760,10 +782,16 @@ async fn review_evidence_accumulates_and_is_sent_to_completion_review() {
     let payloads = harness.review_payloads.lock().unwrap();
     let (kind, payload) = payloads.last().unwrap();
     assert_eq!(kind, "goal_completion_review");
-    assert_eq!(payload["objective"], "Ship it");
-    assert_eq!(payload["completionReport"], "done");
-    assert_eq!(payload["conversationEvents"][0]["text"], "hello");
-    assert_eq!(payload["conversationEvents"][1]["reason"], "step done");
+    assert_eq!(payload["objective"], pi_js_compat::js_json!("Ship it"));
+    assert_eq!(payload["completionReport"], pi_js_compat::js_json!("done"));
+    assert_eq!(
+        payload["conversationEvents"][0]["text"],
+        pi_js_compat::js_json!("hello")
+    );
+    assert_eq!(
+        payload["conversationEvents"][1]["reason"],
+        pi_js_compat::js_json!("step done")
+    );
     drop(payloads);
 
     let goal = harness.stored_goal().unwrap();
@@ -775,8 +803,8 @@ async fn status_and_clear_report_and_remove_the_goal() {
     let harness = harness(
         "status-clear",
         GoalSupervisorResponse::Continue {
-            instructions: "continue".to_owned(),
-            reason: "work remains".to_owned(),
+            instructions: "continue".to_owned().into(),
+            reason: "work remains".to_owned().into(),
         },
     )
     .await;
@@ -784,18 +812,18 @@ async fn status_and_clear_report_and_remove_the_goal() {
     harness.run_command("").await;
     assert_eq!(
         harness.records.lock().unwrap().notifications.last().unwrap(),
-        &("Goal: Ship it".to_owned(), Some(NotifyType::Info))
+        &("Goal: Ship it".into(), Some(NotifyType::Info))
     );
     harness.run_command("clear").await;
     assert!(harness.stored_goal().is_none());
     assert_eq!(
         harness.records.lock().unwrap().notifications.last().unwrap(),
-        &("Goal cleared".to_owned(), Some(NotifyType::Info))
+        &("Goal cleared".into(), Some(NotifyType::Info))
     );
     harness.run_command("clear").await;
     assert_eq!(
         harness.records.lock().unwrap().notifications.last().unwrap(),
-        &("No active goal".to_owned(), Some(NotifyType::Info))
+        &("No active goal".into(), Some(NotifyType::Info))
     );
 }
 
@@ -804,8 +832,8 @@ async fn session_start_restores_running_goal_and_requests_continuation() {
     let harness = harness(
         "session-start",
         GoalSupervisorResponse::Continue {
-            instructions: "continue".to_owned(),
-            reason: "work remains".to_owned(),
+            instructions: "continue".to_owned().into(),
+            reason: "work remains".to_owned().into(),
         },
     )
     .await;
@@ -817,7 +845,7 @@ async fn session_start_restores_running_goal_and_requests_continuation() {
     harness.runner.emit(&mut event).await;
     assert_eq!(
         harness.records.lock().unwrap().notifications.last().unwrap(),
-        &("Active goal: Ship it".to_owned(), Some(NotifyType::Info))
+        &("Active goal: Ship it".into(), Some(NotifyType::Info))
     );
     let _ = (&harness.idle, &harness.pending, &harness.active_agents);
 }
@@ -827,7 +855,7 @@ async fn idle_review_with_wait_schedules_a_five_minute_review_status() {
     let harness = harness(
         "wait",
         GoalSupervisorResponse::Wait {
-            reason: "agents running".to_owned(),
+            reason: "agents running".to_owned().into(),
         },
     )
     .await;
@@ -844,7 +872,10 @@ async fn idle_review_with_wait_schedules_a_five_minute_review_status() {
         .collect();
     assert!(!statuses.is_empty());
     let (_, data) = statuses.last().unwrap();
-    assert_eq!(data.as_ref().unwrap()["message"], "Waiting: agents running");
+    assert_eq!(
+        data.as_ref().unwrap()["message"],
+        pi_js_compat::js_json!("Waiting: agents running")
+    );
     assert!(data.as_ref().unwrap()["reviewAt"].is_string());
 }
 
@@ -853,8 +884,8 @@ async fn emits_abort_and_error_skips_without_reviewing() {
     let harness = harness(
         "abort",
         GoalSupervisorResponse::Continue {
-            instructions: "continue".to_owned(),
-            reason: "work remains".to_owned(),
+            instructions: "continue".to_owned().into(),
+            reason: "work remains".to_owned().into(),
         },
     )
     .await;
@@ -865,7 +896,8 @@ async fn emits_abort_and_error_skips_without_reviewing() {
     let records = harness.records.lock().unwrap();
     assert!(records.entries.iter().any(|(custom_type, data)| {
         custom_type == "supervisor-status"
-            && data.as_ref().unwrap()["message"] == "Goal continuation skipped: the model turn was aborted."
+            && data.as_ref().unwrap()["message"]
+                == pi_js_compat::js_json!("Goal continuation skipped: the model turn was aborted.")
     }));
 }
 
@@ -874,8 +906,8 @@ async fn does_not_continue_when_session_continuation_is_set() {
     let harness = harness(
         "continuation",
         GoalSupervisorResponse::Continue {
-            instructions: "continue".to_owned(),
-            reason: "work remains".to_owned(),
+            instructions: "continue".to_owned().into(),
+            reason: "work remains".to_owned().into(),
         },
     )
     .await;
