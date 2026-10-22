@@ -1,8 +1,8 @@
 //! Bundled `docs-tree-context` extension (`extensions/docs-tree-context/src/index.ts`).
 
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::collections::HashSet;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::core::extensions::types::{
@@ -10,6 +10,7 @@ use crate::core::extensions::types::{
     SessionStartEvent,
 };
 use crate::core::tools::node_fs::node_fs_error;
+use crate::utils::paths::{node_join, relative_path};
 
 const CUSTOM_SECTION_START: &str = "<repo_docs_files>";
 const CUSTOM_SECTION_END: &str = "</repo_docs_files>";
@@ -17,7 +18,7 @@ const EXCLUDED_DOC_DIRS: [&str; 3] = ["claw-specs", "openclaw", "wiki"];
 const EXPLICIT_DOC_FILES: [&str; 2] = ["docs/openclaw/README.md", "docs/wiki/README.md"];
 
 pub fn docs_tree_context_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
-    let docs_context: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let docs_context: Arc<Mutex<Option<JsString>>> = Arc::new(Mutex::new(None));
 
     let start_context = Arc::clone(&docs_context);
     pi.on_session_start(
@@ -46,7 +47,7 @@ pub fn docs_tree_context_extension(pi: &ExtensionApi) -> Result<(), HandlerError
                 };
                 Ok(Some(BeforeAgentStartEventResult {
                     message: None,
-                    system_prompt: Some(insert_after_user_rules(&event.system_prompt, &context).into()),
+                    system_prompt: Some(insert_after_user_rules(&event.system_prompt, &context)),
                 }))
             })
         },
@@ -54,39 +55,40 @@ pub fn docs_tree_context_extension(pi: &ExtensionApi) -> Result<(), HandlerError
     .map_err(HandlerError::new)
 }
 
-fn path_exists(path: &Path) -> Result<bool, HandlerError> {
-    match std::fs::metadata(path) {
+/// Node's fs error formatting repairs unpaired units in the path, as the fs boundary does.
+fn fs_error(error: &std::io::Error, syscall: &str, path: &JsString) -> HandlerError {
+    HandlerError::new(node_fs_error(error, syscall, &encode_node_utf8(path)))
+}
+
+fn path_exists(path: &JsString) -> Result<bool, HandlerError> {
+    match std::fs::metadata(encode_node_utf8(path)) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(HandlerError::new(node_fs_error(
-            &error,
-            "stat",
-            &path.to_string_lossy(),
-        ))),
+        Err(error) => Err(fs_error(&error, "stat", path)),
     }
 }
 
-fn to_portable_path(path: &str) -> String {
-    path.replace(std::path::MAIN_SEPARATOR, "/")
+/// `path.split(sep).join("/")`.
+fn to_portable_path(path: &JsString) -> JsString {
+    JsString::join(path.split(std::path::MAIN_SEPARATOR), "/")
 }
 
-fn collect_docs_files(cwd: &Path, current_dir: &Path, files: &mut Vec<String>) -> Result<(), HandlerError> {
-    let entries = std::fs::read_dir(current_dir)
-        .map_err(|error| HandlerError::new(node_fs_error(&error, "scandir", &current_dir.to_string_lossy())))?;
+fn collect_docs_files(cwd: &JsString, current_dir: &JsString, files: &mut Vec<JsString>) -> Result<(), HandlerError> {
+    let entries =
+        std::fs::read_dir(encode_node_utf8(current_dir)).map_err(|error| fs_error(&error, "scandir", current_dir))?;
     for entry in entries {
         let entry = entry.map_err(|error| HandlerError::new(error.to_string()))?;
-        let absolute_path = current_dir.join(entry.file_name());
-        let relative_path = to_portable_path(&crate::utils::paths::relative_path(
-            &cwd.to_string_lossy(),
-            &absolute_path.to_string_lossy(),
-        ));
+        // `readdir` decodes entry names as UTF-8.
+        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+        let absolute_path = node_join(current_dir.clone(), name.clone());
+        let relative = relative_path(cwd, &absolute_path).map_err(|error| HandlerError::new(error.message().clone()))?;
+        let relative_path = to_portable_path(&relative);
         let file_type = entry
             .file_type()
             .map_err(|error| HandlerError::new(error.to_string()))?;
 
         if file_type.is_dir() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if EXCLUDED_DOC_DIRS.contains(&name.as_str()) {
+            if EXCLUDED_DOC_DIRS.iter().any(|excluded| name == **excluded) {
                 continue;
             }
             collect_docs_files(cwd, &absolute_path, files)?;
@@ -101,9 +103,8 @@ fn collect_docs_files(cwd: &Path, current_dir: &Path, files: &mut Vec<String>) -
 }
 
 /// `buildDocsContext`.
-pub fn build_docs_context(cwd: &str) -> Result<Option<String>, HandlerError> {
-    let cwd = Path::new(cwd);
-    let docs_dir = cwd.join("docs");
+pub fn build_docs_context(cwd: &JsString) -> Result<Option<JsString>, HandlerError> {
+    let docs_dir = node_join(cwd.clone(), "docs");
     if !path_exists(&docs_dir)? {
         return Ok(None);
     }
@@ -112,36 +113,39 @@ pub fn build_docs_context(cwd: &str) -> Result<Option<String>, HandlerError> {
     collect_docs_files(cwd, &docs_dir, &mut files)?;
 
     for file in EXPLICIT_DOC_FILES {
-        if path_exists(&cwd.join(file))? {
-            files.push(file.to_owned());
+        if path_exists(&node_join(cwd.clone(), file))? {
+            files.push(file.into());
         }
     }
 
+    // `[...new Set(files)].sort()`: first occurrence wins, then UTF-16 code unit order.
     let mut seen = HashSet::new();
     files.retain(|file| seen.insert(file.clone()));
-    files.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
+    files.sort_by(|left, right| left.units().cmp(right.units()));
     if files.is_empty() {
         return Ok(None);
     }
 
-    Ok(Some(format!(
-        "{CUSTOM_SECTION_START}\ndocs/ file tree:\n{}\n{CUSTOM_SECTION_END}",
-        files.join(", ")
+    Ok(Some(js_format!(
+        "{}\ndocs/ file tree:\n{}\n{}",
+        CUSTOM_SECTION_START,
+        JsString::join(files, ", "),
+        CUSTOM_SECTION_END
     )))
 }
 
-fn insert_after_user_rules(system_prompt: &JsString, docs_context: &str) -> JsString {
+fn insert_after_user_rules(system_prompt: &JsString, docs_context: &JsString) -> JsString {
     if system_prompt.contains(CUSTOM_SECTION_START) {
         return system_prompt.to_owned();
     }
 
     let user_rules_end = "</user_rules>";
     let Some(index) = system_prompt.find(user_rules_end) else {
-        return system_prompt.clone() + "\n\n" + docs_context;
+        return system_prompt.clone() + "\n\n" + docs_context.clone();
     };
     let insertion_index = index + user_rules_end.len();
     system_prompt.slice(0, insertion_index)
         + "\n\n"
-        + docs_context
+        + docs_context.clone()
         + system_prompt.slice(insertion_index, system_prompt.len())
 }
