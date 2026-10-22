@@ -333,11 +333,10 @@ fn parse_process_identity(record: &JsObject) -> Option<crate::core::runtime_proc
 }
 
 fn safe_integer(value: &JsValue) -> Option<i64> {
-    let number = value.as_i64()?;
-    const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
-    (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER)
-        .contains(&number)
-        .then_some(number)
+    let number = value.as_f64()?;
+    const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+    let is_safe_integer = number.is_finite() && number.fract() == 0.0 && number.abs() <= MAX_SAFE_INTEGER;
+    is_safe_integer.then_some(number as i64)
 }
 
 fn command_identity_matches(command: &StoredCommand, current: &DetachedJobOwnershipIdentity) -> bool {
