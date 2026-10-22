@@ -28,7 +28,11 @@ fn native_tool_renderers_match_frozen_raw_path_and_error_lines() {
     let mut capabilities = pi_tui::get_capabilities();
     capabilities.hyperlinks = true;
     pi_tui::set_capabilities(capabilities);
-    let theme = load_theme_from_path(&theme_path, Some(ColorMode::Truecolor)).unwrap();
+    let theme = load_theme_from_path(
+        &JsString::from(theme_path.to_str().expect("utf-8 test path")),
+        Some(ColorMode::Truecolor),
+    )
+    .unwrap();
     set_theme_instance(Arc::new(theme.clone()));
     let params = parse_lossless(
         r#"{"path":"relative-\ud800.txt","pattern":"pat-\udfff","content":"line-\ud801\t\r\nsecond-\udfff"}"#,
