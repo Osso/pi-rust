@@ -8,7 +8,7 @@ mod executable_script;
 #[allow(dead_code)]
 mod support;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use pi_coding_agent::bundled_extensions::pyrun::detached_evaluation::{
@@ -35,7 +35,8 @@ use pi_coding_agent::core::runtime_process::{ProcessIdentity, read_process_ident
 use pi_coding_agent::core::session_control_db::{RuntimeMailboxAddress, read_multi_agent_agent};
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager};
 use pi_coding_agent::core::tool_detach_registry::ToolDetachRegistry;
-use serde_json::json;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tempfile::TempDir;
 
 const DEAD_PID: u32 = 999_999_999;
@@ -44,7 +45,7 @@ struct Fixture {
     _directory: TempDir,
     root: String,
     control_db_path: String,
-    session_path: String,
+    session_path: JsString,
     session_manager: SharedSessionManager,
     store: Arc<MultiAgentStore>,
     controller: DetachedJobLifecycleController,
@@ -56,16 +57,25 @@ async fn fixture(name: &str) -> Fixture {
         .prefix(&format!("pi-pyrun-eval-{name}-"))
         .tempdir()
         .expect("temp dir");
-    let root = directory.path().to_string_lossy().into_owned();
-    let control_db_path = directory.path().join("control.sqlite").to_string_lossy().into_owned();
+    let root = directory.path().to_str().expect("utf-8 test path").to_owned();
+    let control_db_path = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let sessions = directory.path().join("sessions");
     std::fs::create_dir_all(&sessions).expect("sessions dir");
-    let mut session_manager =
-        SessionManager::create(&root, Some(sessions.to_str().expect("sessions path")), None).expect("session");
+    let mut session_manager = SessionManager::create(
+        &JsString::from(&root),
+        Some(&JsString::from(sessions.to_str().expect("sessions path"))),
+        None,
+    )
+    .expect("session");
     session_manager
-        .set_metadata_control_db_path(Some(&control_db_path), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db_path)), Default::default())
         .expect("control db path");
-    let session_path = session_manager.get_session_file().expect("session file").to_owned();
+    let session_path: JsString = session_manager.get_session_file().expect("session file").into();
     let session_manager: SharedSessionManager = Arc::new(Mutex::new(session_manager));
 
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
@@ -74,14 +84,10 @@ async fn fixture(name: &str) -> Fixture {
         store.set_persistence_session_manager(Some(&*session));
     }
     let controller = DetachedJobLifecycleController::new(DetachedJobLifecycleControllerOptions {
-        artifact_root: Path::new(&session_path)
-            .parent()
-            .expect("session parent")
-            .to_string_lossy()
-            .into_owned(),
-        control_db_path: control_db_path.clone(),
+        artifact_root: pi_coding_agent::utils::paths::node_dirname(&session_path),
+        control_db_path: control_db_path.clone().into(),
         coordinator: Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
-            control_db_path: control_db_path.clone(),
+            control_db_path: control_db_path.clone().into(),
             create_agent_id: {
                 let store = Arc::clone(&store);
                 Arc::new(move || {
@@ -90,12 +96,12 @@ async fn fixture(name: &str) -> Fixture {
                         .map_err(|error| pi_coding_agent::core::sqlite::ControlDbError::new(error.message))
                 })
             },
-            now: Arc::new(|| "2026-10-18T00:00:00.000Z".to_owned()),
+            now: Arc::new(|| "2026-10-18T00:00:00.000Z".into()),
             process_identity: process_identity(DEAD_PID),
             session_path: session_path.clone(),
         })),
         owner_agent_id: None,
-        owner_session_id: "main".to_owned(),
+        owner_session_id: "main".into(),
         session_path: session_path.clone(),
         store: Arc::clone(&store),
         write_bash_launch_manifest: None,
@@ -130,14 +136,14 @@ fn process_identity(pid: u32) -> ProcessIdentity {
     }
 }
 
-fn job_directory(fixture: &Fixture, job_id: &str) -> PathBuf {
-    let session_file = Path::new(&fixture.session_path);
+fn job_directory(fixture: &Fixture, job_id: &JsString) -> PathBuf {
+    let session_file = PathBuf::from(encode_node_utf8(&fixture.session_path));
     session_file
         .parent()
         .expect("session parent")
         .join("detached-jobs")
         .join(session_file.file_stem().expect("session stem"))
-        .join(job_id)
+        .join(encode_node_utf8(job_id))
 }
 
 struct Artifact {
@@ -148,15 +154,20 @@ struct Artifact {
 }
 
 fn set_runner_process_identity(artifact: &Artifact, identity: ProcessIdentity) {
-    let mut manifest =
-        read_detached_pyrun_launch_manifest(&artifact.manifest_path.to_string_lossy()).expect("manifest");
+    let mut manifest = read_detached_pyrun_launch_manifest(&JsString::from(
+        artifact.manifest_path.to_str().expect("utf-8 test path"),
+    ))
+    .expect("manifest");
     manifest.data.runner_process_identity = identity;
-    write_detached_pyrun_launch_manifest(&artifact.manifest_path.to_string_lossy(), &manifest.data)
-        .expect("rewrite manifest");
+    write_detached_pyrun_launch_manifest(
+        &JsString::from(artifact.manifest_path.to_str().expect("utf-8 test path")),
+        &manifest.data,
+    )
+    .expect("rewrite manifest");
 }
 
 fn write_artifact(fixture: &Fixture, job_id: &str, tool_call_id: Option<&str>, code: &str, output: &str) -> Artifact {
-    let directory = job_directory(fixture, job_id);
+    let directory = job_directory(fixture, &JsString::from(job_id));
     std::fs::create_dir_all(&directory).expect("artifact dir");
     let output_path = directory.join("output.log");
     let script_path = directory.join("script.py");
@@ -166,7 +177,7 @@ fn write_artifact(fixture: &Fixture, job_id: &str, tool_call_id: Option<&str>, c
     let eval_context = eval_context(&fixture.context).expect("eval context");
     let params = create_canonical_pyrun_eval_params(
         &PyrunEvalParams {
-            code: code.to_owned(),
+            code: code.into(),
             session_id: None,
         },
         &eval_context,
@@ -177,33 +188,60 @@ fn write_artifact(fixture: &Fixture, job_id: &str, tool_call_id: Option<&str>, c
         .lock()
         .expect("session lock")
         .get_session_id()
-        .to_owned();
+        .into();
     write_detached_pyrun_launch_manifest(
-        &manifest_path.to_string_lossy(),
+        &JsString::from(manifest_path.to_str().expect("utf-8 test path")),
         &DetachedPyrunLaunchManifestData {
-            activation_path: directory.join("activation.json").to_string_lossy().into_owned(),
+            activation_path: directory
+                .join("activation.json")
+                .to_str()
+                .expect("utf-8 test path")
+                .to_owned()
+                .into(),
             artifacts: pi_coding_agent::core::detached_job_runner::DetachedJobArtifacts {
-                directory: directory.to_string_lossy().into_owned(),
-                output_path: output_path.to_string_lossy().into_owned(),
+                directory: directory.to_str().expect("utf-8 test path").to_owned().into(),
+                output_path: output_path.to_str().expect("utf-8 test path").to_owned().into(),
             },
-            bridge_request_path: directory.join("bridge-requests.jsonl").to_string_lossy().into_owned(),
-            bridge_response_path: directory.join("bridge-responses.jsonl").to_string_lossy().into_owned(),
-            control_db_path: fixture.control_db_path.clone(),
-            foreground_completion_path: directory.join("foreground-completed").to_string_lossy().into_owned(),
+            bridge_request_path: directory
+                .join("bridge-requests.jsonl")
+                .to_str()
+                .expect("utf-8 test path")
+                .to_owned()
+                .into(),
+            bridge_response_path: directory
+                .join("bridge-responses.jsonl")
+                .to_str()
+                .expect("utf-8 test path")
+                .to_owned()
+                .into(),
+            control_db_path: fixture.control_db_path.clone().into(),
+            foreground_completion_path: directory
+                .join("foreground-completed")
+                .to_str()
+                .expect("utf-8 test path")
+                .to_owned()
+                .into(),
             params,
             runner_address: RuntimeMailboxAddress {
-                agent_id: Some(job_id.to_owned()),
+                agent_id: Some(job_id.into()),
                 session_id,
             },
             runner_options: PyrunRunnerOptions {
-                command: Some(directory.join("missing-pyrun").to_string_lossy().into_owned()),
+                command: Some(
+                    directory
+                        .join("missing-pyrun")
+                        .to_str()
+                        .expect("utf-8 test path")
+                        .to_owned()
+                        .into(),
+                ),
                 ..Default::default()
             },
             runner_process_identity: process_identity(DEAD_PID),
-            session_path: fixture.session_path.clone(),
+            session_path: fixture.session_path.clone().into(),
             started_at: 1_700_000_000_000.0,
             supervisor_process_identity: process_identity(std::process::id()),
-            tool_call_id: tool_call_id.map(str::to_owned),
+            tool_call_id: tool_call_id.map(JsString::from),
         },
     )
     .expect("manifest");
@@ -222,7 +260,7 @@ fn evaluation_input(
     tool_call_id: Option<&str>,
 ) -> DurablePyrunEvaluationInput {
     DurablePyrunEvaluationInput {
-        agent_id: Some(job_id.to_owned()),
+        agent_id: Some(job_id.into()),
         ctx: fixture.context.clone(),
         detach_registry: Arc::new(ToolDetachRegistry::new()),
         dispatch_pi_request: Arc::new(|_request, _ctx, _signal, _tool_call_id| {
@@ -234,13 +272,13 @@ fn evaluation_input(
         }),
         on_update: None,
         params: PyrunEvalParams {
-            code: code.to_owned(),
+            code: code.into(),
             session_id: None,
         },
         pi_bridge_enabled: false,
-        tool_call_id: tool_call_id.map(str::to_owned),
+        tool_call_id: tool_call_id.map(JsString::from),
         runner_options: PyrunRunnerOptions {
-            command: Some(format!("{}/missing-pyrun", fixture.root)),
+            command: Some(format!("{}/missing-pyrun", fixture.root).into()),
             ..Default::default()
         },
         signal: None,
@@ -248,16 +286,14 @@ fn evaluation_input(
     }
 }
 
-fn content_text(result: &pi_agent_core::AgentToolResult) -> String {
-    result
-        .content
-        .iter()
-        .filter_map(|content| match content {
-            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
+fn content_text(result: &pi_agent_core::AgentToolResult) -> JsString {
+    JsString::join(
+        result.content.iter().filter_map(|content| match content {
+            pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
             _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }),
+        "\n",
+    )
 }
 
 #[tokio::test]
@@ -295,7 +331,7 @@ async fn replays_a_complete_terminal_result_without_launching_replacement_code()
     assert_eq!(std::fs::read_to_string(&artifact.output_path).expect("output"), output);
     assert!(artifact.manifest_path.exists());
     assert!(artifact.script_path.exists());
-    assert!(!job_directory(&fixture, "pyrun_2").exists());
+    assert!(!job_directory(&fixture, &JsString::from("pyrun_2")).exists());
     assert!(!artifact.directory.join("foreground-completed").exists());
 }
 
@@ -362,13 +398,22 @@ async fn ignores_an_incomplete_trailing_record_when_reporting_a_lost_runtime() {
     .expect("lost runtime");
 
     let details = result.details.as_ref().expect("details");
-    assert_eq!(details["type"], "lost_runtime");
-    assert_eq!(details["outputPath"], artifact.output_path.to_string_lossy().as_ref());
-    assert_eq!(details["error"], "Pyrun runner exited before producing a result.");
+    assert_eq!(details["type"], json!("lost_runtime"));
+    assert_eq!(
+        details["outputPath"],
+        json!(artifact.output_path.to_str().expect("utf-8 test path"))
+    );
+    assert_eq!(
+        details["error"],
+        json!("Pyrun runner exited before producing a result.")
+    );
     assert_eq!(result.is_error, Some(true));
     let text = content_text(&result);
     assert!(text.contains("preserved output"));
-    assert!(text.contains(&format!("Preserved output: {}", artifact.output_path.to_string_lossy())));
+    assert!(text.contains(&format!(
+        "Preserved output: {}",
+        artifact.output_path.to_str().expect("utf-8 test path")
+    )));
     assert_eq!(std::fs::read_to_string(&artifact.output_path).expect("output"), output);
 }
 
@@ -398,11 +443,16 @@ async fn rejects_an_artifact_collision_when_the_params_differ() {
 async fn rejects_a_manifest_written_for_another_agent() {
     let fixture = fixture("agent-mismatch").await;
     let artifact = write_artifact(&fixture, "pyrun_1", Some("call-1"), "original code", "");
-    let mut manifest =
-        read_detached_pyrun_launch_manifest(&artifact.manifest_path.to_string_lossy()).expect("manifest");
-    manifest.data.runner_address.agent_id = Some("other-agent".to_owned());
-    write_detached_pyrun_launch_manifest(&artifact.manifest_path.to_string_lossy(), &manifest.data)
-        .expect("rewrite manifest");
+    let mut manifest = read_detached_pyrun_launch_manifest(&JsString::from(
+        artifact.manifest_path.to_str().expect("utf-8 test path"),
+    ))
+    .expect("manifest");
+    manifest.data.runner_address.agent_id = Some("other-agent".into());
+    write_detached_pyrun_launch_manifest(
+        &JsString::from(artifact.manifest_path.to_str().expect("utf-8 test path")),
+        &manifest.data,
+    )
+    .expect("rewrite manifest");
 
     let error =
         run_durable_detachable_pyrun_evaluation(evaluation_input(&fixture, "pyrun_1", "original code", Some("call-1")))
@@ -412,7 +462,7 @@ async fn rejects_a_manifest_written_for_another_agent() {
         error.message,
         format!(
             "Pyrun launch manifest agent ID mismatch: {}",
-            artifact.manifest_path.to_string_lossy()
+            artifact.manifest_path.to_str().expect("utf-8 test path")
         )
     );
 }
@@ -444,19 +494,25 @@ async fn wedge_cancelling_job(fixture: &Fixture, tool_call_id: &str) -> (Artifac
         .controller
         .register(&RegisterDetachedJobInput {
             agent_type: DetachedJobAgentType::Pyrun,
-            cwd: fixture.root.clone(),
-            display_name: "Pyrun evaluation".to_owned(),
-            job_id: job_id.to_owned(),
+            cwd: fixture.root.clone().into(),
+            display_name: "Pyrun evaluation".into(),
+            job_id: job_id.into(),
             process_identity: process_identity(DEAD_PID),
-            worker_handle_id: DEAD_PID.to_string(),
-            tool_call_id: Some(tool_call_id.to_owned()),
+            worker_handle_id: DEAD_PID.to_string().into(),
+            tool_call_id: Some(tool_call_id.into()),
             detached: Some(true),
             file_refs: None,
         })
         .expect("register");
     let artifact = write_artifact(fixture, job_id, Some(tool_call_id), "run forever", "");
     write_detached_pyrun_activation(
-        &artifact.directory.join("activation.json").to_string_lossy(),
+        &JsString::from(
+            artifact
+                .directory
+                .join("activation.json")
+                .to_str()
+                .expect("utf-8 test path"),
+        ),
         &ownership.identity,
     )
     .expect("activation");
@@ -487,7 +543,7 @@ async fn settles_a_cancelling_job_to_aborted_instead_of_rerunning_it() {
     assert_eq!(result.is_error, Some(true));
     assert_eq!(
         result.details.as_ref().expect("details")["error"],
-        "Pyrun evaluation aborted"
+        json!("Pyrun evaluation aborted")
     );
     let agent = read_multi_agent_agent(&fixture.control_db_path, &fixture.session_path, "pyrun_1")
         .expect("read")
@@ -495,20 +551,29 @@ async fn settles_a_cancelling_job_to_aborted_instead_of_rerunning_it() {
     assert_eq!(agent.lifecycle, AgentLifecycle::Aborted);
     assert_eq!(agent.revision, cancelling_agent.revision + 1);
     assert!(artifact.output_path.exists());
-    assert!(!job_directory(&fixture, "pyrun_2").exists());
+    assert!(!job_directory(&fixture, &JsString::from("pyrun_2")).exists());
 }
 
 #[tokio::test]
 async fn settles_a_legacy_cancelling_job_without_a_tool_call_id() {
     let fixture = fixture("legacy-cancelling").await;
     let (_artifact, cancelling_agent) = wedge_cancelling_job(&fixture, "legacy-cancel-call").await;
-    let manifest =
-        read_detached_pyrun_launch_manifest(&job_directory(&fixture, "pyrun_1").join("launch.json").to_string_lossy())
-            .expect("manifest");
+    let manifest = read_detached_pyrun_launch_manifest(&JsString::from(
+        job_directory(&fixture, &JsString::from("pyrun_1"))
+            .join("launch.json")
+            .to_str()
+            .expect("utf-8 test path"),
+    ))
+    .expect("manifest");
     let mut data = manifest.data;
     data.tool_call_id = None;
     write_detached_pyrun_launch_manifest(
-        &job_directory(&fixture, "pyrun_1").join("launch.json").to_string_lossy(),
+        &JsString::from(
+            job_directory(&fixture, &JsString::from("pyrun_1"))
+                .join("launch.json")
+                .to_str()
+                .expect("utf-8 test path"),
+        ),
         &data,
     )
     .expect("legacy manifest");
@@ -528,7 +593,7 @@ async fn settles_a_legacy_cancelling_job_without_a_tool_call_id() {
         .expect("agent");
     assert_eq!(agent.lifecycle, AgentLifecycle::Aborted);
     assert_eq!(agent.revision, cancelling_agent.revision + 1);
-    assert!(!job_directory(&fixture, "pyrun_2").exists());
+    assert!(!job_directory(&fixture, &JsString::from("pyrun_2")).exists());
 }
 
 #[tokio::test]
@@ -570,7 +635,7 @@ async fn requires_the_tool_lifecycle_start_timestamp() {
 
 fn spawn_live_runner(artifact: &Artifact, body: &str) -> std::process::Child {
     let script = artifact.directory.join("fake-runner");
-    let body = body.replace("OUTPUT_PATH", &artifact.output_path.to_string_lossy());
+    let body = body.replace("OUTPUT_PATH", &artifact.output_path.to_str().expect("utf-8 test path"));
     executable_script::write_executable_script(&script, &format!("#!/usr/bin/env python3\n{body}"));
     std::process::Command::new(&script)
         .stdin(std::process::Stdio::null())
@@ -608,7 +673,7 @@ async fn resumes_a_live_runner_and_reports_its_terminal_result() {
     .expect("resumed result");
     runner.wait().expect("reap runner");
 
-    assert_eq!(result.details.as_ref().expect("details")["value"], 7);
+    assert_eq!(result.details.as_ref().expect("details")["value"], json!(7));
     assert_eq!(result.is_error, Some(false));
     assert_eq!(
         std::fs::read_to_string(artifact.directory.join("foreground-completed")).expect("completion"),
@@ -642,9 +707,9 @@ async fn detaches_to_a_handle_while_the_runner_keeps_running() {
     assert!(registry.detach_running());
     let result = evaluation.await.expect("join").expect("detached");
     let details = result.details.as_ref().expect("details");
-    assert_eq!(details["type"], "detached");
-    assert_eq!(details["backgroundJobId"], "pyrun_1");
-    assert_eq!(details["executed"], "original code");
+    assert_eq!(details["type"], json!("detached"));
+    assert_eq!(details["backgroundJobId"], json!("pyrun_1"));
+    assert_eq!(details["executed"], json!("original code"));
     assert!(artifact.directory.join("activation.json").exists());
     let agent = read_multi_agent_agent(&fixture.control_db_path, &fixture.session_path, "pyrun_1")
         .expect("read")

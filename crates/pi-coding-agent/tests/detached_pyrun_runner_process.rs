@@ -5,7 +5,7 @@
 #[path = "support/executable_script.rs"]
 mod executable_script;
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -36,7 +36,9 @@ use pi_coding_agent::core::session_control_db::{
     enqueue_runtime_mailbox_message, list_runtime_mailbox_messages, read_multi_agent_agent,
     register_runtime_mailbox_listener, upsert_multi_agent_mailbox_message,
 };
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::encode_node_utf8;
+use pi_js_compat::js_json::{self, JsString, JsValue as Value};
 use tempfile::TempDir;
 
 const TEST_RUNNER_ENV: &str = "PI_TEST_PYRUN_RUNNER_MANIFEST";
@@ -53,12 +55,12 @@ fn test_process_identity(name: &str) -> ProcessIdentity {
     }
 }
 
-fn environment() -> Vec<(String, String)> {
-    let mut env = BTreeMap::new();
+fn environment() -> IndexMap<JsString, JsString> {
+    let mut env = IndexMap::new();
     if let Some(path) = std::env::var_os("PATH") {
-        env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+        env.insert("PATH".into(), JsString::from(path.to_str().expect("utf-8 test path")));
     }
-    env.into_iter().collect()
+    env
 }
 
 struct Fixture {
@@ -70,24 +72,34 @@ struct Fixture {
 
 fn fixture(now: &'static str) -> Fixture {
     let directory = tempfile::tempdir().expect("temp dir");
-    let root = directory.path().to_string_lossy().into_owned();
-    let control_db_path = directory.path().join("control.sqlite").to_string_lossy().into_owned();
-    let session_path = directory.path().join("session.jsonl").to_string_lossy().into_owned();
+    let root = directory.path().to_str().expect("utf-8 test path").to_owned();
+    let control_db_path = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let session_path = directory
+        .path()
+        .join("session.jsonl")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
-        control_db_path: control_db_path.clone(),
-        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
-        now: Arc::new(move || now.to_owned()),
+        control_db_path: control_db_path.clone().into(),
+        create_agent_id: Arc::new(|| Ok("unused".into())),
+        now: Arc::new(move || now.into()),
         process_identity: test_process_identity("runner-1"),
-        session_path: session_path.clone(),
+        session_path: session_path.clone().into(),
     }));
     let controller = DetachedJobLifecycleController::new(DetachedJobLifecycleControllerOptions {
-        artifact_root: root,
-        control_db_path: control_db_path.clone(),
+        artifact_root: root.into(),
+        control_db_path: control_db_path.clone().into(),
         coordinator,
         owner_agent_id: None,
-        owner_session_id: "main".to_owned(),
-        session_path: session_path.clone(),
+        owner_session_id: "main".into(),
+        session_path: session_path.clone().into(),
         store: Arc::clone(&store),
         write_bash_launch_manifest: None,
     });
@@ -99,17 +111,23 @@ fn fixture(now: &'static str) -> Fixture {
     }
 }
 
-fn register(fixture: &Fixture, job_id: &str, identity: ProcessIdentity) -> DetachedJobOwnership {
+fn register(fixture: &Fixture, job_id: &JsString, identity: ProcessIdentity) -> DetachedJobOwnership {
     fixture
         .controller
         .register(&RegisterDetachedJobInput {
             agent_type: DetachedJobAgentType::Pyrun,
-            cwd: fixture.directory.path().to_string_lossy().into_owned(),
-            display_name: "Pyrun evaluation".to_owned(),
-            job_id: job_id.to_owned(),
+            cwd: fixture
+                .directory
+                .path()
+                .to_str()
+                .expect("utf-8 test path")
+                .to_owned()
+                .into(),
+            display_name: "Pyrun evaluation".into(),
+            job_id: job_id.into(),
             process_identity: identity,
-            worker_handle_id: "runner-pending".to_owned(),
-            tool_call_id: Some("test-pyrun-tool-call".to_owned()),
+            worker_handle_id: "runner-pending".into(),
+            tool_call_id: Some("test-pyrun-tool-call".into()),
             detached: Some(true),
             file_refs: None,
         })
@@ -118,46 +136,64 @@ fn register(fixture: &Fixture, job_id: &str, identity: ProcessIdentity) -> Detac
 
 fn manifest(
     fixture: &Fixture,
-    job_id: &str,
+    job_id: &JsString,
     activation_path: &str,
     runner_command: &str,
 ) -> DetachedPyrunLaunchManifestData {
-    let artifacts = fixture.controller.create_artifacts(job_id).expect("artifacts");
-    let directory = Path::new(&artifacts.directory).to_path_buf();
+    let artifacts = fixture
+        .controller
+        .create_artifacts(&JsString::from(job_id))
+        .expect("artifacts");
+    let directory = Path::new(&encode_node_utf8(&artifacts.directory)).to_path_buf();
     DetachedPyrunLaunchManifestData {
-        activation_path: activation_path.to_owned(),
+        activation_path: activation_path.into(),
         artifacts,
-        bridge_request_path: directory.join("bridge-requests.jsonl").to_string_lossy().into_owned(),
-        bridge_response_path: directory.join("bridge-responses.jsonl").to_string_lossy().into_owned(),
-        control_db_path: fixture.control_db_path.clone(),
-        foreground_completion_path: directory.join("foreground-completed").to_string_lossy().into_owned(),
+        bridge_request_path: directory
+            .join("bridge-requests.jsonl")
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned()
+            .into(),
+        bridge_response_path: directory
+            .join("bridge-responses.jsonl")
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned()
+            .into(),
+        control_db_path: fixture.control_db_path.clone().into(),
+        foreground_completion_path: directory
+            .join("foreground-completed")
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned()
+            .into(),
         params: CanonicalPyrunEvalParams {
-            code: "6 * 7".to_owned(),
+            code: "6 * 7".into(),
             ..Default::default()
         },
         runner_address: RuntimeMailboxAddress {
-            agent_id: Some(job_id.to_owned()),
-            session_id: "main".to_owned(),
+            agent_id: Some(job_id.into()),
+            session_id: "main".into(),
         },
         runner_options: PyrunRunnerOptions {
             args: Some(Vec::new()),
-            command: Some(runner_command.to_owned()),
+            command: Some(runner_command.into()),
             detached: Some(false),
             env: Some(environment()),
             inherit_env: Some(true),
         },
         runner_process_identity: test_process_identity("runner-2"),
-        session_path: fixture.session_path.clone(),
+        session_path: fixture.session_path.clone().into(),
         started_at: 1_700_000_000_000.0,
         supervisor_process_identity: test_process_identity("supervisor"),
-        tool_call_id: Some("test-pyrun-tool-call".to_owned()),
+        tool_call_id: Some("test-pyrun-tool-call".into()),
     }
 }
 
 fn write_runner(dir: &Path, body: &str) -> String {
     let path = dir.join("fake-pyrun");
     executable_script::write_executable_script(&path, &format!("#!/usr/bin/env python3\n{body}"));
-    path.to_string_lossy().into_owned()
+    path.to_str().expect("utf-8 test path").to_owned()
 }
 
 async fn wait_for(predicate: impl Fn() -> bool, what: &str) {
@@ -168,7 +204,7 @@ async fn wait_for(predicate: impl Fn() -> bool, what: &str) {
     }
 }
 
-fn read_agent(fixture: &Fixture, job_id: &str) -> pi_coding_agent::core::multi_agent_store::AgentSnapshot {
+fn read_agent(fixture: &Fixture, job_id: &JsString) -> pi_coding_agent::core::multi_agent_store::AgentSnapshot {
     read_multi_agent_agent(&fixture.control_db_path, &fixture.session_path, job_id)
         .expect("read agent")
         .expect("agent")
@@ -192,7 +228,12 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": res
     let data = manifest(
         &fixture,
         &job_id,
-        &fixture.directory.path().join("activation.json").to_string_lossy(),
+        &fixture
+            .directory
+            .path()
+            .join("activation.json")
+            .to_str()
+            .expect("utf-8 test path"),
         &runner_command,
     );
     let ownership = register(
@@ -201,20 +242,21 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": res
         read_process_identity(std::process::id()).expect("identity"),
     );
     write_detached_pyrun_activation(&data.activation_path, &ownership.identity).expect("activation");
-    let manifest_path = Path::new(&data.artifacts.directory)
+    let manifest_path = Path::new(&encode_node_utf8(&data.artifacts.directory))
         .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
-    write_detached_pyrun_launch_manifest(&manifest_path, &data).expect("manifest");
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    write_detached_pyrun_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let runner = tokio::spawn({
         let manifest_path = manifest_path.clone();
-        async move { run_detached_pyrun_runner(&manifest_path).await }
+        async move { run_detached_pyrun_runner(&JsString::from(&manifest_path)).await }
     });
 
     let supervisor_address = RuntimeMailboxAddress {
         agent_id: None,
-        session_id: "main".to_owned(),
+        session_id: "main".into(),
     };
     let mut request = None;
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -231,11 +273,11 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": res
                 assert!(
                     validate_detached_pyrun_bridge_request(
                         pi_coding_agent::bundled_extensions::pyrun::detached_bridge::ValidateDetachedPyrunBridgeRequestInput {
-                            control_db_path: &fixture.control_db_path,
+                            control_db_path: &JsString::from(&fixture.control_db_path),
                             message,
                             request: &request,
-                            session_path: &fixture.session_path,
-                            supervisor_session_id: "main",
+                            session_path: &JsString::from(&fixture.session_path),
+                            supervisor_session_id: &JsString::from("main"),
                         }
                     )
                     .expect("validate")
@@ -245,11 +287,11 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": res
                 assert!(
                     !validate_detached_pyrun_bridge_request(
                         pi_coding_agent::bundled_extensions::pyrun::detached_bridge::ValidateDetachedPyrunBridgeRequestInput {
-                            control_db_path: &fixture.control_db_path,
+                            control_db_path: &JsString::from(&fixture.control_db_path),
                             message,
                             request: &stale,
-                            session_path: &fixture.session_path,
-                            supervisor_session_id: "main",
+                            session_path: &JsString::from(&fixture.session_path),
+                            supervisor_session_id: &JsString::from("main"),
                         }
                     )
                     .expect("validate")
@@ -260,18 +302,18 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": res
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     enqueue_detached_pyrun_bridge_response(EnqueueDetachedPyrunBridgeResponseInput {
-        control_db_path: fixture.control_db_path.clone(),
+        control_db_path: fixture.control_db_path.clone().into(),
         error: None,
         request: request.expect("request"),
         result: Some(json!([{"id": "model-1"}])),
-        session_path: fixture.session_path.clone(),
+        session_path: fixture.session_path.clone().into(),
         supervisor_address: supervisor_address.clone(),
     })
     .expect("bridge response");
 
     let revision = runner.await.expect("join").expect("run");
     assert_eq!(revision, Some(2));
-    let output = fs::read_to_string(&data.artifacts.output_path).expect("output");
+    let output = fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output");
     assert_eq!(
         output,
         concat!(
@@ -285,8 +327,8 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": res
     assert_eq!(agent.lifecycle, AgentLifecycle::Completed);
     assert_eq!(agent.revision, 2);
     assert_eq!(
-        agent.result.expect("result").summary.as_deref(),
-        Some("Pyrun evaluation completed.")
+        agent.result.expect("result").summary.as_ref(),
+        Some(&JsString::from("Pyrun evaluation completed."))
     );
 }
 
@@ -307,7 +349,12 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
     let data = manifest(
         &fixture,
         &job_id,
-        &fixture.directory.path().join("activation.json").to_string_lossy(),
+        &fixture
+            .directory
+            .path()
+            .join("activation.json")
+            .to_str()
+            .expect("utf-8 test path"),
         &runner_command,
     );
     let ownership = register(
@@ -316,44 +363,49 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
         read_process_identity(std::process::id()).expect("identity"),
     );
     write_detached_pyrun_activation(&data.activation_path, &ownership.identity).expect("activation");
-    let manifest_path = Path::new(&data.artifacts.directory)
+    let manifest_path = Path::new(&encode_node_utf8(&data.artifacts.directory))
         .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
-    write_detached_pyrun_launch_manifest(&manifest_path, &data).expect("manifest");
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    write_detached_pyrun_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let runner = tokio::spawn({
         let manifest_path = manifest_path.clone();
-        async move { run_detached_pyrun_runner(&manifest_path).await }
+        async move { run_detached_pyrun_runner(&JsString::from(&manifest_path)).await }
     });
-    wait_for(|| Path::new(&data.artifacts.output_path).exists(), "output").await;
+    wait_for(
+        || Path::new(&encode_node_utf8(&data.artifacts.output_path)).exists(),
+        "output",
+    )
+    .await;
 
     let requester = RuntimeMailboxAddress {
         agent_id: None,
-        session_id: "main".to_owned(),
+        session_id: "main".into(),
     };
     register_runtime_mailbox_listener(
         &fixture.control_db_path,
         &requester,
         std::process::id(),
-        Some(&fixture.session_path),
+        Some(&JsString::from(&fixture.session_path)),
         Default::default(),
     )
     .expect("requester listener");
     for request_id in ["status-1", "status-2"] {
         enqueue_detached_job_status_request(&EnqueueDetachedJobStatusRequestInput {
-            control_db_path: fixture.control_db_path.clone(),
+            control_db_path: fixture.control_db_path.clone().into(),
             identity: ownership.identity.clone(),
             requester_address: requester.clone(),
-            request_id: request_id.to_owned(),
+            request_id: request_id.into(),
             runner_address: data.runner_address.clone(),
-            session_path: fixture.session_path.clone(),
+            session_path: fixture.session_path.clone().into(),
         })
         .expect("status request");
         let response = wait_for_status_response(&fixture, &requester, &ownership, request_id).await;
-        assert_eq!(response["state"], "running");
-        assert_eq!(response["outputPath"], data.artifacts.output_path);
-        assert_eq!(response["pendingRequestCount"], 0);
+        assert_eq!(response["state"], json!("running"));
+        assert_eq!(response["outputPath"], json!(data.artifacts.output_path));
+        assert_eq!(response["pendingRequestCount"], json!(0));
     }
     let revision = runner.await.expect("join").expect("run");
     assert_eq!(revision, Some(2));
@@ -367,8 +419,12 @@ async fn wait_for_status_response(
 ) -> Value {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let commands = claim_detached_job_runtime_commands(&fixture.control_db_path, requester, &ownership.identity)
-            .expect("claim");
+        let commands = claim_detached_job_runtime_commands(
+            &JsString::from(&fixture.control_db_path),
+            requester,
+            &ownership.identity,
+        )
+        .expect("claim");
         for command in commands {
             if let DetachedJobRuntimeCommand::Response(response) = command
                 && response.request_id == request_id
@@ -400,30 +456,37 @@ while True:
     let job_id = "agent_1";
     let data = manifest(
         &fixture,
-        job_id,
-        &fixture.directory.path().join("activation.json").to_string_lossy(),
+        &JsString::from(job_id),
+        &fixture
+            .directory
+            .path()
+            .join("activation.json")
+            .to_str()
+            .expect("utf-8 test path"),
         &runner_command,
     );
     let ownership = register(
         &fixture,
-        job_id,
+        &JsString::from(job_id),
         read_process_identity(std::process::id()).expect("identity"),
     );
     write_detached_pyrun_activation(&data.activation_path, &ownership.identity).expect("activation");
-    let manifest_path = Path::new(&data.artifacts.directory)
+    let manifest_path = Path::new(&encode_node_utf8(&data.artifacts.directory))
         .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
-    write_detached_pyrun_launch_manifest(&manifest_path, &data).expect("manifest");
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    write_detached_pyrun_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let runner = tokio::spawn({
         let manifest_path = manifest_path.clone();
-        async move { run_detached_pyrun_runner(&manifest_path).await }
+        async move { run_detached_pyrun_runner(&JsString::from(&manifest_path)).await }
     });
     wait_for(
         || {
-            Path::new(&data.artifacts.output_path).exists()
-                && fs::read_to_string(&data.artifacts.output_path).is_ok_and(|output| output.contains("working"))
+            Path::new(&encode_node_utf8(&data.artifacts.output_path)).exists()
+                && fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path))
+                    .is_ok_and(|output| output.contains("working"))
         },
         "progress",
     )
@@ -434,17 +497,17 @@ while True:
         pi_coding_agent::core::lifecycle_coordinator::LifecycleCommandResult::Ok { agent } => agent,
         other => panic!("expected cancelling state: {other:?}"),
     };
+    let cancel_body = js_json::stringify_lossless(&json!({
+        "command": "cancel",
+        "identity": ownership.identity,
+        "reason": "test cancel",
+    }));
     upsert_multi_agent_mailbox_message(
         &fixture.control_db_path,
         &fixture.session_path,
         "message_1",
         &json!({
-            "body": json!({
-                "command": "cancel",
-                "identity": ownership.identity,
-                "reason": "test cancel",
-            })
-            .to_string(),
+            "body": cancel_body,
             "fromAgentId": "main",
             "id": "message_1",
             "kind": "system",
@@ -460,12 +523,12 @@ while True:
             recipient_host: None,
             sender: RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: "main".to_owned(),
+                session_id: "main".into(),
             },
             kind: RuntimeMailboxMessageKind::System,
             store_ref: RuntimeMailboxStoreRef {
-                message_id: "message_1".to_owned(),
-                session_path: fixture.session_path.clone(),
+                message_id: "message_1".into(),
+                session_path: fixture.session_path.clone().into(),
             },
         },
     )
@@ -473,7 +536,7 @@ while True:
 
     let revision = runner.await.expect("join").expect("run");
     assert_eq!(revision, Some(cancelling_agent.revision + 1));
-    let agent = read_agent(&fixture, job_id);
+    let agent = read_agent(&fixture, &JsString::from(job_id));
     assert_eq!(agent.lifecycle, AgentLifecycle::Aborted);
     assert_eq!(agent.revision, cancelling_agent.revision + 1);
 }
@@ -488,7 +551,7 @@ fn detached_runner_process_entry() {
         .build()
         .expect("runtime");
     runtime
-        .block_on(run_detached_pyrun_runner(&manifest_path))
+        .block_on(run_detached_pyrun_runner(&JsString::from(&manifest_path)))
         .expect("runner process");
 }
 
@@ -506,14 +569,20 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
     let job_id = "agent_process";
     let data = manifest(
         &fixture,
-        job_id,
-        &fixture.directory.path().join("activation.json").to_string_lossy(),
+        &JsString::from(job_id),
+        &fixture
+            .directory
+            .path()
+            .join("activation.json")
+            .to_str()
+            .expect("utf-8 test path"),
         &runner_command,
     );
-    let manifest_path = Path::new(&data.artifacts.directory)
+    let manifest_path = Path::new(&encode_node_utf8(&data.artifacts.directory))
         .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let mut runner = std::process::Command::new(std::env::current_exe().expect("test binary"))
         .args(["--exact", "detached_runner_process_entry", "--nocapture"])
         .env(TEST_RUNNER_ENV, &manifest_path)
@@ -526,16 +595,16 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
     let runner_pid = runner.id();
     let ownership = register(
         &fixture,
-        job_id,
+        &JsString::from(job_id),
         read_process_identity(runner_pid).expect("runner identity"),
     );
     write_detached_pyrun_activation(&data.activation_path, &ownership.identity).expect("activation");
-    write_detached_pyrun_launch_manifest(&manifest_path, &data).expect("manifest");
+    write_detached_pyrun_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let status = runner.wait().expect("reap runner");
     assert!(status.success(), "runner exited with {status}");
     assert!(!Path::new(&format!("{manifest_path}.runner-error")).exists());
-    let output = fs::read_to_string(&data.artifacts.output_path).expect("output");
+    let output = fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output");
     assert_eq!(
         output,
         concat!(
@@ -543,7 +612,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
             "\n",
         )
     );
-    let agent = read_agent(&fixture, job_id);
+    let agent = read_agent(&fixture, &JsString::from(job_id));
     assert_eq!(agent.lifecycle, AgentLifecycle::Completed);
     assert_eq!(agent.revision, 2);
 }
@@ -562,14 +631,20 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
     let job_id = "agent_pi_binary";
     let data = manifest(
         &fixture,
-        job_id,
-        &fixture.directory.path().join("activation.json").to_string_lossy(),
+        &JsString::from(job_id),
+        &fixture
+            .directory
+            .path()
+            .join("activation.json")
+            .to_str()
+            .expect("utf-8 test path"),
         &runner_command,
     );
-    let manifest_path = Path::new(&data.artifacts.directory)
+    let manifest_path = Path::new(&encode_node_utf8(&data.artifacts.directory))
         .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let mut runner = std::process::Command::new(env!("CARGO_BIN_EXE_pi"))
         .args([DETACHED_PYRUN_RUNNER_MODE, &manifest_path])
         .current_dir(fixture.directory.path())
@@ -580,19 +655,19 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
         .expect("pi binary");
     let ownership = register(
         &fixture,
-        job_id,
+        &JsString::from(job_id),
         read_process_identity(runner.id()).expect("runner identity"),
     );
     write_detached_pyrun_activation(&data.activation_path, &ownership.identity).expect("activation");
-    write_detached_pyrun_launch_manifest(&manifest_path, &data).expect("manifest");
+    write_detached_pyrun_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let status = runner.wait().expect("reap runner");
     assert!(status.success(), "pi binary exited with {status}");
     assert!(!Path::new(&format!("{manifest_path}.runner-error")).exists());
-    let agent = read_agent(&fixture, job_id);
+    let agent = read_agent(&fixture, &JsString::from(job_id));
     assert_eq!(agent.lifecycle, AgentLifecycle::Completed);
     assert_eq!(agent.revision, 2);
-    let output = fs::read_to_string(&data.artifacts.output_path).expect("output");
+    let output = fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output");
     assert!(output.contains(r#""value":42"#), "{output}");
 }
 
@@ -602,18 +677,21 @@ async fn pi_binary_reports_a_runner_failure_to_the_runner_error_file() {
     let manifest_path = directory.path().join("launch.json");
     fs::write(&manifest_path, "{\"version\":3}\n").expect("manifest");
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_pi"))
-        .args([DETACHED_PYRUN_RUNNER_MODE, &manifest_path.to_string_lossy()])
+        .args([
+            DETACHED_PYRUN_RUNNER_MODE,
+            &manifest_path.to_str().expect("utf-8 test path"),
+        ])
         .current_dir(directory.path())
         .stdin(std::process::Stdio::null())
         .output()
         .expect("pi binary");
     assert_eq!(output.status.code(), Some(1));
-    let error_path = format!("{}.runner-error", manifest_path.to_string_lossy());
+    let error_path = format!("{}.runner-error", manifest_path.to_str().expect("utf-8 test path"));
     assert_eq!(
         fs::read_to_string(&error_path).expect("runner error"),
         format!(
             "Invalid detached Pyrun launch manifest: {}\n",
-            manifest_path.to_string_lossy()
+            manifest_path.to_str().expect("utf-8 test path")
         )
     );
 }
