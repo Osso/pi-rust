@@ -2165,7 +2165,6 @@ dependencies = [
  "gethostname",
  "getrandom 0.4.3",
  "globset",
- "ignore",
  "image 0.24.9",
  "indexmap",
  "nix",

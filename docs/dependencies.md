@@ -10,6 +10,8 @@ All direct dependencies are exact-pinned.
 
 ### `pi-js-compat`
 
+- `node_ignore` ports frozen npm `ignore@7.0.5` defaults over shared `JsString`/`JsRegex`; no additional dependency. Coding-agent package discovery uses this instead of Rust `ignore = 0.4.23` (removed).
+
 - `rustix = 1.1.5` — runtime `io::Errno` names for the centralized Node filesystem/spawn error map, moved unchanged from coding-agent; existing exact dev pin promoted without a new package/version. The `process` feature remains development-only for oracle teardown.
 
 - `indexmap = 2.14.2` — lossless JSON objects retain UTF-16 key identity, first insertion slots, and last-value-wins duplicate replacement; reuses the already-locked ordered map rather than custom bookkeeping.
