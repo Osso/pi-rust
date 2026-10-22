@@ -9,3 +9,5 @@ Status: **done**. [Q3 proof and native approvals](../orchestrator-proof.md).
 | getOrchestratorDir; getAuthPath/getMachinePath/getInstancesPath/getSocketPath | default/empty/explicit precedence, relative dot-segment normalization and HOME-absent OS lookup: foundation + differential |
 
 Proof is bounded to the listed representable runtime/serialization cases; no exhaustive platform or mutation-coverage percentage is claimed.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).

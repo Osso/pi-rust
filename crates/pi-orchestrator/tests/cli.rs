@@ -1,34 +1,45 @@
+use pi_js_compat::{
+    js_json as json,
+    js_json::{JsString, JsValue as Value, encode_node_utf8},
+};
 use pi_orchestrator::cli::{CliAction, parse_args};
-use serde_json::json;
-fn args(args: &[&str]) -> Vec<String> {
-    args.iter().map(|s| s.to_string()).collect()
+fn args(args: &[&str]) -> Vec<JsString> {
+    args.iter().map(|s| JsString::from(*s)).collect()
 }
 #[test]
 fn cli_actions_preserve_first_flags_usage_and_json() {
     assert_eq!(
-        parse_args(&args(&["--version"]), "/cwd").unwrap(),
+        parse_args(&args(&["--version"]), &JsString::from("/cwd")).unwrap(),
         CliAction::Output {
             stdout: "0.80.3\n".into(),
-            stderr: String::new(),
+            stderr: JsString::from(String::new()),
             exit_code: 0
         }
     );
     assert_eq!(
-        parse_args(&args(&["spawn", "--cwd", "/a", "--cwd", "/b", "--label", "x"]), "/cwd").unwrap(),
+        parse_args(
+            &args(&["spawn", "--cwd", "/a", "--cwd", "/b", "--label", "x"]),
+            &JsString::from("/cwd")
+        )
+        .unwrap(),
         CliAction::Request(json!({"type":"spawn","cwd":"/a","label":"x"}))
     );
     assert_eq!(
-        parse_args(&args(&["spawn", "--cwd"]), "/cwd").unwrap(),
+        parse_args(&args(&["spawn", "--cwd"]), &JsString::from("/cwd")).unwrap(),
         CliAction::Request(json!({"type":"spawn","cwd":"/cwd"}))
     );
     assert_eq!(
-        parse_args(&args(&["rpc", "i", "{\"type\":\"get_state\"}"]), "/cwd").unwrap(),
+        parse_args(
+            &args(&["rpc", "i", "{\"type\":\"get_state\"}"]),
+            &JsString::from("/cwd")
+        )
+        .unwrap(),
         CliAction::Request(json!({"type":"rpc","instanceId":"i","command":{"type":"get_state"}}))
     );
     assert_eq!(
-        parse_args(&args(&["status"]), "/cwd").unwrap(),
+        parse_args(&args(&["status"]), &JsString::from("/cwd")).unwrap(),
         CliAction::Output {
-            stdout: String::new(),
+            stdout: JsString::from(String::new()),
             stderr: "Usage: orchestrator status <instance-id>\n".into(),
             exit_code: 1
         }
@@ -66,39 +77,41 @@ async fn cli_text_and_exit_codes_match_frozen_entry() {
             stdout,
             stderr,
             exit_code,
-        } = parse_args(&args(&case), "/cwd").unwrap()
+        } = parse_args(&args(&case), &JsString::from("/cwd")).unwrap()
         else {
             panic!("expected output")
         };
-        assert_eq!(stdout.as_bytes(), output.stdout, "{case:?}");
-        assert_eq!(stderr.as_bytes(), output.stderr, "{case:?}");
+        assert_eq!(encode_node_utf8(&stdout).as_bytes(), output.stdout, "{case:?}");
+        assert_eq!(encode_node_utf8(&stderr).as_bytes(), output.stderr, "{case:?}");
         assert_eq!(exit_code, output.status.code().unwrap(), "{case:?}");
     }
 }
 #[tokio::test]
 async fn cli_one_shot_request_outputs_match_frozen() {
+    use pi_js_compat::js_json::{JsString, JsValue as Value};
     use pi_orchestrator::{
         cli::run_cli,
         config::Config,
         ipc::server::{IpcRequestHandler, OnMessage, RpcStream, start_ipc_server},
     };
-    use serde_json::Value;
     use std::sync::Arc;
     struct Echo;
     impl IpcRequestHandler for Echo {
-        fn handle(&self, request: Value) -> pi_ai::request::BoxFuture<'_, Result<Value, String>> {
+        fn handle(&self, request: Value) -> pi_ai::request::BoxFuture<'_, Result<Value, JsString>> {
             Box::pin(async move { Ok(request) })
         }
-        fn open_rpc_stream(&self, _id: &str, _callback: OnMessage) -> Option<Arc<dyn RpcStream>> {
+        fn open_rpc_stream(&self, _id: &JsString, _callback: OnMessage) -> Option<Arc<dyn RpcStream>> {
             None
         }
     }
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let lock: Value =
+    let lock: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
     let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
     let dir = tempfile::tempdir().unwrap();
-    let config = Config { dir: dir.path().into() };
+    let config = Config {
+        dir: JsString::from(dir.path().to_str().expect("utf-8 test path")),
+    };
     let server = start_ipc_server(&config.socket_path(), Arc::new(Echo)).await.unwrap();
     for case in [
         vec!["list"],
@@ -124,7 +137,7 @@ async fn cli_one_shot_request_outputs_match_frozen() {
         assert_eq!(
             run_cli(
                 &args(&case),
-                dir.path().to_str().unwrap(),
+                &JsString::from(dir.path().to_str().unwrap()),
                 config.clone(),
                 tokio::io::empty(),
                 &mut stdout,
@@ -143,8 +156,10 @@ async fn cli_one_shot_request_outputs_match_frozen() {
 async fn rpc_stream_only_forwards_complete_jsonl_stdin_lines() {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let dir = tempfile::tempdir().unwrap();
-    let config = pi_orchestrator::config::Config { dir: dir.path().into() };
-    let listener = tokio::net::UnixListener::bind(config.socket_path()).unwrap();
+    let config = pi_orchestrator::config::Config {
+        dir: JsString::from(dir.path().to_str().expect("utf-8 test path")),
+    };
+    let listener = tokio::net::UnixListener::bind(&encode_node_utf8(&config.socket_path())).unwrap();
     let task = tokio::spawn(async move {
         let mut all_requests = vec![];
         for _ in 0..2 {
@@ -166,7 +181,7 @@ async fn rpc_stream_only_forwards_complete_jsonl_stdin_lines() {
                 {
                     break;
                 }
-                let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
                 requests.push(request);
                 write
                     .write_all(b"{\"type\":\"response\",\"success\":true}\n")
@@ -184,7 +199,7 @@ async fn rpc_stream_only_forwards_complete_jsonl_stdin_lines() {
     assert_eq!(
         pi_orchestrator::cli::run_cli(
             &args(&["rpc-stream", "i"]),
-            "/tmp",
+            &JsString::from("/tmp"),
             config.clone(),
             input,
             &mut stdout,
@@ -202,7 +217,7 @@ async fn rpc_stream_only_forwards_complete_jsonl_stdin_lines() {
         .arg(source.join("tsconfig.json"))
         .arg(source.join("packages/orchestrator/src/cli.ts"))
         .args(["rpc-stream", "i"])
-        .env("PI_ORCHESTRATOR_DIR", &config.dir)
+        .env("PI_ORCHESTRATOR_DIR", &&encode_node_utf8(&config.dir))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

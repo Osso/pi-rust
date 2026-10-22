@@ -16,3 +16,5 @@ Proof is bounded to the listed representable runtime/serialization cases; no exh
 31 padding code points (24 trimmed; 7 rejected), exact values/errors vs Node trim+JSON.parse across real sockets: `frame_whitespace.rs`. Full frozen module BOM boundary is independently demonstrated server-side in `verifier_regressions.rs`; the full client Unicode matrix is a language-semantic oracle, not a full-module differential. Arbitrary Unicode chunk splits remain unproved.
 
 Prior unconditional done claim withdrawn. Seven regression mutants (exit EOF, queue abort, four trim sites, successful-body read) were killed by behavioral failures, not compiler failures.
+
+Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).

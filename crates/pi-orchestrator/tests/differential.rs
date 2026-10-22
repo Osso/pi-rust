@@ -1,5 +1,8 @@
+use pi_js_compat::{
+    js_json as json,
+    js_json::{JsString, JsValue as Value},
+};
 use pi_orchestrator::{ipc::protocol::encode_message, storage::Storage};
-use serde_json::{Value, json};
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -7,7 +10,7 @@ use std::{
 };
 fn oracle(input: Value, dir: &Path) -> Value {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let lock: Value =
+    let lock: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
     let source = Path::new(lock["worktree"].as_str().unwrap());
     let mut child = Command::new(source.join("node_modules/.bin/tsx"))
@@ -24,7 +27,7 @@ fn oracle(input: Value, dir: &Path) -> Value {
         .stdin
         .take()
         .unwrap()
-        .write_all(input.to_string().as_bytes())
+        .write_all(pi_js_compat::js_json::stringify_lossless(&input).as_bytes())
         .unwrap();
     let result = child.wait_with_output().unwrap();
     assert!(result.status.success());
@@ -40,7 +43,9 @@ fn frozen_protocol_storage_bidirectional_file_bytes() {
         json!({"op":"foundation","messages":messages,"machine":machine,"instances":[{"id":"a","status":"online"},{"id":"b","status":"stopped"}],"replacement":replacement,"removeId":"b"}),
         dir.path(),
     );
-    let store = Storage(dir.path().to_owned());
+    let store = Storage(JsString::from(
+        (dir.path().to_owned()).to_str().expect("utf-8 test path"),
+    ));
     assert_eq!(store.load_machine().unwrap().unwrap(), machine);
     assert_eq!(store.load_instances().unwrap(), vec![replacement.clone()]);
     assert_eq!(
@@ -57,11 +62,11 @@ fn frozen_protocol_storage_bidirectional_file_bytes() {
     store.save_machine(&machine).unwrap();
     store.save_instances(&[replacement]).unwrap();
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("machine.json")).unwrap(),
+        json!(std::fs::read_to_string(dir.path().join("machine.json")).unwrap()),
         expected["machineBytes"]
     );
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("instances.json")).unwrap(),
+        json!(std::fs::read_to_string(dir.path().join("instances.json")).unwrap()),
         expected["instanceBytes"]
     );
     let read = oracle(json!({"op":"read_storage"}), dir.path());
@@ -84,9 +89,10 @@ fn frozen_config_path_precedence_and_normalization_matrix() {
         json!({"PI_ORCHESTRATOR_DIR":"","PI_CONFIG_DIR":""}),
         json!({"PI_ORCHESTRATOR_DIR":"/explicit","PI_CONFIG_DIR":"/ignored"}),
     ] {
-        let map: std::collections::BTreeMap<String, String> = serde_json::from_value(env.clone()).unwrap();
+        let map: std::collections::BTreeMap<String, JsString> =
+            pi_js_compat::js_json::from_value(&env.clone()).unwrap();
         let config = Config {
-            dir: orchestrator_dir(&map, "/home/test"),
+            dir: orchestrator_dir(&map, &JsString::from("/home/test")),
         };
         let expected = oracle(json!({"op":"config","env":env,"home":"/home/test"}), dir.path());
         assert_eq!(

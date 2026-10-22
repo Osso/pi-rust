@@ -1,3 +1,7 @@
+use pi_js_compat::{
+    js_json as json,
+    js_json::{JsString, JsValue as Value, encode_node_utf8},
+};
 use pi_orchestrator::{
     handler::handle_ipc_request,
     radius::{RadiusOptions, RadiusPresence},
@@ -5,7 +9,6 @@ use pi_orchestrator::{
     storage::Storage,
     supervisor::*,
 };
-use serde_json::json;
 use std::sync::Arc;
 fn create(storage: Storage) -> Arc<OrchestratorSupervisor> {
     let radius = RadiusPresence::new(
@@ -41,7 +44,7 @@ fn create(storage: Storage) -> Arc<OrchestratorSupervisor> {
 #[tokio::test]
 async fn restart_recovery_and_handler_unknown_instance_contract() {
     let dir = tempfile::tempdir().unwrap();
-    let storage = Storage(dir.path().into());
+    let storage = Storage(JsString::from(dir.path().to_str().expect("utf-8 test path")));
     storage
         .save_instances(&[
             json!({"id":"a","status":"online"}),
@@ -52,10 +55,10 @@ async fn restart_recovery_and_handler_unknown_instance_contract() {
     let supervisor = create(storage);
     supervisor.recover_after_restart().await.unwrap();
     let records = supervisor.list_instances().unwrap();
-    assert_eq!(records[0]["status"], "stopped");
-    assert_eq!(records[1]["status"], "stopped");
-    assert_eq!(records[2]["status"], "error");
-    assert_eq!(records[0]["lastSeenAt"], "2026-10-21T00:00:00.000Z");
+    assert_eq!(records[0]["status"], json!("stopped"));
+    assert_eq!(records[1]["status"], json!("stopped"));
+    assert_eq!(records[2]["status"], json!("error"));
+    assert_eq!(records[0]["lastSeenAt"], json!("2026-10-21T00:00:00.000Z"));
     for kind in ["status", "stop", "rpc", "rpc_stream"] {
         assert_eq!(
             handle_ipc_request(
@@ -71,31 +74,43 @@ async fn restart_recovery_and_handler_unknown_instance_contract() {
 #[tokio::test]
 async fn spawn_rpc_and_stop_preserve_record_lifecycle() {
     let dir = tempfile::tempdir().unwrap();
-    let supervisor = create(Storage(dir.path().join("state")));
+    let supervisor = create(Storage(JsString::from(
+        (dir.path().join("state")).to_str().expect("utf-8 test path"),
+    )));
     let instance = supervisor
         .spawn_instance(dir.path().to_str().unwrap().into(), Some("work".into()))
         .await
         .unwrap();
-    assert_eq!(instance["status"], "online");
-    assert_eq!(instance["sessionId"], "session");
-    assert_eq!(instance["label"], "work");
+    assert_eq!(instance["status"], json!("online"));
+    assert_eq!(instance["sessionId"], json!("session"));
+    assert_eq!(instance["label"], json!("work"));
     let response = handle_ipc_request(
         &supervisor,
         json!({"type":"rpc","instanceId":"instance","command":{"type":"get_state","id":"rpc"}}),
     )
     .await
     .unwrap();
-    assert_eq!(response["response"]["id"], "rpc");
+    assert_eq!(response["response"]["id"], json!("rpc"));
     assert_eq!(
         handle_ipc_request(&supervisor, json!({"type":"list"})).await.unwrap()["instances"][0]["sessionId"],
-        "session"
+        json!("session")
     );
     assert_eq!(
-        supervisor.stop_instance("instance").await.unwrap().unwrap()["status"],
-        "stopped"
+        supervisor
+            .stop_instance(&JsString::from("instance"))
+            .await
+            .unwrap()
+            .unwrap()["status"],
+        json!("stopped")
     );
     assert!(supervisor.list_instances().unwrap().is_empty());
-    assert!(supervisor.stop_instance("instance").await.unwrap().is_none());
+    assert!(
+        supervisor
+            .stop_instance(&JsString::from("instance"))
+            .await
+            .unwrap()
+            .is_none()
+    );
     supervisor.shutdown().await.unwrap();
 }
 
@@ -119,9 +134,11 @@ async fn supervisor_handler_stream_lifecycle_matches_frozen() {
         .await
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
     let ruststate = tempfile::tempdir().unwrap();
-    let supervisor = create(Storage(ruststate.path().into()));
+    let supervisor = create(Storage(JsString::from(
+        ruststate.path().to_str().expect("utf-8 test path"),
+    )));
     let instance = supervisor
         .spawn_instance(dir.path().to_str().unwrap().into(), Some("work".into()))
         .await
@@ -141,7 +158,10 @@ async fn supervisor_handler_stream_lifecycle_matches_frozen() {
     use pi_orchestrator::ipc::server::IpcRequestHandler;
     let handler = pi_orchestrator::handler::OrchestratorHandler(supervisor.clone());
     let stream = handler
-        .open_rpc_stream("instance", Arc::new(move |v| m.lock().unwrap().push(v)))
+        .open_rpc_stream(
+            &JsString::from("instance"),
+            Arc::new(move |v| m.lock().unwrap().push(v)),
+        )
         .unwrap();
     stream
         .handle_request(json!({"type":"abort","id":"stream"}))
@@ -168,7 +188,9 @@ async fn supervisor_handler_stream_lifecycle_matches_frozen() {
 #[tokio::test]
 async fn supervisor_stream_does_not_send_responses_to_session_event_subscribers() {
     let dir = tempfile::tempdir().unwrap();
-    let supervisor = create(Storage(dir.path().join("state")));
+    let supervisor = create(Storage(JsString::from(
+        (dir.path().join("state")).to_str().expect("utf-8 test path"),
+    )));
     supervisor
         .spawn_instance(dir.path().to_str().unwrap().into(), None)
         .await
@@ -177,7 +199,7 @@ async fn supervisor_stream_does_not_send_responses_to_session_event_subscribers(
     let sink = events.clone();
     let stream = supervisor
         .open_rpc_stream(
-            "instance",
+            &JsString::from("instance"),
             Arc::new(move |v| sink.lock().unwrap().push(v)),
             Arc::new(|_| {}),
         )
@@ -192,7 +214,7 @@ async fn supervisor_stream_does_not_send_responses_to_session_event_subscribers(
 async fn serve_startup_cleanup_and_idempotent_shutdown() {
     let dir = tempfile::tempdir().unwrap();
     let config = pi_orchestrator::config::Config {
-        dir: dir.path().join("runtime"),
+        dir: JsString::from((dir.path().join("runtime")).to_str().expect("utf-8 test path")),
     };
     let storage = Storage(config.dir.clone());
     let supervisor = create(storage.clone());
@@ -213,11 +235,11 @@ async fn serve_startup_cleanup_and_idempotent_shutdown() {
     let runtime = pi_orchestrator::serve::RunningOrchestrator::start(config.clone(), supervisor, radius)
         .await
         .unwrap();
-    assert!(config.socket_path().exists());
+    assert!(std::path::Path::new(&encode_node_utf8(&config.socket_path())).exists());
     runtime.shutdown().await.unwrap();
     runtime.shutdown().await.unwrap();
-    assert!(!config.socket_path().exists());
-    std::fs::write(config.instances_path(), "{").unwrap();
+    assert!(!std::path::Path::new(&encode_node_utf8(&config.socket_path())).exists());
+    std::fs::write(&encode_node_utf8(&config.instances_path()), "{").unwrap();
     let supervisor = create(storage.clone());
     let radius = RadiusPresence::new(
         storage,
@@ -238,7 +260,7 @@ async fn serve_startup_cleanup_and_idempotent_shutdown() {
             .await
             .is_err()
     );
-    assert!(!config.socket_path().exists());
+    assert!(!std::path::Path::new(&encode_node_utf8(&config.socket_path())).exists());
 }
 
 #[tokio::test]
@@ -250,14 +272,14 @@ async fn serve_startup_logs_and_signal_cleanup_match_frozen() {
     let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
     let dir = tempfile::tempdir().unwrap();
     let config = pi_orchestrator::config::Config {
-        dir: dir.path().join("runtime"),
+        dir: JsString::from((dir.path().join("runtime")).to_str().expect("utf-8 test path")),
     };
     let mut child = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
         .arg("--tsconfig")
         .arg(source.join("tsconfig.json"))
         .arg(source.join("packages/orchestrator/src/cli.ts"))
         .arg("serve")
-        .env("PI_ORCHESTRATOR_DIR", &config.dir)
+        .env("PI_ORCHESTRATOR_DIR", &&encode_node_utf8(&config.dir))
         .env_remove("PI_RADIUS_API_KEY")
         .stdout(std::process::Stdio::piped())
         .kill_on_drop(true)
@@ -273,6 +295,11 @@ async fn serve_startup_logs_and_signal_cleanup_match_frozen() {
             .unwrap();
         logs.push(line.trim_end().to_string());
     }
+    // Frozen serve.ts logs before installing signal handlers; IPC dispatch proves setup returned.
+    let ready = pi_orchestrator::ipc::client::send_ipc_request(&config.socket_path(), &json!({"type":"list"}))
+        .await
+        .expect("frozen serve must process IPC before receiving SIGTERM");
+    assert_eq!(ready["type"], json!("list_result"));
     let pid = rustix::process::Pid::from_raw(child.id().unwrap() as i32).unwrap();
     rustix::process::kill_process(pid, rustix::process::Signal::TERM).unwrap();
     let status = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())
@@ -280,7 +307,7 @@ async fn serve_startup_logs_and_signal_cleanup_match_frozen() {
         .unwrap()
         .unwrap();
     assert!(status.success(), "{status}");
-    assert!(!config.socket_path().exists());
+    assert!(!std::path::Path::new(&encode_node_utf8(&config.socket_path())).exists());
     let storage = Storage(config.dir.clone());
     let supervisor = create(storage.clone());
     let radius = RadiusPresence::new(
@@ -302,47 +329,65 @@ async fn serve_startup_logs_and_signal_cleanup_match_frozen() {
         .unwrap();
     assert_eq!(runtime.logs, logs);
     runtime.shutdown().await.unwrap();
-    assert!(!config.socket_path().exists());
+    assert!(!std::path::Path::new(&encode_node_utf8(&config.socket_path())).exists());
 }
 
 #[tokio::test]
 async fn failed_spawn_stays_stopped_but_unexpected_child_exit_stays_error() {
     let dir = tempfile::tempdir().unwrap();
-    let supervisor = create(Storage(dir.path().join("state")));
+    let supervisor = create(Storage(JsString::from(
+        (dir.path().join("state")).to_str().expect("utf-8 test path"),
+    )));
     assert!(
         supervisor
-            .spawn_instance(dir.path().join("does-not-exist").to_string_lossy().into(), None)
+            .spawn_instance(
+                dir.path()
+                    .join("does-not-exist")
+                    .to_str()
+                    .expect("utf-8 test path")
+                    .into(),
+                None
+            )
             .await
             .is_err()
     );
     assert_eq!(
-        supervisor.get_instance("instance").unwrap().unwrap()["status"],
-        "stopped"
+        supervisor.get_instance(&JsString::from("instance")).unwrap().unwrap()["status"],
+        json!("stopped")
     );
-    assert!(supervisor.get_live_instance("instance").is_none());
+    assert!(supervisor.get_live_instance(&JsString::from("instance")).is_none());
     supervisor
         .spawn_instance(dir.path().to_str().unwrap().into(), None)
         .await
         .unwrap();
     assert!(
         supervisor
-            .handle_rpc("instance", json!({"type":"exit","id":"exit"}))
+            .handle_rpc(&JsString::from("instance"), json!({"type":"exit","id":"exit"}))
             .await
             .is_err()
     );
     for _ in 0..20 {
         tokio::task::yield_now().await;
     }
-    assert_eq!(supervisor.get_instance("instance").unwrap().unwrap()["status"], "error");
-    assert!(supervisor.get_live_instance("instance").is_none());
-    assert!(supervisor.stop_instance("instance").await.unwrap().is_none());
+    assert_eq!(
+        supervisor.get_instance(&JsString::from("instance")).unwrap().unwrap()["status"],
+        json!("error")
+    );
+    assert!(supervisor.get_live_instance(&JsString::from("instance")).is_none());
+    assert!(
+        supervisor
+            .stop_instance(&JsString::from("instance"))
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[tokio::test]
 async fn malformed_child_json_ends_serve_with_error_and_normal_cleanup() {
     let dir = tempfile::tempdir().unwrap();
     let config = pi_orchestrator::config::Config {
-        dir: dir.path().join("runtime"),
+        dir: JsString::from((dir.path().join("runtime")).to_str().expect("utf-8 test path")),
     };
     let storage = Storage(config.dir.clone());
     let supervisor = create(storage.clone());
@@ -370,13 +415,13 @@ async fn malformed_child_json_ends_serve_with_error_and_normal_cleanup() {
     let command = supervisor.clone();
     let pending = tokio::spawn(async move {
         command
-            .handle_rpc("instance", json!({"type":"malformed","id":"bad"}))
+            .handle_rpc(&JsString::from("instance"), json!({"type":"malformed","id":"bad"}))
             .await
     });
     let result = tokio::time::timeout(std::time::Duration::from_millis(500), runtime.run_until_signal()).await;
     runtime.shutdown().await.unwrap();
     assert!(pending.await.unwrap().unwrap_err().contains("disposed"));
-    assert!(!config.socket_path().exists());
+    assert!(!std::path::Path::new(&encode_node_utf8(&config.socket_path())).exists());
     assert!(storage.load_instances().unwrap().is_empty());
     assert!(result.expect("malformed child JSON must terminate serve").is_err());
 }
@@ -391,7 +436,7 @@ async fn frozen_serve_malformed_child_json_exits_one_and_cleans_up() {
     let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
     let dir = tempfile::tempdir().unwrap();
     let config = pi_orchestrator::config::Config {
-        dir: dir.path().join("state"),
+        dir: JsString::from((dir.path().join("state")).to_str().expect("utf-8 test path")),
     };
     let mut child = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
         .arg("--tsconfig")
@@ -399,7 +444,7 @@ async fn frozen_serve_malformed_child_json_exits_one_and_cleans_up() {
         .arg(root.join("oracle/orchestrator-fatal-oracle.mjs"))
         .arg(source)
         .arg(root.join("oracle/orchestrator-rpc-fake.mjs"))
-        .env("PI_ORCHESTRATOR_DIR", &config.dir)
+        .env("PI_ORCHESTRATOR_DIR", &&encode_node_utf8(&config.dir))
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
@@ -416,7 +461,7 @@ async fn frozen_serve_malformed_child_json_exits_one_and_cleans_up() {
     let spawn = send_ipc_request(&config.socket_path(), &json!({"type":"spawn","cwd":dir.path()}))
         .await
         .unwrap();
-    let id = spawn["instance"]["id"].as_str().unwrap();
+    let id = spawn["instance"]["id"].as_string().unwrap();
     let _outcome = send_ipc_request(
         &config.socket_path(),
         &json!({"type":"rpc","instanceId":id,"command":{"type":"malformed","id":"bad"}}),
@@ -427,7 +472,7 @@ async fn frozen_serve_malformed_child_json_exits_one_and_cleans_up() {
         .unwrap()
         .unwrap();
     assert_eq!(status.code(), Some(1));
-    assert!(!config.socket_path().exists());
+    assert!(!std::path::Path::new(&encode_node_utf8(&config.socket_path())).exists());
     assert!(Storage(config.dir).load_instances().unwrap().is_empty());
 }
 
@@ -453,8 +498,10 @@ async fn shared_stream_callback_identity_and_close_match_frozen_sets() {
         .await
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let supervisor = create(Storage(dir.path().join("state")));
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let supervisor = create(Storage(JsString::from(
+        (dir.path().join("state")).to_str().expect("utf-8 test path"),
+    )));
     supervisor
         .spawn_instance(dir.path().to_str().unwrap().into(), None)
         .await
@@ -470,9 +517,11 @@ async fn shared_stream_callback_identity_and_close_match_frozen_sets() {
         u.fetch_add(1, Ordering::SeqCst);
     });
     let first = supervisor
-        .open_rpc_stream("instance", callback.clone(), on_ui.clone())
+        .open_rpc_stream(&JsString::from("instance"), callback.clone(), on_ui.clone())
         .unwrap();
-    let second = supervisor.open_rpc_stream("instance", callback, on_ui).unwrap();
+    let second = supervisor
+        .open_rpc_stream(&JsString::from("instance"), callback, on_ui)
+        .unwrap();
     first.handle_rpc(json!({"type":"get_state","id":"one"})).await.unwrap();
     let before = json!({"events":events.load(Ordering::SeqCst),"ui":ui.load(Ordering::SeqCst)});
     first.close();

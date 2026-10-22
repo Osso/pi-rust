@@ -5,7 +5,10 @@ use crate::{
 };
 use indexmap::IndexMap;
 use pi_ai::request::{BoxFuture, Fetch, HttpRequest, read_body_text};
-use serde_json::{Value, json};
+use pi_js_compat::{
+    js_format, js_json as json,
+    js_json::{JsString, JsValue as Value, encode_node_utf8},
+};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex, Weak},
@@ -13,38 +16,39 @@ use std::{
 };
 use tokio::task::AbortHandle;
 
-fn nonempty<'a>(env: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
-    env.get(key).map(String::as_str).filter(|s| !s.is_empty())
+fn nonempty<'a>(env: &'a BTreeMap<String, JsString>, key: &str) -> Option<&'a JsString> {
+    env.get(key).filter(|s| !s.is_empty())
 }
-pub fn radius_url(env: &BTreeMap<String, String>) -> String {
+pub fn radius_url(env: &BTreeMap<String, JsString>) -> JsString {
     nonempty(env, "PI_RADIUS_URL")
-        .unwrap_or("https://radius.pi.dev/")
+        .cloned()
+        .unwrap_or_else(|| JsString::from("https://radius.pi.dev/"))
         .into()
 }
-pub fn radius_orchestrator_base_url(env: &BTreeMap<String, String>) -> Result<String, String> {
+pub fn radius_orchestrator_base_url(env: &BTreeMap<String, JsString>) -> Result<JsString, JsString> {
     if let Some(url) = nonempty(env, "PI_RADIUS_ORCHESTRATOR_URL") {
         return Ok(url.into());
     }
-    url::Url::parse(&radius_url(env))
+    url::Url::parse(&encode_node_utf8(&radius_url(env)))
         .and_then(|url| url.join("/v1/"))
-        .map(|v| v.to_string())
-        .map_err(|e| e.to_string())
+        .map(|v| JsString::from(v.to_string()))
+        .map_err(|e| JsString::from(e.to_string()))
 }
 fn oauth(credential: Option<&Value>) -> Option<&Value> {
-    credential.filter(|v| v["type"] == "oauth")
+    credential.filter(|v| v["type"] == json!("oauth"))
 }
-pub fn radius_access_token(credential: Option<&Value>, env: &BTreeMap<String, String>) -> Result<String, String> {
+pub fn radius_access_token(credential: Option<&Value>, env: &BTreeMap<String, JsString>) -> Result<JsString, JsString> {
     if let Some(access) = oauth(credential)
-        .and_then(|c| c["access"].as_str())
+        .and_then(|c| c["access"].as_string())
         .filter(|s| !s.is_empty())
     {
         return Ok(access.into());
     }
     nonempty(env, "PI_RADIUS_API_KEY")
-        .map(str::to_owned)
+        .map(JsString::from)
         .ok_or_else(|| "Radius credentials are required in ~/.pi/agent/auth.json or PI_RADIUS_API_KEY".into())
 }
-pub fn radius_enabled(credential: Option<&Value>, env: &BTreeMap<String, String>) -> bool {
+pub fn radius_enabled(credential: Option<&Value>, env: &BTreeMap<String, JsString>) -> bool {
     let access = oauth(credential).map(|v| pi_js_compat::js_json::JsValue::from(&v["access"]));
     access.as_ref().is_some_and(pi_js_compat::js_json::is_truthy) || nonempty(env, "PI_RADIUS_API_KEY").is_some()
 }
@@ -54,33 +58,41 @@ pub fn compute_backoff_delay_ms(failure: u32, random: f64) -> u64 {
     let jitter = (random * (exponential as f64 / 4.0).max(250.0)).floor() as u64;
     (exponential + jitter).min(30000)
 }
-pub type Environment = Arc<dyn Fn() -> BTreeMap<String, String> + Send + Sync>;
+pub type Environment = Arc<dyn Fn() -> BTreeMap<String, JsString> + Send + Sync>;
 pub struct RadiusOptions {
     pub env: Environment,
     pub credential: Arc<dyn Fn() -> Option<Value> + Send + Sync>,
-    pub now: Arc<dyn Fn() -> String + Send + Sync>,
+    pub now: Arc<dyn Fn() -> JsString + Send + Sync>,
     pub random: Arc<dyn Fn() -> f64 + Send + Sync>,
-    pub hostname: String,
-    pub platform: String,
-    pub arch: String,
+    pub hostname: JsString,
+    pub platform: JsString,
+    pub arch: JsString,
     pub pid: u32,
 }
 impl RadiusOptions {
     pub fn from_environment() -> Self {
         let auth = Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::create(None));
         Self {
-            env: Arc::new(|| std::env::vars().collect()),
+            env: Arc::new(|| {
+                std::env::vars()
+                    .map(|(key, value)| (key, JsString::from(value)))
+                    .collect()
+            }),
             credential: Arc::new(move || {
                 auth.reload();
-                auth.get("radius").map(|v| v.into_serde_lossy())
+                auth.get("radius")
             }),
-            now: Arc::new(|| pi_js_compat::date::to_iso_string(pi_js_compat::date::js_now_millis() as i64)),
+            now: Arc::new(|| {
+                JsString::from(pi_js_compat::date::to_iso_string(
+                    pi_js_compat::date::js_now_millis() as i64
+                ))
+            }),
             random: Arc::new(|| {
                 let mut bytes = [0; 8];
                 getrandom::fill(&mut bytes).expect("OS random source unavailable");
                 (u64::from_le_bytes(bytes) >> 11) as f64 / (1u64 << 53) as f64
             }),
-            hostname: gethostname::gethostname().to_string_lossy().into_owned(),
+            hostname: JsString::from(gethostname::gethostname().to_str().expect("OS hostname must be UTF-8")),
             platform: std::env::consts::OS.into(),
             arch: match std::env::consts::ARCH {
                 "x86_64" => "x64",
@@ -93,15 +105,15 @@ impl RadiusOptions {
     }
 }
 pub trait RadiusPresenceCoordinator: Send + Sync {
-    fn get_live_instance(&self, id: &str) -> Option<Value>;
+    fn get_live_instance(&self, id: &JsString) -> Option<Value>;
     fn list_live_instances(&self) -> Vec<Value>;
-    fn update_instance(&self, instance: Value) -> Result<(), String>;
+    fn update_instance(&self, instance: Value) -> Result<(), JsString>;
 }
 #[derive(Default)]
 struct Heartbeat {
     timer: Option<AbortHandle>,
     interval: u64,
-    radius_id: String,
+    radius_id: JsString,
     not_found: u32,
     transient: u32,
 }
@@ -109,7 +121,7 @@ struct Heartbeat {
 struct State {
     machine: Option<Value>,
     machine_heartbeat: Heartbeat,
-    pis: IndexMap<String, Heartbeat>,
+    pis: IndexMap<JsString, Heartbeat>,
     coordinator: Option<Weak<dyn RadiusPresenceCoordinator>>,
 }
 pub struct RadiusPresence {
@@ -121,20 +133,15 @@ pub struct RadiusPresence {
 #[derive(Debug)]
 struct RadiusError {
     status: Option<u16>,
-    message: String,
-}
-impl std::fmt::Display for RadiusError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
+    message: JsString,
 }
 impl RadiusError {
     fn not_found(&self) -> bool {
         self.status == Some(404)
     }
 }
-impl From<String> for RadiusError {
-    fn from(message: String) -> Self {
+impl From<JsString> for RadiusError {
+    fn from(message: JsString) -> Self {
         Self { status: None, message }
     }
 }
@@ -156,51 +163,59 @@ impl RadiusPresence {
     fn coordinator(&self) -> Option<Arc<dyn RadiusPresenceCoordinator>> {
         self.state.lock().unwrap().coordinator.as_ref().and_then(Weak::upgrade)
     }
-    async fn post(&self, path: &str, body: Value, read_json: bool) -> Result<Value, RadiusError> {
+    async fn post(&self, path: &JsString, body: Value, read_json: bool) -> Result<Value, RadiusError> {
         let env = (self.options.env)();
         let base = radius_orchestrator_base_url(&env)?;
-        let url = url::Url::parse(&base)
-            .and_then(|url| url.join(path))
-            .map_err(|e| e.to_string())?;
+        let url = url::Url::parse(&encode_node_utf8(&base))
+            .and_then(|url| url.join(&encode_node_utf8(path)))
+            .map_err(|e| JsString::from(e.to_string()))?;
         let token = radius_access_token((self.options.credential)().as_ref(), &env)?;
         let request = HttpRequest {
             method: "POST".into(),
             url: url.to_string(),
             headers: vec![
-                ("Authorization".into(), format!("Bearer {token}")),
+                (
+                    "Authorization".into(),
+                    pi_ai::request::header_value(&js_format!("Bearer {}", token)).map_err(|error| error.message)?,
+                ),
                 ("Content-Type".into(), "application/json".into()),
             ],
-            body: Some(pi_js_compat::js_json::stringify(&body).into_bytes()),
+            body: Some(pi_js_compat::js_json::stringify_lossless(&body).into_bytes()),
         };
-        let response = self.fetch.fetch(request, None).await.map_err(|e| e.to_string())?;
+        let response = self.fetch.fetch(request, None).await.map_err(|e| e.message)?;
         let status = response.status;
         if (200..300).contains(&status) && !read_json {
             return Ok(Value::Null);
         }
-        let text = read_body_text(response.body).await.map_err(|e| e.to_string())?;
+        let text = read_body_text(response.body).await.map_err(|e| e.message)?;
         if !(200..300).contains(&status) {
             return Err(RadiusError {
                 status: Some(status),
-                message: format!("Radius request failed: {status} {text}"),
+                message: js_format!("Radius request failed: {} {}", status, text),
             });
         }
         if read_json {
-            pi_js_compat::js_json::parse(&text).map_err(|e| e.to_string().into())
+            pi_js_compat::js_json::parse_lossless(text).map_err(|error| error.into_message().into())
         } else {
             Ok(Value::Null)
         }
     }
-    pub async fn start(self: &Arc<Self>, label: Option<String>) -> Result<Option<Value>, String> {
+    pub async fn start(self: &Arc<Self>, label: Option<JsString>) -> Result<Option<Value>, JsString> {
         if !self.enabled() {
             return Ok(None);
         }
-        let registered = self.register_machine(label).await.map_err(|e| e.to_string())?;
-        self.state.lock().unwrap().machine_heartbeat.interval =
-            registered["heartbeatIntervalMs"].as_u64().unwrap_or_default();
-        self.schedule_machine(registered["heartbeatIntervalMs"].as_u64().unwrap_or_default());
+        let registered = self.register_machine(label).await.map_err(|e| e.message)?;
+        self.state.lock().unwrap().machine_heartbeat.interval = registered["heartbeatIntervalMs"]
+            .as_u64()
+            .ok_or_else(|| JsString::from("Radius heartbeat interval missing"))?;
+        self.schedule_machine(
+            registered["heartbeatIntervalMs"]
+                .as_u64()
+                .ok_or_else(|| JsString::from("Radius heartbeat interval missing"))?,
+        );
         Ok(self.state.lock().unwrap().machine.clone())
     }
-    pub async fn stop(&self) -> Result<(), String> {
+    pub async fn stop(&self) -> Result<(), JsString> {
         let machine = {
             let mut state = self.state.lock().unwrap();
             abort_timer(&mut state.machine_heartbeat);
@@ -210,36 +225,47 @@ impl RadiusPresence {
             state.machine.clone()
         };
         if let Some(machine) = machine.filter(|_| self.enabled()) {
-            self.disconnect(&format!(
+            self.disconnect(&js_format!(
                 "machines/{}/disconnect",
-                machine["id"].as_str().unwrap_or_default()
+                machine["id"].as_string().expect("registered Radius record id")
             ))
             .await?;
         }
         Ok(())
     }
-    async fn disconnect(&self, path: &str) -> Result<(), String> {
+    async fn disconnect(&self, path: &JsString) -> Result<(), JsString> {
         match self.post(path, json!({}), false).await {
             Ok(_) => Ok(()),
             Err(e) if e.not_found() => Ok(()),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(e.message),
         }
     }
-    pub async fn register_pi(self: &Arc<Self>, mut instance: Value) -> Result<Value, String> {
+    pub async fn register_pi(self: &Arc<Self>, mut instance: Value) -> Result<Value, JsString> {
         if !self.enabled() {
             return Ok(instance);
         }
         let machine = self
             .load_machine_identity()?
-            .ok_or("No registered machine available for Pi registration")?;
+            .ok_or_else(|| JsString::from("No registered machine available for Pi registration"))?;
         let mut body = json!({"machineId":machine["id"],"cwd":instance["cwd"],"hostname":self.options.hostname,"pid":self.options.pid,"transport":"local-rpc","capabilities":{"rpc":true,"relay":false,"iroh":false}});
         copy_optional(&instance, &mut body, &["label", "sessionId"]);
-        let registered = self.post("pis/register", body, true).await.map_err(|e| e.to_string())?;
+        let registered = self
+            .post(&JsString::from("pis/register"), body, true)
+            .await
+            .map_err(|e| e.message)?;
         instance["radiusPiId"] = registered["id"].clone();
-        let id = instance["id"].as_str().ok_or("instance ID missing")?.to_owned();
+        let id = instance["id"]
+            .as_string()
+            .ok_or_else(|| JsString::from("instance ID missing"))?
+            .to_owned();
         let heartbeat = Heartbeat {
-            interval: registered["heartbeatIntervalMs"].as_u64().unwrap_or_default(),
-            radius_id: registered["id"].as_str().unwrap_or_default().into(),
+            interval: registered["heartbeatIntervalMs"]
+                .as_u64()
+                .ok_or_else(|| JsString::from("Radius heartbeat interval missing"))?,
+            radius_id: registered["id"]
+                .as_string()
+                .expect("registered Radius record id")
+                .into(),
             ..Default::default()
         };
         let interval = heartbeat.interval;
@@ -249,32 +275,32 @@ impl RadiusPresence {
         self.schedule_pi(&id, interval);
         Ok(instance)
     }
-    pub async fn disconnect_pi(&self, instance: &Value) -> Result<(), String> {
+    pub async fn disconnect_pi(&self, instance: &Value) -> Result<(), JsString> {
         if let Some(mut heartbeat) = self
             .state
             .lock()
             .unwrap()
             .pis
-            .shift_remove(instance["id"].as_str().unwrap_or_default())
+            .shift_remove(instance["id"].as_string().expect("registered Radius record id"))
         {
             abort_timer(&mut heartbeat);
         }
-        let Some(id) = instance["radiusPiId"].as_str().filter(|v| !v.is_empty()) else {
+        let Some(id) = instance["radiusPiId"].as_string().filter(|v| !v.is_empty()) else {
             return Ok(());
         };
         if !self.enabled() {
             return Ok(());
         }
-        self.disconnect(&format!("pis/{id}/disconnect")).await
+        self.disconnect(&js_format!("pis/{}/disconnect", id)).await
     }
-    fn load_machine_identity(&self) -> Result<Option<Value>, String> {
+    fn load_machine_identity(&self) -> Result<Option<Value>, JsString> {
         let cached = self.state.lock().unwrap().machine.clone();
         match cached {
             Some(machine) => Ok(Some(machine)),
             None => self.storage.load_machine(),
         }
     }
-    async fn register_machine(&self, label: Option<String>) -> Result<Value, RadiusError> {
+    async fn register_machine(&self, label: Option<JsString>) -> Result<Value, RadiusError> {
         let existing = self.load_machine_identity()?;
         let mut body = json!({"hostname":self.options.hostname,"platform":self.options.platform,"arch":self.options.arch,"version":VERSION,"capabilities":{"spawn":true,"relay":false,"iroh":false}});
         if let Some(machine) = &existing {
@@ -283,7 +309,7 @@ impl RadiusPresence {
         if let Some(label) = &label {
             body["label"] = json!(label);
         }
-        let registered = self.post("machines/register", body, true).await?;
+        let registered = self.post(&JsString::from("machines/register"), body, true).await?;
         let timestamp = (self.options.now)();
         let created = existing
             .as_ref()
@@ -313,7 +339,7 @@ impl RadiusPresence {
         abort_timer(&mut state.machine_heartbeat);
         state.machine_heartbeat.timer = Some(task.abort_handle());
     }
-    fn schedule_pi(self: &Arc<Self>, id: &str, delay: u64) {
+    fn schedule_pi(self: &Arc<Self>, id: &JsString, delay: u64) {
         let mut state = self.state.lock().unwrap();
         let Some(heartbeat) = state.pis.get_mut(id) else {
             return;
@@ -343,7 +369,10 @@ impl RadiusPresence {
             };
             let result = self
                 .post(
-                    &format!("machines/{}/heartbeat", machine["id"].as_str().unwrap_or_default()),
+                    &js_format!(
+                        "machines/{}/heartbeat",
+                        machine["id"].as_string().expect("registered Radius record id")
+                    ),
                     json!({"cwd":self.storage.0,"socketPath":config.socket_path()}),
                     false,
                 )
@@ -385,7 +414,7 @@ impl RadiusPresence {
             self.schedule_machine(delay);
         }
     }
-    fn heartbeat_pi<'a>(self: &'a Arc<Self>, id: &'a str) -> BoxFuture<'a, ()> {
+    fn heartbeat_pi<'a>(self: &'a Arc<Self>, id: &'a JsString) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             if !self.enabled() {
                 return;
@@ -397,7 +426,9 @@ impl RadiusPresence {
                 };
                 heartbeat.radius_id.clone()
             };
-            let result = self.post(&format!("pis/{radius_id}/heartbeat"), json!({}), false).await;
+            let result = self
+                .post(&js_format!("pis/{}/heartbeat", radius_id), json!({}), false)
+                .await;
             match result {
                 Ok(_) => {
                     let interval = {
@@ -415,7 +446,7 @@ impl RadiusPresence {
             }
         })
     }
-    async fn retry_pi(self: &Arc<Self>, id: &str, error: RadiusError) {
+    async fn retry_pi(self: &Arc<Self>, id: &JsString, error: RadiusError) {
         let (recover, delay, count) = {
             let mut state = self.state.lock().unwrap();
             let Some(heartbeat) = state.pis.get_mut(id) else {
@@ -425,7 +456,7 @@ impl RadiusPresence {
         };
         if !recover {
             if !error.not_found() {
-                log_retry(&format!("Radius Pi {id}"), "heartbeat", delay, count, &error);
+                log_retry(&js_format!("Radius Pi {}", id), "heartbeat", delay, count, &error);
             }
             self.schedule_pi(id, delay);
             return;
@@ -434,7 +465,14 @@ impl RadiusPresence {
             Ok(true) => {}
             Ok(false) => {
                 let delay = compute_backoff_delay_ms(1, (self.options.random)());
-                eprintln!("Radius Pi {id} re-registration skipped; retrying in {delay}ms");
+                eprintln!(
+                    "{}",
+                    encode_node_utf8(&js_format!(
+                        "Radius Pi {} re-registration skipped; retrying in {}ms",
+                        id,
+                        delay
+                    ))
+                );
                 self.schedule_pi(id, delay);
             }
             Err(error) => {
@@ -447,7 +485,7 @@ impl RadiusPresence {
                     heartbeat.transient
                 };
                 let delay = compute_backoff_delay_ms(count, (self.options.random)());
-                log_retry(&format!("Radius Pi {id}"), "re-registration", delay, count, &error);
+                log_retry(&js_format!("Radius Pi {}", id), "re-registration", delay, count, &error);
                 self.schedule_pi(id, delay);
             }
         }
@@ -460,23 +498,35 @@ impl RadiusPresence {
                 .unwrap()
                 .machine
                 .as_ref()
-                .and_then(|v| v["label"].as_str())
-                .map(str::to_owned);
+                .and_then(|v| v["label"].as_string())
+                .map(JsString::from);
             let registered = self.register_machine(label).await?;
-            let interval = registered["heartbeatIntervalMs"].as_u64().unwrap_or_default();
+            let interval = registered["heartbeatIntervalMs"]
+                .as_u64()
+                .ok_or_else(|| JsString::from("Radius heartbeat interval missing"))?;
             self.state.lock().unwrap().machine_heartbeat.interval = interval;
             self.schedule_machine(interval);
-            let instances = self.coordinator().map(|c| c.list_live_instances()).unwrap_or_default();
+            let instances = match self.coordinator() {
+                Some(coordinator) => coordinator.list_live_instances(),
+                None => Vec::new(),
+            };
             for instance in instances {
-                let id = instance["id"].as_str().unwrap_or_default();
+                let id = instance["id"].as_string().expect("registered Radius record id");
                 if let Err(error) = self.re_register_pi(id).await {
-                    eprintln!("Radius Pi {id} re-registration failed: {error}");
+                    eprintln!(
+                        "{}",
+                        encode_node_utf8(&js_format!(
+                            "Radius Pi {} re-registration failed: {}",
+                            id,
+                            error.message
+                        ))
+                    );
                 }
             }
             Ok(())
         })
     }
-    fn re_register_pi<'a>(self: &'a Arc<Self>, id: &'a str) -> BoxFuture<'a, Result<bool, RadiusError>> {
+    fn re_register_pi<'a>(self: &'a Arc<Self>, id: &'a JsString) -> BoxFuture<'a, Result<bool, RadiusError>> {
         Box::pin(async move {
             let coordinator = self.coordinator();
             let instance = coordinator.as_ref().and_then(|c| c.get_live_instance(id));
@@ -516,13 +566,23 @@ fn retry_decision(heartbeat: &mut Heartbeat, not_found: bool, random: f64) -> (b
         heartbeat.transient,
     )
 }
-fn log_retry(scope: &str, action: &str, delay: u64, count: u32, error: &RadiusError) {
+fn log_retry(scope: impl Into<JsString>, action: &str, delay: u64, count: u32, error: &RadiusError) {
     let error = if let Some(status) = error.status {
-        format!("HTTP {status}: {error}")
+        js_format!("HTTP {}: {}", status, error.message)
     } else {
-        error.to_string()
+        error.message.clone()
     };
-    eprintln!("{scope} {action} failed (attempt {count}); retrying in {delay}ms: {error}");
+    eprintln!(
+        "{}",
+        encode_node_utf8(&js_format!(
+            "{} {} failed (attempt {}); retrying in {}ms: {}",
+            scope.into(),
+            action,
+            count,
+            delay,
+            error
+        ))
+    );
 }
 pub(crate) fn copy_optional(from: &Value, to: &mut Value, keys: &[&str]) {
     for key in keys {

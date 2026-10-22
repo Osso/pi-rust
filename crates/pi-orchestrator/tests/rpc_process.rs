@@ -1,11 +1,18 @@
+use pi_js_compat::{
+    js_json as json,
+    js_json::{JsString, JsValue as Value},
+};
 use pi_orchestrator::rpc_process::RpcProcessInstance;
-use serde_json::json;
 #[tokio::test]
 async fn child_response_correlation_events_exit_and_disposal() {
     let dir = tempfile::tempdir().unwrap();
     let mut command = tokio::process::Command::new("node");
     command.arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../oracle/orchestrator-rpc-fake.mjs"));
-    let rpc = RpcProcessInstance::spawn_command(&mut command, dir.path()).unwrap();
+    let rpc = RpcProcessInstance::spawn_command(
+        &mut command,
+        &JsString::from((dir.path()).to_str().expect("utf-8 test path")),
+    )
+    .unwrap();
     let events = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
     let collected = events.clone();
     rpc.on_event(std::sync::Arc::new(move |v| collected.lock().unwrap().push(v)));
@@ -13,11 +20,11 @@ async fn child_response_correlation_events_exit_and_disposal() {
         rpc.send(json!({"type":"get_state","id":"a"})),
         rpc.send(json!({"type":"get_state","id":"b"}))
     );
-    assert_eq!(first.unwrap()["id"], "a");
-    assert_eq!(second.unwrap()["id"], "b");
+    assert_eq!(first.unwrap()["id"], json!("a"));
+    assert_eq!(second.unwrap()["id"], json!("b"));
     assert_eq!(events.lock().unwrap().len(), 2);
     let error = rpc.send(json!({"type":"exit","id":"e"})).await.unwrap_err();
-    assert!(error.contains("code=7"), "{error}");
+    assert!(error.contains("code=7"), "{error:?}");
     assert!(
         rpc.send(json!({"type":"get_state"}))
             .await
@@ -44,11 +51,15 @@ async fn routing_matches_frozen_process_and_disposal_rejects_pending() {
         .await
         .unwrap();
     assert!(output.status.success());
-    let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let mut command = tokio::process::Command::new("node");
     command.arg(fake);
-    let rpc = RpcProcessInstance::spawn_command(&mut command, dir.path()).unwrap();
+    let rpc = RpcProcessInstance::spawn_command(
+        &mut command,
+        &JsString::from((dir.path()).to_str().expect("utf-8 test path")),
+    )
+    .unwrap();
     let events = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
     let e = events.clone();
     rpc.on_event(std::sync::Arc::new(move |v| e.lock().unwrap().push(v)));
@@ -75,13 +86,17 @@ async fn duplicate_pending_id_orphans_original_even_after_disposal() {
     let dir = tempfile::tempdir().unwrap();
     let mut command = tokio::process::Command::new("node");
     command.arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../oracle/orchestrator-rpc-fake.mjs"));
-    let rpc = RpcProcessInstance::spawn_command(&mut command, dir.path()).unwrap();
+    let rpc = RpcProcessInstance::spawn_command(
+        &mut command,
+        &JsString::from((dir.path()).to_str().expect("utf-8 test path")),
+    )
+    .unwrap();
     let first = rpc.clone();
     let mut pending = tokio::spawn(async move { first.send(json!({"type":"hang","id":"duplicate"})).await });
     tokio::task::yield_now().await;
     assert_eq!(
         rpc.send(json!({"type":"get_state","id":"duplicate"})).await.unwrap()["command"],
-        "get_state"
+        json!("get_state")
     );
     assert!(
         tokio::time::timeout(std::time::Duration::from_millis(30), &mut pending)
@@ -117,7 +132,7 @@ async fn duplicate_id_frozen_discrepancy_is_explicitly_preserved() {
         .unwrap();
     assert!(result.status.success());
     assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&result.stdout).unwrap(),
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
         json!({"before":true,"after":true,"command":"get_state"})
     );
     // Same observable before/after predicate is asserted against Rust in the real-child test.
@@ -128,7 +143,11 @@ async fn child_signal_error_uses_node_signal_name() {
     let dir = tempfile::tempdir().unwrap();
     let mut command = tokio::process::Command::new("node");
     command.arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../oracle/orchestrator-rpc-fake.mjs"));
-    let rpc = RpcProcessInstance::spawn_command(&mut command, dir.path()).unwrap();
+    let rpc = RpcProcessInstance::spawn_command(
+        &mut command,
+        &JsString::from((dir.path()).to_str().expect("utf-8 test path")),
+    )
+    .unwrap();
     assert_eq!(
         rpc.send(json!({"type":"sigkill","id":"kill"})).await.unwrap_err(),
         "RPC process exited (code=null signal=SIGKILL). Stderr: "
@@ -140,9 +159,15 @@ async fn child_signal_error_uses_node_signal_name() {
 async fn native_sibling_pi_receives_rpc_mode_and_working_directory() {
     use std::os::unix::fs::PermissionsExt;
     if let Some(cwd) = std::env::var_os("ORCHESTRATOR_SIBLING_PROBE") {
-        let rpc = RpcProcessInstance::spawn(std::path::Path::new(&cwd)).unwrap();
+        let rpc = RpcProcessInstance::spawn(&JsString::from(
+            (std::path::Path::new(&cwd)).to_str().expect("utf-8 test path"),
+        ))
+        .unwrap();
         let response = rpc.send(json!({"type":"get_state","id":"probe"})).await.unwrap();
-        println!("SIBLING_PROBE={}", response["data"]);
+        println!(
+            "SIBLING_PROBE={}",
+            pi_js_compat::js_json::stringify_lossless(&response["data"])
+        );
         rpc.dispose().await.unwrap();
         return;
     }
@@ -171,7 +196,7 @@ async fn native_sibling_pi_receives_rpc_mode_and_working_directory() {
         .find_map(|line| line.strip_prefix("SIBLING_PROBE="))
         .unwrap();
     assert_eq!(
-        serde_json::from_str::<serde_json::Value>(result).unwrap(),
+        serde_json::from_str::<Value>(result).unwrap(),
         json!({"argv":["--mode","rpc"],"cwd":cwd})
     );
 }
@@ -198,10 +223,14 @@ async fn child_jsonl_eof_and_utf8_decoding_match_frozen_node_streams() {
             .await
             .unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        expected.push(serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap());
+        expected.push(serde_json::from_slice::<Value>(&output.stdout).unwrap());
         let mut command = tokio::process::Command::new("node");
         command.arg(&fake);
-        let rpc = RpcProcessInstance::spawn_command(&mut command, dir.path()).unwrap();
+        let rpc = RpcProcessInstance::spawn_command(
+            &mut command,
+            &JsString::from((dir.path()).to_str().expect("utf-8 test path")),
+        )
+        .unwrap();
         actual.push(match rpc.send(json!({"type":case,"id":"frame"})).await {
             Ok(response) => json!({"response":response}),
             Err(error) => json!({"error":error}),
@@ -233,11 +262,15 @@ async fn repeated_callback_identity_matches_frozen_set_subscriptions() {
         .await
         .unwrap();
     assert!(output.status.success());
-    let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let mut command = tokio::process::Command::new("node");
     command.arg(fake);
-    let rpc = RpcProcessInstance::spawn_command(&mut command, dir.path()).unwrap();
+    let rpc = RpcProcessInstance::spawn_command(
+        &mut command,
+        &JsString::from((dir.path()).to_str().expect("utf-8 test path")),
+    )
+    .unwrap();
     let events = Arc::new(AtomicUsize::new(0));
     let exits = Arc::new(AtomicUsize::new(0));
     let e = events.clone();

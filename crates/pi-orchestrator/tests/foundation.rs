@@ -1,30 +1,33 @@
+use pi_js_compat::{
+    js_json as json,
+    js_json::{JsString, encode_node_utf8},
+};
 use pi_orchestrator::{
     config::orchestrator_dir,
     ipc::protocol::{encode_message, parse_request_line},
     storage::Storage,
 };
-use serde_json::json;
 #[test]
 fn config_precedence_and_empty_overrides() {
     let mut env = std::collections::BTreeMap::new();
     assert_eq!(
-        orchestrator_dir(&env, "/home/test"),
-        std::path::Path::new("/home/test/.pi/orchestrator")
+        orchestrator_dir(&env, &JsString::from("/home/test")),
+        JsString::from("/home/test/.pi/orchestrator")
     );
     env.insert("PI_CONFIG_DIR".into(), "/private/pi".into());
     assert_eq!(
-        orchestrator_dir(&env, "/home/test"),
-        std::path::Path::new("/private/pi/orchestrator")
+        orchestrator_dir(&env, &JsString::from("/home/test")),
+        JsString::from("/private/pi/orchestrator")
     );
     env.insert("PI_ORCHESTRATOR_DIR".into(), "/private/orch".into());
     assert_eq!(
-        orchestrator_dir(&env, "/home/test"),
-        std::path::Path::new("/private/orch")
+        orchestrator_dir(&env, &JsString::from("/home/test")),
+        JsString::from("/private/orch")
     );
-    env.insert("PI_ORCHESTRATOR_DIR".into(), String::new());
+    env.insert("PI_ORCHESTRATOR_DIR".into(), JsString::from(String::new()));
     assert_eq!(
-        orchestrator_dir(&env, "/home/test"),
-        std::path::Path::new("/private/pi/orchestrator")
+        orchestrator_dir(&env, &JsString::from("/home/test")),
+        JsString::from("/private/pi/orchestrator")
     );
 }
 #[test]
@@ -38,15 +41,17 @@ fn protocol_uses_js_numbers_key_order_and_newline() {
         )
     );
     assert_eq!(
-        parse_request_line(r#"{"type":"list"}"#).unwrap(),
+        parse_request_line(&JsString::from(r#"{"type":"list"}"#)).unwrap(),
         json!({"type":"list"})
     );
-    assert!(parse_request_line("{").is_err());
+    assert!(parse_request_line(&JsString::from("{")).is_err());
 }
 #[test]
 fn storage_upsert_keeps_order_and_remove_preserves_other_records() {
     let d = tempfile::tempdir().unwrap();
-    let s = Storage(d.path().join("data"));
+    let s = Storage(JsString::from(
+        (d.path().join("data")).to_str().expect("utf-8 test path"),
+    ));
     assert!(s.load_instances().unwrap().is_empty());
     s.upsert_instance(json!({"id":"a","status":"online"})).unwrap();
     s.upsert_instance(json!({"id":"b","status":"starting"})).unwrap();
@@ -58,7 +63,7 @@ fn storage_upsert_keeps_order_and_remove_preserves_other_records() {
             json!({"id":"b","status":"starting"})
         ]
     );
-    s.remove_instance("a").unwrap();
+    s.remove_instance(&JsString::from("a")).unwrap();
     assert_eq!(s.load_instances().unwrap(), vec![json!({"id":"b","status":"starting"})]);
 }
 
@@ -66,23 +71,23 @@ fn storage_upsert_keeps_order_and_remove_preserves_other_records() {
 fn config_paths_normalize_joined_segments_but_not_explicit_directory() {
     let env = [("PI_CONFIG_DIR".into(), "/private/pi/../config//".into())].into();
     assert_eq!(
-        orchestrator_dir(&env, "/home/test"),
-        std::path::Path::new("/private/config/orchestrator")
+        orchestrator_dir(&env, &JsString::from("/home/test")),
+        JsString::from("/private/config/orchestrator")
     );
     let config = pi_orchestrator::config::Config {
         dir: "relative/../state//".into(),
     };
-    assert_eq!(config.socket_path(), std::path::Path::new("state/orchestrator.sock"));
+    assert_eq!(config.socket_path(), JsString::from("state/orchestrator.sock"));
 }
 
 #[test]
 fn storage_absent_delete_corrupt_json_unknown_fields_and_enum_wire_values() {
     let dir = tempfile::tempdir().unwrap();
-    let storage = Storage(dir.path().into());
+    let storage = Storage(JsString::from(dir.path().to_str().expect("utf-8 test path")));
     assert!(storage.load_machine().unwrap().is_none());
     storage.delete_machine().unwrap();
-    assert!(storage.get_instance("missing").unwrap().is_none());
-    storage.remove_instance("missing").unwrap();
+    assert!(storage.get_instance(&JsString::from("missing")).unwrap().is_none());
+    storage.remove_instance(&JsString::from("missing")).unwrap();
     assert_eq!(
         std::fs::read_to_string(dir.path().join("instances.json")).unwrap(),
         "[]"
@@ -99,18 +104,24 @@ fn storage_absent_delete_corrupt_json_unknown_fields_and_enum_wire_values() {
         (InstanceStatus::Stopped, "stopped"),
         (InstanceStatus::Error, "error"),
     ] {
-        assert_eq!(serde_json::to_value(status).unwrap(), text);
-        assert_eq!(serde_json::from_value::<InstanceStatus>(json!(text)).unwrap(), status);
+        assert_eq!(pi_js_compat::js_json::to_value(&status).unwrap(), json!(text));
+        assert_eq!(
+            pi_js_compat::js_json::from_value::<InstanceStatus>(&json!(text)).unwrap(),
+            status
+        );
     }
-    let machine: MachineRecord = serde_json::from_value(json!({"id":"m","createdAt":"t"})).unwrap();
+    let machine: MachineRecord = pi_js_compat::js_json::from_value(&json!({"id":"m","createdAt":"t"})).unwrap();
     assert_eq!(
-        serde_json::to_value(machine).unwrap(),
+        pi_js_compat::js_json::to_value(&machine).unwrap(),
         json!({"id":"m","createdAt":"t"})
     );
-    let instance:InstanceRecord=serde_json::from_value(json!({"id":"i","status":"online","cwd":"/tmp","createdAt":"t","label":"test","sessionId":"s","sessionFile":"f","radiusPiId":"r","lastSeenAt":"seen"})).unwrap();
-    assert_eq!(serde_json::to_value(instance).unwrap()["radiusPiId"], "r");
+    let instance:InstanceRecord=pi_js_compat::js_json::from_value(&json!({"id":"i","status":"online","cwd":"/tmp","createdAt":"t","label":"test","sessionId":"s","sessionFile":"f","radiusPiId":"r","lastSeenAt":"seen"})).unwrap();
+    assert_eq!(
+        pi_js_compat::js_json::to_value(&instance).unwrap()["radiusPiId"],
+        json!("r")
+    );
     let registration: RadiusRegistration =
-        serde_json::from_value(json!({"heartbeatIntervalMs":1000,"expiresInMs":2000})).unwrap();
+        pi_js_compat::js_json::from_value(&json!({"heartbeatIntervalMs":1000,"expiresInMs":2000})).unwrap();
     assert_eq!(registration.heartbeat_interval_ms, 1000);
 }
 
@@ -119,7 +130,7 @@ fn config_no_home_matches_frozen_os_homedir() {
     if std::env::var_os("ORCHESTRATOR_HOME_PROBE").is_some() {
         println!(
             "HOME_PROBE={}",
-            pi_orchestrator::config::Config::from_environment().dir.display()
+            encode_node_utf8(&pi_orchestrator::config::Config::from_environment().dir)
         );
         return;
     }

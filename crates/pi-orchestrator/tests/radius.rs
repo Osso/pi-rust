@@ -1,5 +1,8 @@
+use pi_js_compat::{
+    js_json as json,
+    js_json::{JsString, JsValue as Value, encode_node_utf8},
+};
 use pi_orchestrator::radius::*;
-use serde_json::json;
 #[test]
 fn credentials_urls_and_bounded_jitter_match_frozen_semantics() {
     let mut env = std::collections::BTreeMap::new();
@@ -61,14 +64,14 @@ impl Fetch for Fake {
                 200
             };
             self.requests.lock().unwrap().push(request);
-            Ok(HttpResponse{status,status_text:"OK".into(),headers:vec![],body:Box::new(Body(Some(json!({"id":if pi{"pi-id"}else{"machine-id"},"heartbeatIntervalMs":self.interval.unwrap_or(1000000),"expiresInMs":2000000}).to_string().into_bytes())))})
+            Ok(HttpResponse{status,status_text:"OK".into(),headers:vec![],body:Box::new(Body(Some(pi_js_compat::js_json::stringify_lossless(&json!({"id":if pi{"pi-id"}else{"machine-id"},"heartbeatIntervalMs":self.interval.unwrap_or(1000000),"expiresInMs":2000000})).into_bytes())))})
         })
     }
 }
 #[tokio::test]
 async fn fake_http_registration_persistence_and_disconnect() {
     let dir = tempfile::tempdir().unwrap();
-    let storage = pi_orchestrator::storage::Storage(dir.path().into());
+    let storage = pi_orchestrator::storage::Storage(JsString::from(dir.path().to_str().expect("utf-8 test path")));
     let fake = Arc::new(Fake::default());
     let presence = RadiusPresence::new(
         storage.clone(),
@@ -85,13 +88,13 @@ async fn fake_http_registration_persistence_and_disconnect() {
         },
     );
     let machine = presence.start(Some("desk".into())).await.unwrap().unwrap();
-    assert_eq!(machine["id"], "machine-id");
+    assert_eq!(machine["id"], json!("machine-id"));
     assert_eq!(storage.load_machine().unwrap().unwrap(), machine);
     let instance = presence
         .register_pi(json!({"id":"local","cwd":"/tmp","sessionId":"session"}))
         .await
         .unwrap();
-    assert_eq!(instance["radiusPiId"], "pi-id");
+    assert_eq!(instance["radiusPiId"], json!("pi-id"));
     presence.disconnect_pi(&instance).await.unwrap();
     presence.stop().await.unwrap();
     let requests = fake.requests.lock().unwrap();
@@ -99,8 +102,8 @@ async fn fake_http_registration_persistence_and_disconnect() {
     assert!(requests[0].url.ends_with("/v1/machines/register"));
     assert!(requests[1].url.ends_with("/v1/pis/register"));
     assert_eq!(requests[0].headers[0], ("Authorization".into(), "Bearer key".into()));
-    let body: serde_json::Value = serde_json::from_slice(requests[1].body.as_ref().unwrap()).unwrap();
-    assert_eq!(body["machineId"], "machine-id");
+    let body: Value = serde_json::from_slice(requests[1].body.as_ref().unwrap()).unwrap();
+    assert_eq!(body["machineId"], json!("machine-id"));
     assert_eq!(body["capabilities"], json!({"rpc":true,"relay":false,"iroh":false}));
 }
 
@@ -121,11 +124,11 @@ async fn radius_registration_matches_frozen_fake_fetch() {
         .await
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
     let rustdir = tempfile::tempdir().unwrap();
     let fake = Arc::new(Fake::default());
     let presence = RadiusPresence::new(
-        pi_orchestrator::storage::Storage(rustdir.path().into()),
+        pi_orchestrator::storage::Storage(JsString::from(rustdir.path().to_str().expect("utf-8 test path"))),
         fake.clone(),
         RadiusOptions {
             env: Arc::new(|| [("PI_RADIUS_API_KEY".into(), "key".into())].into()),
@@ -151,9 +154,9 @@ async fn radius_registration_matches_frozen_fake_fetch() {
         .unwrap()
         .iter()
         .map(|r| {
-            let mut body: serde_json::Value = serde_json::from_slice(r.body.as_ref().unwrap()).unwrap();
+            let mut body: Value = serde_json::from_slice(r.body.as_ref().unwrap()).unwrap();
             for field in ["hostname", "platform", "arch", "pid"] {
-                body.as_object_mut().unwrap().remove(field);
+                body.as_object_mut().unwrap().shift_remove(&JsString::from(field));
             }
             json!({"url":r.url,"body":body,"headers":{"Authorization":"Bearer key","Content-Type":"application/json"}})
         })
@@ -164,15 +167,15 @@ async fn radius_registration_matches_frozen_fake_fetch() {
     );
 }
 
-struct Coordinator(Mutex<serde_json::Value>);
+struct Coordinator(Mutex<Value>);
 impl RadiusPresenceCoordinator for Coordinator {
-    fn get_live_instance(&self, _id: &str) -> Option<serde_json::Value> {
+    fn get_live_instance(&self, _id: &JsString) -> Option<Value> {
         Some(self.0.lock().unwrap().clone())
     }
-    fn list_live_instances(&self) -> Vec<serde_json::Value> {
+    fn list_live_instances(&self) -> Vec<Value> {
         vec![self.0.lock().unwrap().clone()]
     }
-    fn update_instance(&self, instance: serde_json::Value) -> Result<(), String> {
+    fn update_instance(&self, instance: Value) -> Result<(), JsString> {
         *self.0.lock().unwrap() = instance;
         Ok(())
     }
@@ -186,7 +189,7 @@ async fn three_machine_not_found_heartbeats_re_register_machine_and_live_pis() {
         interval: Some(10),
     });
     let presence = RadiusPresence::new(
-        pi_orchestrator::storage::Storage(dir.path().into()),
+        pi_orchestrator::storage::Storage(JsString::from(dir.path().to_str().expect("utf-8 test path"))),
         fake.clone(),
         RadiusOptions {
             env: Arc::new(|| [("PI_RADIUS_API_KEY".into(), "key".into())].into()),
@@ -233,8 +236,8 @@ async fn three_machine_not_found_heartbeats_re_register_machine_and_live_pis() {
 }
 
 struct ScriptedFetch {
-    sequence: Mutex<std::collections::VecDeque<(u16, serde_json::Value)>>,
-    requests: Mutex<Vec<serde_json::Value>>,
+    sequence: Mutex<std::collections::VecDeque<(u16, Value)>>,
+    requests: Mutex<Vec<Value>>,
 }
 impl Fetch for ScriptedFetch {
     fn fetch(
@@ -244,9 +247,9 @@ impl Fetch for ScriptedFetch {
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
             tokio::task::yield_now().await;
-            let mut body: serde_json::Value = serde_json::from_slice(request.body.as_ref().unwrap()).unwrap();
+            let mut body: Value = serde_json::from_slice(request.body.as_ref().unwrap()).unwrap();
             for key in ["hostname", "platform", "arch", "pid"] {
-                body.as_object_mut().unwrap().remove(key);
+                body.as_object_mut().unwrap().shift_remove(&JsString::from(key));
             }
             self.requests
                 .lock()
@@ -258,10 +261,10 @@ impl Fetch for ScriptedFetch {
                 .unwrap()
                 .pop_front()
                 .expect("unexpected extra HTTP request");
-            let bytes = if let Some(text) = data.as_str() {
-                text.as_bytes().to_vec()
+            let bytes = if let Some(text) = data.as_string() {
+                encode_node_utf8(text).into_bytes()
             } else {
-                data.to_string().into_bytes()
+                pi_js_compat::js_json::stringify_lossless(&data).into_bytes()
             };
             Ok(HttpResponse {
                 status,
@@ -291,7 +294,7 @@ async fn frozen_radius_machine_and_pi_retry_recovery_matrices() {
             .await
             .unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        let mut expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let mut expected: Value = serde_json::from_slice(&output.stdout).unwrap();
         let registration =
             |id: &str, interval: u64| json!({"id":id,"heartbeatIntervalMs":interval,"expiresInMs":interval*2});
         let sequence = if scenario == "machine" {
@@ -325,7 +328,9 @@ async fn frozen_radius_machine_and_pi_retry_recovery_matrices() {
             sequence: Mutex::new(sequence.into()),
             requests: Mutex::new(vec![]),
         });
-        let storage = pi_orchestrator::storage::Storage(dir.path().join("rust"));
+        let storage = pi_orchestrator::storage::Storage(JsString::from(
+            (dir.path().join("rust")).to_str().expect("utf-8 test path"),
+        ));
         let presence = RadiusPresence::new(
             storage,
             fake.clone(),
@@ -383,12 +388,12 @@ async fn frozen_radius_machine_and_pi_retry_recovery_matrices() {
         let mut actual_requests = fake.requests.lock().unwrap().clone();
         for requests in [&mut actual_requests, expected["requests"].as_array_mut().unwrap()] {
             for request in requests {
-                if request["url"].as_str().unwrap().contains("/machines/")
-                    && request["url"].as_str().unwrap().ends_with("/heartbeat")
+                if request["url"].as_string().unwrap().contains("/machines/")
+                    && request["url"].as_string().unwrap().ends_with("/heartbeat")
                 {
                     let body = request["body"].as_object_mut().unwrap();
-                    body.remove("cwd");
-                    body.remove("socketPath");
+                    body.shift_remove(&JsString::from("cwd"));
+                    body.shift_remove(&JsString::from("socketPath"));
                 }
             }
         }
@@ -404,7 +409,7 @@ async fn frozen_radius_machine_and_pi_retry_recovery_matrices() {
 #[tokio::test]
 async fn cached_machine_identity_does_not_read_replaced_disk_record() {
     let dir = tempfile::tempdir().unwrap();
-    let storage = pi_orchestrator::storage::Storage(dir.path().into());
+    let storage = pi_orchestrator::storage::Storage(JsString::from(dir.path().to_str().expect("utf-8 test path")));
     let fake = Arc::new(Fake::default());
     let presence = RadiusPresence::new(
         storage,
@@ -424,5 +429,5 @@ async fn cached_machine_identity_does_not_read_replaced_disk_record() {
     std::fs::write(dir.path().join("machine.json"), "{").unwrap();
     let result = presence.register_pi(json!({"id":"i","cwd":"/tmp"})).await;
     presence.stop().await.unwrap();
-    assert_eq!(result.unwrap()["radiusPiId"], "pi-id");
+    assert_eq!(result.unwrap()["radiusPiId"], json!("pi-id"));
 }

@@ -1,4 +1,5 @@
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
+use pi_js_compat::js_json::JsString;
 use pi_orchestrator::{
     radius::{RadiusOptions, RadiusPresence},
     storage::Storage,
@@ -55,7 +56,7 @@ async fn successful_disconnect_ignores_unreadable_body_like_frozen() {
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let expected = String::from_utf8(output.stdout).unwrap();
     let presence = RadiusPresence::new(
-        Storage(d.join("rust")),
+        Storage(JsString::from((d.join("rust")).to_str().expect("utf-8 test path"))),
         Arc::new(Fake),
         RadiusOptions {
             env: Arc::new(|| [("PI_RADIUS_API_KEY".into(), "key".into())].into()),
