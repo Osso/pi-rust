@@ -107,7 +107,7 @@ fn get_sorted_ids(enabled_ids: &EnabledIds, all_ids: &[JsString]) -> Vec<JsStrin
 #[derive(Clone)]
 struct ModelItem {
     full_id: JsString,
-    model: Option<Model>,
+    model: Model,
     enabled: bool,
 }
 
@@ -254,32 +254,21 @@ impl ScopedModelsSelectorComponent {
     fn build_items(&self) -> Vec<ModelItem> {
         get_sorted_ids(&self.enabled_ids, &self.all_ids)
             .into_iter()
-            .map(|id| ModelItem {
-                model: self.model_for(&id).cloned(),
-                enabled: is_enabled(&self.enabled_ids, &id),
-                full_id: id,
+            .filter_map(|id| {
+                self.model_for(&id).cloned().map(|model| ModelItem {
+                    model,
+                    enabled: is_enabled(&self.enabled_ids, &id),
+                    full_id: id,
+                })
             })
             .collect()
     }
 
     fn get_footer_text(&self) -> JsString {
-        let enabled_count = self.enabled_ids.as_ref().map_or(self.all_ids.len(), |ids| {
-            ids.iter().filter(|id| self.model_for(id).is_some()).count()
-        });
-        let unavailable_count = self
-            .enabled_ids
-            .as_ref()
-            .map_or(0, |ids| ids.iter().filter(|id| self.model_for(id).is_none()).count());
+        let enabled_count = self.enabled_ids.as_ref().map_or(self.all_ids.len(), Vec::len);
         let all_enabled = self.enabled_ids.is_none();
         let count_text = if all_enabled {
             JsString::from("all enabled")
-        } else if unavailable_count > 0 {
-            js_format!(
-                "{}/{} enabled · {} unavailable",
-                enabled_count,
-                self.all_ids.len(),
-                unavailable_count
-            )
         } else {
             js_format!("{}/{} enabled", enabled_count, self.all_ids.len())
         };
@@ -315,16 +304,12 @@ impl ScopedModelsSelectorComponent {
         self.filtered_items = if query.is_empty() {
             items
         } else {
-            fuzzy_filter(&items, &query, |item| match &item.model {
-                Some(model) => get_model_search_candidates(&ModelSearchItem {
-                    id: model.id.clone(),
-                    provider: model.provider.clone(),
-                    name: Some(model.name.clone()),
+            fuzzy_filter(&items, &query, |item| {
+                get_model_search_candidates(&ModelSearchItem {
+                    id: item.model.id.clone(),
+                    provider: item.model.provider.clone(),
+                    name: Some(item.model.name.clone()),
                 })
-                .into_iter()
-                .map(JsString::from)
-                .collect(),
-                None => vec![item.full_id.clone()],
             })
         };
         self.selected_index = self.selected_index.min(self.filtered_items.len().saturating_sub(1));
@@ -364,25 +349,20 @@ impl ScopedModelsSelectorComponent {
             } else {
                 JsString::from("  ")
             };
-            let id = item
-                .model
-                .as_ref()
-                .map_or(item.full_id.clone(), |model| JsString::from(&model.id));
+            let id = JsString::from(&item.model.id);
             let model_text = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, &id))
             } else {
                 id
             };
-            let badge_text = match &item.model {
-                Some(model) => js_format!(" [{}]", model.provider),
-                None => JsString::from(" [unavailable]"),
-            };
+            let badge_text = js_format!(" [{}]", item.model.provider);
             let provider_badge = with_theme(|theme| theme.fg(ThemeColor::Muted, &badge_text));
-            let status = match &item.model {
-                None => with_theme(|theme| theme.fg(ThemeColor::Dim, " ✗")),
-                Some(_) if all_enabled => JsString::default(),
-                Some(_) if item.enabled => with_theme(|theme| theme.fg(ThemeColor::Success, " ✓")),
-                Some(_) => with_theme(|theme| theme.fg(ThemeColor::Dim, " ✗")),
+            let status = if all_enabled {
+                JsString::default()
+            } else if item.enabled {
+                with_theme(|theme| theme.fg(ThemeColor::Success, " ✓"))
+            } else {
+                with_theme(|theme| theme.fg(ThemeColor::Dim, " ✗"))
             };
             self.list_container.add_child(component(Text::new(
                 js_format!("{}{}{}{}", prefix, model_text, provider_badge, status),
@@ -406,10 +386,7 @@ impl ScopedModelsSelectorComponent {
 
         if !self.filtered_items.is_empty() {
             let selected = &self.filtered_items[self.selected_index];
-            let description = match &selected.model {
-                Some(model) => js_format!("  Model Name: {}", model.name),
-                None => JsString::from("  Model unavailable"),
-            };
+            let description = js_format!("  Model Name: {}", selected.model.name);
             self.list_container.add_child(component(Spacer::new(1)));
             self.list_container.add_child(component(Text::new(
                 with_theme(|theme| theme.fg(ThemeColor::Muted, &description)),
@@ -497,10 +474,7 @@ impl ScopedModelsSelectorComponent {
         let Some(item) = self.filtered_items.get(self.selected_index) else {
             return;
         };
-        let Some(model) = &item.model else {
-            return;
-        };
-        let provider = model.provider.clone();
+        let provider = item.model.provider.clone();
         let provider_ids: Vec<JsString> = self
             .all_ids
             .iter()
