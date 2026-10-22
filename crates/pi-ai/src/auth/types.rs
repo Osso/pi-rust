@@ -301,7 +301,7 @@ pub struct AuthInfoLink {
     pub label: Option<JsString>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthEvent {
     Info {
@@ -335,6 +335,52 @@ pub enum AuthEvent {
     Progress {
         message: JsString,
     },
+}
+
+impl<'de> Deserialize<'de> for AuthEvent {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        let field = |name: &str| -> Result<JsString, D::Error> {
+            value
+                .get(name)
+                .and_then(JsValue::as_string)
+                .cloned()
+                .ok_or_else(|| D::Error::custom(format!("Missing auth event string: {name}")))
+        };
+        let optional = |name: &str| value.get(name).and_then(JsValue::as_string).cloned();
+        let tag = field("type")?;
+        if tag == "info" {
+            let links = value
+                .get("links")
+                .map(pi_js_compat::js_json::from_value)
+                .transpose()
+                .map_err(D::Error::custom)?;
+            return Ok(Self::Info {
+                message: field("message")?,
+                links,
+            });
+        }
+        if tag == "auth_url" {
+            return Ok(Self::AuthUrl {
+                url: field("url")?,
+                instructions: optional("instructions"),
+            });
+        }
+        if tag == "progress" {
+            return Ok(Self::Progress {
+                message: field("message")?,
+            });
+        }
+        if tag == "device_code" {
+            return Ok(Self::DeviceCode {
+                user_code: field("userCode")?,
+                verification_uri: field("verificationUri")?,
+                interval_seconds: value.get("intervalSeconds").and_then(JsValue::as_f64),
+                expires_in_seconds: value.get("expiresInSeconds").and_then(JsValue::as_f64),
+            });
+        }
+        Err(D::Error::custom("unknown auth event type"))
+    }
 }
 
 /// Login interaction callbacks serving both api-key and OAuth flows.

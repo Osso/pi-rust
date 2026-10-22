@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/auth/oauth/radius.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
@@ -35,12 +36,12 @@ const OAUTH_DEVICE_CODE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:dev
 
 pub struct RadiusOAuthOptions {
     pub name: String,
-    pub gateway: String,
+    pub gateway: JsString,
 }
 
 pub struct RadiusOAuth {
     name: String,
-    gateway: String,
+    gateway: JsString,
     runtime: OAuthRuntime,
 }
 
@@ -166,11 +167,15 @@ fn read_oauth_response_error(response: &OAuthHttpResponse, message: &str) -> OAu
 
 async fn request_oauth_token(
     runtime: &OAuthRuntime,
-    gateway: &str,
+    gateway: &JsString,
     pairs: &[(&str, &str)],
     signal: CancellationToken,
 ) -> Result<OAuthCredential, RadiusRequestError> {
-    let request = form_request(&format!("{gateway}/v1/oauth/token"), form_encode(pairs), true);
+    let request = form_request(
+        &crate::request::request_url(&js_format!("{}/v1/oauth/token", gateway)).map_err(RadiusRequestError::Other)?,
+        form_encode(pairs),
+        true,
+    );
     let response = send(&runtime.fetch, request, Some(signal.clone()))
         .await
         .map_err(|error| {
@@ -210,12 +215,12 @@ async fn request_oauth_token(
 
 async fn load_discovery(
     runtime: &OAuthRuntime,
-    gateway: &str,
+    gateway: &JsString,
     signal: CancellationToken,
 ) -> Result<String, CallbackError> {
     let request = crate::request::HttpRequest {
         method: "GET".to_owned(),
-        url: format!("{gateway}/v1/oauth"),
+        url: crate::request::request_url(&js_format!("{}/v1/oauth", gateway))?,
         headers: vec![("accept".to_owned(), "application/json".to_owned())],
         body: None,
     };
@@ -231,7 +236,7 @@ async fn load_discovery(
         .get("authorizationEndpoint")
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .ok_or_else(|| CallbackError::new(format!("Invalid Radius OAuth config from {gateway}")))
+        .ok_or_else(|| CallbackError::new(js_format!("Invalid Radius OAuth config from {}", gateway)))
 }
 
 struct CallbackCodeServer {
@@ -294,7 +299,7 @@ async fn start_callback(expected_state: String, _signal: CancellationToken) -> C
 
 async fn login_with_browser(
     runtime: &OAuthRuntime,
-    gateway: &str,
+    gateway: &JsString,
     authorization_endpoint: &str,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
@@ -378,11 +383,11 @@ struct DeviceAuthorization {
 
 async fn request_device_authorization(
     runtime: &OAuthRuntime,
-    gateway: &str,
+    gateway: &JsString,
     signal: CancellationToken,
 ) -> Result<DeviceAuthorization, CallbackError> {
     let request = form_request(
-        &format!("{gateway}/v1/oauth/device"),
+        &crate::request::request_url(&js_format!("{}/v1/oauth/device", gateway))?,
         form_encode(&[("client_id", OAUTH_CLIENT_ID), ("scope", OAUTH_SCOPE)]),
         true,
     );
@@ -426,7 +431,7 @@ async fn request_device_authorization(
 
 async fn login_with_device_code(
     runtime: &OAuthRuntime,
-    gateway: &str,
+    gateway: &JsString,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
     let device = request_device_authorization(runtime, gateway, interaction.signal())
@@ -493,7 +498,7 @@ async fn login_with_device_code(
 async fn login_radius(
     runtime: &OAuthRuntime,
     name: &str,
-    gateway: &str,
+    gateway: &JsString,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
     let method = interaction
