@@ -331,12 +331,14 @@ impl NodeExecutionEnv {
         cwd: &JsString,
         options: &ShellExecOptions,
     ) -> Result<tokio::process::Child, ExecutionError> {
+        let environment = build_env(&self.shell_env, options.env.as_ref());
+        validate_spawn_arguments(command, cwd, &environment)?;
         let mut process = Command::new(encode_node_utf8(&shell.shell));
         process.args(&shell.args).arg(encode_node_utf8(command));
         process.current_dir(encode_node_utf8(cwd));
         process.env_clear();
         process.envs(
-            build_env(&self.shell_env, options.env.as_ref())
+            environment
                 .into_iter()
                 .filter_map(|(key, value)| value.map(|value| (key, encode_node_utf8(&value)))),
         );
@@ -701,7 +703,48 @@ fn build_env(
     if let Some(extra_env) = extra_env {
         environment.extend(extra_env.iter().map(|(key, value)| (key.clone(), Some(value.clone()))));
     }
-    environment
+    let names = environment
+        .keys()
+        .map(|key| (key.clone(), serde_json::Value::Null))
+        .collect();
+    pi_js_compat::js_json::object_entries(&names)
+        .into_iter()
+        .map(|(key, _)| {
+            (
+                key.clone(),
+                environment.get(key).expect("enumerated environment key").clone(),
+            )
+        })
+        .collect()
+}
+
+fn validate_spawn_arguments(
+    command: &JsString,
+    cwd: &JsString,
+    env: &IndexMap<String, Option<JsString>>,
+) -> Result<(), ExecutionError> {
+    validate_spawn_string("args[1]", "must be a string without null bytes", command)?;
+    validate_spawn_string(
+        "options.cwd",
+        "must be a string, Uint8Array, or URL without null bytes",
+        cwd,
+    )?;
+    for (key, value) in env {
+        if let Some(value) = value {
+            let name = format!("options.env['{key}']");
+            validate_spawn_string(&name, "must be a string without null bytes", &key.as_str().into())?;
+            validate_spawn_string(&name, "must be a string without null bytes", value)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_spawn_string(name: &str, reason: &str, value: &JsString) -> Result<(), ExecutionError> {
+    if value.contains('\0') {
+        let message = pi_js_compat::node_fs::invalid_argument_value_message(name, reason, value);
+        return Err(ExecutionError::new(ExecutionErrorCode::SpawnError, message, None));
+    }
+    Ok(())
 }
 
 struct ShellConfig {

@@ -14,7 +14,7 @@ async function main(): Promise<void> {
 		controller.abort();
 		let result: unknown;
 		if (input.kind === "shell-boundary") {
-			result = await env.exec(input.command, { env: input.extraEnv });
+			result = await env.exec(input.command, { env: input.extraEnv, cwd: input.cwd });
 		} else if (input.kind === "temp") {
 			const file = await env.createTempFile({ prefix: "pre", suffix: ".end" });
 			if (!file.ok) throw file.error;
