@@ -49,7 +49,7 @@ fn response() -> Value {
         .map(|(index, cwd)| {
             json!({
                 "name": format!("case {index}"),
-                "value": format_terminal_current_directory_sequence(cwd),
+                "value": format_terminal_current_directory_sequence(&(*cwd).into()).unwrap().to_utf8().unwrap(),
             })
         })
         .collect::<Vec<_>>();
