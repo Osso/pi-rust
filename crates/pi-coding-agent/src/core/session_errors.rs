@@ -1,11 +1,12 @@
 //! Session import errors (`core/session-errors.ts`).
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::fmt;
 
 /// Raised when `/import` references a JSONL file path that does not exist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionImportFileNotFoundError {
-    pub file_path: String,
+    pub file_path: JsString,
 }
 
 impl SessionImportFileNotFoundError {
@@ -15,16 +16,20 @@ impl SessionImportFileNotFoundError {
     /// this error type.
     pub const MESSAGE_PREFIX: &'static str = "File not found: ";
 
-    pub fn new(file_path: impl Into<String>) -> Self {
+    pub fn new(file_path: impl Into<JsString>) -> Self {
         Self {
             file_path: file_path.into(),
         }
+    }
+
+    pub fn message(&self) -> JsString {
+        JsString::from(Self::MESSAGE_PREFIX) + &self.file_path
     }
 }
 
 impl fmt::Display for SessionImportFileNotFoundError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}{}", Self::MESSAGE_PREFIX, self.file_path)
+        formatter.write_str(&encode_node_utf8(&self.message()))
     }
 }
 

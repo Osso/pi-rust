@@ -130,7 +130,7 @@ pub type SessionSetupCallback =
     Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type WithSessionCallback =
     Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
-pub type RelocateCallback = Arc<dyn Fn(&str) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+pub type RelocateCallback = Arc<dyn Fn(&JsString) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type ActivateToolResultRelocationHandler =
     Arc<dyn Fn() -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type NewSessionCallback = Arc<
@@ -1663,7 +1663,7 @@ pub struct SessionInfoChangedEvent {
 pub struct SessionBeforeSwitchEvent {
     pub reason: SessionSwitchReason,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub target_session_file: Option<String>,
+    pub target_session_file: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1676,7 +1676,7 @@ pub enum SessionSwitchReason {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionBeforeForkEvent {
-    pub entry_id: String,
+    pub entry_id: JsString,
     pub position: ForkPosition,
 }
 
@@ -1750,7 +1750,7 @@ pub enum SessionShutdownReason {
 pub struct SessionShutdownEvent {
     pub reason: SessionShutdownReason,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub target_session_file: Option<String>,
+    pub target_session_file: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

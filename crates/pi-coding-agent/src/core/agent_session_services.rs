@@ -1,6 +1,7 @@
 //! Port of `packages/coding-agent/src/core/agent-session-services.ts`.
 
-use std::path::Path;
+use crate::utils::paths::node_join;
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
@@ -24,13 +25,13 @@ use crate::utils::paths::{PathInputOptions, process_cwd, resolve_path};
 pub struct AgentSessionRuntimeDiagnostic {
     #[serde(rename = "type")]
     pub diagnostic_type: String,
-    pub message: String,
+    pub message: JsString,
 }
 
 /// Inputs for creating cwd-bound runtime services.
 pub struct CreateAgentSessionServicesOptions {
-    pub cwd: String,
-    pub agent_dir: Option<String>,
+    pub cwd: JsString,
+    pub agent_dir: Option<JsString>,
     pub settings_manager: Option<SettingsManager>,
     pub model_runtime: Option<ModelRuntime>,
     pub model_runtime_signal: Option<CancellationToken>,
@@ -67,8 +68,8 @@ pub struct CreateAgentSessionFromServicesOptions {
 /// Coherent cwd-bound runtime services for one effective session cwd.
 #[derive(Clone)]
 pub struct AgentSessionServices {
-    pub cwd: String,
-    pub agent_dir: String,
+    pub cwd: JsString,
+    pub agent_dir: JsString,
     pub model_runtime: ModelRuntime,
     pub settings_manager: Arc<Mutex<SettingsManager>>,
     pub resource_loader: Arc<dyn ResourceLoader>,
@@ -77,10 +78,10 @@ pub struct AgentSessionServices {
 
 fn build_resource_loader(
     options: CreateAgentSessionServicesOptions,
-    cwd: &str,
-    agent_dir: &str,
+    cwd: &JsString,
+    agent_dir: &JsString,
     settings_manager: &Arc<Mutex<SettingsManager>>,
-) -> Result<Arc<dyn ResourceLoader>, String> {
+) -> Result<Arc<dyn ResourceLoader>, JsString> {
     if let Some(loader) = options.resource_loader {
         return Ok(loader);
     }
@@ -88,7 +89,7 @@ fn build_resource_loader(
     loader_options.cwd = cwd.to_owned();
     loader_options.agent_dir = agent_dir.to_owned();
     loader_options.settings_manager = Some(Arc::clone(settings_manager));
-    let loader = DefaultResourceLoader::new(loader_options).map_err(|error| error.to_string())?;
+    let loader = DefaultResourceLoader::new(loader_options).map_err(|error| error.message().clone())?;
     Ok(Arc::new(loader))
 }
 
@@ -127,7 +128,7 @@ fn apply_extension_flag_values(
                 }
                 UnknownFlagValue::Boolean(_) => diagnostics.push(AgentSessionRuntimeDiagnostic {
                     diagnostic_type: "error".to_owned(),
-                    message: format!("Extension flag \"--{name}\" requires a value"),
+                    message: format!("Extension flag \"--{name}\" requires a value").into(),
                 }),
             },
         }
@@ -144,7 +145,8 @@ fn apply_extension_flag_values(
                     .map(|name| format!("--{name}"))
                     .collect::<Vec<_>>()
                     .join(", ")
-            ),
+            )
+            .into(),
         });
     }
     diagnostics
@@ -160,7 +162,8 @@ fn register_pending_providers(
         if let Err(error) = model_runtime.register_provider(&registration.name, registration.config) {
             diagnostics.push(AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "error".to_owned(),
-                message: format!("Extension \"{}\" error: {error}", registration.extension_path),
+                message: JsString::from(format!("Extension \"{}\" error: ", registration.extension_path))
+                    + error.message(),
             });
         }
     }
@@ -171,35 +174,48 @@ fn register_pending_providers(
 /// Creates cwd-bound runtime services.
 pub async fn create_agent_session_services(
     mut options: CreateAgentSessionServicesOptions,
-) -> Result<AgentSessionServices, String> {
-    let cwd =
-        resolve_path(&options.cwd, &process_cwd(), &PathInputOptions::default()).map_err(|error| error.to_string())?;
+) -> Result<AgentSessionServices, JsString> {
+    let cwd = resolve_path(
+        &options.cwd,
+        &process_cwd().map_err(|error| error.message().clone())?,
+        &PathInputOptions::default(),
+    )
+    .map_err(|error| error.message().clone())?;
     let agent_dir = options
         .agent_dir
         .as_ref()
-        .map(|dir| resolve_path(dir, &process_cwd(), &PathInputOptions::default()).map_err(|error| error.to_string()))
+        .map(|dir| {
+            resolve_path(
+                dir,
+                &process_cwd().map_err(|error| error.message().clone())?,
+                &PathInputOptions::default(),
+            )
+            .map_err(|error| error.message().clone())
+        })
         .transpose()?
-        .unwrap_or_else(|| get_agent_dir().display().to_string());
+        .unwrap_or_else(|| get_agent_dir().display().to_string().into());
     let model_runtime = match options.model_runtime.clone() {
         Some(runtime) => runtime,
         None => ModelRuntime::create(CreateModelRuntimeOptions {
-            auth_path: Some(Path::new(&agent_dir).join("auth.json").display().to_string()),
-            models_path: Some(Some(Path::new(&agent_dir).join("models.json").display().to_string())),
+            auth_path: Some(node_join(&agent_dir, "auth.json")),
+            models_path: Some(Some(node_join(&agent_dir, "models.json"))),
             signal: options.model_runtime_signal.clone(),
             ..Default::default()
         })
         .await
-        .map_err(|error| error.to_string())?,
+        .map_err(|error| error.message().clone())?,
     };
     let settings_manager = options.settings_manager.take().unwrap_or_else(|| {
-        SettingsManager::create(&cwd, Some(Path::new(&agent_dir)), Default::default())
-            .expect("settings manager must initialize")
+        SettingsManager::create(&cwd, Some(&agent_dir), Default::default()).expect("settings manager must initialize")
     });
     let settings_manager = Arc::new(Mutex::new(settings_manager));
     let extension_flag_values = options.extension_flag_values.take();
     let reload_options = options.resource_loader_reload_options.take();
     let resource_loader = build_resource_loader(options, &cwd, &agent_dir, &settings_manager)?;
-    resource_loader.reload_with_options(reload_options).await?;
+    resource_loader
+        .reload_with_options(reload_options)
+        .await
+        .map_err(JsString::from)?;
 
     let mut diagnostics = register_pending_providers(&model_runtime, &resource_loader);
     diagnostics.extend(apply_extension_flag_values(
@@ -220,7 +236,7 @@ pub async fn create_agent_session_services(
 /// Creates an AgentSession from previously created services.
 pub async fn create_agent_session_from_services(
     options: CreateAgentSessionFromServicesOptions,
-) -> Result<CreateAgentSessionResult, String> {
+) -> Result<CreateAgentSessionResult, JsString> {
     let services = options.services;
     create_agent_session(CreateAgentSessionOptions {
         cwd: Some(services.cwd),
