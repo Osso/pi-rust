@@ -12,7 +12,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use pi_ai::OAuthDeviceCodeInfo;
-use pi_ai::auth::types::AuthInfoLink;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
@@ -302,44 +301,19 @@ impl LoginDialogComponent {
         self.begin_prompt()
     }
 
-    /// Show informational text before another login step.
-    pub fn show_details(&self, lines: &[JsString]) {
+    /// Show informational lines without prompting for input.
+    pub fn show_info(&self, lines: &[JsString]) {
         self.clear_content();
         self.add_content(component(Spacer::new(1)));
         for line in lines {
             self.add_content(component(Text::new(line.clone(), 1, 0)));
         }
-        self.core.borrow().request_render();
-    }
-
-    /// Show provider-owned information and links.
-    pub fn show_info(&self, message: &JsString, links: &[AuthInfoLink], show_close_hint: bool) {
         self.add_content(component(Spacer::new(1)));
         self.add_content(component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Text, message)),
+            js_format!("({})", key_hint("tui.select.cancel", "to close")),
             1,
             0,
         )));
-        for link in links {
-            let text = match &link.label {
-                Some(label) => js_format!("{}: {}", label, &link.url),
-                None => link.url.clone(),
-            };
-            let hyperlink = js_format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", &link.url, text);
-            self.add_content(component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Accent, &hyperlink)),
-                1,
-                0,
-            )));
-        }
-        if show_close_hint {
-            self.add_content(component(Spacer::new(1)));
-            self.add_content(component(Text::new(
-                js_format!("({})", key_hint("tui.select.cancel", "to close")),
-                1,
-                0,
-            )));
-        }
         self.core.borrow().request_render();
     }
 
