@@ -14,4 +14,10 @@ Frozen `packages/coding-agent/src/core/tools/ask-questions.ts` at `4f9e6f8a4`; n
 | notification helpers | notify_ask_questions_waiting / close_ask_questions_notification | retained system notifier API; error-return trait mismatch remains (cannot model throwing custom notifier) |
 | renderCall/renderResult; answers stay on call row | call_text / render_call / render_result | implementation present; render differential refresh pending |
 
+## Q18 native queue/render checkpoint
+
+Question queue results/errors, captured DB/session paths, queued request/message IDs, notification bodies and rendered call rows retain `JsString`. The provider tool-call ID is widened once into the queued native request. Native UI/custom errors pass through one channel carrier; only stderr reporting encodes text. Question/answer text is never encoded before theme rendering.
+
+`raw_queue_tests::queued_answer_body_keeps_raw_request_question_and_answer_units` covers the pure queued-answer formatter. It and the current panel/tool integration suites remain unexecuted pending coding-library compilation. Earlier proofs below do not establish acceptance of this checkpoint.
+
 Real panel results and initial/post-key text layouts match frozen in eight keystroke scenarios, including inherited `__proto__` string assignment producing no own answer. Notification/error and tool renderer proof gaps remain; no whole-module completion claim. [Tabbed panel](ask-questions-panel.md), [relay](question-relay-tools.md), [contract](../../specs/ask-questions.md).

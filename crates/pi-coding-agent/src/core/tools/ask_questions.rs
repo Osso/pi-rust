@@ -19,6 +19,7 @@ use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
@@ -168,11 +169,35 @@ struct PanelResult {
     answers: Value,
     cancelled: bool,
 }
+#[cfg(test)]
+mod raw_queue_tests {
+    use super::*;
+
+    #[test]
+    fn queued_answer_body_keeps_raw_request_question_and_answer_units() {
+        let raw = JsString::from_utf16(vec![0xd800]);
+        let request = JsString::from("request-") + &raw;
+        let result = PanelResult {
+            answers: pi_js_compat::js_json::parse_lossless(r#"{"question-\ud800":"answer-\udfff"}"#).unwrap(),
+            cancelled: false,
+        };
+        assert_eq!(
+            format_queued_result(&request, &result),
+            JsString::from("User answered questions (request ")
+                + &request
+                + "):\n- question-"
+                + raw
+                + " → answer-"
+                + JsString::from_utf16(vec![0xdfff])
+        );
+    }
+}
+
 struct QuestionJob {
     // A pending panel owns its serialization boundary even if its caller is aborted.
     _queue: Arc<QuestionQueue>,
     questions: Vec<Question>,
-    result: oneshot::Sender<Result<PanelResult, String>>,
+    result: oneshot::Sender<Result<PanelResult, JsString>>,
 }
 struct QuestionQueue {
     sender: mpsc::UnboundedSender<QuestionJob>,
@@ -181,7 +206,7 @@ type Queues = Mutex<HashMap<usize, Weak<QuestionQueue>>>;
 fn queue_questions(
     ui: Arc<dyn ExtensionUiContext>,
     questions: Vec<Question>,
-) -> (Arc<QuestionQueue>, oneshot::Receiver<Result<PanelResult, String>>) {
+) -> (Arc<QuestionQueue>, oneshot::Receiver<Result<PanelResult, JsString>>) {
     static QUEUES: OnceLock<Queues> = OnceLock::new();
     let mut queues = QUEUES.get_or_init(Mutex::default).lock().expect("question queues");
     queues.retain(|_, queue| queue.strong_count() > 0);
@@ -203,7 +228,7 @@ fn queue_questions(
                     .await
                     .and_then(|value| {
                         pi_js_compat::js_json::from_value(&value.unwrap_or(Value::Null))
-                            .map_err(|error| error.to_string())
+                            .map_err(|error| JsString::from(error.to_string()))
                     });
                 close_ask_questions_notification(notification);
                 let _ = job.result.send(result);
@@ -226,8 +251,8 @@ fn queue_questions(
 }
 #[derive(Clone)]
 struct InboxTarget {
-    db: String,
-    path: String,
+    db: JsString,
+    path: JsString,
     recipient: RuntimeMailboxAddress,
 }
 fn capture_inbox(context: &ExtensionContext) -> Result<InboxTarget, ToolError> {
@@ -250,38 +275,39 @@ fn capture_inbox(context: &ExtensionContext) -> Result<InboxTarget, ToolError> {
             session_id: manager.get_session_id().into(),
             agent_id: context
                 .multi_agent_agent_id()
-                .map_err(|error| ToolError::new(error.message))?
-                .map(JsString::from),
+                .map_err(|error| ToolError::new(error.message))?,
         },
     })
 }
+fn format_queued_result(request: &JsString, result: &PanelResult) -> JsString {
+    let title = if result.cancelled {
+        js_format!("Questions cancelled (request {})", request)
+    } else {
+        js_format!("User answered questions (request {}):", request)
+    };
+    title + "\n" + format_answers(&result.answers)
+}
+
 async fn deliver_queued(
     ui: Arc<dyn ExtensionUiContext>,
     target: InboxTarget,
-    request: String,
-    pending: oneshot::Receiver<Result<PanelResult, String>>,
+    request: JsString,
+    pending: oneshot::Receiver<Result<PanelResult, JsString>>,
     _queue: Arc<QuestionQueue>,
 ) {
     let body = match pending
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| JsString::from(error.to_string()))
         .and_then(|result| result)
     {
-        Ok(result) => {
-            let title = if result.cancelled {
-                format!("Questions cancelled (request {request})")
-            } else {
-                format!("User answered questions (request {request}):")
-            };
-            JsString::from(title) + "\n" + format_answers(&result.answers)
-        }
+        Ok(result) => format_queued_result(&request, &result),
         Err(error) => {
-            let body = JsString::from(format!("Questions failed (request {request}): {error}"));
+            let body = js_format!("Questions failed (request {}): {}", request, error);
             ui.notify(&body, Some(NotifyType::Error));
             body.into()
         }
     };
-    let message_id = format!("ask_questions:{request}");
+    let message_id = js_format!("ask_questions:{}", request);
     let input = EnqueueStoredRuntimeMailboxMessageInput {
         recipient_host: None,
         recipient: target.recipient.clone(),
@@ -298,9 +324,13 @@ async fn deliver_queued(
         message: json!({"body":body,"id":message_id,"kind":"reply","status":"pending","fromAgentId":"main","toAgentId":target.recipient.agent_id.as_ref().cloned().unwrap_or_else(|| "main".into())}),
     };
     if let Err(error) = enqueue_stored_runtime_mailbox_message(&target.db, &input) {
-        let message = format!("Failed to deliver question answer (request {request}): {error}");
-        eprintln!("{message}");
-        ui.notify(&message.into(), Some(NotifyType::Error));
+        let message = js_format!(
+            "Failed to deliver question answer (request {}): {}",
+            request,
+            error.message()
+        );
+        eprintln!("{}", encode_node_utf8(&message));
+        ui.notify(&message, Some(NotifyType::Error));
     }
 }
 #[derive(Debug, Default, Clone, Copy)]
@@ -360,7 +390,7 @@ impl AgentHarnessTool<ExtensionContext> for AskQuestionsTool {
             };
             let (queue, pending) = queue_questions(ui.clone(), parsed.questions);
             if let Some(target) = target {
-                tokio::spawn(deliver_queued(ui, target, tool_call_id.clone(), pending, queue));
+                tokio::spawn(deliver_queued(ui, target, tool_call_id.clone().into(), pending, queue));
                 let mut result = question_result(
                     &params,
                     format!(
@@ -399,13 +429,13 @@ pub fn notify_ask_questions_waiting(
     question_count: usize,
 ) -> Option<Box<dyn DesktopNotificationHandle>> {
     notifier.notify(&DesktopNotification {
-        title: "Pi question needs input".to_owned(),
+        title: "Pi question needs input".into(),
         body: if question_count == 1 {
             "Pi is waiting for your answer."
         } else {
             "Pi is waiting for your answers."
         }
-        .to_owned(),
+        .into(),
         expire_time_ms: Some(PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS),
         urgency: Some(DesktopNotificationUrgency::Normal),
     })
@@ -415,21 +445,21 @@ pub fn close_ask_questions_notification(notification: Option<Box<dyn DesktopNoti
         notification.close();
     }
 }
-fn call_text(args: &JsValue, details: &Value, theme: &Theme) -> String {
+fn call_text(args: &JsValue, details: &Value, theme: &Theme) -> JsString {
     let questions = args["questions"].as_array().map(Vec::as_slice).unwrap_or_default();
     let label = if questions.len() == 1 {
-        "1 question".to_owned()
+        JsString::from("1 question")
     } else {
-        format!("{} questions", questions.len())
+        js_format!("{} questions", questions.len())
     };
-    let mut lines = vec![format!(
+    let mut lines = vec![js_format!(
         "{} {}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("ask_questions")),
         theme.fg(ThemeColor::Accent, &label)
     )];
     for question in questions {
         let question = question["question"].as_string().cloned().unwrap_or_default();
-        let mut line = format!("  {}", theme.fg(ThemeColor::ToolOutput, &encode_node_utf8(&question)));
+        let mut line = js_format!("  {}", theme.fg(ThemeColor::ToolOutput, &question));
         if !details.is_null() {
             let suffix = if details["queued"].as_bool() == Some(true) {
                 theme.fg(ThemeColor::Warning, "→ (queued)")
@@ -439,19 +469,19 @@ fn call_text(args: &JsValue, details: &Value, theme: &Theme) -> String {
                 .and_then(Value::as_string)
             {
                 let answer = if answer.is_empty() {
-                    "(no selection)".to_owned()
+                    JsString::from("(no selection)")
                 } else {
-                    encode_node_utf8(answer)
+                    answer.clone()
                 };
-                theme.fg(ThemeColor::Accent, &format!("→ {answer}"))
+                theme.fg(ThemeColor::Accent, &js_format!("→ {}", answer))
             } else {
                 theme.fg(ThemeColor::Warning, "→ (cancelled)")
             };
-            line.push_str(&format!(" {suffix}"));
+            line.push_str(js_format!(" {}", suffix));
         }
         lines.push(line);
     }
-    lines.join("\n")
+    JsString::join(&lines, "\n")
 }
 pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     super::render_text_component(context, call_text(args, &context.state.get()["details"], theme))
@@ -473,7 +503,7 @@ pub fn render_result(
     {
         text.set_text(call_text(&context.args, &context.state.get()["details"], theme));
     }
-    super::render_text_component(context, String::new())
+    super::render_text_component(context, JsString::default())
 }
 pub fn create_ask_questions_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(AskQuestionsTool::new()));
