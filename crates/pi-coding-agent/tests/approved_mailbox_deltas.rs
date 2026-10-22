@@ -10,7 +10,7 @@ fn input(id: &str) -> EnqueueStoredRuntimeMailboxMessageInput {
         "recipient":{"sessionId":"recipient"},"sender":{"sessionId":"sender"},
         "kind":"message","storeRef":{"sessionPath":"/fixture/sender.jsonl","messageId":id},
         "message":{"id":id,"body":"hello","kind":"message","status":"pending",
-            "fromAgentId":"main","toAgentId":"main","createdAt":"2026-10-21T00:00:00.000Z"}
+            "fromAgentId":"main","toAgentId":"main","createdAt":pi_coding_agent::utils::iso_time::now_iso_string()}
     }))
     .unwrap()
 }
@@ -106,7 +106,7 @@ fn source_retry(delta: bool, host: &str) -> Value {
     assert_eq!(response["output"][1]["ok"], json!(true), "{response:?}");
     if delta && host.is_empty() {
         assert_eq!(
-            enqueue_runtime_mailbox_message(db.to_str().unwrap(), &retry).unwrap(),
+            enqueue_runtime_mailbox_message(db.to_str().expect("utf-8 test path"), &retry).unwrap(),
             1,
             "Rust must accept the source-created routing row"
         );
