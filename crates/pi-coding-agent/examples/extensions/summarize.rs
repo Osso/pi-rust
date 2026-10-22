@@ -136,16 +136,34 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
         }
         return Ok(());
     };
-    if !registry.has_configured_auth(&model) {
-        if has_ui {
-            ui.notify(
-                &JsString::from("No authentication configured for openai/gpt-5.2"),
-                Some(NotifyType::Warning),
-            );
+    let request = match registry.get_api_key_and_headers(&model).await {
+        pi_coding_agent::core::model_registry::ResolvedRequestAuth::Err { error } => {
+            if has_ui {
+                ui.notify(&error, Some(NotifyType::Warning));
+            }
+            return Ok(());
         }
-        return Ok(());
-    }
-    let text = complete_summary(&registry, model, conversation).await?;
+        pi_coding_agent::core::model_registry::ResolvedRequestAuth::Ok { api_key, .. }
+            if api_key.as_ref().is_none_or(JsString::is_empty) =>
+        {
+            if has_ui {
+                ui.notify(
+                    &JsString::from("No API key for openai/gpt-5.2"),
+                    Some(NotifyType::Warning),
+                );
+            }
+            return Ok(());
+        }
+        pi_coding_agent::core::model_registry::ResolvedRequestAuth::Ok {
+            api_key, headers, env, ..
+        } => pi_ai::request::ProviderRequestOptions {
+            api_key,
+            headers,
+            env,
+            ..Default::default()
+        },
+    };
+    let text = complete_summary(&registry, model, conversation, request).await?;
     if ctx.mode()? == ExtensionMode::Tui {
         ui.custom(
             Arc::new(move |context, done| {
@@ -167,6 +185,7 @@ async fn complete_summary(
     registry: &pi_coding_agent::core::model_registry::ModelRegistry,
     model: pi_ai::types::Model,
     conversation: String,
+    request: pi_ai::request::ProviderRequestOptions,
 ) -> Result<JsString, HandlerError> {
     let prompt = format!(
         "Summarize this conversation so I can resume it later.\nInclude goals, key decisions, progress, open questions, and next steps.\nKeep it concise and structured with headings.\n\n<conversation>\n{conversation}\n</conversation>"
@@ -182,11 +201,16 @@ async fn complete_summary(
         tools: None,
     };
     let options = StreamOptions {
+        request,
         extra: serde_json::from_value(json!({"reasoningEffort":"high"})).expect("JSON object"),
         ..Default::default()
     };
-    let response = registry
-        .complete(model, context, options)
+    let provider = registry
+        .get_provider(&model.provider)
+        .ok_or_else(|| HandlerError::new(pi_js_compat::js_format!("No provider for {}", model.provider)))?;
+    let response = provider
+        .stream(model, context, options)
+        .result()
         .await
         .map_err(|error| HandlerError::new(error.to_string()))?;
     Ok(JsString::join(
