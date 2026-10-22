@@ -15,38 +15,40 @@ pub const DETACHED_PYRUN_BRIDGE_PROTOCOL: &str = "pyrun-bridge-v1";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetachedPyrunBridgeRequest {
-    pub command: String,
+    pub command: JsString,
     pub identity: DetachedJobOwnershipIdentity,
-    pub method: String,
+    pub method: JsString,
     pub params: Value,
-    pub protocol: String,
+    pub protocol: JsString,
     pub reply_to: RuntimeMailboxAddress,
-    pub request_id: String,
+    pub request_id: JsString,
     /// Absent when the launching tool call had no ID (legacy manifests).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
+    pub tool_call_id: Option<JsString>,
 }
 
 pub struct EnqueueDetachedPyrunBridgeRequestInput {
-    pub control_db_path: String,
+    pub control_db_path: JsString,
     pub identity: DetachedJobOwnershipIdentity,
-    pub method: String,
+    pub method: JsString,
     pub params: Value,
     pub runner_address: RuntimeMailboxAddress,
-    pub session_path: String,
-    pub tool_call_id: Option<String>,
+    pub session_path: JsString,
+    pub tool_call_id: Option<JsString>,
     pub supervisor_address: RuntimeMailboxAddress,
 }
 
 /// `enqueueDetachedPyrunBridgeRequest`.
-pub fn enqueue_detached_pyrun_bridge_request(input: EnqueueDetachedPyrunBridgeRequestInput) -> Result<String, String> {
-    let request_id = random_uuid();
+pub fn enqueue_detached_pyrun_bridge_request(
+    input: EnqueueDetachedPyrunBridgeRequestInput,
+) -> Result<JsString, JsString> {
+    let request_id = JsString::from(random_uuid());
     let body = DetachedPyrunBridgeRequest {
         command: "request".into(),
         identity: input.identity.clone(),
         method: input.method,
         params: input.params,
-        protocol: DETACHED_PYRUN_BRIDGE_PROTOCOL.to_owned(),
+        protocol: DETACHED_PYRUN_BRIDGE_PROTOCOL.into(),
         reply_to: input.runner_address.clone(),
         request_id: request_id.clone(),
         tool_call_id: input.tool_call_id,
@@ -55,7 +57,7 @@ pub fn enqueue_detached_pyrun_bridge_request(input: EnqueueDetachedPyrunBridgeRe
         body: js_json::to_value(&body).map_err(|error| error.to_string())?,
         control_db_path: input.control_db_path,
         from_agent_id: input.identity.job_id.clone(),
-        message_id: format!("pyrun-request:{}:{request_id}", input.identity.job_id),
+        message_id: pi_js_compat::js_format!("pyrun-request:{}:{request_id}", input.identity.job_id),
         recipient: input.supervisor_address,
         sender: input.runner_address,
         session_path: input.session_path,
@@ -69,8 +71,8 @@ pub fn parse_detached_pyrun_bridge_request(message: &RuntimeMailboxMessage) -> O
     let parsed: DetachedPyrunBridgeRequest = js_json::from_value(&js_json::parse_lossless(&message.body).ok()?).ok()?;
     let has_valid_tool_call_id = parsed
         .tool_call_id
-        .as_deref()
-        .is_some_and(|tool_call_id| !pi_js_compat::string::js_trim(tool_call_id).is_empty());
+        .as_ref()
+        .is_some_and(|tool_call_id| !tool_call_id.trim().is_empty());
     if parsed.protocol != DETACHED_PYRUN_BRIDGE_PROTOCOL || parsed.command != "request" || !has_valid_tool_call_id {
         return None;
     }
@@ -78,17 +80,17 @@ pub fn parse_detached_pyrun_bridge_request(message: &RuntimeMailboxMessage) -> O
 }
 
 pub struct ValidateDetachedPyrunBridgeRequestInput<'a> {
-    pub control_db_path: &'a str,
+    pub control_db_path: &'a JsString,
     pub message: &'a RuntimeMailboxMessage,
     pub request: &'a DetachedPyrunBridgeRequest,
-    pub session_path: &'a str,
-    pub supervisor_session_id: &'a str,
+    pub session_path: &'a JsString,
+    pub supervisor_session_id: &'a JsString,
 }
 
 /// `validateDetachedPyrunBridgeRequest`.
 pub fn validate_detached_pyrun_bridge_request(
     input: ValidateDetachedPyrunBridgeRequestInput<'_>,
-) -> Result<bool, String> {
+) -> Result<bool, JsString> {
     let identity = &input.request.identity;
     if !input
         .message
@@ -100,9 +102,9 @@ pub fn validate_detached_pyrun_bridge_request(
         return Ok(false);
     }
     let agent = read_multi_agent_agent(input.control_db_path, input.session_path, &identity.job_id)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message())?;
     let ownership = read_multi_agent_runtime_ownership(input.control_db_path, input.session_path, &identity.job_id)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message())?;
     let Some(agent) = agent else {
         return Ok(false);
     };
@@ -115,7 +117,7 @@ pub fn validate_detached_pyrun_bridge_request(
     Ok(
         agent.lifecycle == crate::core::multi_agent_store::AgentLifecycle::Running
             && identity.owner.session_id == input.supervisor_session_id
-            && ownership.owner.session_id.as_deref() == Some(identity.owner.session_id.as_str())
+            && ownership.owner.session_id.as_ref() == Some(&identity.owner.session_id)
             && ownership.owner.agent_id == identity.owner.agent_id
             && process_identity.pid == identity.process_identity.pid
             && process_identity.start_time_ticks == identity.process_identity.start_time_ticks,
@@ -123,19 +125,20 @@ pub fn validate_detached_pyrun_bridge_request(
 }
 
 pub struct EnqueueDetachedPyrunBridgeResponseInput {
-    pub control_db_path: String,
+    pub control_db_path: JsString,
     pub error: Option<JsString>,
     pub request: DetachedPyrunBridgeRequest,
     pub result: Option<Value>,
-    pub session_path: String,
+    pub session_path: JsString,
     pub supervisor_address: RuntimeMailboxAddress,
 }
 
 /// `enqueueDetachedPyrunBridgeResponse`.
-pub fn enqueue_detached_pyrun_bridge_response(input: EnqueueDetachedPyrunBridgeResponseInput) -> Result<(), String> {
-    let message_id = format!(
+pub fn enqueue_detached_pyrun_bridge_response(input: EnqueueDetachedPyrunBridgeResponseInput) -> Result<(), JsString> {
+    let message_id = pi_js_compat::js_format!(
         "pyrun-response:{}:{}",
-        input.request.identity.job_id, input.request.request_id
+        input.request.identity.job_id,
+        input.request.request_id
     );
     let mut body = pi_js_compat::js_json::JsObject::new();
     body.insert("command".into(), Value::String("respond".to_owned().into()));
@@ -167,16 +170,16 @@ pub fn enqueue_detached_pyrun_bridge_response(input: EnqueueDetachedPyrunBridgeR
 
 struct PersistBridgeMessageInput {
     body: Value,
-    control_db_path: String,
-    from_agent_id: String,
-    message_id: String,
+    control_db_path: JsString,
+    from_agent_id: JsString,
+    message_id: JsString,
     recipient: RuntimeMailboxAddress,
     sender: RuntimeMailboxAddress,
-    session_path: String,
-    to_agent_id: String,
+    session_path: JsString,
+    to_agent_id: JsString,
 }
 
-fn persist_bridge_message(input: PersistBridgeMessageInput) -> Result<(), String> {
+fn persist_bridge_message(input: PersistBridgeMessageInput) -> Result<(), JsString> {
     let mut message = pi_js_compat::js_json::JsObject::new();
     message.insert(
         "body".into(),
@@ -202,6 +205,6 @@ fn persist_bridge_message(input: PersistBridgeMessageInput) -> Result<(), String
             updated_at: None,
         },
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message())?;
     Ok(())
 }
