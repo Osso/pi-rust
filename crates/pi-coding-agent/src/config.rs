@@ -43,6 +43,10 @@ pub struct ConfigError {
 }
 
 impl ConfigError {
+    pub fn message(&self) -> &pi_js_compat::js_json::JsString {
+        &self.message
+    }
+
     fn new(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self {
             label: ERROR,
