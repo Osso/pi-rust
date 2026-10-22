@@ -31,7 +31,7 @@ fn loads_a_valid_skill_with_synthetic_source_info() {
         skill.source_info.scope,
         pi_coding_agent::core::source_info::SourceScope::Temporary
     );
-    assert_eq!(skill.base_dir, dir.to_string_lossy());
+    assert_eq!(skill.base_dir, JsString::from(dir.to_str().unwrap()));
     assert!(!skill.disable_model_invocation);
 }
 

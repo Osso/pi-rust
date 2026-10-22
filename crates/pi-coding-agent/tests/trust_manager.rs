@@ -210,7 +210,7 @@ fn trust_requiring_resources_are_detected_from_project_layouts() {
     fs::create_dir_all(home.join(".pi/agent")).unwrap();
     fs::create_dir_all(home.join(".agents/skills")).unwrap();
 
-    let probe = |cwd: &Path| trust_probe::spawn(&s(cwd), &s(&home));
+    let probe = |cwd: &Path| trust_probe::spawn(cwd.to_str().unwrap(), home.to_str().unwrap());
     assert!(!probe(&temp));
     assert!(!probe(&project));
 

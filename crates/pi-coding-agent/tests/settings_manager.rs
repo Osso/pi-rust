@@ -137,13 +137,10 @@ fn project_enabled_models_override_global() {
 fn agent_profiles_use_builtin_defaults_and_overrides() {
     let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
     let explore = manager.get_agent_profile(&JsString::from("explore")).unwrap();
-    assert_eq!(explore.model.as_ref(), Some(&JsString::from("openai/gpt-5-mini")));
-    assert_eq!(
-        explore.thinking_level,
-        Some(pi_coding_agent::core::settings_manager::AgentProfileThinkingLevel::Low)
-    );
+    assert_eq!(explore["model"], JsValue::from("openai/gpt-5-mini"));
+    assert_eq!(explore["thinkingLevel"], JsValue::from("low"));
     let browser = manager.get_agent_profile(&JsString::from("browser")).unwrap();
-    assert_eq!(browser.tools, Some(vec!["browser-cli".to_owned()]));
+    assert_eq!(browser["tools"], JsValue::Array(vec![JsValue::from("browser-cli")]));
     assert!(manager.get_agent_profile(&JsString::from("unknown")).is_none());
     assert!(manager.get_agent_profile(&JsString::from("   ")).is_none());
 
@@ -152,7 +149,7 @@ fn agent_profiles_use_builtin_defaults_and_overrides() {
         SettingsManagerCreateOptions::default(),
     );
     let explore = manager.get_agent_profile(&JsString::from("explore")).unwrap();
-    assert_eq!(explore.model.as_ref(), Some(&JsString::from("faux/explore-model")));
+    assert_eq!(explore["model"], JsValue::from("faux/explore-model"));
 }
 
 #[test]
