@@ -6,7 +6,9 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::tools::tool_definition_wrapper::{
     ToolOutputSpill, cap_tool_result_output, create_tool_definition_from_agent_tool, wrap_agent_tool,
 };
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 struct StubTool {
@@ -34,7 +36,7 @@ impl AgentTool for StubTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        _params: Value,
+        _params: JsValue,
         _signal: Option<CancellationToken>,
         on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -56,16 +58,14 @@ fn text_result(text: String) -> AgentToolResult {
     }
 }
 
-fn result_text(result: &AgentToolResult) -> String {
-    result
-        .content
-        .iter()
-        .filter_map(|entry| match entry {
-            TextOrImageContent::Text(text) => Some(text.text.as_str()),
+fn result_text(result: &AgentToolResult) -> JsString {
+    JsString::join(
+        result.content.iter().filter_map(|entry| match entry {
+            TextOrImageContent::Text(text) => Some(text.text.clone()),
             TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }),
+        "\n",
+    )
 }
 
 struct PrepareTool {
@@ -89,14 +89,14 @@ impl AgentTool for PrepareTool {
         "prepare"
     }
 
-    fn prepare_arguments(&self, args: Value) -> Result<Value, ToolError> {
+    fn prepare_arguments(&self, args: JsValue) -> Result<JsValue, ToolError> {
         Ok(json!({"prepared": args}))
     }
 
     fn execute(
         &self,
         _tool_call_id: String,
-        _params: Value,
+        _params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -108,7 +108,7 @@ impl AgentTool for PrepareTool {
 #[test]
 fn definitions_from_agent_tools_forward_prepare_arguments() {
     let definition = create_tool_definition_from_agent_tool(Arc::new(PrepareTool {
-        parameters: json!({"type": "object"}),
+        parameters: serde_json::json!({"type": "object"}),
     }));
     let prepare = definition.prepare_arguments.expect("prepare arguments forwarded");
     assert_eq!(
@@ -135,22 +135,25 @@ fn oversized_results_spill_the_full_text_and_keep_the_tail() {
     let capped = cap_tool_result_output(text_result(full_text.clone()), &mut spill).expect("cap result");
 
     let path = spill.full_output_path.clone().expect("spill path");
-    assert_eq!(std::fs::read_to_string(&path).expect("spill file"), full_text);
+    assert_eq!(
+        std::fs::read_to_string(&encode_node_utf8(&path)).expect("spill file"),
+        full_text
+    );
     let text = result_text(&capped);
-    assert!(text.starts_with("line 1476\n"), "{text}");
+    assert!(text.starts_with("line 1476\n"), "{text:?}");
     assert!(text.contains("[Showing last "));
-    assert!(text.contains(&format!("Full output: {path}]")));
+    assert!(text.contains(&pi_js_compat::js_format!("Full output: {}]", path)));
     let details = capped.details.expect("details");
     assert_eq!(details["fullOutputPath"], json!(path));
     assert_eq!(details["truncation"]["truncated"], json!(true));
-    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(encode_node_utf8(&path));
 }
 
 #[test]
 fn existing_output_details_are_never_recapped() {
     let lines = (0..2500).map(|index| format!("line {index}")).collect::<Vec<_>>();
     let mut result = text_result(lines.join("\n"));
-    result.details = Some(json!({"fullOutputPath": "/tmp/existing.log"}));
+    result.details = Some(json!(json!({"fullOutputPath": "/tmp/existing.log"})));
     let mut spill = ToolOutputSpill::default();
     let capped = cap_tool_result_output(result.clone(), &mut spill).expect("cap result");
     assert_eq!(capped.content, result.content);
@@ -162,7 +165,7 @@ fn existing_output_details_are_never_recapped() {
 fn wrapped_tools_cap_partial_updates_and_reuse_one_spill_file() {
     let lines = (0..2500).map(|index| format!("line {index}")).collect::<Vec<_>>();
     let inner: Arc<dyn AgentTool> = Arc::new(StubTool {
-        parameters: json!({"type": "object"}),
+        parameters: serde_json::json!({"type": "object"}),
         result: text_result(lines.join("\n")),
     });
     let tool = wrap_agent_tool(inner);
@@ -177,7 +180,7 @@ fn wrapped_tools_cap_partial_updates_and_reuse_one_spill_file() {
     });
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let final_result = runtime
-        .block_on(tool.execute("call".to_owned(), json!({}), None, callback, None))
+        .block_on(tool.execute("call".to_owned(), json!(json!({})), None, callback, None))
         .expect("tool result");
 
     let updates = updates.lock().expect("updates lock");
@@ -185,8 +188,8 @@ fn wrapped_tools_cap_partial_updates_and_reuse_one_spill_file() {
     let update_path = updates[0].details.as_ref().expect("update details")["fullOutputPath"].clone();
     let final_path = final_result.details.as_ref().expect("final details")["fullOutputPath"].clone();
     assert_eq!(update_path, final_path);
-    let path = final_path.as_str().expect("path string").to_owned();
-    let _ = std::fs::remove_file(path);
+    let path = final_path.as_string().expect("path string").to_owned();
+    let _ = std::fs::remove_file(encode_node_utf8(&path));
 }
 
 #[test]
@@ -196,7 +199,7 @@ fn spill_write_failure_returns_the_node_error() {
         .join(format!("pi-missing-dir-{}", std::process::id()))
         .join("spill.log");
     let mut spill = ToolOutputSpill {
-        full_output_path: Some(path.display().to_string()),
+        full_output_path: Some(path.to_str().expect("utf-8 test path").to_owned().into()),
         error: None,
     };
     let error =

@@ -18,7 +18,8 @@ use pi_coding_agent::bundled_extensions::bwrap::backend::{
 };
 use pi_coding_agent::bundled_extensions::bwrap::worker::run_operation_json;
 use pi_coding_agent::core::permissions::presets::SandboxProfileName;
-use serde_json::{Value, json};
+use pi_js_compat::js_json::{JsString, JsValue as Value};
+use pi_js_compat::{js_json, js_json as json};
 
 fn oracle() -> oracle::TsOracle {
     oracle::TsOracle::spawn(
@@ -37,18 +38,22 @@ fn temp_dir(name: &str) -> String {
             .as_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
-    dir.to_string_lossy().into_owned()
+    dir.to_str().expect("utf-8 test path").to_owned()
 }
 
 fn source_worker() -> String {
-    let lock: Value = serde_json::from_str(include_str!(concat!(
+    let lock: Value = js_json::parse_lossless(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../docs/porting/source-lock.json"
     )))
     .unwrap();
     format!(
         "{}/packages/coding-agent/extensions/bwrap/src/fs-worker.cjs",
-        lock["worktree"].as_str().unwrap()
+        lock["worktree"]
+            .as_string()
+            .unwrap()
+            .to_utf8()
+            .expect("UTF-8 source-lock path")
     )
 }
 
@@ -61,7 +66,7 @@ fn matches_typescript_bwrap_profiles_and_runner_environment() {
         .iter()
         .map(|profile| {
             let profile = SandboxProfileName::parse(profile).unwrap();
-            serde_json::to_value(resolve_bwrap_sandbox_profile(profile).map(|profile| profile.as_str())).unwrap()
+            js_json::to_value(&resolve_bwrap_sandbox_profile(profile).map(|profile| profile.as_str())).unwrap()
         })
         .collect();
     assert_eq!(Value::Array(actual), output["output"]);
@@ -74,15 +79,15 @@ fn matches_typescript_bwrap_profiles_and_runner_environment() {
     let actual: Vec<Value> = env_cases
         .iter()
         .map(|case| {
-            let host: IndexMap<String, String> = case["hostEnv"]
+            let host: IndexMap<JsString, JsString> = case["hostEnv"]
                 .as_object()
                 .unwrap()
                 .iter()
-                .map(|(key, value)| (key.clone(), value.as_str().unwrap().to_owned()))
+                .map(|(key, value)| (key.clone(), value.as_string().unwrap().clone()))
                 .collect();
-            serde_json::to_value(create_bwrap_runner_environment(
+            js_json::to_value(&create_bwrap_runner_environment(
                 &host,
-                case.get("pythonPath").and_then(Value::as_str),
+                case.get("pythonPath").and_then(Value::as_string),
             ))
             .unwrap()
         })
@@ -95,7 +100,11 @@ fn matches_typescript_bwrap_invocation_arguments() {
     let workspace = temp_dir("workspace");
     std::fs::write(Path::new(&workspace).join("file.txt"), "hello").unwrap();
     std::fs::create_dir(Path::new(&workspace).join("sub")).unwrap();
-    let extra = Path::new(&workspace).join("file.txt").display().to_string();
+    let extra = Path::new(&workspace)
+        .join("file.txt")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let cases = [
         json!({
             "bwrapCommand": "bwrap",
@@ -117,26 +126,33 @@ fn matches_typescript_bwrap_invocation_arguments() {
     let actual: Vec<Value> = cases
         .iter()
         .map(|case| {
-            let env: Option<IndexMap<String, String>> = case.get("env").and_then(Value::as_object).map(|env| {
+            let env: Option<IndexMap<JsString, JsString>> = case.get("env").and_then(Value::as_object).map(|env| {
                 env.iter()
-                    .map(|(key, value)| (key.clone(), value.as_str().unwrap().to_owned()))
+                    .map(|(key, value)| (key.clone(), value.as_string().unwrap().clone()))
                     .collect()
             });
-            let profile = SandboxProfileName::parse(case["profile"].as_str().unwrap()).unwrap();
+            let profile = SandboxProfileName::parse(
+                &case["profile"]
+                    .as_string()
+                    .unwrap()
+                    .to_utf8()
+                    .expect("ASCII fixture profile"),
+            )
+            .unwrap();
             let invocation = build_bwrap_invocation(&BwrapInvocationOptions {
-                bwrap_command: case["bwrapCommand"].as_str().unwrap().to_owned(),
+                bwrap_command: case["bwrapCommand"].as_string().unwrap().to_owned().into(),
                 command: case["command"]
                     .as_array()
                     .unwrap()
                     .iter()
-                    .map(|value| value.as_str().unwrap().to_owned())
+                    .map(|value| value.as_string().unwrap().clone())
                     .collect(),
-                cwd: case["cwd"].as_str().unwrap().to_owned(),
+                cwd: case["cwd"].as_string().unwrap().to_owned().into(),
                 env,
                 extra_read_only_paths: case
                     .get("extraReadOnlyPaths")
                     .and_then(Value::as_array)
-                    .map(|paths| paths.iter().map(|path| path.as_str().unwrap().to_owned()).collect()),
+                    .map(|paths| paths.iter().map(|path| path.as_string().unwrap().clone()).collect()),
                 home_dir: None,
                 profile: BwrapSandboxProfile(profile),
             })
@@ -151,7 +167,7 @@ fn run_node_worker(operation: &str, payload: &Value, cwd: &str) -> (i32, String,
     let output = Command::new("node")
         .arg(source_worker())
         .arg(operation)
-        .arg(payload.to_string())
+        .arg(js_json::stringify_lossless(payload))
         .current_dir(cwd)
         .output()
         .expect("node fs-worker.cjs must run");
@@ -212,15 +228,15 @@ fn matches_node_fs_worker_operations_on_the_same_fixtures() {
     ];
     for (operation, payload) in payloads {
         let mut rust_payload = payload.clone();
-        rust_payload["workspace"] = Value::String(workspace.clone());
+        rust_payload["workspace"] = Value::String(workspace.clone().into());
         let rust = run_operation_json(operation, &rust_payload);
         let (node_code, node_stdout, node_stderr) = run_node_worker(operation, &payload, &workspace);
         match rust {
             Ok(value) => {
                 assert_eq!(node_code, 0, "{operation}: node failed: {node_stderr}");
-                let node_value: Value = serde_json::from_str(&node_stdout)
+                let node_value: Value = js_json::parse_lossless(&node_stdout)
                     .unwrap_or_else(|error| panic!("{operation}: bad node JSON: {error}: {node_stdout}"));
-                assert_eq!(value, node_value, "{operation} payload {payload}");
+                assert_eq!(value, json!(node_value), "{operation} payload {payload:?}");
             }
             Err(message) => {
                 assert_ne!(node_code, 0, "{operation}: rust failed but node succeeded");
@@ -230,7 +246,7 @@ fn matches_node_fs_worker_operations_on_the_same_fixtures() {
                 );
                 assert!(
                     message.contains("escapes workspace") || message.starts_with("unknown op:"),
-                    "{operation}: unexpected rust error: {message}"
+                    "{operation}: unexpected rust error: {message:?}"
                 );
             }
         }
@@ -242,17 +258,17 @@ fn worker_write_and_mkdir_round_trip() {
     let workspace = temp_dir("worker-write");
     let payload = json!({"path": "new/dir/file.txt", "workspace": workspace});
     let mut mkdir_parent = payload.clone();
-    mkdir_parent["path"] = Value::String("new/dir".to_owned());
+    mkdir_parent["path"] = json!("new/dir");
     assert_eq!(run_operation_json("mkdir", &mkdir_parent).unwrap(), json!({"ok": true}));
     let mut write = payload.clone();
-    write["content"] = Value::String("content".to_owned());
+    write["content"] = json!("content");
     assert_eq!(run_operation_json("writeFile", &write).unwrap(), json!({"ok": true}));
     assert_eq!(
         std::fs::read_to_string(Path::new(&workspace).join("new/dir/file.txt")).unwrap(),
         "content"
     );
     let mut mkdir = payload.clone();
-    mkdir["path"] = Value::String("another".to_owned());
+    mkdir["path"] = json!("another");
     assert_eq!(run_operation_json("mkdir", &mkdir).unwrap(), json!({"ok": true}));
     assert!(Path::new(&workspace).join("another").is_dir());
 }
