@@ -4,6 +4,7 @@ mod oracle;
 use pi_coding_agent::core::host_relay::{RelayFrame, parse_frame};
 use pi_coding_agent::core::host_relay_store::*;
 use pi_coding_agent::core::session_control_db::*;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::{self, JsValue};
 use serde_json::{Value, json};
 fn call(ts: &mut oracle::TsOracle, op: &str, name: &str, args: Value) -> String {
@@ -18,14 +19,19 @@ fn wire_call(ts: &mut oracle::TsOracle, op: &str, name: &str, args: &str) -> Str
 }
 fn temp() -> (tempfile::TempDir, String) {
     let t = tempfile::tempdir().unwrap();
-    let path = t.path().join("control.sqlite").display().to_string();
+    let path = t
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     (t, path)
 }
 fn input(id: &str) -> Value {
     json!({"kind":"message","recipientHost":"peer","recipient":{"sessionId":"receiver","agentId":null},"sender":{"sessionId":"sender","agentId":null},"storeRef":{"sessionPath":"/fixture/s","messageId":id},"message":{"id":id,"kind":"message","status":"pending","fromAgentId":"main","toAgentId":"main","body":"payload","createdAt":pi_coding_agent::utils::iso_time::now_iso_string(),"details":{"2":"index","nested":[9007199254740993u64,1e-7]}}})
 }
 fn counter(path: &str, key: &str) -> i64 {
-    with_control_db(path, |db| {
+    with_control_db(&JsString::from(path), |db| {
         Ok(db.query_row(
             "SELECT last_seen_id FROM shared_channel_cursors WHERE session_id = ?",
             [key],
@@ -53,21 +59,30 @@ fn ts_store_rust_sequence_ts_ack_and_lossless_inbound_replay() {
         );
     }
     let first_ts = call(&mut ts, "store", "nextRelayMailbox", json!([a, "peer"]));
-    let first = next_relay_mailbox(&a, "peer").unwrap().unwrap();
+    let first = next_relay_mailbox(&JsString::from(&a), &JsString::from("peer"))
+        .unwrap()
+        .unwrap();
     assert_eq!(RelayFrame::Mailbox(first.clone()).to_wire(), first_ts);
     assert!(first_ts.contains(r"\ud800"));
     assert!(first_ts.contains(r"\udc00"));
-    assert_eq!(next_relay_mailbox(&a, "peer").unwrap(), Some(first.clone()));
+    assert_eq!(
+        next_relay_mailbox(&JsString::from(&a), &JsString::from("peer")).unwrap(),
+        Some(first.clone())
+    );
     let mut changed = first.clone();
     if let JsValue::Object(data) = &mut changed.data {
         data.insert("body".into(), JsValue::String("changed".into()));
     }
-    ack_relay_mailbox(&a, "peer", &changed).unwrap();
-    assert!(next_relay_mailbox(&a, "peer").unwrap().is_some());
-    import_relay_mailbox(&b, "origin", &first).unwrap();
+    ack_relay_mailbox(&JsString::from(&a), &JsString::from("peer"), &changed).unwrap();
+    assert!(
+        next_relay_mailbox(&JsString::from(&a), &JsString::from("peer"))
+            .unwrap()
+            .is_some()
+    );
+    import_relay_mailbox(&JsString::from(&b), &JsString::from("origin"), &first).unwrap();
     let ts_in = call(&mut ts, "db", "listRuntimeMailboxMessages", json!([b]));
     assert!(ts_in.contains(r"\ud800"), "{ts_in}");
-    let row = with_control_db(&b, |db| {
+    let row = with_control_db(&JsString::from(&b), |db| {
         Ok(db.query_row("SELECT data FROM multi_agent_mailbox_messages", [], |r| {
             r.get::<_, String>(0)
         })?)
@@ -89,9 +104,11 @@ fn ts_store_rust_sequence_ts_ack_and_lossless_inbound_replay() {
         ),
     );
     mark_runtime_mailbox_message_delivered(&b, 1).unwrap();
-    import_relay_mailbox(&b, "origin", &first).unwrap();
+    import_relay_mailbox(&JsString::from(&b), &JsString::from("origin"), &first).unwrap();
     assert!(list_runtime_mailbox_messages(&b).unwrap().is_empty());
-    let second = next_relay_mailbox(&a, "peer").unwrap().unwrap();
+    let second = next_relay_mailbox(&JsString::from(&a), &JsString::from("peer"))
+        .unwrap()
+        .unwrap();
     assert_eq!(second.seq, 2);
     let second_wire = RelayFrame::Mailbox(second.clone()).to_wire();
     assert_eq!(
@@ -105,10 +122,12 @@ fn ts_store_rust_sequence_ts_ack_and_lossless_inbound_replay() {
         &format!("[{},{},{}]", json!(b), json!("origin"), second_wire),
     );
     assert_eq!(list_runtime_mailbox_messages(&b).unwrap()[0].body, "payload");
-    import_relay_mailbox(&b, "origin", &second).unwrap();
+    import_relay_mailbox(&JsString::from(&b), &JsString::from("origin"), &second).unwrap();
     assert_eq!(counter(&b, "relay-in:origin"), 2);
-    ack_relay_mailbox(&a, "peer", &second).unwrap();
-    let third = next_relay_mailbox(&a, "peer").unwrap().unwrap();
+    ack_relay_mailbox(&JsString::from(&a), &JsString::from("peer"), &second).unwrap();
+    let third = next_relay_mailbox(&JsString::from(&a), &JsString::from("peer"))
+        .unwrap()
+        .unwrap();
     assert_eq!(third.seq, 3);
     assert_eq!(third.message_id.to_utf8_lossy(), "three");
     assert_eq!(counter(&a, "relay-out:peer"), 3);
@@ -126,13 +145,13 @@ fn custom_kind_survives_frozen_queue_native_import_and_frozen_read() {
     let RelayFrame::Mailbox(mut message) = parse_frame(&frozen).unwrap() else {
         panic!("mailbox expected")
     };
-    import_relay_mailbox(&b, "origin", &message).unwrap();
+    import_relay_mailbox(&JsString::from(&b), &JsString::from("origin"), &message).unwrap();
     let read = ts.request(&json!({"op":"raw","path":b,"args":"SELECT data FROM multi_agent_mailbox_messages"}));
     assert_eq!(read["ok"], true, "{read}");
     let rows: Value = serde_json::from_str(read["wire"].as_str().unwrap()).unwrap();
     let canonical: Value = serde_json::from_str(rows[0]["data"].as_str().unwrap()).unwrap();
     assert_eq!(canonical["kind"], "custom");
-    let before = with_control_db(&b, |db| {
+    let before = with_control_db(&JsString::from(&b), |db| {
         Ok(
             db.query_row("SELECT data FROM multi_agent_mailbox_messages", [], |row| {
                 row.get::<_, String>(0)
@@ -141,9 +160,9 @@ fn custom_kind_survives_frozen_queue_native_import_and_frozen_read() {
     })
     .unwrap();
     message.seq = 2;
-    import_relay_mailbox(&b, "origin", &message).unwrap();
+    import_relay_mailbox(&JsString::from(&b), &JsString::from("origin"), &message).unwrap();
     assert_eq!(counter(&b, "relay-in:origin"), 2);
-    let after = with_control_db(&b, |db| {
+    let after = with_control_db(&JsString::from(&b), |db| {
         Ok(
             db.query_row("SELECT data FROM multi_agent_mailbox_messages", [], |row| {
                 row.get::<_, String>(0)
@@ -167,22 +186,24 @@ fn inbound_collision_rolls_back_cursor_and_sequence_exhaustion_rolls_back_row() 
     let (_b, b) = temp();
     let input: EnqueueStoredRuntimeMailboxMessageInput = serde_json::from_value(input("one")).unwrap();
     enqueue_stored_runtime_mailbox_message(&a, &input).unwrap();
-    let first = next_relay_mailbox(&a, "peer").unwrap().unwrap();
-    import_relay_mailbox(&b, "origin", &first).unwrap();
+    let first = next_relay_mailbox(&JsString::from(&a), &JsString::from("peer"))
+        .unwrap()
+        .unwrap();
+    import_relay_mailbox(&JsString::from(&b), &JsString::from("origin"), &first).unwrap();
     let mut conflict = first.clone();
     conflict.seq = 2;
     if let JsValue::Object(data) = &mut conflict.data {
         data.insert("body".into(), JsValue::String("conflict".into()));
     }
     assert!(
-        import_relay_mailbox(&b, "origin", &conflict)
+        import_relay_mailbox(&JsString::from(&b), &JsString::from("origin"), &conflict)
             .unwrap_err()
             .to_string()
             .contains("collision")
     );
     assert_eq!(counter(&b, "relay-in:origin"), 1);
-    ack_relay_mailbox(&a, "peer", &first).unwrap();
-    with_control_db(&a, |db| {
+    ack_relay_mailbox(&JsString::from(&a), &JsString::from("peer"), &first).unwrap();
+    with_control_db(&JsString::from(&a), |db| {
         db.execute(
             "UPDATE shared_channel_cursors SET last_seen_id = 9007199254740991 WHERE session_id = 'relay-out:peer'",
             [],
@@ -192,15 +213,15 @@ fn inbound_collision_rolls_back_cursor_and_sequence_exhaustion_rolls_back_row() 
     .unwrap();
     let mut next = input;
     next.store_ref.message_id = "two".into();
-    next.message["id"] = json!("two");
+    next.message["id"] = pi_js_compat::js_json!("two");
     enqueue_stored_runtime_mailbox_message(&a, &next).unwrap();
     assert!(
-        next_relay_mailbox(&a, "peer")
+        next_relay_mailbox(&JsString::from(&a), &JsString::from("peer"))
             .unwrap_err()
             .to_string()
             .contains("exhausted")
     );
-    let raw = with_control_db(&a, |db| {
+    let raw = with_control_db(&JsString::from(&a), |db| {
         Ok(db.query_row("SELECT data FROM multi_agent_mailbox_messages", [], |r| {
             r.get::<_, String>(0)
         })?)
@@ -221,19 +242,25 @@ fn channel_tail_origin_dedup_expiry_and_monotonic_cursors_match_frozen() {
         body: body.into(),
     };
     post_shared_channel_message(&a, &post("old")).unwrap();
-    assert!(next_relay_channel(&a, "peer", "origin").unwrap().is_none());
+    assert!(
+        next_relay_channel(&JsString::from(&a), &JsString::from("peer"), &JsString::from("origin"))
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
         call(&mut ts, "store", "nextRelayChannel", json!([a, "peer", "origin"])),
         "null"
     );
     let id = post_shared_channel_message(&a, &post("new")).unwrap();
-    let channel = next_relay_channel(&a, "peer", "origin").unwrap().unwrap();
+    let channel = next_relay_channel(&JsString::from(&a), &JsString::from("peer"), &JsString::from("origin"))
+        .unwrap()
+        .unwrap();
     assert_eq!(channel.origin_id, id);
     assert_eq!(
         RelayFrame::Channel(channel.clone()).to_wire(),
         call(&mut ts, "store", "nextRelayChannel", json!([a, "peer", "origin"]))
     );
-    import_relay_channel(&b, &channel).unwrap();
+    import_relay_channel(&JsString::from(&b), &channel).unwrap();
     call(
         &mut ts,
         "store",
@@ -245,16 +272,24 @@ fn channel_tail_origin_dedup_expiry_and_monotonic_cursors_match_frozen() {
         1
     );
     // Imported messages never echo to other peers, including after cursor reset.
-    ack_relay_channel(&b, "other", 0).unwrap();
-    assert!(next_relay_channel(&b, "other", "peer").unwrap().is_none());
+    ack_relay_channel(&JsString::from(&b), &JsString::from("other"), 0).unwrap();
+    assert!(
+        next_relay_channel(&JsString::from(&b), &JsString::from("other"), &JsString::from("peer"))
+            .unwrap()
+            .is_none()
+    );
     call(&mut ts, "store", "ackRelayChannel", json!([a, "peer", id]));
-    ack_relay_channel(&a, "peer", 0).unwrap();
+    ack_relay_channel(&JsString::from(&a), &JsString::from("peer"), 0).unwrap();
     assert_eq!(counter(&a, "relay:peer"), id);
-    assert!(next_relay_channel(&a, "peer", "origin").unwrap().is_none());
+    assert!(
+        next_relay_channel(&JsString::from(&a), &JsString::from("peer"), &JsString::from("origin"))
+            .unwrap()
+            .is_none()
+    );
     let mut expired = channel;
     expired.origin_id += 10;
     expired.created_at = "2000-01-01T00:00:00.000Z".into();
-    import_relay_channel(&b, &expired).unwrap();
+    import_relay_channel(&JsString::from(&b), &expired).unwrap();
     assert_eq!(
         list_shared_channel_messages_after(&b, 0, 100, i64::MAX).unwrap().len(),
         1
@@ -270,10 +305,10 @@ fn newly_allocated_invalid_sequence_rolls_back_like_frozen() {
         "enqueueStoredRuntimeMailboxMessage",
         json!([a, input("bad-counter")]),
     );
-    with_control_db(&a,|db|{db.execute("INSERT INTO shared_channel_cursors(session_id,agent_id_key,last_seen_id,updated_at) VALUES ('relay-out:peer','',-1,'fixture')",[])?;Ok(())}).unwrap();
+    with_control_db(&JsString::from(&a),|db|{db.execute("INSERT INTO shared_channel_cursors(session_id,agent_id_key,last_seen_id,updated_at) VALUES ('relay-out:peer','',-1,'fixture')",[])?;Ok(())}).unwrap();
     let expected = ts.request(&json!({"op":"store","fn":"nextRelayMailbox","args":json!([a,"peer"]).to_string()}));
     assert_eq!(expected["ok"], false);
-    let error = next_relay_mailbox(&a, "peer").unwrap_err();
+    let error = next_relay_mailbox(&JsString::from(&a), &JsString::from("peer")).unwrap_err();
     assert_eq!(expected["error"], error.to_string());
     assert_eq!(counter(&a, "relay-out:peer"), -1);
 }
@@ -289,7 +324,7 @@ fn invalid_stored_sequence_and_expired_rows_match_frozen() {
         json!([a, input("bad")]),
     );
     for value in ["null", "0", "-1", "1.5", "9007199254740992", "\"1\""] {
-        with_control_db(&a, |db| {
+        with_control_db(&JsString::from(&a), |db| {
             db.execute(
                 "UPDATE multi_agent_mailbox_messages SET data = json_set(data, '$.relaySeq', json(?))",
                 [value],
@@ -297,12 +332,14 @@ fn invalid_stored_sequence_and_expired_rows_match_frozen() {
             Ok(())
         })
         .unwrap();
-        let rust = next_relay_mailbox(&a, "peer").unwrap_err().to_string();
+        let rust = next_relay_mailbox(&JsString::from(&a), &JsString::from("peer"))
+            .unwrap_err()
+            .to_string();
         let peer = ts.request(&json!({"op":"store","fn":"nextRelayMailbox","args":json!([a,"peer"]).to_string()}));
         assert_eq!(peer["ok"], false);
         assert_eq!(peer["error"], rust);
     }
-    with_control_db(&a, |db| {
+    with_control_db(&JsString::from(&a), |db| {
         db.execute(
             "UPDATE multi_agent_mailbox_messages SET data = json_set(data, '$.createdAt', '2000-01-01T00:00:00.000Z')",
             [],
@@ -310,7 +347,11 @@ fn invalid_stored_sequence_and_expired_rows_match_frozen() {
         Ok(())
     })
     .unwrap();
-    assert!(next_relay_mailbox(&a, "peer").unwrap().is_none());
+    assert!(
+        next_relay_mailbox(&JsString::from(&a), &JsString::from("peer"))
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(call(&mut ts, "store", "nextRelayMailbox", json!([a, "peer"])), "null");
 }
 #[test]

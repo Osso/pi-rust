@@ -6,6 +6,7 @@
 
 #[path = "support/oracle.rs"]
 mod oracle;
+use pi_js_compat::js_json::JsString;
 
 use std::thread;
 
@@ -20,16 +21,21 @@ use tempfile::TempDir;
 
 fn temp_db() -> (TempDir, String) {
     let directory = tempfile::tempdir().expect("tempdir");
-    let path = directory.path().join("control.sqlite").display().to_string();
+    let path = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     (directory, path)
 }
 
 fn metadata(session_path: &str, id: &str) -> WritableSessionMetadata {
     WritableSessionMetadata {
-        session_path: session_path.to_owned(),
-        id: id.to_owned(),
-        cwd: "/repo".to_owned(),
-        name: Some("Cross".to_owned()),
+        session_path: session_path.to_owned().into(),
+        id: id.to_owned().into(),
+        cwd: "/repo".to_owned().into(),
+        name: Some("Cross".to_owned().into()),
         parent_session_path: None,
         archived_at: None,
         is_archived: None,
@@ -38,10 +44,10 @@ fn metadata(session_path: &str, id: &str) -> WritableSessionMetadata {
         model_provider: Some("anthropic".to_owned()),
         model_id: Some("claude".to_owned()),
         thinking_level: Some("high".to_owned()),
-        created_at: "2026-06-21T00:00:00.000Z".to_owned(),
-        modified_at: "2026-06-21T00:00:00.000Z".to_owned(),
+        created_at: "2026-06-21T00:00:00.000Z".to_owned().into(),
+        modified_at: "2026-06-21T00:00:00.000Z".to_owned().into(),
         message_count: 2,
-        first_message: "hello".to_owned(),
+        first_message: "hello".to_owned().into(),
     }
 }
 
@@ -118,17 +124,19 @@ fn typescript_writes_are_readable_by_rust() {
         read_session_name_state(&db, "/sessions/ts.jsonl")
             .expect("name state")
             .name
-            .as_deref(),
-        Some("TS Name")
+            .as_ref(),
+        Some(&JsString::from("TS Name"))
     );
     let messages = list_shared_channel_messages_after(&db, 0, 20, i64::MAX).expect("channel");
     assert_eq!(messages[0].body, "from typescript");
     assert_eq!(read_prompt_history(&db, 10).expect("history"), vec!["ts prompt"]);
-    let health = read_session_health(&db, "ts-session").expect("health").expect("record");
+    let health = read_session_health(&db, &JsString::from("ts-session"))
+        .expect("health")
+        .expect("record");
     assert_eq!(health.agent_generation, 4);
     assert_eq!(health.pid, Some(123));
     assert_eq!(health.check_latency_ms, Some(12));
-    write_session_name(&db, "/sessions/ts.jsonl", Some("Updated by Rust")).expect("Rust update");
+    write_session_name(&db, "/sessions/ts.jsonl", Some(&JsString::from("Updated by Rust"))).expect("Rust update");
     let roundtrip = oracle_call(
         &mut oracle,
         11,
@@ -141,15 +149,15 @@ fn typescript_writes_are_readable_by_rust() {
 fn rust_writes_are_readable_by_typescript_in_source_order() {
     let (_directory, db) = temp_db();
     write_session_metadata(&db, &metadata("/sessions/rust.jsonl", "rust-session")).expect("metadata");
-    write_session_name(&db, "/sessions/rust.jsonl", Some("Rust Name")).expect("name");
+    write_session_name(&db, "/sessions/rust.jsonl", Some(&JsString::from("Rust Name"))).expect("name");
     pi_coding_agent::core::session_control_db::post_shared_channel_message(
         &db,
         &PostSharedChannelMessageInput {
             sender: RuntimeMailboxAddress {
-                session_id: "rust".to_owned(),
+                session_id: "rust".to_owned().into(),
                 agent_id: None,
             },
-            body: "from rust".to_owned(),
+            body: "from rust".to_owned().into(),
         },
     )
     .expect("channel");
@@ -210,10 +218,10 @@ fn concurrent_typescript_and_rust_writers_keep_every_row() {
             &db,
             &PostSharedChannelMessageInput {
                 sender: RuntimeMailboxAddress {
-                    session_id: "rust".to_owned(),
+                    session_id: "rust".to_owned().into(),
                     agent_id: None,
                 },
-                body: format!("rust-{index}"),
+                body: format!("rust-{index}").into(),
             },
         )
         .expect("rust write");
@@ -241,7 +249,7 @@ fn concurrent_typescript_and_rust_writers_keep_every_row() {
 #[test]
 fn schema_text_and_pragmas_match_the_typescript_module() {
     let (_directory, db) = temp_db();
-    let _ = read_session_health(&db, "missing").expect("initialize Rust schema");
+    let _ = read_session_health(&db, &JsString::from("missing")).expect("initialize Rust schema");
     let (_oracle_directory, oracle_db) = temp_db();
     let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
     let outputs = oracle_call(
