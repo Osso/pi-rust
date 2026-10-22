@@ -62,7 +62,7 @@ pub(crate) fn env_key_provider(spec: ProviderSpec, api: ProviderApi) -> Arc<dyn 
     create_provider(CreateProviderOptions {
         id: spec.id.to_owned(),
         name: Some(spec.name.to_owned()),
-        base_url: spec.base_url.map(str::to_owned),
+        base_url: spec.base_url.map(Into::into),
         headers: None,
         auth: ProviderAuth::api_key(Arc::new(env_api_key_auth(spec.auth_name, spec.env_vars))),
         models: provider_models(spec.id),
@@ -94,7 +94,7 @@ pub(crate) fn custom_provider(spec: CustomProviderSpec, api: ProviderApi) -> Arc
     create_provider(CreateProviderOptions {
         id: spec.id.to_owned(),
         name: Some(spec.name.to_owned()),
-        base_url: spec.base_url.map(str::to_owned),
+        base_url: spec.base_url.map(Into::into),
         headers: None,
         auth: spec.auth,
         models: provider_models(spec.id),

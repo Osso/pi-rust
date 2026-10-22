@@ -109,7 +109,7 @@ pub trait Provider: Send + Sync {
     fn id(&self) -> &str;
     fn name(&self) -> &str;
 
-    fn base_url(&self) -> Option<&str> {
+    fn base_url(&self) -> Option<&pi_js_compat::js_json::JsString> {
         None
     }
 
@@ -1395,7 +1395,7 @@ pub struct CreateProviderOptions {
     pub id: String,
     /// Default: `id`.
     pub name: Option<String>,
-    pub base_url: Option<String>,
+    pub base_url: Option<pi_js_compat::js_json::JsString>,
     pub headers: Option<ProviderHeaders>,
     pub auth: ProviderAuth,
     /// Static baseline model list.
@@ -1409,7 +1409,7 @@ pub struct CreateProviderOptions {
 struct ConfiguredProvider {
     id: String,
     name: String,
-    base_url: Option<String>,
+    base_url: Option<pi_js_compat::js_json::JsString>,
     headers: Option<ProviderHeaders>,
     auth: ProviderAuth,
     baseline_models: Vec<Model>,
@@ -1463,8 +1463,8 @@ impl Provider for ConfiguredProvider {
         &self.name
     }
 
-    fn base_url(&self) -> Option<&str> {
-        self.base_url.as_deref()
+    fn base_url(&self) -> Option<&pi_js_compat::js_json::JsString> {
+        self.base_url.as_ref()
     }
 
     fn headers(&self) -> Option<&ProviderHeaders> {
