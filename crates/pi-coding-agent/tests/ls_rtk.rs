@@ -3,7 +3,8 @@ use std::sync::Arc;
 use pi_agent_core::agent::{AgentTool, AgentToolResult};
 use pi_ai::types::TextOrImageContent;
 use pi_coding_agent::core::tools::ls::LsTool;
-use serde_json::json;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsString, JsValue};
 
 #[path = "support/executable_script.rs"]
 mod executable_script;
@@ -11,23 +12,21 @@ mod executable_script;
 const MODE_VAR: &str = "PI_LS_RTK_MODE";
 const DIR_VAR: &str = "PI_LS_RTK_DIR";
 
-fn execute(tool: &LsTool, params: serde_json::Value) -> Result<AgentToolResult, String> {
+fn execute(tool: &LsTool, params: JsValue) -> Result<AgentToolResult, JsString> {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     runtime
         .block_on(tool.execute("call".to_owned(), params, None, Arc::new(|_result| {}), None))
         .map_err(|error| error.message)
 }
 
-fn text(result: &AgentToolResult) -> String {
-    result
-        .content
-        .iter()
-        .filter_map(|entry| match entry {
-            TextOrImageContent::Text(text) => Some(text.text.clone()),
+fn text(result: &AgentToolResult) -> JsString {
+    JsString::join(
+        result.content.iter().filter_map(|entry| match entry {
+            TextOrImageContent::Text(text) => Some(&text.text),
             TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }),
+        "\n",
+    )
 }
 
 fn fake_rtk(directory: &std::path::Path, body: &str) {
@@ -75,7 +74,7 @@ fn spawn_children() {
 fn run_rtk_cases() {
     let bin = std::path::PathBuf::from(std::env::var(DIR_VAR).expect("rtk dir"));
     let temp = tempfile::tempdir().expect("temp dir");
-    let tool = LsTool::new(temp.path().to_string_lossy());
+    let tool = LsTool::new(temp.path().to_str().expect("utf-8 temp path"));
 
     fake_rtk(&bin, "printf 'alpha.txt\\nbeta/\\n'");
     let result = execute(&tool, json!({})).expect("rtk result");
@@ -97,7 +96,7 @@ fn run_fallback_case() {
     let empty = std::path::PathBuf::from(std::env::var(DIR_VAR).expect("empty dir"));
     std::fs::create_dir(temp.path().join("sub")).expect("sub dir");
     std::fs::write(temp.path().join("real.txt"), "x").expect("real file");
-    let tool = LsTool::new(temp.path().to_string_lossy());
+    let tool = LsTool::new(temp.path().to_str().expect("utf-8 temp path"));
     let result = execute(&tool, json!({})).expect("fallback result");
     assert_eq!(text(&result), "real.txt\nsub/");
     assert!(empty.is_dir());

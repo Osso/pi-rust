@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use pi_agent_core::agent::AgentTool;
 use pi_coding_agent::core::tools::grep::GrepTool;
-use serde_json::json;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsString;
 
 #[path = "support/executable_script.rs"]
 mod executable_script;
@@ -74,7 +75,7 @@ fn run_fake_rg() {
     write_fake_rg(&bin, &args_path);
 
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
-    let tool = GrepTool::new(temp.path().to_string_lossy());
+    let tool = GrepTool::new(temp.path().to_str().expect("utf-8 temp path"));
     let result = runtime
         .block_on(tool.execute(
             "grep-argv".to_owned(),
@@ -84,16 +85,16 @@ fn run_fake_rg() {
             None,
         ))
         .expect("grep result");
-    let text = result
+    let parts = result
         .content
         .iter()
         .filter_map(|entry| match entry {
             pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
             pi_ai::types::TextOrImageContent::Image(_) => None,
         })
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(text.contains("searched.txt:1: match"), "{text}");
+        .collect::<Vec<_>>();
+    let text = JsString::join(&parts, "\n");
+    assert!(text.contains("searched.txt:1: match"), "{text:?}");
     let args = std::fs::read_to_string(&args_path).expect("args file");
     assert!(args.contains("--max-columns 10240"), "{args}");
     assert!(args.contains("--json"), "{args}");
@@ -103,7 +104,7 @@ fn run_fake_rg() {
 fn run_missing_rg() {
     let temp = tempfile::tempdir().expect("temp dir");
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
-    let tool = GrepTool::new(temp.path().to_string_lossy());
+    let tool = GrepTool::new(temp.path().to_str().expect("utf-8 temp path"));
     let error = runtime
         .block_on(tool.execute(
             "grep-missing".to_owned(),

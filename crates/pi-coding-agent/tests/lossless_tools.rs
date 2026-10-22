@@ -110,6 +110,9 @@ fn tool_spill_keeps_raw_tail_and_detail_keys_but_encodes_file_bytes_like_node() 
     };
     assert!(text_result.text.contains(&raw));
     let path = spill.full_output_path.unwrap();
-    assert_eq!(std::fs::read(&path).unwrap(), encode_node_utf8(&text).as_bytes());
-    std::fs::remove_file(path).unwrap();
+    assert_eq!(
+        std::fs::read(encode_node_utf8(&path)).unwrap(),
+        encode_node_utf8(&text).as_bytes()
+    );
+    std::fs::remove_file(encode_node_utf8(&path)).unwrap();
 }

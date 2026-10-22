@@ -6,40 +6,39 @@ use pi_ai::types::TextOrImageContent;
 use pi_coding_agent::core::tools::code_index::{
     CodeIndexCommandResult, CodeIndexOperations, CodeIndexToolOptions, OutlineTool, ReferencesTool, SymbolTool,
 };
-use serde_json::json;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsString, JsValue};
 
-fn execute(tool: &dyn AgentTool, params: serde_json::Value) -> Result<AgentToolResult, String> {
+fn execute(tool: &dyn AgentTool, params: JsValue) -> Result<AgentToolResult, JsString> {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     runtime
-        .block_on(tool.execute("call".to_owned(), params, None, Arc::new(|_result| {}), None))
+        .block_on(tool.execute("call".into(), params, None, Arc::new(|_result| {}), None))
         .map_err(|error| error.message)
 }
 
-fn text(result: &AgentToolResult) -> String {
-    result
-        .content
-        .iter()
-        .filter_map(|entry| match entry {
-            TextOrImageContent::Text(text) => Some(text.text.clone()),
+fn text(result: &AgentToolResult) -> JsString {
+    JsString::join(
+        result.content.iter().filter_map(|entry| match entry {
+            TextOrImageContent::Text(text) => Some(&text.text),
             TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }),
+        "\n",
+    )
 }
 
 #[derive(Default)]
 struct RecordingOperations {
-    calls: Mutex<Vec<Vec<String>>>,
-    stdout: String,
-    stderr: String,
+    calls: Mutex<Vec<Vec<JsString>>>,
+    stdout: JsString,
+    stderr: JsString,
     exit_code: i32,
 }
 
 impl CodeIndexOperations for RecordingOperations {
     fn run<'a>(
         &'a self,
-        args: &'a [String],
-        cwd: &'a str,
+        args: &'a [JsString],
+        cwd: &'a JsString,
         _signal: Option<&'a tokio_util::sync::CancellationToken>,
     ) -> BoxFuture<'a, std::io::Result<CodeIndexCommandResult>> {
         assert_eq!(cwd, "/repo");
@@ -63,7 +62,7 @@ fn options(operations: Arc<RecordingOperations>) -> CodeIndexToolOptions {
 #[test]
 fn outline_passes_optional_flags_and_trims_output() {
     let operations = Arc::new(RecordingOperations {
-        stdout: "outline output\n".to_owned(),
+        stdout: "outline output\n".into(),
         ..Default::default()
     });
     let tool = OutlineTool::with_options("/repo", options(Arc::clone(&operations)));
@@ -90,7 +89,7 @@ fn outline_passes_optional_flags_and_trims_output() {
 #[test]
 fn symbol_and_references_pass_filters() {
     let operations = Arc::new(RecordingOperations {
-        stdout: "[]\n".to_owned(),
+        stdout: "[]\n".into(),
         ..Default::default()
     });
     let symbol = SymbolTool::with_options("/repo", options(Arc::clone(&operations)));
@@ -112,7 +111,7 @@ fn symbol_and_references_pass_filters() {
 #[test]
 fn reports_stderr_on_failure() {
     let operations = Arc::new(RecordingOperations {
-        stderr: "index unavailable\n".to_owned(),
+        stderr: "index unavailable\n".into(),
         exit_code: 1,
         ..Default::default()
     });
