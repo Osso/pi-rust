@@ -4,10 +4,10 @@ Frozen AgentTool values structurally extend AI Tool. Their enumerable label and 
 
 ## What it must do
 
-- [ ] Retain optional native UTF-16 label/executionMode strings without interpreting them as provider parameters.
-- [ ] Serialize present fields in frozen built-in AgentTool order: name, label, description, parameters, executionMode; omit absent metadata and function-valued hooks.
-- [ ] Match frozen Faux input usage and estimateContextTokens for labeled tools, optional execution modes and unpaired label units.
-- [ ] Keep metadata out of provider adapters that explicitly map tool fields; preserve it when whole contexts are serialized.
+- [x] Retain optional native UTF-16 label/executionMode strings without interpreting them as provider parameters.
+- [x] Serialize present fields in frozen built-in AgentTool order: name, label, description, parameters, executionMode; omit absent metadata and function-valued hooks.
+- [x] Match frozen Faux input usage and estimateContextTokens for labeled tools, optional execution modes and unpaired label units.
+- [x] Keep metadata out of provider adapters that explicitly map tool fields; preserve it when whole contexts are serialized.
 
 ## How it works
 
