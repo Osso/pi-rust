@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use crate::config::get_agent_dir;
 use crate::core::config_value::{is_command_config_value, resolve_config_value};
 use crate::utils::lockfile::{LockErrorCode, LockOptions, acquire, acquire_sync};
-use crate::utils::paths::normalize_path;
+use crate::utils::paths::{node_dirname, normalize_path};
 use pi_js_compat::js_json;
 
 const AUTH_FILE_MODE: u32 = 0o600;
@@ -40,6 +40,12 @@ impl StorageError {
             aborted: false,
             cause: None,
         }
+    }
+
+    /// Node fs error messages are already repaired (unpaired units become U+FFFD), so this
+    /// encoding is exact; `AuthError` carries scalar text.
+    fn filesystem(message: JsString) -> Self {
+        Self::new(js_json::encode_node_utf8(&message))
     }
 
     fn aborted() -> Self {
@@ -139,10 +145,10 @@ impl FileAuthStorageBackend {
             builder.mode(0o700);
         }
         builder.create(directory).map_err(|error| {
-            StorageError::new(pi_js_compat::node_fs::node_fs_error(
+            StorageError::filesystem(pi_js_compat::node_fs::node_fs_error(
                 &error,
                 "mkdir",
-                &directory.to_string_lossy(),
+                &node_dirname(self.auth_path.clone()),
             ))
         })
     }
@@ -161,12 +167,7 @@ impl FileAuthStorageBackend {
         }
         std::fs::read(js_json::encode_node_utf8(&self.auth_path))
             .map(|bytes| Some(String::from_utf8_lossy(&bytes).into_owned()))
-            .map_err(|error| {
-                StorageError::new(pi_js_compat::node_fs::node_read_error(
-                    &error,
-                    &js_json::encode_node_utf8(&self.auth_path),
-                ))
-            })
+            .map_err(|error| StorageError::filesystem(pi_js_compat::node_fs::node_read_error(&error, &self.auth_path)))
     }
 
     fn write_next(&self, next: Option<String>) -> Result<(), StorageError> {
@@ -306,8 +307,8 @@ impl AuthStorageBackend for FileAuthStorageBackend {
     }
 }
 
-fn write_auth_file(path: &JsString, content: &str) -> Result<(), StorageError> {
-    let encoded = js_json::encode_node_utf8(path);
+fn write_auth_file(raw_path: &JsString, content: &str) -> Result<(), StorageError> {
+    let encoded = js_json::encode_node_utf8(raw_path);
     let path = encoded.as_str();
     use std::io::Write;
     let mut options = std::fs::OpenOptions::new();
@@ -320,12 +321,13 @@ fn write_auth_file(path: &JsString, content: &str) -> Result<(), StorageError> {
     options
         .open(path)
         .and_then(|mut file| file.write_all(content.as_bytes()))
-        .map_err(|error| StorageError::new(pi_js_compat::node_fs::node_fs_error(&error, "open", path)))?;
+        .map_err(|error| StorageError::filesystem(pi_js_compat::node_fs::node_fs_error(&error, "open", raw_path)))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(AUTH_FILE_MODE))
-            .map_err(|error| StorageError::new(pi_js_compat::node_fs::node_fs_error(&error, "chmod", path)))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(AUTH_FILE_MODE)).map_err(|error| {
+            StorageError::filesystem(pi_js_compat::node_fs::node_fs_error(&error, "chmod", raw_path))
+        })?;
     }
     Ok(())
 }
