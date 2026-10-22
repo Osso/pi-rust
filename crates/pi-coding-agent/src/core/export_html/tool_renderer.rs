@@ -6,9 +6,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use pi_ai::types::TextOrImageContent;
+use pi_js_compat::js_json::JsValue;
 use pi_tui::tui::ComponentRef;
 use regex::Regex;
-use serde_json::Value;
 
 use super::ansi_to_html::ansi_lines_to_html;
 use super::index::{RenderedToolResult, ToolHtmlRenderer};
@@ -34,7 +34,7 @@ struct RendererState {
     rendered_call_components: HashMap<String, ComponentRef>,
     rendered_result_components: HashMap<String, ComponentRef>,
     rendered_states: HashMap<String, crate::core::extensions::types::ToolRenderState>,
-    rendered_args: HashMap<String, Value>,
+    rendered_args: HashMap<String, JsValue>,
 }
 
 /// Tool HTML renderer backed by extension TUI renderers.
@@ -70,7 +70,7 @@ impl ExtensionToolHtmlRenderer {
             .rendered_args
             .get(tool_call_id)
             .cloned()
-            .unwrap_or(Value::Null);
+            .unwrap_or(JsValue::Null);
         let state = self.state_for(tool_call_id);
         let call_component = self.state.borrow().rendered_call_components.get(tool_call_id).cloned();
         ToolRenderContext {
@@ -117,7 +117,7 @@ fn render_component(component: &ComponentRef, width: usize) -> Vec<String> {
 }
 
 impl ToolHtmlRenderer for ExtensionToolHtmlRenderer {
-    fn render_call(&self, tool_call_id: &str, tool_name: &str, args: &Value) -> Option<String> {
+    fn render_call(&self, tool_call_id: &str, tool_name: &str, args: &JsValue) -> Option<String> {
         self.state
             .borrow_mut()
             .rendered_args
@@ -144,7 +144,7 @@ impl ToolHtmlRenderer for ExtensionToolHtmlRenderer {
         tool_call_id: &str,
         tool_name: &str,
         result: &[TextOrImageContent],
-        details: Option<&Value>,
+        details: Option<&JsValue>,
         is_error: bool,
     ) -> Option<RenderedToolResult> {
         let tool_definition = (self.get_tool_definition)(tool_name)?;
