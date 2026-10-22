@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::error::Error as StdError;
 use std::fmt::{self, Display, Formatter};
 
@@ -63,10 +64,10 @@ fn file_error_minimal_constructor_preserves_public_fields_and_name() {
 
 #[test]
 fn file_error_preserves_empty_unicode_supplementary_and_nul_fields() {
-    let error = FileError::new(FileErrorCode::Invalid, "", Some("路径/🙂\0file".to_owned()), None);
+    let error = FileError::new(FileErrorCode::Invalid, "", Some(JsString::from("路径/🙂\0file")), None);
 
     assert_eq!(error.message, "");
-    assert_eq!(error.path.as_deref(), Some("路径/🙂\0file"));
+    assert_eq!(error.path.as_ref(), Some(&JsString::from("路径/🙂\0file")));
     assert_eq!(error.to_string(), "");
 }
 
@@ -75,7 +76,7 @@ fn file_error_preserves_a_typed_cause_and_nested_execution_error_chain() {
     let direct = FileError::new(
         FileErrorCode::Unknown,
         "outer",
-        Some("/tmp/\0路径".to_owned()),
+        Some(JsString::from("/tmp/\0路径")),
         Some(Box::new(TestCause {
             message: "inner cause".to_owned(),
         })),
@@ -127,9 +128,9 @@ fn execution_error_constructor_preserves_public_fields_and_causes() {
 fn public_field_mutation_changes_display_and_error_source() {
     let mut file_error = FileError::new(FileErrorCode::Aborted, "before", None, None);
     file_error.name = "名前🙂\0".to_owned();
-    file_error.message = "after🙂\0".to_owned();
+    file_error.message = JsString::from("after🙂\0");
     file_error.code = FileErrorCode::PermissionDenied;
-    file_error.path = Some("/changed".to_owned());
+    file_error.path = Some(JsString::from("/changed"));
     file_error.cause = Some(Box::new(TestCause {
         message: "changed cause".to_owned(),
     }));
@@ -137,7 +138,7 @@ fn public_field_mutation_changes_display_and_error_source() {
     assert_eq!(file_error.name, "名前🙂\0");
     assert_eq!(file_error.message, "after🙂\0");
     assert_eq!(file_error.code, FileErrorCode::PermissionDenied);
-    assert_eq!(file_error.path.as_deref(), Some("/changed"));
+    assert_eq!(file_error.path.as_ref(), Some(&JsString::from("/changed")));
     assert_eq!(file_error.to_string(), "after🙂\0");
     assert_eq!(
         file_error.source().map(ToString::to_string).as_deref(),
@@ -145,7 +146,7 @@ fn public_field_mutation_changes_display_and_error_source() {
     );
 
     let mut execution_error = ExecutionError::new(ExecutionErrorCode::Aborted, "before", None);
-    execution_error.message = "after".to_owned();
+    execution_error.message = JsString::from("after");
     execution_error.code = ExecutionErrorCode::Unknown;
     execution_error.cause = Some(Box::new(TestCause {
         message: "execution cause".to_owned(),

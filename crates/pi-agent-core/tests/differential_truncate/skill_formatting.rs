@@ -1,6 +1,7 @@
 use pi_agent_core::harness::Skill;
 use pi_agent_core::harness::skills::format_skill_invocation;
 use pi_agent_core::harness::system_prompt::format_skills_for_system_prompt;
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -155,7 +156,14 @@ fn rust_response(fixture: &Fixture) -> Value {
         .iter()
         .map(|invocation| {
             let skill = build_skill(&invocation.skill);
-            format_skill_invocation(&skill, invocation.additional_instructions.rust_value())
+            format_skill_invocation(
+                &skill,
+                invocation
+                    .additional_instructions
+                    .rust_value()
+                    .map(JsString::from)
+                    .as_ref(),
+            )
         })
         .collect::<Vec<_>>();
 
@@ -170,10 +178,10 @@ fn rust_response(fixture: &Fixture) -> Value {
 
 fn build_skill(fixture: &SkillFixture) -> Skill {
     Skill {
-        name: fixture.name.to_owned(),
+        name: JsString::from(fixture.name.to_owned()),
         description: fixture.description.to_owned(),
         content: fixture.content.to_owned(),
-        file_path: fixture.file_path.to_owned(),
+        file_path: JsString::from(fixture.file_path.to_owned()),
         disable_model_invocation: fixture.disable_model_invocation.rust_value(),
     }
 }

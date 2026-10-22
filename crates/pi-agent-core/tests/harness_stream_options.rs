@@ -1,6 +1,7 @@
 //! Behavioral port of the harness orchestration value types in `packages/agent/src/harness/types.ts`.
 
 use indexmap::IndexMap;
+use pi_js_compat::js_json::JsValue;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentToolResult, ToolError};
@@ -137,7 +138,7 @@ async fn harness_tool_executes_with_the_resolved_context() {
     let result = tool
         .execute(
             "call-1".to_owned(),
-            json!({}),
+            JsValue::from(json!({})),
             None,
             None,
             json!({"label": "turn-context"}),

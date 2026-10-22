@@ -1,4 +1,5 @@
 use pi_agent_core::harness::{BashExecutionMessage, BashExecutionRole};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -144,8 +145,8 @@ fn normalize_case(case: &Case) -> Value {
 fn build_message(case: &Case) -> BashExecutionMessage {
     BashExecutionMessage {
         role: BashExecutionRole::BashExecution,
-        command: case.command.to_owned(),
-        output: case.output.to_owned(),
+        command: JsString::from(case.command.to_owned()),
+        output: JsString::from(case.output.to_owned()),
         exit_code: match case.exit_code_state {
             ExitCodeState::Undefined => None,
             ExitCodeState::Value => Some(binary64_from_bits(case.exit_code_bits)),
@@ -154,7 +155,7 @@ fn build_message(case: &Case) -> BashExecutionMessage {
         truncated: case.truncated,
         full_output_path: match case.full_output_path_state {
             FullOutputPathState::Absent | FullOutputPathState::Undefined => None,
-            FullOutputPathState::Value => Some(case.full_output_path.to_owned()),
+            FullOutputPathState::Value => Some(JsString::from(case.full_output_path.to_owned())),
         },
         timestamp: binary64_from_bits(case.timestamp_bits),
         exclude_from_context: match case.exclude_from_context_state {

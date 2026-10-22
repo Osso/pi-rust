@@ -1,4 +1,5 @@
 use pi_agent_core::harness::{FileInfo, FileKind};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -40,8 +41,8 @@ fn request(id: u64, fixture: &Fixture) -> Value {
 
 fn rust_response(id: u64, fixture: &Fixture) -> Value {
     let info = FileInfo {
-        name: fixture.name.to_owned(),
-        path: fixture.path.to_owned(),
+        name: JsString::from(fixture.name.to_owned()),
+        path: JsString::from(fixture.path.to_owned()),
         kind: fixture.kind,
         size: f64::from_bits(fixture.size_bits),
         mtime_ms: f64::from_bits(fixture.mtime_ms_bits),

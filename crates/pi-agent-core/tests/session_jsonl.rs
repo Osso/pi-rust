@@ -1,3 +1,6 @@
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
@@ -50,7 +53,7 @@ fn repo(root: &Path) -> JsonlSessionRepo {
             fs: Arc::new(pi_agent_core::harness::session::jsonl::types::NativeFileSystem::new(
                 root,
             )),
-            sessions_root: root.to_string_lossy().into_owned(),
+            sessions_root: JsString::from(root.to_string_lossy().into_owned()),
         },
         Arc::new(|| 1_700_000_000_000),
     )
@@ -60,7 +63,7 @@ fn repo_with_fs(root: &Path, fs: Arc<dyn JsonlSessionRepoFileSystem>) -> JsonlSe
     JsonlSessionRepo::with_clock(
         JsonlSessionRepoOptions {
             fs,
-            sessions_root: root.to_string_lossy().into_owned(),
+            sessions_root: JsString::from(root.to_string_lossy().into_owned()),
         },
         Arc::new(|| 1_700_000_000_000),
     )
@@ -70,7 +73,7 @@ fn create_options(id: &str, cwd: &Path) -> JsonlSessionCreateOptions {
     JsonlSessionCreateOptions {
         id: Some(id.to_owned()),
         parent_session_id: None,
-        cwd: cwd.to_string_lossy().into_owned(),
+        cwd: JsString::from(cwd.to_string_lossy().into_owned()),
         metadata: None,
     }
 }
@@ -172,7 +175,10 @@ async fn round_trips_every_entry_type_and_bounded_branch_queries() {
             r#type: pi_ai::types::ToolCallTag::Tag,
             id: "call-1".to_owned(),
             name: "read".to_owned(),
-            arguments: json!({"path": "README.md"}).as_object().unwrap().clone(),
+            arguments: (json!({"path": "README.md"}).as_object().unwrap().clone())
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
             execution: None,
             thought_signature: None,
             namespace: None,
@@ -205,7 +211,7 @@ async fn round_trips_every_entry_type_and_bounded_branch_queries() {
                         tool_call_id: "call-1".to_owned(),
                         tool_name: "read".to_owned(),
                         content: vec![TextOrImageContent::Text(TextContent::new("contents"))],
-                        details: Some(json!({"path": "README.md"})),
+                        details: Some(JsValue::from(json!({"path": "README.md"}))),
                         usage: Some(usage(2.0)),
                         added_tool_names: None,
                         is_error: false,
@@ -260,7 +266,7 @@ async fn round_trips_every_entry_type_and_bounded_branch_queries() {
             .append_entry(
                 EntryBody::Compaction {
                     id: "compaction".to_owned(),
-                    summary: "summary".to_owned(),
+                    summary: JsString::from("summary"),
                     tokens_before: 123.0,
                     retained_tail: vec![user_message("retained")],
                     duration_ms: None,
@@ -278,7 +284,7 @@ async fn round_trips_every_entry_type_and_bounded_branch_queries() {
                 EntryBody::BranchSummary {
                     id: "branch-summary".to_owned(),
                     from_id: "message".to_owned(),
-                    summary: "branch".to_owned(),
+                    summary: JsString::from("branch"),
                     details: json!({"reason": "navigation"}).into(),
                     usage: Some(usage(2.0)),
                 },
@@ -444,7 +450,10 @@ async fn round_trips_every_record_type_and_ledger_statistics() {
                 tool_index: 0.0,
                 tool_call_id: "call-1".to_owned(),
                 tool_name: "read".to_owned(),
-                effective_args: json!({"path": "README.md"}).as_object().unwrap().clone(),
+                effective_args: (json!({"path": "README.md"}).as_object().unwrap().clone())
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
                 result_entry_id: "tool-result".to_owned(),
                 replay: pi_agent_core::harness::session::ReplaySafety::Safe,
             })
@@ -635,7 +644,7 @@ async fn writes_one_line_per_mutation_and_restores_the_shared_sequence() {
         .unwrap();
     let metadata = session.get_metadata().await.unwrap();
     let entry_id = session
-        .append_custom_entry("note", Some(json!({"value": 1})))
+        .append_custom_entry("note", Some(JsValue::from(json!({"value": 1}))))
         .await
         .unwrap();
     session.create_lane("thread", Some(&entry_id)).await.unwrap();
@@ -657,7 +666,7 @@ async fn writes_one_line_per_mutation_and_restores_the_shared_sequence() {
     session.set_label(&entry_id, Some("checkpoint")).await.unwrap();
     session.move_lane("main", None).await.unwrap();
 
-    let lines: Vec<serde_json::Value> = read(Path::new(&metadata.path))
+    let lines: Vec<serde_json::Value> = read(Path::new(&encode_node_utf8(&metadata.path)))
         .trim_end()
         .split('\n')
         .map(|line| serde_json::from_str(line).unwrap())
@@ -722,27 +731,30 @@ async fn repairs_torn_tails_and_unterminated_lines() {
         .unwrap();
     let metadata = session.get_metadata().await.unwrap();
     session
-        .append_custom_entry("note", Some(json!({"value": "kept"})))
+        .append_custom_entry("note", Some(JsValue::from(json!({"value": "kept"}))))
         .await
         .unwrap();
-    let valid_prefix = read(Path::new(&metadata.path));
+    let valid_prefix = read(Path::new(&encode_node_utf8(&metadata.path)));
 
     std::fs::OpenOptions::new()
         .append(true)
-        .open(&metadata.path)
+        .open(&&encode_node_utf8(&metadata.path))
         .unwrap()
         .write_all(b"{\"kind\":\"entry\"")
         .unwrap();
     let reopened = open_session(root.path(), &metadata).await;
-    assert_eq!(read(Path::new(&metadata.path)), valid_prefix);
+    assert_eq!(read(Path::new(&encode_node_utf8(&metadata.path))), valid_prefix);
     assert_eq!(reopened.find_entries(EntryQuery::default()).await.unwrap().len(), 1);
     let appended = reopened.append_custom_entry("after-recovery", None).await.unwrap();
     assert_eq!(reopened.get_entry(&appended).await.unwrap().unwrap().seq, 2);
 
-    let unterminated = read(Path::new(&metadata.path)).trim_end().to_owned();
-    std::fs::write(&metadata.path, &unterminated).unwrap();
+    let unterminated = read(Path::new(&encode_node_utf8(&metadata.path))).trim_end().to_owned();
+    std::fs::write(&&encode_node_utf8(&metadata.path), &unterminated).unwrap();
     let reopened = open_session(root.path(), &metadata).await;
-    assert_eq!(read(Path::new(&metadata.path)), format!("{unterminated}\n"));
+    assert_eq!(
+        read(Path::new(&encode_node_utf8(&metadata.path))),
+        format!("{unterminated}\n")
+    );
     assert_eq!(reopened.find_entries(EntryQuery::default()).await.unwrap().len(), 2);
 }
 
@@ -757,14 +769,14 @@ async fn rejects_invalid_headers_and_replay_errors_without_modifying_files() {
         .unwrap();
     let metadata = session.get_metadata().await.unwrap();
     let malformed = "not json\n";
-    std::fs::write(&metadata.path, malformed).unwrap();
+    std::fs::write(&&encode_node_utf8(&metadata.path), malformed).unwrap();
     let error = repository.open(&metadata).await.unwrap_err();
     assert_eq!(error.code(), SessionErrorCode::InvalidEntry);
     assert_eq!(
         repository.list(JsonlSessionListOptions::default()).await.unwrap().len(),
         1
     );
-    assert_eq!(read(Path::new(&metadata.path)), malformed);
+    assert_eq!(read(Path::new(&encode_node_utf8(&metadata.path))), malformed);
 
     let raw = raw_session(
         root.path(),
@@ -789,10 +801,10 @@ async fn rejects_invalid_headers_and_replay_errors_without_modifying_files() {
     );
 
     let invalid_final = raw_session(root.path(), "invalid-final", &[json!({"kind": "unknown", "seq": 1})]);
-    let corrupted = read(Path::new(&invalid_final.path));
+    let corrupted = read(Path::new(&encode_node_utf8(&invalid_final.path)));
     let error = repository.open(&invalid_final).await.unwrap_err();
     assert_eq!(error.code(), SessionErrorCode::InvalidEntry);
-    assert_eq!(read(Path::new(&invalid_final.path)), corrupted);
+    assert_eq!(read(Path::new(&encode_node_utf8(&invalid_final.path))), corrupted);
 }
 
 #[tokio::test]
@@ -839,7 +851,7 @@ async fn rejects_lane_chaining_and_sequence_errors_during_replay() {
     let metadata = session.get_metadata().await.unwrap();
     session.append_custom_entry("first", None).await.unwrap();
     session.append_custom_entry("second", None).await.unwrap();
-    let mut lines: Vec<serde_json::Value> = read(Path::new(&metadata.path))
+    let mut lines: Vec<serde_json::Value> = read(Path::new(&encode_node_utf8(&metadata.path)))
         .trim_end()
         .split('\n')
         .map(|line| serde_json::from_str(line).unwrap())
@@ -849,7 +861,7 @@ async fn rejects_lane_chaining_and_sequence_errors_during_replay() {
         "{}\n",
         lines.iter().map(|line| line.to_string()).collect::<Vec<_>>().join("\n")
     );
-    std::fs::write(&metadata.path, corrupted).unwrap();
+    std::fs::write(&&encode_node_utf8(&metadata.path), corrupted).unwrap();
     let error = repository.open(&metadata).await.unwrap_err();
     assert!(error.message().contains("does not chain to the lane leaf"));
 }
@@ -877,12 +889,12 @@ async fn imports_entries_without_lane_metadata_and_moves_lanes_explicitly() {
         vec!["imported"]
     );
 
-    let mut content = read(Path::new(&metadata.path));
+    let mut content = read(Path::new(&encode_node_utf8(&metadata.path)));
     content.push_str(&format!(
         "{}\n",
         json!({"kind": "lane", "seq": 2, "lane": "main", "leafId": "imported"})
     ));
-    std::fs::write(&metadata.path, content).unwrap();
+    std::fs::write(&&encode_node_utf8(&metadata.path), content).unwrap();
     let moved = repo(root.path()).open(&metadata).await.unwrap();
     assert_eq!(moved.get_leaf_id().await.unwrap().as_deref(), Some("imported"));
 }
@@ -929,7 +941,7 @@ async fn forks_branches_and_trees_and_reopens_lanes_and_facts() {
         .await
         .unwrap();
     let metadata = fork.get_metadata().await.unwrap();
-    let imported_lanes: Vec<bool> = read(Path::new(&metadata.path))
+    let imported_lanes: Vec<bool> = read(Path::new(&encode_node_utf8(&metadata.path)))
         .trim_end()
         .split('\n')
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
@@ -1035,7 +1047,7 @@ async fn metadata_contract_id_validation_and_listing_order() {
         .create(JsonlSessionCreateOptions {
             id: Some("metadata".to_owned()),
             parent_session_id: Some("parent".to_owned()),
-            cwd: cwd.to_string_lossy().into_owned(),
+            cwd: JsString::from(cwd.to_string_lossy().into_owned()),
             metadata: Some(
                 json!({"owner": "agent", "nested": {"enabled": true}})
                     .as_object()
@@ -1054,7 +1066,7 @@ async fn metadata_contract_id_validation_and_listing_order() {
     assert_eq!(
         repository
             .list(JsonlSessionListOptions {
-                cwd: Some(cwd.to_string_lossy().into_owned())
+                cwd: Some(JsString::from(cwd.to_string_lossy().into_owned()))
             })
             .await
             .unwrap(),
@@ -1063,7 +1075,7 @@ async fn metadata_contract_id_validation_and_listing_order() {
     assert!(
         repository
             .list(JsonlSessionListOptions {
-                cwd: Some(root.path().join("other").to_string_lossy().into_owned())
+                cwd: Some(JsString::from(root.path().join("other").to_string_lossy().into_owned()))
             })
             .await
             .unwrap()
@@ -1131,49 +1143,53 @@ impl FailingFileSystem {
         FileError::new(
             pi_agent_core::harness::types::FileErrorCode::Unknown,
             "injected failure",
-            Some(path.to_owned()),
+            Some(JsString::from(path.to_owned())),
             None,
         )
     }
 }
 
 impl JsonlSessionRepoFileSystem for FailingFileSystem {
-    fn absolute_path<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<String, FileError>> {
-        self.inner.absolute_path(path)
+    fn absolute_path<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>> {
+        self.inner.absolute_path(&JsString::from(path))
     }
 
-    fn join_path<'a>(&'a self, parts: &'a [String]) -> BoxFuture<'a, Result<String, FileError>> {
+    fn join_path<'a>(&'a self, parts: &'a [JsString]) -> BoxFuture<'a, Result<JsString, FileError>> {
         self.inner.join_path(parts)
     }
 
-    fn read_text_file<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<String, FileError>> {
-        self.inner.read_text_file(path)
+    fn read_text_file<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<String, FileError>> {
+        self.inner.read_text_file(&JsString::from(path))
     }
 
     fn read_text_lines<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         max_lines: Option<usize>,
     ) -> BoxFuture<'a, Result<Vec<String>, FileError>> {
-        self.inner.read_text_lines(path, max_lines)
+        self.inner.read_text_lines(&JsString::from(path), max_lines)
     }
 
-    fn write_file<'a>(&'a self, path: &'a str, content: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
-        self.inner.write_file(path, content)
+    fn write_file<'a>(&'a self, path: &'a JsString, content: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
+        self.inner.write_file(&JsString::from(path), content)
     }
 
-    fn append_file<'a>(&'a self, path: &'a str, content: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
+    fn append_file<'a>(&'a self, path: &'a JsString, content: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
         let fail = self.fail_append.swap(false, Ordering::SeqCst);
         let path = path.to_owned();
         Box::pin(async move {
             if fail {
                 return Err(Self::failure(&path));
             }
-            self.inner.append_file(&path, content).await
+            self.inner.append_file(&JsString::from(&path), content).await
         })
     }
 
-    fn rename_file<'a>(&'a self, source: &'a str, destination: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
+    fn rename_file<'a>(
+        &'a self,
+        source: &'a JsString,
+        destination: &'a JsString,
+    ) -> BoxFuture<'a, Result<(), FileError>> {
         let fail = self.fail_rename.swap(false, Ordering::SeqCst);
         let source = source.to_owned();
         let destination = destination.to_owned();
@@ -1181,28 +1197,30 @@ impl JsonlSessionRepoFileSystem for FailingFileSystem {
             if fail {
                 return Err(Self::failure(&source));
             }
-            self.inner.rename_file(&source, &destination).await
+            self.inner
+                .rename_file(&JsString::from(&source), &JsString::from(&destination))
+                .await
         })
     }
 
-    fn file_info<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<FileInfo, FileError>> {
-        self.inner.file_info(path)
+    fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, FileError>> {
+        self.inner.file_info(&JsString::from(path))
     }
 
-    fn list_dir<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>> {
-        self.inner.list_dir(path)
+    fn list_dir<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>> {
+        self.inner.list_dir(&JsString::from(path))
     }
 
-    fn exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<bool, FileError>> {
-        self.inner.exists(path)
+    fn exists<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<bool, FileError>> {
+        self.inner.exists(&JsString::from(path))
     }
 
-    fn create_dir<'a>(&'a self, path: &'a str, recursive: bool) -> BoxFuture<'a, Result<(), FileError>> {
-        self.inner.create_dir(path, recursive)
+    fn create_dir<'a>(&'a self, path: &'a JsString, recursive: bool) -> BoxFuture<'a, Result<(), FileError>> {
+        self.inner.create_dir(&JsString::from(path), recursive)
     }
 
-    fn remove<'a>(&'a self, path: &'a str, recursive: bool, force: bool) -> BoxFuture<'a, Result<(), FileError>> {
-        self.inner.remove(path, recursive, force)
+    fn remove<'a>(&'a self, path: &'a JsString, recursive: bool, force: bool) -> BoxFuture<'a, Result<(), FileError>> {
+        self.inner.remove(&JsString::from(path), recursive, force)
     }
 }
 
@@ -1259,7 +1277,7 @@ async fn fork_failures_leave_no_partial_file() {
         repository.list(JsonlSessionListOptions::default()).await.unwrap().len(),
         1
     );
-    let directory = Path::new(&source_metadata.path).parent().unwrap();
+    let directory = Path::new(&encode_node_utf8(&source_metadata.path)).parent().unwrap();
     assert!(
         std::fs::read_dir(directory).unwrap().all(|entry| !entry
             .unwrap()
@@ -1300,8 +1318,8 @@ fn raw_session(root: &Path, id: &str, mutations: &[serde_json::Value]) -> JsonlS
     JsonlSessionMetadata {
         id: id.to_owned(),
         created_at: 1,
-        cwd: root.to_string_lossy().into_owned(),
-        path: path.to_string_lossy().into_owned(),
+        cwd: JsString::from(root.to_string_lossy().into_owned()),
+        path: JsString::from(path.to_string_lossy().into_owned()),
         modified_at: 0.0,
         source_format: 4,
         parent_session_id: None,

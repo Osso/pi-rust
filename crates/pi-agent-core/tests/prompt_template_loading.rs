@@ -1,5 +1,6 @@
 //! Behavioral port of `packages/agent/test/harness/prompt-templates.test.ts` plus loader branch coverage.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::os::unix::fs::symlink;
 use std::path::Path;
@@ -18,7 +19,7 @@ fn temp_dir() -> TempDir {
 
 fn env_at(root: &Path) -> NodeExecutionEnv {
     NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: root.to_string_lossy().into_owned(),
+        cwd: JsString::from(root.to_string_lossy().into_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     })
@@ -32,7 +33,7 @@ fn write(root: &Path, path: &str, content: &str) {
 
 fn template(name: &str, description: Option<&str>, content: &str) -> PromptTemplate {
     PromptTemplate {
-        name: name.to_owned(),
+        name: JsString::from(name.to_owned()),
         description: description.map(str::to_owned),
         content: content.to_owned(),
     }
@@ -46,7 +47,7 @@ async fn loads_markdown_templates_non_recursively_from_one_or_more_dirs() {
     write(root.path(), "a/nested/ignored.md", "Ignored");
     write(root.path(), "b/two.md", "First line description\nBody");
 
-    let result = load_prompt_templates(&env, &["a", "b"]).await;
+    let result = load_prompt_templates(&env, &[&JsString::from("a"), &JsString::from("b")]).await;
 
     assert_eq!(result.diagnostics, Vec::new());
     assert_eq!(
@@ -69,7 +70,7 @@ async fn preserves_source_info_for_sourced_prompt_templates() {
     );
 
     let result =
-        load_sourced_prompt_templates(&env, &[("prompts".to_owned(), "project-source".to_owned())], None).await;
+        load_sourced_prompt_templates(&env, &[(JsString::from("prompts"), "project-source".to_owned())], None).await;
 
     assert_eq!(result.diagnostics, Vec::new());
     assert_eq!(result.prompt_templates.len(), 1);
@@ -86,7 +87,8 @@ async fn attaches_source_info_to_diagnostics() {
     let env = env_at(root.path());
     write(root.path(), "broken.md", "---\ndescription: [unterminated\n---\nBody");
 
-    let result = load_sourced_prompt_templates(&env, &[("broken.md".to_owned(), "user-source".to_owned())], None).await;
+    let result =
+        load_sourced_prompt_templates(&env, &[(JsString::from("broken.md"), "user-source".to_owned())], None).await;
 
     assert!(result.prompt_templates.is_empty());
     assert_eq!(result.diagnostics.len(), 1);
@@ -96,7 +98,7 @@ async fn attaches_source_info_to_diagnostics() {
             r#type: PromptTemplateDiagnosticType::Warning,
             code: PromptTemplateDiagnosticCode::ParseFailed,
             message: result.diagnostics[0].diagnostic.message.clone(),
-            path: root.path().join("broken.md").to_string_lossy().into_owned(),
+            path: JsString::from(root.path().join("broken.md").to_string_lossy().into_owned()),
         }
     );
     assert_eq!(result.diagnostics[0].source, "user-source");
@@ -109,7 +111,7 @@ async fn loads_explicit_markdown_files_and_symlinked_files() {
     write(root.path(), "target.md", "---\ndescription: Target\n---\nTarget body");
     symlink(root.path().join("target.md"), root.path().join("link.md")).unwrap();
 
-    let result = load_prompt_templates(&env, &["target.md", "link.md"]).await;
+    let result = load_prompt_templates(&env, &[&JsString::from("target.md"), &JsString::from("link.md")]).await;
 
     assert_eq!(
         result.prompt_templates,
@@ -131,7 +133,7 @@ async fn derives_description_from_the_first_non_empty_body_line() {
     );
     write(root.path(), "templates/short.md", "\nShort line\nBody");
 
-    let result = load_prompt_templates(&env, &["templates"]).await;
+    let result = load_prompt_templates(&env, &[&JsString::from("templates")]).await;
 
     assert_eq!(
         result.prompt_templates,
@@ -152,7 +154,7 @@ async fn skips_missing_paths_and_non_markdown_files() {
     let env = env_at(root.path());
     write(root.path(), "notes.txt", "plain text");
 
-    let result = load_prompt_templates(&env, &["missing", "notes.txt"]).await;
+    let result = load_prompt_templates(&env, &[&JsString::from("missing"), &JsString::from("notes.txt")]).await;
 
     assert!(result.prompt_templates.is_empty());
     assert_eq!(result.diagnostics, Vec::new());
@@ -165,7 +167,7 @@ async fn requires_a_lowercase_markdown_extension_and_strips_only_one_suffix() {
     write(root.path(), "templates/Review.MD", "Review body");
     write(root.path(), "templates/two.md.md", "Body");
 
-    let result = load_prompt_templates(&env, &["templates"]).await;
+    let result = load_prompt_templates(&env, &[&JsString::from("templates")]).await;
 
     let names: Vec<&str> = result
         .prompt_templates

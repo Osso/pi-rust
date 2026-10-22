@@ -1,3 +1,5 @@
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -75,7 +77,13 @@ fn tool_call_message(name: &str, id: &str, arguments: Value, usage: Usage) -> Ag
         vec![AssistantContent::ToolCall(ToolCall::new(
             id,
             name,
-            arguments.as_object().cloned().expect("arguments must be an object"),
+            arguments
+                .as_object()
+                .cloned()
+                .expect("arguments must be an object")
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
         ))],
         usage,
     )
@@ -129,7 +137,7 @@ impl EntryFactory {
         Entry {
             body: EntryBody::Compaction {
                 id,
-                summary: summary.to_owned(),
+                summary: JsString::from(summary.to_owned()),
                 tokens_before: 1234.0,
                 retained_tail,
                 duration_ms: None,
@@ -175,7 +183,7 @@ impl EntryFactory {
             body: EntryBody::BranchSummary {
                 id,
                 from_id: from_id.to_owned(),
-                summary: summary.to_owned(),
+                summary: JsString::from(summary.to_owned()),
                 details: OptionalValue::Missing,
                 usage: None,
             },
@@ -495,13 +503,18 @@ fn covers_cut_point_and_turn_start_edge_cases() {
     );
 
     let custom_message = factory.message(
-        AgentMessage::Custom(Map::from_iter([
-            ("role".to_owned(), json!("custom")),
-            ("customType".to_owned(), json!("note")),
-            ("content".to_owned(), json!("custom content")),
-            ("display".to_owned(), json!(true)),
-            ("timestamp".to_owned(), json!(1)),
-        ])),
+        AgentMessage::Custom(
+            (Map::from_iter([
+                ("role".to_owned(), json!("custom")),
+                ("customType".to_owned(), json!("note")),
+                ("content".to_owned(), json!("custom content")),
+                ("display".to_owned(), json!(true)),
+                ("timestamp".to_owned(), json!(1)),
+            ]))
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
+        ),
         Some(branch_summary.id()),
     );
     assert_eq!(find_turn_start_index(&[thinking.clone(), custom_message], 1, 0), 1.0);
@@ -542,18 +555,26 @@ fn estimates_tokens_and_context_usage_across_supported_message_roles() {
             AssistantContent::ToolCall(ToolCall::new(
                 "call-1",
                 "read",
-                Map::from_iter([("path".to_owned(), json!("file.ts"))]),
+                Map::from_iter([("path".to_owned(), json!("file.ts"))])
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
             )),
         ],
         mock_usage.clone(),
     );
-    let custom_string = AgentMessage::Custom(Map::from_iter([
-        ("role".to_owned(), json!("custom")),
-        ("customType".to_owned(), json!("note")),
-        ("content".to_owned(), json!("custom text")),
-        ("display".to_owned(), json!(true)),
-        ("timestamp".to_owned(), json!(1)),
-    ]));
+    let custom_string = AgentMessage::Custom(
+        (Map::from_iter([
+            ("role".to_owned(), json!("custom")),
+            ("customType".to_owned(), json!("note")),
+            ("content".to_owned(), json!("custom text")),
+            ("display".to_owned(), json!(true)),
+            ("timestamp".to_owned(), json!(1)),
+        ]))
+        .into_iter()
+        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+        .collect::<pi_js_compat::js_json::JsObject>(),
+    );
     let tool_result_with_image = AgentMessage::ToolResult(ToolResultMessage {
         role: ToolResultRole::Tag,
         tool_call_id: "call-1".to_owned(),
@@ -568,27 +589,42 @@ fn estimates_tokens_and_context_usage_across_supported_message_roles() {
         is_error: false,
         timestamp: 1,
     });
-    let bash_execution = AgentMessage::Custom(Map::from_iter([
-        ("role".to_owned(), json!("bashExecution")),
-        ("command".to_owned(), json!("npm run check")),
-        ("output".to_owned(), json!("ok")),
-        ("exitCode".to_owned(), json!(0)),
-        ("cancelled".to_owned(), json!(false)),
-        ("truncated".to_owned(), json!(false)),
-        ("timestamp".to_owned(), json!(1)),
-    ]));
-    let branch_summary = AgentMessage::Custom(Map::from_iter([
-        ("role".to_owned(), json!("branchSummary")),
-        ("summary".to_owned(), json!("branch")),
-        ("fromId".to_owned(), json!("x")),
-        ("timestamp".to_owned(), json!(1)),
-    ]));
-    let compaction_summary = AgentMessage::Custom(Map::from_iter([
-        ("role".to_owned(), json!("compactionSummary")),
-        ("summary".to_owned(), json!("compact")),
-        ("tokensBefore".to_owned(), json!(123)),
-        ("timestamp".to_owned(), json!(1)),
-    ]));
+    let bash_execution = AgentMessage::Custom(
+        (Map::from_iter([
+            ("role".to_owned(), json!("bashExecution")),
+            ("command".to_owned(), json!("npm run check")),
+            ("output".to_owned(), json!("ok")),
+            ("exitCode".to_owned(), json!(0)),
+            ("cancelled".to_owned(), json!(false)),
+            ("truncated".to_owned(), json!(false)),
+            ("timestamp".to_owned(), json!(1)),
+        ]))
+        .into_iter()
+        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+        .collect::<pi_js_compat::js_json::JsObject>(),
+    );
+    let branch_summary = AgentMessage::Custom(
+        (Map::from_iter([
+            ("role".to_owned(), json!("branchSummary")),
+            ("summary".to_owned(), json!("branch")),
+            ("fromId".to_owned(), json!("x")),
+            ("timestamp".to_owned(), json!(1)),
+        ]))
+        .into_iter()
+        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+        .collect::<pi_js_compat::js_json::JsObject>(),
+    );
+    let compaction_summary = AgentMessage::Custom(
+        (Map::from_iter([
+            ("role".to_owned(), json!("compactionSummary")),
+            ("summary".to_owned(), json!("compact")),
+            ("tokensBefore".to_owned(), json!(123)),
+            ("timestamp".to_owned(), json!(1)),
+        ]))
+        .into_iter()
+        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+        .collect::<pi_js_compat::js_json::JsObject>(),
+    );
 
     assert_eq!(estimate_tokens(&user_message("plain user")), 3.0);
     assert_eq!(estimate_tokens(&assistant_with_thinking_and_tool), 8.0);
@@ -598,10 +634,15 @@ fn estimates_tokens_and_context_usage_across_supported_message_roles() {
     assert_eq!(estimate_tokens(&branch_summary), 2.0);
     assert_eq!(estimate_tokens(&compaction_summary), 2.0);
     assert_eq!(
-        estimate_tokens(&AgentMessage::Custom(Map::from_iter([
-            ("role".to_owned(), json!("unknown")),
-            ("timestamp".to_owned(), json!(1)),
-        ]))),
+        estimate_tokens(&AgentMessage::Custom(
+            (Map::from_iter([
+                ("role".to_owned(), json!("unknown")),
+                ("timestamp".to_owned(), json!(1)),
+            ]))
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>()
+        )),
         0.0
     );
 
@@ -740,7 +781,10 @@ fn prepares_compaction_using_the_latest_compaction_summary_as_previous_summary()
     let preparation = prepare_compaction(&path_entries, &DEFAULT_COMPACTION_SETTINGS)
         .expect("preparation must not fail")
         .expect("preparation must be defined");
-    assert_eq!(preparation.previous_summary.as_deref(), Some("First summary"));
+    assert_eq!(
+        preparation.previous_summary.as_ref(),
+        Some(&JsString::from("First summary"))
+    );
     assert!(!preparation.retained_tail.is_empty());
     let context = build_session_context(&path_entries, &SessionContextBuildOptions::default());
     assert_eq!(
@@ -768,7 +812,10 @@ fn carries_a_previous_compactions_retained_tail_into_the_next_preparation() {
     let preparation = prepare_compaction(&[compaction, user.clone(), assistant.clone()], &settings(100.0, 1.0))
         .expect("preparation must not fail")
         .expect("preparation must be defined");
-    assert_eq!(preparation.previous_summary.as_deref(), Some("previous summary"));
+    assert_eq!(
+        preparation.previous_summary.as_ref(),
+        Some(&JsString::from("previous summary"))
+    );
 
     let mut all = preparation.messages_to_summarize.clone();
     all.extend(preparation.turn_prefix_messages.clone());
@@ -799,10 +846,10 @@ fn prepares_split_turn_compaction_with_prior_file_operation_details() {
     );
     let mut compaction1 = factory.compaction("First summary", Some(a1.id()), Vec::new());
     if let EntryBody::Compaction { details, .. } = &mut compaction1.body {
-        *details = OptionalValue::Present(json!({
+        *details = OptionalValue::Present(JsValue::from(json!({
             "readFiles": ["old-read.ts"],
             "modifiedFiles": ["old-edit.ts", "written.ts"]
-        }));
+        })));
     }
     let u2 = factory.message(user_message("large turn"), Some(compaction1.id()));
     let prefix_assistant = factory.message(
@@ -825,7 +872,10 @@ fn prepares_split_turn_compaction_with_prior_file_operation_details() {
     .expect("preparation must not fail")
     .expect("preparation must be defined");
 
-    assert_eq!(preparation.previous_summary.as_deref(), Some("First summary"));
+    assert_eq!(
+        preparation.previous_summary.as_ref(),
+        Some(&JsString::from("First summary"))
+    );
     assert!(preparation.is_split_turn);
     assert_eq!(
         preparation.turn_prefix_messages.iter().map(role).collect::<Vec<_>>(),
@@ -879,10 +929,10 @@ fn context_usage_estimate_fields_remain_publicly_mutable() {
 #[test]
 fn compaction_details_fields_remain_publicly_mutable() {
     let mut details = CompactionDetails {
-        read_files: vec!["a".to_owned()],
+        read_files: vec![JsString::from("a")],
         modified_files: Vec::new(),
     };
-    details.modified_files.push("b".to_owned());
+    details.modified_files.push(JsString::from("b"));
     assert_eq!(details.modified_files, ["b"]);
 }
 
@@ -985,7 +1035,7 @@ fn scripted_failure(stop_reason: StopReason, error_message: &str) -> FauxRespons
         "",
         FauxAssistantMessageOptions {
             stop_reason: Some(stop_reason),
-            error_message: Some(error_message.to_owned()),
+            error_message: Some(JsString::from(error_message.to_owned())),
             ..Default::default()
         },
     ))
@@ -1069,8 +1119,8 @@ async fn includes_previous_summaries_and_custom_instructions_in_generate_summary
     faux.set_responses(scripted_responses(Arc::clone(&log), vec!["## Goal\nTest summary"]));
 
     let mut options = summary_options(&messages, &models, &model, 2000.0);
-    options.custom_instructions = Some("focus");
-    options.previous_summary = Some("old summary");
+    options.custom_instructions = Some(&JsString::from("focus"));
+    options.previous_summary = Some(&JsString::from("old summary"));
     let summary = generate_summary_with_usage(&options)
         .await
         .expect("summary must succeed");

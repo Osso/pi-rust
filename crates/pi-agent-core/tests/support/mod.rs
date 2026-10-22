@@ -20,7 +20,7 @@ pub fn model() -> Model {
         name: "mock".to_owned(),
         api: "openai-responses".to_owned(),
         provider: "openai".to_owned(),
-        base_url: "https://example.invalid".to_owned(),
+        base_url: JsString::from("https://example.invalid"),
         reasoning: false,
         thinking_level_map: None,
         input: vec![Modality::Text],

@@ -1,13 +1,14 @@
 use pi_agent_core::harness::Skill;
 use pi_agent_core::harness::skills::format_skill_invocation;
 use pi_agent_core::harness::system_prompt::format_skills_for_system_prompt;
+use pi_js_compat::js_json::JsString;
 
 fn skill(name: &str, description: &str, content: &str, file_path: &str) -> Skill {
     Skill {
-        name: name.to_owned(),
+        name: JsString::from(name.to_owned()),
         description: description.to_owned(),
         content: content.to_owned(),
-        file_path: file_path.to_owned(),
+        file_path: JsString::from(file_path.to_owned()),
         disable_model_invocation: None,
     }
 }
@@ -109,7 +110,7 @@ fn skill_invocation_preserves_raw_fields_and_omits_empty_instructions() {
     let expected = "<skill name=\"name<&\"'\" location=\"/a/b/SKILL.md\">\nReferences are relative to /a/b.\n\ncontent<&\"'\0\n</skill>";
 
     assert_eq!(format_skill_invocation(&skill, None), expected);
-    assert_eq!(format_skill_invocation(&skill, Some("")), expected);
+    assert_eq!(format_skill_invocation(&skill, Some(&JsString::from(""))), expected);
 }
 
 #[test]
@@ -117,7 +118,7 @@ fn skill_invocation_appends_nonempty_instructions_verbatim() {
     let skill = skill("name", "description", "content", "relative/SKILL.md");
 
     assert_eq!(
-        format_skill_invocation(&skill, Some("Check <this> & that\nnext.")),
+        format_skill_invocation(&skill, Some(&JsString::from("Check <this> & that\nnext."))),
         "<skill name=\"name\" location=\"relative/SKILL.md\">\nReferences are relative to relative.\n\ncontent\n</skill>\n\nCheck <this> & that\nnext."
     );
 }

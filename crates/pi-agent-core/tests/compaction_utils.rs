@@ -8,12 +8,14 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, Message, StopReason, TextContent, TextOrImageContent, ToolCall,
     ToolResultMessage, ToolResultRole, UserContent, UserMessage, UserRole,
 };
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Map, Value, json};
 
 fn user(text: &str) -> Message {
     Message::User(UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text(text.to_owned()),
+        content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
         timestamp: 1,
@@ -33,7 +35,7 @@ fn tool_result(text: &str, details: Option<Value>) -> Message {
         tool_call_id: "call-1".to_owned(),
         tool_name: "read".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details,
+        details: details.map(JsValue::from),
         usage: None,
         added_tool_names: None,
         is_error: false,
@@ -46,7 +48,13 @@ fn tool_call(name: &str, arguments: Value) -> AgentMessage {
     message.content = vec![AssistantContent::ToolCall(ToolCall::new(
         "call-1",
         name,
-        arguments.as_object().cloned().expect("arguments must be an object"),
+        arguments
+            .as_object()
+            .cloned()
+            .expect("arguments must be an object")
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
     ))];
     message.stop_reason = StopReason::ToolUse;
     AgentMessage::Assistant(Box::new(message))
@@ -94,12 +102,18 @@ fn accumulates_multiple_tool_calls_in_one_message() {
         AssistantContent::ToolCall(ToolCall::new(
             "call-1",
             "read",
-            Map::from_iter([("path".to_owned(), json!("a.ts"))]),
+            Map::from_iter([("path".to_owned(), json!("a.ts"))])
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
         )),
         AssistantContent::ToolCall(ToolCall::new(
             "call-2",
             "read",
-            Map::from_iter([("path".to_owned(), json!("b.ts"))]),
+            Map::from_iter([("path".to_owned(), json!("b.ts"))])
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
         )),
         AssistantContent::Text(TextContent::new("done")),
     ];
@@ -115,7 +129,7 @@ fn computes_sorted_read_only_and_modified_lists() {
     file_ops
         .read
         .extend(["z.ts".to_owned(), "a.ts".to_owned(), "shared.ts".to_owned()]);
-    file_ops.written.insert("shared.ts".to_owned());
+    file_ops.written.insert(JsString::from("shared.ts"));
     file_ops.edited.extend(["m.ts".to_owned(), "b.ts".to_owned()]);
 
     let lists = compute_file_lists(&file_ops);
@@ -136,7 +150,7 @@ fn sorts_file_lists_by_utf16_code_unit_order() {
 fn formats_file_operation_sections() {
     assert_eq!(format_file_operations(&[], &[]), "");
     assert_eq!(
-        format_file_operations(&["a.ts".to_owned()], &["b.ts".to_owned()]),
+        format_file_operations(&[JsString::from("a.ts")], &[JsString::from("b.ts")]),
         "\n\n<read-files>\na.ts\n</read-files>\n\n<modified-files>\nb.ts\n</modified-files>"
     );
 }
@@ -165,7 +179,14 @@ fn serializes_tool_calls_with_json_arguments_in_insertion_order() {
     arguments.insert("flag".to_owned(), json!(true));
     let messages = vec![assistant(vec![
         AssistantContent::Text(TextContent::new("reading")),
-        AssistantContent::ToolCall(ToolCall::new("call-1", "read", arguments)),
+        AssistantContent::ToolCall(ToolCall::new(
+            "call-1",
+            "read",
+            arguments
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
+        )),
     ])];
 
     assert_eq!(
@@ -240,7 +261,12 @@ fn serializes_numeric_keys_and_nested_values_in_js_order() {
     let arguments: serde_json::Map<String, Value> =
         serde_json::from_str(r#"{"nested":{"2":2.0,"1":1.0,"01":3},"2":2.0,"1":1.0,"4294967295":4,"01":5}"#).unwrap();
     let messages = [assistant(vec![AssistantContent::ToolCall(ToolCall::new(
-        "id", "inspect", arguments,
+        "id",
+        "inspect",
+        arguments
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
     ))])];
     assert_eq!(
         serialize_conversation(&messages),

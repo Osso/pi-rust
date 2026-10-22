@@ -1,3 +1,5 @@
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -81,7 +83,13 @@ fn tool_call_message(name: &str, id: &str, arguments: Value, usage: Usage) -> Ag
         vec![AssistantContent::ToolCall(ToolCall::new(
             id,
             name,
-            arguments.as_object().cloned().expect("arguments must be an object"),
+            arguments
+                .as_object()
+                .cloned()
+                .expect("arguments must be an object")
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
         ))],
         usage,
     )
@@ -93,7 +101,7 @@ fn tool_result_message(text: &str, details: Option<Value>) -> AgentMessage {
         tool_call_id: "call-1".to_owned(),
         tool_name: "read".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details,
+        details: details.map(JsValue::from),
         usage: None,
         added_tool_names: None,
         is_error: false,
@@ -102,7 +110,15 @@ fn tool_result_message(text: &str, details: Option<Value>) -> AgentMessage {
 }
 
 fn custom_message(value: Value) -> AgentMessage {
-    AgentMessage::Custom(value.as_object().cloned().expect("custom message must be an object"))
+    AgentMessage::Custom(
+        value
+            .as_object()
+            .cloned()
+            .expect("custom message must be an object")
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
+    )
 }
 
 struct EntryFactory {
@@ -139,7 +155,7 @@ impl EntryFactory {
         Entry {
             body: EntryBody::Compaction {
                 id,
-                summary: summary.to_owned(),
+                summary: JsString::from(summary.to_owned()),
                 tokens_before: 1234.0,
                 retained_tail,
                 duration_ms: None,
@@ -158,7 +174,7 @@ impl EntryFactory {
             body: EntryBody::BranchSummary {
                 id,
                 from_id: "branch".to_owned(),
-                summary: summary.to_owned(),
+                summary: JsString::from(summary.to_owned()),
                 details: details.map_or(OptionalValue::Missing, OptionalValue::Present),
                 usage: None,
             },
@@ -343,7 +359,7 @@ fn scripted_responses(log: &CallLog, responses: &[Value]) -> Vec<FauxResponseSte
                             text,
                             FauxAssistantMessageOptions {
                                 stop_reason,
-                                error_message,
+                                error_message: error_message.map(JsString::from),
                                 ..Default::default()
                             },
                         ))
@@ -416,7 +432,10 @@ fn compare_estimate_tokens(oracle: &mut TsOracle) {
                     AssistantContent::ToolCall(ToolCall::new(
                         "call-1",
                         "read",
-                        serde_json::Map::from_iter([("path".to_owned(), json!("file.ts"))]),
+                        serde_json::Map::from_iter([("path".to_owned(), json!("file.ts"))])
+                            .into_iter()
+                            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                            .collect::<pi_js_compat::js_json::JsObject>(),
                     )),
                 ],
                 usage(10.0, 5.0, 3.0, 2.0),
@@ -704,7 +723,9 @@ fn compare_prepare_compaction(oracle: &mut TsOracle) {
     );
     let mut compaction = factory.compaction("First summary", Some(a2.id()), Vec::new());
     if let EntryBody::Compaction { details, .. } = &mut compaction.body {
-        *details = OptionalValue::Present(json!({"readFiles": ["old-read.ts"], "modifiedFiles": ["old-edit.ts"]}));
+        *details = OptionalValue::Present(JsValue::from(
+            json!({"readFiles": ["old-read.ts"], "modifiedFiles": ["old-edit.ts"]}),
+        ));
     }
     let u3 = factory.message(user_message("user msg 3"), Some(compaction.id()));
     let a3 = factory.message(
@@ -779,14 +800,17 @@ fn compare_serialize_conversation(oracle: &mut TsOracle) {
                         AssistantContent::ToolCall(ToolCall::new(
                             "call-1",
                             "read",
-                            serde_json::Map::from_iter([
+                            (serde_json::Map::from_iter([
                                 ("path".to_owned(), json!("src/a.ts")),
                                 ("limit".to_owned(), json!(10)),
                                 ("flag".to_owned(), json!(true)),
                                 ("nested".to_owned(), json!({"2": 2.0, "1": 1.0})),
                                 ("2".to_owned(), json!(2.0)),
                                 ("1".to_owned(), json!(1.0)),
-                            ]),
+                            ]))
+                            .into_iter()
+                            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                            .collect::<pi_js_compat::js_json::JsObject>(),
                         )),
                     ],
                     usage(100.0, 50.0, 0.0, 0.0),
@@ -891,7 +915,7 @@ fn compare_file_lists(oracle: &mut TsOracle) {
     file_ops
         .read
         .extend(["z.ts".to_owned(), "a.ts".to_owned(), "shared.ts".to_owned()]);
-    file_ops.written.insert("shared.ts".to_owned());
+    file_ops.written.insert(JsString::from("shared.ts"));
     file_ops.edited.extend(["m.ts".to_owned(), "b.ts".to_owned()]);
     let empty = pi_agent_core::harness::compaction::FileOperations::default();
 
@@ -1053,8 +1077,8 @@ async fn compare_generate_summary(oracle: &mut TsOracle) {
             model: &model,
             reserve_tokens: *reserve,
             signal: None,
-            custom_instructions: *custom,
-            previous_summary: *previous,
+            custom_instructions: (*custom).map(JsString::from).as_ref(),
+            previous_summary: (*previous).map(JsString::from).as_ref(),
             thinking_level: (*thinking).map(parse_thinking_level),
             retry: None,
         };
@@ -1383,7 +1407,7 @@ async fn compare_generate_branch_summary(oracle: &mut TsOracle) {
             models: &models,
             model: &model,
             signal: None,
-            custom_instructions: *custom,
+            custom_instructions: (*custom).map(JsString::from).as_ref(),
             replace_instructions: *replace,
             reserve_tokens: *reserve,
             retry: None,

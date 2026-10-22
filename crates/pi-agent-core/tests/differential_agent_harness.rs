@@ -1,6 +1,7 @@
 #[path = "differential_agent_harness/support.rs"]
 mod support;
 
+use pi_js_compat::js_json::JsString;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
@@ -184,24 +185,24 @@ async fn harness_config_roundtrip(harness: &AgentHarness) -> Value {
 
     let mut resources = pi_agent_core::harness::AgentHarnessResources {
         skills: Some(vec![pi_agent_core::harness::Skill {
-            name: "skill".to_owned(),
+            name: JsString::from("skill"),
             description: "desc".to_owned(),
             content: "body".to_owned(),
-            file_path: "/tmp/SKILL.md".to_owned(),
+            file_path: JsString::from("/tmp/SKILL.md"),
             disable_model_invocation: None,
         }]),
         prompt_templates: Some(vec![pi_agent_core::harness::PromptTemplate {
-            name: "template".to_owned(),
+            name: JsString::from("template"),
             description: None,
             content: "body".to_owned(),
         }]),
     };
     harness.set_resources(resources.clone()).await;
     resources.skills.as_mut().unwrap().push(pi_agent_core::harness::Skill {
-        name: "mutated".to_owned(),
+        name: JsString::from("mutated"),
         description: "desc".to_owned(),
         content: "body".to_owned(),
-        file_path: "/tmp/OTHER.md".to_owned(),
+        file_path: JsString::from("/tmp/OTHER.md"),
         disable_model_invocation: None,
     });
     let mut read_resources = harness.get_resources().await;
@@ -210,10 +211,10 @@ async fn harness_config_roundtrip(harness: &AgentHarness) -> Value {
         .as_mut()
         .unwrap()
         .push(pi_agent_core::harness::Skill {
-            name: "mutated".to_owned(),
+            name: JsString::from("mutated"),
             description: "desc".to_owned(),
             content: "body".to_owned(),
-            file_path: "/tmp/OTHER.md".to_owned(),
+            file_path: JsString::from("/tmp/OTHER.md"),
             disable_model_invocation: None,
         });
 
@@ -281,7 +282,7 @@ async fn rejection<T>(operation: &str, result: Result<T, HarnessUnavailable>) ->
 fn user_message() -> pi_agent_core::agent::AgentMessage {
     pi_agent_core::agent::AgentMessage::User(pi_ai::types::UserMessage {
         role: pi_ai::types::UserRole::Tag,
-        content: pi_ai::types::UserContent::Text("hello".to_owned()),
+        content: pi_ai::types::UserContent::Text(JsString::from("hello")),
         input_source: None,
         provider_native: None,
         timestamp: 1,
@@ -398,7 +399,7 @@ async fn harness_create_empty() -> Value {
     let entry_id = session
         .append_message(pi_agent_core::agent::AgentMessage::User(pi_ai::types::UserMessage {
             role: pi_ai::types::UserRole::Tag,
-            content: pi_ai::types::UserContent::Text("hello".to_owned()),
+            content: pi_ai::types::UserContent::Text(JsString::from("hello")),
             input_source: None,
             provider_native: None,
             timestamp: 1,

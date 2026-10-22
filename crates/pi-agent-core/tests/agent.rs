@@ -1,5 +1,6 @@
 pub mod support;
 
+use pi_js_compat::js_json::JsString;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -223,7 +224,10 @@ async fn prepare_next_turn_reads_replaced_hook_after_turn_listeners() {
         Box::pin(async { Ok(()) })
     }));
     agent.prompt("hello").await.unwrap();
-    assert_eq!(prompts.lock().unwrap()[1].as_deref(), Some("replaced hook"));
+    assert_eq!(
+        prompts.lock().unwrap()[1].as_ref(),
+        Some(&JsString::from("replaced hook"))
+    );
 }
 
 #[tokio::test]
@@ -315,7 +319,7 @@ async fn forwards_frozen_agent_callbacks_and_mutable_provider_configuration() {
 #[tokio::test]
 async fn empty_assistant_error_text_does_not_set_state_error() {
     let mut message = text_assistant("ok");
-    message.error_message = Some(String::new());
+    message.error_message = Some(JsString::default());
     let agent = Agent::new(AgentOptions {
         stream_fn: Some(scripted_stream_fn(vec![Script::message(message)])),
         ..Default::default()
@@ -349,7 +353,7 @@ async fn creates_agent_with_custom_initial_state() {
     let agent = Agent::new(AgentOptions {
         stream_fn: Some(scripted_stream_fn(Vec::new())),
         initial_state: Some(pi_agent_core::agent::AgentInitialState {
-            system_prompt: Some("You are a helpful assistant.".to_owned()),
+            system_prompt: Some(JsString::from("You are a helpful assistant.")),
             model: Some(model()),
             thinking_level: Some(pi_agent_core::harness::ThinkingLevel::Low),
             ..Default::default()
@@ -419,8 +423,14 @@ async fn emits_full_lifecycle_events_for_run_failures() {
     let last = messages.last().unwrap();
     let assistant = last.as_assistant().expect("assistant failure message");
     assert_eq!(assistant.stop_reason, StopReason::Error);
-    assert_eq!(assistant.error_message.as_deref(), Some("provider exploded"));
-    assert_eq!(agent.error_message().as_deref(), Some("provider exploded"));
+    assert_eq!(
+        assistant.error_message.as_ref(),
+        Some(&JsString::from("provider exploded"))
+    );
+    assert_eq!(
+        agent.error_message().as_ref(),
+        Some(&JsString::from("provider exploded"))
+    );
 }
 
 #[tokio::test]
@@ -1125,7 +1135,7 @@ async fn forwards_session_id_to_stream_function_options() {
     let received = Arc::new(Mutex::new(Vec::<Option<String>>::new()));
     let received_hook = Arc::clone(&received);
     let agent = Agent::new(AgentOptions {
-        session_id: Some("session-abc".to_owned()),
+        session_id: Some(JsString::from("session-abc")),
         stream_fn: Some(Arc::new(move |_model, _context, options: SimpleStreamOptions| {
             received_hook.lock().unwrap().push(options.stream.session_id.clone());
             Box::pin(async move {
@@ -1145,8 +1155,8 @@ async fn forwards_session_id_to_stream_function_options() {
         received.lock().unwrap().last().cloned().flatten().as_deref(),
         Some("session-abc")
     );
-    agent.set_session_id(Some("session-def".to_owned()));
-    assert_eq!(agent.session_id().as_deref(), Some("session-def"));
+    agent.set_session_id(Some(JsString::from("session-def")));
+    assert_eq!(agent.session_id().as_ref(), Some(&JsString::from("session-def")));
     agent.prompt("hello again").await.unwrap();
     assert_eq!(
         received.lock().unwrap().last().cloned().flatten().as_deref(),

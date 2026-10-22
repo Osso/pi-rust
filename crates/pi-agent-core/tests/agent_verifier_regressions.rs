@@ -1,3 +1,5 @@
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 mod steering {
 
     use pi_agent_core::agent::*;
@@ -93,7 +95,7 @@ mod steering {
             })
         });
         let ctx = AgentContext {
-            system_prompt: String::new(),
+            system_prompt: JsString::default(),
             messages: vec![],
             tools: Some(vec![Arc::new(EndTool(json!({"type":"object"})))]),
         };
@@ -181,7 +183,10 @@ mod lifetime {
                 msg.content = vec![AssistantContent::ToolCall(ToolCall::new(
                     "call",
                     "echo",
-                    serde_json::Map::new(),
+                    serde_json::Map::new()
+                        .into_iter()
+                        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                        .collect::<pi_js_compat::js_json::JsObject>(),
                 ))];
                 sender.push(AssistantMessageEvent::Done {
                     reason: DoneReason::ToolUse,
@@ -288,6 +293,9 @@ mod proxy_body {
         );
         while s.next().await.is_some() {}
         let result = s.result().await.unwrap();
-        assert_eq!(result.error_message.as_deref(), Some("Proxy error: 502 Bad Gateway"));
+        assert_eq!(
+            result.error_message.as_ref(),
+            Some(&JsString::from("Proxy error: 502 Bad Gateway"))
+        );
     }
 }

@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -57,7 +58,7 @@ fn starts_at_the_latest_compaction_and_materializes_its_retained_tail() {
         entry(
             EntryBody::Compaction {
                 id: "compact".to_owned(),
-                summary: "summary".to_owned(),
+                summary: JsString::from("summary"),
                 tokens_before: 100.0,
                 retained_tail: vec![user_message("retained"), assistant_message("answer")],
                 duration_ms: None,
@@ -118,7 +119,7 @@ fn applies_caller_transforms_after_the_compaction_boundary() {
         entry(
             EntryBody::Compaction {
                 id: "compact".to_owned(),
-                summary: "summary".to_owned(),
+                summary: JsString::from("summary"),
                 tokens_before: 100.0,
                 retained_tail: Vec::new(),
                 duration_ms: None,
@@ -131,7 +132,7 @@ fn applies_caller_transforms_after_the_compaction_boundary() {
             EntryBody::BranchSummary {
                 id: "branch".to_owned(),
                 from_id: "abandoned".to_owned(),
-                summary: "branch summary".to_owned(),
+                summary: JsString::from("branch summary"),
                 details: OptionalValue::Missing,
                 usage: None,
             },
@@ -294,7 +295,7 @@ fn skips_empty_branch_summaries() {
         EntryBody::BranchSummary {
             id: "branch".to_owned(),
             from_id: "old".to_owned(),
-            summary: String::new(),
+            summary: JsString::default(),
             details: OptionalValue::Missing,
             usage: None,
         },
@@ -306,7 +307,8 @@ fn skips_empty_branch_summaries() {
 
 #[test]
 fn custom_message_text_helper_matches_expected_shape() {
-    let message = pi_agent_core::harness::messages::create_branch_summary_message("summary", "from", 42);
+    let message =
+        pi_agent_core::harness::messages::create_branch_summary_message("summary", &JsString::from("from"), 42);
     assert_eq!(message.role(), "branchSummary");
     assert_eq!(
         serde_json::to_string(&message).unwrap(),

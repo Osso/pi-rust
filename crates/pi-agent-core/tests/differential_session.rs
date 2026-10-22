@@ -1,6 +1,8 @@
 #[path = "differential_session/support.rs"]
 mod support;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -30,7 +32,7 @@ fn jsonl_repo(root: &Path) -> JsonlSessionRepo {
     JsonlSessionRepo::with_clock(
         JsonlSessionRepoOptions {
             fs: std::sync::Arc::new(NativeFileSystem::new(root)),
-            sessions_root: root.to_string_lossy().into_owned(),
+            sessions_root: JsString::from(root.to_string_lossy().into_owned()),
         },
         std::sync::Arc::new(|| 1_700_000_000_000),
     )
@@ -188,7 +190,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
         .create(JsonlSessionCreateOptions {
             id: Some("session".to_owned()),
             parent_session_id: None,
-            cwd: rust_root.path().join("workspace").to_string_lossy().into_owned(),
+            cwd: JsString::from(rust_root.path().join("workspace").to_string_lossy().into_owned()),
             metadata: Some(
                 json!({"owner": "agent", "nested": {"enabled": true}})
                     .as_object()
@@ -386,7 +388,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
             JsonlSessionCreateOptions {
                 id: Some("tree-fork".to_owned()),
                 parent_session_id: None,
-                cwd: rust_root.path().join("workspace").to_string_lossy().into_owned(),
+                cwd: JsString::from(rust_root.path().join("workspace").to_string_lossy().into_owned()),
                 metadata: None,
             },
         )
@@ -417,7 +419,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
             JsonlSessionCreateOptions {
                 id: Some("branch-fork".to_owned()),
                 parent_session_id: None,
-                cwd: rust_root.path().join("workspace").to_string_lossy().into_owned(),
+                cwd: JsString::from(rust_root.path().join("workspace").to_string_lossy().into_owned()),
                 metadata: None,
             },
         )
@@ -843,10 +845,10 @@ async fn session_context_matches_the_pinned_typescript_source() {
                         return None;
                     };
                     Some(vec![pi_agent_core::agent::AgentMessage::Custom(
-                        json!({"role": "user", "content": [{"type": "text", "text": format!("note: {}", data.as_value().and_then(Value::as_str).unwrap_or_default())}], "timestamp": entry.timestamp})
+                        (json!({"role": "user", "content": [{"type": "text", "text": format!("note: {}", data.as_value().and_then(JsValue::as_string).unwrap_or_default())}], "timestamp": entry.timestamp})
                             .as_object()
                             .unwrap()
-                            .clone(),
+                            .clone()).into_iter().map(|(key, value)| (JsString::from(key), JsValue::from(value))).collect::<pi_js_compat::js_json::JsObject>(),
                     )])
                 }),
             );
@@ -883,7 +885,7 @@ async fn jsonl_search_matches_the_pinned_typescript_source() {
             .create(JsonlSessionCreateOptions {
                 id: Some(id.to_owned()),
                 parent_session_id: None,
-                cwd: rust_root.path().join(cwd).to_string_lossy().into_owned(),
+                cwd: JsString::from(rust_root.path().join(cwd).to_string_lossy().into_owned()),
                 metadata: None,
             })
             .await
@@ -907,7 +909,7 @@ async fn jsonl_search_matches_the_pinned_typescript_source() {
 
     let options = JsonlSessionRepoOptions {
         fs: std::sync::Arc::new(NativeFileSystem::new(rust_root.path())),
-        sessions_root: rust_root.path().to_string_lossy().into_owned(),
+        sessions_root: JsString::from(rust_root.path().to_string_lossy().into_owned()),
     };
     let source = std::sync::Arc::new(move |query: Option<JsonlSessionListOptions>| {
         let options = options.clone();

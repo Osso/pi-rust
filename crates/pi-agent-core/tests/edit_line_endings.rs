@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fmt::Debug;
 
 use pi_agent_core::harness::tools::edit_diff::{
@@ -17,8 +18,8 @@ fn public_api_preserves_line_ending_literals_and_named_bom_fields() {
     assert_eq!(result.bom, "\u{feff}");
     assert_eq!(result.text, "text");
 
-    result.bom = "changed".to_owned();
-    result.text = "updated".to_owned();
+    result.bom = JsString::from("changed");
+    result.text = JsString::from("updated");
     assert_eq!(result.bom, "changed");
     assert_eq!(result.text, "updated");
     assert_debug(&result);

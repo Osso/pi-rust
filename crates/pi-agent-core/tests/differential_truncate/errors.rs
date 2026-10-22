@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::error::Error as StdError;
 use std::fmt::{self, Display, Formatter};
 
@@ -128,7 +129,7 @@ fn build_error(fixture: &Fixture) -> Box<dyn StdError + Send + Sync + 'static> {
         HarnessErrorKind::File => Box::new(FileError::new(
             file_code(fixture.code),
             fixture.message,
-            owned_path(fixture.path),
+            owned_path(fixture.path).map(JsString::from),
             cause,
         )),
         HarnessErrorKind::Execution => Box::new(ExecutionError::new(

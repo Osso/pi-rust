@@ -23,7 +23,7 @@ use tokio_util::sync::CancellationToken;
 
 fn context(messages: Vec<AgentMessage>, tools: Vec<Arc<dyn pi_agent_core::agent::AgentTool>>) -> AgentContext {
     AgentContext {
-        system_prompt: String::new(),
+        system_prompt: JsString::default(),
         messages,
         tools: Some(tools),
     }
@@ -1067,7 +1067,7 @@ async fn uses_prepare_next_turn_snapshot_before_continuing() {
             }
             Ok(Some(pi_agent_core::agent::AgentLoopTurnUpdate {
                 context: Some(AgentContext {
-                    system_prompt: "second prompt".to_owned(),
+                    system_prompt: JsString::from("second prompt"),
                     messages: turn_context.context.messages.clone(),
                     tools: turn_context.context.tools.clone(),
                 }),
@@ -1108,7 +1108,7 @@ async fn uses_prepare_next_turn_snapshot_before_continuing() {
         })
     };
     let mut base = context(Vec::new(), vec![Arc::new(tool)]);
-    base.system_prompt = "first prompt".to_owned();
+    base.system_prompt = JsString::from("first prompt");
     let stream = agent_loop(
         vec![agent_message(user("echo something"))],
         base,

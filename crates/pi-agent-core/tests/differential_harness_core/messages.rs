@@ -3,6 +3,8 @@ use pi_agent_core::harness::messages::{
     BashExecutionMessage, BashExecutionRole, CustomMessageContent, bash_execution_to_text, convert_to_llm,
     create_custom_message,
 };
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 
 use super::support::{TsOracle, expect_ok, oracle_request};
@@ -46,12 +48,12 @@ fn bash_messages() -> Vec<Value> {
 fn bash_execution_message(value: &Value) -> BashExecutionMessage {
     BashExecutionMessage {
         role: BashExecutionRole::BashExecution,
-        command: value["command"].as_str().unwrap_or_default().to_owned(),
-        output: value["output"].as_str().unwrap_or_default().to_owned(),
+        command: JsString::from(value["command"].as_str().unwrap_or_default().to_owned()),
+        output: JsString::from(value["output"].as_str().unwrap_or_default().to_owned()),
         exit_code: value["exitCode"].as_f64(),
         cancelled: value["cancelled"].as_bool().unwrap_or(false),
         truncated: value["truncated"].as_bool().unwrap_or(false),
-        full_output_path: value["fullOutputPath"].as_str().map(str::to_owned),
+        full_output_path: value["fullOutputPath"].as_str().map(str::to_owned).map(JsString::from),
         timestamp: value["timestamp"].as_f64().unwrap_or_default(),
         exclude_from_context: value["excludeFromContext"].as_bool(),
     }
@@ -85,7 +87,7 @@ fn custom_messages() -> Vec<Value> {
 
 fn custom_content(value: &Value) -> CustomMessageContent {
     if let Some(text) = value.as_str() {
-        return CustomMessageContent::Text(text.to_owned());
+        return CustomMessageContent::Text(JsString::from(text.to_owned()));
     }
     CustomMessageContent::Blocks(serde_json::from_value(value.clone()).expect("content blocks"))
 }
@@ -121,10 +123,10 @@ pub(crate) fn compare_all_fixtures(oracle: &mut TsOracle) {
         let response = oracle.request(&request);
         let expected = expect_ok(&response);
         let rust_message = create_custom_message(
-            message["customType"].as_str().unwrap(),
+            &JsString::from(message["customType"].as_str().unwrap()),
             custom_content(&message["content"]),
             message["display"].as_bool().unwrap(),
-            message.get("details").cloned(),
+            message.get("details").cloned().map(JsValue::from),
             message["timestamp"].as_i64().unwrap(),
         );
         let rust_value = serde_json::to_value(rust_message).expect("custom message must serialize");

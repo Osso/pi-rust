@@ -1,3 +1,5 @@
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::Arc;
 
 use pi_agent_core::agent::AgentMessage;
@@ -98,7 +100,7 @@ async fn honors_entry_type_filters_limits_and_abort_signals() {
     let session = memory_session("session");
     let message_entry_id = session.append_message(message("auth message")).await.unwrap();
     session
-        .append_custom_entry("note", Some(serde_json::json!({"text": "auth custom"})))
+        .append_custom_entry("note", Some(JsValue::from(serde_json::json!({"text": "auth custom"}))))
         .await
         .unwrap();
     let search = memory_search(vec![Arc::new(session)]);
@@ -312,7 +314,7 @@ async fn scans_jsonl_sessions_from_disk_through_the_scanning_source() {
     let root = TempDir::new().unwrap();
     let options = JsonlSessionRepoOptions {
         fs: Arc::new(NativeFileSystem::new(root.path())),
-        sessions_root: root.path().to_string_lossy().into_owned(),
+        sessions_root: JsString::from(root.path().to_string_lossy().into_owned()),
     };
     let repository = JsonlSessionRepo::with_clock(options.clone(), Arc::new(|| 1_700_000_000_000));
     let cwd = root.path().join("workspace");
@@ -321,7 +323,7 @@ async fn scans_jsonl_sessions_from_disk_through_the_scanning_source() {
         .create(JsonlSessionCreateOptions {
             id: Some("jsonl".to_owned()),
             parent_session_id: None,
-            cwd: cwd.to_string_lossy().into_owned(),
+            cwd: JsString::from(cwd.to_string_lossy().into_owned()),
             metadata: None,
         })
         .await
@@ -335,7 +337,7 @@ async fn scans_jsonl_sessions_from_disk_through_the_scanning_source() {
         .create(JsonlSessionCreateOptions {
             id: Some("other".to_owned()),
             parent_session_id: None,
-            cwd: other_cwd.to_string_lossy().into_owned(),
+            cwd: JsString::from(other_cwd.to_string_lossy().into_owned()),
             metadata: None,
         })
         .await

@@ -3,12 +3,14 @@ use pi_agent_core::agent::{
     ShouldStopAfterTurnContext,
 };
 use pi_ai::types::{AssistantMessage, TextOrImageContent, ToolCall, UserMessage};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Map, Value, json};
 
 fn user(text: &str) -> AgentMessage {
     AgentMessage::User(UserMessage {
         role: pi_ai::types::UserRole::Tag,
-        content: pi_ai::types::UserContent::Text(text.to_owned()),
+        content: pi_ai::types::UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
         timestamp: 1000,
@@ -123,7 +125,7 @@ fn agent_tool_result_omits_undefined_fields() {
 
     let result = AgentToolResult {
         content: Vec::new(),
-        details: Some(json!({"a": 1})),
+        details: Some(JsValue::from(json!({"a": 1}))),
         is_error: Some(true),
         terminate: Some(false),
     };
@@ -174,15 +176,22 @@ fn agent_error_messages_match_typescript() {
 #[test]
 fn agent_context_and_hook_contexts_are_constructible() {
     let context = AgentContext {
-        system_prompt: "sys".to_owned(),
+        system_prompt: JsString::from("sys"),
         messages: vec![user("hi")],
         tools: None,
     };
-    let call = ToolCall::new("call-1", "echo", Map::new());
+    let call = ToolCall::new(
+        "call-1",
+        "echo",
+        Map::new()
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
+    );
     let before = BeforeToolCallContext {
         assistant_message: AssistantMessage::empty("api", "provider", "model", 1),
         tool_call: call.clone(),
-        args: std::sync::Arc::new(std::sync::Mutex::new(json!({}))),
+        args: std::sync::Arc::new(std::sync::Mutex::new(JsValue::from(json!({})))),
         context: context.clone(),
     };
     assert_eq!(before.args_snapshot(), json!({}));

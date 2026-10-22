@@ -1,4 +1,5 @@
 use pi_agent_core::harness::{BranchSummaryMessage, BranchSummaryRole};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -74,8 +75,8 @@ fn normalize_case(case: &Case) -> Value {
 fn build_message(case: &Case) -> BranchSummaryMessage {
     BranchSummaryMessage {
         role: BranchSummaryRole::BranchSummary,
-        summary: case.summary.to_owned(),
-        from_id: case.from_id.to_owned(),
+        summary: JsString::from(case.summary.to_owned()),
+        from_id: JsString::from(case.from_id.to_owned()),
         timestamp: binary64_from_bits(case.timestamp_bits),
     }
 }

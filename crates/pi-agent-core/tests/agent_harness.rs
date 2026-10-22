@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -57,17 +58,17 @@ fn operation_started(id: &str) -> RecordBody {
 
 fn skill(name: &str, file_path: &str) -> Skill {
     Skill {
-        name: name.to_owned(),
+        name: JsString::from(name.to_owned()),
         description: "desc".to_owned(),
         content: "body".to_owned(),
-        file_path: file_path.to_owned(),
+        file_path: JsString::from(file_path.to_owned()),
         disable_model_invocation: None,
     }
 }
 
 fn template(name: &str) -> PromptTemplate {
     PromptTemplate {
-        name: name.to_owned(),
+        name: JsString::from(name.to_owned()),
         description: None,
         content: "body".to_owned(),
     }
@@ -134,7 +135,7 @@ async fn shares_the_durable_session_with_the_original_handle() {
     let entry_id = session
         .append_message(pi_agent_core::agent::AgentMessage::User(pi_ai::types::UserMessage {
             role: pi_ai::types::UserRole::Tag,
-            content: pi_ai::types::UserContent::Text("hello".to_owned()),
+            content: pi_ai::types::UserContent::Text(JsString::from("hello")),
             input_source: None,
             provider_native: None,
             timestamp: 1,
@@ -394,7 +395,7 @@ async fn unimplemented_error_exposes_the_operation_name() {
 fn user_message() -> pi_agent_core::agent::AgentMessage {
     pi_agent_core::agent::AgentMessage::User(pi_ai::types::UserMessage {
         role: pi_ai::types::UserRole::Tag,
-        content: pi_ai::types::UserContent::Text("hello".to_owned()),
+        content: pi_ai::types::UserContent::Text(JsString::from("hello")),
         input_source: None,
         provider_native: None,
         timestamp: 1,
